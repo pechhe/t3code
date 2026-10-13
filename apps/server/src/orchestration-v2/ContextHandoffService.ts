@@ -50,11 +50,15 @@ export interface ContextHandoffServiceV2Shape {
     readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
+  /** A ready handoff carrying text written outside the transcript, such as a rollover note. */
   readonly prepare: (input: {
     readonly threadId: ThreadId;
     readonly targetRunId: RunId;
     readonly fromProviderThreadIds: ReadonlyArray<ProviderThreadId>;
     readonly toProviderThreadId: ProviderThreadId;
+    readonly toProviderInstanceId: ProviderInstanceId;
+    readonly summaryText: string;
+    readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
   readonly prepareForkDelta: (input: {
     readonly sourceThreadId: ThreadId;
@@ -299,13 +303,15 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
       readonly targetRunId: RunId;
       readonly fromProviderThreadIds: ReadonlyArray<ProviderThreadId>;
       readonly toProviderThreadId: ProviderThreadId;
+      readonly toProviderInstanceId: ProviderInstanceId;
+      readonly summaryText: string;
+      readonly createdAt: DateTime.Utc;
     }) {
-      const now = yield* DateTime.now;
       const handoffId = yield* idAllocator.allocate
         .contextHandoff({
           threadId: input.threadId,
-          fromProviderInstanceId: ProviderInstanceId.make("manual"),
-          toProviderInstanceId: ProviderInstanceId.make("manual"),
+          fromProviderInstanceId: input.toProviderInstanceId,
+          toProviderInstanceId: input.toProviderInstanceId,
         })
         .pipe(
           Effect.mapError(
@@ -330,10 +336,10 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
         strategy: "manual_context",
         status: "ready",
         summaryMessageId: null,
-        summaryText: "Manual context handoff.",
-        createdByProviderInstanceId: null,
-        createdAt: now,
-        updatedAt: now,
+        summaryText: input.summaryText,
+        createdByProviderInstanceId: input.toProviderInstanceId,
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt,
       } satisfies OrchestrationV2ContextHandoff;
     });
 

@@ -13,6 +13,7 @@ import {
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
   OmittedWhenNull,
+  PositiveInt,
   ProjectId,
   ThreadId,
   TrimmedNonEmptyString,
@@ -1108,6 +1109,40 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
+/**
+ * Thresholds for one model family, matched by a case-insensitive substring of
+ * the model id. The first matching rule wins over the defaults.
+ */
+export const ContextRolloverModelRule = Schema.Struct({
+  modelPattern: TrimmedNonEmptyString,
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  softThreshold: PositiveInt,
+  hardThreshold: PositiveInt,
+});
+export type ContextRolloverModelRule = typeof ContextRolloverModelRule.Type;
+
+/**
+ * Context rollover: past the soft threshold the agent is asked to write a
+ * handoff note at its next natural break; at the hard threshold it is asked
+ * to stop and write it now. When the run ends, the thread continues on a
+ * fresh provider session seeded with that note instead of the transcript.
+ */
+export const ContextRolloverSettings = Schema.Struct({
+  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  softThreshold: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(220_000))),
+  hardThreshold: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(280_000))),
+  /** Also roll over delegated child threads started with `delegate_task`. */
+  delegatedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  modelRules: Schema.Array(ContextRolloverModelRule).pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed([
+        { modelPattern: "haiku", enabled: true, softThreshold: 80_000, hardThreshold: 90_000 },
+      ]),
+    ),
+  ),
+});
+export type ContextRolloverSettings = typeof ContextRolloverSettings.Type;
+
 export const ServerSettings = Schema.Struct({
   // Null means no client has migrated this preference yet; an empty value is
   // authoritative so another device cannot resurrect cleared preferences.
@@ -1301,6 +1336,9 @@ export const ServerSettings = Schema.Struct({
    * write guides, for people and agents alike.
    */
   reviewGuidesEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  contextRollover: ContextRolloverSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(ContextRolloverSettings)({}))),
+  ),
   /**
    * The model that reads a pull request to write its review guide. It investigates a checkout
    * over many turns, so it can want a stronger model than one-shot writing. `null` uses the
@@ -1622,6 +1660,15 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuidesEnabled: Schema.optionalKey(Schema.Boolean),
+  contextRollover: Schema.optionalKey(
+    Schema.Struct({
+      enabled: Schema.optionalKey(Schema.Boolean),
+      softThreshold: Schema.optionalKey(PositiveInt),
+      hardThreshold: Schema.optionalKey(PositiveInt),
+      delegatedThreads: Schema.optionalKey(Schema.Boolean),
+      modelRules: Schema.optionalKey(Schema.Array(ContextRolloverModelRule)),
+    }),
+  ),
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),
