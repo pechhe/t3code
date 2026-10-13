@@ -167,7 +167,7 @@ rebuild() {
 
   # The remote host's runtime goes in before the app is staged, so the new app
   # never finds the version missing there and downloads the official one.
-  if [ -n "$VPS" ] && ! ssh -n -o BatchMode=yes "$VPS" "bash -lc '
+  if [ -n "$VPS" ] && ! ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" "bash -lc '
       git -C $VPS_CLONE fetch --quiet mac:${REPO#"$HOME"/} $BRANCH &&
         git -C $VPS_CLONE checkout --quiet --detach $(git rev-parse HEAD) &&
         $VPS_CLONE/scripts/fork-vps-runtime.sh $version'"; then
@@ -191,6 +191,7 @@ rebuild() {
   fi
   rm -rf "$stage"
   echo "$now" >"$STATE/last-build"
+  rm -f "$STATE/failed-tag"
   git push --quiet --force-with-lease "$PUSH_REMOTE" "$BRANCH" || log "push of $BRANCH failed; continuing"
   log "staged $version"
 }
