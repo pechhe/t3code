@@ -4,7 +4,9 @@
 # Run hourly by launchd (install with `scripts/fork-nightly.sh --install-agent`):
 #   1. When upstream has a newer v*-nightly.* tag and no build ran in the last
 #      day, rebase `rollover` onto it, run the fork's focused checks, build the
-#      macOS app, sign it with a stable local identity and stage it.
+#      macOS app, sign it with a stable local identity, install the fork's
+#      server as the SSH host's remote runtime (scripts/fork-vps-runtime.sh)
+#      and stage the app.
 #   2. When a build is staged and T3 Code is not running, install it over
 #      /Applications/T3 Code (Nightly).app, keeping the previous app.
 #
@@ -28,6 +30,10 @@ APP_NAME="T3 Code (Nightly).app"
 INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$APP_NAME"
 PUSH_REMOTE="${T3FORK_PUSH_REMOTE:-origin}"
 IDENTITY="${T3FORK_SIGNING_IDENTITY:-Peach Pi Local Signing}"
+# The SSH host whose remote runtime is the fork too; empty skips it. The host
+# reaches this Mac as `mac` and keeps a clone of the fork at VPS_CLONE.
+VPS="${T3FORK_VPS-slipjay-test}"
+VPS_CLONE='~/projects/t3code-fork'
 LABEL=com.pechhe.t3code-fork-nightly
 REBUILD_INTERVAL_SECONDS=$((20 * 3600))
 
@@ -156,6 +162,16 @@ rebuild() {
         --build-version "$version" --output-dir "$STATE/build" --keep-stage
   ); then
     give_up "Fork checks or build on $tag failed"
+    return 0
+  fi
+
+  # The remote host's runtime goes in before the app is staged, so the new app
+  # never finds the version missing there and downloads the official one.
+  if [ -n "$VPS" ] && ! ssh -n -o BatchMode=yes "$VPS" "bash -lc '
+      git -C $VPS_CLONE fetch --quiet mac:${REPO#"$HOME"/} $BRANCH &&
+        git -C $VPS_CLONE checkout --quiet --detach $(git rev-parse HEAD) &&
+        $VPS_CLONE/scripts/fork-vps-runtime.sh $version'"; then
+    give_up "Installing the fork runtime on $VPS for $tag failed"
     return 0
   fi
 
