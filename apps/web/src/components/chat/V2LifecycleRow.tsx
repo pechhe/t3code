@@ -130,6 +130,12 @@ export function V2LifecycleRow(props: {
         endpoints={resolveHandoffEndpoints(item, props.runs)}
         providers={props.providerStatuses}
         failed={item.status === "failed"}
+        // A context rollover hands the thread to a fresh session on the same provider thread.
+        rollover={
+          item.strategy === "manual_context" &&
+          item.fromProviderThreadIds.length === 1 &&
+          item.fromProviderThreadIds[0] === item.toProviderThreadId
+        }
       />
     );
   }
@@ -551,11 +557,19 @@ export function HandoffRow(props: {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly pending?: boolean;
   readonly failed?: boolean;
+  readonly rollover?: boolean;
 }) {
-  const { from: fromEndpoints, to } = props.endpoints;
+  const { to } = props.endpoints;
+  const fromEndpoints = props.rollover ? [] : props.endpoints.from;
   return (
     <TimelineSystemDivider
-      label={props.pending ? "Context handoff pending" : "Context handoff"}
+      label={
+        props.rollover
+          ? "Context rolled over"
+          : props.pending
+            ? "Context handoff pending"
+            : "Context handoff"
+      }
       icon={ArrowRightLeftIcon}
       showDetailSeparator={false}
       tone={props.failed ? "danger" : "neutral"}

@@ -1,3 +1,4 @@
+import { ContextRolloverSettings } from "./ContextRolloverSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
 import { Spinner } from "~/components/ui/spinner";
@@ -3345,6 +3346,8 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
+
+      <ContextRolloverSettings />
 
       <SettingsSection id="about" title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (
