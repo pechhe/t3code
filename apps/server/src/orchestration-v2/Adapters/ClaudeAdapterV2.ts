@@ -1091,6 +1091,7 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_queue_read",
   "mcp__t3-code__html_preview",
   "mcp__t3-code__html_render",
+  "mcp__t3-code__t3_write_rollover_note",
 ];
 
 // Claude Code aborts an HTTP MCP call after 60 s ("The operation timed out.")
@@ -9337,7 +9338,12 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
     const baseEnvironment = yield* mergeProviderInstanceEnvironment(environment, hostEnvironment);
-    const claudeEnvironment = yield* makeClaudeEnvironment(config, baseEnvironment);
+    const claudeEnvironment = {
+      ...(yield* makeClaudeEnvironment(config, baseEnvironment)),
+      // Lets Claude plugins read T3's settings, e.g. to step back from their own
+      // context handoff while T3's context rollover is on.
+      T3CODE_SETTINGS_PATH: serverConfig.settingsPath,
+    };
     const path = yield* Path.Path;
     const crypto = yield* Crypto.Crypto;
     const binaryPath = yield* resolveClaudeSdkExecutablePath(

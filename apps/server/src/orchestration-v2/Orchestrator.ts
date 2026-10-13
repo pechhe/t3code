@@ -94,6 +94,7 @@ import {
   isUndeliveredMailboxSteer,
 } from "./NotificationMailbox.ts";
 import { EventSinkV2 } from "./EventSink.ts";
+import { ContextRolloverNotes } from "./ContextRollover.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import type { OrchestrationEffectRequestV2, PendingOrchestrationEffectV2 } from "./EffectOutbox.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -815,6 +816,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectionStore = yield* ProjectionStoreV2;
   const effectOutbox = yield* EffectOutbox.EffectOutboxV2;
+  const rolloverNotes = yield* ContextRolloverNotes;
   const nextTurnItemOrdinal = (
     projection: Pick<OrchestrationV2ThreadProjection, "thread"> &
       Partial<Pick<OrchestrationV2ThreadProjection, "turnItems">>,
@@ -4631,9 +4633,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       }
 
-      const continuedTaskId = projection.runs.find(
-        (run) => run.id === command.restartContinuationOfRunId,
-      )?.delegatedTaskId;
+      const continuedRunId = command.restartContinuationOfRunId ?? command.contextRollover?.ofRunId;
+      const continuedTaskId =
+        continuedRunId === undefined
+          ? undefined
+          : projection.runs.find((run) => run.id === continuedRunId)?.delegatedTaskId;
 
       if (projection.thread.settledOverride !== null) {
         const now = yield* DateTime.now;
@@ -4741,15 +4745,26 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           dispatchMode = { type: "start_immediately" };
         }
       }
-      // A restart continuation resumes the interrupted turn, so it starts
-      // immediately rather than queueing like other wakes.
+      if (
+        command.contextRollover !== undefined &&
+        (command.creationSource !== "server" || dispatchMode.type !== "start_immediately")
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "A context rollover is a server-started run.",
+        });
+      }
+      // A restart continuation or context rollover resumes the thread's work,
+      // so it starts immediately rather than queueing like other wakes.
       if (
         command.notification !== undefined &&
         (command.createdBy !== "agent" ||
           (command.creationSource !== "server" && command.creationSource !== "provider") ||
           (dispatchMode.type !== "queue_after_active" &&
             !(
-              command.restartContinuationOfRunId !== undefined &&
+              (command.restartContinuationOfRunId !== undefined ||
+                command.contextRollover !== undefined) &&
               dispatchMode.type === "start_immediately"
             )))
       ) {
@@ -4945,6 +4960,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           dispatchMode.type === "start_immediately" ||
           dispatchMode.type === "queue_after_active");
       if (shouldQueue) {
+        // A queued run would start on the old native session; the rollover
+        // waits for the thread to go idle instead.
+        if (command.contextRollover !== undefined) {
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: `Thread ${command.threadId} is busy; a context rollover starts only on an idle thread.`,
+          });
+        }
         if (pendingMergeBackTransfers.length > 0) {
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
@@ -5291,11 +5315,21 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           })
           .pipe(mapDispatchError(command))).transition.type === "restart_and_resume";
 
-      if (
+      const startsInPlace =
         pendingForkTransfer === undefined &&
         pendingMergeBackTransfer === undefined &&
-        !isProviderSwitch
+        !isProviderSwitch;
+      if (
+        command.contextRollover !== undefined &&
+        (!startsInPlace || activeProviderThread === undefined)
       ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Thread ${command.threadId} cannot roll over while a fork, merge-back or provider switch is pending.`,
+        });
+      }
+      if (startsInPlace) {
         const adapter = yield* providerAdapters.get(modelSelection.instanceId).pipe(
           Effect.mapError(
             (cause) =>
@@ -5337,6 +5371,23 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               })
               .pipe(mapDispatchError(command))
           : null;
+        // A rollover keeps the provider thread row but drops its native ref, so the
+        // adapter binds a fresh native session seeded with the agent's note.
+        const rolloverHandoff =
+          command.contextRollover !== undefined && activeProviderThread !== undefined
+            ? yield* contextHandoffService
+                .prepare({
+                  threadId: command.threadId,
+                  targetRunId: runId,
+                  fromProviderThreadIds: [activeProviderThread.id],
+                  toProviderThreadId: providerThreadId,
+                  toProviderInstanceId: modelSelection.instanceId,
+                  summaryText: command.contextRollover.note,
+                  createdAt: now,
+                })
+                .pipe(mapDispatchError(command))
+            : null;
+        const seedHandoff = legacyImportHandoff ?? rolloverHandoff;
         const providerThread: OrchestrationV2ProviderThread =
           activeProviderThread === undefined
             ? {
@@ -5351,18 +5402,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 status: "not_loaded",
                 firstRunOrdinal: ordinal,
                 lastRunOrdinal: ordinal,
-                handoffIds: legacyImportHandoff === null ? [] : [legacyImportHandoff.id],
+                handoffIds: seedHandoff === null ? [] : [seedHandoff.id],
                 forkedFrom: null,
                 createdAt: now,
                 updatedAt: now,
               }
             : {
                 ...activeProviderThread,
+                ...(rolloverHandoff === null
+                  ? {}
+                  : {
+                      nativeThreadRef: null,
+                      nativeConversationHeadRef: null,
+                      status: "not_loaded" as const,
+                    }),
                 providerSessionId,
                 lastRunOrdinal: ordinal,
                 handoffIds: appendContextHandoffId(
                   activeProviderThread.handoffIds,
-                  legacyImportHandoff?.id ?? null,
+                  seedHandoff?.id ?? null,
                 ),
                 updatedAt: now,
               };
@@ -5409,7 +5467,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           startedAt: null,
           completedAt: null,
           checkpointId: null,
-          contextHandoffId: legacyImportHandoff?.id ?? null,
+          contextHandoffId: seedHandoff?.id ?? null,
           ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
           ...(command.restartContinuationOfRunId === undefined
             ? {}
@@ -5536,14 +5594,53 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           occurredAt: now,
           payload: providerThread,
         });
-        if (legacyImportHandoff !== null) {
+        if (seedHandoff !== null) {
           yield* emitEvent({
             type: "context-handoff.updated",
             threadId: command.threadId,
             runId,
             providerInstanceId: modelSelection.instanceId,
             occurredAt: now,
-            payload: legacyImportHandoff,
+            payload: seedHandoff,
+          });
+        }
+        if (rolloverHandoff !== null) {
+          yield* emitEvent({
+            type: "turn-item.updated",
+            threadId: command.threadId,
+            runId,
+            nodeId: rootNodeId,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: now,
+            payload: {
+              id: idAllocator.derive.runSignalTurnItem({
+                runId,
+                signal: `context-handoff:${rolloverHandoff.id}`,
+              }),
+              threadId: command.threadId,
+              runId,
+              nodeId: rootNodeId,
+              providerThreadId,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: ordinal * 100 - 1,
+              status: "completed",
+              title: "Context rollover",
+              startedAt: now,
+              completedAt: now,
+              updatedAt: now,
+              type: "handoff",
+              contextHandoffId: rolloverHandoff.id,
+              fromProviderThreadIds: rolloverHandoff.fromProviderThreadIds,
+              toProviderThreadId: rolloverHandoff.toProviderThreadId,
+              fromProviderInstanceIds: [modelSelection.instanceId],
+              toProviderInstanceId: modelSelection.instanceId,
+              fromModelSelections: [modelSelection],
+              toModel: modelSelection.model,
+              strategy: rolloverHandoff.strategy,
+              summary: rolloverHandoff.summaryText,
+            },
           });
         }
         yield* emitEvent({
@@ -9874,7 +9971,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
   /**
    * A delegated child's result is held while its result run, or a run after it
-   * that a second restart cut before it started, still has a continuation pending.
+   * that a second restart cut before it started, still has a continuation pending,
+   * or while its result run wrote a context rollover note that has not started.
    */
   const childAwaitsRestartContinuation = (
     runs: ReadonlyArray<OrchestrationV2Run>,
@@ -9887,7 +9985,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           run.id !== settledContinuationOf &&
           (run.id === resultRun.id || runRanAfter(run, resultRun)),
       ),
-      awaitsRestartContinuation,
+      (run) =>
+        rolloverNotes.holdsResult(run) ? Effect.succeed(true) : awaitsRestartContinuation(run),
     ).pipe(Effect.map((pending) => pending.includes(true)));
 
   const planDelegatedCompletionDelivery = Effect.fn(
