@@ -14,7 +14,6 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
-import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -28,6 +27,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import {
   ContextRolloverNotes,
+  ROLLOVER_MIN_GROWTH_TOKENS,
   ROLLOVER_NOTE_MAX_BYTES,
   ROLLOVER_NOTE_TOOL_NAME,
 } from "./ContextRollover.ts";
@@ -54,19 +54,28 @@ interface Captured {
 
 const emptyCaptured: Captured = { ensured: [], started: [], steered: [] };
 
+interface HeldControl {
+  /** Reports another usage figure from the running turn. */
+  readonly reportUsage: (usedTokens: number) => Effect.Effect<void>;
+  /** Completes the turn. */
+  readonly complete: Effect.Effect<void>;
+}
+
 interface HeldTurn {
-  /** The first turn's usage report, in context tokens. */
+  /** The held turn's first usage report, in context tokens. */
   readonly usedTokens: number;
-  /** Receives the effect that completes the held turn once it is running. */
-  readonly running: Deferred.Deferred<Effect.Effect<void>>;
-  /** Receives the first steer into it. */
-  readonly steered: Deferred.Deferred<ProviderAdapter.ProviderAdapterV2SteerInput>;
+  /** Hold every turn, not only the first. */
+  readonly holdEveryTurn?: boolean;
+  /** Receives the controls of each held turn once it is running. */
+  readonly running: Queue.Queue<HeldControl>;
+  /** Receives each steer into a held turn. */
+  readonly steered: Queue.Queue<ProviderAdapter.ProviderAdapterV2SteerInput>;
 }
 
 /**
  * Completes every turn at once; each `ensureThread` mints a new native thread on
- * the row it is given. With `held`, the first turn instead reports its usage and
- * keeps running until the test completes it.
+ * the row it is given. With `held`, the first turn (or every turn) instead
+ * reports its usage and keeps running until the test completes it.
  */
 function makeAdapter(
   captured: Ref.Ref<Captured>,
@@ -181,21 +190,27 @@ function makeAdapter(
                   threadDisposition: "reusable",
                 });
               }).pipe(Effect.asVoid);
-              if (held === undefined || turnCount > 1) return yield* complete;
-              yield* Queue.offer(events, {
-                type: "provider_turn.updated",
-                driver,
-                providerTurn: {
-                  ...providerTurn,
-                  status: "running",
-                  completedAt: null,
-                  tokenUsage: {
-                    usedTokens: held.usedTokens,
-                    updatedAt: DateTime.formatIso(startedAt),
-                  },
-                },
-              });
-              yield* Deferred.succeed(held.running, complete);
+              if (held === undefined || (turnCount > 1 && held.holdEveryTurn !== true)) {
+                return yield* complete;
+              }
+              const reportUsage = (usedTokens: number) =>
+                Effect.gen(function* () {
+                  yield* Queue.offer(events, {
+                    type: "provider_turn.updated",
+                    driver,
+                    providerTurn: {
+                      ...providerTurn,
+                      status: "running",
+                      completedAt: null,
+                      tokenUsage: {
+                        usedTokens,
+                        updatedAt: DateTime.formatIso(yield* DateTime.now),
+                      },
+                    },
+                  });
+                }).pipe(Effect.asVoid);
+              yield* reportUsage(held.usedTokens);
+              yield* Queue.offer(held.running, { reportUsage, complete });
             }),
           steerTurn: (input) =>
             Effect.gen(function* () {
@@ -203,7 +218,7 @@ function makeAdapter(
                 ...current,
                 steered: [...current.steered, input],
               }));
-              if (held !== undefined) yield* Deferred.succeed(held.steered, input);
+              if (held !== undefined) yield* Queue.offer(held.steered, input);
             }),
           interruptTurn: () => Effect.void,
           respondToRuntimeRequest: () => Effect.void,
@@ -376,6 +391,11 @@ const runHeldTurnScenario = (
     readonly queueMessage?: boolean;
     readonly hold?: OrchestrationV2RolloverHold;
     readonly nudged?: boolean;
+    /** Holds the rollover run's turn too and runs this against it before completing it. */
+    readonly duringRollover?: (
+      control: HeldControl,
+      steered: Queue.Queue<ProviderAdapter.ProviderAdapterV2SteerInput>,
+    ) => Effect.Effect<void>;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -384,8 +404,9 @@ const runHeldTurnScenario = (
     const captured = yield* Ref.make<Captured>(emptyCaptured);
     const held: HeldTurn = {
       usedTokens: 1_500,
-      running: yield* Deferred.make<Effect.Effect<void>>(),
-      steered: yield* Deferred.make<ProviderAdapter.ProviderAdapterV2SteerInput>(),
+      holdEveryTurn: options.duringRollover !== undefined,
+      running: yield* Queue.unbounded<HeldControl>(),
+      steered: yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2SteerInput>(),
     };
 
     const layerHarness = ProviderReplayHarness.layerWithRegistry(
@@ -492,9 +513,7 @@ const runHeldTurnScenario = (
       });
 
       // Past the soft threshold the reactor steers a note request into the running turn.
-      const steer = nudged ? yield* Deferred.await(held.steered) : undefined;
-      // Nothing to wait for without a request: wait for the turn itself to be running.
-      if (!nudged) yield* Deferred.await(held.running);
+      const steer = nudged ? yield* Queue.take(held.steered) : undefined;
       const firstRun = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
       assert.equal(firstRun.status, "running");
 
@@ -513,11 +532,16 @@ const runHeldTurnScenario = (
           dispatchMode: { type: "queue_after_active" },
         });
       }
-      const complete = yield* Deferred.await(held.running);
+      const running = yield* Queue.take(held.running);
       // Without a request to wait for, make sure the usage report was handled first.
       yield* Fiber.join(usageReported);
       yield* reactor.drain;
-      yield* complete;
+      yield* running.complete;
+      if (options.duringRollover !== undefined) {
+        const rolloverTurn = yield* Queue.take(held.running);
+        yield* options.duringRollover(rolloverTurn, held.steered);
+        yield* rolloverTurn.complete;
+      }
       yield* Fiber.join(bothDone);
       yield* reactor.drain;
       yield* worker.drain();
@@ -634,6 +658,35 @@ it.live("asks again once a pause has lapsed", () =>
 
       assert.equal(steer!.runId, firstRun.id);
       assert.include(JSON.stringify(steer!.message), ROLLOVER_NOTE_TOOL_NAME);
+    }),
+  ),
+);
+
+it.live("does not roll a fresh session over again until it grows past its starting size", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      // Every turn reports 1.5k against a 1k/2k rollover, as a fresh session whose
+      // system prompt and note alone pass the threshold would.
+      let rolloverSteer: ProviderAdapter.ProviderAdapterV2SteerInput | undefined;
+      const { after, captured } = yield* runHeldTurnScenario(
+        "context-rollover-reactor-floor",
+        "## Goal\nKeep going.",
+        {
+          duringRollover: (control, steered) =>
+            Effect.gen(function* () {
+              // Reports in order: had the 1.5k report asked for a note, that steer would come first.
+              yield* control.reportUsage(1_500 + ROLLOVER_MIN_GROWTH_TOKENS);
+              rolloverSteer = yield* Queue.take(steered);
+            }),
+        },
+      );
+
+      // runs[1] is the rollover run; the hard request may be followed by a run-end retry.
+      assert.equal(after.runs[1]!.status, "completed");
+      assert.isTrue(after.contextHandoffs.some((entry) => entry.targetRunId === after.runs[1]!.id));
+      assert.equal(rolloverSteer?.runId, after.runs[1]!.id);
+      assert.include(JSON.stringify(rolloverSteer?.message), "hand off now");
+      assert.lengthOf(captured.steered, 2);
     }),
   ),
 );
