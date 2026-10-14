@@ -1,15 +1,16 @@
 /**
  * The single source of truth for packages the server CLI bundle must NOT inline.
  *
- * Two consumers derive from this list, and they must never disagree:
+ * Two consumers derive from this list:
  *
  * - apps/server/vite.config.ts decides what stays external to the bundle.
  * - scripts/build-desktop-artifact.ts selects the runtime dependency roots for
  *   the Windows server sidecar.
  *
  * A runtime package that is external but absent from the sidecar fails as soon
- * as Node resolves it from the emitted bundle. Keeping both consumers on one
- * list prevents packaging from drifting away from the bundle boundary.
+ * as Node resolves it from the emitted bundle, so everything external to the
+ * bundle is also packaged. Packaging additionally carries the closure of
+ * packages loaded from disk (Cursor's), which the bundler never reaches.
  *
  * Entries are matched as prefixes (`id.startsWith(prefix)`), so they also cover
  * a package's platform-specific siblings — `node-gyp-build` covers
@@ -50,8 +51,12 @@ export const CLI_RUNTIME_EXTERNAL_PREFIXES = [
   "utf-8-validate",
 ] as const;
 
-// These are Cursor's disk-backed dependency closure. Match package boundaries
-// so "zod" does not also externalize unrelated packages such as zod-to-json-schema.
+// These are Cursor's disk-backed dependency closure. They ship beside the bundle
+// because `@cursor/sdk` loads them from disk, but the bundler never reaches them
+// through Cursor, so they are not part of the bundle boundary: bundled code that
+// imports one (the MCP SDK imports `zod/v4`) inlines its own copy, which a single
+// executable can load. Match package boundaries so "zod" does not also select
+// unrelated packages such as zod-to-json-schema.
 const CURSOR_RUNTIME_DEPENDENCIES = [
   "@bufbuild/protobuf",
   "@connectrpc/connect",
@@ -82,7 +87,7 @@ export function isRuntimeExternalCliDependency(id: string): boolean {
  * dependency) stayed external.
  */
 export function isExternalCliDependency(id: string): boolean {
-  return isRuntimeExternalCliDependency(id);
+  return CLI_RUNTIME_EXTERNAL_PREFIXES.some((prefix) => id.startsWith(prefix));
 }
 
 /** True when the CLI bundle should inline `id` rather than leave it external. */
