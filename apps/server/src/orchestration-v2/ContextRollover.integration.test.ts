@@ -14,6 +14,7 @@ import {
   ProviderThreadId,
   ProviderTurnId,
   ThreadId,
+  TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -60,6 +61,10 @@ const emptyCaptured: Captured = { ensured: [], started: [], steered: [] };
 interface HeldControl {
   /** Reports another usage figure from the running turn. */
   readonly reportUsage: (usedTokens: number, updatedAt?: string) => Effect.Effect<void>;
+  readonly reportCompaction: (
+    id: string,
+    counts?: { beforeTokenCount: number; afterTokenCount: number },
+  ) => Effect.Effect<void>;
   /** Completes the turn. */
   readonly complete: Effect.Effect<void>;
 }
@@ -214,8 +219,35 @@ function makeAdapter(
                     },
                   });
                 }).pipe(Effect.asVoid);
+              const reportCompaction: HeldControl["reportCompaction"] = (id, counts) =>
+                Effect.gen(function* () {
+                  const at = yield* DateTime.now;
+                  yield* Queue.offer(events, {
+                    type: "turn_item.updated",
+                    driver,
+                    turnItem: {
+                      id: TurnItemId.make(id),
+                      threadId: input.threadId,
+                      runId: input.runId,
+                      nodeId: input.rootNodeId,
+                      providerThreadId: input.providerThread.id,
+                      providerTurnId,
+                      nativeItemRef: null,
+                      parentItemId: null,
+                      ordinal: 100,
+                      status: "completed",
+                      title: null,
+                      startedAt: at,
+                      completedAt: at,
+                      updatedAt: at,
+                      type: "compaction",
+                      driver,
+                      ...counts,
+                    },
+                  });
+                }).pipe(Effect.asVoid);
               yield* reportUsage(held.usedTokens);
-              yield* Queue.offer(held.running, { reportUsage, complete });
+              yield* Queue.offer(held.running, { reportUsage, reportCompaction, complete });
             }),
           steerTurn: (input) =>
             Effect.gen(function* () {
@@ -394,6 +426,7 @@ const runHeldTurnScenario = (
   note: string | null,
   options: {
     readonly assignment?: ExperimentAssignment;
+    readonly duringFirst?: (control: HeldControl) => Effect.Effect<void>;
     readonly rolloverEnabled?: boolean;
     readonly queueMessage?: boolean;
     readonly usedTokens?: number;
@@ -444,6 +477,7 @@ const runHeldTurnScenario = (
         Layer.mergeAll(
           layerProjections,
           Layer.mock(ExperimentService.ExperimentService)({
+            getRolloverAssignment: () => Effect.succeed(options.assignment ?? null),
             assignForThread: () =>
               Effect.succeed(options.assignment === undefined ? [] : [options.assignment]),
             recordObservation: (input) =>
@@ -558,6 +592,7 @@ const runHeldTurnScenario = (
       // Without a request to wait for, make sure the usage report was handled first.
       yield* Fiber.join(usageReported);
       yield* reactor.drain;
+      if (options.duringFirst !== undefined) yield* options.duringFirst(running);
       yield* running.complete;
       if (options.duringRollover !== undefined) {
         const rolloverTurn = yield* Queue.take(held.running);
@@ -791,4 +826,65 @@ it.live("a manual hold prevents an assigned experiment from nudging", () =>
       assert.lengthOf(observations, 0);
     }),
   ),
+);
+
+it.live(
+  "records observed context drops and the first subsequent growth, ignoring stale reports",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { observations } = yield* runHeldTurnScenario("context-drop-observation", null, {
+          assignment: testAssignment,
+          duringFirst: (control) =>
+            Effect.gen(function* () {
+              yield* control.reportUsage(800);
+              yield* control.reportUsage(700, "2000-01-01T00:00:00.000Z");
+              yield* control.reportUsage(900);
+              yield* control.reportUsage(950);
+            }),
+        });
+        const drops = observations.filter((item) => item.kind === "context-drop");
+        const growth = observations.filter((item) => item.kind === "context-growth");
+        assert.lengthOf(drops, 1);
+        assert.equal(drops[0]!.usedTokens, 800);
+        assert.equal(drops[0]!.recoveredTokens, 700);
+        assert.lengthOf(growth, 1);
+        assert.equal(growth[0]!.usedTokens, 900);
+        assert.equal(growth[0]!.growthTokens, 100);
+      }),
+    ),
+);
+
+it.live(
+  "records completed native compaction items once and leaves unreported token counts unknown",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { observations } = yield* runHeldTurnScenario("native-compaction-observation", null, {
+          assignment: testAssignment,
+          duringFirst: (control) =>
+            Effect.gen(function* () {
+              yield* control.reportCompaction("compaction:unknown");
+              yield* control.reportCompaction("compaction:unknown");
+              yield* control.reportCompaction("compaction:counted", {
+                beforeTokenCount: 1_500,
+                afterTokenCount: 800,
+              });
+              yield* control.reportUsage(800);
+              yield* control.reportUsage(900);
+            }),
+        });
+        const compactions = observations.filter((item) => item.kind === "native-compaction");
+        assert.lengthOf(compactions, 2);
+        assert.isNull(compactions[0]!.usedTokens);
+        assert.isUndefined(compactions[0]!.recoveredTokens);
+        assert.include(compactions[0]!.evidence, "turn-item:compaction:unknown");
+        assert.equal(compactions[1]!.usedTokens, 800);
+        assert.equal(compactions[1]!.recoveredTokens, 700);
+        assert.lengthOf(
+          observations.filter((item) => item.kind === "context-growth"),
+          1,
+        );
+      }),
+    ),
 );

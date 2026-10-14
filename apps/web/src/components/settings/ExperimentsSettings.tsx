@@ -29,6 +29,7 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
+import { experimentRolloverBaseline } from "./experimentRolloverPolicy";
 
 export function ExperimentsSettings() {
   const { environments } = useSettingsScope();
@@ -130,9 +131,9 @@ function ExperimentDraft({
     "Does an earlier rollover improve verified completion without increasing rework?",
   );
   const [outcome, setOutcome] = useState("verified completion");
-  const [softA, setSoftA] = useState(150000);
-  const [softB, setSoftB] = useState(120000);
-  const [hard, setHard] = useState(180000);
+  const settings = useEnvironmentSettings(environmentId);
+  const actualSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const [earlierSoft, setEarlierSoft] = useState<number | null>(null);
   const [limit, setLimit] = useState(40);
   const [end, setEnd] = useState(() =>
     (() => {
@@ -144,6 +145,18 @@ function ExperimentDraft({
     [],
   );
   const [models, setModels] = useState("");
+  const baseline =
+    actualSettings &&
+    experimentRolloverBaseline(
+      actualSettings.contextRollover,
+      models
+        .split(",")
+        .map((model) => model.trim())
+        .filter(Boolean),
+    );
+  const softA = baseline?.soft ?? settings.contextRollover.softThreshold;
+  const hard = baseline?.hard ?? settings.contextRollover.hardThreshold;
+  const softB = earlierSoft ?? Math.max(1, Math.floor(softA * 0.8));
   const [categories, setCategories] = useState("");
   const [stop, setStop] = useState("Stop if verified completion falls or rework increases.");
   const [codeRevision, setCodeRevision] = useState("");
@@ -155,7 +168,7 @@ function ExperimentDraft({
       !title.trim() ||
       !question.trim() ||
       !outcome.trim() ||
-      (lever === "rollover" ? softA >= hard || softB >= hard : !modelA || !modelB) ||
+      (lever === "rollover" ? !baseline || softA >= hard || softB >= softA : !modelA || !modelB) ||
       !Number.isFinite(Date.parse(end)) ||
       Date.parse(end) <= Date.now()
     ) {
@@ -249,23 +262,55 @@ function ExperimentDraft({
         <Input required value={outcome} onChange={(event) => setOutcome(event.target.value)} />
       </label>
       {lever === "rollover" ? (
-        <div className="grid gap-3 sm:grid-cols-3">
-          {[
-            { label: "Current soft limit", value: softA, setter: setSoftA },
-            { label: "Earlier soft limit", value: softB, setter: setSoftB },
-            { label: "Shared hard limit", value: hard, setter: setHard },
-          ].map(({ label, value, setter }) => (
-            <label key={label} className="text-sm">
-              {label}
-              <Input
-                type="number"
-                min={1}
-                required
-                value={value}
-                onChange={(event) => setter(Number(event.target.value))}
-              />
-            </label>
+        <div className="space-y-3">
+          <p className="text-sm">
+            Environment default:{" "}
+            {!actualSettings
+              ? "loading environment settings…"
+              : settings.contextRollover.enabled
+                ? `${settings.contextRollover.softThreshold.toLocaleString()} soft / ${settings.contextRollover.hardThreshold.toLocaleString()} hard`
+                : "rollover disabled"}
+            .
+          </p>
+          {(actualSettings?.contextRollover.modelRules ?? []).map((rule) => (
+            <p key={rule.modelPattern} className="text-xs text-muted-foreground">
+              Model names containing “{rule.modelPattern}”:{" "}
+              {rule.enabled
+                ? `${rule.softThreshold.toLocaleString()} soft / ${rule.hardThreshold.toLocaleString()} hard`
+                : "rollover disabled"}
+              . First matching rule wins.
+            </p>
           ))}
+          {baseline ? (
+            <p className="text-sm">
+              Current control for selected eligibility: {softA.toLocaleString()} soft. Both variants
+              retain {hard.toLocaleString()} hard.
+            </p>
+          ) : (
+            <p role="alert" className="text-sm text-destructive">
+              {!actualSettings
+                ? "Wait for this environment’s settings before saving a rollover trial."
+                : settings.contextRollover.enabled
+                  ? "Eligible models have different or disabled policies. Enter exact eligible model names below with one shared enabled policy before saving."
+                  : "Rollover is disabled in this environment. Enable it before comparing the current policy with an earlier rollover."}
+            </p>
+          )}
+          <label className="block text-sm">
+            Earlier soft limit
+            <Input
+              type="number"
+              min={1}
+              max={softA - 1}
+              required
+              value={softB}
+              disabled={!baseline}
+              onChange={(event) => setEarlierSoft(Number(event.target.value))}
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Current control and hard limits follow the selected models’ configured policy and cannot
+            be changed here. Provider context safety clamps still apply to both variants.
+          </p>
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
@@ -306,7 +351,10 @@ function ExperimentDraft({
         Eligible model names (comma separated)
         <Input
           value={models}
-          onChange={(event) => setModels(event.target.value)}
+          onChange={(event) => {
+            setModels(event.target.value);
+            setEarlierSoft(null);
+          }}
           placeholder="All models"
         />
       </label>
@@ -360,7 +408,11 @@ function ExperimentDraft({
           {error}
         </p>
       )}
-      <Button type="submit" size="sm" disabled={pending || !canCreate}>
+      <Button
+        type="submit"
+        size="sm"
+        disabled={pending || !canCreate || (lever === "rollover" && !baseline)}
+      >
         {pending ? "Saving…" : "Save draft"}
       </Button>
     </form>
@@ -640,7 +692,17 @@ function ExperimentRow({
                         )}
                         {row.observations.map((entry) => (
                           <p key={entry.id}>
-                            {entry.kind} at {entry.usedTokens.toLocaleString()} tokens
+                            {entry.kind} at {entry.usedTokens?.toLocaleString() ?? "unavailable"}{" "}
+                            tokens
+                            {entry.recoveredTokens !== undefined
+                              ? ` · ${entry.recoveredTokens.toLocaleString()} tokens recovered`
+                              : ""}
+                            {entry.growthTokens !== undefined
+                              ? ` · ${entry.growthTokens.toLocaleString()} tokens subsequent growth`
+                              : ""}
+                            {entry.delayMs !== undefined
+                              ? ` · ${(entry.delayMs / 1000).toFixed(1)}s to rollover`
+                              : ""}
                             {entry.lowYield ? " · low yield" : ""}
                           </p>
                         ))}
