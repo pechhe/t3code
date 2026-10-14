@@ -1,3 +1,4 @@
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import {
@@ -135,6 +136,19 @@ export const layerFromProjectStore: Layer.Layer<
               projectId: input.thread.projectId,
               providerInstanceId: input.modelSelection.instanceId,
             });
+          const owner = input.thread.agentTask.externalOwner;
+          if (owner !== undefined) {
+            const environment = yield* Effect.serviceOption(ServerEnvironment.ServerEnvironment);
+            if (
+              owner.projectId !== input.thread.projectId ||
+              Option.isNone(environment) ||
+              (yield* environment.value.getEnvironmentId) !== owner.environmentId
+            )
+              return yield* new RuntimePolicyResolveError({
+                projectId: input.thread.projectId,
+                providerInstanceId: input.modelSelection.instanceId,
+              });
+          }
           const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
           if (
             Option.isNone(settings) ||

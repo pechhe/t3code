@@ -2250,6 +2250,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
     const thread: OrchestrationV2AppThread = {
+      ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,

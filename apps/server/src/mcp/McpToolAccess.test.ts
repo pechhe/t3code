@@ -2,10 +2,12 @@ import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
   OrchestratorMcpFailure,
+  ProjectId,
   ProviderInstanceId,
   ProviderInteractionMode,
   RuntimeMode,
   ThreadId,
+  type AgentTaskBinding,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -18,11 +20,41 @@ import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpToolAccess from "./McpToolAccess.ts";
 import { liveThreadShell } from "./McpToolAccess.testkit.ts";
+import {
+  request as agentTaskRequest,
+  snapshot as agentPolicySnapshot,
+} from "../agents/agentPolicy.testkit.ts";
 
 const supervisedThreadId = ThreadId.make("thread:supervised");
 const planThreadId = ThreadId.make("thread:plan");
 const fullAccessThreadId = ThreadId.make("thread:full-access");
 const endedThreadId = ThreadId.make("thread:ended");
+const externalManagedThreadId = ThreadId.make("thread:external-managed");
+
+const externalTaskBinding = (): AgentTaskBinding => {
+  const policy = agentPolicySnapshot();
+  const task = agentTaskRequest();
+  const selection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-sol-test" };
+  return {
+    ...task,
+    requestFingerprint: "c".repeat(64),
+    policyHash: policy.hash,
+    policyRevision: policy.sourceRevision,
+    briefHash: policy.briefs[task.role].hash,
+    sourceAccess: "scoped-write",
+    toolProfile: "implementation",
+    requested: selection,
+    assigned: null,
+    effective: selection,
+    externalOwner: {
+      environmentId: EnvironmentId.make("environment"),
+      clientSessionId: "session",
+      externalSessionKey: "a".repeat(64),
+      projectId: ProjectId.make("project:mcp-test"),
+      ceiling: "full-access",
+    },
+  };
+};
 
 const shells = new Map([
   [supervisedThreadId, liveThreadShell(supervisedThreadId, { runtimeMode: "approval-required" })],
@@ -32,6 +64,10 @@ const shells = new Map([
   ],
   [fullAccessThreadId, liveThreadShell(fullAccessThreadId)],
   [endedThreadId, liveThreadShell(endedThreadId, { activeRunId: null })],
+  [
+    externalManagedThreadId,
+    { ...liveThreadShell(externalManagedThreadId), agentTask: externalTaskBinding() },
+  ],
 ]);
 
 const threadCaller = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
@@ -84,6 +120,7 @@ const probe = {
 };
 const ProbeToolkit = Toolkit.make(
   Tool.make("reads", probe),
+  Tool.make("reads_task", probe),
   Tool.make("reads_as_caller", probe),
   Tool.make("acts_as_caller", probe),
   Tool.make("writes", probe),
@@ -104,6 +141,7 @@ const ProbeToolkit = Toolkit.make(
 const ran = Effect.succeed({ ran: "ran" });
 const probeHandlers: McpToolAccess.Handlers<typeof ProbeToolkit.tools> = {
   reads: McpToolAccess.reads(() => ran),
+  reads_task: McpToolAccess.readsTask(() => ran),
   reads_as_caller: McpToolAccess.readsAsCaller(() => ran),
   acts_as_caller: McpToolAccess.actsAsCaller(() => ran),
   writes: McpToolAccess.writes(() => ran),
@@ -197,6 +235,10 @@ const ended = threadCaller(endedThreadId);
 const supervisedClient = clientCaller("approval-required");
 const fullAccessClient = clientCaller("full-access");
 const readOnlyClient = clientCaller("read-only");
+const foreignExternalClient: McpInvocationContext.McpInvocationScope = {
+  ...fullAccessClient,
+  client: { sessionId: "session:foreign", label: "Other client", access: "full-access" },
+};
 // A live full-access thread whose credential may use its browser but not control threads.
 const previewOnly = { ...fullAccess, capabilities: new Set(["preview"] as const) };
 
@@ -205,6 +247,10 @@ it.effect.each([
   ["reads", ended, {}, "ran"],
   ["reads", supervisedClient, {}, "ran"],
   ["reads", readOnlyClient, {}, "ran"],
+  // An external OAuth caller has no T3 parent run; task status is scoped by
+  // the external work service to that client's owned tasks.
+  ["reads_task", fullAccessClient, {}, "ran"],
+  ["reads_task", readOnlyClient, {}, "ran"],
 
   // A client approved for read-only access changes nothing.
   ["writes", readOnlyClient, {}, "capability_denied"],
@@ -245,6 +291,14 @@ it.effect.each([
   ["writes_threads", fullAccess, { threadId: supervisedThreadId }, "ran"],
   ["writes_threads", ended, { threadId: supervisedThreadId }, "parent_not_active"],
   ["writes_threads", supervisedClient, { threadId: supervisedThreadId }, "ran"],
+  // Owned lifecycle tools remain available, but generic thread writes are closed for managed work.
+  ["writes_threads", fullAccessClient, { threadId: externalManagedThreadId }, "capability_denied"],
+  [
+    "writes_threads",
+    foreignExternalClient,
+    { threadId: externalManagedThreadId },
+    "task_not_found",
+  ],
   [
     "writes_threads",
     supervisedClient,

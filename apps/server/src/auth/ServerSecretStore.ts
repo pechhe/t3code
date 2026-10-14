@@ -152,24 +152,23 @@ export class ServerSecretStore extends Context.Service<
 >()("t3/auth/ServerSecretStore") {}
 
 /** @public Service construction is part of the canonical Effect module API. */
-export const make = Effect.gen(function* () {
+const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const serverConfig = yield* ServerConfig.ServerConfig;
 
-  yield* fileSystem.makeDirectory(serverConfig.secretsDir, { recursive: true });
-  yield* fileSystem.chmod(serverConfig.secretsDir, 0o700).pipe(
+  yield* fileSystem.makeDirectory(secretsDir, { recursive: true });
+  yield* fileSystem.chmod(secretsDir, 0o700).pipe(
     Effect.mapError(
       (cause) =>
         new SecretStoreSecureError({
-          resource: `secrets directory ${serverConfig.secretsDir}`,
+          resource: `secrets directory ${secretsDir}`,
           cause,
         }),
     ),
   );
 
-  const resolveSecretPath = (name: string) => path.join(serverConfig.secretsDir, `${name}.bin`);
+  const resolveSecretPath = (name: string) => path.join(secretsDir, `${name}.bin`);
 
   const get: ServerSecretStore["Service"]["get"] = (name) =>
     fileSystem.readFile(resolveSecretPath(name)).pipe(
@@ -305,7 +304,7 @@ export const make = Effect.gen(function* () {
     );
 
   return ServerSecretStore.of({
-    directory: serverConfig.secretsDir,
+    directory: secretsDir,
     get,
     set,
     create,
@@ -314,4 +313,11 @@ export const make = Effect.gen(function* () {
   });
 });
 
+export const make = Effect.gen(function* () {
+  const config = yield* ServerConfig.ServerConfig;
+  return yield* makeAtDirectory(config.secretsDir);
+});
 export const layer = Layer.effect(ServerSecretStore, make);
+/** Uses the same secure file store for an independent client credential directory. */
+export const layerAtDirectory = (directory: string) =>
+  Layer.effect(ServerSecretStore, makeAtDirectory(directory));

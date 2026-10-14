@@ -1,9 +1,17 @@
 import { AgentTaskRequest, AgentTaskBinding } from "./agentPolicy.ts";
+import { ExperimentOutcomeInput } from "./experiments.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 
+export const AgentTaskOutcomeInput = Schema.Struct({
+  taskId: NodeId,
+  outcome: ExperimentOutcomeInput,
+});
+export type AgentTaskOutcomeInput = typeof AgentTaskOutcomeInput.Type;
+
 import {
+  EnvironmentId,
   ContextTransferId,
   IsoDateTime,
   MessageId,
@@ -169,6 +177,7 @@ export type OrchestratorMcpTerminalDelegatedTaskStatus =
   typeof OrchestratorMcpTerminalDelegatedTaskStatus.Type;
 
 export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
+  externalSessionKey: Schema.optional(TrimmedNonEmptyString),
   agentTask: Schema.optional(AgentTaskRequest),
   task: OrchestratorMcpPrompt.annotate({
     description: "Self-contained task for one delegated child agent/subagent.",
@@ -204,6 +213,11 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
 
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
+  launchState: Schema.optional(
+    Schema.Literals(["prepared", "accepted", "cancelled", "launch-unknown", "refused"]),
+  ),
+  failureReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  assignmentIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   agentTask: Schema.optional(AgentTaskBinding),
   taskId: NodeId,
   childThreadId: ThreadId,
@@ -228,6 +242,7 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
 export type OrchestratorMcpDelegateTaskResult = typeof OrchestratorMcpDelegateTaskResult.Type;
 
 export const OrchestratorMcpTaskStatusInput = Schema.Struct({
+  timeoutMs: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(3_600_000))),
   taskId: NodeId,
 });
 export type OrchestratorMcpTaskStatusInput = typeof OrchestratorMcpTaskStatusInput.Type;
@@ -511,6 +526,7 @@ export const OrchestratorMcpProviderCapability = Schema.Struct({
 export type OrchestratorMcpProviderCapability = typeof OrchestratorMcpProviderCapability.Type;
 
 export const OrchestratorMcpCapabilitiesResult = Schema.Struct({
+  environmentId: Schema.optional(EnvironmentId),
   /** The calling thread, or null when the caller is not a T3 thread. */
   parentThreadId: Schema.NullOr(ThreadId),
   /** The calling thread's selection, or null when the caller is not a T3 thread. */

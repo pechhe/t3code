@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import {
+  EnvironmentId,
   EventId,
   Experiment,
   ExperimentDefinition,
@@ -12,6 +13,7 @@ import {
   MessageId,
   RunId,
   ThreadId,
+  type AgentTaskBinding,
   type ExperimentAssignInput,
   type ExperimentOutcomeInput,
   type ModelSelection,
@@ -27,6 +29,10 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as Experiments from "./ExperimentService.ts";
+import {
+  request as agentTaskRequest,
+  snapshot as agentPolicySnapshot,
+} from "../agents/agentPolicy.testkit.ts";
 
 const encodeExperiment = Schema.encodeSync(Schema.fromJsonString(Experiment));
 const SchemaEncodeExpired = (value: typeof import("@t3tools/contracts").Experiment.Type) =>
@@ -65,6 +71,81 @@ const assignInput = (thread = "thread:1"): ExperimentAssignInput => ({
   unitId: thread,
   enrollment: "new",
   unitCreatedAt: "2998-01-01T00:00:00Z",
+});
+const externalOwner = (clientSessionId = "client:owner", externalSessionKey = "a".repeat(64)) => ({
+  environmentId: EnvironmentId.make("environment:1"),
+  clientSessionId,
+  externalSessionKey,
+  projectId: ProjectId.make("project:1"),
+  ceiling: "full-access" as const,
+});
+const externalBinding = (owner = externalOwner(), attemptId = "attempt:1"): AgentTaskBinding => {
+  const policy = agentPolicySnapshot();
+  const task = agentTaskRequest({ workId: "work:shared", attemptId });
+  return {
+    ...task,
+    requestFingerprint: "c".repeat(64),
+    policyHash: policy.hash,
+    policyRevision: policy.sourceRevision,
+    briefHash: policy.briefs[task.role].hash,
+    sourceAccess: "scoped-write",
+    toolProfile: "implementation",
+    requested: modelSelection,
+    assigned: null,
+    effective: modelSelection,
+    externalOwner: owner,
+  };
+};
+const externalDefinition = (): ExperimentDefinition => ({
+  ...definition("external-delegation"),
+  lever: "delegation",
+  variants: [
+    { id: "baseline", label: "Baseline", modelSelection },
+    {
+      id: "alternate",
+      label: "Alternate",
+      modelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "claude-sonnet" },
+    },
+  ],
+  eligibility: { projectIds: [], models: [], taskCategories: ["implementation-worker"] },
+});
+const assignExternalAttempt = (
+  service: Experiments.ExperimentService["Service"],
+  thread: string,
+  owner = externalOwner(),
+  attemptId = "attempt:1",
+) =>
+  service.assign({
+    agentTask: externalBinding(owner, attemptId),
+    threadId: ThreadId.make(thread),
+    projectId: ProjectId.make("project:1"),
+    modelSelection,
+    unitKind: "task",
+    unitId: `external-work:${owner.externalSessionKey}:work:shared`,
+    taskCategory: "implementation-worker",
+    taskLever: "delegation",
+    enrollment: "new",
+    unitCreatedAt: "2998-01-01T00:00:00Z",
+  });
+const addExternalWorkRows = Effect.fn(function* (
+  owner: ReturnType<typeof externalOwner>,
+  attempts: ReadonlyArray<{
+    readonly taskId: string;
+    readonly attemptId: string;
+    readonly threadId: string;
+  }>,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`INSERT INTO external_agent_sessions (session_key, client_session_id, external_session_id, payload_json)
+    VALUES (${owner.externalSessionKey}, ${owner.clientSessionId}, ${"external-session"}, ${"{}"})`;
+  for (const attempt of attempts) {
+    yield* sql`INSERT INTO external_agent_work (
+      task_id, session_key, work_id, attempt_id, request_id, thread_id, fingerprint, payload_json, state
+    ) VALUES (
+      ${attempt.taskId}, ${owner.externalSessionKey}, ${"work:shared"}, ${attempt.attemptId},
+      ${`request:${attempt.attemptId}`}, ${attempt.threadId}, ${"d".repeat(64)}, ${"{}"}, ${"accepted"}
+    )`;
+  }
 });
 const start = (id = "rollover") =>
   Effect.gen(function* () {
@@ -412,6 +493,149 @@ describe("ExperimentService", () => {
       assert.strictEqual(entry.outcomes[0]?.source, "self-report");
       assert.strictEqual(entry.observations[0]?.maxTokens, null);
       assert.strictEqual(entry.turns[0]?.modelSource, "run-selection");
+    }).pipe(Effect.provide(layer)),
+  );
+  it.effect(
+    "scopes external assignment, outcome and report reads to the owning session and reuses the assignment on a paused retry",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* Experiments.ExperimentService;
+        yield* service.create(externalDefinition());
+        yield* service.transition({ experimentId: "external-delegation", status: "running" });
+        yield* addThread("external-attempt-1");
+        yield* addThread("external-attempt-2");
+        yield* addThread("external-unrelated");
+        const ownedAttemptRun = yield* addRunTurn("external-attempt-2", "202", undefined);
+        const unrelatedRun = yield* addRunTurn("external-unrelated", "203", undefined);
+        const owner = externalOwner();
+        const foreign = { ...owner, clientSessionId: "client:other" };
+        yield* addExternalWorkRows(owner, [
+          { taskId: "stored-attempt-1", attemptId: "attempt:1", threadId: "external-attempt-1" },
+          { taskId: "stored-attempt-2", attemptId: "attempt:2", threadId: "external-attempt-2" },
+        ]);
+
+        const first = (yield* assignExternalAttempt(service, "external-attempt-1", owner))[0]!;
+        yield* service.transition({ experimentId: "external-delegation", status: "paused" });
+        const retry = (yield* assignExternalAttempt(
+          service,
+          "external-attempt-2",
+          owner,
+          "attempt:2",
+        ))[0]!;
+        assert.strictEqual(retry.id, first.id);
+        assert.strictEqual(retry.threadId, first.threadId);
+
+        assert.lengthOf(
+          yield* service.assignments({ experimentId: "external-delegation" }, owner),
+          1,
+        );
+        assert.lengthOf(
+          yield* service.assignments({ experimentId: "external-delegation" }, foreign),
+          0,
+        );
+        const outcome: ExperimentOutcomeInput = {
+          id: "external-outcome",
+          assignmentId: first.id,
+          runId: null,
+          kind: "verified-completion",
+          source: "self-report",
+          evidence: [],
+          note: "External agent reports completion.",
+          actualModelSelection: null,
+          fallbackReason: null,
+        };
+        assert.strictEqual(
+          (yield* Effect.flip(service.recordOutcome(outcome, foreign))).reason,
+          "not-found",
+        );
+        assert.strictEqual(
+          (yield* Effect.flip(
+            service.recordOutcome(
+              {
+                ...outcome,
+                id: "external-independent-claim",
+                source: "independent-evidence",
+                evidence: ["Agent supplied a claim"],
+              },
+              owner,
+            ),
+          )).reason,
+          "invalid-evidence",
+        );
+        assert.strictEqual(
+          (yield* Effect.flip(
+            service.recordOutcome(
+              { ...outcome, id: "external-unrelated-run", runId: unrelatedRun.runId },
+              owner,
+            ),
+          )).reason,
+          "invalid-evidence",
+        );
+        const accepted = yield* service.recordOutcome(
+          { ...outcome, id: "external-owned-attempt-run", runId: ownedAttemptRun.runId },
+          owner,
+        );
+        assert.strictEqual(accepted.runId, ownedAttemptRun.runId);
+
+        const trustedInternal = yield* service.recordOutcome({
+          ...outcome,
+          id: "internal-trusted-outcome",
+          runId: unrelatedRun.runId,
+          source: "human-review",
+          evidence: ["internal review"],
+        });
+        assert.strictEqual(trustedInternal.runId, unrelatedRun.runId);
+
+        const hidden = yield* service.report({ experimentId: "external-delegation" }, foreign);
+        assert.strictEqual(hidden.totalAssignments, 0);
+        assert.lengthOf(hidden.assignments, 0);
+        const visible = yield* service.report({ experimentId: "external-delegation" }, owner);
+        assert.strictEqual(visible.totalAssignments, 1);
+        assert.strictEqual(visible.assignments[0]?.assignment.id, first.id);
+        assert.strictEqual(visible.assignments[0]?.outcomes[0]?.source, "self-report");
+      }).pipe(Effect.provide(layer)),
+  );
+  it.effect("aggregates external attempt usage once and unions parallel elapsed time", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create(externalDefinition());
+      yield* service.transition({ experimentId: "external-delegation", status: "running" });
+      yield* addThread("external-attempt-1");
+      yield* addThread("external-attempt-2");
+      const owner = externalOwner();
+      yield* addExternalWorkRows(owner, [
+        { taskId: "stored-attempt-1", attemptId: "attempt:1", threadId: "external-attempt-1" },
+        { taskId: "stored-attempt-2", attemptId: "attempt:2", threadId: "external-attempt-2" },
+      ]);
+      const assignment = (yield* assignExternalAttempt(service, "external-attempt-1", owner))[0]!;
+      const base = Date.parse("2026-01-01T00:00:00.000Z");
+      const usage = (inputTokens: number, outputTokens: number): TurnTokenUsage => ({
+        usageScope: "main_agent",
+        usageStatus: "complete",
+        inputTokens,
+        outputTokens,
+        hasSubagents: false,
+      });
+      yield* addRunTurn("external-attempt-1", "101", usage(100, 10), undefined, {
+        requested: base,
+        start: base + 1_000,
+        end: base + 11_000,
+      });
+      yield* addRunTurn("external-attempt-2", "102", usage(50, 5), undefined, {
+        requested: base + 5_000,
+        start: base + 6_000,
+        end: base + 16_000,
+      });
+
+      const entry = (yield* service.report({ experimentId: "external-delegation" }, owner))
+        .assignments[0]!;
+      assert.strictEqual(entry.assignment.id, assignment.id);
+      assert.lengthOf(entry.runs, 2);
+      assert.lengthOf(entry.turns, 2);
+      assert.strictEqual(entry.usage.inputTokens, 150);
+      assert.strictEqual(entry.usage.outputTokens, 15);
+      assert.strictEqual(entry.wallClockMs, 16_000);
+      assert.strictEqual(entry.activeMs, 15_000);
     }).pipe(Effect.provide(layer)),
   );
   it.effect("aggregates only task-linked descendants and unions overlapping execution time", () =>

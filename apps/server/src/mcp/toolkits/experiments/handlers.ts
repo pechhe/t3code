@@ -1,3 +1,4 @@
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as Effect from "effect/Effect";
 import * as Experiments from "../../../experiments/ExperimentService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -26,19 +27,43 @@ export const layer = McpToolAccess.toLayer(ExperimentsToolkit, {
     ),
   ),
   t3_experiments_assignments: McpToolAccess.reads((input) =>
-    Effect.flatMap(Experiments.ExperimentService, (service) => service.assignments(input)).pipe(
-      Effect.mapError(unavailable),
-    ),
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Experiments.ExperimentService;
+      return yield* service
+        .assignments(input, {
+          environmentId: scope.environmentId,
+          clientSessionId: scope.client?.sessionId,
+          threadId: scope.thread?.threadId,
+        })
+        .pipe(Effect.mapError(unavailable));
+    }),
   ),
   t3_experiments_report: McpToolAccess.reads((input) =>
-    Effect.flatMap(Experiments.ExperimentService, (service) => service.report(input)).pipe(
-      Effect.mapError(unavailable),
-    ),
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Experiments.ExperimentService;
+      return yield* service
+        .report(input, {
+          environmentId: scope.environmentId,
+          clientSessionId: scope.client?.sessionId,
+          threadId: scope.thread?.threadId,
+        })
+        .pipe(Effect.mapError(unavailable));
+    }),
   ),
   t3_experiments_record_outcome: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
       Effect.andThen(
-        Effect.flatMap(Experiments.ExperimentService, (service) => service.recordOutcome(input)),
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          const service = yield* Experiments.ExperimentService;
+          return yield* service.recordOutcome(input, {
+            environmentId: scope.environmentId,
+            clientSessionId: scope.client?.sessionId,
+            threadId: scope.thread?.threadId,
+          });
+        }),
       ),
       Effect.mapError(unavailable),
     ),

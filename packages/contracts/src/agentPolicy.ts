@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EnvironmentId, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 import { ProviderDriverKind } from "./providerInstance.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
@@ -156,5 +157,54 @@ export const AgentTaskBinding = Schema.Struct({
   requested: ModelSelection,
   assigned: Schema.NullOr(ModelSelection),
   effective: ModelSelection,
+  externalOwner: Schema.optional(
+    Schema.Struct({
+      environmentId: EnvironmentId,
+      clientSessionId: TrimmedNonEmptyString,
+      externalSessionKey: Sha256,
+      projectId: ProjectId,
+      ceiling: RuntimeMode,
+    }),
+  ),
 });
 export type AgentTaskBinding = typeof AgentTaskBinding.Type;
+
+export const AgentSessionAttachInput = Schema.Struct({
+  environmentId: EnvironmentId,
+  projectId: ProjectId,
+  workspacePath: TrimmedNonEmptyString,
+  externalSessionId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+});
+export type AgentSessionAttachInput = typeof AgentSessionAttachInput.Type;
+export const AgentExternalSession = Schema.Struct({
+  ...AgentSessionAttachInput.fields,
+  key: Sha256,
+  clientSessionId: TrimmedNonEmptyString,
+  ceiling: RuntimeMode,
+});
+export type AgentExternalSession = typeof AgentExternalSession.Type;
+
+export const AgentRolesInput = Schema.Struct({
+  externalSessionKey: Schema.optional(Sha256),
+  taskClass: AgentTaskClass,
+  demanding: Schema.optional(Schema.Boolean),
+  readOnly: Schema.optional(Schema.Boolean),
+  sourceRevision: Schema.optional(TrimmedNonEmptyString),
+});
+export type AgentRolesInput = typeof AgentRolesInput.Type;
+export const AgentRolesResult = Schema.Struct({
+  environmentId: EnvironmentId,
+  policyHash: Sha256,
+  policyRevision: TrimmedNonEmptyString,
+  roles: Schema.Array(
+    Schema.Struct({
+      role: AgentRole,
+      sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
+      toolProfile: Schema.Literals(["source-reader", "implementation", "phi"]),
+      briefHash: Sha256,
+      selection: Schema.NullOr(ModelSelection),
+      refusal: Schema.NullOr(TrimmedNonEmptyString),
+    }),
+  ),
+});
+export type AgentRolesResult = typeof AgentRolesResult.Type;

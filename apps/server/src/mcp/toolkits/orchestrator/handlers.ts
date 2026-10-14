@@ -9,6 +9,27 @@ import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 
 const handlers = {
+  agent_task_outcome: McpToolAccess.writes((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.recordAgentOutcome(scope, input);
+    }),
+  ),
+  agent_session_attach: McpToolAccess.writes((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.attachAgentSession(scope, input);
+    }),
+  ),
+  agent_roles: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.agentRoles(scope, input);
+    }),
+  ),
   orchestrator_capabilities: McpToolAccess.reads(() =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
@@ -16,21 +37,21 @@ const handlers = {
       return yield* service.capabilities(scope);
     }),
   ),
-  delegate_task: McpToolAccess.actsAsCaller((input) =>
+  delegate_task: McpToolAccess.writes((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
       return yield* service.delegateTask(scope, input);
     }),
   ),
-  task_status: McpToolAccess.actsAsCaller(({ taskId }) =>
+  task_status: McpToolAccess.readsTask(({ taskId, timeoutMs }) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.taskStatus(scope, taskId);
+      return yield* service.taskStatus(scope, taskId, timeoutMs);
     }),
   ),
-  task_cancel: McpToolAccess.actsAsCaller((input) =>
+  task_cancel: McpToolAccess.writes((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;

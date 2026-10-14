@@ -93,3 +93,41 @@ Agents without OAuth support cannot connect.
 Approved agents appear under **Settings → Connections** like other clients.
 Revoke one there to cut off its access immediately. A sign-in lasts 30 days;
 after that the agent asks you to approve it again.
+
+## Delegate from a terminal agent
+
+`t3 agent` lets a standalone Claude Code or Codex session submit a bounded task
+without starting a second lead agent. The destination must have a model policy
+configured by its maintainer. Sign in with its MCP URL:
+
+```sh
+t3 agent login --endpoint https://<environment-address>/mcp
+t3 agent attach --endpoint https://<environment-address>/mcp --request-file session.json
+t3 agent roles --endpoint https://<environment-address>/mcp --request-file roles.json
+t3 agent submit --endpoint https://<environment-address>/mcp --request-file task.json
+```
+
+Open the login URL printed in the terminal and approve that sign-in. Credentials
+stay in a private local store; they are never part of the task file. Use
+`--request-file -` for JSON on stdin. Each command's `--help` lists its options.
+
+The session file identifies the project, external session and exact workspace
+on the destination computer. Use the assigned SlipJay workspace when the project
+uses SlipJay. T3 rejects paths on the wrong host or from another repository.
+The returned session key goes in subsequent role and task requests. A task carries
+a canonical role, task class, work ID, attempt ID and transport request ID;
+review tasks also pin the source revision. Role discovery explains unavailable
+models and unsupported execution boundaries before you submit.
+
+Keep the same work and attempt IDs when retrying a submission, including after a
+disconnect or server restart. Use a new attempt ID for new execution of that work,
+after the previous writer has stopped. The response includes a task ID, selections
+and any experiment assignment IDs. `status`, `wait`, `cancel` and `evidence` take
+that task ID. Waiting is bounded and does not cancel work when its timeout expires;
+disconnecting the terminal also leaves accepted work running. `outcome` records
+the owning caller's claim against a returned assignment ID as self-report.
+
+Revoking the sign-in in Connections, or allowing it to expire, stops its owned
+work and denies further access. `t3 agent logout` removes the local credential;
+it does not revoke the server grant. After expiry, log out and sign in again.
+A new sign-in has a new owner and cannot adopt the old sign-in's tasks.
