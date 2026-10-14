@@ -514,6 +514,8 @@ const runHeldTurnScenario = (
 
       // Past the soft threshold the reactor steers a note request into the running turn.
       const steer = nudged ? yield* Queue.take(held.steered) : undefined;
+      // Nothing to wait for without a request: wait for the turn itself to be running.
+      const earlyTurn = nudged ? undefined : yield* Queue.take(held.running);
       const firstRun = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
       assert.equal(firstRun.status, "running");
 
@@ -532,7 +534,7 @@ const runHeldTurnScenario = (
           dispatchMode: { type: "queue_after_active" },
         });
       }
-      const running = yield* Queue.take(held.running);
+      const running = earlyTurn ?? (yield* Queue.take(held.running));
       // Without a request to wait for, make sure the usage report was handled first.
       yield* Fiber.join(usageReported);
       yield* reactor.drain;
