@@ -258,6 +258,15 @@ export function readEnvironmentSupportsAutoSettleOptOut(environmentId: Environme
   );
 }
 
+/** Whether the environment's server understands thread.rollover-hold.set.
+    Same version-skew contract as settlement. */
+export function readEnvironmentSupportsRolloverHold(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadRolloverHold === true
+  );
+}
+
 export function readEnvironmentSupportsActiveReorder(environmentId: EnvironmentId): boolean {
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities

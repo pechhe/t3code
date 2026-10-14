@@ -154,7 +154,7 @@ export function ContextRolloverSettings() {
         serverScoped
         settingKeys={["contextRollover"]}
         {...searchableSetting("context-rollover")}
-        description="When a thread's context grows past the soft threshold, the agent is asked to write a handoff note at its next natural break, and at the hard threshold to write it now. When its turn ends, the thread continues on a fresh provider session that starts from the note instead of the full transcript."
+        description="When a thread's context grows past the soft threshold, the agent is asked to write a handoff note at its next natural break, and at the hard threshold to write it now. When its turn ends, the thread continues on a fresh provider session that starts from the note instead of the full transcript. In a thread, /rollover off holds this until /rollover on, /rollover pause [30m|2h|1d] holds it for a while, and /rollover status reports it."
         resetAction={
           JSON.stringify(rollover) !== JSON.stringify(DEFAULTS) ? (
             <SettingResetButton

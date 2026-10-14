@@ -245,7 +245,11 @@ import {
 } from "~/lib/composerContextRecords";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
 import { THREAD_CONTEXT_DROP_EVENT, threadContextDropTargetProps } from "./threadContextDrag";
-import { readThreadShell, useThreadShells } from "~/state/entities";
+import {
+  readEnvironmentSupportsRolloverHold,
+  readThreadShell,
+  useThreadShells,
+} from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import type { ComposerContextClipboardFragment, ComposerContextRecord } from "@t3tools/contracts";
@@ -297,6 +301,7 @@ import {
   renderProviderTraitsPicker,
 } from "./composerProviderState";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
+import { RolloverHoldIndicator } from "./RolloverHoldIndicator";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -1362,6 +1367,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
+  rolloverHold: ThreadShell["rolloverHold"];
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -1400,6 +1406,7 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
+      <RolloverHoldIndicator hold={props.rolloverHold} />
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
@@ -2383,6 +2390,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     provider: selectedProviderStatus,
     interactionMode: requestedInteractionMode,
   });
+  const rolloverHoldSupported = readEnvironmentSupportsRolloverHold(environmentId);
   const selectedModelSelection = useMemo<ModelSelection>(
     () => createModelSelection(selectedInstanceId, selectedModel, selectedModelOptionsForDispatch),
     [selectedInstanceId, selectedModel, selectedModelOptionsForDispatch],
@@ -2719,6 +2727,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           label: "/model",
           description: "Switch response model for this thread",
         },
+        ...(rolloverHoldSupported
+          ? ([
+              {
+                id: "slash:rollover",
+                type: "slash-command",
+                command: "rollover",
+                label: "/rollover",
+                description: "Hold automatic rollover: on, off, pause [30m|2h|1d], status",
+              },
+            ] as const)
+          : []),
         ...(planModeUiEnabled
           ? ([
               {
@@ -2847,6 +2866,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentThreadShells,
     exactPullRequestLookup.data,
     planModeUiEnabled,
+    rolloverHoldSupported,
     pullRequestLookup.data,
     pullRequestProjectId,
     pullRequestRepository,
@@ -4052,6 +4072,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           if (applied) {
             setComposerHighlightedItemId(null);
             setIsComposerModelPickerOpen(true);
+          }
+          return;
+        }
+        if (item.command === "rollover") {
+          // Takes an argument: leave `/rollover ` in the prompt for the user to finish.
+          const replacement = "/rollover ";
+          const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
+            snapshot.value,
+            trigger.rangeEnd,
+            replacement,
+          );
+          const applied = applyPromptReplacement(
+            trigger.rangeStart,
+            replacementRangeEnd,
+            replacement,
+            { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
+          );
+          if (applied) {
+            setComposerHighlightedItemId(null);
           }
           return;
         }
@@ -7733,6 +7772,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     activeContextWindow={
                       settings.contextWindowMeterEnabled ? activeContextWindow : null
                     }
+                    rolloverHold={props.activeThreadShell?.rolloverHold}
                     reserveContextWindowMeter={reserveContextWindowMeter}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

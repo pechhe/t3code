@@ -13,6 +13,7 @@ import {
   type NodeId,
   type OrchestrationV2Command,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2RolloverHold,
   type PlanId,
   type ProjectId,
   type ProjectIconOverride,
@@ -477,6 +478,21 @@ export const setThreadAutoSettle = Effect.fn("EnvironmentCommands.setThreadAutoS
     enabled: input.enabled,
   });
 });
+
+export interface SetThreadRolloverHoldInput extends ThreadCommandInput {
+  /** Null lifts the hold. */
+  readonly hold: OrchestrationV2RolloverHold | null;
+}
+export const setThreadRolloverHold = Effect.fn("EnvironmentCommands.setThreadRolloverHold")(
+  function* (input: SetThreadRolloverHoldInput) {
+    return yield* dispatch({
+      type: "thread.rollover-hold.set",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      hold: input.hold,
+    });
+  },
+);
 
 export const reorderPinnedThread = Effect.fn("EnvironmentCommands.reorderPinnedThread")(function* (
   input: ReorderPinnedThreadInput,
