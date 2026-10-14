@@ -141,6 +141,25 @@ const make = Effect.gen(function* () {
     effect.pipe(
       Effect.mapError((cause) => new ExternalAgentWorkError({ reason: "storage", cause })),
     );
+  const experimentalWork = <A, R>(
+    effect: Effect.Effect<A, import("@t3tools/contracts").ExperimentError, R>,
+  ) =>
+    effect.pipe(
+      Effect.mapError(
+        (cause) =>
+          new ExternalAgentWorkError({
+            reason:
+              cause.reason === "not-found"
+                ? "authority"
+                : cause.reason === "conflict"
+                  ? "conflict"
+                  : cause.reason === "persistence"
+                    ? "storage"
+                    : "policy",
+            cause,
+          }),
+      ),
+    );
   const hash = (text: string) =>
     crypto
       .digest("SHA-256", new TextEncoder().encode(text))
@@ -232,7 +251,11 @@ const make = Effect.gen(function* () {
               ? "failed"
               : "queued"));
     const assignments = (yield* storage(experiments.assignments({}))).filter(
-      (assignment) => assignment.unitId === `external-work:${row.session_key}:${row.work_id}`,
+      (assignment) =>
+        assignment.unitId === `external-work:${row.session_key}:${row.work_id}` ||
+        (work.binding.workUnitId !== undefined &&
+          assignment.unitKind === "work" &&
+          assignment.unitId === work.binding.workUnitId),
     );
     return {
       agentTask: work.binding,
@@ -411,6 +434,24 @@ const make = Effect.gen(function* () {
           input.interactionMode === "plan"
         )
           return yield* new ExternalAgentWorkError({ reason: "workspace" });
+        const unitOwner = {
+          environmentId: session.environmentId,
+          projectId: session.projectId,
+          workspacePath: session.workspacePath,
+          parentThreadId: null,
+          externalSessionKey: session.key,
+          clientSessionId: client.sessionId,
+        };
+        const unit =
+          input.agentTask.workUnitId === undefined
+            ? undefined
+            : yield* experimentalWork(
+                experiments.workDispatchPolicy({
+                  workUnitId: input.agentTask.workUnitId,
+                  owner: unitOwner,
+                  role: input.agentTask.role,
+                }),
+              );
         // The registered ceiling is immutable; re-authentication never adopts another
         // client's old work. Revoked/expired credentials cannot submit or resume it.
         const ceiling = clientRuntimeModeCeiling(client);
@@ -492,7 +533,9 @@ const make = Effect.gen(function* () {
               workspacePath: session.workspacePath,
               providers: requestedProviders,
               ceiling,
-              ...(original === undefined ? {} : { policyHash: original.policyHash }),
+              ...(original === undefined && unit === undefined
+                ? {}
+                : { policyHash: original?.policyHash ?? unit!.policyHash }),
               ...(input.target?.model === undefined
                 ? {}
                 : {
@@ -536,19 +579,26 @@ const make = Effect.gen(function* () {
             instanceId: p.instanceId,
           }),
         );
-        const assignments = yield* storage(
-          experiments.assignForTask({
-            threadId,
-            projectId: session.projectId,
-            modelSelection: work.binding.requested,
-            unitId: `external-work:${session.key}:${work.binding.workId}`,
-            agentTask: work.binding,
-            unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
-            taskLever: work.binding.role === "reviewer" ? "reviewer" : "delegation",
-            taskCategory: work.binding.role,
-            enrollment: "new",
-          }),
-        );
+        const assignments = [
+          ...(yield* storage(
+            experiments.assignForTask({
+              threadId,
+              projectId: session.projectId,
+              modelSelection: work.binding.requested,
+              unitId: `external-work:${session.key}:${work.binding.workId}`,
+              agentTask: work.binding,
+              unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
+              taskLever: work.binding.role === "reviewer" ? "reviewer" : "delegation",
+              taskCategory: work.binding.role,
+              enrollment: "new",
+            }),
+          )),
+          ...(unit === undefined
+            ? []
+            : (yield* storage(experiments.assignments({}))).filter((a) =>
+                unit.assignmentIds.includes(a.id),
+              )),
+        ];
         const assigned = assignments.find((a) => a.variant.modelSelection !== undefined)?.variant
           .modelSelection;
         const effective = assigned ?? work.binding.requested;
@@ -556,6 +606,16 @@ const make = Effect.gen(function* () {
         yield* storage(
           sql`UPDATE external_agent_work SET payload_json = ${encodeWork({ ...work, binding })} WHERE task_id = ${taskId}`,
         );
+        if (unit !== undefined)
+          yield* experimentalWork(
+            experiments.registerWorkTask({
+              workUnitId: unit.id,
+              owner: unitOwner,
+              binding,
+              taskId,
+              threadId,
+            }),
+          );
         const validated = yield* Effect.result(
           managed.validate({
             binding: work.binding,
@@ -626,11 +686,14 @@ const make = Effect.gen(function* () {
       permit.withPermit(
         Effect.gen(function* () {
           yield* activeClient(scope, true);
-          const { row } = yield* readWork(scope, input.taskId);
+          const { row, work } = yield* readWork(scope, input.taskId);
           const assignment = (yield* storage(experiments.assignments({}))).find(
             (assignment) =>
               assignment.id === input.outcome.assignmentId &&
-              assignment.unitId === `external-work:${row.session_key}:${row.work_id}`,
+              (assignment.unitId === `external-work:${row.session_key}:${row.work_id}` ||
+                (work.binding.workUnitId !== undefined &&
+                  assignment.unitKind === "work" &&
+                  assignment.unitId === work.binding.workUnitId)),
           );
           if (assignment === undefined)
             return yield* new ExternalAgentWorkError({ reason: "authority" });

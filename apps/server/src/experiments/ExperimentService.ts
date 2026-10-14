@@ -5,6 +5,16 @@ import {
   ExperimentObservation,
   ExperimentError,
   ExperimentDefinition,
+  ExperimentWorkUnit,
+  ExperimentWorkAllocation,
+  ExperimentWorkEvidence,
+  type ExperimentWorkOwner,
+  type ExperimentWorkEnrollInput,
+  type ExperimentWorkAllocationInput,
+  type ExperimentWorkEvidenceInput,
+  type ExperimentWorkReport,
+  AgentTaskBinding,
+  type ModelSelection,
   type ExperimentTransitionInput,
   type ExperimentAssignmentsInput,
   type ExperimentAssignInput,
@@ -25,6 +35,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as PolicyStore from "../agents/AgentPolicyStore.ts";
 
 type WorkReader = {
   readonly environmentId: string;
@@ -32,6 +43,7 @@ type WorkReader = {
   readonly threadId?: string | undefined;
 };
 const visibleWork = (assignment: ExperimentAssignment, reader: WorkReader | undefined) => {
+  if (assignment.work !== undefined) return visibleUnit(assignment.work, reader);
   const owner = assignment.agentTask?.externalOwner;
   return (
     reader === undefined ||
@@ -41,10 +53,57 @@ const visibleWork = (assignment: ExperimentAssignment, reader: WorkReader | unde
       owner.environmentId === reader.environmentId)
   );
 };
+const visibleUnit = (unit: ExperimentWorkUnit, reader: WorkReader | undefined) =>
+  reader === undefined ||
+  (unit.owner.environmentId === reader.environmentId &&
+    (unit.owner.parentThreadId === reader.threadId ||
+      (unit.owner.clientSessionId !== null &&
+        unit.owner.clientSessionId === reader.clientSessionId)));
 
 export class ExperimentService extends Context.Service<
   ExperimentService,
   {
+    readonly enrollWork: (input: {
+      readonly request: ExperimentWorkEnrollInput;
+      readonly owner: ExperimentWorkOwner;
+      readonly orchestratorSelection: ModelSelection;
+      readonly modelSource: "run-selection" | "self-report";
+      readonly policyHash: string;
+      readonly policyRevision: string | null;
+      readonly alreadyStarted: boolean;
+    }) => Effect.Effect<ExperimentWorkUnit, ExperimentError>;
+    readonly allocateWork: (
+      input: ExperimentWorkAllocationInput,
+      reader: WorkReader,
+    ) => Effect.Effect<ExperimentWorkAllocation, ExperimentError>;
+    readonly recordWorkEvidence: (
+      input: ExperimentWorkEvidenceInput,
+      reader: WorkReader,
+    ) => Effect.Effect<ExperimentWorkEvidence, ExperimentError>;
+    readonly readWork: (
+      input: { readonly workUnitId: string },
+      reader?: WorkReader,
+    ) => Effect.Effect<ExperimentWorkReport, ExperimentError>;
+    readonly workDispatchPolicy: (input: {
+      readonly workUnitId: string;
+      readonly owner: ExperimentWorkOwner;
+      readonly role?: AgentTaskBinding["role"];
+    }) => Effect.Effect<ExperimentWorkUnit, ExperimentError>;
+    readonly recordWorkTaskLaunch: (input: {
+      readonly taskId: string;
+      readonly state: "accepted" | "refused" | "launch-unknown";
+    }) => Effect.Effect<void, ExperimentError>;
+    readonly recordWorkOutcome: (
+      input: ExperimentOutcomeInput,
+      reader: WorkReader,
+    ) => Effect.Effect<ExperimentOutcome, ExperimentError>;
+    readonly registerWorkTask: (input: {
+      readonly workUnitId: string;
+      readonly owner: ExperimentWorkOwner;
+      readonly binding: AgentTaskBinding;
+      readonly taskId: string;
+      readonly threadId: ThreadId;
+    }) => Effect.Effect<void, ExperimentError>;
     readonly create: (input: ExperimentDefinition) => Effect.Effect<Experiment, ExperimentError>;
     readonly transition: (
       input: ExperimentTransitionInput,
@@ -99,6 +158,25 @@ const decodeExperiment = Schema.decodeUnknownEffect(jsonExperiment);
 const decodeAssignment = Schema.decodeUnknownEffect(jsonAssignment);
 const decodeOutcome = Schema.decodeUnknownEffect(jsonOutcome);
 const decodeObservation = Schema.decodeUnknownEffect(jsonObservation);
+const workJson = Schema.fromJsonString(ExperimentWorkUnit);
+const encodeWork = Schema.encodeSync(workJson);
+const decodeWork = Schema.decodeUnknownEffect(workJson);
+const allocationJson = Schema.fromJsonString(ExperimentWorkAllocation);
+const encodeAllocation = Schema.encodeSync(allocationJson);
+const decodeAllocation = Schema.decodeUnknownEffect(allocationJson);
+const evidenceJson = Schema.fromJsonString(ExperimentWorkEvidence);
+const encodeWorkEvidence = Schema.encodeSync(evidenceJson);
+const decodeWorkEvidence = Schema.decodeUnknownEffect(evidenceJson);
+const encodeOwner = Schema.encodeSync(Schema.fromJsonString(ExperimentWorkUnit.fields.owner));
+const encodeModelSelection = Schema.encodeSync(
+  Schema.fromJsonString(ExperimentWorkUnit.fields.orchestratorSelection),
+);
+const encodeSelection = (selection: ModelSelection) =>
+  encodeModelSelection({
+    ...selection,
+    options: [...(selection.options ?? [])].sort((a, b) => a.id.localeCompare(b.id)),
+  });
+const encodeBinding = Schema.encodeSync(Schema.fromJsonString(AgentTaskBinding));
 const encodeKey = Schema.encodeSync(
   Schema.fromJsonString(Schema.Array(Schema.NullOr(Schema.Union([Schema.String, Schema.Number])))),
 );
@@ -117,13 +195,35 @@ function overlaps(a: readonly string[], b: readonly string[]): boolean {
 }
 function conflicts(a: Experiment, b: Experiment): boolean {
   return (
-    a.lever === b.lever &&
+    (a.lever === b.lever ||
+      ([a.lever, b.lever].includes("orchestration-policy") &&
+        [a.lever, b.lever].includes("delegation"))) &&
     overlaps(a.eligibility.projectIds, b.eligibility.projectIds) &&
-    overlaps(a.eligibility.models, b.eligibility.models) &&
-    overlaps(a.eligibility.taskCategories, b.eligibility.taskCategories)
+    (a.lever !== b.lever || overlaps(a.eligibility.models, b.eligibility.models)) &&
+    (a.lever !== b.lever || overlaps(a.eligibility.taskCategories, b.eligibility.taskCategories))
   );
 }
 function validDefinition(input: ExperimentDefinition, now: string): boolean {
+  if (input.lever === "orchestration-policy")
+    return (
+      input.orchestrationControls !== undefined &&
+      input.variants.length === 2 &&
+      new Set(input.variants.map((v) => v.id)).size === 2 &&
+      new Set(input.variants.map((v) => v.allocationPolicy)).size === 2 &&
+      input.variants.every(
+        (v) =>
+          v.allocationPolicy !== undefined &&
+          v.modelSelection === undefined &&
+          v.rollover === undefined,
+      ) &&
+      Number.isFinite(Date.parse(input.endsAt)) &&
+      Date.parse(input.endsAt) > Date.parse(now)
+    );
+  if (
+    input.orchestrationControls !== undefined ||
+    input.variants.some((v) => v.allocationPolicy !== undefined)
+  )
+    return false;
   return (
     input.variants.length >= 2 &&
     new Set(input.variants.map((v) => v.id)).size === input.variants.length &&
@@ -142,7 +242,7 @@ function validDefinition(input: ExperimentDefinition, now: string): boolean {
 
 /** A missing turn count cannot become a zero or a complete aggregate. */
 function aggregateUsage(
-  turns: readonly ExperimentTurnEvidence[],
+  turns: readonly Pick<ExperimentTurnEvidence, "usage">[],
 ): ExperimentAssignmentReport["usage"] {
   const missingTurns = turns.filter(
     (t) => !t.usage || t.usage.usageStatus === "unavailable",
@@ -180,6 +280,7 @@ function aggregateUsage(
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const policyStore = yield* PolicyStore.AgentPolicyStore;
   const persist = <A, E>(operation: string, entityId: string, effect: Effect.Effect<A, E>) =>
     effect.pipe(
       Effect.mapError((cause) =>
@@ -334,10 +435,12 @@ const make = Effect.gen(function* () {
     yield* persist(
       "assign",
       assignment.id,
-      sql`INSERT INTO experiment_assignments(id, experiment_id, unit_kind, unit_id, thread_id, stratum, variant_id, assignment_method, payload_json) VALUES (${assignment.id}, ${assignment.experimentId}, ${assignment.unitKind}, ${assignment.unitId}, ${assignment.threadId}, ${stratum}, ${assignment.variant.id}, ${assignment.assignmentMethod}, ${encodeAssignment(assignment)})`,
+      sql`INSERT INTO experiment_assignments(id, experiment_id, unit_kind, unit_id, thread_id, stratum, variant_id, assignment_method, payload_json) VALUES (${assignment.id}, ${assignment.experimentId}, ${assignment.unitKind}, ${assignment.unitId}, ${assignment.threadId ?? ""}, ${stratum}, ${assignment.variant.id}, ${assignment.assignmentMethod}, ${encodeAssignment(assignment)})`,
     );
     return assignment;
   });
+  // The legacy indexed column is NOT NULL. Empty means no thread; the authoritative
+  // payload uses null and no synthetic parent or child is created.
   const assign = Effect.fn("ExperimentService.assign")((input: ExperimentAssignInput) =>
     persist(
       "assign",
@@ -350,6 +453,10 @@ const make = Effect.gen(function* () {
             return yield* fail("assign", input.unitId, "invalid-definition");
           if (input.unitKind === "task" && input.taskLever === undefined)
             return yield* fail("assign", input.unitId, "invalid-definition");
+          if (input.agentTask?.workUnitId !== undefined && input.taskLever === "delegation") {
+            const unit = yield* getWork(input.agentTask.workUnitId);
+            if (unit.assignmentIds.length > 0) return [];
+          }
           const now = yield* nowIso;
           const result = (yield* assignments(
             input.agentTask?.externalOwner === undefined ? { threadId: input.threadId } : {},
@@ -443,6 +550,835 @@ const make = Effect.gen(function* () {
       ),
     ),
   );
+  const ownerKey = encodeOwner;
+  const getWork = Effect.fn("ExperimentService.getWork")(function* (
+    id: string,
+    reader?: WorkReader,
+  ) {
+    const rows = yield* persist(
+      "work",
+      id,
+      sql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM experiment_work_units WHERE id = ${id}`,
+    );
+    if (!rows[0]) return yield* fail("work", id, "not-found");
+    const unit = yield* persist("work", id, decodeWork(rows[0].payload_json));
+    if (!visibleUnit(unit, reader)) return yield* fail("work", id, "not-found");
+    return unit;
+  });
+  const enrollWork = Effect.fn("ExperimentService.enrollWork")(
+    (input: Parameters<ExperimentService["Service"]["enrollWork"]>[0]) =>
+      persist(
+        "enroll",
+        input.request.workId,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const key = ownerKey(input.owner);
+            const fingerprint = encodeKey([
+              input.request.workId,
+              input.request.description,
+              input.request.taskCategory,
+              input.request.sourceRevision ?? null,
+            ]);
+            const rows = yield* sql<{
+              payload_json: string;
+              fingerprint: string;
+            }>`SELECT payload_json, fingerprint FROM experiment_work_units WHERE owner_key = ${key} AND work_id = ${input.request.workId}`;
+            if (rows[0]) {
+              if (rows[0].fingerprint !== fingerprint)
+                return yield* fail("enroll", input.request.workId, "conflict");
+              return yield* decodeWork(rows[0].payload_json);
+            }
+            if (
+              (input.owner.parentThreadId === null) !==
+              (input.owner.externalSessionKey !== null && input.owner.clientSessionId !== null)
+            )
+              return yield* fail("enroll", input.request.workId, "invalid-definition");
+            yield* persist("enroll", input.policyHash, policyStore.get(input.policyHash));
+            const now = yield* nowIso;
+            const unit: ExperimentWorkUnit = {
+              id: `work:${encodeKey([key, input.request.workId])}`,
+              workId: input.request.workId,
+              description: input.request.description,
+              taskCategory: input.request.taskCategory,
+              taskClass: "non-ui",
+              sourceRevision: input.request.sourceRevision ?? null,
+              owner: input.owner,
+              orchestratorSelection: input.orchestratorSelection,
+              modelSource: input.modelSource,
+              policyHash: input.policyHash,
+              policyRevision: input.policyRevision,
+              createdAt: now,
+              assignmentIds: [],
+              assignedPolicies: [],
+              exclusions: [],
+            };
+            const ids: string[] = [];
+            const policies: ExperimentWorkUnit["assignedPolicies"][number][] = [];
+            const exclusions: { experimentId: string; reason: string }[] = [];
+            const all = yield* list();
+            for (const experiment of all.filter(
+              (e) =>
+                e.lever === "orchestration-policy" &&
+                e.status === "running" &&
+                Date.parse(e.endsAt) > Date.parse(now),
+            )) {
+              const eligible = experiment.eligibility;
+              if (
+                (eligible.projectIds.length &&
+                  !eligible.projectIds.includes(input.owner.projectId)) ||
+                (eligible.models.length &&
+                  !eligible.models.includes(input.orchestratorSelection.model)) ||
+                (eligible.taskCategories.length &&
+                  !eligible.taskCategories.includes(unit.taskCategory))
+              )
+                continue;
+              const controls = experiment.orchestrationControls!;
+              const prior = yield* assignments({ experimentId: experiment.id });
+              const reason = input.alreadyStarted
+                ? "work-already-started"
+                : controls.policyHash !== unit.policyHash ||
+                    encodeSelection(controls.orchestratorSelection) !==
+                      encodeSelection(unit.orchestratorSelection)
+                  ? "controls-mismatch"
+                  : prior.filter((a) => a.assignmentMethod === "randomized").length >=
+                      experiment.maxAssignments
+                    ? "assignment-cap"
+                    : null;
+              if (reason) {
+                exclusions.push({ experimentId: experiment.id, reason });
+                continue;
+              }
+              const stratum = encodeKey([
+                unit.owner.projectId,
+                unit.orchestratorSelection.instanceId,
+                unit.orchestratorSelection.model,
+                unit.taskCategory,
+              ]);
+              const counts = yield* sql<{
+                variant_id: string;
+                count: number;
+              }>`SELECT variant_id, COUNT(*) AS count FROM experiment_assignments WHERE experiment_id = ${experiment.id} AND stratum = ${stratum} AND assignment_method = 'randomized' GROUP BY variant_id`;
+              const variant = [...experiment.variants].sort(
+                (a, b) =>
+                  (counts.find((c) => c.variant_id === a.id)?.count ?? 0) -
+                    (counts.find((c) => c.variant_id === b.id)?.count ?? 0) ||
+                  hash(encodeKey([experiment.id, unit.id, a.id])).localeCompare(
+                    hash(encodeKey([experiment.id, unit.id, b.id])),
+                  ),
+              )[0]!;
+              ids.push(`assignment:${encodeKey([experiment.id, "work", unit.id])}`);
+              policies.push({
+                experimentId: experiment.id,
+                allocationPolicy: variant.allocationPolicy!,
+                controls,
+              });
+              yield* saveAssignment(
+                {
+                  id: ids.at(-1)!,
+                  experimentId: experiment.id,
+                  revision: experiment.revision,
+                  lever: experiment.lever,
+                  work: { ...unit, assignmentIds: [...ids], assignedPolicies: [...policies] },
+                  unitKind: "work",
+                  unitId: unit.id,
+                  threadId: unit.owner.parentThreadId,
+                  projectId: unit.owner.projectId,
+                  taskCategory: unit.taskCategory,
+                  boundaryRunId: null,
+                  variant,
+                  assignedModelSelection: unit.orchestratorSelection,
+                  enrollment: "new",
+                  assignmentMethod: "randomized",
+                  assignedAt: now,
+                  codeRevision: experiment.codeRevision,
+                  briefRevision: experiment.briefRevision,
+                  provenance: null,
+                },
+                stratum,
+              );
+            }
+            const value = { ...unit, assignmentIds: ids, assignedPolicies: policies, exclusions };
+            yield* sql`INSERT INTO experiment_work_units(id,owner_key,work_id,fingerprint,payload_json) VALUES (${unit.id},${key},${unit.workId},${fingerprint},${encodeWork(value)})`;
+            return value;
+          }),
+        ),
+      ),
+  );
+  const allocateWork = Effect.fn("ExperimentService.allocateWork")(
+    (input: ExperimentWorkAllocationInput, reader: WorkReader) =>
+      persist(
+        "allocate",
+        input.id,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const unit = yield* getWork(input.workUnitId, reader);
+            const rows = yield* sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM experiment_work_allocations WHERE id = ${input.id}`;
+            if (rows[0]) {
+              const value = yield* decodeAllocation(rows[0].payload_json);
+              if (
+                encodeAllocation(value) !==
+                encodeAllocation({ ...input, recordedAt: value.recordedAt, source: "self-report" })
+              )
+                return yield* fail("allocate", input.id, "conflict");
+              return value;
+            }
+            const previous = yield* sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM experiment_work_allocations WHERE unit_id = ${unit.id} ORDER BY rowid`;
+            if (previous.length && input.deviationReason === null)
+              return yield* fail("allocate", input.id, "invalid-evidence");
+            for (const id of unit.assignmentIds) {
+              const assignment = yield* getAssignment(id);
+              if (
+                (assignment.variant.allocationPolicy === "inline-first"
+                  ? "inline"
+                  : "delegated") !== input.allocation &&
+                input.deviationReason === null
+              )
+                return yield* fail("allocate", input.id, "invalid-evidence");
+            }
+            const value: ExperimentWorkAllocation = {
+              ...input,
+              recordedAt: yield* nowIso,
+              source: "self-report",
+            };
+            yield* sql`INSERT INTO experiment_work_allocations(id,unit_id,payload_json) VALUES (${input.id},${unit.id},${encodeAllocation(value)})`;
+            return value;
+          }),
+        ),
+      ),
+  );
+  const workDispatchPolicy = Effect.fn("ExperimentService.workDispatchPolicy")(function* (input: {
+    workUnitId: string;
+    owner: ExperimentWorkOwner;
+    role?: AgentTaskBinding["role"];
+  }) {
+    const unit = yield* getWork(input.workUnitId);
+    if (ownerKey(unit.owner) !== ownerKey(input.owner))
+      return yield* fail("dispatch", unit.id, "not-found");
+    const rows = yield* persist(
+      "dispatch",
+      unit.id,
+      sql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM experiment_work_allocations WHERE unit_id = ${unit.id} ORDER BY rowid DESC LIMIT 1`,
+    );
+    const allocation =
+      rows[0] === undefined
+        ? null
+        : yield* persist("dispatch", unit.id, decodeAllocation(rows[0].payload_json));
+    if (
+      input.role !== "advisor" &&
+      (allocation === null || (input.role !== "reviewer" && allocation.allocation !== "delegated"))
+    )
+      return yield* fail("dispatch", unit.id, "invalid-evidence");
+    return unit;
+  });
+  const registerWorkTask = Effect.fn("ExperimentService.registerWorkTask")(
+    (input: {
+      workUnitId: string;
+      owner: ExperimentWorkOwner;
+      binding: AgentTaskBinding;
+      taskId: string;
+      threadId: ThreadId;
+    }) =>
+      persist(
+        "dispatch",
+        input.taskId,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const unit = yield* workDispatchPolicy({ ...input, role: input.binding.role });
+            if (
+              input.binding.policyHash !== unit.policyHash ||
+              input.binding.taskClass !== "non-ui" ||
+              input.binding.workspacePath !== unit.owner.workspacePath ||
+              input.binding.workUnitId !== unit.id ||
+              (unit.sourceRevision !== null && input.binding.sourceRevision !== unit.sourceRevision)
+            )
+              return yield* fail("dispatch", unit.id, "invalid-evidence");
+            const rows = yield* sql<{
+              unit_id: string;
+              thread_id: string;
+              binding_json: string;
+              launch_state: string;
+            }>`SELECT unit_id,thread_id,binding_json,launch_state FROM experiment_work_tasks WHERE task_id = ${input.taskId} OR thread_id = ${input.threadId}`;
+            const wire = encodeBinding(input.binding);
+            if (rows[0]) {
+              if (
+                rows[0].unit_id !== unit.id ||
+                rows[0].thread_id !== input.threadId ||
+                rows[0].binding_json !== wire
+              )
+                return yield* fail("dispatch", unit.id, "conflict");
+              if (rows[0].launch_state !== "refused") return;
+            }
+            const concurrency =
+              unit.assignedPolicies.length === 0
+                ? null
+                : Math.min(...unit.assignedPolicies.map((p) => p.controls.concurrency));
+            if (concurrency !== null) {
+              const tasks = yield* sql<{
+                thread_id: string;
+                state: string | null;
+              }>`SELECT t.thread_id, COALESCE(e.state,t.launch_state) AS state FROM experiment_work_tasks t JOIN experiment_work_units u ON u.id = t.unit_id LEFT JOIN external_agent_work e ON e.thread_id = t.thread_id WHERE u.owner_key = ${ownerKey(unit.owner)}`;
+              let pending = 0;
+              for (const task of tasks) {
+                if (task.state === "cancelled" || task.state === "refused") continue;
+                const records = yield* projections
+                  .getThreadRecords(ThreadId.make(task.thread_id), ["runs"])
+                  .pipe(
+                    Effect.catchTags({
+                      ProjectionStoreThreadNotFoundError: () => Effect.succeed(null),
+                    }),
+                  );
+                if (
+                  records === null ||
+                  records.runs.length === 0 ||
+                  records.runs.some(
+                    (r) =>
+                      !["completed", "failed", "cancelled", "interrupted", "rolled_back"].includes(
+                        r.status,
+                      ),
+                  )
+                )
+                  pending++;
+              }
+              if (pending >= concurrency) return yield* fail("dispatch", unit.id, "conflict");
+            }
+            if (rows[0])
+              yield* sql`UPDATE experiment_work_tasks SET launch_state='prepared' WHERE task_id=${input.taskId}`;
+            else
+              yield* sql`INSERT INTO experiment_work_tasks(task_id,unit_id,thread_id,binding_json) VALUES (${input.taskId},${unit.id},${input.threadId},${wire})`;
+          }),
+        ),
+      ),
+  );
+  const recordWorkTaskLaunch = Effect.fn("ExperimentService.recordWorkTaskLaunch")(
+    (input: { taskId: string; state: "accepted" | "refused" | "launch-unknown" }) =>
+      persist(
+        "launch-ack",
+        input.taskId,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<{
+              launch_state: string;
+            }>`SELECT launch_state FROM experiment_work_tasks WHERE task_id=${input.taskId}`;
+            if (!rows[0]) return yield* fail("launch-ack", input.taskId, "not-found");
+            // Receipt acceptance cannot be undone by a later lost response.
+            if (rows[0].launch_state === "accepted" && input.state !== "accepted")
+              return yield* fail("launch-ack", input.taskId, "conflict");
+            yield* sql`UPDATE experiment_work_tasks SET launch_state=${input.state} WHERE task_id=${input.taskId}`;
+          }),
+        ),
+      ),
+  );
+  const recordWorkEvidence = Effect.fn("ExperimentService.recordWorkEvidence")(
+    (input: ExperimentWorkEvidenceInput, reader: WorkReader) =>
+      persist(
+        "work-evidence",
+        input.id,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const unit = yield* getWork(input.workUnitId, reader);
+            const old = yield* sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM experiment_work_evidence WHERE id = ${input.id}`;
+            if (old[0]) {
+              const value = yield* decodeWorkEvidence(old[0].payload_json);
+              const normalized = {
+                ...input,
+                usage: value.source === "provider-telemetry" ? value.usage : input.usage,
+                startedAt:
+                  value.source === "provider-telemetry" ? value.startedAt : input.startedAt,
+                completedAt:
+                  value.source === "provider-telemetry" ? value.completedAt : input.completedAt,
+                recordedAt: value.recordedAt,
+                source: value.source,
+                attributionSource: "self-report" as const,
+              };
+              if (encodeWorkEvidence(value) !== encodeWorkEvidence(normalized))
+                return yield* fail("work-evidence", input.id, "conflict");
+              return value;
+            }
+            if (input.actor !== "parent")
+              return yield* fail("work-evidence", input.id, "invalid-evidence"); // Child counters come from owned task records.
+            let value: ExperimentWorkEvidence = {
+              ...input,
+              recordedAt: yield* nowIso,
+              source: "self-report",
+              attributionSource: "self-report",
+            };
+            let attributionKey: string | null = null;
+            if (input.threadId !== null || input.providerTurnId !== null) {
+              if (
+                input.threadId !== unit.owner.parentThreadId ||
+                input.threadId === null ||
+                input.providerTurnId === null ||
+                input.externalSegmentId !== null
+              )
+                return yield* fail("work-evidence", input.id, "invalid-evidence");
+              const records = yield* projections.getThreadRecords(input.threadId, [
+                "providerTurns",
+              ]);
+              const turn = records.providerTurns.find((t) => t.id === input.providerTurnId);
+              if (!turn) return yield* fail("work-evidence", input.id, "invalid-evidence");
+              if (input.attribution === "whole-turn") {
+                value = {
+                  ...value,
+                  source: "provider-telemetry",
+                  usage: turn.turnTokenUsage ?? null,
+                  startedAt: turn.startedAt ? DateTime.formatIso(turn.startedAt) : null,
+                  completedAt: turn.completedAt ? DateTime.formatIso(turn.completedAt) : null,
+                };
+              } else if (input.attribution !== "unavailable" && input.attribution !== "partial")
+                return yield* fail("work-evidence", input.id, "invalid-evidence");
+              // Claim the whole turn even for partial attribution: do not charge one parent turn to many Tickets.
+              attributionKey = encodeKey([
+                unit.owner.environmentId,
+                input.threadId,
+                input.providerTurnId,
+              ]);
+            } else if (unit.owner.parentThreadId !== null && input.attribution !== "unavailable")
+              return yield* fail("work-evidence", input.id, "invalid-evidence");
+            else if (input.externalSegmentId !== null)
+              attributionKey = encodeKey([
+                unit.owner.environmentId,
+                unit.owner.clientSessionId,
+                unit.owner.externalSessionKey,
+                input.externalSegmentId,
+              ]);
+            else if (input.attribution !== "unavailable")
+              return yield* fail("work-evidence", input.id, "invalid-evidence");
+            if (
+              (value.startedAt !== null && !Number.isFinite(Date.parse(value.startedAt))) ||
+              (value.completedAt !== null &&
+                (!Number.isFinite(Date.parse(value.completedAt)) ||
+                  value.startedAt === null ||
+                  Date.parse(value.completedAt) < Date.parse(value.startedAt)))
+            )
+              return yield* fail("work-evidence", input.id, "invalid-evidence");
+            if (
+              attributionKey !== null &&
+              (yield* sql`SELECT id FROM experiment_work_evidence WHERE attribution_key = ${attributionKey}`)
+                .length
+            )
+              return yield* fail("work-evidence", input.id, "conflict");
+            yield* sql`INSERT INTO experiment_work_evidence(id,unit_id,attribution_key,payload_json) VALUES (${input.id},${unit.id},${attributionKey},${encodeWorkEvidence(value)})`;
+            return value;
+          }),
+        ),
+      ),
+  );
+  const unionDuration = (spans: readonly { start: number; end: number }[]) => {
+    let end = -Infinity;
+    let total = 0;
+    for (const span of [...spans].sort((a, b) => a.start - b.start)) {
+      total += Math.max(0, span.end - Math.max(end, span.start));
+      end = Math.max(end, span.end);
+    }
+    return total;
+  };
+  const readWork = Effect.fn("ExperimentService.readWork")(function* (
+    input: { workUnitId: string },
+    reader?: WorkReader,
+  ) {
+    const unit = yield* getWork(input.workUnitId, reader);
+    const allocationRows = yield* persist(
+      "work-report",
+      unit.id,
+      sql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM experiment_work_allocations WHERE unit_id = ${unit.id} ORDER BY rowid`,
+    );
+    const allocations = yield* Effect.forEach(allocationRows, (r) =>
+      persist("work-report", unit.id, decodeAllocation(r.payload_json)),
+    );
+    const evidenceRows = yield* persist(
+      "work-report",
+      unit.id,
+      sql<{
+        payload_json: string;
+      }>`SELECT payload_json FROM experiment_work_evidence WHERE unit_id = ${unit.id} ORDER BY rowid`,
+    );
+    const evidence = yield* Effect.forEach(evidenceRows, (r) =>
+      persist("work-report", unit.id, decodeWorkEvidence(r.payload_json)),
+    );
+    const tasks = yield* persist(
+      "work-report",
+      unit.id,
+      sql<{
+        task_id: string;
+        launch_state: string | null;
+        thread_id: string;
+        binding_json: string;
+      }>`SELECT t.task_id,t.thread_id,t.binding_json,COALESCE(e.state,t.launch_state) AS launch_state FROM experiment_work_tasks t LEFT JOIN external_agent_work e ON e.thread_id=t.thread_id WHERE t.unit_id = ${unit.id} ORDER BY t.rowid`,
+    );
+    const childIntervals: { start: number; end: number }[] = [];
+    const supportingIntervals: {
+      phase: "execution" | "verification" | "advice";
+      start: number;
+      end: number;
+    }[] = [];
+    const parentTurns: ExperimentTurnEvidence[] = [];
+    const childTurns: ExperimentTurnEvidence[] = [];
+    const runs: ExperimentAssignmentReport["runs"][number][] = [];
+    let missingChildren = false;
+    const decodeBinding = Schema.decodeUnknownEffect(Schema.fromJsonString(AgentTaskBinding));
+    const taskBindings = yield* Effect.forEach(tasks, (r) =>
+      persist("work-report", unit.id, decodeBinding(r.binding_json)),
+    );
+    const recordsFor = (threadId: ThreadId) =>
+      projections
+        .getThreadRecords(threadId, ["providerTurns", "runs", "attempts", "nodes", "subagents"])
+        .pipe(
+          Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+          (effect) => persist("work-report", unit.id, effect),
+        );
+    for (let index = 0; index < evidence.length; index++) {
+      const item = evidence[index]!;
+      if (item.source === "provider-telemetry" && item.threadId !== null) {
+        const records = yield* recordsFor(item.threadId);
+        const turn = records?.providerTurns.find((t) => t.id === item.providerTurnId);
+        if (turn)
+          evidence[index] = {
+            ...item,
+            usage: turn.turnTokenUsage ?? null,
+            startedAt: turn.startedAt ? DateTime.formatIso(turn.startedAt) : null,
+            completedAt: turn.completedAt ? DateTime.formatIso(turn.completedAt) : null,
+          };
+        const parentRun = records?.runs.find(
+          (r) =>
+            r.id ===
+            (records.attempts.find((a) => a.id === turn?.runAttemptId)?.runId ??
+              records.nodes.find((n) => n.id === turn?.nodeId)?.runId),
+        );
+        parentTurns.push({
+          threadId: item.threadId,
+          runId: null,
+          providerTurnId: item.providerTurnId!,
+          providerInstanceId: unit.orchestratorSelection.instanceId,
+          modelSelection: parentRun?.modelSelection ?? null,
+          modelSource: parentRun === undefined ? "unknown" : "run-selection",
+          status: turn?.status ?? "missing",
+          usage: turn?.turnTokenUsage ?? null,
+          activeMs:
+            turn?.startedAt && turn.completedAt
+              ? DateTime.toEpochMillis(turn.completedAt) - DateTime.toEpochMillis(turn.startedAt)
+              : null,
+        });
+      }
+    }
+    for (const task of tasks) {
+      const threadId = ThreadId.make(task.thread_id);
+      const records = yield* recordsFor(threadId);
+      if (!records) {
+        missingChildren = true;
+        continue;
+      }
+      const binding = taskBindings[tasks.indexOf(task)]!;
+      for (const run of records.runs.slice(0, 500))
+        runs.push({
+          threadId,
+          runId: run.id,
+          status: run.status,
+          modelSelection: run.modelSelection,
+          requestedAt: DateTime.formatIso(run.requestedAt),
+          startedAt: run.startedAt ? DateTime.formatIso(run.startedAt) : null,
+          completedAt: run.completedAt ? DateTime.formatIso(run.completedAt) : null,
+        });
+      if (
+        records.runs.length > 500 ||
+        records.subagents.length > 0 ||
+        records.runs.some(
+          (r) =>
+            r.startedAt !== null &&
+            !records.providerTurns.some(
+              (t) => records.attempts.find((a) => a.id === t.runAttemptId)?.runId === r.id,
+            ),
+        )
+      )
+        missingChildren = true;
+      for (const turn of records.providerTurns.slice(0, 500)) {
+        const attempt = records.attempts.find((a) => a.id === turn.runAttemptId);
+        const node = records.nodes.find((n) => n.id === turn.nodeId);
+        const run = records.runs.find((r) => r.id === (attempt?.runId ?? node?.runId));
+        if (!run || (attempt === undefined && node?.id !== run.rootNodeId)) continue;
+        if (turn.startedAt && turn.completedAt) {
+          const interval = {
+            start: DateTime.toEpochMillis(turn.startedAt),
+            end: DateTime.toEpochMillis(turn.completedAt),
+          };
+          childIntervals.push(interval);
+          supportingIntervals.push({
+            ...interval,
+            phase:
+              binding.role === "advisor"
+                ? "advice"
+                : binding.role === "reviewer"
+                  ? "verification"
+                  : "execution",
+          });
+        }
+        childTurns.push({
+          threadId,
+          runId: run.id,
+          providerTurnId: turn.id,
+          providerInstanceId: run.providerInstanceId,
+          modelSelection: run.modelSelection,
+          modelSource: "run-selection",
+          status: turn.status,
+          usage: turn.turnTokenUsage ?? null,
+          activeMs:
+            turn.startedAt && turn.completedAt
+              ? DateTime.toEpochMillis(turn.completedAt) - DateTime.toEpochMillis(turn.startedAt)
+              : null,
+        });
+      }
+      if (records.providerTurns.length > 500) missingChildren = true;
+    }
+    // External counters stay explicitly self-reported; a complete claim is not complete provider coverage.
+    const externalTurns = evidence
+      .filter((e) => e.source === "self-report" && e.usage !== null)
+      .map((e) => ({ usage: e.usage }));
+    const outcomes: ExperimentOutcome[] = [];
+    for (const id of unit.assignmentIds) {
+      const rows = yield* persist(
+        "work-report",
+        unit.id,
+        sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM experiment_outcomes WHERE assignment_id = ${id} ORDER BY rowid`,
+      );
+      outcomes.push(
+        ...(yield* Effect.forEach(rows, (r) =>
+          persist("work-report", unit.id, decodeOutcome(r.payload_json)),
+        )),
+      );
+    }
+    const accepted = outcomes.find(
+      (o) =>
+        o.kind === "verified-completion" &&
+        (o.source === "human-review" || o.source === "independent-evidence") &&
+        o.evidence.length > 0,
+    );
+    const reportTime = yield* nowIso;
+    let missingParentTurns = false;
+    if (unit.owner.parentThreadId !== null) {
+      const parent = yield* recordsFor(unit.owner.parentThreadId);
+      const relevant =
+        parent?.providerTurns.filter(
+          (t) =>
+            (t.startedAt === null ||
+              DateTime.toEpochMillis(t.startedAt) <=
+                Date.parse(accepted?.recordedAt ?? reportTime)) &&
+            (t.completedAt === null ||
+              DateTime.toEpochMillis(t.completedAt) >= Date.parse(unit.createdAt)),
+        ) ?? [];
+      missingParentTurns =
+        parent === null ||
+        relevant.some((t) => !parentTurns.some((p) => p.providerTurnId === t.id));
+    }
+    const parentUsage = aggregateUsage([...parentTurns, ...externalTurns]);
+    const childUsage = aggregateUsage(childTurns);
+    const implementationTasks = tasks.filter(
+      (task, index) =>
+        !["advisor", "reviewer"].includes(taskBindings[index]!.role) &&
+        task.launch_state !== "refused",
+    );
+    const actualAllocation =
+      implementationTasks.length > 0
+        ? ("delegated" as const)
+        : (allocations.at(-1)?.allocation ?? null);
+    const parentCoverage: ExperimentWorkReport["parentCoverage"] =
+      !missingParentTurns &&
+      parentTurns.length > 0 &&
+      evidence.every((e) => e.source === "provider-telemetry" && e.attribution === "whole-turn") &&
+      parentUsage.status === "complete" &&
+      !parentUsage.hasUnattributedSubagentUsage &&
+      parentTurns.every((t) => t.activeMs !== null)
+        ? "complete"
+        : evidence.some((e) => e.usage !== null)
+          ? "partial"
+          : "unavailable";
+    const childCoverage: ExperimentWorkReport["childCoverage"] =
+      actualAllocation === "inline" && tasks.length === 0
+        ? "not-applicable"
+        : childTurns.length === 0
+          ? "unavailable"
+          : missingChildren ||
+              childUsage.status !== "complete" ||
+              childUsage.hasUnattributedSubagentUsage ||
+              childTurns.some((t) => t.activeMs === null)
+            ? "partial"
+            : "complete";
+    const observedUsage = aggregateUsage([...parentTurns, ...externalTurns, ...childTurns]);
+    const complete =
+      parentCoverage === "complete" &&
+      (childCoverage === "complete" || childCoverage === "not-applicable");
+    const usage = complete
+      ? observedUsage
+      : {
+          ...observedUsage,
+          status:
+            observedUsage.status === "unavailable"
+              ? ("unavailable" as const)
+              : ("partial" as const),
+          inputTokens: null,
+          outputTokens: null,
+          cachedInputTokens: null,
+          cacheCreationTokens: null,
+          reasoningTokens: null,
+          missingTurns:
+            observedUsage.missingTurns +
+            (parentCoverage !== "complete" ? 1 : 0) +
+            (childCoverage !== "complete" && childCoverage !== "not-applicable" ? 1 : 0),
+        };
+    const reportedPhaseMs = Object.fromEntries(
+      [
+        "briefing",
+        "startup",
+        "wait",
+        "execution",
+        "inspection",
+        "rework",
+        "verification",
+        "advice",
+      ].map((phase) => {
+        const items = evidence.filter((e) => e.phase === phase);
+        return [
+          phase,
+          items.length && items.every((e) => e.startedAt !== null && e.completedAt !== null)
+            ? unionDuration(
+                items.map((e) => ({
+                  start: Date.parse(e.startedAt!),
+                  end: Date.parse(e.completedAt!),
+                })),
+              )
+            : null,
+        ];
+      }),
+    ) as ExperimentWorkReport["phaseMs"];
+    const observedRolePhase = (phase: "advice" | "verification") =>
+      unionDuration([
+        ...supportingIntervals.filter((i) => i.phase === phase),
+        ...evidence
+          .filter((e) => e.phase === phase && e.startedAt !== null && e.completedAt !== null)
+          .map((e) => ({ start: Date.parse(e.startedAt!), end: Date.parse(e.completedAt!) })),
+      ]);
+    const childTimingComplete =
+      childTurns.length > 0 && childTurns.every((t) => t.activeMs !== null) && !missingChildren;
+    const phaseMs =
+      tasks.length === 0
+        ? reportedPhaseMs
+        : {
+            ...reportedPhaseMs,
+            execution:
+              implementationTasks.length === 0
+                ? reportedPhaseMs.execution
+                : childTimingComplete
+                  ? unionDuration(supportingIntervals.filter((i) => i.phase === "execution"))
+                  : null,
+            advice:
+              taskBindings.some((b) => b.role === "advisor") && childTimingComplete
+                ? observedRolePhase("advice")
+                : reportedPhaseMs.advice,
+            verification:
+              taskBindings.some((b) => b.role === "reviewer") && childTimingComplete
+                ? observedRolePhase("verification")
+                : reportedPhaseMs.verification,
+            startup:
+              runs.length > 0 && runs.every((r) => r.startedAt !== null)
+                ? unionDuration(
+                    runs.map((r) => ({
+                      start: Date.parse(r.requestedAt),
+                      end: Date.parse(r.startedAt!),
+                    })),
+                  )
+                : null,
+          };
+    const parentIntervals = evidence
+      .filter(
+        (e) => e.source === "provider-telemetry" && e.startedAt !== null && e.completedAt !== null,
+      )
+      .map((e) => ({ start: Date.parse(e.startedAt!), end: Date.parse(e.completedAt!) }));
+    const overlapMs = complete
+      ? unionDuration(
+          parentIntervals.flatMap((p) =>
+            childIntervals.flatMap((c) =>
+              Math.min(p.end, c.end) > Math.max(p.start, c.start)
+                ? [{ start: Math.max(p.start, c.start), end: Math.min(p.end, c.end) }]
+                : [],
+            ),
+          ),
+        )
+      : null;
+    const coExposureIds = (yield* assignments({}))
+      .filter(
+        (a) =>
+          a.unitKind !== "work" &&
+          ((a.threadId !== null && tasks.some((t) => t.thread_id === a.threadId)) ||
+            (a.threadId === unit.owner.parentThreadId &&
+              Date.parse(a.assignedAt) <= Date.parse(unit.createdAt))),
+      )
+      .map((a) => a.id);
+    return {
+      overlapMs,
+      tasks: tasks.map((task, index) => ({
+        taskId: task.task_id,
+        threadId: ThreadId.make(task.thread_id),
+        binding: taskBindings[index]!,
+        launchState: task.launch_state,
+      })),
+      unit,
+      allocations,
+      evidence,
+      assignmentIds: unit.assignmentIds,
+      actualAllocation,
+      deviations: [
+        ...allocations.flatMap((a) => (a.deviationReason === null ? [] : [a.deviationReason])),
+        ...parentTurns
+          .filter(
+            (t) =>
+              t.modelSelection !== null &&
+              encodeSelection(t.modelSelection) !== encodeSelection(unit.orchestratorSelection),
+          )
+          .map(() => "observed-parent-selection-changed"),
+        ...taskBindings
+          .filter((b) => encodeSelection(b.effective) !== encodeSelection(b.requested))
+          .map(() => "observed-child-selection-changed"),
+      ],
+      parentCoverage,
+      childCoverage,
+      parentUsage,
+      childUsage,
+      usage,
+      observedUsage,
+      elapsedToAcceptedMs: accepted
+        ? Math.max(0, Date.parse(accepted.recordedAt) - Date.parse(unit.createdAt))
+        : null,
+      phaseMs,
+      independentlySupportedAcceptance: accepted !== undefined,
+      outcomes,
+      coExposureIds,
+      turns: [...parentTurns, ...childTurns],
+      runs,
+      wallClockMs: accepted
+        ? Math.max(0, Date.parse(accepted.recordedAt) - Date.parse(unit.createdAt))
+        : null,
+      activeMs: complete
+        ? unionDuration([
+            ...childIntervals,
+            ...evidence
+              .filter((e) => e.startedAt !== null && e.completedAt !== null)
+              .map((e) => ({ start: Date.parse(e.startedAt!), end: Date.parse(e.completedAt!) })),
+          ])
+        : null,
+    } satisfies ExperimentWorkReport;
+  });
   const recordOutcome = Effect.fn("ExperimentService.recordOutcome")(
     (input: ExperimentOutcomeInput, reader?: WorkReader) =>
       persist(
@@ -453,6 +1389,12 @@ const make = Effect.gen(function* () {
             const assignment = yield* getAssignment(input.assignmentId);
             if (!visibleWork(assignment, reader))
               return yield* fail("outcome", input.id, "not-found");
+            if (
+              assignment.work !== undefined &&
+              reader !== undefined &&
+              input.source !== "self-report"
+            )
+              return yield* fail("outcome", input.id, "invalid-evidence");
             if (assignment.agentTask?.externalOwner !== undefined && reader !== undefined) {
               if (input.source !== "self-report")
                 return yield* fail("outcome", input.id, "invalid-evidence");
@@ -488,6 +1430,23 @@ const make = Effect.gen(function* () {
             return value;
           }),
         ),
+      ),
+  );
+  const recordWorkOutcome = Effect.fn("ExperimentService.recordWorkOutcome")(
+    (input: ExperimentOutcomeInput, reader: WorkReader) =>
+      persist(
+        "work-outcome",
+        input.id,
+        Effect.gen(function* () {
+          const assignment = yield* getAssignment(input.assignmentId);
+          if (
+            assignment.unitKind !== "work" ||
+            assignment.work === undefined ||
+            !visibleWork(assignment, reader)
+          )
+            return yield* fail("work-outcome", input.id, "not-found");
+          return yield* recordOutcome({ ...input, source: "self-report" }, reader);
+        }),
       ),
   );
   const recordObservation = Effect.fn("ExperimentService.recordObservation")(
@@ -528,6 +1487,8 @@ const make = Effect.gen(function* () {
         sql.withTransaction(
           Effect.gen(function* () {
             const experiment = yield* get(input.experimentId);
+            if (experiment.lever === "orchestration-policy")
+              return yield* fail("import", input.unitId, "invalid-evidence");
             const variant = experiment.variants.find((v) => v.id === input.variantId);
             if (!variant || !Number.isFinite(Date.parse(input.assignedAt)))
               return yield* fail("import", input.unitId, "invalid-evidence");
@@ -576,6 +1537,31 @@ const make = Effect.gen(function* () {
     const page = samples.slice(offset, offset + Math.min(100, input.limit ?? 100));
     const entries = yield* Effect.forEach(page, (assignment) =>
       Effect.gen(function* () {
+        if (assignment.unitKind === "work") {
+          const work = yield* readWork({ workUnitId: assignment.unitId }, reader);
+          return {
+            assignment,
+            coExposureIds: work.coExposureIds,
+            turns: work.turns,
+            runs: work.runs,
+            outcomes: work.outcomes,
+            observations: [],
+            projectionAvailable:
+              work.parentCoverage !== "unavailable" || work.childCoverage === "complete",
+            descendantCoverage:
+              work.childCoverage === "complete" || work.childCoverage === "not-applicable"
+                ? ("complete" as const)
+                : ("partial" as const),
+            telemetryTruncated: false,
+            missingThreadIds: [],
+            wallClockMs: work.wallClockMs,
+            activeMs: work.activeMs,
+            waitMs: work.phaseMs.wait,
+            usage: work.usage,
+          } satisfies ExperimentAssignmentReport;
+        }
+        if (assignment.threadId === null)
+          return yield* fail("report", assignment.id, "invalid-evidence");
         const outcomeRows = yield* persist(
           "report",
           assignment.id,
@@ -623,9 +1609,9 @@ const make = Effect.gen(function* () {
         const turns: ExperimentTurnEvidence[] = [];
         let telemetryTruncated = false;
         const runs: ExperimentAssignmentReport["runs"][number][] = [];
-        const missingThreadIds: ExperimentAssignment["threadId"][] = [];
+        const missingThreadIds: ThreadId[] = [];
         const queue: {
-          threadId: ExperimentAssignment["threadId"];
+          threadId: ThreadId;
           taskId: string | null;
           root: boolean;
         }[] = [
@@ -833,16 +1819,6 @@ const make = Effect.gen(function* () {
           runs.every((r) => r.completedAt !== null) &&
           turns.every((t) => t.activeMs !== null);
         // Union parallel children with their parent so elapsed execution is not double-counted.
-        const unionDuration = (spans: readonly { start: number; end: number }[]) => {
-          const ordered = [...spans].sort((a, b) => a.start - b.start);
-          let total = 0;
-          let end = -Infinity;
-          for (const span of ordered) {
-            total += Math.max(0, span.end - Math.max(end, span.start));
-            end = Math.max(end, span.end);
-          }
-          return total;
-        };
         const wallClockMs = completeDurations
           ? unionDuration(
               runs.map((r) => ({
@@ -901,7 +1877,104 @@ const make = Effect.gen(function* () {
         return entry;
       }),
     );
+    const workCohort =
+      experiment.lever === "orchestration-policy"
+        ? yield* Effect.forEach(samples, (s) => readWork({ workUnitId: s.unitId }, reader))
+        : [];
+    const workRows =
+      experiment.lever === "orchestration-policy"
+        ? yield* persist(
+            "report",
+            experiment.id,
+            sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM experiment_work_units ORDER BY rowid`,
+          )
+        : [];
+    const exclusions = [] as { unit: ExperimentWorkUnit; reason: string }[];
+    for (const row of workRows) {
+      const unit = yield* persist("report", experiment.id, decodeWork(row.payload_json));
+      if (!visibleUnit(unit, reader)) continue;
+      const excluded = unit.exclusions.find((e) => e.experimentId === experiment.id);
+      if (excluded) exclusions.push({ unit, reason: excluded.reason });
+    }
+    const policySummary = experiment.variants.map((variant) => {
+      const cohort = workCohort.filter(
+        (w) => samples.find((a) => a.unitId === w.unit.id)?.variant.id === variant.id,
+      );
+      const elapsed = cohort.flatMap((w) =>
+        w.elapsedToAcceptedMs === null ? [] : [w.elapsedToAcceptedMs],
+      );
+      const usageReports = cohort.map((w) => w.usage);
+      const sum = (
+        key:
+          | "inputTokens"
+          | "outputTokens"
+          | "cachedInputTokens"
+          | "cacheCreationTokens"
+          | "reasoningTokens",
+      ) =>
+        !usageReports.length || usageReports.some((u) => u[key] === null)
+          ? null
+          : usageReports.reduce((total, u) => total + u[key]!, 0);
+      return {
+        assignedPolicy: variant.allocationPolicy!,
+        assignedCount: cohort.length,
+        actualInlineCount: cohort.filter((w) => w.actualAllocation === "inline").length,
+        actualDelegatedCount: cohort.filter((w) => w.actualAllocation === "delegated").length,
+        allocationUnknownCount: cohort.filter((w) => w.actualAllocation === null).length,
+        deviationCount: cohort.filter((w) => w.deviations.length > 0).length,
+        independentlyAcceptedCount: cohort.filter((w) => w.independentlySupportedAcceptance).length,
+        failureCount: cohort.filter(
+          (w) =>
+            w.outcomes.some((o) => o.kind === "failure") ||
+            w.runs.some((r) => r.status === "failed") ||
+            w.tasks.some((t) => t.launchState === "refused"),
+        ).length,
+        cancellationCount: cohort.filter(
+          (w) =>
+            w.outcomes.some((o) => o.kind === "cancellation") ||
+            w.runs.some((r) => r.status === "cancelled") ||
+            w.tasks.some((t) => t.launchState === "cancelled"),
+        ).length,
+        incompleteCount: cohort.filter((w) => !w.independentlySupportedAcceptance).length,
+        missingParentCount: cohort.filter((w) => w.parentCoverage !== "complete").length,
+        incompleteChildCount: cohort.filter(
+          (w) => w.childCoverage !== "complete" && w.childCoverage !== "not-applicable",
+        ).length,
+        acceptedElapsed: {
+          n: elapsed.length,
+          meanMs: elapsed.length ? elapsed.reduce((a, b) => a + b, 0) / elapsed.length : null,
+          minMs: elapsed.length ? Math.min(...elapsed) : null,
+          maxMs: elapsed.length ? Math.max(...elapsed) : null,
+        },
+        usage: {
+          status: usageReports.every((u) => u.status === "unavailable")
+            ? ("unavailable" as const)
+            : usageReports.some((u) => u.status !== "complete")
+              ? ("partial" as const)
+              : ("complete" as const),
+          inputTokens: sum("inputTokens"),
+          outputTokens: sum("outputTokens"),
+          cachedInputTokens: sum("cachedInputTokens"),
+          cacheCreationTokens: sum("cacheCreationTokens"),
+          reasoningTokens: sum("reasoningTokens"),
+          missingTurns: usageReports.reduce((n, u) => n + u.missingTurns, 0),
+          partialTurns: usageReports.reduce((n, u) => n + u.partialTurns, 0),
+          hasUnattributedSubagentUsage: usageReports.some((u) => u.hasUnattributedSubagentUsage),
+        },
+      };
+    });
     return {
+      ...(experiment.lever !== "orchestration-policy"
+        ? {}
+        : {
+            work: workCohort.slice(offset, offset + page.length),
+            policySummary,
+            exclusions,
+            uncertainty:
+              "Descriptive intention-to-treat totals for all enrolled units; actual allocation and attribution are parent judgements. Missing or self-reported parent counters prevent complete total usage. Heterogeneous small samples do not establish significance or a winner. Provider selections are recorded requests, not proof of actual model or charges.",
+          }),
       experiment,
       assignments: entries,
       totalAssignments: samples.length,
@@ -913,6 +1986,14 @@ const make = Effect.gen(function* () {
     } satisfies ExperimentReport;
   });
   return ExperimentService.of({
+    enrollWork,
+    allocateWork,
+    recordWorkEvidence,
+    readWork,
+    workDispatchPolicy,
+    registerWorkTask,
+    recordWorkTaskLaunch,
+    recordWorkOutcome,
     create,
     transition,
     getRolloverAssignment,
@@ -928,4 +2009,4 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(ExperimentService, make);
+export const layer = Layer.effect(ExperimentService, make).pipe(Layer.provide(PolicyStore.layer));

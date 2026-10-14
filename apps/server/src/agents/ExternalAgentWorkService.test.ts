@@ -52,7 +52,8 @@ interface LaunchState {
 type FixtureEnvironment =
   | AuthSessions.AuthSessionRepository
   | External.ExternalAgentWorkService
-  | Experiments.ExperimentService;
+  | Experiments.ExperimentService
+  | Managed.ManagedAgentService;
 
 const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
   run: (input) =>
@@ -832,6 +833,139 @@ it.effect(
         expect(retry.agentTask!.policyHash).toBe(pinned.policyHash);
         expect(retry.agentTask!.briefHash).toBe(pinned.briefHash);
         expect(retry.assignmentIds).toEqual(first.assignmentIds);
+      }),
+    ),
+);
+
+it.effect(
+  "pins enrolled external work before launch without a delegated model treatment or fake parent",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const client = yield* f.issueSession("mcp-client:work-policy");
+        const session = yield* f.attach(client);
+        const managed = yield* Managed.ManagedAgentService;
+        const pinned = yield* managed.snapshot();
+        const experiments = yield* Experiments.ExperimentService;
+        const selection = {
+          instanceId: ProviderInstanceId.make("codex-test"),
+          model: "gpt-sol-test",
+        };
+        yield* experiments.create({
+          id: "external-policy",
+          title: "Allocation",
+          question: "Inline or delegated?",
+          lever: "orchestration-policy",
+          primaryOutcome: "Independent acceptance",
+          orchestrationControls: {
+            orchestratorSelection: selection,
+            policyHash: pinned.hash,
+            reviewerPolicyRevision: "review-r1",
+            verificationRevision: "checks-r1",
+            concurrency: 2,
+          },
+          variants: [
+            { id: "inline", label: "Inline", allocationPolicy: "inline-first" },
+            { id: "delegated", label: "Delegated", allocationPolicy: "delegate-earlier" },
+          ],
+          eligibility: { projectIds: [projectId], models: [], taskCategories: [] },
+          maxAssignments: 20,
+          endsAt: "2999-01-01T00:00:00Z",
+          stopConditions: [],
+          codeRevision: null,
+          briefRevision: null,
+        });
+        yield* experiments.transition({ experimentId: "external-policy", status: "running" });
+        const owner = {
+          environmentId,
+          projectId,
+          workspacePath: session.workspacePath,
+          parentThreadId: null,
+          externalSessionKey: session.key,
+          clientSessionId: client,
+        };
+        const unit = yield* experiments.enrollWork({
+          request: {
+            workId: "external-ticket",
+            description: "A coherent implementation",
+            taskCategory: "implementation-worker",
+          },
+          owner,
+          orchestratorSelection: selection,
+          modelSource: "self-report",
+          policyHash: pinned.hash,
+          policyRevision: pinned.sourceRevision,
+          alreadyStarted: false,
+        });
+        expect(unit.assignedPolicies).toHaveLength(1);
+        expect(unit.owner.parentThreadId).toBeNull();
+        const task = { ...request({ workspacePath: session.workspacePath }), workUnitId: unit.id };
+        const before = yield* f
+          .submit(client, f.submitInput(session, { agentTask: task }))
+          .pipe(Effect.flip);
+        expect(before.reason).toBe("policy");
+        yield* experiments.allocateWork(
+          {
+            id: "external-allocation",
+            workUnitId: unit.id,
+            allocation: "delegated",
+            reason: "An independent bounded responsibility",
+            deviationReason: "An explicit specialist handoff",
+          },
+          { environmentId, clientSessionId: client },
+        );
+        yield* f.fs.writeFileString(
+          `${f.policyRoot}/roles/policy.json`,
+          JSON.stringify({ ...policy.manifest, revision: "new-current-policy" }),
+        );
+        const input = f.submitInput(session, { agentTask: task });
+        const launched = yield* f.submit(client, input);
+        expect(launched.agentTask?.policyHash).toBe(pinned.hash);
+        expect(launched.assignmentIds).toEqual(unit.assignmentIds);
+        expect((yield* f.submit(client, input)).taskId).toBe(launched.taskId);
+        expect((yield* Ref.get(f.state)).calls).toHaveLength(1);
+        const report = yield* experiments.readWork(
+          { workUnitId: unit.id },
+          { environmentId, clientSessionId: client },
+        );
+        expect(report.tasks[0]?.binding.workUnitId).toBe(unit.id);
+        expect(report.childCoverage).toBe("unavailable");
+        expect(report.parentCoverage).toBe("unavailable");
+        expect(report.usage.inputTokens).toBeNull();
+        const external = yield* External.ExternalAgentWorkService;
+        const outcome = yield* external.recordOutcome(f.scope(client), {
+          taskId: launched.taskId,
+          outcome: {
+            id: "external-unit-claim",
+            assignmentId: unit.assignmentIds[0]!,
+            runId: null,
+            kind: "verified-completion",
+            source: "independent-evidence",
+            evidence: ["claimed-check"],
+            note: "Parent claim",
+            actualModelSelection: null,
+            fallbackReason: null,
+          },
+        });
+        expect(outcome.source).toBe("self-report");
+        expect(
+          (yield* experiments.readWork(
+            { workUnitId: unit.id },
+            { environmentId, clientSessionId: client },
+          )).independentlySupportedAcceptance,
+        ).toBe(false);
+        yield* f.cancel(client, launched.taskId);
+        const afterCancel = yield* experiments.report(
+          { experimentId: "external-policy" },
+          { environmentId, clientSessionId: client },
+        );
+        expect(afterCancel.policySummary?.reduce((n, arm) => n + arm.cancellationCount, 0)).toBe(1);
+        const foreignClient = yield* f.issueSession("mcp-client:work-policy-foreign");
+        const foreignSession = yield* f.attach(foreignClient);
+        const foreign = yield* f
+          .submit(foreignClient, f.submitInput(foreignSession, { agentTask: task }))
+          .pipe(Effect.flip);
+        expect(foreign.reason).toBe("authority");
       }),
     ),
 );

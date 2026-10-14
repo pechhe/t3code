@@ -5,8 +5,17 @@ import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
 import {
+  type ExperimentWorkOwner,
+  type ExperimentWorkEnrollInput,
+  type ExperimentWorkUnit,
+  type ExperimentWorkAllocationInput,
+  type ExperimentWorkAllocation,
+  type ExperimentWorkEvidenceInput,
+  type ExperimentWorkEvidence,
+  type ExperimentWorkReport,
   type AgentTaskOutcomeInput,
   type ExperimentOutcome,
+  type ExperimentOutcomeInput,
   CommandId,
   type RunId,
   isProviderAvailable,
@@ -143,6 +152,26 @@ type TerminalTaskStatus = Extract<
 >;
 
 export interface OrchestratorMcpServiceShape {
+  readonly recordWorkOutcome: (
+    scope: McpInvocationScope,
+    input: ExperimentOutcomeInput,
+  ) => Effect.Effect<ExperimentOutcome, OrchestratorMcpFailure>;
+  readonly enrollWork: (
+    scope: McpInvocationScope,
+    input: ExperimentWorkEnrollInput,
+  ) => Effect.Effect<ExperimentWorkUnit, OrchestratorMcpFailure>;
+  readonly allocateWork: (
+    scope: McpInvocationScope,
+    input: ExperimentWorkAllocationInput,
+  ) => Effect.Effect<ExperimentWorkAllocation, OrchestratorMcpFailure>;
+  readonly recordWorkEvidence: (
+    scope: McpInvocationScope,
+    input: ExperimentWorkEvidenceInput,
+  ) => Effect.Effect<ExperimentWorkEvidence, OrchestratorMcpFailure>;
+  readonly readWork: (
+    scope: McpInvocationScope,
+    input: { readonly workUnitId: string },
+  ) => Effect.Effect<ExperimentWorkReport, OrchestratorMcpFailure>;
   readonly recordAgentOutcome: (
     scope: McpInvocationScope,
     input: AgentTaskOutcomeInput,
@@ -1062,6 +1091,51 @@ const make = Effect.gen(function* () {
       const parent = yield* loadProjection(threadScope.thread.threadId);
       return { scope: threadScope, parent } as const;
     });
+
+  const workReader = (scope: McpInvocationScope) => ({
+    environmentId: scope.environmentId,
+    clientSessionId: scope.client?.sessionId,
+    threadId: scope.thread?.threadId,
+  });
+  const workError = () =>
+    failure("invalid_request", "Unable to access or record owned experimental work.");
+  const requireWorkParent = Effect.fn(function* (scope: McpInvocationScope) {
+    if (scope.client?.access === "read-only")
+      return yield* failure(
+        "capability_denied",
+        "Read-only callers cannot enroll, allocate or record work.",
+      );
+    const caller = yield* loadCaller(scope);
+    if (caller.parent !== undefined) {
+      if (caller.parent.thread.agentTask !== undefined)
+        return yield* failure("capability_denied", "Managed leaves cannot allocate parent work.");
+      const run = ThreadManagementService.latestActiveRun(caller.parent);
+      if (
+        run === undefined ||
+        run.rootNodeId === null ||
+        run.providerInstanceId !== scope.thread?.providerInstanceId
+      )
+        return yield* failure(
+          "parent_not_active",
+          "Work allocation requires the calling provider's active parent run.",
+        );
+    }
+    return caller;
+  });
+  const internalWorkOwner = Effect.fn(function* (
+    scope: McpInvocationScope,
+    parent: Pick<OrchestrationV2ThreadProjection, "thread">,
+  ) {
+    const project = yield* requireProject(parent.thread.projectId);
+    return {
+      environmentId: scope.environmentId,
+      projectId: parent.thread.projectId,
+      workspacePath: parent.thread.worktreePath ?? project.workspaceRoot,
+      parentThreadId: parent.thread.id,
+      externalSessionKey: null,
+      clientSessionId: null,
+    } satisfies ExperimentWorkOwner;
+  });
 
   /** A target project: the one passed, else the calling thread's. */
   const resolveProjectTarget = (
@@ -2011,6 +2085,97 @@ const make = Effect.gen(function* () {
           },
         };
       }),
+    enrollWork: (scope, input) =>
+      Effect.gen(function* () {
+        yield* requireCapability(scope);
+        const { parent } = yield* requireWorkParent(scope);
+        const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+        if (Option.isNone(managed))
+          return yield* failure("capability_denied", "Managed role policy is unavailable.");
+        const policy = yield* managed.value.snapshot().pipe(Effect.mapError(workError));
+        let owner: ExperimentWorkOwner;
+        let selection: ModelSelection;
+        if (parent !== undefined) {
+          if (
+            input.externalSessionKey !== undefined ||
+            input.reportedOrchestratorSelection !== undefined
+          )
+            return yield* failure(
+              "invalid_request",
+              "T3 parent identity and selection are derived from the active run.",
+            );
+          owner = yield* internalWorkOwner(scope, parent);
+          selection = ThreadManagementService.latestActiveRun(parent)!.modelSelection;
+        } else {
+          if (
+            input.externalSessionKey === undefined ||
+            input.reportedOrchestratorSelection === undefined
+          )
+            return yield* failure(
+              "invalid_request",
+              "External enrollment requires an attached session and reported parent selection.",
+            );
+          const session = yield* external.pipe(
+            Effect.flatMap((service) =>
+              service
+                .session(scope, input.externalSessionKey!)
+                .pipe(Effect.mapError(externalFailure)),
+            ),
+          );
+          owner = {
+            environmentId: scope.environmentId,
+            projectId: session.projectId,
+            workspacePath: session.workspacePath,
+            parentThreadId: null,
+            externalSessionKey: session.key,
+            clientSessionId: session.clientSessionId,
+          };
+          selection = input.reportedOrchestratorSelection;
+        }
+        return yield* experiments
+          .enrollWork({
+            request: input,
+            owner,
+            orchestratorSelection: selection,
+            modelSource: parent === undefined ? "self-report" : "run-selection",
+            policyHash: policy.hash,
+            policyRevision: policy.sourceRevision,
+            alreadyStarted: input.alreadyStarted ?? false,
+          })
+          .pipe(Effect.mapError(workError));
+      }),
+    allocateWork: (scope, input) =>
+      Effect.gen(function* () {
+        yield* requireCapability(scope);
+        yield* requireWorkParent(scope);
+        return yield* experiments
+          .allocateWork(input, workReader(scope))
+          .pipe(Effect.mapError(workError));
+      }),
+    recordWorkEvidence: (scope, input) =>
+      Effect.gen(function* () {
+        yield* requireCapability(scope);
+        yield* requireWorkParent(scope);
+        return yield* experiments
+          .recordWorkEvidence(input, workReader(scope))
+          .pipe(Effect.mapError(workError));
+      }),
+    recordWorkOutcome: (scope, input) =>
+      Effect.gen(function* () {
+        yield* requireCapability(scope);
+        yield* requireWorkParent(scope);
+        return yield* experiments
+          .recordWorkOutcome(input, workReader(scope))
+          .pipe(Effect.mapError(workError));
+      }),
+    readWork: (scope, input) =>
+      Effect.gen(function* () {
+        yield* requireCapability(scope);
+        yield* loadCaller(scope);
+        return yield* experiments
+          .readWork(input, workReader(scope))
+          .pipe(Effect.mapError(workError));
+      }),
     attachAgentSession: (scope, input) =>
       external.pipe(
         Effect.flatMap((service) =>
@@ -2186,9 +2351,29 @@ const make = Effect.gen(function* () {
                     failure("orchestration_error", "Unable to read managed work assignments."),
                   ),
                 );
-        const recordedBinding = priorAssignments.find(
+        let recordedBinding = priorAssignments.find(
           (assignment) => assignment.agentTask !== undefined,
         )?.agentTask;
+        const workOwner =
+          input.agentTask?.workUnitId === undefined
+            ? undefined
+            : yield* internalWorkOwner(scope, parent);
+        const workUnit =
+          input.agentTask?.workUnitId === undefined
+            ? undefined
+            : yield* experiments
+                .workDispatchPolicy({
+                  workUnitId: input.agentTask.workUnitId,
+                  owner: workOwner!,
+                  role: input.agentTask.role,
+                })
+                .pipe(Effect.mapError(workError));
+        if (workUnit !== undefined && recordedBinding === undefined)
+          recordedBinding = (yield* experiments
+            .readWork({ workUnitId: workUnit.id })
+            .pipe(Effect.mapError(workError))).tasks.find(
+            (t) => t.taskId === deriveIds.delegatedTaskNode({ commandId }),
+          )?.binding;
         const prepared =
           managedService === undefined || input.agentTask === undefined
             ? undefined
@@ -2196,6 +2381,7 @@ const make = Effect.gen(function* () {
                 .prepare({
                   request: input.agentTask,
                   requestFingerprint,
+                  ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
                   ...(recordedBinding === undefined ? {} : { recordedBinding }),
                   providers: eligibleProviders.filter(
                     (provider) =>
@@ -2233,7 +2419,7 @@ const make = Effect.gen(function* () {
           providers,
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
         });
-        const assignments = yield* (
+        const taskAssignments = yield* (
           isRetryOfAcceptedDelegation
             ? experiments.assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
             : experiments.assignForTask({
@@ -2255,6 +2441,14 @@ const make = Effect.gen(function* () {
             failure("orchestration_error", "Unable to assign the delegated experiment."),
           ),
         );
+        const assignments = [
+          ...taskAssignments,
+          ...(workUnit === undefined
+            ? []
+            : (yield* experiments.assignments({}).pipe(Effect.mapError(workError))).filter((a) =>
+                workUnit.assignmentIds.includes(a.id),
+              )),
+        ];
         const recordExperimentFailure = (
           note = "The delegated request failed before a child run was accepted.",
         ) =>
@@ -2312,14 +2506,16 @@ const make = Effect.gen(function* () {
           parent.thread.runtimeMode,
           input.runtimeMode,
           target,
-        );
+        ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
         const interactionMode = yield* resolveInteractionMode(
           parent.thread.interactionMode,
           input.interactionMode,
-        );
+        ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
         let workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | undefined;
         if (input.isolation === "worktree" && !isRetryOfAcceptedDelegation) {
-          const project = yield* requireProject(parent.thread.projectId);
+          const project = yield* requireProject(parent.thread.projectId).pipe(
+            Effect.tapError((error) => recordExperimentFailure(error.message)),
+          );
           const base = yield* gitDriver
             .resolveCommit({
               cwd: parent.thread.worktreePath ?? project.workspaceRoot,
@@ -2329,9 +2525,24 @@ const make = Effect.gen(function* () {
               Effect.mapError(() =>
                 failure("invalid_request", "Unable to resolve the parent checkout commit."),
               ),
+              Effect.tapError((error) => recordExperimentFailure(error.message)),
             );
           workspaceStrategy = { type: "worktree", baseRef: base.commitSha, startFromOrigin: false };
         }
+        if (workUnit !== undefined && prepared !== undefined)
+          yield* experiments
+            .registerWorkTask({
+              workUnitId: workUnit.id,
+              owner: workOwner!,
+              binding: {
+                ...prepared.binding,
+                assigned: experimentSelection ?? null,
+                effective: target.modelSelection,
+              },
+              taskId: deriveIds.delegatedTaskNode({ commandId }),
+              threadId: deriveIds.delegatedTaskThread({ commandId }),
+            })
+            .pipe(Effect.mapError(workError));
         // ThreadManagementService.dispatch is the chokepoint for this command
         // type's own enablement check, using the same command id and its
         // receipt-replay exemption, so no separate assert runs here.
@@ -2368,7 +2579,25 @@ const make = Effect.gen(function* () {
             completionWake: input.mode === "wait" ? "settled_only" : "always",
           })
           .pipe(
-            Effect.tapError(() => recordExperimentFailure()),
+            Effect.tapError(() =>
+              Effect.gen(function* () {
+                if (workUnit !== undefined) {
+                  const receipt = yield* threadManagement.hasReceipt(commandId).pipe(
+                    Effect.map((accepted) =>
+                      accepted ? ("accepted" as const) : ("refused" as const),
+                    ),
+                    Effect.catchCause(() => Effect.succeed("launch-unknown" as const)),
+                  );
+                  yield* experiments
+                    .recordWorkTaskLaunch({
+                      taskId: deriveIds.delegatedTaskNode({ commandId }),
+                      state: receipt,
+                    })
+                    .pipe(Effect.mapError(workError));
+                }
+                yield* recordExperimentFailure();
+              }),
+            ),
             Effect.mapError((error) =>
               error._tag === "ThreadManagementProviderInstanceDisabledError"
                 ? threadManagementFailure(error)
@@ -2378,6 +2607,13 @@ const make = Effect.gen(function* () {
                   ),
             ),
           );
+        if (workUnit !== undefined)
+          yield* experiments
+            .recordWorkTaskLaunch({
+              taskId: deriveIds.delegatedTaskNode({ commandId }),
+              state: "accepted",
+            })
+            .pipe(Effect.mapError(workError));
         const taskEvent = result.storedEvents.find(
           (stored) =>
             stored.event.type === "subagent.updated" && stored.event.payload.origin === "app_owned",

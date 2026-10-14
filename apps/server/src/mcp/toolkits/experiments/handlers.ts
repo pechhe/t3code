@@ -2,6 +2,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as Effect from "effect/Effect";
 import * as Experiments from "../../../experiments/ExperimentService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import { unavailable } from "../../threadAccess.ts";
 import { ExperimentsToolkit } from "./tools.ts";
 export const layer = McpToolAccess.toLayer(ExperimentsToolkit, {
@@ -75,5 +76,40 @@ export const layer = McpToolAccess.toLayer(ExperimentsToolkit, {
       ),
       Effect.mapError(unavailable),
     ),
+  ),
+  t3_work_enroll: McpToolAccess.writes((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.enrollWork(scope, input).pipe(Effect.mapError(unavailable));
+    }),
+  ),
+  t3_work_allocate: McpToolAccess.writes((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.allocateWork(scope, input).pipe(Effect.mapError(unavailable));
+    }),
+  ),
+  t3_work_evidence: McpToolAccess.writes((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.recordWorkEvidence(scope, input).pipe(Effect.mapError(unavailable));
+    }),
+  ),
+  t3_work_read: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.readWork(scope, input).pipe(Effect.mapError(unavailable));
+    }),
+  ),
+  t3_work_outcome: McpToolAccess.writes((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+      return yield* service.recordWorkOutcome(scope, input).pipe(Effect.mapError(unavailable));
+    }),
   ),
 });

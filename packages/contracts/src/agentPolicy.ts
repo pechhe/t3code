@@ -134,6 +134,7 @@ export type AgentPolicySnapshot = typeof AgentPolicySnapshot.Type;
 
 /** A coherent work identity survives new launch attempts and transport retries. */
 export const AgentTaskRequest = Schema.Struct({
+  workUnitId: Schema.optional(TrimmedNonEmptyString),
   role: AgentRole,
   taskClass: AgentTaskClass,
   workId: TrimmedNonEmptyString,

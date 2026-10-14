@@ -7,6 +7,7 @@ import {
   type AgentRolesInput,
   type AgentRolesResult,
   AgentExternalSession,
+  type AgentPolicySnapshot,
   AuthSessionId,
   type AgentTaskBinding,
   type ModelSelection,
@@ -48,6 +49,7 @@ const decodeExternalSession = Schema.decodeUnknownEffect(
 export class ManagedAgentService extends Context.Service<
   ManagedAgentService,
   {
+    readonly snapshot: () => Effect.Effect<AgentPolicySnapshot, ManagedAgentError>;
     readonly roles: (
       input: Omit<Authority, "workspacePath"> & { readonly request: AgentRolesInput },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
@@ -136,6 +138,14 @@ const make = Effect.gen(function* () {
     }
   });
   return ManagedAgentService.of({
+    snapshot: () =>
+      currentPolicy.pipe(
+        Effect.tap((snapshot) =>
+          store
+            .save(snapshot)
+            .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause }))),
+        ),
+      ),
     roles: Effect.fn("ManagedAgentService.roles")(function* (input) {
       const snapshot = yield* currentPolicy;
       const roles = yield* Effect.forEach(
