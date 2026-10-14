@@ -17,15 +17,24 @@
 # put back where it was, the tag is remembered as failed, and a notification
 # asks for a hand rebase. The next newer tag is tried again.
 #
+# The script works in its own git clone of the fork ($STATE/repo), never in the
+# developer's checkout: that one is a jj repository whose workspaces leave git
+# without a checked-out branch, and SlipJay lands changes there concurrently.
+# Each run starts the clone from origin's `rollover`, and the rebased branch is
+# pushed with a lease on exactly that commit, so a landing that happened during
+# the build is never overwritten (the push fails and the next tag retries).
+#
 # The local build has no update feed (no GITHUB_REPOSITORY or
 # T3CODE_DESKTOP_UPDATE_REPOSITORY), so the installed app never updates itself
 # back to the official nightly.
 set -euo pipefail
 
-REPO="${T3FORK_REPO:-$HOME/Engineering/t3code}"
 BRANCH=rollover
 # The overrides below let a dry run in a scratch clone touch nothing real.
 STATE="${T3FORK_STATE:-$HOME/.t3fork}"
+REPO="${T3FORK_REPO:-$STATE/repo}"
+ORIGIN_URL="${T3FORK_ORIGIN_URL:-https://github.com/pechhe/t3code.git}"
+UPSTREAM_URL="${T3FORK_UPSTREAM_URL:-https://github.com/pingdotgg/t3code.git}"
 APP_NAME="T3 Code (Nightly).app"
 INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$APP_NAME"
 PUSH_REMOTE="${T3FORK_PUSH_REMOTE:-origin}"
@@ -42,7 +51,15 @@ export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
 
 mkdir -p "$STATE"
 
+ensure_clone() {
+  if [ ! -d "$REPO/.git" ]; then
+    git clone --quiet --branch "$BRANCH" --origin "$PUSH_REMOTE" "$ORIGIN_URL" "$REPO"
+    git -C "$REPO" remote add upstream "$UPSTREAM_URL"
+  fi
+}
+
 if [ "${1:-}" = "--install-agent" ]; then
+  ensure_clone
   plist="$HOME/Library/LaunchAgents/$LABEL.plist"
   cat >"$plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -110,11 +127,15 @@ install_staged() {
 # Steps chain with && and failures are handled explicitly: bash ignores
 # `set -e` inside anything run as an `if` or `||` condition.
 rebuild() {
+  ensure_clone
   cd "$REPO"
-  if ! git fetch --quiet upstream --tags; then
+  if ! { git fetch --quiet "$PUSH_REMOTE" && git fetch --quiet upstream --tags; }; then
     log "fetch failed; trying again next hour"
     return 0
   fi
+  # The clone is this script's alone: start every run from what has landed.
+  git checkout --quiet --force -B "$BRANCH" "$PUSH_REMOTE/$BRANCH"
+  git clean --quiet -fd
   local tag
   tag="$(git tag -l 'v*-nightly.*' --sort=-creatordate | head -1)"
   if [ -z "$tag" ]; then return 0; fi
@@ -125,11 +146,6 @@ rebuild() {
     if git merge-base --is-ancestor "$tag" "$BRANCH"; then return 0; fi
     if [ "$(cat "$STATE/failed-tag" 2>/dev/null)" = "$tag" ]; then return 0; fi
     if [ $((now - last_build)) -lt "$REBUILD_INTERVAL_SECONDS" ]; then return 0; fi
-  fi
-
-  if [ "$(git branch --show-current)" != "$BRANCH" ] || [ -n "$(git status --porcelain)" ]; then
-    notify "Skipped $tag: $REPO is not a clean checkout of $BRANCH"
-    return 0
   fi
 
   local previous_head
@@ -192,7 +208,8 @@ rebuild() {
   rm -rf "$stage"
   echo "$now" >"$STATE/last-build"
   rm -f "$STATE/failed-tag"
-  git push --quiet --force-with-lease "$PUSH_REMOTE" "$BRANCH" || log "push of $BRANCH failed; continuing"
+  git push --quiet --force-with-lease="$BRANCH:$previous_head" "$PUSH_REMOTE" "$BRANCH" ||
+    notify "Push of rebased $BRANCH failed (something landed during the build); the next run retries"
   log "staged $version"
 }
 
