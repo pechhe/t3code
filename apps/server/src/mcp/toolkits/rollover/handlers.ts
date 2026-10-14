@@ -42,10 +42,9 @@ const handlers = {
           code: "run_not_found",
           message: "This thread has no running turn to hand off from.",
         });
-      const assignments = yield* (yield* ExperimentService.ExperimentService)
-        .assignments({ threadId })
+      const assignment = yield* (yield* ExperimentService.ExperimentService)
+        .getRolloverAssignment(threadId)
         .pipe(Effect.mapError(unavailable));
-      const assignment = assignments.find((candidate) => candidate.lever === "rollover");
       if (
         assignedRolloverThresholds(
           settings.contextRollover,

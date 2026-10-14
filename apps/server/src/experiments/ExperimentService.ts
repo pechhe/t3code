@@ -15,6 +15,8 @@ import {
   type ExperimentReport,
   type ExperimentAssignmentReport,
   type ExperimentTurnEvidence,
+  type ThreadId,
+  type OrchestrationV2Run,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -35,6 +37,9 @@ export class ExperimentService extends Context.Service<
     readonly assignments: (
       input: ExperimentAssignmentsInput,
     ) => Effect.Effect<ReadonlyArray<ExperimentAssignment>, ExperimentError>;
+    readonly getRolloverAssignment: (
+      threadId: ThreadId,
+    ) => Effect.Effect<ExperimentAssignment | null, ExperimentError>;
     readonly assign: (
       input: ExperimentAssignInput,
     ) => Effect.Effect<ReadonlyArray<ExperimentAssignment>, ExperimentError>;
@@ -206,6 +211,21 @@ const make = Effect.gen(function* () {
     );
     return yield* Effect.forEach(rows, (row) =>
       persist("assignments", "", decodeAssignment(row.payload_json)),
+    );
+  });
+  const getRolloverAssignment = Effect.fn("ExperimentService.getRolloverAssignment")(function* (
+    threadId: ThreadId,
+  ) {
+    const recorded = yield* assignments({ threadId });
+    return (
+      recorded.find(
+        (assignment) =>
+          assignment.assignmentMethod === "randomized" &&
+          assignment.lever === "rollover" &&
+          assignment.unitKind === "thread" &&
+          assignment.unitId === threadId &&
+          assignment.variant.rollover !== undefined,
+      ) ?? null
     );
   });
   const getAssignment = Effect.fn("ExperimentService.getAssignment")(function* (id: string) {
@@ -532,7 +552,30 @@ const make = Effect.gen(function* () {
         const observations = yield* Effect.forEach(observationRows, (r) =>
           persist("report", assignment.id, decodeObservation(r.payload_json)),
         );
-        const allAssignments = yield* assignments({ threadId: assignment.threadId });
+        const reportNow = Date.parse(yield* nowIso);
+        type Records = ProjectionStore.ProjectionRecords<
+          "runs" | "attempts" | "nodes" | "subagents" | "providerTurns" | "providerThreads"
+        >;
+        const recordCache = new Map<ThreadId, Records | null>();
+        const readRecords = Effect.fn(function* (threadId: ThreadId) {
+          if (recordCache.has(threadId)) return recordCache.get(threadId) ?? null;
+          const records = yield* projections
+            .getThreadRecords(threadId, [
+              "runs",
+              "attempts",
+              "nodes",
+              "subagents",
+              "providerTurns",
+              "providerThreads",
+            ])
+            .pipe(
+              Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+              (effect) => persist("report", assignment.id, effect),
+            );
+          recordCache.set(threadId, records);
+          return records;
+        });
+        const exposureScopes = new Map<ThreadId, Map<string, OrchestrationV2Run>>();
         const turns: ExperimentTurnEvidence[] = [];
         let telemetryTruncated = false;
         const runs: ExperimentAssignmentReport["runs"][number][] = [];
@@ -559,21 +602,7 @@ const make = Effect.gen(function* () {
           const visitKey = encodeKey([target.threadId, target.taskId]);
           if (visited.has(visitKey)) continue;
           visited.add(visitKey);
-          const records = yield* projections
-            .getThreadRecords(target.threadId, [
-              "runs",
-              "attempts",
-              "nodes",
-              "subagents",
-              "providerTurns",
-              "providerThreads",
-            ])
-            .pipe(
-              Effect.catchTags({
-                ProjectionStoreThreadNotFoundError: () => Effect.succeed(null),
-              }),
-              (effect) => persist("report", assignment.id, effect),
-            );
+          const records = yield* readRecords(target.threadId);
           if (!records) {
             missingThreadIds.push(target.threadId);
             continue;
@@ -593,6 +622,10 @@ const make = Effect.gen(function* () {
           });
           if (matchingRuns.length > 500) telemetryTruncated = true;
           const includedRuns = matchingRuns.slice(0, 500);
+          const scope =
+            exposureScopes.get(target.threadId) ?? new Map<string, OrchestrationV2Run>();
+          for (const run of includedRuns) scope.set(run.id, run);
+          exposureScopes.set(target.threadId, scope);
           const runIds = new Set(includedRuns.map((r) => r.id));
           runs.push(
             ...includedRuns.map((r) => ({
@@ -653,8 +686,84 @@ const make = Effect.gen(function* () {
             });
           }
         }
+        // A child's result was also exposed to the policy/model that launched its task.
+        // Follow exact app-owned task links, rather than every treatment on an ancestor thread.
+        const ancestorQueue = [...exposureScopes.entries()].map(([threadId, scope]) => ({
+          threadId,
+          scope,
+        }));
+        const visitedAncestors = new Set<string>();
+        while (ancestorQueue.length > 0 && visitedAncestors.size < 100) {
+          const target = ancestorQueue.shift()!;
+          const key = encodeKey([target.threadId, ...target.scope.keys()]);
+          if (visitedAncestors.has(key)) continue;
+          visitedAncestors.add(key);
+          const records = yield* readRecords(target.threadId);
+          const parentId = records?.thread.lineage.parentThreadId;
+          if (!parentId) continue;
+          const parent = yield* readRecords(parentId);
+          if (!parent) {
+            telemetryTruncated = true;
+            continue;
+          }
+          const parentRunIds = new Set(
+            parent.subagents
+              .filter(
+                (child) =>
+                  child.origin === "app_owned" &&
+                  child.childThreadId === target.threadId &&
+                  [...target.scope.values()].some((run) => run.delegatedTaskId === child.id),
+              )
+              .flatMap((child) => (child.runId ? [child.runId] : [])),
+          );
+          const parentRuns = parent.runs.filter((run) => parentRunIds.has(run.id));
+          if (parentRuns.length === 0) continue;
+          const scope = exposureScopes.get(parentId) ?? new Map<string, OrchestrationV2Run>();
+          for (const run of parentRuns) scope.set(run.id, run);
+          exposureScopes.set(parentId, scope);
+          ancestorQueue.push({
+            threadId: parentId,
+            scope: new Map(parentRuns.map((run) => [run.id, run])),
+          });
+        }
+        if (ancestorQueue.length > 0) telemetryTruncated = true;
+        const coExposureIds: string[] = [];
+        for (const [threadId, scope] of exposureScopes) {
+          const records = yield* readRecords(threadId);
+          if (!records) continue;
+          const candidates = yield* assignments({ threadId });
+          for (const candidate of candidates) {
+            if (
+              candidate.id === assignment.id ||
+              candidate.assignmentMethod !== assignment.assignmentMethod
+            )
+              continue;
+            const boundary = records.runs.find((run) => run.id === candidate.boundaryRunId);
+            if (candidate.boundaryRunId !== null && !boundary) {
+              telemetryTruncated = true;
+              continue;
+            }
+            const applies = [...scope.values()].some((run) => {
+              if (candidate.unitKind === "task" && candidate.unitId !== run.delegatedTaskId)
+                return false;
+              if (boundary && run.ordinal < boundary.ordinal) return false;
+              // An immutable future enrollment is not exposure to already completed work.
+              const latestApplicableTime = run.completedAt
+                ? DateTime.toEpochMillis(run.completedAt)
+                : reportNow;
+              return Date.parse(candidate.assignedAt) <= latestApplicableTime;
+            });
+            if (applies) coExposureIds.push(candidate.id);
+          }
+        }
         missingThreadIds.push(...queue.map((q) => q.threadId));
+        const missingStartedRuns = runs.filter(
+          (run) =>
+            run.startedAt !== null &&
+            !turns.some((turn) => turn.threadId === run.threadId && turn.runId === run.runId),
+        );
         const completeDurations =
+          missingStartedRuns.length === 0 &&
           runs.length > 0 &&
           runs.every((r) => r.completedAt !== null) &&
           turns.every((t) => t.activeMs !== null);
@@ -687,21 +796,22 @@ const make = Effect.gen(function* () {
         const usage: ExperimentAssignmentReport["usage"] = {
           ...observedUsage,
           status:
-            incompleteDescendants && observedUsage.status !== "unavailable"
+            (incompleteDescendants || missingStartedRuns.length > 0) &&
+            observedUsage.status !== "unavailable"
               ? "partial"
               : observedUsage.status,
+          missingTurns: observedUsage.missingTurns + missingStartedRuns.length,
+          inputTokens: missingStartedRuns.length > 0 ? null : observedUsage.inputTokens,
+          outputTokens: missingStartedRuns.length > 0 ? null : observedUsage.outputTokens,
+          cachedInputTokens: missingStartedRuns.length > 0 ? null : observedUsage.cachedInputTokens,
+          cacheCreationTokens:
+            missingStartedRuns.length > 0 ? null : observedUsage.cacheCreationTokens,
+          reasoningTokens: missingStartedRuns.length > 0 ? null : observedUsage.reasoningTokens,
           hasUnattributedSubagentUsage: incompleteDescendants,
         };
         const entry: ExperimentAssignmentReport = {
           assignment,
-          coExposureIds: allAssignments
-            .filter(
-              (a) =>
-                a.id !== assignment.id &&
-                a.threadId === assignment.threadId &&
-                a.assignmentMethod === assignment.assignmentMethod,
-            )
-            .map((a) => a.id),
+          coExposureIds: [...new Set(coExposureIds)],
           turns,
           runs,
           outcomes,
@@ -740,6 +850,7 @@ const make = Effect.gen(function* () {
   return ExperimentService.of({
     create,
     transition,
+    getRolloverAssignment,
     list,
     assignments,
     assign,
