@@ -1,4 +1,5 @@
 import * as Experiments from "../experiments/ExperimentService.ts";
+import * as ExternalAgentWork from "../agents/ExternalAgentWorkService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
@@ -186,6 +187,200 @@ describe("OrchestratorMcpService", () => {
         assert.equal(commandIds.length, 2);
         assert.notEqual(commandIds[0], commandIds[1]);
       }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+    }),
+  );
+
+  it.effect(
+    "routes external delegate, status, wait, and cancel through the owned work service",
+    () =>
+      Effect.gen(function* () {
+        const taskId = NodeId.make("node:external-mcp-route");
+        const childThreadId = ThreadId.make("thread:external-mcp-route");
+        const projectId = ProjectId.make("project:external-mcp-route");
+        const calls: Array<string> = [];
+        const result = {
+          launchState: "accepted",
+          taskId,
+          childThreadId,
+          childRunId: null,
+          childNodeId: NodeId.make("node:external-mcp-route-child"),
+          status: "running",
+          workState: "working",
+          hasPendingChildRuns: false,
+          latestTerminalRunId: null,
+          latestTerminalStatus: null,
+          latestTerminalSummary: null,
+          latestTerminalResultContextTransferId: null,
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          model: null,
+          summary: null,
+          resultContextTransferId: null,
+          waitTimedOut: false,
+          agentTask: {
+            externalOwner: {
+              environmentId: EnvironmentId.make("environment:external-mcp-route"),
+              clientSessionId: "oauth-session",
+              externalSessionKey: "a".repeat(64),
+              projectId,
+              ceiling: "full-access",
+            },
+          },
+        };
+        const scope: McpInvocationScope = {
+          environmentId: EnvironmentId.make("environment:external-mcp-route"),
+          requestNamespace: "client:oauth-session",
+          thread: undefined,
+          client: { sessionId: "oauth-session", label: "external client", access: "full-access" },
+          capabilities: new Set(["orchestration"]),
+          issuedAt: 1,
+        };
+        const layerDependencies = Layer.mergeAll(
+          Layer.merge(
+            NodeServices.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            waitForThread: () =>
+              Effect.sync(() => calls.push("wait")).pipe(
+                Effect.as({ run: undefined, timedOut: true } as never),
+              ),
+          }),
+          ServerSettings.layerTest(),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+          Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+            list: () => Effect.succeed([]),
+          }),
+          Layer.mock(ProjectService.ProjectService)({}),
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        );
+        const externalWorkLayer = Layer.mock(ExternalAgentWork.ExternalAgentWorkService)({
+          submit: () => Effect.sync(() => calls.push("delegate")).pipe(Effect.as(result as never)),
+          status: () => Effect.sync(() => calls.push("status")).pipe(Effect.as(result as never)),
+          cancel: () =>
+            Effect.sync(() => calls.push("cancel")).pipe(
+              Effect.as({ taskId, status: "cancel_requested" } as never),
+            ),
+        });
+
+        const outcomes = yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const delegated = yield* service.delegateTask(scope, {
+            mode: "wait",
+            timeoutMs: 5,
+          } as never);
+          const waited = yield* service.taskStatus(scope, taskId, 5);
+          const status = yield* service.taskStatus(scope, taskId);
+          const cancelled = yield* service.cancelTask(scope, { taskId } as never);
+          return [
+            delegated.waitTimedOut,
+            waited.waitTimedOut,
+            status.taskId,
+            cancelled.status,
+          ] as const;
+        }).pipe(
+          Effect.provide(
+            Layer.merge(
+              layerOrchestratorService.pipe(Layer.provide(layerDependencies)),
+              externalWorkLayer,
+            ),
+          ),
+        );
+
+        assert.deepEqual(outcomes, [true, true, taskId, "cancel_requested"]);
+        assert.deepEqual(calls, [
+          "delegate",
+          "wait",
+          "status",
+          "status",
+          "wait",
+          "status",
+          "status",
+          "cancel",
+        ]);
+      }),
+  );
+
+  it.effect("keeps external work private and refuses raw sends to its backing thread", () =>
+    Effect.gen(function* () {
+      const threadId = ThreadId.make("thread:external-mcp-owned");
+      const environmentId = EnvironmentId.make("environment:external-mcp-owned");
+      const projectId = ProjectId.make("project:external-mcp-owned");
+      const ownerSessionId = "oauth-owner";
+      const externalOwner = {
+        environmentId,
+        clientSessionId: ownerSessionId,
+        externalSessionKey: "b".repeat(64),
+        projectId,
+        ceiling: "full-access" as const,
+      };
+      const shell = liveThreadShell(threadId);
+      const projection = {
+        ...idleThreadProjection(shell),
+        thread: { ...idleThreadProjection(shell).thread, agentTask: { externalOwner } },
+      } as unknown as OrchestrationV2ThreadProjection;
+      const sent = yield* Ref.make(false);
+      const layerDependencies = Layer.mergeAll(
+        Layer.merge(
+          NodeServices.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(shell),
+          getProjectThreadRecords: () => Effect.succeed(projection),
+          sendToThread: () => Ref.set(sent, true).pipe(Effect.as({} as never)),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
+          list: () => Effect.succeed([]),
+        }),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const caller = (sessionId: string): McpInvocationScope => ({
+        environmentId,
+        requestNamespace: `client:${sessionId}`,
+        thread: undefined,
+        client: { sessionId, label: "external client", access: "full-access" },
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      });
+
+      const outcomes = yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        const foreignRead = yield* service
+          .readThread(caller("oauth-foreign"), { threadId } as never)
+          .pipe(Effect.flip);
+        const foreignSend = yield* service
+          .sendToThread(caller("oauth-foreign"), {
+            threadId,
+            message: "should be private",
+            clientRequestId: "foreign-send",
+          } as never)
+          .pipe(Effect.flip);
+        const ownerSend = yield* service
+          .sendToThread(caller(ownerSessionId), {
+            threadId,
+            message: "start a fresh attempt instead",
+            clientRequestId: "owner-send",
+          } as never)
+          .pipe(Effect.flip);
+        return [foreignRead.code, foreignSend.code, ownerSend.code, ownerSend.message] as const;
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
+
+      assert.equal(outcomes[0], "task_not_found");
+      assert.equal(outcomes[1], "task_not_found");
+      assert.equal(outcomes[2], "invalid_request");
+      assert.include(outcomes[3], "Submit a new external work attempt");
+      assert.isFalse(yield* Ref.get(sent));
     }),
   );
 

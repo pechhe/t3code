@@ -1,5 +1,13 @@
+import * as AuthSessions from "../persistence/AuthSessions.ts";
+import * as SqlClient from "effect/sql/SqlClient";
+import * as Option from "effect/Option";
+import * as DateTime from "effect/DateTime";
 import {
   type AgentTaskRequest,
+  type AgentRolesInput,
+  type AgentRolesResult,
+  AgentExternalSession,
+  AuthSessionId,
   type AgentTaskBinding,
   type ModelSelection,
   type ProviderInstanceId,
@@ -34,14 +42,21 @@ type Authority = {
   readonly ceiling: RuntimeMode;
   readonly workspacePath: string | null;
 };
+const decodeExternalSession = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(AgentExternalSession),
+);
 export class ManagedAgentService extends Context.Service<
   ManagedAgentService,
   {
+    readonly roles: (
+      input: Omit<Authority, "workspacePath"> & { readonly request: AgentRolesInput },
+    ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
     readonly prepare: (
       input: Authority & {
         readonly request: AgentTaskRequest;
         readonly requestFingerprint: string;
         readonly recordedBinding?: AgentTaskBinding;
+        readonly policyHash?: string;
         readonly currentInstanceId?: ProviderInstanceId;
         readonly selection?: ModelSelection;
       },
@@ -56,6 +71,7 @@ export class ManagedAgentService extends Context.Service<
 >()("t3/agents/ManagedAgentService") {}
 
 const make = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
   const policy = yield* Policy.AgentPolicyService;
   const store = yield* Store.AgentPolicyStore;
   const resolver = yield* Resolver.AgentRoleResolver;
@@ -120,6 +136,41 @@ const make = Effect.gen(function* () {
     }
   });
   return ManagedAgentService.of({
+    roles: Effect.fn("ManagedAgentService.roles")(function* (input) {
+      const snapshot = yield* currentPolicy;
+      const roles = yield* Effect.forEach(
+        Object.entries(snapshot.manifest.roles),
+        ([name, policy]) =>
+          Effect.gen(function* () {
+            const role = name as AgentTaskRequest["role"];
+            const result = yield* Effect.result(
+              resolver.resolve({
+                snapshot,
+                providers: input.providers,
+                ceiling: input.ceiling,
+                request: {
+                  ...input.request,
+                  role,
+                  workId: "capability-discovery",
+                  attemptId: "capability-discovery",
+                  workspacePath: "/capability-discovery",
+                },
+              }),
+            );
+            return {
+              role,
+              briefHash: snapshot.briefs[role].hash,
+              sourceAccess:
+                input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess,
+              toolProfile:
+                input.request.readOnly === true ? ("source-reader" as const) : policy.toolProfile,
+              selection: result._tag === "Success" ? result.success : null,
+              refusal: result._tag === "Failure" ? result.failure.reason : null,
+            };
+          }),
+      );
+      return { policyHash: snapshot.hash, policyRevision: snapshot.sourceRevision, roles };
+    }),
     prepare: Effect.fn("ManagedAgentService.prepare")(function* (input) {
       yield* workspace(input.request, input.workspacePath);
       if (
@@ -128,10 +179,10 @@ const make = Effect.gen(function* () {
       )
         return yield* new ManagedAgentError({ reason: "policy" });
       const snapshot =
-        input.recordedBinding === undefined
+        input.recordedBinding === undefined && input.policyHash === undefined
           ? yield* currentPolicy
           : yield* store
-              .get(input.recordedBinding.policyHash)
+              .get(input.recordedBinding?.policyHash ?? input.policyHash!)
               .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
       const selection = yield* resolver
         .resolve({
@@ -164,6 +215,41 @@ const make = Effect.gen(function* () {
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
       yield* workspace(input.binding, input.workspacePath);
+      const owner = input.binding.externalOwner;
+      if (owner !== undefined) {
+        const auth = yield* Effect.serviceOption(AuthSessions.AuthSessionRepository);
+        if (Option.isNone(auth)) return yield* new ManagedAgentError({ reason: "revoked" });
+        const session = yield* auth.value
+          .getById({ sessionId: AuthSessionId.make(owner.clientSessionId) })
+          .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "revoked", cause })));
+        const now = yield* DateTime.now;
+        if (
+          Option.isNone(session) ||
+          session.value.subject !== "mcp-client" ||
+          session.value.revokedAt !== null ||
+          session.value.expiresAt.epochMilliseconds <= now.epochMilliseconds ||
+          !session.value.scopes.includes("orchestration:operate")
+        )
+          return yield* new ManagedAgentError({ reason: "revoked" });
+        const rows = yield* sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM external_agent_sessions WHERE session_key = ${owner.externalSessionKey}`.pipe(
+          Effect.mapError((cause) => new ManagedAgentError({ reason: "revoked", cause })),
+        );
+        if (rows[0] === undefined) return yield* new ManagedAgentError({ reason: "revoked" });
+        const registered = yield* decodeExternalSession(rows[0].payload_json).pipe(
+          Effect.mapError((cause) => new ManagedAgentError({ reason: "revoked", cause })),
+        );
+        if (
+          registered.clientSessionId !== owner.clientSessionId ||
+          registered.environmentId !== owner.environmentId ||
+          registered.projectId !== owner.projectId ||
+          registered.ceiling !== owner.ceiling ||
+          registered.workspacePath !== input.workspacePath ||
+          input.ceiling !== owner.ceiling
+        )
+          return yield* new ManagedAgentError({ reason: "revoked" });
+      }
       const snapshot = yield* store
         .get(input.binding.policyHash)
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));

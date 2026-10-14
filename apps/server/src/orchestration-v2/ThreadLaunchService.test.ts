@@ -17,6 +17,7 @@ import {
   CommandId,
   EnvironmentId,
   DEFAULT_SERVER_SETTINGS,
+  AgentTaskBinding,
   GitCommandError,
   MessageId,
   ProjectId,
@@ -48,6 +49,7 @@ import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.t
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
@@ -67,6 +69,7 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 const projectId = ProjectId.make("project:launch-test");
 const otherProjectId = ProjectId.make("project:launch-other");
 const encodeThreadProjection = Schema.encodeEffect(OrchestrationV2ThreadProjectionJson);
+const decodeAgentTaskBinding = Schema.decodeSync(AgentTaskBinding);
 const modelSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.1-codex",
@@ -265,6 +268,7 @@ function launchInput(input: {
   readonly thread: string;
   readonly message?: string;
   readonly workspace?: ThreadLaunch.ThreadLaunchWorkspaceStrategy;
+  readonly agentTask?: AgentTaskBinding;
 }) {
   return {
     commandId: CommandId.make(input.command),
@@ -286,7 +290,27 @@ function launchInput(input: {
         }),
     createdBy: "user" as const,
     creationSource: "web" as const,
+    ...(input.agentTask === undefined ? {} : { agentTask: input.agentTask }),
   };
+}
+
+function managedTaskBinding(workspacePath: string) {
+  return decodeAgentTaskBinding({
+    role: "implementation-worker",
+    taskClass: "non-ui",
+    workId: "launch-managed-work",
+    attemptId: "launch-managed-attempt",
+    workspacePath,
+    requestFingerprint: "a".repeat(64),
+    policyHash: "b".repeat(64),
+    policyRevision: "test-policy",
+    briefHash: "c".repeat(64),
+    sourceAccess: "scoped-write",
+    toolProfile: "implementation",
+    requested: modelSelection,
+    assigned: modelSelection,
+    effective: modelSelection,
+  });
 }
 
 function waitUntil<E, R>(predicate: () => Effect.Effect<boolean, E, R>): Effect.Effect<void, E, R> {
@@ -1317,6 +1341,97 @@ it.effect("renames a temporary branch on an existing worktree to a generated nam
     }).pipe(Effect.provide(harness.layer));
   }),
 );
+
+it.effect(
+  "keeps a managed task on its exact existing worktree without running project setup",
+  () => {
+    const worktreePath = "/repo-worktrees/managed-exact";
+    const agentTask = managedTaskBinding(worktreePath);
+    const harness = makeHarness({ runSetup: () => Effect.die("managed work must skip setup") });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:managed-existing-worktree",
+          thread: "thread:launch:managed-existing-worktree",
+          message: "Implement in the assigned workspace",
+          workspace: { type: "existing_worktree", worktreePath },
+          agentTask,
+        }),
+      );
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(launched.threadId)
+          .pipe(Effect.map((projection) => projection.runs[0]?.status === "starting")),
+      );
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(projection.thread.worktreePath, worktreePath);
+      assert.deepEqual(projection.thread.agentTask, agentTask);
+      assert.equal(harness.runSetup.mock.calls.length, 0);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
+
+it.effect("keeps the managed setup skip when preparation is retried", () => {
+  let fetchFailures = 1;
+  const worktreePath = "/repo-worktrees/retried-managed";
+  const agentTask = managedTaskBinding(worktreePath);
+  const harness = makeHarness({
+    fetchRemote: () =>
+      fetchFailures-- > 0
+        ? Effect.fail(
+            new GitCommandError({
+              operation: "GitVcsDriver.fetchRemote",
+              command: "git",
+              cwd: project.workspaceRoot,
+              detail: "The first preparation attempt failed.",
+              exitCode: 1,
+            }),
+          )
+        : Effect.void,
+    runSetup: () => Effect.die("managed retry must skip setup"),
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const outbox = yield* EffectOutbox.EffectOutboxV2;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:managed-retry",
+        thread: "thread:launch:managed-retry",
+        message: "Retry assigned managed work",
+        workspace: { type: "worktree", baseRef: "main", startFromOrigin: true },
+        agentTask,
+      }),
+    );
+    yield* waitUntil(() =>
+      threads
+        .getThreadProjection(launched.threadId)
+        .pipe(Effect.map((projection) => projection.runs[0]?.status === "failed")),
+    );
+    const failed = yield* threads.getThreadProjection(launched.threadId);
+    assert.deepEqual(failed.thread.agentTask, agentTask);
+    assert.equal(harness.runSetup.mock.calls.length, 0);
+
+    yield* launches.retryPreparation({
+      commandId: CommandId.make("command:launch:managed-retry:1"),
+      threadId: launched.threadId,
+      runId: failed.runs[0]!.id,
+    });
+    yield* waitUntil(() =>
+      outbox
+        .listByCommandId(CommandId.make("command:launch:managed-retry:1:release"))
+        .pipe(Effect.map((effects) => effects.length === 1)),
+    );
+
+    const retried = yield* threads.getThreadProjection(launched.threadId);
+    assert.equal(retried.runs[0]?.status, "starting");
+    assert.equal(retried.thread.worktreePath, "/repo-worktrees/feature");
+    assert.deepEqual(retried.thread.agentTask, agentTask);
+    assert.equal(harness.runSetup.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
 
 it.effect("shows the fetch diagnosis when preparing a worktree from origin fails", () => {
   const detail =
@@ -2808,6 +2923,12 @@ it.effect.each(
         Layer.provide(NodeCrypto.layer),
         Layer.provide(harness.layer),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ resolveCommit })),
+        Layer.provide(
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
         Layer.provide(Layer.mock(ScheduledTasks.ScheduledTaskService)({})),
         Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
       );

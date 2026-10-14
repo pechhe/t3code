@@ -24,6 +24,7 @@ import * as Layer from "effect/Layer";
 import { createPendingAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import { OrchestratorCommandRejectedError } from "./Orchestrator.ts";
 import {
   OrchestratorCommandPreviouslyRejectedError,
   OrchestratorDispatchError,
@@ -817,4 +818,61 @@ it.effect("releases claimed copies when a project disables the message's provide
     ).toEqual([]);
     expect(NodeFS.existsSync(NodePath.join(config.attachmentsDir, `${pendingId}.png`))).toBe(true);
   }).pipe(Effect.provide(layerIntakeTest)),
+);
+
+it.effect(
+  "releases attachment claims when an external backing-thread send is rejected before commit",
+  () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const threadId = ThreadId.make("thread-external-managed-send");
+      const commandId = CommandId.make("command-external-managed-send");
+      const pendingId = ChatAttachmentId.make(createPendingAttachmentId()!);
+      NodeFS.writeFileSync(
+        NodePath.join(config.attachmentsDir, `${pendingId}.png`),
+        new Uint8Array([1, 2, 3]),
+      );
+      const result = yield* sendToThread({
+        projectId: ProjectId.make("project-external-managed-send"),
+        commandId,
+        threadId,
+        messageId: MessageId.make("message-external-managed-send"),
+        text: "Continue through a managed task's backing thread",
+        attachments: [
+          {
+            type: "image",
+            id: pendingId,
+            name: "screen.png",
+            mimeType: "image/png",
+            sizeBytes: 3,
+          },
+        ],
+        mode: "auto",
+        createdBy: "agent",
+        creationSource: "mcp",
+      }).pipe(
+        Effect.provide(
+          Layer.mock(ThreadManagementService.ThreadManagementService)({
+            sendToThread: (input) =>
+              Effect.fail(
+                new OrchestratorCommandRejectedError({
+                  commandId: input.commandId,
+                  commandType: "message.dispatch",
+                }),
+              ),
+          }),
+        ),
+        Effect.result,
+      );
+
+      expect(result._tag).toBe("Failure");
+      expect(
+        NodeFS.readdirSync(config.attachmentsDir).filter((entry) =>
+          entry.startsWith(`${threadId}-`),
+        ),
+      ).toEqual([]);
+      expect(NodeFS.existsSync(NodePath.join(config.attachmentsDir, `${pendingId}.png`))).toBe(
+        true,
+      );
+    }).pipe(Effect.provide(layerIntakeTest)),
 );

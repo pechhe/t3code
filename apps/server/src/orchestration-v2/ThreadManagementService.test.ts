@@ -4,6 +4,7 @@ import {
   MessageId,
   NodeId,
   type OrchestrationV2Command,
+  type OrchestrationV2ServerCommand,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
   type OrchestrationV2ProviderThread,
@@ -376,6 +377,7 @@ const layerDispatchChokepointTest =
                 },
               },
             } as unknown as OrchestrationV2ThreadProjection),
+          getThreadShell: () => Effect.succeed(null),
           dispatch: (command) =>
             Effect.sync(() => {
               dispatched.push(command.type);
@@ -475,6 +477,108 @@ it.effect(
     }).pipe(Effect.provide(layerTest));
   },
 );
+
+it.effect("blocks agent messages to external work backing threads before dispatch", () => {
+  const projectId = ProjectId.make("project:thread-management:external-owner");
+  const externalThreadId = ThreadId.make("thread:thread-management:external-owner");
+  const ordinaryThreadId = ThreadId.make("thread:thread-management:ordinary");
+  const instanceId = ProviderInstanceId.make("codex");
+  const environmentId = "environment:thread-management:external-owner";
+  const externalOwner = {
+    environmentId,
+    clientSessionId: "external-client",
+    externalSessionKey: "a".repeat(64),
+    projectId,
+    ceiling: "full-access" as const,
+  };
+  const dispatched: Array<
+    Extract<OrchestrationV2ServerCommand, { readonly type: "message.dispatch" }>
+  > = [];
+  const projection = {
+    thread: {
+      id: externalThreadId,
+      projectId,
+      deletedAt: null,
+      archivedAt: null,
+      modelSelection: { instanceId, model: "test-model" },
+    },
+    runs: [],
+    providerTurns: [],
+    messages: [],
+    turnItems: [],
+  } as unknown as OrchestrationV2ThreadProjection;
+  const layerTest = ThreadManagementService.layer.pipe(
+    Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+    Layer.provide(
+      Layer.mock(Orchestrator.OrchestratorV2)({
+        getThreadRecords: () => Effect.succeed(projection),
+        getThreadShell: (threadId) =>
+          Effect.succeed(
+            threadId === externalThreadId
+              ? ({
+                  id: externalThreadId,
+                  agentTask: { externalOwner },
+                } as never)
+              : null,
+          ),
+        dispatch: (command) =>
+          Effect.sync(() => {
+            if (command.type === "message.dispatch") dispatched.push(command);
+            return { sequence: dispatched.length, storedEvents: [] } as never;
+          }),
+      }),
+    ),
+    Layer.provide(
+      ServerSettings.layerTest({
+        providerInstances: { [instanceId]: { driver: "codex", enabled: true } },
+      }),
+    ),
+    Layer.provide(layerReceiptsTest),
+  );
+
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    const message = (threadId: ThreadId, createdBy: "agent" | "user", suffix: string) => ({
+      type: "message.dispatch" as const,
+      commandId: CommandId.make(`command:thread-management:external-owner:${suffix}`),
+      threadId,
+      messageId: MessageId.make(`message:thread-management:external-owner:${suffix}`),
+      text: "A message",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" as const },
+      createdBy,
+      creationSource: createdBy === "agent" ? ("mcp" as const) : ("web" as const),
+    });
+
+    const sendError = yield* Effect.flip(
+      threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:thread-management:external-owner:send"),
+        threadId: externalThreadId,
+        messageId: MessageId.make("message:thread-management:external-owner:send"),
+        text: "Try to continue through the raw backing thread",
+        attachments: [],
+        mode: "auto",
+        createdBy: "agent",
+        creationSource: "mcp",
+      }),
+    );
+    expect(sendError).toMatchObject({ _tag: "OrchestratorCommandRejectedError" });
+
+    const directError = yield* Effect.flip(
+      threads.dispatch(message(externalThreadId, "agent", "direct")),
+    );
+    expect(directError).toMatchObject({ _tag: "OrchestratorCommandRejectedError" });
+    expect(dispatched).toEqual([]);
+
+    yield* threads.dispatch(message(externalThreadId, "user", "human"));
+    yield* threads.dispatch(message(ordinaryThreadId, "agent", "ordinary-agent"));
+    expect(dispatched.map((command) => [command.threadId, command.createdBy])).toEqual([
+      [externalThreadId, "user"],
+      [ordinaryThreadId, "agent"],
+    ]);
+  }).pipe(Effect.provide(layerTest));
+});
 
 it.effect("classifies projection infrastructure failures separately from a missing thread", () => {
   const projectId = ProjectId.make("project:thread-management:projection-failure");

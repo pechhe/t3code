@@ -1,3 +1,4 @@
+import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
@@ -550,6 +551,7 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
+  ExternalWork.layer.pipe(Layer.provide(ProcessRunner.layer)),
   AgentAwarenessRelay.layer,
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.
   HeldHooksWaker.layer,

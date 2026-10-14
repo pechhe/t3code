@@ -3,6 +3,7 @@ import {
   CommandId,
   OrchestratorMcpFailure,
   type ProjectId,
+  type AgentTaskBinding,
   type ProviderInteractionMode,
   type RuntimeMode,
   type ThreadId,
@@ -185,6 +186,7 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
       message: "The thread was not found.",
     });
   }
+  yield* assertExternalWorkOwner(context.scope, shell);
   const projection = yield* context.threads
     .getProjectThreadRecords({ projectId: shell.projectId, threadId: targetId }, fields, {
       turnItemTypes: ["user_input_request"],
@@ -206,3 +208,35 @@ export const newCommandId = Effect.fn("mcp.newCommandId")(function* () {
   const crypto = yield* Crypto.Crypto;
   return CommandId.make(`mcp:${yield* crypto.randomUUIDv4().pipe(Effect.orDie)}`);
 });
+
+/** External work remains private to the approved OAuth session, including raw thread tools. */
+export const canReadExternalWork = (
+  scope: McpInvocationContext.McpInvocationScope,
+  target: {
+    readonly id: ThreadId;
+    readonly agentTask?: AgentTaskBinding | undefined;
+  },
+): boolean => {
+  const owner = target.agentTask?.externalOwner;
+  return (
+    owner === undefined ||
+    scope.thread?.threadId === target.id ||
+    (scope.client?.sessionId === owner.clientSessionId &&
+      scope.environmentId === owner.environmentId)
+  );
+};
+export const assertExternalWorkOwner = (
+  scope: McpInvocationContext.McpInvocationScope,
+  target: {
+    readonly id: ThreadId;
+    readonly agentTask?: AgentTaskBinding | undefined;
+  },
+) =>
+  canReadExternalWork(scope, target)
+    ? Effect.void
+    : Effect.fail(
+        new OrchestratorMcpFailure({
+          code: "task_not_found",
+          message: "The requested work is not owned by this caller.",
+        }),
+      );

@@ -15,7 +15,7 @@ import {
   type ExperimentReport,
   type ExperimentAssignmentReport,
   type ExperimentTurnEvidence,
-  type ThreadId,
+  ThreadId,
   type OrchestrationV2Run,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -25,6 +25,22 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+
+type WorkReader = {
+  readonly environmentId: string;
+  readonly clientSessionId?: string | undefined;
+  readonly threadId?: string | undefined;
+};
+const visibleWork = (assignment: ExperimentAssignment, reader: WorkReader | undefined) => {
+  const owner = assignment.agentTask?.externalOwner;
+  return (
+    reader === undefined ||
+    owner === undefined ||
+    assignment.threadId === reader.threadId ||
+    (owner.clientSessionId === reader.clientSessionId &&
+      owner.environmentId === reader.environmentId)
+  );
+};
 
 export class ExperimentService extends Context.Service<
   ExperimentService,
@@ -36,6 +52,7 @@ export class ExperimentService extends Context.Service<
     readonly list: () => Effect.Effect<ReadonlyArray<Experiment>, ExperimentError>;
     readonly assignments: (
       input: ExperimentAssignmentsInput,
+      reader?: WorkReader,
     ) => Effect.Effect<ReadonlyArray<ExperimentAssignment>, ExperimentError>;
     readonly getRolloverAssignment: (
       threadId: ThreadId,
@@ -53,6 +70,7 @@ export class ExperimentService extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<ExperimentAssignment>, ExperimentError>;
     readonly recordOutcome: (
       input: ExperimentOutcomeInput,
+      reader?: WorkReader,
     ) => Effect.Effect<ExperimentOutcome, ExperimentError>;
     readonly recordObservation: (
       input: ExperimentObservationInput,
@@ -62,6 +80,7 @@ export class ExperimentService extends Context.Service<
     ) => Effect.Effect<ExperimentAssignment, ExperimentError>;
     readonly report: (
       input: ExperimentReportInput,
+      reader?: WorkReader,
     ) => Effect.Effect<ExperimentReport, ExperimentError>;
   }
 >()("t3/experiments/ExperimentService") {}
@@ -201,6 +220,7 @@ const make = Effect.gen(function* () {
   });
   const assignments = Effect.fn("ExperimentService.assignments")(function* (
     input: ExperimentAssignmentsInput,
+    reader?: WorkReader,
   ) {
     const rows = yield* persist(
       "assignments",
@@ -209,9 +229,10 @@ const make = Effect.gen(function* () {
         payload_json: string;
       }>`SELECT payload_json FROM experiment_assignments WHERE (${input.experimentId ?? null} IS NULL OR experiment_id = ${input.experimentId ?? null}) AND (${input.threadId ?? null} IS NULL OR thread_id = ${input.threadId ?? null}) ORDER BY rowid`,
     );
-    return yield* Effect.forEach(rows, (row) =>
+    const decoded = yield* Effect.forEach(rows, (row) =>
       persist("assignments", "", decodeAssignment(row.payload_json)),
     );
+    return decoded.filter((assignment) => visibleWork(assignment, reader));
   });
   const getRolloverAssignment = Effect.fn("ExperimentService.getRolloverAssignment")(function* (
     threadId: ThreadId,
@@ -330,7 +351,9 @@ const make = Effect.gen(function* () {
           if (input.unitKind === "task" && input.taskLever === undefined)
             return yield* fail("assign", input.unitId, "invalid-definition");
           const now = yield* nowIso;
-          const result = (yield* assignments({ threadId: input.threadId })).filter(
+          const result = (yield* assignments(
+            input.agentTask?.externalOwner === undefined ? { threadId: input.threadId } : {},
+          )).filter(
             (a) =>
               a.unitKind === input.unitKind &&
               a.unitId === input.unitId &&
@@ -421,13 +444,30 @@ const make = Effect.gen(function* () {
     ),
   );
   const recordOutcome = Effect.fn("ExperimentService.recordOutcome")(
-    (input: ExperimentOutcomeInput) =>
+    (input: ExperimentOutcomeInput, reader?: WorkReader) =>
       persist(
         "outcome",
         input.id,
         sql.withTransaction(
           Effect.gen(function* () {
-            yield* getAssignment(input.assignmentId);
+            const assignment = yield* getAssignment(input.assignmentId);
+            if (!visibleWork(assignment, reader))
+              return yield* fail("outcome", input.id, "not-found");
+            if (assignment.agentTask?.externalOwner !== undefined && reader !== undefined) {
+              if (input.source !== "self-report")
+                return yield* fail("outcome", input.id, "invalid-evidence");
+              if (input.runId !== null) {
+                const owner = assignment.agentTask.externalOwner;
+                const attempts = yield* sql<{
+                  thread_id: string;
+                }>`SELECT thread_id FROM external_agent_work WHERE session_key = ${owner.externalSessionKey} AND work_id = ${assignment.agentTask.workId}`;
+                const runs = yield* Effect.forEach(attempts, (attempt) =>
+                  projections.getThreadRecords(ThreadId.make(attempt.thread_id), ["runs"]),
+                );
+                if (!runs.some((records) => records.runs.some((run) => run.id === input.runId)))
+                  return yield* fail("outcome", input.id, "invalid-evidence");
+              }
+            }
             if (input.evidence.length === 0 && input.source !== "self-report")
               return yield* fail("outcome", input.id, "invalid-evidence");
             const previous = yield* sql<{
@@ -526,9 +566,12 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  const report = Effect.fn("ExperimentService.report")(function* (input: ExperimentReportInput) {
+  const report = Effect.fn("ExperimentService.report")(function* (
+    input: ExperimentReportInput,
+    reader?: WorkReader,
+  ) {
     const experiment = yield* get(input.experimentId);
-    const samples = yield* assignments({ experimentId: input.experimentId });
+    const samples = yield* assignments({ experimentId: input.experimentId }, reader);
     const offset = input.offset ?? 0;
     const page = samples.slice(offset, offset + Math.min(100, input.limit ?? 100));
     const entries = yield* Effect.forEach(page, (assignment) =>
@@ -592,6 +635,27 @@ const make = Effect.gen(function* () {
             root: true,
           },
         ];
+        const owner = assignment.agentTask?.externalOwner;
+        if (owner !== undefined) {
+          // External logical work can have several attempt threads. They have no
+          // artificial parent/subagent run; follow the durable ownership records.
+          const attempts = yield* persist(
+            "report",
+            assignment.id,
+            sql<{
+              thread_id: string;
+            }>`SELECT thread_id FROM external_agent_work WHERE session_key = ${owner.externalSessionKey} AND work_id = ${assignment.agentTask!.workId} ORDER BY rowid`,
+          );
+          queue.splice(
+            0,
+            queue.length,
+            ...attempts.map((attempt) => ({
+              threadId: ThreadId.make(attempt.thread_id),
+              taskId: null,
+              root: true,
+            })),
+          );
+        }
         const visited = new Set<string>();
         const seenTurns = new Set<string>();
         const intervals: { start: number; end: number }[] = [];

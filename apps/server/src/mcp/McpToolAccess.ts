@@ -19,6 +19,7 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./OrchestratorMcpService.ts";
 import {
   assertFullAccess,
+  assertExternalWorkOwner,
   assertLiveCaller,
   assertTargetWithinLimits,
   type Caller,
@@ -165,6 +166,21 @@ export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A,
     ),
   );
 
+/** External clients read their owned tasks; T3 callers retain the existing live-run gate. */
+export const readsTask = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare((params: P) =>
+    McpInvocationContext.McpInvocationContext.pipe(
+      Effect.flatMap((scope) =>
+        scope.thread === undefined && scope.client !== undefined
+          ? handle(params)
+          : requireThreadCaller.pipe(
+              Effect.andThen(writingCaller),
+              Effect.flatMap(() => handle(params)),
+            ),
+      ),
+    ),
+  );
+
 /** Changes something that belongs to no thread, such as a pending upload or a scheduled task. */
 export const writes = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) => orchestratingCaller.pipe(Effect.flatMap(() => handle(params))));
@@ -196,6 +212,12 @@ export const writesThreads = <P, A, E, R>(
           .getThreadShell(threadId)
           .pipe(Effect.mapError(unavailable));
         if (target !== null && target.deletedAt === null) {
+          yield* assertExternalWorkOwner(caller.scope, target);
+          if (target.agentTask?.externalOwner !== undefined)
+            return yield* new OrchestratorMcpFailure({
+              code: "capability_denied",
+              message: "Use the owned task lifecycle instead of modifying its backing thread.",
+            });
           yield* assertTargetWithinLimits(caller.limits, target);
         }
       }

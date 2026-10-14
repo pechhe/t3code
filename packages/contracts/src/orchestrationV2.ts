@@ -2738,6 +2738,7 @@ export type OrchestrationV2StoredEventJson = typeof OrchestrationV2StoredEventJs
 export const OrchestrationV2Command = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("thread.create"),
+    agentTask: Schema.optional(AgentTaskBinding),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
     threadId: ThreadId,

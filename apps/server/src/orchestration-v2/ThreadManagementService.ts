@@ -713,7 +713,18 @@ const make = Effect.gen(function* () {
   };
 
   const dispatch: ThreadManagementServiceShape["dispatch"] = (command) =>
-    ensureCommandTranscripts(command).pipe(
+    Effect.gen(function* () {
+      if (command.type === "message.dispatch" && command.createdBy === "agent") {
+        const shell = yield* orchestrator.getThreadShell(command.threadId);
+        if (shell?.agentTask?.externalOwner !== undefined)
+          return yield* new Orchestrator.OrchestratorCommandRejectedError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Submit a new external work attempt instead of messaging its backing thread.",
+          });
+      }
+      yield* ensureCommandTranscripts(command);
+    }).pipe(
       Effect.andThen(assertDispatchTargetEnabled(command)),
       Effect.andThen(orchestrator.dispatch(command)),
     );

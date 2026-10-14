@@ -1,8 +1,12 @@
+import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
+import { assertExternalWorkOwner, canReadExternalWork } from "./threadAccess.ts";
 import * as Hex from "effect/encoding/Hex";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
 import {
+  type AgentTaskOutcomeInput,
+  type ExperimentOutcome,
   CommandId,
   type RunId,
   isProviderAvailable,
@@ -21,6 +25,10 @@ import {
   type OrchestratorMcpCreateThreadsInput,
   type OrchestratorMcpCreateThreadsResult,
   type OrchestratorMcpCreatedThread,
+  type AgentSessionAttachInput,
+  type AgentExternalSession,
+  type AgentRolesInput,
+  type AgentRolesResult,
   OrchestratorMcpDelegateTaskInput,
   type OrchestratorMcpDelegateTaskResult,
   type OrchestratorMcpInteractionMode,
@@ -136,6 +144,18 @@ type TerminalTaskStatus = Extract<
 >;
 
 export interface OrchestratorMcpServiceShape {
+  readonly recordAgentOutcome: (
+    scope: McpInvocationScope,
+    input: AgentTaskOutcomeInput,
+  ) => Effect.Effect<ExperimentOutcome, OrchestratorMcpFailure>;
+  readonly attachAgentSession: (
+    scope: McpInvocationScope,
+    input: AgentSessionAttachInput,
+  ) => Effect.Effect<AgentExternalSession, OrchestratorMcpFailure>;
+  readonly agentRoles: (
+    scope: McpInvocationScope,
+    input: AgentRolesInput,
+  ) => Effect.Effect<AgentRolesResult, OrchestratorMcpFailure>;
   readonly capabilities: (
     scope: McpInvocationScope,
   ) => Effect.Effect<OrchestratorMcpCapabilitiesResult, OrchestratorMcpFailure>;
@@ -146,6 +166,7 @@ export interface OrchestratorMcpServiceShape {
   readonly taskStatus: (
     scope: McpInvocationScope,
     taskId: NodeId,
+    timeoutMs?: number,
   ) => Effect.Effect<OrchestratorMcpDelegateTaskResult, OrchestratorMcpFailure>;
   readonly cancelTask: (
     scope: McpInvocationScope,
@@ -1078,6 +1099,7 @@ const make = Effect.gen(function* () {
         caller.parent !== undefined && threadId === caller.parent.thread.id
           ? caller.parent
           : yield* loadTargetThread(threadId);
+      yield* assertExternalWorkOwner(scope, target.thread);
       return { ...caller, target } as const;
     });
 
@@ -1134,8 +1156,28 @@ const make = Effect.gen(function* () {
           "contextTransfers",
         ])
         .pipe(Effect.mapError(threadManagementFailure));
+      yield* assertExternalWorkOwner(scope, target.thread);
       return { parent, target, shell } as const;
     });
+
+  const external = Effect.gen(function* () {
+    const service = yield* Effect.serviceOption(ExternalWork.ExternalAgentWorkService);
+    if (Option.isNone(service))
+      return yield* failure(
+        "capability_denied",
+        "External agent work is not configured in this environment.",
+      );
+    return service.value;
+  });
+  const externalFailure = (error: ExternalWork.ExternalAgentWorkError) =>
+    failure(
+      error.reason === "conflict"
+        ? "invalid_request"
+        : error.reason === "task"
+          ? "task_not_found"
+          : "capability_denied",
+      error.message,
+    );
 
   const loadProviders = providerRegistry.getProviders;
 
@@ -1938,6 +1980,7 @@ const make = Effect.gen(function* () {
           Effect.mapError(() => failure("orchestration_error", "Unable to read server settings.")),
         );
         return {
+          environmentId: scope.environmentId,
           parentThreadId: parent?.thread.id ?? null,
           inheritedProviderInstanceId: parent?.thread.modelSelection.instanceId ?? null,
           inheritedModel: parent?.thread.modelSelection.model ?? null,
@@ -1987,8 +2030,84 @@ const make = Effect.gen(function* () {
           },
         };
       }),
+    attachAgentSession: (scope, input) =>
+      external.pipe(
+        Effect.flatMap((service) =>
+          service.attach(scope, input).pipe(Effect.mapError(externalFailure)),
+        ),
+      ),
+    recordAgentOutcome: (scope, input) =>
+      external.pipe(
+        Effect.flatMap((service) =>
+          service.recordOutcome(scope, input).pipe(Effect.mapError(externalFailure)),
+        ),
+      ),
+    agentRoles: (scope, input) =>
+      Effect.gen(function* () {
+        yield* requireCapability(scope);
+        const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+        if (Option.isNone(managed))
+          return yield* failure("capability_denied", "Managed role policy is unavailable.");
+        const { parent, limits } = yield* loadCaller(scope);
+        const session =
+          input.externalSessionKey === undefined
+            ? undefined
+            : yield* external.pipe(
+                Effect.flatMap((service) =>
+                  service
+                    .session(scope, input.externalSessionKey!)
+                    .pipe(Effect.mapError(externalFailure)),
+                ),
+              );
+        const projectId = session?.projectId ?? parent?.thread.projectId;
+        if (projectId === undefined)
+          return yield* failure(
+            "invalid_request",
+            "Attach an external agent session before discovering roles.",
+          );
+        const catalog = yield* loadProviders;
+        const eligible = yield* Effect.filter(catalog, (p) =>
+          threadManagement.isProviderInstanceEnabledForProject({
+            projectId,
+            instanceId: p.instanceId,
+          }),
+        );
+        const result = yield* managed.value
+          .roles({ providers: eligible, ceiling: limits.runtimeMode, request: input })
+          .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+        return { ...result, environmentId: scope.environmentId };
+      }),
     delegateTask: (callerScope, input) =>
       Effect.gen(function* () {
+        if (callerScope.client !== undefined && callerScope.thread === undefined) {
+          const service = yield* external;
+          const accepted = yield* service
+            .submit(callerScope, input)
+            .pipe(Effect.mapError(externalFailure));
+          if (input.mode !== "wait" || accepted.workState === "result_available") return accepted;
+          const budget = Math.min(
+            MAX_WAIT_TIMEOUT_MS,
+            Math.max(1, input.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS),
+          );
+          const waited = yield* threadManagement
+            .waitForThread({
+              threadId: accepted.childThreadId,
+              projectId:
+                accepted.agentTask?.externalOwner?.projectId ??
+                (yield* failure("invalid_request", "Missing owned task project.")),
+              timeoutMs: budget,
+            })
+            .pipe(Effect.mapError(threadManagementFailure));
+          const current = yield* service
+            .status(callerScope, accepted.taskId)
+            .pipe(Effect.mapError(externalFailure));
+          return { ...current, waitTimedOut: waited.timedOut };
+        }
+        if (input.externalSessionKey !== undefined)
+          return yield* failure(
+            "invalid_request",
+            "External session bindings require an authenticated external caller.",
+          );
         const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
         if (parent.thread.agentTask !== undefined)
           return yield* failure(
@@ -2357,13 +2476,53 @@ const make = Effect.gen(function* () {
           );
         return yield* readTask(scope, taskId, Option.isNone(waited), true);
       }),
-    taskStatus: (callerScope, taskId) =>
+    taskStatus: (callerScope, taskId, timeoutMs) =>
       Effect.gen(function* () {
+        const budget =
+          timeoutMs === undefined
+            ? undefined
+            : Math.min(MAX_WAIT_TIMEOUT_MS, Math.max(1, timeoutMs));
+        if (callerScope.client !== undefined && callerScope.thread === undefined) {
+          const service = yield* external;
+          const current = yield* service
+            .status(callerScope, taskId)
+            .pipe(Effect.mapError(externalFailure));
+          if (
+            budget === undefined ||
+            current.workState === "result_available" ||
+            current.launchState !== "accepted"
+          )
+            return current;
+          const waited = yield* threadManagement
+            .waitForThread({
+              threadId: current.childThreadId,
+              projectId:
+                current.agentTask?.externalOwner?.projectId ??
+                (yield* failure("invalid_request", "Missing owned task project.")),
+              timeoutMs: budget,
+            })
+            .pipe(Effect.mapError(threadManagementFailure));
+          const result = yield* service
+            .status(callerScope, taskId)
+            .pipe(Effect.mapError(externalFailure));
+          return { ...result, waitTimedOut: waited.timedOut };
+        }
         const scope = yield* requireThreadScope(callerScope, "task_status");
+        if (budget !== undefined) {
+          const waited = yield* waitForTask(scope, taskId, budget);
+          if (Option.isSome(waited)) return waited.value;
+          return yield* readTask(scope, taskId, true, true);
+        }
         return yield* readTask(scope, taskId, false, true);
       }),
     cancelTask: (callerScope, input) =>
       Effect.gen(function* () {
+        if (callerScope.client !== undefined && callerScope.thread === undefined)
+          return yield* external.pipe(
+            Effect.flatMap((service) =>
+              service.cancel(callerScope, input).pipe(Effect.mapError(externalFailure)),
+            ),
+          );
         const scope = yield* requireThreadScope(callerScope, "task_cancel");
         const current = yield* readTask(scope, input.taskId);
         const key = yield* requestKey(input.clientRequestId);
@@ -2681,6 +2840,7 @@ const make = Effect.gen(function* () {
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
         const filtered = projectThreads
+          .filter((thread) => canReadExternalWork(scope, thread))
           .filter(
             (thread) =>
               statuses === null || statuses.has(thread.activityRunStatus ?? thread.status),
@@ -2807,6 +2967,11 @@ const make = Effect.gen(function* () {
     sendToThread: (scope, input) =>
       Effect.gen(function* () {
         const { parent, limits, target } = yield* loadScopedThread(scope, input.threadId);
+        if (target.thread.agentTask?.externalOwner !== undefined)
+          return yield* failure(
+            "invalid_request",
+            "Submit a new external work attempt instead of sending to its backing thread.",
+          );
         yield* assertLiveCallerForOtherThread(scope, parent, target);
         yield* resolveRuntimeMode(limits.runtimeMode, target.thread.runtimeMode);
         yield* resolveInteractionMode(limits.interactionMode, target.thread.interactionMode);
