@@ -14,8 +14,10 @@
 # the latest tag even when `rollover` already contains it (the first install).
 #
 # A rebase conflict or a failed check never gets resolved here: the branch is
-# put back where it was, the tag is remembered as failed, and a notification
-# asks for a hand rebase. The next newer tag is tried again.
+# put back where it was and the tag is remembered as failed. If
+# $STATE/rebase-webhook-url holds a T3 scheduled-task webhook URL, the tag is
+# posted there and that task runs the `t3-fork-rebase` skill; otherwise a
+# notification asks for a hand rebase. The next newer tag is tried again.
 #
 # The script works in its own git clone of the fork ($STATE/repo), never in the
 # developer's checkout: that one is a jj repository whose workspaces leave git
@@ -150,6 +152,15 @@ rebuild() {
 
   local previous_head
   previous_head="$(git rev-parse HEAD)"
+  # A rebase conflict or a failed fork check needs judgement: hand it to the agent.
+  hand_off() {
+    local url_file="$STATE/rebase-webhook-url"
+    [ -s "$url_file" ] || return 0
+    curl -fsS --max-time 30 -X POST -H 'content-type: application/json' \
+      -d "{\"tag\":\"$tag\",\"reason\":\"$1\"}" "$(cat "$url_file")" >/dev/null &&
+      log "handed $tag to the t3-fork-rebase agent" ||
+      notify "Could not reach the t3-fork-rebase webhook for $tag"
+  }
   give_up() {
     git rebase --abort 2>/dev/null || true
     git reset --quiet --hard "$previous_head"
@@ -159,6 +170,7 @@ rebuild() {
   log "rebasing $BRANCH onto $tag"
   if ! git rebase --quiet "$tag"; then
     give_up "Rebase onto $tag conflicts, rebase by hand"
+    hand_off conflict
     return 0
   fi
 
@@ -178,6 +190,7 @@ rebuild() {
         --build-version "$version" --output-dir "$STATE/build" --keep-stage
   ); then
     give_up "Fork checks or build on $tag failed"
+    hand_off checks
     return 0
   fi
 
