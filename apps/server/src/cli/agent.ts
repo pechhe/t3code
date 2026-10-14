@@ -8,6 +8,11 @@ import {
   AgentSessionAttachInput,
   AgentTaskOutcomeInput,
   EnvironmentId,
+  ExperimentOutcomeInput,
+  ExperimentWorkAllocationInput,
+  ExperimentWorkEvidenceInput,
+  ExperimentWorkEnrollInput,
+  ExperimentWorkReadInput,
   OrchestratorMcpDelegateTaskInput,
   OrchestratorMcpTaskCancelInput,
   OrchestratorMcpTaskStatusInput,
@@ -86,6 +91,20 @@ export const decodeAgentRequest = <A, S extends Schema.ConstraintDecoder<A>>(
 ) =>
   Schema.decodeUnknownEffect(schema)(value).pipe(
     Effect.mapError(() => userError("Request JSON does not match the command schema.")),
+  );
+
+export const callAgentTool = (
+  client: Pick<AgentCliClient.AgentCliClient["Service"], "call">,
+  endpoint: string,
+  tool: string,
+  schema: Schema.ConstraintDecoder<unknown>,
+  value: unknown,
+  normalize: (args: unknown) => unknown = (args) => args,
+) =>
+  decodeAgentRequest(schema, value).pipe(
+    Effect.flatMap((args) =>
+      client.call(endpoint, tool, normalize(args) as Readonly<Record<string, unknown>>),
+    ),
   );
 
 const jsonOutput = (value: unknown) =>
@@ -168,7 +187,12 @@ const identityCommand = Command.make("identity", {
   ),
 );
 
-const actionCommand = (name: string, tool: string, schema: Schema.ConstraintDecoder<unknown>) =>
+const actionCommand = (
+  name: string,
+  tool: string,
+  schema: Schema.ConstraintDecoder<unknown>,
+  normalize: (args: unknown) => unknown = (args) => args,
+) =>
   Command.make(name, {
     endpoint: endpointFlag,
     credentialsDir: credentialsDirFlag,
@@ -192,9 +216,9 @@ const actionCommand = (name: string, tool: string, schema: Schema.ConstraintDeco
               environmentId: identity.environmentId,
             });
           }
-          yield* client
-            .call(flags.endpoint, tool, args as Readonly<Record<string, unknown>>)
-            .pipe(Effect.flatMap(jsonOutput));
+          yield* callAgentTool(client, flags.endpoint, tool, schema, args, normalize).pipe(
+            Effect.flatMap(jsonOutput),
+          );
         }),
       ),
     ),
@@ -214,6 +238,24 @@ const outcomeCommand = actionCommand("outcome", "agent_task_outcome", AgentTaskO
   Command.withDescription(
     "Record a self-reported outcome using an assignmentId returned by submit.",
   ),
+);
+const workEnrollCommand = actionCommand("work-enroll", "t3_work_enroll", ExperimentWorkEnrollInput);
+const workAllocateCommand = actionCommand(
+  "work-allocate",
+  "t3_work_allocate",
+  ExperimentWorkAllocationInput,
+);
+const workEvidenceCommand = actionCommand(
+  "work-evidence",
+  "t3_work_evidence",
+  ExperimentWorkEvidenceInput,
+);
+const workReadCommand = actionCommand("work-read", "t3_work_read", ExperimentWorkReadInput);
+const workOutcomeCommand = actionCommand(
+  "work-outcome",
+  "t3_work_outcome",
+  ExperimentOutcomeInput,
+  (value) => ({ ...(value as Record<string, unknown>), source: "self-report" }),
 );
 
 const statusCommand = Command.make("status", {
@@ -325,6 +367,11 @@ export const agentCommand = Command.make("agent").pipe(
     rolesCommand,
     submitCommand,
     outcomeCommand,
+    workEnrollCommand,
+    workAllocateCommand,
+    workEvidenceCommand,
+    workReadCommand,
+    workOutcomeCommand,
     statusCommand,
     waitCommand,
     cancelCommand,

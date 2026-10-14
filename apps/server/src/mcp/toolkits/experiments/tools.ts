@@ -9,6 +9,14 @@ import {
   ExperimentOutcomeInput,
   ExperimentOutcome,
   ExperimentHistoricalInput,
+  ExperimentWorkEnrollInput,
+  ExperimentWorkUnit,
+  ExperimentWorkAllocationInput,
+  ExperimentWorkAllocation,
+  ExperimentWorkEvidenceInput,
+  ExperimentWorkEvidence,
+  ExperimentWorkReadInput,
+  ExperimentWorkReport,
   OrchestratorMcpFailure,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
@@ -16,11 +24,21 @@ import { Tool, Toolkit } from "effect/ai";
 import * as Experiments from "../../../experiments/ExperimentService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
+import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 const shared = {
   failure: OrchestratorMcpFailure,
   failureMode: "return" as const,
   dependencies: [
     Experiments.ExperimentService,
+    ThreadManagement.ThreadManagementService,
+    McpInvocationContext.McpInvocationContext,
+  ],
+};
+const workShared = {
+  failure: OrchestratorMcpFailure,
+  failureMode: "return" as const,
+  dependencies: [
+    OrchestratorMcpService.OrchestratorMcpService,
     ThreadManagement.ThreadManagementService,
     McpInvocationContext.McpInvocationContext,
   ],
@@ -85,6 +103,47 @@ const import_historical = Tool.make("t3_experiments_import_historical", {
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
+const work_enroll = Tool.make("t3_work_enroll", {
+  ...workShared,
+  description: "Register a non-UI work unit for durable experiment allocation and evidence.",
+  parameters: ExperimentWorkEnrollInput,
+  success: ExperimentWorkUnit,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const work_allocate = Tool.make("t3_work_allocate", {
+  ...workShared,
+  description: "Record the allocation choice and any deviation for an enrolled work unit.",
+  parameters: ExperimentWorkAllocationInput,
+  success: ExperimentWorkAllocation,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const work_evidence = Tool.make("t3_work_evidence", {
+  ...workShared,
+  description: "Record evidence and usage attribution for an enrolled work unit.",
+  parameters: ExperimentWorkEvidenceInput,
+  success: ExperimentWorkEvidence,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const work_read = Tool.make("t3_work_read", {
+  ...workShared,
+  description: "Read the durable work report, including evidence and usage coverage.",
+  parameters: ExperimentWorkReadInput,
+  success: ExperimentWorkReport,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
+const work_outcome = Tool.make("t3_work_outcome", {
+  ...workShared,
+  description:
+    "Record a self-reported outcome for an owned work assignment. Evidence remains self-reported.",
+  parameters: ExperimentOutcomeInput,
+  success: ExperimentOutcome,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
 export const ExperimentsToolkit = Toolkit.make(
   create,
   transition,
@@ -93,4 +152,9 @@ export const ExperimentsToolkit = Toolkit.make(
   report,
   record_outcome,
   import_historical,
+  work_enroll,
+  work_allocate,
+  work_evidence,
+  work_read,
+  work_outcome,
 );

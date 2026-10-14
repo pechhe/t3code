@@ -884,7 +884,9 @@ export const layer = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
-  toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer),
+  toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(
+    Layer.provide(OrchestratorMcpService.layer),
+  ),
   layerRolloverToolkitRegistration,
   layerPullRequestsToolkit,
   layerDeviceToolkit,

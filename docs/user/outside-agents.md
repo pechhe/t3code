@@ -131,3 +131,57 @@ Revoking the sign-in in Connections, or allowing it to expire, stops its owned
 work and denies further access. `t3 agent logout` removes the local credential;
 it does not revoke the server grant. After expiry, log out and sign in again.
 A new sign-in has a new owner and cannot adopt the old sign-in's tasks.
+
+
+## Enroll work before choosing how to execute it
+
+An explicitly authorised orchestration-policy experiment compares `inline-first`
+with `delegate-earlier`. Creating a draft or installing this code does not start
+one. Both arms retain the same parent selection and effort, central agent policy,
+review and verification revisions, and concurrency limit. Running worker-model
+trials cannot overlap this treatment in the same eligible project scope; historical
+reviewer trials and observational imports keep their original route and provenance.
+
+Use `t3 agent work-enroll --endpoint <server> --request-file <json>` before choosing
+inline or delegated execution. Supply `workId`, `description`, `taskCategory`,
+the attached `externalSessionKey`, and `reportedOrchestratorSelection` (including
+its effort option). Set `alreadyStarted` for work that has begun: it is excluded
+from prospective assignment. `sourceRevision` can pin the source for child work.
+The returned unit includes its `assignedPolicies` and controls, immutable policy
+snapshot and assignment IDs. Repeating the same request returns that original
+assignment across reconnects or retries; changing its work description or source
+under the same identity is refused.
+
+Record the choice with `work-allocate`: `id`, `workUnitId`, `allocation` (`inline`
+or `delegated`), a practical `reason`, and nullable `deviationReason`. A changed
+allocation or exception to the assigned policy needs a reason. For delegated work,
+include the unit ID as `agentTask.workUnitId` in `submit`; the existing task service
+pins that policy, validates the exact owner/workspace/source and restricts concurrent
+managed tasks. Inline implementation needs no implementation task or artificial child. Optional
+advisor and independent reviewer tasks can link to the same unit without changing
+its implementation allocation; their usage remains part of the total. Advice can
+inform allocation after enrollment, and review follows an allocation decision.
+
+`work-evidence` records parent attribution and intervals for briefing, startup,
+wait, execution, inspection, rework, verification or advice. External parent usage
+must have a stable `externalSegmentId`; it remains a self-report. In a T3 parent,
+whole-turn attribution names its own `threadId` and `providerTurnId`: the server
+uses provider counters and refuses reuse of that turn for another unit. If a turn
+interleaves Tickets, enroll a coherent wave/session or mark the attribution partial
+rather than charging the full turn to each Ticket. Child telemetry comes from the
+linked tasks automatically, including their attempts and continuations.
+
+`work-outcome` records an outcome against an enrollment's assignment ID without a
+task ID. CLI and MCP model claims remain `self-report`; they cannot establish
+independent acceptance. Evidence-linked human or independent acceptance uses the
+existing trusted experiment outcome service. Failures, cancellations, rework,
+constraint misses and later validated defects remain attached to the assigned unit.
+
+`work-read` returns parent/child coverage, observed usage and total-usage missingness,
+requested/assigned/effective child bindings, actual allocation and deviations.
+Parallel activity is unioned rather than summed as elapsed completion; observed
+overlap does not prove useful work. Missing parent counters are not zero. Partial
+coverage leaves complete total token counts null, while retaining observed subtotals.
+Experiment reports preserve the full intention-to-treat denominator and exclusions
+when detailed work is paginated. These are descriptive samples, not significance,
+subscription charges or an automatically promoted winner.
