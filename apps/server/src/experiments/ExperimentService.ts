@@ -799,6 +799,23 @@ const make = Effect.gen(function* () {
     const unit = yield* getWork(input.workUnitId);
     if (ownerKey(unit.owner) !== ownerKey(input.owner))
       return yield* fail("dispatch", unit.id, "not-found");
+    if (input.role === "advisor") {
+      for (const assignmentId of unit.assignmentIds) {
+        const rows = yield* persist(
+          "dispatch",
+          unit.id,
+          sql<{
+            payload_json: string;
+          }>`SELECT payload_json FROM experiment_outcomes WHERE assignment_id = ${assignmentId}`,
+        );
+        for (const row of rows) {
+          const outcome = yield* persist("dispatch", unit.id, decodeOutcome(row.payload_json));
+          if (outcome.kind === "verified-completion" || outcome.kind === "cancellation")
+            return yield* fail("dispatch", unit.id, "invalid-evidence");
+        }
+      }
+    }
+
     const rows = yield* persist(
       "dispatch",
       unit.id,

@@ -4587,6 +4587,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) =>
     Effect.gen(function* () {
       let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
+      if (command.advisorSourceRevision !== undefined)
+        projection = {
+          ...projection,
+          thread: { ...projection.thread, advisorSourceRevision: command.advisorSourceRevision },
+        };
       if (command.manualContinuationOfRunId !== undefined) {
         const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
         const limited = latestRootProviderFailure(source ?? null, projection.turnItems);
@@ -5090,30 +5095,35 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         const checkpointScope =
           queueBehindRun.status === "preparing" || worktreeMissingRun !== undefined
             ? null
-            : yield* runtimePolicy.resolve({ thread: projection.thread, modelSelection }).pipe(
-                Effect.flatMap((resolvedRuntimePolicy) =>
-                  checkpointService.prepareRootRunScope({
-                    threadId: command.threadId,
-                    runId,
-                    rootNodeId,
-                    providerThreadId: queuedProviderThread.id,
-                    cwd:
-                      resolvedRuntimePolicy.cwd ??
-                      selectedProviderSession?.cwd ??
-                      projection.thread.worktreePath ??
-                      process.cwd(),
-                    createdAt: now,
-                  }),
-                ),
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestratorDispatchError({
-                      commandId: command.commandId,
-                      commandType: command.type,
-                      cause,
+            : yield* runtimePolicy
+                .resolve({
+                  thread: projection.thread,
+                  modelSelection,
+                })
+                .pipe(
+                  Effect.flatMap((resolvedRuntimePolicy) =>
+                    checkpointService.prepareRootRunScope({
+                      threadId: command.threadId,
+                      runId,
+                      rootNodeId,
+                      providerThreadId: queuedProviderThread.id,
+                      cwd:
+                        resolvedRuntimePolicy.cwd ??
+                        selectedProviderSession?.cwd ??
+                        projection.thread.worktreePath ??
+                        process.cwd(),
+                      createdAt: now,
                     }),
-                ),
-              );
+                  ),
+                  Effect.mapError(
+                    (cause) =>
+                      new OrchestratorDispatchError({
+                        commandId: command.commandId,
+                        commandType: command.type,
+                        cause,
+                      }),
+                  ),
+                );
         const run: OrchestrationV2Run = {
           id: runId,
           threadId: command.threadId,
@@ -10990,7 +11000,33 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             threadId: command.threadId,
           });
         }
+        if (command.advisorSourceRevision !== undefined && thread.agentTask?.role !== "advisor")
+          return yield* new OrchestratorDispatchError({
+            commandId: command.commandId,
+            commandType: command.type,
+            cause: "Only advisor conversations accept a consultation source revision.",
+          });
         yield* dispatchMessage(command, events, effects);
+        if (command.advisorSourceRevision !== undefined) {
+          const pending = yield* Ref.get(events);
+          const updated =
+            pending
+              .flatMap((event) =>
+                event.type === "thread.metadata-updated" && event.payload.id === thread.id
+                  ? [event.payload]
+                  : [],
+              )
+              .at(-1) ?? thread;
+          yield* emit(
+            events,
+            command,
+          )({
+            type: "thread.metadata-updated",
+            threadId: thread.id,
+            occurredAt: updated.updatedAt,
+            payload: { ...updated, advisorSourceRevision: command.advisorSourceRevision },
+          });
+        }
         yield* recordSubagentFollowup(command, events).pipe(mapDispatchError(command));
         break;
       }

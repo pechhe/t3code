@@ -1105,3 +1105,47 @@ it.effect(
       expect(report.independentlySupportedAcceptance).toBe(true);
     }).pipe(Effect.provide(layer)),
 );
+
+it.effect.each(["verified-completion", "cancellation"] as const)(
+  "ends advisor reuse after a recorded %s outcome while permitting final review",
+  (kind) =>
+    Effect.gen(function* () {
+      yield* savePolicySnapshot;
+      const service = yield* Experiments.ExperimentService;
+      yield* startPolicyExperiment(service);
+      const owner = internalOwner();
+      const unit = yield* enroll(service, owner, `work:advisor-close:${kind}`);
+      yield* service.allocateWork(
+        {
+          id: `allocation:${kind}`,
+          workUnitId: unit.id,
+          allocation: "inline",
+          reason: "Keep coupled work inline",
+          deviationReason: "Owner chose inline work",
+        },
+        ownerReader(owner),
+      );
+      expect(
+        (yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role: "advisor" })).id,
+      ).toBe(unit.id);
+      yield* service.recordOutcome({
+        id: `close:${kind}`,
+        assignmentId: unit.assignmentIds[0]!,
+        runId: null,
+        kind,
+        source: "human-review",
+        evidence: ["owner:closure"],
+        note: "Work ended",
+        actualModelSelection: selection,
+        fallbackReason: null,
+      });
+      expect(
+        (yield* service
+          .workDispatchPolicy({ workUnitId: unit.id, owner, role: "advisor" })
+          .pipe(Effect.flip)).reason,
+      ).toBe("invalid-evidence");
+      expect(
+        (yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role: "reviewer" })).id,
+      ).toBe(unit.id);
+    }).pipe(Effect.provide(layer)),
+);

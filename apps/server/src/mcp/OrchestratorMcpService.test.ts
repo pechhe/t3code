@@ -1,4 +1,5 @@
 import * as Experiments from "../experiments/ExperimentService.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ExternalAgentWork from "../agents/ExternalAgentWorkService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
@@ -282,9 +283,15 @@ describe("OrchestratorMcpService", () => {
           ] as const;
         }).pipe(
           Effect.provide(
-            Layer.merge(
+            Layer.mergeAll(
               layerOrchestratorService.pipe(Layer.provide(layerDependencies)),
               externalWorkLayer,
+              Layer.mock(ManagedAgent.ManagedAgentService)({
+                exclusive: () =>
+                  Effect.die(
+                    "External cancellation must not acquire the managed permit before the external permit",
+                  ),
+              }),
             ),
           ),
         );
@@ -378,7 +385,7 @@ describe("OrchestratorMcpService", () => {
       assert.equal(outcomes[0], "task_not_found");
       assert.equal(outcomes[1], "task_not_found");
       assert.equal(outcomes[2], "invalid_request");
-      assert.include(outcomes[3], "Submit a new external work attempt");
+      assert.include(outcomes[3], "advisorFollowup");
       assert.isFalse(yield* Ref.get(sent));
     }),
   );

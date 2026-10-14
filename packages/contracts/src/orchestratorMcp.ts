@@ -179,6 +179,16 @@ export type OrchestratorMcpTerminalDelegatedTaskStatus =
 export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   externalSessionKey: Schema.optional(TrimmedNonEmptyString),
   agentTask: Schema.optional(AgentTaskRequest),
+  advisorFollowup: Schema.optional(
+    Schema.Struct({
+      taskId: NodeId,
+      sourceRevision: TrimmedNonEmptyString,
+      changes: TrimmedNonEmptyString.check(Schema.isMaxLength(10_000)),
+    }).annotate({
+      description:
+        "Continue an owned managed advisor in its existing conversation. Supply the current source revision and changes since the previous consultation; do not supply agentTask, target, isolation or mode overrides. task is the new question. Close it with task_cancel when the work ends. Reviewers always use fresh delegation.",
+    }),
+  ),
   offPolicyReason: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(500)).annotate({
       description:

@@ -169,7 +169,14 @@ export const layerFromProjectStore: Layer.Layer<
             });
           yield* managed.value
             .validate({
-              binding: input.thread.agentTask,
+              binding:
+                input.thread.agentTask.role === "advisor" &&
+                input.thread.advisorSourceRevision !== undefined
+                  ? {
+                      ...input.thread.agentTask,
+                      sourceRevision: input.thread.advisorSourceRevision,
+                    }
+                  : input.thread.agentTask,
               selection: input.modelSelection,
               providers: [yield* instance.snapshot.getSnapshot],
               ceiling: input.thread.runtimeMode,

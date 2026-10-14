@@ -265,6 +265,47 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
       assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: false });
     }),
   );
+  it.effect(
+    "validates each advisor consultation at its current revision while retaining the initial binding",
+    () =>
+      Effect.gen(function* () {
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const now = yield* DateTime.now;
+        const initial = { ...managedBinding, role: "advisor" as const };
+        let validated: AgentTaskBinding | undefined;
+        const result = yield* policy
+          .resolve({
+            thread: {
+              ...makeThread({
+                now,
+                worktreePath: initial.workspacePath,
+                runtimeMode: "full-access",
+              }),
+              agentTask: initial,
+              advisorSourceRevision: "next-source",
+            },
+            modelSelection,
+          })
+          .pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                ServerSettings.layerTest(),
+                Layer.mock(ManagedAgent.ManagedAgentService)({
+                  validate: (input) =>
+                    Effect.sync(() => {
+                      validated = input.binding;
+                    }),
+                }),
+              ),
+            ),
+          );
+        assert.equal(validated?.sourceRevision, "next-source");
+        assert.equal(initial.sourceRevision, "pinned-source");
+        assert.deepEqual(validated?.effective, initial.effective);
+        assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: false });
+      }),
+  );
+
   it.effect("requires settings authority and rejects a current project account revocation", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;

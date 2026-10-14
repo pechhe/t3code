@@ -373,6 +373,7 @@ export const OrchestrationV2RolloverHold = Schema.Union([
 export type OrchestrationV2RolloverHold = typeof OrchestrationV2RolloverHold.Type;
 
 export const OrchestrationV2AppThread = Schema.Struct({
+  advisorSourceRevision: Schema.optional(TrimmedNonEmptyString),
   agentTask: Schema.optional(AgentTaskBinding),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -1944,6 +1945,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  advisorSourceRevision: Schema.optional(TrimmedNonEmptyString),
   agentTask: Schema.optional(AgentTaskBinding),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -2963,6 +2965,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("message.dispatch"),
+    advisorSourceRevision: Schema.optional(TrimmedNonEmptyString),
     notification: Schema.optional(OrchestrationV2Notification),
     ...OrchestrationV2CreationFields,
     scheduledTaskId: Schema.optional(ScheduledTaskId),
