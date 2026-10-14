@@ -36,9 +36,13 @@ export class AgentCliError extends Schema.TaggedError<AgentCliError>()("AgentCli
     "environment-changed",
   ]),
   cause: Schema.optional(Schema.Defect()),
+  /** The server's own refusal (code and message), already bounded and token-redacted. */
+  detail: Schema.optional(Schema.String),
 }) {
   override get message(): string {
-    return `T3 agent client failed (${this.reason}).`;
+    return this.detail === undefined
+      ? `T3 agent client failed (${this.reason}).`
+      : `T3 agent client failed (${this.reason}): ${this.detail}`;
   }
 }
 const Credential = Schema.Struct({
@@ -88,36 +92,55 @@ const decodeMcpResult = Schema.decodeUnknownEffect(
 );
 const decodeJsonResult = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeCapabilities = Schema.decodeUnknownEffect(OrchestratorMcpCapabilitiesResult);
-const decodeResult = Effect.fn(function* (raw: unknown) {
+const MAX_REFUSAL_DETAIL = 500;
+/**
+ * A refusal the caller can act on: the server's closed-set code and its message. The token
+ * is this CLI's own, so redacting it is exact even if a server echoed it.
+ */
+const refusal = (
+  failure: { readonly code?: unknown; readonly message?: unknown },
+  token: string,
+) => {
+  const code = typeof failure.code === "string" ? failure.code : "unknown";
+  const message = typeof failure.message === "string" ? failure.message : "";
+  const detail = (message === "" ? code : `${code}: ${message}`)
+    .replaceAll(token, "[redacted]")
+    .slice(0, MAX_REFUSAL_DETAIL);
+  return new AgentCliError({ reason: "request", detail });
+};
+const isFailure = (
+  value: unknown,
+): value is { readonly code?: unknown; readonly message?: unknown } =>
+  typeof value === "object" &&
+  value !== null &&
+  "_tag" in value &&
+  value._tag === "OrchestratorMcpFailure";
+const decodeResult = Effect.fn(function* (raw: unknown, token: string) {
   const result = yield* decodeMcpResult(raw).pipe(
     Effect.mapError((cause) => new AgentCliError({ reason: "request", cause })),
   );
-  if (result.isError === true) return yield* new AgentCliError({ reason: "request" });
-  if (result.structuredContent !== undefined) {
-    if (
-      typeof result.structuredContent === "object" &&
-      result.structuredContent !== null &&
-      "_tag" in result.structuredContent &&
-      result.structuredContent._tag === "OrchestratorMcpFailure"
-    )
-      return yield* new AgentCliError({ reason: "request" });
-    return result.structuredContent;
-  }
   const text =
     result.content
       ?.filter((part) => part.type === "text")
       .map((part) => part.text ?? "")
       .join("") ?? "";
+  if (result.structuredContent !== undefined) {
+    if (isFailure(result.structuredContent)) return yield* refusal(result.structuredContent, token);
+    if (result.isError === true) return yield* new AgentCliError({ reason: "request" });
+    return result.structuredContent;
+  }
   const parsed = yield* decodeJsonResult(text).pipe(
-    Effect.mapError((cause) => new AgentCliError({ reason: "request", cause })),
+    Effect.mapError((cause) =>
+      result.isError === true && text !== ""
+        ? new AgentCliError({
+            reason: "request",
+            detail: text.replaceAll(token, "[redacted]").slice(0, MAX_REFUSAL_DETAIL),
+          })
+        : new AgentCliError({ reason: "request", cause }),
+    ),
   );
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "_tag" in parsed &&
-    parsed._tag === "OrchestratorMcpFailure"
-  )
-    return yield* new AgentCliError({ reason: "request" });
+  if (isFailure(parsed)) return yield* refusal(parsed, token);
+  if (result.isError === true) return yield* new AgentCliError({ reason: "request" });
   return parsed;
 });
 
@@ -177,7 +200,7 @@ const make = Effect.gen(function* () {
       tool,
       arguments: args,
     }).pipe(Effect.mapError((cause) => new AgentCliError({ reason: "request", cause })));
-    return yield* decodeResult(result);
+    return yield* decodeResult(result, credential.accessToken);
   });
   const capabilities = Effect.fn(function* (endpoint: string, token: string) {
     const result = yield* callAcpMcpTool({
@@ -186,7 +209,7 @@ const make = Effect.gen(function* () {
       tool: "orchestrator_capabilities",
       arguments: {},
     }).pipe(Effect.mapError((cause) => new AgentCliError({ reason: "request", cause })));
-    const decoded = yield* decodeCapabilities(yield* decodeResult(result)).pipe(
+    const decoded = yield* decodeCapabilities(yield* decodeResult(result, token)).pipe(
       Effect.mapError((cause) => new AgentCliError({ reason: "unsupported-server", cause })),
     );
     if (decoded.environmentId === undefined)

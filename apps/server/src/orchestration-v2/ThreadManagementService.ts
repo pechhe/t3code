@@ -667,7 +667,13 @@ const make = Effect.gen(function* () {
 
   const dispatch: ThreadManagementServiceShape["dispatch"] = (command) =>
     Effect.gen(function* () {
-      if (command.type === "message.dispatch" && command.createdBy === "agent") {
+      // `defer_start` is the launch protocol's own first message; an external work thread
+      // accepts that and no other agent message.
+      if (
+        command.type === "message.dispatch" &&
+        command.createdBy === "agent" &&
+        command.dispatchMode.type !== "defer_start"
+      ) {
         const shell = yield* orchestrator.getThreadShell(command.threadId);
         if (shell?.agentTask?.externalOwner !== undefined)
           return yield* new Orchestrator.OrchestratorCommandRejectedError({

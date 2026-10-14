@@ -666,6 +666,11 @@ const make = Effect.gen(function* () {
           }),
         );
         if (launched._tag === "Failure") {
+          // The caller only sees "launch"; the cause stays in the server log for the operator.
+          yield* Effect.logWarning("External agent work launch failed before acceptance.", {
+            taskId,
+            cause: launched.failure,
+          });
           yield* storage(
             sql`UPDATE external_agent_work SET state = 'launch-unknown', failure_reason = 'launch-response-unavailable-retry-same-attempt' WHERE task_id = ${taskId}`,
           );

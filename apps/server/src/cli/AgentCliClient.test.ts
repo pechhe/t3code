@@ -299,13 +299,13 @@ it.effect("does not persist credentials when OAuth authorization fails", () => {
   );
 });
 
-it.effect("treats returned MCP failures as safe CLI errors", () => {
+it.effect("surfaces a returned MCP refusal with its code and redacts the CLI's own token", () => {
   stubRemote({
     toolResult: {
       structuredContent: {
         _tag: "OrchestratorMcpFailure",
         code: "capability_denied",
-        message: accessToken,
+        message: `Managed agent dispatch refused (selection). ${accessToken}`,
       },
       content: [],
     },
@@ -317,7 +317,29 @@ it.effect("treats returned MCP failures as safe CLI errors", () => {
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
         expect(result.failure.reason).toBe("request");
+        expect(result.failure.message).toContain("capability_denied");
+        expect(result.failure.message).toContain("Managed agent dispatch refused (selection)");
         expect(result.failure.message).not.toContain(accessToken);
+      }
+    }),
+  );
+});
+
+it.effect("bounds a refusal sent as plain error text", () => {
+  stubRemote({
+    toolResult: {
+      isError: true,
+      content: [{ type: "text", text: `bad ${accessToken} ${"x".repeat(2000)}` }],
+    },
+  });
+  return withClient(({ client }) =>
+    Effect.gen(function* () {
+      yield* client.login({ endpoint, showAuthorization: authorize() });
+      const result = yield* client.call(endpoint, "delegate_task", {}).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure.message).not.toContain(accessToken);
+        expect(result.failure.message.length).toBeLessThan(700);
       }
     }),
   );

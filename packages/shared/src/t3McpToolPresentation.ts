@@ -126,6 +126,15 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "capabilities",
   ),
   delegate_task: tool(["Delegate", "Delegating", "Delegated", "a child task"], "delegate"),
+  agent_roles: tool(["Get", "Getting", "Got", "agent role eligibility"], "capabilities"),
+  agent_session_attach: tool(
+    ["Attach", "Attaching", "Attached", "an external agent session"],
+    "delegate",
+  ),
+  agent_task_outcome: tool(
+    ["Record", "Recording", "Recorded", "a delegated task outcome"],
+    "task-status",
+  ),
   task_status: tool(["Get", "Getting", "Got", "delegated task status"], "task-status"),
   task_cancel: tool(
     ["Cancel", "Canceling", "Requested cancellation of", "delegated task"],

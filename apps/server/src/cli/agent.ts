@@ -50,6 +50,7 @@ const decodeEvidenceStatus = Schema.decodeUnknownSync(
 const userError = (userMessage: string, cause: unknown = userMessage) =>
   new CliError.UserError({ cause, userMessage });
 const isAgentCliError = Schema.is(AgentCliClient.AgentCliError);
+const isUserError = Schema.is(CliError.UserError);
 
 export const readAgentRequest = <E, F>(
   source: string,
@@ -125,6 +126,19 @@ const credentialsLayer = (directory: Option.Option<string>) => {
   return Effect.succeed(ServerSecretStore.layerAtDirectory(path));
 };
 
+/**
+ * Request-parsing failures are already user-facing; masking them as a credential problem
+ * would send the caller to the wrong fix.
+ */
+export const toAgentCommandError = (error: unknown) =>
+  isUserError(error)
+    ? error
+    : userError(
+        isAgentCliError(error)
+          ? error.message
+          : "T3 agent command failed. Check the endpoint and local credentials.",
+      );
+
 const withClient = <A, E>(
   directory: Option.Option<string>,
   run: (client: AgentCliClient.AgentCliClient["Service"]) => Effect.Effect<A, E>,
@@ -135,15 +149,7 @@ const withClient = <A, E>(
       const client = yield* AgentCliClient.AgentCliClient;
       return yield* run(client);
     }).pipe(Effect.provide(Layer.provideMerge(AgentCliClient.layer, layer)));
-  }).pipe(
-    Effect.mapError((error) =>
-      userError(
-        isAgentCliError(error)
-          ? error.message
-          : "T3 agent command failed. Check the endpoint and local credentials.",
-      ),
-    ),
-  );
+  }).pipe(Effect.mapError(toAgentCommandError));
 
 const loginCommand = Command.make("login", {
   endpoint: endpointFlag,

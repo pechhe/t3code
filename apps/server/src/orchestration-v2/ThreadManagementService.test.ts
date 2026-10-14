@@ -573,9 +573,15 @@ it.effect("blocks agent messages to external work backing threads before dispatc
 
     yield* threads.dispatch(message(externalThreadId, "user", "human"));
     yield* threads.dispatch(message(ordinaryThreadId, "agent", "ordinary-agent"));
+    // The launch of the work itself delivers its first message through `defer_start`.
+    yield* threads.dispatch({
+      ...message(externalThreadId, "agent", "launch"),
+      dispatchMode: { type: "defer_start" as const, workspaceStrategy: { type: "root" as const } },
+    });
     expect(dispatched.map((command) => [command.threadId, command.createdBy])).toEqual([
       [externalThreadId, "user"],
       [ordinaryThreadId, "agent"],
+      [externalThreadId, "agent"],
     ]);
   }).pipe(Effect.provide(layerTest));
 });
