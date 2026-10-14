@@ -66,3 +66,4 @@ export * from "./worktreeSetup.ts";
 export * from "./secretRequest.ts";
 export * from "./clientRpcPermissions.ts";
 export * from "./experiments.ts";
+export * from "./agentPolicy.ts";

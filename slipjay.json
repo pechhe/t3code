@@ -14,7 +14,8 @@
         "test",
         "run",
         "apps/server/src/mcp/OrchestratorMcpService.test.ts",
-        "apps/server/src/experiments/ExperimentService.test.ts"
+        "apps/server/src/experiments/ExperimentService.test.ts",
+        "apps/server/src/agents/AgentPolicyService.test.ts"
       ]
     }
   ]
