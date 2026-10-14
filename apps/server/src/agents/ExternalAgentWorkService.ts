@@ -1,12 +1,14 @@
 import {
   AgentExternalSession,
   AgentTaskBinding,
+  type AgentTaskRequest,
   type AgentTaskOutcomeInput,
   type ExperimentOutcome,
   AuthSessionId,
   CommandId,
   MessageId,
   NodeId,
+  type ProjectId,
   ThreadId,
   ProviderInstanceId,
   type AgentSessionAttachInput,
@@ -42,6 +44,7 @@ import * as Managed from "./ManagedAgentService.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
+import { repositoryStore, workspaceOccupants } from "./workspaceIdentity.ts";
 
 export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWorkError>()(
   "ExternalAgentWorkError",
@@ -251,6 +254,16 @@ const make = Effect.gen(function* () {
             : row.state === "launch-unknown" || row.state === "refused"
               ? "failed"
               : "queued"));
+    const handoff =
+      active === undefined && !pending && terminalStatus !== null
+        ? yield* managed.handoff(work.binding).pipe(
+            Effect.orElseSucceed(() => ({
+              workspacePath: work.binding.workspacePath,
+              revision: null,
+              quiescent: false,
+            })),
+          )
+        : undefined;
     const assignments = (yield* storage(experiments.assignments({}))).filter(
       (assignment) =>
         assignment.unitId === `external-work:${row.session_key}:${row.work_id}` ||
@@ -260,6 +273,7 @@ const make = Effect.gen(function* () {
     );
     return {
       agentTask: work.binding,
+      ...(handoff === undefined ? {} : { handoff }),
       taskId,
       childThreadId: threadId,
       childRunId: runs.at(-1)?.id ?? null,
@@ -349,26 +363,19 @@ const make = Effect.gen(function* () {
     }>`SELECT DISTINCT client_session_id FROM external_agent_sessions`,
   );
   for (const row of restored) yield* watch(row.client_session_id);
-  const repoStore = Effect.fn(function* (root: string) {
-    const entry = path.join(root, ".jj", "repo");
-    if (yield* fs.exists(entry)) {
-      const stat = yield* fs.stat(entry);
-      return yield* fs.realPath(
-        stat.type === "Directory"
-          ? entry
-          : path.resolve(root, ".jj", (yield* fs.readFileString(entry)).trim()),
+  const workspaceAuthority = (projectId: ProjectId, request: AgentTaskRequest, owner: string) =>
+    Effect.gen(function* () {
+      if (request.workspaceAssignment !== "isolated") return {};
+      const project = yield* storage(projects.getById(projectId));
+      const shells = yield* storage(
+        threads.listProjectThreads({ projectId, includeSubagents: true }),
       );
-    }
-    const result = yield* processes.run({
-      command: "git",
-      args: ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      cwd: root,
-      timeout: "10 seconds",
-      maxOutputBytes: 4096,
+      return {
+        owner,
+        ...(Option.isNone(project) ? {} : { projectRoot: project.value.workspaceRoot }),
+        occupants: workspaceOccupants(shells),
+      };
     });
-    if (result.code !== 0) return yield* new ExternalAgentWorkError({ reason: "workspace" });
-    return yield* fs.realPath(result.stdout.trim());
-  });
   const attach = (scope: McpInvocationScope, input: AgentSessionAttachInput) =>
     permit.withPermit(
       Effect.gen(function* () {
@@ -386,9 +393,12 @@ const make = Effect.gen(function* () {
         if (!path.isAbsolute(input.workspacePath) || canonical !== input.workspacePath)
           return yield* new ExternalAgentWorkError({ reason: "workspace" });
         const stores = yield* Effect.all([
-          repoStore(project.value.workspaceRoot),
-          repoStore(canonical),
+          repositoryStore(project.value.workspaceRoot),
+          repositoryStore(canonical),
         ]).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+          Effect.provideService(ProcessRunner.ProcessRunner, processes),
           Effect.mapError((cause) => new ExternalAgentWorkError({ reason: "workspace", cause })),
         );
         if (stores[0] !== stores[1])
@@ -430,8 +440,11 @@ const make = Effect.gen(function* () {
         )
           return yield* new ExternalAgentWorkError({ reason: "session" });
         const session = yield* readSession(scope, input.externalSessionKey);
+        // The session's workspace is the lead's; an isolated helper workspace is validated
+        // against it by the managed service, under the same accountable session.
         if (
-          input.agentTask.workspacePath !== session.workspacePath ||
+          ((input.agentTask.workspaceAssignment ?? "lead") === "lead" &&
+            input.agentTask.workspacePath !== session.workspacePath) ||
           input.interactionMode === "plan"
         )
           return yield* new ExternalAgentWorkError({ reason: "workspace" });
@@ -504,6 +517,9 @@ const make = Effect.gen(function* () {
             original !== undefined &&
             (original.role !== input.agentTask.role ||
               original.taskClass !== input.agentTask.taskClass ||
+              // A new attempt resumes the same work where it was, not in another workspace.
+              original.workspacePath !== input.agentTask.workspacePath ||
+              original.workspaceAssignment !== input.agentTask.workspaceAssignment ||
               original.readOnly !== input.agentTask.readOnly ||
               original.demanding !== input.agentTask.demanding)
           )
@@ -532,6 +548,7 @@ const make = Effect.gen(function* () {
               request: input.agentTask,
               requestFingerprint: fingerprint,
               workspacePath: session.workspacePath,
+              ...(yield* workspaceAuthority(session.projectId, input.agentTask, session.key)),
               providers: requestedProviders,
               ceiling,
               ...(original === undefined && unit === undefined
@@ -618,15 +635,48 @@ const make = Effect.gen(function* () {
               threadId,
             }),
           );
-        const validated = yield* Effect.result(
-          managed.validate({
-            binding: work.binding,
-            selection: effective,
-            providers: eligible,
-            ceiling,
-            workspacePath: session.workspacePath,
-          }),
-        );
+        // Validation and launch hold the isolated-workspace lock together, so the occupancy
+        // they checked is still true when the child thread appears.
+        const attempt = Effect.gen(function* () {
+          const validated = yield* Effect.result(
+            managed.validate({
+              binding: work.binding,
+              selection: effective,
+              providers: eligible,
+              ceiling,
+              workspacePath: session.workspacePath,
+              ...(yield* workspaceAuthority(session.projectId, work.binding, session.key)),
+            }),
+          );
+          if (validated._tag === "Failure") return { validated, launched: undefined };
+          const launched = yield* Effect.result(
+            launch.launch({
+              commandId: CommandId.make(`command:external-work:${identity}`),
+              threadId,
+              projectId: session.projectId,
+              title: work.title,
+              modelSelection: effective,
+              runtimeMode: ceiling,
+              interactionMode: "default",
+              agentTask: binding,
+              workspaceStrategy: {
+                type: "existing_worktree",
+                worktreePath: work.binding.workspacePath,
+              },
+              initialMessage: {
+                messageId: MessageId.make(`message:external-work:${identity}`),
+                text: work.prompt,
+                attachments: [],
+              },
+              createdBy: "agent",
+              creationSource: "mcp",
+            }),
+          );
+          return { validated, launched };
+        });
+        const { validated, launched } = yield* work.binding.workspaceAssignment === "isolated"
+          ? managed.exclusive(attempt)
+          : attempt;
         if (validated._tag === "Failure") {
           // The refused child fails its own task assignment, not the work unit's.
           for (const assignment of taskAssignments)
@@ -650,26 +700,7 @@ const make = Effect.gen(function* () {
           );
           return yield* status(scope, taskId);
         }
-        const launched = yield* Effect.result(
-          launch.launch({
-            commandId: CommandId.make(`command:external-work:${identity}`),
-            threadId,
-            projectId: session.projectId,
-            title: work.title,
-            modelSelection: effective,
-            runtimeMode: ceiling,
-            interactionMode: "default",
-            agentTask: binding,
-            workspaceStrategy: { type: "existing_worktree", worktreePath: session.workspacePath },
-            initialMessage: {
-              messageId: MessageId.make(`message:external-work:${identity}`),
-              text: work.prompt,
-              attachments: [],
-            },
-            createdBy: "agent",
-            creationSource: "mcp",
-          }),
-        );
+        if (launched === undefined) return yield* new ExternalAgentWorkError({ reason: "storage" });
         if (launched._tag === "Failure") {
           // The caller only sees "launch"; the cause stays in the server log for the operator.
           yield* Effect.logWarning("External agent work launch failed before acceptance.", {

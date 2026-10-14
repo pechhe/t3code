@@ -45,3 +45,17 @@ its revision and the seven role names, or the reason the policy is refused.
   refused at creation, and again when it is started, if one of its arms uses a
   model no pool allows. Without a readable policy the check is skipped; dispatch
   still refuses the model.
+- While a readable policy is configured, `delegate_task` delegates by role. A
+  call without `agentTask` is refused unless it gives an `offPolicyReason`,
+  which is logged as a deviation from the policy. Without a policy, unmanaged
+  delegation is unchanged.
+- An `isolated` task runs in its own registered workspace of the lead's
+  repository on this computer, never the lead's checkout or the project's main
+  checkout, and is refused while another thread is writing there. Its child
+  thread launches, resumes and checkpoints in that workspace, and a finished
+  writer reports the revision it hands back.
+- A reviewer task must declare a `change` or `spec` review scope and its
+  coverage. A new reviewer trial names the scopes it compares. A trial created
+  before scopes existed admits only reviews that declare none, so the two kinds
+  of review are never pooled.
+

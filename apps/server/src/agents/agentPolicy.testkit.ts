@@ -150,6 +150,14 @@ export const claude = provider("claudeAgent", "claude-test", [
   "claude-haiku-test",
   "claude-fable-test",
 ]);
+/** A change review of one landing, the common reviewer fixture. */
+export const changeReview: NonNullable<AgentTaskRequest["review"]> = {
+  scope: "change",
+  baseRevision: "base-commit",
+  includedChanges: ["reviewed-commit"],
+  coverage: "complete",
+};
+
 export const request = (overrides: Partial<AgentTaskRequest> = {}): AgentTaskRequest => ({
   role: "implementation-worker",
   taskClass: "non-ui",

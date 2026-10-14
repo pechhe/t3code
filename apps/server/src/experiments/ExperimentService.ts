@@ -5,6 +5,7 @@ import {
   ExperimentObservation,
   ExperimentError,
   ExperimentDefinition,
+  type AgentReviewScope,
   ExperimentWorkUnit,
   ExperimentWorkAllocation,
   ExperimentWorkEvidence,
@@ -195,8 +196,16 @@ const nowIso = DateTime.now.pipe(Effect.map(DateTime.formatIso));
 function overlaps(a: readonly string[], b: readonly string[]): boolean {
   return a.length === 0 || b.length === 0 || a.some((value) => b.includes(value));
 }
+/** Legacy reviewer definitions admit only reviews without a declared scope. */
+const admittedReviewScopes = (
+  experiment: ExperimentDefinition,
+): ReadonlyArray<AgentReviewScope | "unscoped"> =>
+  experiment.eligibility.reviewScopes ?? ["unscoped"];
 function conflicts(a: Experiment, b: Experiment): boolean {
   return (
+    (a.lever !== "reviewer" ||
+      a.lever !== b.lever ||
+      admittedReviewScopes(a).some((scope) => admittedReviewScopes(b).includes(scope))) &&
     (a.lever === b.lever ||
       ([a.lever, b.lever].includes("orchestration-policy") &&
         [a.lever, b.lever].includes("delegation"))) &&
@@ -206,6 +215,8 @@ function conflicts(a: Experiment, b: Experiment): boolean {
   );
 }
 function validDefinition(input: ExperimentDefinition, now: string): boolean {
+  // A new reviewer experiment says which review units it compares; other levers have none.
+  if ((input.lever === "reviewer") !== (input.eligibility.reviewScopes !== undefined)) return false;
   if (input.lever === "orchestration-policy")
     return (
       input.orchestrationControls !== undefined &&
@@ -490,11 +501,14 @@ const make = Effect.gen(function* () {
               a.assignmentMethod === "randomized",
           );
           const experiments = yield* list();
+          const reviewScope = input.agentTask?.review?.scope;
+          // Scoped reviews balance arms within their scope; unscoped keys stay as recorded.
           const stratum = encodeKey([
             input.projectId,
             input.modelSelection.instanceId,
             input.modelSelection.model,
             input.taskCategory ?? null,
+            ...(reviewScope === undefined ? [] : [reviewScope]),
           ]);
           for (const experiment of experiments) {
             if (
@@ -517,6 +531,8 @@ const make = Effect.gen(function* () {
               continue;
             const { projectIds, models, taskCategories } = experiment.eligibility;
             if (
+              (experiment.lever === "reviewer" &&
+                !admittedReviewScopes(experiment).includes(reviewScope ?? "unscoped")) ||
               (projectIds.length > 0 && !projectIds.includes(input.projectId)) ||
               (models.length > 0 && !models.includes(input.modelSelection.model)) ||
               (taskCategories.length > 0 && !taskCategories.includes(input.taskCategory ?? ""))
@@ -1988,7 +2004,19 @@ const make = Effect.gen(function* () {
         },
       };
     });
+    const scopeCounts = new Map<
+      string,
+      { scope: "change" | "spec" | "unscoped"; variantId: string; count: number }
+    >();
+    if (experiment.lever === "reviewer")
+      for (const sample of samples) {
+        const scope = sample.agentTask?.review?.scope ?? "unscoped";
+        const key = encodeKey([scope, sample.variant.id]);
+        const entry = scopeCounts.get(key) ?? { scope, variantId: sample.variant.id, count: 0 };
+        scopeCounts.set(key, { ...entry, count: entry.count + 1 });
+      }
     return {
+      ...(experiment.lever !== "reviewer" ? {} : { reviewScopes: [...scopeCounts.values()] }),
       ...(experiment.lever !== "orchestration-policy"
         ? {}
         : {

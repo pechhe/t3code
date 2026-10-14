@@ -11,7 +11,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as Managed from "./ManagedAgentService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Policy from "./AgentPolicyService.ts";
-import { snapshot, request, codex, claude } from "./agentPolicy.testkit.ts";
+import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
 
 const sourceRevision = "fixture-source-commit";
 const processes = Layer.succeed(ProcessRunner.ProcessRunner, {
@@ -72,6 +72,7 @@ const fixture = Effect.gen(function* () {
     validate,
     service,
     prepareInput,
+    config,
   };
 });
 
@@ -185,6 +186,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         workspacePath: f.workspacePath,
         role: "reviewer",
         sourceRevision,
+        review: changeReview,
       });
       const accepted = yield* f.prepare({ request: reviewerRequest });
       yield* f.validate(accepted.binding);
@@ -250,6 +252,174 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           .validate({ ...accepted.binding, toolProfile: "implementation" })
           .pipe(Effect.flip)).reason,
       ).toBe("policy");
+    }),
+  );
+
+  it.effect("binds an isolated helper only to a separate workspace of the lead's repository", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      // jj workspaces point at a shared repository store through `.jj/repo`.
+      const store = `${f.root}/repo-store`;
+      const otherStore = `${f.root}/other-store`;
+      yield* f.fs.makeDirectory(store);
+      yield* f.fs.makeDirectory(otherStore);
+      const workspace = (name: string, target: string) =>
+        Effect.gen(function* () {
+          const path = `${f.root}/${name}`;
+          yield* f.fs.makeDirectory(`${path}/.jj`, { recursive: true });
+          yield* f.fs.writeFileString(`${path}/.jj/repo`, target);
+          return path;
+        });
+      const lead = yield* workspace("lead", store);
+      const helper = yield* workspace("helper", store);
+      const foreign = yield* workspace("foreign", otherStore);
+      const nested = `${helper}/packages`;
+      yield* f.fs.makeDirectory(nested);
+      const isolated = (path: string, overrides: Partial<ReturnType<typeof request>> = {}) =>
+        request({ workspacePath: path, workspaceAssignment: "isolated", ...overrides });
+      const refused = (input: Partial<Parameters<typeof f.service.prepare>[0]>) =>
+        f
+          .prepare({
+            workspacePath: lead,
+            projectRoot: f.workspacePath,
+            owner: "lead-thread",
+            ...input,
+          })
+          .pipe(
+            Effect.flip,
+            Effect.map((error) => error.reason),
+          );
+
+      const accepted = yield* f.prepare({
+        workspacePath: lead,
+        projectRoot: f.workspacePath,
+        owner: "lead-thread",
+        request: isolated(helper),
+      });
+      expect(accepted.binding).toMatchObject({
+        workspacePath: helper,
+        workspaceAssignment: "isolated",
+        sourceAccess: "scoped-write",
+      });
+      // Not the lead's own checkout, the main checkout, a subdirectory or another repository.
+      expect(yield* refused({ request: isolated(lead) })).toBe("workspace");
+      expect(yield* refused({ request: isolated(f.workspacePath) })).toBe("workspace");
+      expect(yield* refused({ request: isolated(nested) })).toBe("workspace");
+      expect(yield* refused({ request: isolated(foreign) })).toBe("workspace");
+      // Without the explicit assignment a different path is still a wrong lead workspace.
+      expect(yield* refused({ request: request({ workspacePath: helper }) })).toBe("workspace");
+
+      // One writer at a time; a retry of the same work is not a second writer.
+      const writer = {
+        workspacePath: helper,
+        owner: "lead-thread",
+        workId: "other-work",
+        attemptId: "attempt-test",
+        writes: true,
+        running: true,
+      };
+      expect(yield* refused({ request: isolated(helper), occupants: [writer] })).toBe("workspace");
+      yield* f.prepare({
+        workspacePath: lead,
+        owner: "lead-thread",
+        request: isolated(helper),
+        occupants: [{ ...writer, workId: "work-test" }],
+      });
+      // A new attempt of the same work waits for the previous writer to stop.
+      expect(
+        yield* refused({
+          request: isolated(helper, { attemptId: "attempt-2" }),
+          occupants: [{ ...writer, workId: "work-test" }],
+        }),
+      ).toBe("workspace");
+      // A workspace another lead holds is theirs, even while nothing runs in it.
+      expect(
+        yield* refused({
+          request: isolated(helper),
+          occupants: [{ ...writer, owner: "other-lead", running: false }],
+        }),
+      ).toBe("workspace");
+      // This lead's own finished helper workspace can take its next task.
+      yield* f.prepare({
+        workspacePath: lead,
+        owner: "lead-thread",
+        request: isolated(helper),
+        occupants: [{ ...writer, running: false }],
+      });
+      // A pinned read-only view tolerates other readers but not a live writer.
+      const reviewer = isolated(helper, {
+        role: "reviewer",
+        sourceRevision,
+        review: changeReview,
+      });
+      yield* f.prepare({
+        workspacePath: lead,
+        owner: "lead-thread",
+        request: reviewer,
+        occupants: [{ ...writer, writes: false }],
+      });
+      expect(yield* refused({ request: reviewer, occupants: [writer] })).toBe("workspace");
+
+      // Validation re-checks against the lead it was accepted under.
+      yield* f.service
+        .validate({
+          workspacePath: lead,
+          providers: [codex, claude],
+          ceiling: "full-access",
+          binding: accepted.binding,
+          selection: accepted.binding.effective,
+        })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+      expect(
+        (yield* f.service
+          .validate({
+            workspacePath: foreign,
+            providers: [codex, claude],
+            ceiling: "full-access",
+            binding: accepted.binding,
+            selection: accepted.binding.effective,
+          })
+          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config), Effect.flip))
+          .reason,
+      ).toBe("workspace");
+    }),
+  );
+
+  it.effect("reports the handed-off source only for a finished isolated writer", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const lead = yield* f.prepare();
+      expect(yield* f.service.handoff(lead.binding)).toBeUndefined();
+      const isolated = { ...lead.binding, workspaceAssignment: "isolated" as const };
+      expect(yield* f.service.handoff(isolated)).toEqual({
+        workspacePath: f.workspacePath,
+        revision: sourceRevision,
+        quiescent: true,
+      });
+      expect(yield* f.service.handoff({ ...isolated, sourceAccess: "read-only" })).toBeUndefined();
+    }),
+  );
+
+  it.effect("discovers the reviewer as a change review unless another scope is asked", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const reviewer = (reviewScope?: "change" | "spec") =>
+        f.service
+          .roles({
+            providers: [codex, claude],
+            ceiling: "full-access",
+            request: {
+              taskClass: "non-ui",
+              sourceRevision,
+              ...(reviewScope === undefined ? {} : { reviewScope }),
+            },
+          })
+          .pipe(
+            Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+            Effect.map((result) => result.roles.find((role) => role.role === "reviewer")!),
+          );
+      expect((yield* reviewer()).refusal).toBeNull();
+      expect((yield* reviewer("spec")).refusal).toBeNull();
     }),
   );
 });

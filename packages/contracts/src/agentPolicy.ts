@@ -146,6 +146,38 @@ export const AgentPolicySnapshot = Schema.Struct({
 });
 export type AgentPolicySnapshot = typeof AgentPolicySnapshot.Type;
 
+/**
+ * `lead` runs in the caller's own workspace. `isolated` runs a simultaneous helper in a
+ * separate registered workspace of the same repository, allocated outside T3 (SlipJay).
+ */
+export const AgentWorkspaceAssignment = Schema.Literals(["lead", "isolated"]);
+export type AgentWorkspaceAssignment = typeof AgentWorkspaceAssignment.Type;
+
+/**
+ * One reviewer role judges two kinds of unit with the same rubric and permissions: a
+ * candidate change (one landing, possibly serving several Tickets), or a Spec's
+ * integrated outcome across its slices.
+ */
+export const AgentReviewScope = Schema.Literals(["change", "spec"]);
+export type AgentReviewScope = typeof AgentReviewScope.Type;
+export const AgentReviewRequest = Schema.Struct({
+  scope: AgentReviewScope,
+  /** The candidate is the task's pinned `sourceRevision`; this is what it is compared with. */
+  baseRevision: TrimmedNonEmptyString,
+  /** Commits or landings attributed to the reviewed work; interleaved unrelated ones are excluded. */
+  includedChanges: Schema.Array(TrimmedNonEmptyString),
+  /** The Spec judged, such as `owner/repo#12`, and the body revision read. Required for Spec scope. */
+  specRef: Schema.optional(TrimmedNonEmptyString),
+  specRevision: Schema.optional(TrimmedNonEmptyString),
+  /** `partial` declares that the included changes do not cover the whole Spec or landing. */
+  coverage: Schema.Literals(["complete", "partial"]),
+  /** A delta review of material changes since an earlier report of the same scope. */
+  priorReview: Schema.optional(
+    Schema.Struct({ workId: TrimmedNonEmptyString, sourceRevision: TrimmedNonEmptyString }),
+  ),
+});
+export type AgentReviewRequest = typeof AgentReviewRequest.Type;
+
 /** A coherent work identity survives new launch attempts and transport retries. */
 export const AgentTaskRequest = Schema.Struct({
   workUnitId: Schema.optional(TrimmedNonEmptyString),
@@ -154,7 +186,11 @@ export const AgentTaskRequest = Schema.Struct({
   workId: TrimmedNonEmptyString,
   attemptId: TrimmedNonEmptyString,
   workspacePath: TrimmedNonEmptyString,
+  /** Absent means `lead`; records from before isolated workspaces are all lead-bound. */
+  workspaceAssignment: Schema.optional(AgentWorkspaceAssignment),
   sourceRevision: Schema.optional(TrimmedNonEmptyString),
+  /** Required for the reviewer role; absent on records from before typed review scope. */
+  review: Schema.optional(AgentReviewRequest),
   demanding: Schema.optional(Schema.Boolean),
   readOnly: Schema.optional(Schema.Boolean),
   authorModel: Schema.optional(TrimmedNonEmptyString),
@@ -202,6 +238,7 @@ export type AgentExternalSession = typeof AgentExternalSession.Type;
 export const AgentRolesInput = Schema.Struct({
   externalSessionKey: Schema.optional(Sha256),
   taskClass: AgentTaskClass,
+  reviewScope: Schema.optional(AgentReviewScope),
   demanding: Schema.optional(Schema.Boolean),
   readOnly: Schema.optional(Schema.Boolean),
   sourceRevision: Schema.optional(TrimmedNonEmptyString),
@@ -223,3 +260,14 @@ export const AgentRolesResult = Schema.Struct({
   ),
 });
 export type AgentRolesResult = typeof AgentRolesResult.Type;
+
+/**
+ * The source a finished isolated writer hands back for the lead to adopt. `quiescent` is
+ * false when the workspace still has uncommitted changes outside the reported revision.
+ */
+export const AgentTaskHandoff = Schema.Struct({
+  workspacePath: TrimmedNonEmptyString,
+  revision: Schema.NullOr(TrimmedNonEmptyString),
+  quiescent: Schema.Boolean,
+});
+export type AgentTaskHandoff = typeof AgentTaskHandoff.Type;

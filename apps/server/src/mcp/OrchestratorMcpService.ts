@@ -109,6 +109,7 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -1569,10 +1570,24 @@ const make = Effect.gen(function* () {
             null);
       const resultTransfer = taskResultTransfer(parentProjection, childProjection, task) ?? null;
       const terminalStatus = terminalRun === undefined ? null : taskStatusForRun(terminalRun);
+      const binding = childControls.thread.agentTask;
+      const managed =
+        binding === undefined || !isTerminalTaskStatus(status) || workState !== "result_available"
+          ? Option.none()
+          : yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+      const handoff =
+        binding === undefined || Option.isNone(managed)
+          ? undefined
+          : yield* managed.value.handoff(binding).pipe(
+              Effect.orElseSucceed(() => ({
+                workspacePath: binding.workspacePath,
+                revision: null,
+                quiescent: false,
+              })),
+            );
       const response = {
-        ...(childControls.thread.agentTask === undefined
-          ? {}
-          : { agentTask: childControls.thread.agentTask }),
+        ...(binding === undefined ? {} : { agentTask: binding }),
+        ...(handoff === undefined ? {} : { handoff }),
         taskId: task.id,
         childThreadId: task.childThreadId,
         childRunId: childRun?.id ?? null,
@@ -2245,6 +2260,13 @@ const make = Effect.gen(function* () {
       }),
     delegateTask: (callerScope, input) =>
       Effect.gen(function* () {
+        // Managed work binds and validates its checkout before launch, so it names one
+        // through workspaceAssignment rather than a worktree T3 creates afterwards.
+        if (input.agentTask !== undefined && input.isolation === "worktree")
+          return yield* failure(
+            "invalid_request",
+            'isolation "worktree" applies only to a delegation without agentTask; managed work uses agentTask.workspaceAssignment "isolated".',
+          );
         if (callerScope.client !== undefined && callerScope.thread === undefined) {
           const service = yield* external;
           const accepted = yield* service
@@ -2310,6 +2332,29 @@ const make = Effect.gen(function* () {
             "invalid_request",
             "Managed work requires a stable clientRequestId.",
           );
+        if (input.agentTask !== undefined && input.offPolicyReason !== undefined)
+          return yield* failure(
+            "invalid_request",
+            "offPolicyReason applies only to a delegation without agentTask.",
+          );
+        // Where a role policy is configured, delegation goes through a canonical role. A
+        // free model choice is an explicit, logged deviation, not the default route.
+        if (input.agentTask === undefined && !isRetryOfAcceptedDelegation) {
+          const policyService = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+          // A named but unreadable policy still refuses: an outage must not open free choice.
+          const configured =
+            Option.isSome(policyService) && (yield* policyService.value.configured());
+          if (configured && input.offPolicyReason === undefined)
+            return yield* failure(
+              "invalid_request",
+              "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). Pass offPolicyReason only when no canonical role fits.",
+            );
+          if (configured)
+            yield* Effect.logInfo("Unmanaged delegation outside the role policy.", {
+              parentThreadId: scope.thread.threadId,
+              offPolicyReason: input.offPolicyReason,
+            });
+        }
         const fingerprintText = yield* encodeDelegateTaskFingerprint({
           ...input,
           mode: undefined,
@@ -2344,7 +2389,8 @@ const make = Effect.gen(function* () {
             prior.attemptId !== input.agentTask?.attemptId ||
             prior.role !== input.agentTask?.role ||
             prior.taskClass !== input.agentTask?.taskClass ||
-            prior.workspacePath !== input.agentTask?.workspacePath
+            prior.workspacePath !== input.agentTask?.workspacePath ||
+            prior.workspaceAssignment !== input.agentTask?.workspaceAssignment
           )
             return yield* failure(
               "invalid_request",
@@ -2394,6 +2440,21 @@ const make = Effect.gen(function* () {
             .pipe(Effect.mapError(workError))).tasks.find(
             (t) => t.taskId === deriveIds.delegatedTaskNode({ commandId }),
           )?.binding;
+        const isolated = input.agentTask?.workspaceAssignment === "isolated";
+        // Read again inside the launch lock, so two helpers cannot both claim one workspace.
+        const readWorkspaceAuthority = Effect.gen(function* () {
+          if (!isolated) return {};
+          return {
+            owner: threadOwner(parent.thread),
+            projectRoot: (yield* requireProject(parent.thread.projectId)).workspaceRoot,
+            occupants: workspaceOccupants(
+              yield* threadManagement
+                .listProjectThreads({ projectId: parent.thread.projectId, includeSubagents: true })
+                .pipe(Effect.mapError(threadManagementFailure)),
+            ),
+          };
+        });
+        const workspaceAuthority = yield* readWorkspaceAuthority;
         const prepared =
           managedService === undefined || input.agentTask === undefined
             ? undefined
@@ -2412,6 +2473,7 @@ const make = Effect.gen(function* () {
                   ),
                   ceiling: parent.thread.runtimeMode,
                   workspacePath: parent.thread.worktreePath,
+                  ...workspaceAuthority,
                   currentInstanceId: parent.thread.modelSelection.instanceId,
                   ...(input.target?.model === undefined
                     ? {}
@@ -2560,95 +2622,102 @@ const make = Effect.gen(function* () {
               threadId: deriveIds.delegatedTaskThread({ commandId }),
             })
             .pipe(Effect.mapError(workError));
-        if (prepared !== undefined && managedService !== undefined) {
-          yield* managedService
-            .validate({
-              binding: prepared.binding,
-              selection: target.modelSelection,
-              providers: eligibleProviders,
-              ceiling: parent.thread.runtimeMode,
-              workspacePath: parent.thread.worktreePath,
+        const parentNodeId = parentRun.rootNodeId;
+        const launch = Effect.gen(function* () {
+          if (prepared !== undefined && managedService !== undefined) {
+            yield* managedService
+              .validate({
+                binding: prepared.binding,
+                selection: target.modelSelection,
+                providers: eligibleProviders,
+                ceiling: parent.thread.runtimeMode,
+                workspacePath: parent.thread.worktreePath,
+                ...(yield* readWorkspaceAuthority),
+              })
+              .pipe(
+                Effect.tapError((error) =>
+                  Effect.gen(function* () {
+                    if (workUnit !== undefined)
+                      yield* experiments
+                        .recordWorkTaskLaunch({
+                          taskId: deriveIds.delegatedTaskNode({ commandId }),
+                          state: "refused",
+                        })
+                        .pipe(Effect.mapError(workError));
+                    yield* recordExperimentFailure(error.message);
+                  }),
+                ),
+                Effect.mapError((error) => failure("capability_denied", error.message)),
+              );
+          }
+          // ThreadManagementService.dispatch is the chokepoint for this command
+          // type's own enablement check, using the same command id and its
+          // receipt-replay exemption, so no separate assert runs here.
+          return yield* threadManagement
+            .dispatch({
+              type: "delegated_task.request",
+              createdBy: "agent",
+              creationSource: "mcp",
+              commandId,
+              parentThreadId: scope.thread.threadId,
+              parentRunId: parentRun.id,
+              parentNodeId,
+              ...(prepared === undefined
+                ? {}
+                : {
+                    agentTask: {
+                      ...prepared.binding,
+                      assigned: experimentSelection ?? null,
+                      effective: target.modelSelection,
+                    },
+                  }),
+              task:
+                prepared === undefined
+                  ? taskPrompt(input)
+                  : `${prepared.brief}\n\n${taskPrompt(input)}`,
+              ...(input.title === undefined ? {} : { title: input.title }),
+              modelSelection: target.modelSelection,
+              runtimeMode,
+              interactionMode,
+              ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
+              // Async delegations wake the parent on every child terminal; wait
+              // delegations deliver through the blocking tool call, so a wake is
+              // only needed if the parent settled first (timeout, disconnect).
+              completionWake: input.mode === "wait" ? "settled_only" : "always",
             })
             .pipe(
-              Effect.tapError((error) =>
+              Effect.tapError(() =>
                 Effect.gen(function* () {
-                  if (workUnit !== undefined)
+                  if (workUnit !== undefined) {
+                    const receipt = yield* threadManagement.hasReceipt(commandId).pipe(
+                      Effect.map((accepted) =>
+                        accepted ? ("accepted" as const) : ("refused" as const),
+                      ),
+                      Effect.catchCause(() => Effect.succeed("launch-unknown" as const)),
+                    );
                     yield* experiments
                       .recordWorkTaskLaunch({
                         taskId: deriveIds.delegatedTaskNode({ commandId }),
-                        state: "refused",
+                        state: receipt,
                       })
                       .pipe(Effect.mapError(workError));
-                  yield* recordExperimentFailure(error.message);
+                  }
+                  yield* recordExperimentFailure();
                 }),
               ),
-              Effect.mapError((error) => failure("capability_denied", error.message)),
-            );
-        }
-        // ThreadManagementService.dispatch is the chokepoint for this command
-        // type's own enablement check, using the same command id and its
-        // receipt-replay exemption, so no separate assert runs here.
-        const result = yield* threadManagement
-          .dispatch({
-            type: "delegated_task.request",
-            createdBy: "agent",
-            creationSource: "mcp",
-            commandId,
-            parentThreadId: scope.thread.threadId,
-            parentRunId: parentRun.id,
-            parentNodeId: parentRun.rootNodeId,
-            ...(prepared === undefined
-              ? {}
-              : {
-                  agentTask: {
-                    ...prepared.binding,
-                    assigned: experimentSelection ?? null,
-                    effective: target.modelSelection,
-                  },
-                }),
-            task:
-              prepared === undefined
-                ? taskPrompt(input)
-                : `${prepared.brief}\n\n${taskPrompt(input)}`,
-            ...(input.title === undefined ? {} : { title: input.title }),
-            modelSelection: target.modelSelection,
-            runtimeMode,
-            interactionMode,
-            ...(workspaceStrategy === undefined ? {} : { workspaceStrategy }),
-            // Async delegations wake the parent on every child terminal; wait
-            // delegations deliver through the blocking tool call, so a wake is
-            // only needed if the parent settled first (timeout, disconnect).
-            completionWake: input.mode === "wait" ? "settled_only" : "always",
-          })
-          .pipe(
-            Effect.tapError(() =>
-              Effect.gen(function* () {
-                if (workUnit !== undefined) {
-                  const receipt = yield* threadManagement.hasReceipt(commandId).pipe(
-                    Effect.map((accepted) =>
-                      accepted ? ("accepted" as const) : ("refused" as const),
+              Effect.mapError((error) =>
+                error._tag === "ThreadManagementProviderInstanceDisabledError"
+                  ? threadManagementFailure(error)
+                  : failure(
+                      "orchestration_error",
+                      `Unable to create delegated task: ${errorMessage(error)}`,
                     ),
-                    Effect.catchCause(() => Effect.succeed("launch-unknown" as const)),
-                  );
-                  yield* experiments
-                    .recordWorkTaskLaunch({
-                      taskId: deriveIds.delegatedTaskNode({ commandId }),
-                      state: receipt,
-                    })
-                    .pipe(Effect.mapError(workError));
-                }
-                yield* recordExperimentFailure();
-              }),
-            ),
-            Effect.mapError((error) =>
-              error._tag === "ThreadManagementProviderInstanceDisabledError"
-                ? threadManagementFailure(error)
-                : failure(
-                    "orchestration_error",
-                    `Unable to create delegated task: ${errorMessage(error)}`,
-                  ),
-            ),
-          );
+              ),
+            );
+        });
+        const result = yield* isolated && managedService !== undefined
+          ? managedService.exclusive(launch)
+          : launch;
         if (workUnit !== undefined)
           yield* experiments
             .recordWorkTaskLaunch({

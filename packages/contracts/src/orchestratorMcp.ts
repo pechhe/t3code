@@ -1,4 +1,4 @@
-import { AgentTaskRequest, AgentTaskBinding } from "./agentPolicy.ts";
+import { AgentTaskRequest, AgentTaskBinding, AgentTaskHandoff } from "./agentPolicy.ts";
 import { ExperimentOutcomeInput } from "./experiments.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -179,6 +179,12 @@ export type OrchestratorMcpTerminalDelegatedTaskStatus =
 export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   externalSessionKey: Schema.optional(TrimmedNonEmptyString),
   agentTask: Schema.optional(AgentTaskRequest),
+  offPolicyReason: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isMaxLength(500)).annotate({
+      description:
+        "Only for a delegation without agentTask where a role policy is configured: why no canonical role fits. Recorded as an uninstrumented deviation.",
+    }),
+  ),
   task: OrchestratorMcpPrompt.annotate({
     description: "Self-contained task for one delegated child agent/subagent.",
   }),
@@ -219,6 +225,8 @@ export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   failureReason: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   assignmentIds: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   agentTask: Schema.optional(AgentTaskBinding),
+  /** Present once an isolated scoped-write task has finished. */
+  handoff: Schema.optional(AgentTaskHandoff),
   taskId: NodeId,
   childThreadId: ThreadId,
   childRunId: Schema.NullOr(RunId),
