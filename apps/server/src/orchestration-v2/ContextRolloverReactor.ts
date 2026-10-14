@@ -19,7 +19,9 @@ import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   ContextRolloverNotes,
+  grownSinceRollover,
   lowestSoftThreshold,
+  ROLLOVER_MIN_GROWTH_TOKENS,
   ROLLOVER_RESUME_TEXT,
   rolloverHardNudge,
   rolloverHeld,
@@ -39,7 +41,18 @@ interface ThreadRollover {
   used: number;
   /** The run-end hard nudge was sent; a run that ends without a note again gets no second one. */
   fallbackSent: boolean;
+  /**
+   * The context the session began with after a rollover ("pending" until its
+   * first usage report), or null when it did not begin with one. Nudges wait
+   * until the session grows past it, so a threshold below a fresh session's size
+   * cannot roll over again and again.
+   */
+  floor: number | "pending" | null;
+  /** The warning that a threshold sits below this floor was logged. */
+  floorWarned: boolean;
 }
+
+const floorOf = (state: ThreadRollover) => (typeof state.floor === "number" ? state.floor : null);
 
 type RolloverEvent = Extract<
   OrchestrationV2DomainEvent,
@@ -112,8 +125,19 @@ export const make = Effect.gen(function* () {
     const used = turn.tokenUsage?.usedTokens;
     // Native subagent turns report no run attempt; they are not the thread's own context.
     if (used === undefined || turn.runAttemptId === null) return;
-    const state = threads.get(event.threadId) ?? { phase: "idle", used, fallbackSent: false };
+    const state: ThreadRollover = threads.get(event.threadId) ?? {
+      phase: "idle",
+      used,
+      fallbackSent: false,
+      floor: null,
+      floorWarned: false,
+    };
     state.used = used;
+    // The first report after a rollover is the fresh session's starting size; a
+    // provider compaction below it lowers it.
+    if (state.floor === "pending" || (state.floor !== null && used < state.floor)) {
+      state.floor = used;
+    }
     threads.set(event.threadId, state);
     if (turn.status !== "running") return;
     // Usage reports arrive many times a turn; read the thread only past the lowest threshold.
@@ -135,7 +159,21 @@ export const make = Effect.gen(function* () {
       state.fallbackSent = false;
       return;
     }
-    const action = rolloverUsageAction(state.phase, used, thresholds);
+    const floor = floorOf(state);
+    if (floor !== null && floor >= thresholds.soft && !state.floorWarned) {
+      state.floorWarned = true;
+      yield* Effect.logWarning(
+        "context rollover threshold is below a fresh session's size; waiting for growth",
+        {
+          threadId: event.threadId,
+          model: run.modelSelection.model,
+          freshSessionTokens: floor,
+          softThreshold: thresholds.soft,
+          nextNudgeAtTokens: floor + ROLLOVER_MIN_GROWTH_TOKENS,
+        },
+      );
+    }
+    const action = rolloverUsageAction(state.phase, used, thresholds, floor);
     if (action === "none") return;
     state.phase = action === "hard" ? "hardNudged" : "softNudged";
     yield* message(
@@ -195,7 +233,13 @@ export const make = Effect.gen(function* () {
       );
     if (!dispatched) return;
     notes.delete(threadId);
-    threads.set(threadId, { phase: "idle", used: 0, fallbackSent: false });
+    threads.set(threadId, {
+      phase: "idle",
+      used: 0,
+      fallbackSent: false,
+      floor: "pending",
+      floorWarned: false,
+    });
   });
 
   const onRunEnd = Effect.fn("ContextRolloverReactor.onRunEnd")(function* (
@@ -220,6 +264,7 @@ export const make = Effect.gen(function* () {
     if (state.fallbackSent) return;
     const thresholds: RolloverThresholds | null = yield* thresholdsFor(threadId, run);
     if (thresholds === null || state.used < thresholds.soft) return;
+    if (!grownSinceRollover(state.used, floorOf(state))) return;
     // Another run already follows this one: a queued message, or a nudge that
     // arrived after the turn ended and started its own run.
     const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
