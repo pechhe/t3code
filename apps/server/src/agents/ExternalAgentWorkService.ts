@@ -101,6 +101,7 @@ const Work = Schema.Struct({
   binding: AgentTaskBinding,
   prompt: Schema.String,
   title: Schema.String,
+  messageId: Schema.optional(MessageId),
 });
 const encodeSession = Schema.encodeSync(Schema.fromJsonString(AgentExternalSession));
 const decodeSession = Schema.decodeUnknownEffect(Schema.fromJsonString(AgentExternalSession));
@@ -231,7 +232,18 @@ const make = Effect.gen(function* () {
     const terminal = runs.find((run) =>
       ["completed", "failed", "cancelled", "interrupted"].includes(run.status),
     );
-    const run = active ?? runs[0];
+    // Legacy rows predate the explicit message index; their launch identity already names it.
+    const messageId =
+      work.messageId ??
+      MessageId.make(row.task_id.replace(/^node:external-work:/, "message:external-work:"));
+    const consultationRuns = runs.filter((run) => run.userMessageId === messageId);
+    const consultation = consultationRuns[0];
+    const consultationTerminal =
+      consultation !== undefined &&
+      ["completed", "failed", "cancelled", "interrupted"].includes(consultation.status)
+        ? consultation
+        : undefined;
+    const run = consultation ?? active ?? runs[0];
     const pending =
       projection?.subagents.some((task) => ["running", "pending"].includes(task.status)) ?? false;
     const terminalStatus =
@@ -242,18 +254,23 @@ const make = Effect.gen(function* () {
         ? terminal.status
         : null;
     const summary =
+      consultationTerminal !== undefined && projection !== undefined
+        ? subagentResultForRun(projection, consultationTerminal).text
+        : row.failure_reason;
+    const latestSummary =
       terminal !== undefined && projection !== undefined
         ? subagentResultForRun(projection, terminal).text
         : row.failure_reason;
     const resultStatus =
-      active !== undefined || pending
-        ? "running"
-        : (terminalStatus ??
-          (row.state === "cancelled"
+      consultationTerminal !== undefined
+        ? (consultationTerminal.status as "completed" | "failed" | "cancelled" | "interrupted")
+        : consultation !== undefined && Threads.isActiveRun(consultation)
+          ? "running"
+          : row.state === "cancelled"
             ? "cancelled"
             : row.state === "launch-unknown" || row.state === "refused"
               ? "failed"
-              : "queued"));
+              : "queued";
     const handoff =
       active === undefined && !pending && terminalStatus !== null
         ? yield* managed.handoff(work.binding).pipe(
@@ -276,22 +293,21 @@ const make = Effect.gen(function* () {
       ...(handoff === undefined ? {} : { handoff }),
       taskId,
       childThreadId: threadId,
-      childRunId: runs.at(-1)?.id ?? null,
+      childRunId: consultation?.id ?? null,
       childNodeId: run?.rootNodeId ?? taskId,
       status: resultStatus,
       workState:
-        active !== undefined || pending
-          ? "working"
-          : terminalStatus !== null ||
-              row.state === "cancelled" ||
-              row.state === "launch-unknown" ||
-              row.state === "refused"
-            ? "result_available"
-            : "working",
+        consultationTerminal !== undefined
+          ? "result_available"
+          : active !== undefined || pending
+            ? "working"
+            : row.state === "cancelled" || row.state === "launch-unknown" || row.state === "refused"
+              ? "result_available"
+              : "working",
       hasPendingChildRuns: active !== undefined || pending,
       latestTerminalRunId: terminal?.id ?? null,
       latestTerminalStatus: terminalStatus,
-      latestTerminalSummary: summary,
+      latestTerminalSummary: latestSummary,
       latestTerminalResultContextTransferId: null,
       providerInstanceId: work.binding.effective.instanceId,
       model: work.binding.effective.model,
@@ -323,7 +339,7 @@ const make = Effect.gen(function* () {
       );
     }
     yield* storage(
-      sql`UPDATE external_agent_work SET state = 'cancelled', failure_reason = ${reason} WHERE task_id = ${row.task_id}`,
+      sql`UPDATE external_agent_work SET state = 'cancelled', failure_reason = ${reason} WHERE thread_id = ${row.thread_id}`,
     );
   });
   const watch = Effect.fn(function* (clientSessionId: string) {
@@ -433,6 +449,121 @@ const make = Effect.gen(function* () {
     permit.withPermit(
       Effect.gen(function* () {
         const client = yield* activeClient(scope, true);
+        if (input.advisorFollowup !== undefined) {
+          if (
+            input.externalSessionKey === undefined ||
+            input.clientRequestId === undefined ||
+            input.agentTask !== undefined ||
+            input.target !== undefined ||
+            input.isolation !== undefined ||
+            input.runtimeMode !== undefined ||
+            input.interactionMode !== undefined ||
+            input.offPolicyReason !== undefined ||
+            input.title !== undefined ||
+            input.role !== undefined
+          )
+            return yield* new ExternalAgentWorkError({ reason: "conflict" });
+          const session = yield* readSession(scope, input.externalSessionKey);
+          const original = yield* readWork(scope, input.advisorFollowup.taskId);
+          if (
+            original.row.session_key !== session.key ||
+            original.work.binding.role !== "advisor" ||
+            original.work.binding.sourceAccess !== "read-only"
+          )
+            return yield* new ExternalAgentWorkError({ reason: "authority" });
+          const identity = yield* hash(`${session.key}\n${input.clientRequestId}`);
+          const taskId = NodeId.make(`node:advisor-followup:${identity}`);
+          const messageId = MessageId.make(`message:advisor-followup:${identity}`);
+          const threadId = ThreadId.make(original.row.thread_id);
+          const fingerprint = yield* hash(
+            yield* encodeSubmission({ ...input, mode: undefined, timeoutMs: undefined }).pipe(
+              Effect.orDie,
+            ),
+          );
+          let row = (yield* storage(
+            sql<WorkRow>`SELECT * FROM external_agent_work WHERE session_key = ${session.key} AND request_id = ${input.clientRequestId}`,
+          ))[0];
+          if (row !== undefined) {
+            if (row.task_id !== taskId || row.fingerprint !== fingerprint)
+              return yield* new ExternalAgentWorkError({ reason: "conflict" });
+            if (row.state === "accepted" || row.state === "cancelled")
+              return yield* status(scope, taskId);
+          }
+          const closed = yield* storage(
+            sql<WorkRow>`SELECT * FROM external_agent_work WHERE thread_id = ${threadId} AND state = 'cancelled'`,
+          );
+          if (closed.length > 0 || original.row.state !== "accepted")
+            return yield* new ExternalAgentWorkError({ reason: "conflict" });
+          const binding = original.work.binding;
+          const ceiling = clientRuntimeModeCeiling(client);
+          if (ceiling !== session.ceiling)
+            return yield* new ExternalAgentWorkError({ reason: "authority" });
+          if (binding.workUnitId !== undefined)
+            yield* experimentalWork(
+              experiments.workDispatchPolicy({
+                workUnitId: binding.workUnitId,
+                role: "advisor",
+                owner: {
+                  environmentId: session.environmentId,
+                  projectId: session.projectId,
+                  workspacePath: session.workspacePath,
+                  parentThreadId: null,
+                  externalSessionKey: session.key,
+                  clientSessionId: client.sessionId,
+                },
+              }),
+            );
+          const prompt = `Source revision: ${input.advisorFollowup.sourceRevision}\nChanges since the previous consultation: ${input.advisorFollowup.changes}\n\n${input.task}`;
+          if (row === undefined) {
+            const current = yield* status(scope, input.advisorFollowup.taskId);
+            if (current.hasPendingChildRuns || current.workState !== "result_available")
+              return yield* new ExternalAgentWorkError({ reason: "conflict" });
+            yield* storage(sql`INSERT INTO external_agent_work (task_id, session_key, work_id, attempt_id, request_id, thread_id, fingerprint, payload_json, state)
+              VALUES (${taskId}, ${session.key}, ${original.row.work_id}, ${`followup:${identity}`}, ${input.clientRequestId}, ${threadId}, ${fingerprint}, ${encodeWork({ binding, prompt, title: original.work.title, messageId })}, 'prepared')`);
+          }
+          const attempt = Effect.gen(function* () {
+            const catalog = yield* providers.getProviders;
+            const eligible = yield* Effect.filter(catalog, (provider) =>
+              threads.isProviderInstanceEnabledForProject({
+                projectId: session.projectId,
+                instanceId: provider.instanceId,
+              }),
+            );
+            yield* managed
+              .validate({
+                binding: { ...binding, sourceRevision: input.advisorFollowup!.sourceRevision },
+                selection: binding.effective,
+                providers: eligible,
+                ceiling,
+                workspacePath: session.workspacePath,
+                ...(yield* workspaceAuthority(session.projectId, binding, session.key)),
+              })
+              .pipe(
+                Effect.mapError((cause) => new ExternalAgentWorkError({ reason: "policy", cause })),
+              );
+            yield* threads
+              .sendToThread({
+                projectId: session.projectId,
+                threadId,
+                messageId,
+                advisorSourceRevision: input.advisorFollowup!.sourceRevision,
+                commandId: CommandId.make(`command:advisor-followup:${identity}`),
+                text: prompt,
+                attachments: [],
+                mode: "queue",
+                createdBy: "agent",
+                creationSource: "mcp",
+              })
+              .pipe(
+                Effect.mapError((cause) => new ExternalAgentWorkError({ reason: "launch", cause })),
+              );
+            yield* storage(
+              sql`UPDATE external_agent_work SET state = 'accepted', failure_reason = NULL WHERE task_id = ${taskId}`,
+            );
+            return yield* status(scope, taskId);
+          });
+          return yield* managed.exclusive(attempt);
+        }
         if (
           input.externalSessionKey === undefined ||
           input.agentTask === undefined ||
@@ -581,6 +712,7 @@ const make = Effect.gen(function* () {
             binding,
             prompt: `${prepared.brief}\n\n${input.task}`,
             title: input.title ?? input.agentTask.role,
+            messageId: MessageId.make(`message:external-work:${identity}`),
           };
           yield* storage(sql`INSERT INTO external_agent_work (task_id, session_key, work_id, attempt_id, request_id, thread_id, fingerprint, payload_json, state)
         VALUES (${taskId}, ${session.key}, ${input.agentTask.workId}, ${input.agentTask.attemptId}, ${input.clientRequestId}, ${threadId}, ${fingerprint}, ${encodeWork(work)}, 'prepared')`);

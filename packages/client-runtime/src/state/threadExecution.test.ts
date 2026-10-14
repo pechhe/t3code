@@ -552,23 +552,22 @@ describe("presentPendingBackgroundWork", () => {
     expect(presentPendingBackgroundWork([])).toBeNull();
   });
 
-  // A command left running, such as a dev server, does not wake the agent.
-  it("says only commands are running, not waited on", () => {
+  it("waits for commands even when they are long lived", () => {
     expect(
       presentPendingBackgroundWork([
         { taskId: "dev", kind: "command", description: "Start the shared dev server" },
       ]),
-    ).toMatchObject({ title: "Running: Start the shared dev server", waiting: false });
+    ).toMatchObject({ title: "Waiting on command Start the shared dev server", waiting: true });
     expect(presentPendingBackgroundWork([{ taskId: "a", kind: "command" }])).toMatchObject({
-      title: "Running a command",
-      waiting: false,
+      title: "Waiting on a command",
+      waiting: true,
     });
     expect(
       presentPendingBackgroundWork([
         { taskId: "a", kind: "command", description: "vp run dev" },
         { taskId: "b", kind: "command", description: "tailscale serve" },
       ]),
-    ).toMatchObject({ title: "Running 2 commands", waiting: false });
+    ).toMatchObject({ title: "Waiting on 2 commands", waiting: true });
     expect(
       presentPendingBackgroundWork([
         { taskId: "a", kind: "command", description: "vp run dev" },

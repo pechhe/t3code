@@ -1,3 +1,4 @@
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -137,7 +138,15 @@ const layerTest = Layer.mergeAll(RuntimeLayer.layer, RuntimeLayer.layerEventSink
   Layer.provide(SqlitePersistence.layerMemory),
   Layer.provide(layerCheckpointStoreTest),
   Layer.provide(layerServerConfig),
-  Layer.provide(ServerSettings.layerTest()),
+  Layer.provideMerge(
+    Layer.mock(ManagedAgent.ManagedAgentService)({
+      validate: (input) =>
+        Effect.sync(() => {
+          assert.equal(input.binding.sourceRevision, "revision-two");
+        }),
+    }),
+  ),
+  Layer.provideMerge(ServerSettings.layerTest()),
   Layer.provide(layerTestProviderInstanceRegistry),
   Layer.provide(layerPlatformTest),
 );
@@ -1005,6 +1014,40 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
               },
             ],
           });
+          if (outcome === "completed") {
+            const { thread } = yield* orchestrator.getThreadProjection(child.childThreadId);
+            yield* eventSink.write({
+              commandId: reconcileCommandId("advisor-initial-pin"),
+              events: [
+                {
+                  id: EventId.make("event:advisor-initial-pin"),
+                  type: "thread.metadata-updated",
+                  threadId: thread.id,
+                  occurredAt: now,
+                  payload: {
+                    ...thread,
+                    agentTask: {
+                      role: "advisor",
+                      taskClass: "non-ui",
+                      workId: "advisor-work",
+                      attemptId: "1",
+                      workspacePath: "/fixture/advisor",
+                      sourceRevision: "revision-one",
+                      requestFingerprint: "a".repeat(64),
+                      policyHash: "b".repeat(64),
+                      policyRevision: "test",
+                      briefHash: "c".repeat(64),
+                      sourceAccess: "read-only",
+                      toolProfile: "source-reader",
+                      requested: thread.modelSelection,
+                      assigned: null,
+                      effective: thread.modelSelection,
+                    },
+                  },
+                },
+              ],
+            });
+          }
           const messageId = MessageId.make(`message:followup-${outcome}`);
           yield* orchestrator.dispatch({
             type: "message.dispatch",
@@ -1014,11 +1057,22 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
             threadId: child.childThreadId,
             senderThreadId: parentThreadId,
             messageId,
+            ...(outcome === "completed" ? { advisorSourceRevision: "revision-two" } : {}),
             text: "Check the same work again.",
             attachments: [],
             dispatchMode: { type: "start_immediately" },
           });
           const childProjection = yield* orchestrator.getThreadProjection(child.childThreadId);
+          if (outcome === "completed") {
+            assert.equal(childProjection.thread.advisorSourceRevision, "revision-two");
+            assert.equal(childProjection.thread.agentTask?.sourceRevision, "revision-one");
+            assert.equal(
+              (yield* orchestrator.getShellSnapshot()).threads.find(
+                (thread) => thread.id === child.childThreadId,
+              )?.advisorSourceRevision,
+              "revision-two",
+            );
+          }
           let run = childProjection.runs.find((row) => row.userMessageId === messageId)!;
           assert.isDefined(run.delegatedTaskId);
           const workingParent = yield* orchestrator.getShellSnapshot();

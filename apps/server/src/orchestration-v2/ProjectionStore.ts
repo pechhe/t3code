@@ -1526,6 +1526,9 @@ export function threadShellFromProjection(
     runtimeMode: projection.thread.runtimeMode,
     interactionMode: projection.thread.interactionMode,
     branch: projection.thread.branch,
+    ...(projection.thread.advisorSourceRevision === undefined
+      ? {}
+      : { advisorSourceRevision: projection.thread.advisorSourceRevision }),
     ...(projection.thread.agentTask === undefined
       ? {}
       : { agentTask: projection.thread.agentTask }),
@@ -1798,6 +1801,9 @@ function shellFromState(input: {
     runtimeMode: input.state.thread.runtimeMode,
     interactionMode: input.state.thread.interactionMode,
     branch: input.state.thread.branch,
+    ...(input.state.thread.advisorSourceRevision === undefined
+      ? {}
+      : { advisorSourceRevision: input.state.thread.advisorSourceRevision }),
     ...(input.state.thread.agentTask === undefined
       ? {}
       : { agentTask: input.state.thread.agentTask }),

@@ -104,7 +104,7 @@ function resolveThreadAwarenessPhaseV2(
     case "waiting":
       return "running";
     case "completed":
-      // Work that will wake the agent keeps the run going; a dev server does not.
+      // Pending background work keeps the thread working until completion or Stop.
       return backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
         ? "running"
         : "completed";

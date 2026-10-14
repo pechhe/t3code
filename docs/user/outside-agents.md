@@ -150,6 +150,18 @@ that task ID. Waiting is bounded and does not cancel work when its timeout expir
 disconnecting the terminal also leaves accepted work running. `outcome` records
 the owning caller's claim against a returned assignment ID as self-report.
 
+For repeated advice on one piece of work, open an `advisor`, then submit each new
+question with `advisorFollowup` containing its `taskId`, the current `sourceRevision`
+and `changes` since the previous consultation. Keep `externalSessionKey`, supply a
+new stable `clientRequestId`, and put the question in `task`; omit `agentTask` and
+target or runtime overrides. The same conversation and model are reused, with a
+separate task ID and result for each question. Finish one consultation before
+starting the next. Cancel any of its task IDs when the work ends; this closes the
+whole advisor conversation and prevents further reuse. A recorded experimental
+work outcome also prevents further consultations. Reviewers always start fresh.
+Conversation reuse reduces repeated briefing, but prompt caching and its savings
+depend on the provider and timing.
+
 Revoking the sign-in in Connections, or allowing it to expire, stops its owned
 work and denies further access. `t3 agent logout` removes the local credential;
 it does not revoke the server grant. After expiry, log out and sign in again.

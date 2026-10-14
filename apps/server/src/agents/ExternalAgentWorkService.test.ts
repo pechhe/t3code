@@ -35,16 +35,20 @@ import * as SessionStore from "../auth/SessionStore.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as External from "./ExternalAgentWorkService.ts";
 import * as Managed from "./ManagedAgentService.ts";
-import { snapshot, request, codex, claude } from "./agentPolicy.testkit.ts";
+import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
 
 const environmentId = EnvironmentId.make("environment:external-agent-test");
 const projectId = ProjectId.make("project:external-agent-test");
 const policy = snapshot();
 
 interface LaunchState {
+  readonly sourceRevision?: string;
   readonly rejectNextStop?: Deferred.Deferred<void> | undefined;
   readonly calls: ReadonlyArray<Parameters<Launch.ThreadLaunchService["Service"]["launch"]>[0]>;
   readonly activeThreads: ReadonlySet<string>;
+  readonly sends?:
+    | ReadonlyArray<Parameters<Threads.ThreadManagementService["Service"]["sendToThread"]>[0]>
+    | undefined;
   readonly failNextLaunch: boolean;
   readonly queueNextLaunch: boolean;
   /** Threads whose run finished, for reading a terminal result and its handoff. */
@@ -57,19 +61,23 @@ type FixtureEnvironment =
   | Experiments.ExperimentService
   | Managed.ManagedAgentService;
 
-const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
-  run: (input) =>
-    Effect.succeed({
-      stdout: input.args[0] === "status" ? "" : "fixture-source-revision\n",
-      stderr: "",
-      code: ChildProcessSpawner.ExitCode(0),
-      timedOut: false,
-      stdoutTruncated: false,
-      stderrTruncated: false,
-      stdoutInvalidUtf8: false,
-      stderrInvalidUtf8: false,
-    }),
-});
+const processRunner = (state: Ref.Ref<LaunchState>) =>
+  Layer.succeed(ProcessRunner.ProcessRunner, {
+    run: (input) =>
+      Effect.map(Ref.get(state), (current) => ({
+        stdout:
+          input.args[0] === "status"
+            ? ""
+            : `${current.sourceRevision ?? "fixture-source-revision"}\n`,
+        stderr: "",
+        code: ChildProcessSpawner.ExitCode(0),
+        timedOut: false,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        stdoutInvalidUtf8: false,
+        stderrInvalidUtf8: false,
+      })),
+  });
 
 const makeTestLayer = (
   state: Ref.Ref<LaunchState>,
@@ -115,17 +123,34 @@ const makeTestLayer = (
           Ref.get(state),
           (current) =>
             ({
-              runs:
-                current.activeThreads.has(threadId) || current.completedThreads?.has(threadId)
-                  ? [
-                      {
-                        id: RunId.make(`run:${threadId}`),
-                        ordinal: 1,
-                        status: current.activeThreads.has(threadId) ? "running" : "completed",
-                        rootNodeId: `node:${threadId}`,
-                      },
-                    ]
-                  : [],
+              runs: [
+                ...current.calls
+                  .filter((call) => call.threadId === threadId)
+                  .map((call) => ({
+                    id: RunId.make(`run:${threadId}`),
+                    ordinal: 1,
+                    userMessageId: call.initialMessage?.messageId,
+                    status: current.completedThreads?.has(threadId)
+                      ? "completed"
+                      : current.activeThreads.has(threadId)
+                        ? "running"
+                        : "completed",
+                    rootNodeId: `node:${threadId}`,
+                  })),
+                ...(current.sends ?? [])
+                  .filter((send) => send.threadId === threadId)
+                  .map((send, index) => ({
+                    id: RunId.make(`run:followup:${index}`),
+                    ordinal: index + 2,
+                    userMessageId: send.messageId,
+                    status:
+                      current.activeThreads.has(threadId) &&
+                      index === (current.sends?.length ?? 0) - 1
+                        ? "running"
+                        : "completed",
+                    rootNodeId: `node:followup:${index}`,
+                  })),
+              ],
               messages: [],
               turnItems: [],
               subagents: [],
@@ -148,6 +173,16 @@ const makeTestLayer = (
             ),
           })).pipe(Effect.andThen(Deferred.succeed(stopped, undefined)));
         }),
+      sendToThread: (
+        input: Parameters<Threads.ThreadManagementService["Service"]["sendToThread"]>[0],
+      ) =>
+        Ref.update(state, (current) => ({
+          ...current,
+          sends: (current.sends ?? []).some((send) => send.commandId === input.commandId)
+            ? current.sends
+            : [...(current.sends ?? []), input],
+          activeThreads: new Set([...current.activeThreads, input.threadId]),
+        })).pipe(Effect.as({} as never)),
       stopDelegatedTasks: () => Effect.void,
       listProjectThreads: () =>
         Effect.map(Ref.get(state), (current) =>
@@ -192,7 +227,7 @@ const makeTestLayer = (
   const projectionPersistence = ProjectionStore.layer.pipe(Layer.provideMerge(persistence));
   const persistenceAndAuth = AuthSessions.layer.pipe(Layer.provideMerge(projectionPersistence));
   const dependencies = Layer.mergeAll(
-    processRunner,
+    processRunner(state),
     persistenceAndAuth,
     sessionStore,
     projects,
@@ -728,11 +763,33 @@ it.effect("restores persisted ownership and the invalidation watcher after servi
             .attach(fixture.scope(sessionId), fixture.attachInput())
             .pipe(Effect.provideContext(context));
           const submitted = yield* service
-            .submit(fixture.scope(sessionId), fixture.submitInput(attached))
+            .submit(
+              fixture.scope(sessionId),
+              fixture.submitInput(attached, {
+                agentTask: request({ role: "advisor", workspacePath }),
+              }),
+            )
             .pipe(Effect.provideContext(context));
           expect(submitted.launchState).toBe("accepted");
           yield* Deferred.await(watcherStarted);
-          return { sessionId, attached, submitted, input: fixture.submitInput(attached) };
+          yield* Ref.update(state, (current) => ({
+            ...current,
+            activeThreads: new Set<string>(),
+            completedThreads: new Set([submitted.childThreadId]),
+            sourceRevision: "revision-two",
+          }));
+          const input = {
+            externalSessionKey: attached.key,
+            clientRequestId: "durable-advice",
+            task: "Next question",
+            advisorFollowup: {
+              taskId: submitted.taskId,
+              sourceRevision: "revision-two",
+              changes: "Updated source",
+            },
+          };
+          const consultation = yield* service.submit(fixture.scope(sessionId), input);
+          return { sessionId, attached, submitted: consultation, input };
         }),
       );
       expect((yield* Ref.get(state)).calls).toHaveLength(1);
@@ -749,6 +806,7 @@ it.effect("restores persisted ownership and the invalidation watcher after servi
             .pipe(Effect.provideContext(context));
           expect(retry.taskId).toBe(client.submitted.taskId);
           expect((yield* Ref.get(state)).calls).toHaveLength(1);
+          expect((yield* Ref.get(state)).sends).toHaveLength(1);
           yield* Deferred.await(watcherStartedAfterReconnect);
           yield* Deferred.succeed(invalidation, undefined);
           yield* Deferred.await(stopped);
@@ -1134,6 +1192,118 @@ it.effect("runs an isolated helper under the same lead session and hands back it
         revision: "fixture-source-revision",
         quiescent: true,
       });
+    }),
+  ),
+);
+
+it.effect(
+  "reuses an external advisor with stable consultations and closes its whole conversation",
+  () =>
+    withFixture((fixture) =>
+      Effect.gen(function* () {
+        const client = yield* fixture.issueSession("advisor-owner");
+        const attached = yield* fixture.attach(client);
+        const initial = yield* fixture.submit(client, {
+          externalSessionKey: attached.key,
+          clientRequestId: "advisor-open",
+          task: "Learn the current work",
+          agentTask: request({
+            role: "advisor",
+            workId: "advisor-work",
+            sourceRevision: "fixture-source-revision",
+            workspacePath: fixture.workspacePath,
+          }),
+        });
+        const followup = {
+          externalSessionKey: attached.key,
+          clientRequestId: "advisor-question-2",
+          task: "Does this fix the defect?",
+          advisorFollowup: {
+            taskId: initial.taskId,
+            sourceRevision: "fixture-source-revision-two",
+            changes: "Replaced the faulty calculation.",
+          },
+        };
+        expect((yield* fixture.submit(client, followup).pipe(Effect.flip)).reason).toBe("conflict");
+        yield* Ref.update(fixture.state, (state) => ({
+          ...state,
+          activeThreads: new Set<string>(),
+          completedThreads: new Set([initial.childThreadId]),
+          sourceRevision: "fixture-source-revision-two",
+        }));
+        const second = yield* fixture.submit(client, followup);
+        expect(second.taskId).not.toBe(initial.taskId);
+        expect(second.childThreadId).toBe(initial.childThreadId);
+        expect(second.agentTask).toEqual(initial.agentTask);
+        expect(second.childRunId).not.toBe(initial.childRunId);
+        const retry = yield* fixture.submit(client, followup);
+        expect(retry.taskId).toBe(second.taskId);
+        expect((yield* Ref.get(fixture.state)).sends).toHaveLength(1);
+        expect((yield* fixture.status(client, initial.taskId)).status).toBe("completed");
+        expect(
+          (yield* fixture
+            .submit(client, { ...followup, task: "different question" })
+            .pipe(Effect.flip)).reason,
+        ).toBe("conflict");
+        const other = yield* fixture.issueSession("advisor-foreign");
+        expect((yield* fixture.submit(other, followup).pipe(Effect.flip)).reason).toBe("session");
+        yield* Ref.update(fixture.state, (state) => ({
+          ...state,
+          activeThreads: new Set<string>(),
+        }));
+        const third = yield* fixture.submit(client, {
+          ...followup,
+          clientRequestId: "advisor-question-3",
+          advisorFollowup: {
+            ...followup.advisorFollowup,
+            taskId: second.taskId,
+            sourceRevision: "fixture-source-revision-two",
+          },
+        });
+        expect(third.childThreadId).toBe(initial.childThreadId);
+        expect((yield* Ref.get(fixture.state)).calls).toHaveLength(1);
+        expect((yield* Ref.get(fixture.state)).sends).toHaveLength(2);
+        const service = yield* External.ExternalAgentWorkService;
+        yield* service.cancel(fixture.scope(client), { taskId: second.taskId });
+        expect(
+          (yield* fixture
+            .submit(client, { ...followup, clientRequestId: "advisor-after-close" })
+            .pipe(Effect.flip)).reason,
+        ).toBe("conflict");
+      }),
+    ),
+);
+
+it.effect("refuses continuing an external reviewer", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const client = yield* fixture.issueSession("reviewer-owner");
+      const attached = yield* fixture.attach(client);
+      const initial = yield* fixture.submit(client, {
+        externalSessionKey: attached.key,
+        clientRequestId: "review-open",
+        task: "Review",
+        agentTask: request({
+          role: "reviewer",
+          workspacePath: fixture.workspacePath,
+          sourceRevision: "fixture-source-revision",
+          review: changeReview,
+        }),
+      });
+      expect(
+        (yield* fixture
+          .submit(client, {
+            externalSessionKey: attached.key,
+            clientRequestId: "review-reuse",
+            task: "Again",
+            advisorFollowup: {
+              taskId: initial.taskId,
+              sourceRevision: "new-revision",
+              changes: "Updated",
+            },
+          })
+          .pipe(Effect.flip)).reason,
+      ).toBe("authority");
     }),
   ),
 );
