@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "projectCode": "t3",
+  "integrationBranch": "rollover",
+  "remote": "origin",
+  "parallelExecution": true,
+  "spares": 0,
+  "requiredLandingVerification": [
+    {
+      "executable": "pnpm",
+      "args": [
+        "exec",
+        "vp",
+        "test",
+        "run",
+        "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+        "apps/server/src/experiments/ExperimentService.test.ts"
+      ]
+    }
+  ]
+}
