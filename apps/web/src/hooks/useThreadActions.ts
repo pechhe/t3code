@@ -12,6 +12,7 @@ import {
   AuthSourceControlWriteScope,
   EnvironmentAuthorizationError,
   EnvironmentId,
+  type OrchestrationV2RolloverHold,
   type ScopedThreadRef,
   ThreadId,
   sessionGrantsScope,
@@ -38,6 +39,7 @@ import { releaseComposerDraftUploads } from "../lib/composerDraftUploads";
 import { readLocalApi } from "../localApi";
 import {
   readEnvironmentSupportsAutoSettleOptOut,
+  readEnvironmentSupportsRolloverHold,
   readEnvironmentSupportsPinning,
   readEnvironmentSupportsPinReorder,
   readEnvironmentSupportsActiveReorder,
@@ -131,6 +133,18 @@ export class ThreadAutoSettleOptOutUnsupportedError extends Schema.TaggedError<T
 ) {
   override get message(): string {
     return "This environment's server does not support turning auto-settle off per thread yet. Update the server to use it.";
+  }
+}
+
+export class ThreadRolloverHoldUnsupportedError extends Schema.TaggedError<ThreadRolloverHoldUnsupportedError>()(
+  "ThreadRolloverHoldUnsupportedError",
+  {
+    environmentId: EnvironmentId,
+    threadId: ThreadId,
+  },
+) {
+  override get message(): string {
+    return "This environment's server does not support holding rollover per thread yet. Update the server to use /rollover.";
   }
 }
 
@@ -291,6 +305,9 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const setThreadAutoSettleMutation = useOrchestrationCommand(threadEnvironment.setAutoSettle, {
+    reportFailure: false,
+  });
+  const setThreadRolloverHoldMutation = useOrchestrationCommand(threadEnvironment.setRolloverHold, {
     reportFailure: false,
   });
   const reorderPinnedThreadMutation = useOrchestrationCommand(threadEnvironment.reorderPin, {
@@ -699,6 +716,27 @@ export function useThreadActions() {
     [setThreadAutoSettleMutation],
   );
 
+  /** Holds automatic context rollover for one thread; null lifts the hold. */
+  const setThreadRolloverHold = useCallback(
+    async (target: ScopedThreadRef, hold: OrchestrationV2RolloverHold | null) => {
+      if (!readEnvironmentSupportsRolloverHold(target.environmentId)) {
+        return AsyncResult.failure(
+          Cause.fail(
+            new ThreadRolloverHoldUnsupportedError({
+              environmentId: target.environmentId,
+              threadId: target.threadId,
+            }),
+          ),
+        );
+      }
+      return setThreadRolloverHoldMutation({
+        environmentId: target.environmentId,
+        input: { threadId: target.threadId, hold },
+      });
+    },
+    [setThreadRolloverHoldMutation],
+  );
+
   const pinThread = useCallback(
     async (target: ScopedThreadRef, opts: { orderKey?: string } = {}) => {
       // Version skew: never send the command to a server that predates it.
@@ -1024,6 +1062,7 @@ export function useThreadActions() {
       reorderActiveThread,
       markThreadUnread,
       setThreadAutoSettle,
+      setThreadRolloverHold,
     }),
     [
       archiveThread,
@@ -1035,6 +1074,7 @@ export function useThreadActions() {
       reorderPinnedThread,
       reorderActiveThread,
       setThreadAutoSettle,
+      setThreadRolloverHold,
       settleThread,
       snoozeThread,
       unarchiveThread,

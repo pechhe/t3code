@@ -7,6 +7,7 @@ import {
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -21,6 +22,7 @@ import {
   lowestSoftThreshold,
   ROLLOVER_RESUME_TEXT,
   rolloverHardNudge,
+  rolloverHeld,
   rolloverSoftNudge,
   rolloverUsageAction,
   threadRolloverThresholds,
@@ -75,6 +77,7 @@ export const make = Effect.gen(function* () {
   ) {
     const settings = yield* settingsService.getSettings;
     const thread = yield* projections.getThread(threadId);
+    if (rolloverHeld(thread.rolloverHold, yield* Clock.currentTimeMillis)) return null;
     return threadRolloverThresholds(settings.contextRollover, thread, run.modelSelection.model);
   });
 
@@ -258,6 +261,14 @@ export const make = Effect.gen(function* () {
             return event.payload.tokenUsage === undefined ? Effect.void : worker.enqueue(event);
           case "run.updated":
             return worker.enqueue(event);
+          case "thread.rollover-hold-set":
+            // A hold forgets a soft nudge not yet answered; lifting it starts over.
+            return Effect.sync(() => {
+              const state = threads.get(event.threadId);
+              if (state === undefined) return;
+              state.phase = "idle";
+              state.fallbackSent = false;
+            });
           case "thread.archived":
           case "thread.deleted":
             return Effect.sync(() => {

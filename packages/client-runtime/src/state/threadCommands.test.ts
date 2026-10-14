@@ -133,6 +133,7 @@ describe("remote thread lifecycle commands", () => {
     ["pin", { orderKey: "a" }, { pinnedAt: expect.any(Object), pinOrderKey: "a" }],
     ["unpin", {}, { pinnedAt: null, pinOrderKey: null }],
     ["setAutoSettle", { enabled: false }, { autoSettleDisabledAt: expect.any(Object) }],
+    ["setRolloverHold", { hold: { kind: "off" } }, { rolloverHold: { kind: "off" } }],
     ["reorderPin", { orderKey: "b" }, { pinOrderKey: "b" }],
     ["reorderActive", { orderKey: "b" }, { activeOrderKey: "b" }],
   ] as const;
@@ -168,6 +169,7 @@ describe("remote thread lifecycle commands", () => {
             commandId: CommandId.make(action),
             reason: "user",
             enabled: false,
+            hold: null,
             orderKey: "a",
             snoozedUntil: "2099-01-01T00:00:00.000Z",
             ...input,
