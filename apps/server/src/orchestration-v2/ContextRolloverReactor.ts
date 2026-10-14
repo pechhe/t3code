@@ -29,6 +29,7 @@ import {
   ROLLOVER_MIN_GROWTH_TOKENS,
   ROLLOVER_RESUME_TEXT,
   rolloverHardNudge,
+  rolloverNudgeSummary,
   rolloverHeld,
   rolloverSoftNudge,
   rolloverUsageAction,
@@ -130,6 +131,7 @@ export const make = Effect.gen(function* () {
     threadId: ThreadId,
     run: OrchestrationV2Run,
     text: string,
+    summary: string,
     mode: "steer" | "start",
   ) {
     const uuid = yield* crypto.randomUUIDv4();
@@ -139,6 +141,8 @@ export const make = Effect.gen(function* () {
       threadId,
       messageId: MessageId.make(`message:context-rollover-nudge:${uuid}`),
       text,
+      // Shown as a work log row, not a user message; the request is its detail.
+      notification: { source: { kind: "system" }, outcome: "updated", summary, detail: text },
       attachments: [],
       modelSelection: run.modelSelection,
       dispatchMode:
@@ -278,6 +282,7 @@ export const make = Effect.gen(function* () {
       event.threadId,
       run,
       action === "hard" ? rolloverHardNudge(used) : rolloverSoftNudge(used, thresholds.hard),
+      rolloverNudgeSummary(action, used),
       "steer",
     );
     state.phase = action === "hard" ? "hardNudged" : "softNudged";
@@ -341,7 +346,8 @@ export const make = Effect.gen(function* () {
           source: { kind: "system" },
           outcome: "updated",
           summary: "Context rolled over to a fresh session",
-          detail: ROLLOVER_RESUME_TEXT,
+          // The handoff note the fresh session was seeded with.
+          detail: note,
         },
         attachments: [],
         modelSelection: run.modelSelection,

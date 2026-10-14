@@ -43,11 +43,15 @@ const k = (tokens: number) => `${Math.round(tokens / 1000)}k`;
 
 /** Past the soft threshold: hand off at the next natural break, not mid-step. */
 export const rolloverSoftNudge = (used: number, hard: number) =>
-  `Context is at ${k(used)} tokens. Do not hand off mid-step: if more work remains, at the next natural break (a batch of work finished, or before starting a new unit), record unsaved user decisions where they belong, write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn. T3 then continues this thread on a fresh session seeded with the note. If the task is complete, finish normally without a handoff. A hard handoff is asked for at ${k(hard)}.`;
+  `Context is at ${k(used)} tokens. Do not hand off mid-step: if more work remains, at the next natural break (a batch of work finished, or before starting a new unit), record unsaved user decisions where they belong, write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn. T3 then continues this thread on a fresh session seeded with the note. That turn is not the end of the task: do not close it with a final status or summary for the user. If the task is complete, finish normally without a handoff. A hard handoff is asked for at ${k(hard)}.`;
 
 /** Past the hard threshold while work is running. */
 export const rolloverHardNudge = (used: number) =>
-  `Context is at ${k(used)} tokens: hand off now. Finish the step in hand without starting new work, record unsaved user decisions where they belong, then write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn.`;
+  `Context is at ${k(used)} tokens: hand off now. Finish the step in hand without starting new work, record unsaved user decisions where they belong, then write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn without a final status or summary for the user: T3 continues the thread on a fresh session.`;
+
+/** The timeline row for a nudge; the nudge text is its detail. */
+export const rolloverNudgeSummary = (action: "soft" | "hard", used: number) =>
+  `Context at ${k(used)} tokens: ${action === "hard" ? "asked for a handoff now" : "asked for a handoff at the next break"}`;
 
 export interface RolloverThresholds {
   readonly soft: number;

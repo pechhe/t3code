@@ -643,6 +643,24 @@ it.live(
         assert.include(JSON.stringify(rolloverStart.message), tail);
         const handoff = after.contextHandoffs.find((entry) => entry.targetRunId === rolloverRun.id);
         assert.equal(handoff?.strategy, "manual_context");
+
+        // The timeline shows T3's request and the rollover as system rows, not user
+        // messages, and the rollover row opens to the note the fresh session got.
+        const rows = after.turnItems.filter((item) => item.type === "notification");
+        assert.deepEqual(
+          rows.map((row) => row.summary),
+          [
+            "Context at 2k tokens: asked for a handoff at the next break",
+            "Context rolled over to a fresh session",
+          ],
+        );
+        assert.include(rows[0]!.detail, ROLLOVER_NOTE_TOOL_NAME);
+        assert.equal(rows[1]!.detail, note);
+        assert.isFalse(
+          after.turnItems.some(
+            (item) => item.type === "user_message" && item.creationSource === "server",
+          ),
+        );
       }),
     ),
 );
