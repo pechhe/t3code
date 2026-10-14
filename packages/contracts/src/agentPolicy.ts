@@ -116,7 +116,7 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
 
 export const AgentPolicyManifest = Manifest.check(Schema.makeFilter(validManifest));
 export type AgentPolicyManifest = typeof AgentPolicyManifest.Type;
-const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
+export const Sha256 = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 export const AgentPolicySnapshot = Schema.Struct({
   hash: Sha256,
   sourceRevision: TrimmedNonEmptyString,

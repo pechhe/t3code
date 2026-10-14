@@ -5,9 +5,27 @@ import type {
   Experiment,
   ExperimentDefinition,
   ExperimentOutcomeInput,
+  ExperimentReport,
+  ExperimentWorkReport,
   ModelSelection,
   ProviderInstanceId,
 } from "@t3tools/contracts";
+import {
+  ALLOCATION_POLICY_LABELS,
+  ORCHESTRATION_POLICY_VARIANTS,
+  WORK_TREATMENT_STATUS_LABELS,
+  compareWorkTreatment,
+  describeExperimentTreatment,
+  describeModelSelection,
+  describeOrchestrationControls,
+  describeUsage,
+  describeWorkDeviation,
+  describeWorkExclusion,
+  describeWorkTaskLaunch,
+  formatDurationMs,
+  orchestrationControlsError,
+} from "@t3tools/client-runtime/experiments";
+import { createModelSelection } from "@t3tools/shared/model";
 import { useMemo, useState, type FormEvent } from "react";
 import { randomUUID } from "../../lib/utils";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
@@ -18,6 +36,7 @@ import {
   applyProviderInstanceSettings,
 } from "../../providerInstances";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
+import { TraitsPicker } from "../chat/TraitsPicker";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
 import { useProjects } from "../../state/entities";
 import type { EnvironmentPresentation } from "../../state/environments";
@@ -111,6 +130,14 @@ function EnvironmentExperiments({ environment }: { environment: EnvironmentPrese
   );
 }
 
+const DEFAULT_QUESTIONS: Readonly<Record<ExperimentDefinition["lever"], string>> = {
+  rollover: "Does an earlier rollover improve verified completion without increasing rework?",
+  reviewer: "Which reviewer model finds validated issues with fewer false positives?",
+  delegation: "Which delegated model completes eligible tasks with less rework?",
+  "orchestration-policy":
+    "Does delegating bounded non-UI work earlier reduce total accepted-work usage without lowering independently verified completion?",
+};
+
 function ExperimentDraft({
   environmentId,
   onSaved,
@@ -127,9 +154,13 @@ function ExperimentDraft({
   const [lever, setLever] = useState<ExperimentDefinition["lever"]>("rollover");
   const [modelA, setModelA] = useState<ModelSelection | null>(null);
   const [modelB, setModelB] = useState<ModelSelection | null>(null);
-  const [question, setQuestion] = useState(
-    "Does an earlier rollover improve verified completion without increasing rework?",
-  );
+  const [orchestrator, setOrchestrator] = useState<ModelSelection | null>(null);
+  const [policyHash, setPolicyHash] = useState("");
+  const [reviewerPolicyRevision, setReviewerPolicyRevision] = useState("");
+  const [verificationRevision, setVerificationRevision] = useState("");
+  const [concurrency, setConcurrency] = useState(1);
+  const [editedQuestion, setQuestion] = useState<string | null>(null);
+  const question = editedQuestion ?? DEFAULT_QUESTIONS[lever];
   const [outcome, setOutcome] = useState("verified completion");
   const settings = useEnvironmentSettings(environmentId);
   const actualSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
@@ -164,11 +195,27 @@ function ExperimentDraft({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (pending || !canCreate) return;
+    const controlsError =
+      lever === "orchestration-policy"
+        ? orchestrationControlsError({
+            orchestratorSelection: orchestrator,
+            policyHash,
+            reviewerPolicyRevision,
+            verificationRevision,
+            concurrency,
+          })
+        : null;
+    if (controlsError) {
+      setError(controlsError);
+      return;
+    }
     if (
       !title.trim() ||
       !question.trim() ||
       !outcome.trim() ||
-      (lever === "rollover" ? !baseline || softA >= hard || softB >= softA : !modelA || !modelB) ||
+      (lever === "rollover"
+        ? !baseline || softA >= hard || softB >= softA
+        : lever !== "orchestration-policy" && (!modelA || !modelB)) ||
       !Number.isFinite(Date.parse(end)) ||
       Date.parse(end) <= Date.now()
     ) {
@@ -186,25 +233,38 @@ function ExperimentDraft({
         title: title.trim(),
         question: question.trim(),
         lever,
+        ...(lever === "orchestration-policy" && orchestrator
+          ? {
+              orchestrationControls: {
+                orchestratorSelection: orchestrator,
+                policyHash: policyHash.trim(),
+                reviewerPolicyRevision: reviewerPolicyRevision.trim(),
+                verificationRevision: verificationRevision.trim(),
+                concurrency,
+              },
+            }
+          : {}),
         primaryOutcome: outcome.trim(),
         variants:
-          lever === "rollover"
-            ? [
-                {
-                  id: "a",
-                  label: "Current rollover",
-                  rollover: { softLimit: softA, hardLimit: hard },
-                },
-                {
-                  id: "b",
-                  label: "Earlier rollover",
-                  rollover: { softLimit: softB, hardLimit: hard },
-                },
-              ]
-            : [
-                { id: "a", label: "Model A", modelSelection: modelA! },
-                { id: "b", label: "Model B", modelSelection: modelB! },
-              ],
+          lever === "orchestration-policy"
+            ? ORCHESTRATION_POLICY_VARIANTS
+            : lever === "rollover"
+              ? [
+                  {
+                    id: "a",
+                    label: "Current rollover",
+                    rollover: { softLimit: softA, hardLimit: hard },
+                  },
+                  {
+                    id: "b",
+                    label: "Earlier rollover",
+                    rollover: { softLimit: softB, hardLimit: hard },
+                  },
+                ]
+              : [
+                  { id: "a", label: "Model A", modelSelection: modelA! },
+                  { id: "b", label: "Model B", modelSelection: modelB! },
+                ],
         eligibility: {
           projectIds,
           models: models
@@ -234,8 +294,10 @@ function ExperimentDraft({
       <h3 className="text-sm font-medium">New trial</h3>
       <p className="text-xs text-muted-foreground">
         Rollover trials use thread assignments and token limits. Reviewer and delegation trials
-        assign the selected model to eligible tasks. Empty eligibility filters include all projects,
-        models or categories in this environment.
+        assign the selected model to eligible tasks. Orchestration-policy trials assign each
+        enrolled work package to inline-first or delegate-earlier before its parent decides how to
+        execute it. Empty eligibility filters include all projects, models or categories in this
+        environment.
       </p>
       <label className="block text-sm">
         Compare
@@ -247,6 +309,7 @@ function ExperimentDraft({
           <option value="rollover">Rollover policies</option>
           <option value="reviewer">Reviewer models</option>
           <option value="delegation">Delegation models</option>
+          <option value="orchestration-policy">Orchestration policies</option>
         </select>
       </label>
       <label className="block text-sm">
@@ -261,7 +324,66 @@ function ExperimentDraft({
         Primary outcome
         <Input required value={outcome} onChange={(event) => setOutcome(event.target.value)} />
       </label>
-      {lever === "rollover" ? (
+      {lever === "orchestration-policy" ? (
+        <div className="space-y-3">
+          <p className="text-sm">
+            Compares {ALLOCATION_POLICY_LABELS["inline-first"]} with{" "}
+            {ALLOCATION_POLICY_LABELS["delegate-earlier"]}. Only non-UI work packages enroll. Role
+            restrictions apply in both arms: UI work and browser evidence keep their restricted
+            routes, and an unsupported route is refused rather than substituted. A running
+            delegation-model trial in the same projects cannot run alongside this one.
+          </p>
+          <TrialModelPicker
+            environmentId={environmentId}
+            label="Parent model and effort (held fixed in both arms)"
+            selection={orchestrator}
+            onChange={setOrchestrator}
+            withOptions
+          />
+          <label className="block text-sm">
+            Agent policy hash
+            <Input
+              required
+              value={policyHash}
+              onChange={(event) => setPolicyHash(event.target.value)}
+              placeholder="64-character hash from t3 agent roles"
+              spellCheck={false}
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm">
+              Reviewer policy revision
+              <Input
+                required
+                value={reviewerPolicyRevision}
+                onChange={(event) => setReviewerPolicyRevision(event.target.value)}
+              />
+            </label>
+            <label className="text-sm">
+              Verification revision
+              <Input
+                required
+                value={verificationRevision}
+                onChange={(event) => setVerificationRevision(event.target.value)}
+              />
+            </label>
+          </div>
+          <label className="block text-sm">
+            Concurrent managed tasks per parent
+            <Input
+              type="number"
+              min={1}
+              required
+              value={concurrency}
+              onChange={(event) => setConcurrency(Number(event.target.value))}
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            Work enrolled under a different parent selection or agent policy is recorded as an
+            exclusion, not assigned. Eligible model names below filter by the parent model.
+          </p>
+        </div>
+      ) : lever === "rollover" ? (
         <div className="space-y-3">
           <p className="text-sm">
             Environment default:{" "}
@@ -508,13 +630,17 @@ function ExperimentRow({
       <div className="flex flex-wrap gap-4 text-xs">
         {experiment.variants.map((variant) => (
           <p key={variant.id}>
-            {variant.label}:{" "}
-            {variant.rollover
-              ? `${variant.rollover.softLimit.toLocaleString()} soft / ${variant.rollover.hardLimit.toLocaleString()} hard`
-              : (variant.modelSelection?.model ?? "Model selection")}
+            {variant.label}
+            {variant.allocationPolicy ? "" : `: ${describeExperimentTreatment(variant)}`}
           </p>
         ))}
       </div>
+      {experiment.orchestrationControls && (
+        <p className="text-xs text-muted-foreground">
+          Held fixed in both arms: {describeOrchestrationControls(experiment.orchestrationControls)}
+          .
+        </p>
+      )}
       {showReport && (
         <div className="space-y-3">
           <Button size="xs" variant="ghost-muted" onClick={report.refresh}>
@@ -536,7 +662,10 @@ function ExperimentRow({
                   {report.data.assignments.length === 0
                     ? "No assignments on this page"
                     : `Showing assignments ${report.data.offset + 1}–${report.data.offset + report.data.assignments.length} of ${report.data.totalAssignments}`}
-                  . Variant counts and reviewed outcomes below cover this page only.
+                  .{" "}
+                  {report.data.work
+                    ? "Policy summaries cover every enrolled unit; work details cover this page only."
+                    : "Variant counts and reviewed outcomes below cover this page only."}
                 </p>
                 <Button
                   size="xs"
@@ -557,7 +686,15 @@ function ExperimentRow({
                   Next page
                 </Button>
               </div>
-              {experiment.variants.map((variant) => {
+              {report.data.work && (
+                <OrchestrationPolicyReport
+                  environmentId={environmentId}
+                  report={report.data}
+                  work={report.data.work}
+                  refresh={report.refresh}
+                />
+              )}
+              {(report.data.work ? [] : experiment.variants).map((variant) => {
                 const rows = report.data!.assignments.filter(
                   (row) => row.assignment.variant.id === variant.id,
                 );
@@ -601,13 +738,19 @@ function ExperimentRow({
                     })}
                     {rows.map((row) => (
                       <div key={row.assignment.id} className="mt-3 space-y-1 text-xs">
-                        <Link
-                          to="/$environmentId/$threadId"
-                          params={{ environmentId, threadId: row.assignment.threadId }}
-                          className="underline"
-                        >
-                          Open thread · {row.assignment.unitKind} {row.assignment.unitId}
-                        </Link>
+                        {row.assignment.threadId === null ? (
+                          <p>
+                            {row.assignment.unitKind} {row.assignment.unitId}
+                          </p>
+                        ) : (
+                          <Link
+                            to="/$environmentId/$threadId"
+                            params={{ environmentId, threadId: row.assignment.threadId }}
+                            className="underline"
+                          >
+                            Open thread · {row.assignment.unitKind} {row.assignment.unitId}
+                          </Link>
+                        )}
                         <p>
                           {row.assignment.assignmentMethod} · assigned{" "}
                           {row.assignment.assignedModelSelection.model} · {row.usage.status} usage
@@ -733,16 +876,228 @@ function ExperimentRow({
   );
 }
 
+function OrchestrationPolicyReport({
+  environmentId,
+  report,
+  work,
+  refresh,
+}: {
+  environmentId: EnvironmentId;
+  report: ExperimentReport;
+  work: readonly ExperimentWorkReport[];
+  refresh: () => void;
+}) {
+  const exclusions = report.exclusions ?? [];
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        {report.uncertainty} No policy is promoted automatically. Usage is token counts only; no
+        charges, prices or subscription usage are inferred.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {(report.policySummary ?? []).map((summary) => (
+          <div key={summary.assignedPolicy} className="space-y-1 rounded-md border p-3 text-xs">
+            <h4 className="text-sm font-medium">
+              {ALLOCATION_POLICY_LABELS[summary.assignedPolicy]} · {summary.assignedCount} assigned
+            </h4>
+            <p>
+              Actual allocation: {summary.actualInlineCount} inline · {summary.actualDelegatedCount}{" "}
+              delegated · {summary.allocationUnknownCount} not yet recorded ·{" "}
+              {summary.deviationCount} with deviations
+            </p>
+            <p>
+              {summary.independentlyAcceptedCount} independently accepted ·{" "}
+              {summary.incompleteCount} not yet accepted · {summary.failureCount} with failures or
+              blocked launches · {summary.cancellationCount} cancelled
+            </p>
+            <p>
+              Coverage gaps: {summary.missingParentCount} with incomplete parent usage ·{" "}
+              {summary.incompleteChildCount} with incomplete child usage
+            </p>
+            <p>
+              Elapsed to accepted work:{" "}
+              {summary.acceptedElapsed.n === 0
+                ? "no accepted units yet"
+                : `n=${summary.acceptedElapsed.n} · mean ${formatDurationMs(
+                    summary.acceptedElapsed.meanMs === null
+                      ? null
+                      : Math.round(summary.acceptedElapsed.meanMs),
+                  )} · range ${formatDurationMs(summary.acceptedElapsed.minMs)}–${formatDurationMs(
+                    summary.acceptedElapsed.maxMs,
+                  )}`}
+            </p>
+            <p>Parent plus child total: {describeUsage(summary.usage)}</p>
+          </div>
+        ))}
+      </div>
+      <div className="rounded-md border p-3 text-xs">
+        <h4 className="text-sm font-medium">Exclusions · {exclusions.length}</h4>
+        {exclusions.length === 0 ? (
+          <p className="text-muted-foreground">No enrolled work was excluded from this trial.</p>
+        ) : (
+          exclusions.map((exclusion) => (
+            <p key={exclusion.unit.id}>
+              Work {exclusion.unit.workId}: {exclusion.unit.description} ·{" "}
+              {describeWorkExclusion(exclusion.reason)}
+            </p>
+          ))
+        )}
+      </div>
+      {work.map((entry) => (
+        <WorkUnitReport
+          key={entry.unit.id}
+          environmentId={environmentId}
+          experimentId={report.experiment.id}
+          work={entry}
+          assignment={report.assignments.find(
+            (row) => row.assignment.unitKind === "work" && row.assignment.unitId === entry.unit.id,
+          )}
+          refresh={refresh}
+        />
+      ))}
+    </div>
+  );
+}
+
+function WorkUnitReport({
+  environmentId,
+  experimentId,
+  work,
+  assignment,
+  refresh,
+}: {
+  environmentId: EnvironmentId;
+  experimentId: string;
+  work: ExperimentWorkReport;
+  assignment: ExperimentReport["assignments"][number] | undefined;
+  refresh: () => void;
+}) {
+  const { unit } = work;
+  const treatment = compareWorkTreatment(work, experimentId);
+  const firstAllocation = work.allocations[0];
+  const blocked = work.tasks.flatMap((task) => {
+    const reason = describeWorkTaskLaunch(task).blockedReason;
+    return reason === null ? [] : [{ taskId: task.taskId, reason }];
+  });
+  const phases = Object.entries(work.phaseMs).filter(([, value]) => value !== null);
+  const telemetry = work.evidence.filter((entry) => entry.source === "provider-telemetry").length;
+  return (
+    <div className="space-y-1 rounded-md border p-3 text-xs">
+      <h4 className="text-sm font-medium">
+        Work {unit.workId}: {unit.description}
+      </h4>
+      <p className="text-muted-foreground">
+        {unit.taskCategory} · {unit.taskClass} · enrolled{" "}
+        {new Date(unit.createdAt).toLocaleString()} ·{" "}
+        {unit.owner.parentThreadId === null ? (
+          "external parent session"
+        ) : (
+          <Link
+            to="/$environmentId/$threadId"
+            params={{ environmentId, threadId: unit.owner.parentThreadId }}
+            className="underline"
+          >
+            Open parent thread
+          </Link>
+        )}
+      </p>
+      <p>
+        Assigned{" "}
+        {treatment.assignedPolicy ? ALLOCATION_POLICY_LABELS[treatment.assignedPolicy] : "none"}
+        {assignment ? ` at ${new Date(assignment.assignment.assignedAt).toLocaleString()}` : ""} ·
+        first allocation{" "}
+        {firstAllocation
+          ? new Date(firstAllocation.recordedAt).toLocaleString()
+          : "not yet recorded"}{" "}
+        · actual {treatment.actualAllocation ?? "not yet recorded"} ·{" "}
+        {WORK_TREATMENT_STATUS_LABELS[treatment.status]}
+      </p>
+      {work.allocations.map((allocation) => (
+        <p key={allocation.id}>
+          Allocation {allocation.allocation}: {allocation.reason}
+          {allocation.deviationReason ? ` · exception: ${allocation.deviationReason}` : ""} · parent
+          self-report, {new Date(allocation.recordedAt).toLocaleString()}
+        </p>
+      ))}
+      {work.deviations.length > 0 && (
+        <p>Deviations: {work.deviations.map(describeWorkDeviation).join(" · ")}</p>
+      )}
+      <p>
+        Parent: {describeModelSelection(unit.orchestratorSelection)} ({unit.modelSource}) · coverage{" "}
+        {work.parentCoverage} · {describeUsage(work.parentUsage)}
+      </p>
+      <p>
+        Children: coverage {work.childCoverage}
+        {work.childCoverage === "not-applicable" ? "" : ` · ${describeUsage(work.childUsage)}`}
+      </p>
+      {work.tasks.map((task) => (
+        <p key={task.taskId}>
+          {task.binding.role} ({task.binding.taskClass}) · requested{" "}
+          {describeModelSelection(task.binding.requested)} · assigned{" "}
+          {task.binding.assigned ? describeModelSelection(task.binding.assigned) : "none"} ·
+          effective {describeModelSelection(task.binding.effective)} ·{" "}
+          {describeWorkTaskLaunch(task).label}
+        </p>
+      ))}
+      {blocked.map((entry) => (
+        <p key={entry.taskId} role="alert" className="text-destructive">
+          Blocked: {entry.reason}
+        </p>
+      ))}
+      <p>Total: {describeUsage(work.usage)}</p>
+      {work.usage.status !== "complete" && (
+        <p>Observed subtotal (not a complete total): {describeUsage(work.observedUsage)}</p>
+      )}
+      <p>
+        Elapsed to accepted work {formatDurationMs(work.elapsedToAcceptedMs)} · active{" "}
+        {formatDurationMs(work.activeMs)} · observed parent/child overlap{" "}
+        {formatDurationMs(work.overlapMs)} (simultaneous activity, not proof of useful parallelism)
+      </p>
+      {phases.length > 0 && (
+        <p>
+          Phases:{" "}
+          {phases.map(([phase, value]) => `${phase} ${formatDurationMs(value)}`).join(" · ")}
+        </p>
+      )}
+      <p>
+        {work.evidence.length} evidence records · {telemetry} provider telemetry ·{" "}
+        {work.evidence.length - telemetry} self-reported
+      </p>
+      <p>
+        {work.independentlySupportedAcceptance
+          ? "Independently supported acceptance recorded."
+          : "No independently supported acceptance yet; parent or child claims alone do not count."}
+      </p>
+      {work.outcomes.map((entry) => (
+        <p key={entry.id}>
+          {entry.kind} · {entry.source}: {entry.note} {entry.evidence.join(" · ")}
+        </p>
+      ))}
+      {work.coExposureIds.length > 0 && <p>Also exposed to: {work.coExposureIds.join(", ")}</p>}
+      {assignment && (
+        <OutcomeCapture
+          environmentId={environmentId}
+          assignmentId={assignment.assignment.id}
+          refresh={refresh}
+        />
+      )}
+    </div>
+  );
+}
+
 function TrialModelPicker({
   environmentId,
   label,
   selection,
   onChange,
+  withOptions = false,
 }: {
   environmentId: EnvironmentId;
   label: string;
   selection: ModelSelection | null;
   onChange: (selection: ModelSelection) => void;
+  /** Also choose provider options such as effort, which then form part of the treatment. */
+  withOptions?: boolean;
 }) {
   const settings = useEnvironmentSettings(environmentId);
   const providers =
@@ -760,20 +1115,43 @@ function TrialModelPicker({
     () => getCustomModelOptionsByInstance(settings, providers, instanceId, model),
     [settings, providers, instanceId, model],
   );
+  const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
   return (
     <div className="space-y-2 text-sm">
       <p>{label}</p>
-      <ProviderModelPicker
-        environmentId={environmentId}
-        activeInstanceId={instanceId}
-        model={model}
-        lockedProvider={null}
-        instanceEntries={entries}
-        modelOptionsByInstance={options}
-        isComposerOwned={false}
-        {...(selection ? {} : { triggerLabel: "Choose model" })}
-        onInstanceModelChange={(instanceId, model) => onChange({ instanceId, model })}
-      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <ProviderModelPicker
+          environmentId={environmentId}
+          activeInstanceId={instanceId}
+          model={model}
+          lockedProvider={null}
+          instanceEntries={entries}
+          modelOptionsByInstance={options}
+          isComposerOwned={false}
+          {...(selection ? {} : { triggerLabel: "Choose model" })}
+          onInstanceModelChange={(instanceId, model) => onChange({ instanceId, model })}
+        />
+        {withOptions && selection && activeEntry && (
+          <TraitsPicker
+            provider={activeEntry.driverKind}
+            models={activeEntry.models}
+            model={selection.model}
+            prompt=""
+            onPromptChange={() => {}}
+            modelOptions={selection.options ?? []}
+            allowPromptInjectedEffort={false}
+            planModeEnabled={settings.planModeEnabled}
+            onModelOptionsChange={(options) =>
+              onChange(createModelSelection(selection.instanceId, selection.model, options))
+            }
+          />
+        )}
+      </div>
+      {withOptions && selection && (
+        <p className="text-xs text-muted-foreground">
+          Recorded as {describeModelSelection(selection)}.
+        </p>
+      )}
     </div>
   );
 }

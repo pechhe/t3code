@@ -2,6 +2,12 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, Experiment } from "@t3tools/contracts";
 import { useState } from "react";
 import {
+  describeAssignmentUnit,
+  describeExperimentTreatment,
+  describeModelSelection,
+  describeOrchestrationControls,
+} from "@t3tools/client-runtime/experiments";
+import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
@@ -19,8 +25,9 @@ export function SettingsExperimentsRouteScreen() {
   return (
     <SettingsScreen title="Experiments">
       <Text className="px-4 text-sm text-foreground-muted">
-        Manage trial enrollment here. Create trials and compare evidence in web or desktop Settings
-        → Experiments. Pausing preserves existing assignments.
+        See assignments and pause or stop trial enrollment here. Create, start and resume trials and
+        compare evidence in web or desktop Settings → Experiments. Pausing preserves existing
+        assignments.
       </Text>
       {selectedTargets.length === 0 && (
         <Text className="p-4">Connect an environment to view its trials.</Text>
@@ -114,6 +121,12 @@ function Trial({
         {experiment.status} · {experiment.lever} · up to {experiment.maxAssignments} assignments
       </Text>
       <Text className="text-sm">{experiment.question}</Text>
+      {experiment.orchestrationControls && (
+        <Text className="text-sm text-foreground-muted">
+          Held fixed in both arms: {describeOrchestrationControls(experiment.orchestrationControls)}
+          .
+        </Text>
+      )}
       {transitionError && (
         <Text accessibilityRole="alert" className="text-sm text-destructive">
           Could not {experiment.status === "running" ? "change enrollment" : "stop trial"}:{" "}
@@ -130,41 +143,46 @@ function Trial({
       {assignments.data?.length === 0 && (
         <Text className="text-sm text-foreground-muted">No units assigned.</Text>
       )}
-      {assignments.data?.map((assignment) => (
-        <View key={assignment.id} className="gap-1 rounded-lg border border-border p-3">
-          <Text className="font-t3-medium">
-            {assignment.assignmentMethod === "observational"
-              ? "Historical / observational variant"
-              : experiment.status === "running"
-                ? "Assigned variant"
-                : "Retained assigned variant"}
-            : {assignment.variant.label}
-          </Text>
-          <Text className="text-sm">
-            {assignment.unitKind}: {assignment.unitId}
-          </Text>
-          <Text className="text-sm text-foreground-muted">
-            Thread {assignment.threadId} · {assignment.assignmentMethod}
-          </Text>
-          {assignment.assignmentMethod === "observational" && (
+      {assignments.data?.map((assignment) => {
+        const unit = describeAssignmentUnit(assignment);
+        return (
+          <View key={assignment.id} className="gap-1 rounded-lg border border-border p-3">
+            <Text className="font-t3-medium">
+              {assignment.assignmentMethod === "observational"
+                ? "Historical / observational variant"
+                : experiment.status === "running"
+                  ? "Assigned variant"
+                  : "Retained assigned variant"}
+              : {assignment.variant.label}
+            </Text>
+            <Text className="text-sm">{unit.title}</Text>
             <Text className="text-sm text-foreground-muted">
-              Imported evidence; not enrolled or randomized by this trial. Source:{" "}
-              {assignment.provenance ?? "unspecified"}
+              {unit.owner} · {assignment.assignmentMethod}
             </Text>
-          )}
-          <Text className="text-sm">Model: {assignment.assignedModelSelection.model}</Text>
-          {assignment.variant.rollover && (
+            {assignment.unitKind === "work" && (
+              <Text className="text-sm text-foreground-muted">
+                Assigned at enrollment, before the parent chose inline or delegated execution.
+              </Text>
+            )}
+            {assignment.assignmentMethod === "observational" && (
+              <Text className="text-sm text-foreground-muted">
+                Imported evidence; not enrolled or randomized by this trial. Source:{" "}
+                {assignment.provenance ?? "unspecified"}
+              </Text>
+            )}
             <Text className="text-sm">
-              {assignment.variant.rollover.softLimit.toLocaleString()} soft /{" "}
-              {assignment.variant.rollover.hardLimit.toLocaleString()} hard
+              {unit.modelLabel}: {describeModelSelection(assignment.assignedModelSelection)}
             </Text>
-          )}
-          <Text className="text-sm text-foreground-muted">
-            Assigned {new Date(assignment.assignedAt).toLocaleString()} · revision{" "}
-            {assignment.revision}. Assignment remains pinned when enrollment pauses or stops.
-          </Text>
-        </View>
-      ))}
+            {assignment.variant.rollover && (
+              <Text className="text-sm">{describeExperimentTreatment(assignment.variant)}</Text>
+            )}
+            <Text className="text-sm text-foreground-muted">
+              Assigned {new Date(assignment.assignedAt).toLocaleString()} · revision{" "}
+              {assignment.revision}. Assignment remains pinned when enrollment pauses or stops.
+            </Text>
+          </View>
+        );
+      })}
       <View className="flex-row gap-3">
         {experiment.status === "running" && (
           <Pressable
