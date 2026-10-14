@@ -97,8 +97,9 @@ after that the agent asks you to approve it again.
 ## Delegate from a terminal agent
 
 `t3 agent` lets a standalone Claude Code or Codex session submit a bounded task
-without starting a second lead agent. The destination must have a model policy
-configured by its maintainer. Sign in with its MCP URL:
+without starting a second lead agent. The environment's maintainer must have set
+up a model policy; see [managed agent delegation](../operations/agent-delegation.md).
+Sign in with its MCP URL:
 
 ```sh
 t3 agent login --endpoint https://<environment-address>/mcp
@@ -117,7 +118,9 @@ uses SlipJay. T3 rejects paths on the wrong host or from another repository.
 The returned session key goes in subsequent role and task requests. A task carries
 a canonical role, task class, work ID, attempt ID and transport request ID;
 review tasks also pin the source revision. Role discovery explains unavailable
-models and unsupported execution boundaries before you submit.
+models and unsupported execution boundaries before you submit. Some roles are
+refused today and say why: a Claude model can only take read-only roles, and the
+browser and visual-check roles cannot be started through this route.
 
 Keep the same work and attempt IDs when retrying a submission, including after a
 disconnect or server restart. Use a new attempt ID for new execution of that work,
@@ -131,7 +134,6 @@ Revoking the sign-in in Connections, or allowing it to expire, stops its owned
 work and denies further access. `t3 agent logout` removes the local credential;
 it does not revoke the server grant. After expiry, log out and sign in again.
 A new sign-in has a new owner and cannot adopt the old sign-in's tasks.
-
 
 ## Enroll work before choosing how to execute it
 
@@ -155,9 +157,8 @@ under the same identity is refused.
 Record the choice with `work-allocate`: `id`, `workUnitId`, `allocation` (`inline`
 or `delegated`), a practical `reason`, and nullable `deviationReason`. A changed
 allocation or exception to the assigned policy needs a reason. For delegated work,
-include the unit ID as `agentTask.workUnitId` in `submit`; the existing task service
-pins that policy, validates the exact owner/workspace/source and restricts concurrent
-managed tasks. Inline implementation needs no implementation task or artificial child. Optional
+include the unit ID as `agentTask.workUnitId` in `submit`. T3 pins that policy and
+checks the workspace and source before the task starts. Inline implementation needs no implementation task or artificial child. Optional
 advisor and independent reviewer tasks can link to the same unit without changing
 its implementation allocation; their usage remains part of the total. Advice can
 inform allocation after enrollment, and review follows an allocation decision.

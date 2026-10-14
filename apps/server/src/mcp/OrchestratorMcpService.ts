@@ -78,6 +78,7 @@ import {
   type ScheduledTaskUpsertInput,
   type ServerProvider,
   ThreadId,
+  AGENT_ROLE_COARSE_KIND,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as Clock from "effect/Clock";
@@ -2448,11 +2449,18 @@ const make = Effect.gen(function* () {
                 modelSelection: target.modelSelection,
                 unitId: deriveIds.delegatedTaskNode({ commandId }),
                 unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
-                taskLever:
-                  input.agentTask?.role === "reviewer" || input.role === "review"
-                    ? "reviewer"
-                    : "delegation",
-                taskCategory: input.agentTask?.role ?? input.role ?? "general",
+                taskLever: (
+                  input.agentTask === undefined
+                    ? input.role === "review"
+                    : input.agentTask.role === "reviewer"
+                )
+                  ? "reviewer"
+                  : "delegation",
+                taskCategory:
+                  input.role ??
+                  (input.agentTask === undefined
+                    ? "general"
+                    : AGENT_ROLE_COARSE_KIND[input.agentTask.role]),
                 enrollment: "new",
               })
         ).pipe(
@@ -2468,11 +2476,13 @@ const make = Effect.gen(function* () {
                 workUnit.assignmentIds.includes(a.id),
               )),
         ];
+        // A refused child fails its own task assignment; the work unit's policy assignment
+        // measures the whole unit, which an optional refused child does not fail.
         const recordExperimentFailure = (
           note = "The delegated request failed before a child run was accepted.",
         ) =>
           Effect.forEach(
-            assignments,
+            taskAssignments,
             (assignment) =>
               experiments.recordOutcome({
                 id: `${assignment.id}:dispatch-failure:${commandId}`,
@@ -2507,20 +2517,8 @@ const make = Effect.gen(function* () {
             skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
           }).pipe(Effect.tapError(() => recordExperimentFailure()));
         }
-        if (prepared !== undefined && managedService !== undefined) {
-          yield* managedService
-            .validate({
-              binding: prepared.binding,
-              selection: target.modelSelection,
-              providers: eligibleProviders,
-              ceiling: parent.thread.runtimeMode,
-              workspacePath: parent.thread.worktreePath,
-            })
-            .pipe(
-              Effect.tapError((error) => recordExperimentFailure(error.message)),
-              Effect.mapError((error) => failure("capability_denied", error.message)),
-            );
-        }
+        // Child modes are checked before the task is reserved, then policy after, so a refusal
+        // for either reason is visible without reserving work that could never launch.
         const runtimeMode = yield* resolveRuntimeMode(
           parent.thread.runtimeMode,
           input.runtimeMode,
@@ -2562,6 +2560,31 @@ const make = Effect.gen(function* () {
               threadId: deriveIds.delegatedTaskThread({ commandId }),
             })
             .pipe(Effect.mapError(workError));
+        if (prepared !== undefined && managedService !== undefined) {
+          yield* managedService
+            .validate({
+              binding: prepared.binding,
+              selection: target.modelSelection,
+              providers: eligibleProviders,
+              ceiling: parent.thread.runtimeMode,
+              workspacePath: parent.thread.worktreePath,
+            })
+            .pipe(
+              Effect.tapError((error) =>
+                Effect.gen(function* () {
+                  if (workUnit !== undefined)
+                    yield* experiments
+                      .recordWorkTaskLaunch({
+                        taskId: deriveIds.delegatedTaskNode({ commandId }),
+                        state: "refused",
+                      })
+                      .pipe(Effect.mapError(workError));
+                  yield* recordExperimentFailure(error.message);
+                }),
+              ),
+              Effect.mapError((error) => failure("capability_denied", error.message)),
+            );
+        }
         // ThreadManagementService.dispatch is the chokepoint for this command
         // type's own enablement check, using the same command id and its
         // receipt-replay exemption, so no separate assert runs here.

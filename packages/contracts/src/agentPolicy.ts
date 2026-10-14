@@ -14,6 +14,20 @@ export const AgentRole = Schema.Literals([
   "reviewer",
 ]);
 export type AgentRole = typeof AgentRole.Type;
+/**
+ * The coarse kind that trials, categories and reports already group delegated work by. The
+ * canonical role is carried beside it, never in its place.
+ */
+export const AGENT_ROLE_COARSE_KIND = {
+  "chore-worker": "implementation",
+  "implementation-worker": "implementation",
+  "ui-worker": "design",
+  browser: "test",
+  "ui-verifier": "test",
+  advisor: "research",
+  reviewer: "review",
+} as const satisfies Record<AgentRole, string>;
+
 export const AgentTaskClass = Schema.Literals(["non-ui", "ui", "mixed"]);
 export type AgentTaskClass = typeof AgentTaskClass.Type;
 export const AgentModelPool = Schema.Literals(["fast", "workhorse", "ui", "advisor"]);

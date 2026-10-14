@@ -7,7 +7,6 @@ import {
   ThreadId,
   RunId,
   NodeId,
-  ProviderInstanceId,
   type OrchestrationV2ThreadProjection,
 } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -34,6 +33,7 @@ import * as Settings from "../serverSettings.ts";
 import * as Mcp from "./OrchestratorMcpService.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
+const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(AgentPolicyManifest));
 const persistence = ProjectionStore.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
 const dependencies = Layer.mergeAll(
   NodeServices.layer,
@@ -69,7 +69,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const policy = snapshot();
         yield* fs.writeFileString(
           `${root}/roles/policy.json`,
-          yield* Schema.encodeEffect(Schema.fromJsonString(AgentPolicyManifest))(policy.manifest),
+          yield* encodeManifest(policy.manifest),
         );
         for (const role of Object.values(policy.manifest.roles))
           yield* fs.writeFileString(`${root}/${role.brief}`, "Independent role brief\n");
@@ -148,7 +148,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           lever: "reviewer",
           primaryOutcome: "Guard holds",
           variants: ["a", "b"].map((id) => ({ id, label: id, modelSelection: forbidden })),
-          eligibility: { projectIds: [], models: [], taskCategories: ["reviewer"] },
+          eligibility: { projectIds: [], models: [], taskCategories: ["review"] },
           maxAssignments: 10,
           endsAt: "2999-01-01T00:00:00Z",
           stopConditions: ["Guard failure"],
@@ -183,6 +183,23 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           expect(entry.outcomes[0]?.kind).toBe("failure");
           expect(entry.outcomes[0]?.actualModelSelection).toBeNull();
           expect(entry.outcomes[0]?.note).toContain("selection");
+          // The canonical role, not the legacy coarse kind, chooses the reviewer lever: a
+          // chore-worker sent as role:"review" is not enrolled in the reviewer trial.
+          yield* mcp
+            .delegateTask(scope, {
+              task: "Chore that mislabels itself as a review",
+              role: "review",
+              clientRequestId: "chore-attempt",
+              agentTask: request({
+                role: "chore-worker",
+                taskClass: "non-ui",
+                workId: "chore-work",
+                workspacePath: root,
+              }),
+            })
+            .pipe(Effect.exit);
+          const after = yield* experiments.report({ experimentId: "forbidden-reviewer" });
+          expect(after.assignments).toHaveLength(1);
         }).pipe(
           Effect.provide(Mcp.layer.pipe(Layer.provide(transportDependencies))),
           Effect.provideService(

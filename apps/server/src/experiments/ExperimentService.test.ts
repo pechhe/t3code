@@ -28,8 +28,11 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as Experiments from "./ExperimentService.ts";
 import {
+  claudeModel,
+  codexModel,
   request as agentTaskRequest,
   snapshot as agentPolicySnapshot,
 } from "../agents/agentPolicy.testkit.ts";
@@ -107,7 +110,7 @@ const externalDefinition = (): ExperimentDefinition => ({
       modelSelection: { instanceId: ProviderInstanceId.make("claude"), model: "claude-sonnet" },
     },
   ],
-  eligibility: { projectIds: [], models: [], taskCategories: ["implementation-worker"] },
+  eligibility: { projectIds: [], models: [], taskCategories: ["implementation"] },
 });
 const assignExternalAttempt = (
   service: Experiments.ExperimentService["Service"],
@@ -122,7 +125,7 @@ const assignExternalAttempt = (
     modelSelection,
     unitKind: "task",
     unitId: `external-work:${owner.externalSessionKey}:work:shared`,
-    taskCategory: "implementation-worker",
+    taskCategory: "implementation",
     taskLever: "delegation",
     enrollment: "new",
     unitCreatedAt: "2998-01-01T00:00:00Z",
@@ -965,5 +968,49 @@ describe("ExperimentService", () => {
         assert.strictEqual(cancelled.usage.status, "complete");
         assert.strictEqual(cancelled.usage.inputTokens, 100);
       }).pipe(Effect.provide(layer)),
+  );
+});
+
+describe("ExperimentService trial admission against the managed policy", () => {
+  const withPolicy = Experiments.layer.pipe(
+    Layer.provide(
+      Layer.mock(ManagedAgent.ManagedAgentService)({
+        snapshot: () => Effect.succeed(agentPolicySnapshot()),
+      }),
+    ),
+    Layer.provideMerge(dependencies),
+  );
+  const trial = (id: string, second: ModelSelection): ExperimentDefinition => ({
+    ...externalDefinition(),
+    id,
+    variants: [
+      {
+        id: "baseline",
+        label: "Baseline",
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: codexModel },
+      },
+      { id: "alternate", label: "Alternate", modelSelection: second },
+    ],
+  });
+  const claude = {
+    instanceId: ProviderInstanceId.make("claudeAgent"),
+    model: claudeModel,
+  } satisfies ModelSelection;
+  const unlisted = { instanceId: ProviderInstanceId.make("codex"), model: "unlisted-model" };
+
+  it.effect("refuses a trial arm no pool allows and accepts one the pools allow", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      const refused = yield* Effect.flip(service.create(trial("unlisted", unlisted)));
+      assert.strictEqual(refused.reason, "invalid-definition");
+      assert.strictEqual((yield* service.create(trial("allowed", claude))).status, "draft");
+    }).pipe(Effect.provide(withPolicy)),
+  );
+
+  it.effect("leaves trial creation unchanged when no managed policy is configured", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      assert.strictEqual((yield* service.create(trial("no-policy", unlisted))).status, "draft");
+    }).pipe(Effect.provide(layer)),
   );
 });

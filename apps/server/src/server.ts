@@ -446,8 +446,16 @@ const layerProjectFaviconResolver = ProjectFaviconResolver.layer.pipe(
 
 const layerServerEnvironment = ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer));
 
+const layerManagedAgent = ManagedAgent.layer.pipe(Layer.provide(ProcessRunner.layer));
+
 const layerAuth = EnvironmentAuth.layer.pipe(
-  Layer.provideMerge(ExperimentService.layer.pipe(Layer.provide(ProjectionStoreV2.layer))),
+  Layer.provideMerge(
+    // Trials are checked against the managed policy when one is configured.
+    ExperimentService.layer.pipe(
+      Layer.provide(ProjectionStoreV2.layer),
+      Layer.provide(layerManagedAgent),
+    ),
+  ),
   Layer.provideMerge(layerPersistence),
   Layer.provide(layerServerEnvironment),
   Layer.provide(ServerSecretStore.layer),
@@ -672,7 +680,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   Layer.provideMerge(Layer.mergeAll(NativeAppIconResolver.layer, layerProjectFaviconResolver)),
   Layer.provideMerge(layerRepositoryIdentityResolver),
   Layer.provideMerge(layerServerEnvironment),
-  Layer.provideMerge(ManagedAgent.layer.pipe(Layer.provide(ProcessRunner.layer))),
+  Layer.provideMerge(layerManagedAgent),
   Layer.provideMerge(layerAuth),
   Layer.provideMerge(ServerSecretStore.layer),
   Layer.provideMerge(

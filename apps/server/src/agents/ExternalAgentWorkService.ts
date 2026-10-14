@@ -14,6 +14,7 @@ import {
   type OrchestratorMcpDelegateTaskResult,
   type OrchestratorMcpTaskCancelInput,
   type OrchestratorMcpTaskCancelResult,
+  AGENT_ROLE_COARSE_KIND,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -579,20 +580,21 @@ const make = Effect.gen(function* () {
             instanceId: p.instanceId,
           }),
         );
+        const taskAssignments = yield* storage(
+          experiments.assignForTask({
+            threadId,
+            projectId: session.projectId,
+            modelSelection: work.binding.requested,
+            unitId: `external-work:${session.key}:${work.binding.workId}`,
+            agentTask: work.binding,
+            unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
+            taskLever: work.binding.role === "reviewer" ? "reviewer" : "delegation",
+            taskCategory: AGENT_ROLE_COARSE_KIND[work.binding.role],
+            enrollment: "new",
+          }),
+        );
         const assignments = [
-          ...(yield* storage(
-            experiments.assignForTask({
-              threadId,
-              projectId: session.projectId,
-              modelSelection: work.binding.requested,
-              unitId: `external-work:${session.key}:${work.binding.workId}`,
-              agentTask: work.binding,
-              unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
-              taskLever: work.binding.role === "reviewer" ? "reviewer" : "delegation",
-              taskCategory: work.binding.role,
-              enrollment: "new",
-            }),
-          )),
+          ...taskAssignments,
           ...(unit === undefined
             ? []
             : (yield* storage(experiments.assignments({}))).filter((a) =>
@@ -626,7 +628,8 @@ const make = Effect.gen(function* () {
           }),
         );
         if (validated._tag === "Failure") {
-          for (const assignment of assignments)
+          // The refused child fails its own task assignment, not the work unit's.
+          for (const assignment of taskAssignments)
             yield* storage(
               experiments.recordOutcome({
                 id: `${assignment.id}:dispatch-failure:${taskId}`,
@@ -640,6 +643,8 @@ const make = Effect.gen(function* () {
                 fallbackReason: null,
               }),
             );
+          if (unit !== undefined)
+            yield* experimentalWork(experiments.recordWorkTaskLaunch({ taskId, state: "refused" }));
           yield* storage(
             sql`UPDATE external_agent_work SET state = 'refused', failure_reason = 'policy-refused-before-launch' WHERE task_id = ${taskId}`,
           );
