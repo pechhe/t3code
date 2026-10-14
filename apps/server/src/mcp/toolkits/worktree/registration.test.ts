@@ -1,3 +1,4 @@
+import * as Experiments from "../../../experiments/ExperimentService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -167,9 +168,23 @@ it.effect("production mcp layer lists worktree tools over http", () =>
       Layer.mergeAll(
         NodeHttpServer.layerTest,
         ServerConfig.layerTest(process.cwd(), { prefix: "t3-worktree-mcp-" }).pipe(
-          Layer.provide(NodeServices.layer),
+          Layer.provide(
+            Layer.merge(
+              NodeServices.layer,
+              Layer.mock(Experiments.ExperimentService)({
+                assignForTask: () => Effect.succeed([]),
+                assignments: () => Effect.succeed([]),
+              }),
+            ),
+          ),
         ),
-        NodeServices.layer,
+        Layer.merge(
+          NodeServices.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
       ),
     ),
   ),

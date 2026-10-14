@@ -4,6 +4,8 @@ import {
   CommandId,
   MessageId,
   type ModelSelection,
+  type ExperimentAssignment,
+  type ExperimentObservationInput,
   type OrchestrationV2ProviderThread,
   type OrchestrationV2RolloverHold,
   ProjectId,
@@ -23,6 +25,7 @@ import * as Stream from "effect/Stream";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
+import * as ExperimentService from "../experiments/ExperimentService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import {
@@ -56,7 +59,7 @@ const emptyCaptured: Captured = { ensured: [], started: [], steered: [] };
 
 interface HeldControl {
   /** Reports another usage figure from the running turn. */
-  readonly reportUsage: (usedTokens: number) => Effect.Effect<void>;
+  readonly reportUsage: (usedTokens: number, updatedAt?: string) => Effect.Effect<void>;
   /** Completes the turn. */
   readonly complete: Effect.Effect<void>;
 }
@@ -64,6 +67,7 @@ interface HeldControl {
 interface HeldTurn {
   /** The held turn's first usage report, in context tokens. */
   readonly usedTokens: number;
+  readonly maxTokens?: number;
   /** Hold every turn, not only the first. */
   readonly holdEveryTurn?: boolean;
   /** Receives the controls of each held turn once it is running. */
@@ -193,7 +197,7 @@ function makeAdapter(
               if (held === undefined || (turnCount > 1 && held.holdEveryTurn !== true)) {
                 return yield* complete;
               }
-              const reportUsage = (usedTokens: number) =>
+              const reportUsage = (usedTokens: number, updatedAt?: string) =>
                 Effect.gen(function* () {
                   yield* Queue.offer(events, {
                     type: "provider_turn.updated",
@@ -204,7 +208,8 @@ function makeAdapter(
                       completedAt: null,
                       tokenUsage: {
                         usedTokens,
-                        updatedAt: DateTime.formatIso(yield* DateTime.now),
+                        ...(held.maxTokens === undefined ? {} : { maxTokens: held.maxTokens }),
+                        updatedAt: updatedAt ?? DateTime.formatIso(yield* DateTime.now),
                       },
                     },
                   });
@@ -388,7 +393,11 @@ const runHeldTurnScenario = (
   name: string,
   note: string | null,
   options: {
+    readonly assignment?: ExperimentAssignment;
+    readonly rolloverEnabled?: boolean;
     readonly queueMessage?: boolean;
+    readonly usedTokens?: number;
+    readonly maxTokens?: number;
     readonly hold?: OrchestrationV2RolloverHold;
     readonly nudged?: boolean;
     /** Holds the rollover run's turn too and runs this against it before completing it. */
@@ -402,8 +411,10 @@ const runHeldTurnScenario = (
     const cwd = yield* checkpointWorkspace(name);
     const threadId = ThreadId.make(`thread:${name}`);
     const captured = yield* Ref.make<Captured>(emptyCaptured);
+    const observations: ExperimentObservationInput[] = [];
     const held: HeldTurn = {
-      usedTokens: 1_500,
+      usedTokens: options.usedTokens ?? 1_500,
+      ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
       holdEveryTurn: options.duringRollover !== undefined,
       running: yield* Queue.unbounded<HeldControl>(),
       steered: yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2SteerInput>(),
@@ -432,9 +443,18 @@ const runHeldTurnScenario = (
       Layer.provide(
         Layer.mergeAll(
           layerProjections,
+          Layer.mock(ExperimentService.ExperimentService)({
+            assignForThread: () =>
+              Effect.succeed(options.assignment === undefined ? [] : [options.assignment]),
+            recordObservation: (input) =>
+              Effect.sync(() => {
+                observations.push(input);
+                return { ...input, recordedAt: "2026-10-14T12:00:00.000Z" };
+              }),
+          }),
           ServerSettings.layerTest({
             contextRollover: {
-              enabled: true,
+              enabled: options.rolloverEnabled ?? true,
               softThreshold: 1_000,
               hardThreshold: 2_000,
               modelRules: [],
@@ -483,7 +503,7 @@ const runHeldTurnScenario = (
           Stream.filter(
             (event) => event.type === "run.updated" && event.payload.status === "completed",
           ),
-          Stream.take(nudged ? 2 : 1),
+          Stream.take(note !== null || options.queueMessage === true ? 2 : 1),
           Stream.runDrain,
           Effect.forkScoped,
         );
@@ -553,6 +573,7 @@ const runHeldTurnScenario = (
         after: yield* orchestrator.getThreadProjection(threadId),
         noteLeft: notes.get(threadId),
         captured: yield* Ref.get(captured),
+        observations,
       };
     }).pipe(Effect.provide(Layer.provideMerge(layerReactor, layerHarness)));
   });
@@ -591,22 +612,34 @@ it.live(
     ),
 );
 
-it.live("asks once more, now, when the agent ends its turn without a note", () =>
+it.live.each([1_500, 2_500])(
+  "does not restart completed work without a note at %i tokens",
+  (usedTokens) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { after, captured } = yield* runHeldTurnScenario(
+          `context-rollover-reactor-no-restart-${usedTokens}`,
+          null,
+          { usedTokens },
+        );
+        assert.lengthOf(after.runs, 1);
+        assert.lengthOf(captured.started, 1);
+        assert.lengthOf(captured.steered, 1);
+        assert.isFalse(after.contextHandoffs.some((entry) => entry.strategy === "manual_context"));
+      }),
+    ),
+);
+
+it.live("uses the provider context boundary when configured thresholds are too high", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const { after, captured } = yield* runHeldTurnScenario(
-        "context-rollover-reactor-fallback",
+      const { steer, after } = yield* runHeldTurnScenario(
+        "context-rollover-reactor-bounded",
         null,
+        { maxTokens: 1_600 },
       );
-
-      // One follow-up run on the same native session carries the hard request; no rollover.
-      assert.lengthOf(after.runs, 2);
-      const followUp = captured.started[1]!;
-      assert.isTrue(followUp.nativeThreadHasTurns);
-      assert.include(JSON.stringify(followUp.message), "hand off now");
-      assert.isFalse(
-        after.contextHandoffs.some((entry) => entry.targetRunId === after.runs[1]!.id),
-      );
+      assert.include(JSON.stringify(steer!.message), "hand off now");
+      assert.lengthOf(after.runs, 1);
     }),
   ),
 );
@@ -677,18 +710,85 @@ it.live("does not roll a fresh session over again until it grows past its starti
           duringRollover: (control, steered) =>
             Effect.gen(function* () {
               // Reports in order: had the 1.5k report asked for a note, that steer would come first.
+              // A delayed high-usage report must not trigger the next nudge.
+              yield* control.reportUsage(90_000, "2000-01-01T00:00:00.000Z");
               yield* control.reportUsage(1_500 + ROLLOVER_MIN_GROWTH_TOKENS);
               rolloverSteer = yield* Queue.take(steered);
             }),
         },
       );
 
-      // runs[1] is the rollover run; the hard request may be followed by a run-end retry.
+      // runs[1] is the rollover run; completing it without a note starts no extra run.
       assert.equal(after.runs[1]!.status, "completed");
       assert.isTrue(after.contextHandoffs.some((entry) => entry.targetRunId === after.runs[1]!.id));
       assert.equal(rolloverSteer?.runId, after.runs[1]!.id);
       assert.include(JSON.stringify(rolloverSteer?.message), "hand off now");
+      assert.include(JSON.stringify(rolloverSteer?.message), "22k");
+      assert.notInclude(JSON.stringify(rolloverSteer?.message), "90k");
       assert.lengthOf(captured.steered, 2);
+    }),
+  ),
+);
+
+const testAssignment: ExperimentAssignment = {
+  id: "assignment:rollover-test",
+  experimentId: "rollover-test",
+  revision: 1,
+  lever: "rollover",
+  unitKind: "thread",
+  unitId: "thread:context-rollover-experiment",
+  threadId: ThreadId.make("thread:context-rollover-experiment"),
+  projectId: ProjectId.make("project:context-rollover-experiment"),
+  taskCategory: null,
+  boundaryRunId: null,
+  variant: { id: "baseline", label: "Baseline", rollover: { softLimit: 1_000, hardLimit: 2_000 } },
+  assignedModelSelection: selection,
+  enrollment: "new",
+  assignmentMethod: "randomized",
+  assignedAt: "2026-10-14T00:00:00.000Z",
+  codeRevision: null,
+  briefRevision: null,
+  provenance: null,
+};
+
+it.live("applies assigned rollover with global defaults off and records the observed handoff", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { observations, after } = yield* runHeldTurnScenario(
+        "context-rollover-experiment",
+        "## Goal\nContinue the assigned work.",
+        { assignment: testAssignment, rolloverEnabled: false, duringRollover: () => Effect.void },
+      );
+      assert.deepEqual(
+        observations.map((entry) => entry.kind),
+        ["soft", "rollover", "fresh-context"],
+      );
+      assert.isTrue(observations.every((entry) => entry.assignmentId === testAssignment.id));
+      assert.equal(observations[0]!.runId, after.runs[0]!.id);
+      assert.equal(observations[2]!.runId, after.runs[1]!.id);
+      assert.equal(observations[2]!.usedTokens, 1_500);
+      assert.equal(observations[2]!.recoveredTokens, 0);
+      assert.isTrue(observations[2]!.lowYield);
+      assert.lengthOf(after.runs, 2);
+    }),
+  ),
+);
+
+it.live("a manual hold prevents an assigned experiment from nudging", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { observations, captured } = yield* runHeldTurnScenario(
+        "context-rollover-experiment-held",
+        null,
+        {
+          assignment: testAssignment,
+          rolloverEnabled: false,
+          hold: { kind: "off" },
+          nudged: false,
+        },
+      );
+      assert.lengthOf(captured.steered, 0);
+      assert.lengthOf(observations, 0);
     }),
   ),
 );

@@ -1,4 +1,18 @@
 import {
+  Experiment,
+  ExperimentDefinition,
+  ExperimentTransitionInput,
+  ExperimentListInput,
+  ExperimentAssignmentsInput,
+  ExperimentAssignment,
+  ExperimentReportInput,
+  ExperimentReport,
+  ExperimentOutcomeInput,
+  ExperimentOutcome,
+  ExperimentHistoricalInput,
+  ExperimentError,
+} from "./experiments.ts";
+import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
@@ -508,6 +522,13 @@ export const WS_METHODS = {
   serverReportClientActivity: "server.reportClientActivity",
   serverReportHostPowerState: "server.reportHostPowerState",
   serverGetBackgroundPolicy: "server.getBackgroundPolicy",
+  experimentsCreate: "experiments.create",
+  experimentsTransition: "experiments.transition",
+  experimentsList: "experiments.list",
+  experimentsAssignments: "experiments.assignments",
+  experimentsReport: "experiments.report",
+  experimentsRecordOutcome: "experiments.recordOutcome",
+  experimentsImportHistorical: "experiments.importHistorical",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
 
@@ -897,6 +918,42 @@ const WsServerCheckOtlpEndpointRpc = Rpc.make(WS_METHODS.serverCheckOtlpEndpoint
   payload: OtlpEndpointCheckInput,
   success: OtlpEndpointCheckResult,
   error: EnvironmentAuthorizationError,
+});
+
+const WsExperimentsCreateRpc = Rpc.make(WS_METHODS.experimentsCreate, {
+  payload: ExperimentDefinition,
+  success: Experiment,
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsTransitionRpc = Rpc.make(WS_METHODS.experimentsTransition, {
+  payload: ExperimentTransitionInput,
+  success: Experiment,
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsListRpc = Rpc.make(WS_METHODS.experimentsList, {
+  payload: ExperimentListInput,
+  success: Schema.Array(Experiment),
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsAssignmentsRpc = Rpc.make(WS_METHODS.experimentsAssignments, {
+  payload: ExperimentAssignmentsInput,
+  success: Schema.Array(ExperimentAssignment),
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsReportRpc = Rpc.make(WS_METHODS.experimentsReport, {
+  payload: ExperimentReportInput,
+  success: ExperimentReport,
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsRecordOutcomeRpc = Rpc.make(WS_METHODS.experimentsRecordOutcome, {
+  payload: ExperimentOutcomeInput,
+  success: ExperimentOutcome,
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
+});
+const WsExperimentsImportHistoricalRpc = Rpc.make(WS_METHODS.experimentsImportHistorical, {
+  payload: ExperimentHistoricalInput,
+  success: ExperimentAssignment,
+  error: Schema.Union([EnvironmentAuthorizationError, ExperimentError]),
 });
 
 const WsServerGetUsageSummaryRpc = Rpc.make(WS_METHODS.serverGetUsageSummary, {
@@ -1923,6 +1980,13 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetResourceTelemetryHistoryRpc,
   WsServerRetryResourceTelemetryRpc,
   WsServerCheckOtlpEndpointRpc,
+  WsExperimentsCreateRpc,
+  WsExperimentsTransitionRpc,
+  WsExperimentsListRpc,
+  WsExperimentsAssignmentsRpc,
+  WsExperimentsReportRpc,
+  WsExperimentsRecordOutcomeRpc,
+  WsExperimentsImportHistoricalRpc,
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,

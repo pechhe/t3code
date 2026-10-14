@@ -1,3 +1,4 @@
+import * as ExperimentService from "./experiments/ExperimentService.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -1263,6 +1264,7 @@ const layerWsRpc = (
               ),
               Effect.orElseSucceed(() => null),
             );
+      const experiments = yield* ExperimentService.ExperimentService;
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
@@ -2441,6 +2443,13 @@ const layerWsRpc = (
           processResourceMonitor.readHistory(input),
         [WS_METHODS.serverGetResourceTelemetryHistory]: (input) =>
           resourceTelemetry.readHistory(input),
+        [WS_METHODS.experimentsCreate]: (input) => experiments.create(input),
+        [WS_METHODS.experimentsTransition]: (input) => experiments.transition(input),
+        [WS_METHODS.experimentsList]: (_input) => experiments.list(),
+        [WS_METHODS.experimentsAssignments]: (input) => experiments.assignments(input),
+        [WS_METHODS.experimentsReport]: (input) => experiments.report(input),
+        [WS_METHODS.experimentsRecordOutcome]: (input) => experiments.recordOutcome(input),
+        [WS_METHODS.experimentsImportHistorical]: (input) => experiments.importHistorical(input),
         [WS_METHODS.serverGetUsageSummary]: (input) => usage.readSummary(input),
         [WS_METHODS.serverRefreshUsageRates]: (_input) => usage.refreshRates,
         [WS_METHODS.serverRetryResourceTelemetry]: (_input) => resourceTelemetry.retry,

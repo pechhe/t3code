@@ -1,3 +1,5 @@
+import { ExperimentsToolkit } from "./toolkits/experiments/tools.ts";
+import * as ExperimentsHandlers from "./toolkits/experiments/handlers.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -882,6 +884,7 @@ export const layer = Layer.mergeAll(
   layerEnvironmentToolkit,
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
+  toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer),
   layerRolloverToolkitRegistration,
   layerPullRequestsToolkit,
   layerDeviceToolkit,
