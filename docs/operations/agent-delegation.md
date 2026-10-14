@@ -38,5 +38,7 @@ its revision and the seven role names, or the reason the policy is refused.
   investigation) with no T3 tools. Managed Claude source writes and the Phi-based
   `browser` and `ui-verifier` roles are refused with an explanation, and
   `ui-worker` is unavailable while Claude is the only permitted UI model.
-- A delegation or reviewer trial created while a policy is configured is
-  refused if one of its arms uses a model no pool allows.
+- While a readable policy is configured, a delegation or reviewer trial is
+  refused at creation, and again when it is started, if one of its arms uses a
+  model no pool allows. Without a readable policy the check is skipped; dispatch
+  still refuses the model.
