@@ -155,6 +155,8 @@ Open **Settings → Experiments** on the environment where your agents run. Crea
 
 The rollover draft uses your environment's current policy as the control, keeps the same hard limit in both variants and moves one soft warning earlier. If your models use different rollover rules, narrow the eligible models to a shared policy first. The warning asks for a natural break; completing work without a handoff does not restart it. Provider-reported context capacity may reduce the effective thresholds to leave room for a safe handoff.
 
+An orchestration-policy draft compares inline-first with delegate-earlier on non-UI work packages. Choose the parent model and effort, and enter the agent policy hash from `t3 agent roles` plus the reviewer policy and verification revisions; both arms hold these fixed. Each work package is assigned when its parent enrolls it, before the parent chooses inline or delegated execution (see [Enroll work before choosing how to execute it](outside-agents.md#enroll-work-before-choosing-how-to-execute-it)). Its report lists every assignment and exclusion, the assigned policy beside the actual allocation, parent and child usage coverage, and any child route that was refused before launch.
+
 Pause stops new assignments. Resume admits new work again. Stop ends enrollment permanently. Existing assignments retain their settings through pauses, stops, retries and rollovers, so changing a trial's status does not silently change work already under way. Thread rollover holds still take precedence.
 
 On mobile, open **Settings → Experiments** to inspect assigned variants and pause or stop enrollment. Create trials and compare full reports on web or desktop.

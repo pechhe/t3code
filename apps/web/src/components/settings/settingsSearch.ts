@@ -170,7 +170,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "experiments",
     title: "Experiments",
     to: "/settings/experiments",
-    searchTerms: ["trial compare rollover reviewer delegation outcomes"],
+    searchTerms: [
+      "trial compare rollover reviewer delegation orchestration policy inline outcomes",
+    ],
   },
   {
     id: "storage-worktree-keep-when",
