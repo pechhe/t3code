@@ -113,12 +113,30 @@ export type RolloverPhase = "idle" | "softNudged" | "hardNudged";
 
 export type RolloverUsageAction = "none" | "soft" | "hard";
 
+/**
+ * How far a session that began with a rollover must grow past its starting
+ * context before it is asked for another note. A fresh session already carries
+ * the system prompt, tools and the note; when that alone passes a threshold,
+ * another rollover cannot free anything and would loop.
+ */
+export const ROLLOVER_MIN_GROWTH_TOKENS = 20_000;
+
+/**
+ * Whether a session has grown enough to roll over. `floor` is its context when
+ * it began with a rollover, or null when it did not.
+ */
+export function grownSinceRollover(used: number, floor: number | null): boolean {
+  return floor === null || used >= floor + ROLLOVER_MIN_GROWTH_TOKENS;
+}
+
 /** Which nudge a usage report calls for, given what the thread was already told. */
 export function rolloverUsageAction(
   phase: RolloverPhase,
   used: number,
   thresholds: RolloverThresholds,
+  floor: number | null,
 ): RolloverUsageAction {
+  if (!grownSinceRollover(used, floor)) return "none";
   if (used >= thresholds.hard) return phase === "hardNudged" ? "none" : "hard";
   if (used >= thresholds.soft) return phase === "idle" ? "soft" : "none";
   return "none";

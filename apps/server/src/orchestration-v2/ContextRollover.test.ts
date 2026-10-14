@@ -101,15 +101,25 @@ describe("rolloverUsageAction", () => {
   const thresholds = { soft: 100, hard: 200 };
 
   it("nudges once at the soft threshold and once at the hard one", () => {
-    assert.equal(rolloverUsageAction("idle", 99, thresholds), "none");
-    assert.equal(rolloverUsageAction("idle", 100, thresholds), "soft");
-    assert.equal(rolloverUsageAction("softNudged", 150, thresholds), "none");
-    assert.equal(rolloverUsageAction("softNudged", 200, thresholds), "hard");
-    assert.equal(rolloverUsageAction("hardNudged", 250, thresholds), "none");
+    assert.equal(rolloverUsageAction("idle", 99, thresholds, null), "none");
+    assert.equal(rolloverUsageAction("idle", 100, thresholds, null), "soft");
+    assert.equal(rolloverUsageAction("softNudged", 150, thresholds, null), "none");
+    assert.equal(rolloverUsageAction("softNudged", 200, thresholds, null), "hard");
+    assert.equal(rolloverUsageAction("hardNudged", 250, thresholds, null), "none");
   });
 
   it("goes straight to the hard nudge when usage jumps past both", () => {
-    assert.equal(rolloverUsageAction("idle", 250, thresholds), "hard");
+    assert.equal(rolloverUsageAction("idle", 250, thresholds, null), "hard");
+  });
+
+  it("waits for a session that began above the threshold to grow before asking again", () => {
+    // Haiku 80k/95k against a fresh session that already holds 84k.
+    const haiku = { soft: 80_000, hard: 95_000 };
+    assert.equal(rolloverUsageAction("idle", 84_000, haiku, 84_000), "none");
+    assert.equal(rolloverUsageAction("idle", 103_999, haiku, 84_000), "none");
+    assert.equal(rolloverUsageAction("idle", 104_000, haiku, 84_000), "hard");
+    // A session that began well below the threshold nudges as usual.
+    assert.equal(rolloverUsageAction("idle", 80_000, haiku, 30_000), "soft");
   });
 });
 
