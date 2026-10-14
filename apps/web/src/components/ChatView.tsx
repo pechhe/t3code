@@ -15,6 +15,7 @@ import {
   describeRolloverHold,
   parseRolloverCommand,
   rolloverHoldForCommand,
+  type RolloverCommand,
 } from "./chat/rolloverCommand";
 import { prepareQueuedEditAttachments, recoverQueuedMessageEdit } from "./chat/queuedMessageEdit";
 import {
@@ -8831,6 +8832,60 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
 
+  /** Runs a `/rollover` command for the active thread, whether typed or picked from the menu. */
+  const runRolloverCommand = async (command: RolloverCommand) => {
+    if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
+    if (!isServerThread || !activeThreadRef) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "info",
+          title: "Send a message first",
+          description: "Rollover can be held once the thread has started.",
+        }),
+      );
+      return;
+    }
+    const clearRolloverCommand = () => {
+      promptRef.current = "";
+      setComposerDraftPrompt(composerDraftTarget, "");
+      composerRef.current?.resetCursorState();
+    };
+    const nowMs = Date.now();
+    const hold = rolloverHoldForCommand(command, nowMs);
+    if (hold === undefined) {
+      const label = describeRolloverHold(activeThreadShell?.rolloverHold, nowMs);
+      toastManager.add(
+        stackedThreadToast({
+          type: "info",
+          title: label ?? "Rollover is not held",
+          description: label === null ? "It follows your settings for this thread." : undefined,
+        }),
+      );
+      clearRolloverCommand();
+      return;
+    }
+    clearRolloverCommand();
+    const result = await setThreadRolloverHold(activeThreadRef, hold);
+    if (result._tag === "Failure") {
+      if (isAtomCommandInterrupted(result)) return;
+      const error = squashAtomCommandFailure(result);
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: "Failed to update rollover",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        }),
+      );
+      return;
+    }
+    toastManager.add(
+      stackedThreadToast({
+        type: "success",
+        title: describeRolloverHold(hold, nowMs) ?? "Rollover on",
+      }),
+    );
+  };
+
   const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: ComposerDispatchMode = "auto",
@@ -8868,56 +8923,7 @@ export default function ChatView(props: ChatViewProps) {
         toastManager.add(stackedThreadToast({ type: "warning", title: rolloverCommand.message }));
         return;
       }
-      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
-      if (!isServerThread || !activeThreadRef) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "info",
-            title: "Send a message first",
-            description: "Rollover can be held once the thread has started.",
-          }),
-        );
-        return;
-      }
-      const clearRolloverCommand = () => {
-        promptRef.current = "";
-        setComposerDraftPrompt(composerDraftTarget, "");
-        composerRef.current?.resetCursorState();
-      };
-      const nowMs = Date.now();
-      const hold = rolloverHoldForCommand(rolloverCommand.command, nowMs);
-      if (hold === undefined) {
-        const label = describeRolloverHold(activeThreadShell?.rolloverHold, nowMs);
-        toastManager.add(
-          stackedThreadToast({
-            type: "info",
-            title: label ?? "Rollover is not held",
-            description: label === null ? "It follows your settings for this thread." : undefined,
-          }),
-        );
-        clearRolloverCommand();
-        return;
-      }
-      clearRolloverCommand();
-      const result = await setThreadRolloverHold(activeThreadRef, hold);
-      if (result._tag === "Failure") {
-        if (isAtomCommandInterrupted(result)) return;
-        const error = squashAtomCommandFailure(result);
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Failed to update rollover",
-            description: error instanceof Error ? error.message : "An error occurred.",
-          }),
-        );
-        return;
-      }
-      toastManager.add(
-        stackedThreadToast({
-          type: "success",
-          title: describeRolloverHold(hold, nowMs) ?? "Rollover on",
-        }),
-      );
+      await runRolloverCommand(rolloverCommand.command);
       return;
     }
 
@@ -11899,6 +11905,9 @@ export default function ChatView(props: ChatViewProps) {
                                 !composerHasNonPromptContent
                                   ? openUsageLimits
                                   : undefined
+                              }
+                              onRolloverCommand={
+                                composerHasNonPromptContent ? undefined : runRolloverCommand
                               }
                               environmentUnavailable={activeEnvironmentUnavailableState}
                               activePendingApproval={activePendingApproval}

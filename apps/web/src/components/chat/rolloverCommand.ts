@@ -60,6 +60,63 @@ export function parseRolloverCommand(text: string): RolloverCommandParse | null 
   }
 }
 
+/** True for a draft that is only `/rollover`, which opens the option menu on Enter. */
+export function isBareRolloverCommand(text: string): boolean {
+  return text.trim().toLowerCase() === "/rollover";
+}
+
+export interface RolloverMenuOption {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly command: RolloverCommand;
+}
+
+const pauseOption = (label: string, durationMs: number): RolloverMenuOption => ({
+  id: `rollover-option:pause:${durationMs}`,
+  label,
+  description: "Hold automatic rollover for a while",
+  command: { kind: "pause", durationMs },
+});
+
+/** The menu behind a bare `/rollover`, most likely choice first. Each runs its typed equivalent. */
+export const ROLLOVER_MENU_OPTIONS: readonly RolloverMenuOption[] = [
+  pauseOption("Pause 1 hour", HOUR_MS),
+  pauseOption("Pause 2 hours", 2 * HOUR_MS),
+  pauseOption("Pause 30 minutes", 30 * MINUTE_MS),
+  pauseOption("Pause 1 day", DAY_MS),
+  {
+    id: "rollover-option:off",
+    label: "Off",
+    description: "Until you turn it on",
+    command: { kind: "off" },
+  },
+  {
+    id: "rollover-option:on",
+    label: "On",
+    description: "Follow your settings for this thread",
+    command: { kind: "on" },
+  },
+  {
+    id: "rollover-option:status",
+    label: "Status",
+    description: "Show whether rollover is held",
+    command: { kind: "status" },
+  },
+];
+
+/** The menu's description line: the hold in force at `nowMs`, or null when rollover is not held. */
+export function describeRolloverMenuState(
+  hold: OrchestrationV2RolloverHold | null | undefined,
+  nowMs: number,
+): string | null {
+  const active = activeRolloverHold(hold, nowMs);
+  if (active === null) return null;
+  return active.kind === "off"
+    ? "Currently off"
+    : `Paused until ${formatUntil(active.until, nowMs)}`;
+}
+
 function fail(message: string): RolloverCommandParse {
   return { ok: false, message };
 }

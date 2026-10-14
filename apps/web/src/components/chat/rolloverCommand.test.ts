@@ -4,7 +4,10 @@ import {
   DEFAULT_ROLLOVER_PAUSE_MS,
   MAX_ROLLOVER_PAUSE_MS,
   activeRolloverHold,
+  ROLLOVER_MENU_OPTIONS,
   describeRolloverHold,
+  describeRolloverMenuState,
+  isBareRolloverCommand,
   parseRolloverCommand,
   parseRolloverDuration,
   rolloverHoldForCommand,
@@ -111,5 +114,66 @@ describe("describeRolloverHold", () => {
   it("treats a lapsed pause as no hold", () => {
     expect(activeRolloverHold({ kind: "paused", until }, Date.parse(until) + 1)).toBeNull();
     expect(activeRolloverHold({ kind: "off" }, NOW)).toEqual({ kind: "off" });
+  });
+});
+
+describe("isBareRolloverCommand", () => {
+  it("matches only the command with nothing after it", () => {
+    expect(isBareRolloverCommand("/rollover")).toBe(true);
+    expect(isBareRolloverCommand("  /Rollover \n")).toBe(true);
+    expect(isBareRolloverCommand("/rollover pause")).toBe(false);
+    expect(isBareRolloverCommand("/roll")).toBe(false);
+    expect(isBareRolloverCommand("hello /rollover")).toBe(false);
+  });
+});
+
+describe("ROLLOVER_MENU_OPTIONS", () => {
+  it("orders the likeliest choice first", () => {
+    expect(ROLLOVER_MENU_OPTIONS.map((option) => option.label)).toEqual([
+      "Pause 1 hour",
+      "Pause 2 hours",
+      "Pause 30 minutes",
+      "Pause 1 day",
+      "Off",
+      "On",
+      "Status",
+    ]);
+  });
+
+  it("has unique ids", () => {
+    const ids = ROLLOVER_MENU_OPTIONS.map((option) => option.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("runs what the typed command would run", () => {
+    const typed = {
+      "Pause 1 hour": "/rollover pause 1h",
+      "Pause 2 hours": "/rollover pause 2h",
+      "Pause 30 minutes": "/rollover pause 30m",
+      "Pause 1 day": "/rollover pause 1d",
+      Off: "/rollover off",
+      On: "/rollover on",
+      Status: "/rollover status",
+    };
+    for (const option of ROLLOVER_MENU_OPTIONS) {
+      expect(parseRolloverCommand(typed[option.label as keyof typeof typed])).toEqual({
+        ok: true,
+        command: option.command,
+      });
+    }
+  });
+});
+
+describe("describeRolloverMenuState", () => {
+  const until = "2026-10-14T13:05:00.000Z";
+
+  it("is empty unless rollover is held", () => {
+    expect(describeRolloverMenuState(null, NOW)).toBeNull();
+    expect(describeRolloverMenuState({ kind: "paused", until }, Date.parse(until))).toBeNull();
+  });
+
+  it("describes an off thread and a running pause", () => {
+    expect(describeRolloverMenuState({ kind: "off" }, NOW)).toBe("Currently off");
+    expect(describeRolloverMenuState({ kind: "paused", until }, NOW)).toMatch(/^Paused until .*\d/);
   });
 });
