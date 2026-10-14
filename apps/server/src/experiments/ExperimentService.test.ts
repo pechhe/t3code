@@ -21,6 +21,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as TestClock from "effect/testing/TestClock";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -72,7 +73,7 @@ const start = (id = "rollover") =>
     return yield* service.transition({ experimentId: id, status: "running" });
   });
 
-const addThread = Effect.fn(function* (id: string) {
+const addThread = Effect.fn(function* (id: string, parent?: string) {
   const store = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
   const threadId = ThreadId.make(id);
@@ -94,7 +95,11 @@ const addThread = Effect.fn(function* (id: string) {
       branch: null,
       worktreePath: null,
       activeProviderThreadId: null,
-      lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+      lineage: {
+        parentThreadId: parent ? ThreadId.make(parent) : null,
+        relationshipToParent: parent ? "subagent" : null,
+        rootThreadId: parent ? ThreadId.make(parent) : threadId,
+      },
       forkedFrom: null,
       createdAt: now,
       updatedAt: now,
@@ -385,7 +390,17 @@ describe("ExperimentService", () => {
         maxTokens: null,
         evidence: ["provider-turn:turn:1"],
       });
+      yield* service.recordObservation({
+        id: "native:run:1",
+        assignmentId: assignment.id,
+        runId: RunId.make("run:1"),
+        kind: "native-compaction",
+        usedTokens: null,
+        maxTokens: null,
+        evidence: ["provider:compaction-event"],
+      });
       const entry = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      assert.strictEqual(entry.observations[1]?.usedTokens, null);
       assert.lengthOf(entry.turns, 3);
       assert.lengthOf(entry.runs, 3);
       assert.strictEqual(entry.usage.status, "partial");
@@ -534,6 +549,197 @@ describe("ExperimentService", () => {
           )).reason,
           "invalid-definition",
         );
+      }).pipe(Effect.provide(layer)),
+  );
+  it.effect(
+    "resolves only prospective randomized rollover policy without enrolling or using history",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* Experiments.ExperimentService;
+        yield* service.create(definition("history"));
+        yield* service.importHistorical({
+          experimentId: "history",
+          variantId: "early",
+          unitId: "thread:1",
+          threadId: ThreadId.make("thread:1"),
+          projectId: ProjectId.make("project:1"),
+          taskCategory: null,
+          assignedModelSelection: modelSelection,
+          assignedAt: "2020-01-01T00:00:00Z",
+          codeRevision: null,
+          briefRevision: null,
+          provenance: "Original observational policy",
+        });
+        assert.strictEqual(yield* service.getRolloverAssignment(ThreadId.make("thread:1")), null);
+        assert.lengthOf(yield* service.assignments({ threadId: ThreadId.make("thread:1") }), 1);
+        yield* start();
+        const recorded = (yield* service.assign(assignInput()))[0]!;
+        assert.deepStrictEqual(
+          yield* service.getRolloverAssignment(ThreadId.make("thread:1")),
+          recorded,
+        );
+        yield* service.transition({ experimentId: "rollover", status: "paused" });
+        assert.deepStrictEqual(
+          yield* service.getRolloverAssignment(ThreadId.make("thread:1")),
+          recorded,
+        );
+        yield* service.transition({ experimentId: "rollover", status: "stopped" });
+        assert.deepStrictEqual(
+          yield* service.getRolloverAssignment(ThreadId.make("thread:1")),
+          recorded,
+        );
+        assert.strictEqual(yield* service.getRolloverAssignment(ThreadId.make("unassigned")), null);
+      }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect(
+    "reports descendant and ancestor treatments but excludes future and unrelated task exposure",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* Experiments.ExperimentService;
+        yield* start();
+        yield* addThread("thread:1");
+        yield* addThread("child", "thread:1");
+        const rollover = (yield* service.assign(assignInput()))[0]!;
+        yield* service.create({
+          ...definition("review"),
+          lever: "reviewer",
+          variants: [
+            { id: "control", label: "Control", modelSelection },
+            {
+              id: "early",
+              label: "Alternative",
+              modelSelection: { ...modelSelection, model: "gpt-5.5" },
+            },
+          ],
+        });
+        yield* service.transition({ experimentId: "review", status: "running" });
+        const review = (yield* service.assignForTask({
+          ...assignInput("child"),
+          unitId: "task:child",
+          taskLever: "reviewer",
+        }))[0]!;
+        const unrelated = (yield* service.assignForTask({
+          ...assignInput("child"),
+          unitId: "task:unrelated",
+          taskLever: "reviewer",
+        }))[0]!;
+        const now = yield* DateTime.now;
+        const base = DateTime.toEpochMillis(now);
+        const complete: TurnTokenUsage = {
+          usageScope: "main_agent",
+          usageStatus: "complete",
+          inputTokens: 10,
+          outputTokens: 2,
+          hasSubagents: false,
+        };
+        const root = yield* addRunTurn("thread:1", "1", complete, undefined, {
+          requested: base,
+          start: base,
+          end: base + 10000,
+        });
+        yield* addRunTurn("child", "2", complete, "task:child", {
+          requested: base + 1000,
+          start: base + 1000,
+          end: base + 5000,
+        });
+        yield* addRunTurn("child", "3", complete, "task:unrelated", {
+          requested: base + 15000,
+          start: base + 15000,
+          end: base + 20000,
+        });
+        const store = yield* ProjectionStore.ProjectionStoreV2;
+        const child = {
+          id: NodeId.make("task:child"),
+          threadId: ThreadId.make("thread:1"),
+          runId: root.runId,
+          parentNodeId: root.nodeId,
+          origin: "app_owned" as const,
+          createdBy: "agent" as const,
+          driver: ProviderDriverKind.make("codex"),
+          providerInstanceId: modelSelection.instanceId,
+          providerThreadId: null,
+          childThreadId: ThreadId.make("child"),
+          nativeTaskRef: null,
+          prompt: "Review",
+          title: "Review",
+          model: "gpt-5.4",
+          status: "completed" as const,
+          result: "Done",
+          startedAt: now,
+          completedAt: now,
+          updatedAt: now,
+        };
+        yield* store.apply({
+          id: EventId.make("event:exposure-child"),
+          type: "subagent.updated",
+          threadId: child.threadId,
+          runId: root.runId,
+          nodeId: child.id,
+          occurredAt: now,
+          payload: child,
+        });
+        yield* TestClock.setTime(base + 30000);
+        const future = (yield* service.assign(assignInput("child")))[0]!;
+        const parentReport = (yield* service.report({ experimentId: "rollover" })).assignments.find(
+          (entry) => entry.assignment.id === rollover.id,
+        )!;
+        assert.deepStrictEqual(parentReport.coExposureIds, [review.id]);
+        assert.notInclude(parentReport.coExposureIds, unrelated.id);
+        assert.notInclude(parentReport.coExposureIds, future.id);
+        const childReport = (yield* service.report({ experimentId: "review" })).assignments.find(
+          (entry) => entry.assignment.id === review.id,
+        )!;
+        assert.deepStrictEqual(childReport.coExposureIds, [rollover.id]);
+        assert.notInclude(childReport.coExposureIds, unrelated.id);
+        assert.notInclude(childReport.coExposureIds, future.id);
+      }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect(
+    "does not report complete token totals or execution timing when a started run has no turn evidence",
+    () =>
+      Effect.gen(function* () {
+        yield* start();
+        yield* addThread("thread:1");
+        const service = yield* Experiments.ExperimentService;
+        yield* service.assign(assignInput());
+        const complete: TurnTokenUsage = {
+          usageScope: "main_agent",
+          usageStatus: "complete",
+          inputTokens: 100,
+          outputTokens: 20,
+          hasSubagents: false,
+        };
+        yield* addRunTurn("thread:1", "1", complete);
+        yield* addRunTurn("thread:1", "2", complete);
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql`DELETE FROM orchestration_v2_projection_provider_turns WHERE provider_turn_id = 'turn:2'`;
+        const missing = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+        assert.lengthOf(missing.runs, 2);
+        assert.lengthOf(missing.turns, 1);
+        assert.strictEqual(missing.usage.status, "partial");
+        assert.strictEqual(missing.usage.missingTurns, 1);
+        assert.strictEqual(missing.usage.inputTokens, null);
+        assert.strictEqual(missing.usage.outputTokens, null);
+        assert.strictEqual(missing.activeMs, null);
+        assert.strictEqual(missing.waitMs, null);
+        // A run cancelled before execution has no provider turn and does not hide billed usage.
+        const store = yield* ProjectionStore.ProjectionStoreV2;
+        const records = yield* store.getThreadRecords(ThreadId.make("thread:1"), ["runs"]);
+        const neverStarted = records.runs.find((run) => run.id === RunId.make("run:2"))!;
+        yield* store.apply({
+          id: EventId.make("event:never-started-cancelled"),
+          type: "run.updated",
+          threadId: ThreadId.make("thread:1"),
+          runId: neverStarted.id,
+          occurredAt: yield* DateTime.now,
+          payload: { ...neverStarted, status: "cancelled", startedAt: null },
+        });
+        const cancelled = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+        assert.strictEqual(cancelled.runs[1]?.status, "cancelled");
+        assert.strictEqual(cancelled.usage.status, "complete");
+        assert.strictEqual(cancelled.usage.inputTokens, 100);
       }).pipe(Effect.provide(layer)),
   );
 });

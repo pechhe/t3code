@@ -3,6 +3,8 @@ import {
   MessageId,
   type OrchestrationV2DomainEvent,
   type RunId,
+  type ProviderThreadId,
+  type TurnItemId,
   type OrchestrationV2Run,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -39,6 +41,8 @@ import { isTerminalRunStatus } from "./ThreadManagementService.ts";
 
 interface ThreadRollover {
   phase: RolloverPhase;
+  providerThreadId: ProviderThreadId | null;
+  recovery?: { usedTokens: number; observationId: string };
   /** The last context size the provider reported. */
   used: number;
   /** Last known context window for this provider session; omitted reports do not erase it. */
@@ -61,7 +65,7 @@ const floorOf = (state: ThreadRollover) => (typeof state.floor === "number" ? st
 
 type RolloverEvent = Extract<
   OrchestrationV2DomainEvent,
-  { readonly type: "provider-turn.updated" | "run.updated" }
+  { readonly type: "provider-turn.updated" | "run.updated" | "turn-item.updated" }
 >;
 
 /**
@@ -89,6 +93,7 @@ export const make = Effect.gen(function* () {
   const experiments = yield* ExperimentService.ExperimentService;
 
   const threads = new Map<ThreadId, ThreadRollover>();
+  const compactions = new Map<ThreadId, Set<TurnItemId>>();
 
   const thresholdsFor = Effect.fn("ContextRolloverReactor.thresholdsFor")(function* (
     threadId: ThreadId,
@@ -104,14 +109,14 @@ export const make = Effect.gen(function* () {
       }) === null
     )
       return null;
-    const assignments = yield* experiments.assignForThread({
+    yield* experiments.assignForThread({
       threadId,
       projectId: thread.projectId,
       modelSelection: run.modelSelection,
       enrollment: "new",
       unitCreatedAt: DateTime.formatIso(thread.createdAt),
     });
-    const assignment = assignments.find((candidate) => candidate.lever === "rollover");
+    const assignment = (yield* experiments.getRolloverAssignment(threadId)) ?? undefined;
     const thresholds = assignedRolloverThresholds(
       settings.contextRollover,
       thread,
@@ -158,7 +163,17 @@ export const make = Effect.gen(function* () {
     const { runs } = yield* projections.getThreadRecords(event.threadId, ["runs"]);
     const run = runs.find((candidate) => candidate.activeAttemptId === turn.runAttemptId);
     if (run === undefined || (run.status !== "running" && run.status !== "waiting")) return;
-    const state: ThreadRollover = threads.get(event.threadId) ?? {
+    let previousState = threads.get(event.threadId);
+    // A provider switch is a different conversation, not a native context drop.
+    if (
+      previousState?.floor !== "pending" &&
+      previousState?.providerThreadId !== turn.providerThreadId
+    ) {
+      previousState = undefined;
+      compactions.delete(event.threadId);
+    }
+    const state: ThreadRollover = previousState ?? {
+      providerThreadId: turn.providerThreadId,
       phase: "idle",
       used,
       maxTokens: null,
@@ -171,6 +186,9 @@ export const make = Effect.gen(function* () {
       if (state.usageUpdatedAt !== null && reportedAt < state.usageUpdatedAt) return;
       state.usageUpdatedAt = reportedAt;
     }
+    const previousUsed = previousState?.used;
+    const freshSession = state.floor === "pending";
+    state.providerThreadId = turn.providerThreadId;
     state.used = used;
     const maxTokens = turn.tokenUsage?.maxTokens;
     if (maxTokens != null && Number.isFinite(maxTokens) && maxTokens > 0) {
@@ -190,7 +208,43 @@ export const make = Effect.gen(function* () {
         lowYield: previous.usedTokens - used < ROLLOVER_MIN_GROWTH_TOKENS,
         evidence: [`rollover-of-run:${previous.fromRunId}`, `provider-turn:${turn.id}`],
       });
+      state.recovery = {
+        usedTokens: used,
+        observationId: `rollover:${previous.assignmentId}:${run.id}:fresh-context`,
+      };
       delete state.rollover;
+    }
+    const assignment = yield* experiments.getRolloverAssignment(event.threadId);
+    if (assignment !== null && previousUsed !== undefined && !freshSession && used < previousUsed) {
+      const id = `rollover:${assignment.id}:${run.id}:context-drop:${turn.id}:${turn.tokenUsage!.updatedAt}`;
+      yield* experiments.recordObservation({
+        id,
+        assignmentId: assignment.id,
+        runId: run.id,
+        kind: "context-drop",
+        usedTokens: used,
+        maxTokens: state.maxTokens,
+        recoveredTokens: previousUsed - used,
+        evidence: [`provider-turn:${turn.id}`, `previous-context-tokens:${previousUsed}`],
+      });
+      state.recovery = { usedTokens: used, observationId: id };
+    } else if (
+      assignment !== null &&
+      state.recovery !== undefined &&
+      used > state.recovery.usedTokens
+    ) {
+      const recovery = state.recovery;
+      yield* experiments.recordObservation({
+        id: `rollover:${assignment.id}:${run.id}:context-growth:${turn.id}:${turn.tokenUsage!.updatedAt}`,
+        assignmentId: assignment.id,
+        runId: run.id,
+        kind: "context-growth",
+        usedTokens: used,
+        maxTokens: state.maxTokens,
+        growthTokens: used - recovery.usedTokens,
+        evidence: [`provider-turn:${turn.id}`, `after-observation:${recovery.observationId}`],
+      });
+      delete state.recovery;
     }
     if (state.floor === "pending" || (state.floor !== null && used < state.floor)) {
       state.floor = used;
@@ -318,9 +372,11 @@ export const make = Effect.gen(function* () {
       );
     if (!dispatched) return;
     notes.delete(threadId);
+    compactions.delete(threadId);
     threads.set(threadId, {
       phase: "idle",
       used: 0,
+      providerThreadId: null,
       maxTokens: null,
       usageUpdatedAt: null,
       floor: "pending",
@@ -359,8 +415,75 @@ export const make = Effect.gen(function* () {
     // the next real user turn can receive a hard nudge when it actually needs one.
   });
 
+  const onCompaction = Effect.fn("ContextRolloverReactor.onCompaction")(function* (
+    event: Extract<RolloverEvent, { readonly type: "turn-item.updated" }>,
+  ) {
+    const item = event.payload;
+    if (
+      item.type !== "compaction" ||
+      item.status !== "completed" ||
+      item.runId === null ||
+      item.providerTurnId === null
+    )
+      return;
+    if (compactions.get(event.threadId)?.has(item.id)) return;
+    const { runs, providerTurns } = yield* projections.getThreadRecords(event.threadId, [
+      "runs",
+      "providerTurns",
+    ]);
+    const run = runs.find((candidate) => candidate.id === item.runId);
+    const turn = providerTurns.find((candidate) => candidate.id === item.providerTurnId);
+    // A late item from a superseded attempt is historical evidence, not this session's compaction.
+    if (
+      run === undefined ||
+      turn === undefined ||
+      run.activeAttemptId !== turn.runAttemptId ||
+      turn.runAttemptId === null
+    )
+      return;
+    if (runs.some((candidate) => candidate.ordinal > run.ordinal && candidate.status !== "queued"))
+      return;
+    const assignment = yield* experiments.getRolloverAssignment(event.threadId);
+    if (assignment === null) return;
+    const state = threads.get(event.threadId);
+    const id = `rollover:${assignment.id}:${run.id}:native-compaction:${item.id}`;
+    yield* experiments.recordObservation({
+      id,
+      assignmentId: assignment.id,
+      runId: run.id,
+      kind: "native-compaction",
+      usedTokens: item.afterTokenCount ?? null,
+      // The item reports no context maximum. Keep the persisted payload stable
+      // across replay; a later usage report is not part of this native event.
+      maxTokens: null,
+      ...(item.beforeTokenCount === undefined || item.afterTokenCount === undefined
+        ? {}
+        : {
+            recoveredTokens: Math.max(0, item.beforeTokenCount - item.afterTokenCount),
+          }),
+      evidence: [`turn-item:${item.id}`, `provider-turn:${item.providerTurnId}`],
+    });
+    const seen = compactions.get(event.threadId) ?? new Set<TurnItemId>();
+    seen.add(item.id);
+    if (seen.size > 256) {
+      const oldest = seen.values().next().value;
+      if (oldest !== undefined) seen.delete(oldest);
+    }
+    compactions.set(event.threadId, seen);
+    if (
+      state !== undefined &&
+      state.providerThreadId === item.providerThreadId &&
+      item.afterTokenCount !== undefined &&
+      (state.usageUpdatedAt === null ||
+        DateTime.toEpochMillis(item.updatedAt) >= state.usageUpdatedAt)
+    ) {
+      state.recovery = { usedTokens: item.afterTokenCount, observationId: id };
+    }
+  });
+
   const handle = (event: RolloverEvent) => {
     if (event.type === "provider-turn.updated") return onUsage(event);
+    if (event.type === "turn-item.updated") return onCompaction(event);
     if (isTerminalRunStatus(event.payload.status)) return onRunEnd(event.threadId, event.payload);
     return event.payload.status === "running" || event.payload.status === "waiting"
       ? thresholdsFor(event.threadId, event.payload).pipe(Effect.asVoid)
@@ -391,6 +514,10 @@ export const make = Effect.gen(function* () {
             return event.payload.tokenUsage === undefined ? Effect.void : worker.enqueue(event);
           case "run.updated":
             return worker.enqueue(event);
+          case "turn-item.updated":
+            return event.payload.type === "compaction" && event.payload.status === "completed"
+              ? worker.enqueue(event)
+              : Effect.void;
           case "thread.rollover-hold-set":
             // A hold forgets a soft nudge not yet answered; lifting it starts over.
             return Effect.sync(() => {
@@ -402,6 +529,7 @@ export const make = Effect.gen(function* () {
           case "thread.deleted":
             return Effect.sync(() => {
               threads.delete(event.threadId);
+              compactions.delete(event.threadId);
               notes.delete(event.threadId);
             });
           default:

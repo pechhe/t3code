@@ -1,6 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentId, Experiment } from "@t3tools/contracts";
 import { useState } from "react";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import { Pressable, View } from "react-native";
 import { AppText as Text } from "../../components/AppText";
 import { useEnvironmentQuery } from "../../state/query";
@@ -80,15 +84,28 @@ function Trial({
   );
   const transition = useAtomCommand(serverEnvironment.experimentsTransition);
   const [pending, setPending] = useState(false);
+  const [transitionError, setTransitionError] = useState<string | null>(null);
+  const assignments = useEnvironmentQuery(
+    serverEnvironment.experimentsAssignments({
+      environmentId,
+      input: { experimentId: experiment.id },
+    }),
+  );
   const change = async (status: "paused" | "stopped") => {
     if (pending || !canChange) return;
     setPending(true);
+    setTransitionError(null);
     const result = await transition({
       environmentId,
       input: { experimentId: experiment.id, status },
     });
     setPending(false);
-    if (result._tag === "Success") refresh();
+    if (result._tag === "Success") {
+      refresh();
+      assignments.refresh();
+    } else if (!isAtomCommandInterrupted(result)) {
+      setTransitionError(String(squashAtomCommandFailure(result)));
+    }
   };
   return (
     <View className="gap-2 border-b border-border p-4">
@@ -97,6 +114,57 @@ function Trial({
         {experiment.status} · {experiment.lever} · up to {experiment.maxAssignments} assignments
       </Text>
       <Text className="text-sm">{experiment.question}</Text>
+      {transitionError && (
+        <Text accessibilityRole="alert" className="text-sm text-destructive">
+          Could not {experiment.status === "running" ? "change enrollment" : "stop trial"}:{" "}
+          {transitionError}
+        </Text>
+      )}
+      <Pressable accessibilityRole="button" onPress={assignments.refresh}>
+        <Text className="text-sm text-link">Refresh assigned units</Text>
+      </Pressable>
+      {assignments.error && <Text className="text-sm text-destructive">{assignments.error}</Text>}
+      {assignments.isPending && !assignments.data && (
+        <Text className="text-sm text-foreground-muted">Loading assignments…</Text>
+      )}
+      {assignments.data?.length === 0 && (
+        <Text className="text-sm text-foreground-muted">No units assigned.</Text>
+      )}
+      {assignments.data?.map((assignment) => (
+        <View key={assignment.id} className="gap-1 rounded-lg border border-border p-3">
+          <Text className="font-t3-medium">
+            {assignment.assignmentMethod === "observational"
+              ? "Historical / observational variant"
+              : experiment.status === "running"
+                ? "Assigned variant"
+                : "Retained assigned variant"}
+            : {assignment.variant.label}
+          </Text>
+          <Text className="text-sm">
+            {assignment.unitKind}: {assignment.unitId}
+          </Text>
+          <Text className="text-sm text-foreground-muted">
+            Thread {assignment.threadId} · {assignment.assignmentMethod}
+          </Text>
+          {assignment.assignmentMethod === "observational" && (
+            <Text className="text-sm text-foreground-muted">
+              Imported evidence; not enrolled or randomized by this trial. Source:{" "}
+              {assignment.provenance ?? "unspecified"}
+            </Text>
+          )}
+          <Text className="text-sm">Model: {assignment.assignedModelSelection.model}</Text>
+          {assignment.variant.rollover && (
+            <Text className="text-sm">
+              {assignment.variant.rollover.softLimit.toLocaleString()} soft /{" "}
+              {assignment.variant.rollover.hardLimit.toLocaleString()} hard
+            </Text>
+          )}
+          <Text className="text-sm text-foreground-muted">
+            Assigned {new Date(assignment.assignedAt).toLocaleString()} · revision{" "}
+            {assignment.revision}. Assignment remains pinned when enrollment pauses or stops.
+          </Text>
+        </View>
+      ))}
       <View className="flex-row gap-3">
         {experiment.status === "running" && (
           <Pressable

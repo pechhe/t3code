@@ -1304,6 +1304,10 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:experiments:list",
       tag: WS_METHODS.experimentsList,
     }),
+    experimentsAssignments: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:experiments:assignments",
+      tag: WS_METHODS.experimentsAssignments,
+    }),
     experimentsReport: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:experiments:report",
       tag: WS_METHODS.experimentsReport,

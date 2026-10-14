@@ -153,9 +153,11 @@ Press `Escape` to return to the previous page. Customize these shortcuts in
 
 Open **Settings → Experiments** on the environment where your agents run. Create a draft with a question, eligible projects or models, variants, an end date and a sample limit. Starting it assigns eligible new work to variants; it does not replay tasks or replace your defaults. A rollover experiment stays with its thread, while reviewer and delegation experiments stay with their delegated task. A review task is identified by the delegation's `review` role.
 
-For a first rollover comparison, keep the same hard limit in both variants and move one soft warning earlier. The warning asks for a natural break; completing work without a handoff does not restart it. Provider-reported context capacity may reduce the effective thresholds to leave room for a safe handoff.
+The rollover draft uses your environment's current policy as the control, keeps the same hard limit in both variants and moves one soft warning earlier. If your models use different rollover rules, narrow the eligible models to a shared policy first. The warning asks for a natural break; completing work without a handoff does not restart it. Provider-reported context capacity may reduce the effective thresholds to leave room for a safe handoff.
 
 Pause stops new assignments. Resume admits new work again. Stop ends enrollment permanently. Existing assignments retain their settings through pauses, stops, retries and rollovers, so changing a trial's status does not silently change work already under way. Thread rollover holds still take precedence.
+
+On mobile, open **Settings → Experiments** to inspect assigned variants and pause or stop enrollment. Create trials and compare full reports on web or desktop.
 
 Judge the results using evidence of useful completion, corrections and rework alongside time and usage. Reports preserve original thread links, incomplete telemetry and assigned versus actual model selections. Context recovered is not billed tokens saved. Subscription token usage is not a monetary charge. Record outcomes with their evidence and distinguish human review from an automated judgement. Historical imports remain observational and are counted separately from randomized work.
 
