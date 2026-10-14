@@ -1,3 +1,5 @@
+import * as Experiments from "../experiments/ExperimentService.ts";
+import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
 import {
   CommandId,
   type RunId,
@@ -898,6 +900,7 @@ function timelineItem(input: {
 }
 
 const make = Effect.gen(function* () {
+  const experiments = yield* Experiments.ExperimentService;
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
@@ -1978,12 +1981,66 @@ const make = Effect.gen(function* () {
           operation: "delegate-task",
         });
         const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
-        const target = yield* resolveTargetRechecking({
+        let target = yield* resolveTargetRechecking({
           parent,
           target: input.target,
           providers,
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
         });
+        const assignments = yield* (
+          isRetryOfAcceptedDelegation
+            ? experiments.assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
+            : experiments.assignForTask({
+                threadId: deriveIds.delegatedTaskThread({ commandId }),
+                projectId: parent.thread.projectId,
+                modelSelection: target.modelSelection,
+                unitId: deriveIds.delegatedTaskNode({ commandId }),
+                unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
+                taskLever: input.role === "review" ? "reviewer" : "delegation",
+                taskCategory: input.role ?? "general",
+                enrollment: "new",
+              })
+        ).pipe(
+          Effect.mapError(() =>
+            failure("orchestration_error", "Unable to assign the delegated experiment."),
+          ),
+        );
+        const recordExperimentFailure = Effect.forEach(
+          assignments,
+          (assignment) =>
+            experiments.recordOutcome({
+              id: `${assignment.id}:dispatch-failure:${commandId}`,
+              assignmentId: assignment.id,
+              runId: null,
+              kind: "failure",
+              source: "independent-evidence",
+              evidence: [`command:${commandId}`],
+              note: "The delegated request failed before a child run was accepted.",
+              actualModelSelection: null,
+              fallbackReason: null,
+            }),
+          { discard: true },
+        ).pipe(
+          Effect.mapError(() =>
+            failure("orchestration_error", "Unable to record the experiment dispatch failure."),
+          ),
+        );
+        const experimentSelection = assignments.find(
+          (assignment) => assignment.variant.modelSelection !== undefined,
+        )?.variant.modelSelection;
+        if (experimentSelection !== undefined) {
+          // Resolve again through the ordinary provider capability and permission checks.
+          target = yield* resolveTargetRechecking({
+            parent,
+            providers,
+            target: {
+              providerInstanceId: experimentSelection.instanceId,
+              model: experimentSelection.model,
+              options: experimentSelection.options,
+            },
+            skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
+          }).pipe(Effect.tapError(() => recordExperimentFailure));
+        }
         const runtimeMode = yield* resolveRuntimeMode(
           parent.thread.runtimeMode,
           input.runtimeMode,
@@ -2016,6 +2073,7 @@ const make = Effect.gen(function* () {
             completionWake: input.mode === "wait" ? "settled_only" : "always",
           })
           .pipe(
+            Effect.tapError(() => recordExperimentFailure),
             Effect.mapError((error) =>
               error._tag === "ThreadManagementProviderInstanceDisabledError"
                 ? threadManagementFailure(error)
@@ -2659,6 +2717,7 @@ export const layer: Layer.Layer<
   OrchestratorMcpService,
   never,
   | Crypto.Crypto
+  | Experiments.ExperimentService
   | ThreadManagementService.ThreadManagementService
   | ProviderRegistry.ProviderRegistry
   | ProviderAdapterRegistry.ProviderAdapterRegistryV2

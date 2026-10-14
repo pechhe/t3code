@@ -1,6 +1,7 @@
 import {
   isProviderNativeSubagentThread,
   type ContextRolloverSettings,
+  type ExperimentRolloverPolicy,
   type OrchestrationV2AppThread,
   type OrchestrationV2RolloverHold,
   type OrchestrationV2Run,
@@ -42,15 +43,29 @@ const k = (tokens: number) => `${Math.round(tokens / 1000)}k`;
 
 /** Past the soft threshold: hand off at the next natural break, not mid-step. */
 export const rolloverSoftNudge = (used: number, hard: number) =>
-  `Context is at ${k(used)} tokens. Do not hand off mid-step: at the next natural break (a batch of work finished, or before starting a new unit), record unsaved user decisions where they belong, write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn. T3 then continues this thread on a fresh session seeded with the note. A hard handoff is asked for at ${k(hard)}.`;
+  `Context is at ${k(used)} tokens. Do not hand off mid-step: if more work remains, at the next natural break (a batch of work finished, or before starting a new unit), record unsaved user decisions where they belong, write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn. T3 then continues this thread on a fresh session seeded with the note. If the task is complete, finish normally without a handoff. A hard handoff is asked for at ${k(hard)}.`;
 
-/** Past the hard threshold, or at a run's end after an unanswered soft nudge. */
+/** Past the hard threshold while work is running. */
 export const rolloverHardNudge = (used: number) =>
   `Context is at ${k(used)} tokens: hand off now. Finish the step in hand without starting new work, record unsaved user decisions where they belong, then write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn.`;
 
 export interface RolloverThresholds {
   readonly soft: number;
   readonly hard: number;
+  /** Provider context boundary after reserving room to write the note. */
+  readonly safetyHard?: number;
+}
+
+/** Unknown provider limits leave the explicit configured thresholds unchanged. */
+export function boundRolloverThresholds(
+  thresholds: RolloverThresholds,
+  maxTokens: number | null | undefined,
+): RolloverThresholds {
+  if (maxTokens == null || !Number.isFinite(maxTokens) || maxTokens <= 0) return thresholds;
+  const headroom = Math.min(20_000, Math.ceil(maxTokens * 0.1));
+  const safetyHard = Math.max(1, maxTokens - headroom);
+  const hard = Math.min(thresholds.hard, safetyHard);
+  return { soft: Math.min(thresholds.soft, Math.floor(safetyHard * 0.8)), hard, safetyHard };
 }
 
 /**
@@ -85,6 +100,27 @@ export function threadRolloverThresholds(
     return null;
   }
   return resolveRolloverThresholds(settings, model);
+}
+
+/** An assigned experiment changes timing, retaining thread ownership restrictions. */
+export function assignedRolloverThresholds(
+  settings: ContextRolloverSettings,
+  thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource">,
+  model: string,
+  policy: ExperimentRolloverPolicy | undefined,
+): RolloverThresholds | null {
+  if (policy === undefined) return threadRolloverThresholds(settings, thread, model);
+  return threadRolloverThresholds(
+    {
+      ...settings,
+      enabled: true,
+      modelRules: [],
+      softThreshold: policy.softLimit,
+      hardThreshold: policy.hardLimit,
+    },
+    thread,
+    model,
+  );
 }
 
 /**
@@ -136,6 +172,10 @@ export function rolloverUsageAction(
   thresholds: RolloverThresholds,
   floor: number | null,
 ): RolloverUsageAction {
+  // The loop guard may delay a configured handoff, never a known context boundary.
+  if (thresholds.safetyHard !== undefined && used >= thresholds.safetyHard) {
+    return phase === "hardNudged" ? "none" : "hard";
+  }
   if (!grownSinceRollover(used, floor)) return "none";
   if (used >= thresholds.hard) return phase === "hardNudged" ? "none" : "hard";
   if (used >= thresholds.soft) return phase === "idle" ? "soft" : "none";

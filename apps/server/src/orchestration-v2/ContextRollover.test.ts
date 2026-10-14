@@ -3,6 +3,8 @@ import { ContextRolloverSettings, RunId, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import {
+  boundRolloverThresholds,
+  assignedRolloverThresholds,
   lowestSoftThreshold,
   makeRolloverNotes,
   resolveRolloverThresholds,
@@ -11,8 +13,9 @@ import {
   threadRolloverThresholds,
 } from "./ContextRollover.ts";
 
+const decodeSettings = Schema.decodeSync(ContextRolloverSettings);
 const settings = (patch: Partial<typeof ContextRolloverSettings.Encoded> = {}) =>
-  Schema.decodeSync(ContextRolloverSettings)({ enabled: true, ...patch });
+  decodeSettings({ enabled: true, ...patch });
 
 const root = ThreadId.make("thread:root");
 const topLevel = {
@@ -29,7 +32,7 @@ const native = { lineage: child, creationSource: "provider" } as const;
 
 describe("resolveRolloverThresholds", () => {
   it("is off by default", () => {
-    assert.isNull(resolveRolloverThresholds(Schema.decodeSync(ContextRolloverSettings)({}), "x"));
+    assert.isNull(resolveRolloverThresholds(decodeSettings({}), "x"));
   });
 
   it("uses the defaults when no rule matches", () => {
@@ -57,6 +60,43 @@ describe("resolveRolloverThresholds", () => {
       modelRules: [{ modelPattern: "gpt", enabled: false, softThreshold: 1, hardThreshold: 2 }],
     });
     assert.isNull(resolveRolloverThresholds(configured, "gpt-5.1-codex"));
+  });
+});
+
+describe("boundRolloverThresholds", () => {
+  const configured = { soft: 220_000, hard: 280_000 };
+
+  it("keeps explicit thresholds when the provider limit is unknown or invalid", () => {
+    for (const max of [undefined, null, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.deepEqual(boundRolloverThresholds(configured, max), configured);
+    }
+  });
+
+  it("reserves headroom for a handoff within a known context window", () => {
+    assert.deepEqual(boundRolloverThresholds(configured, 200_000), {
+      soft: 144_000,
+      hard: 180_000,
+      safetyHard: 180_000,
+    });
+    assert.deepEqual(boundRolloverThresholds(configured, 1_000_000), {
+      ...configured,
+      safetyHard: 980_000,
+    });
+    assert.deepEqual(boundRolloverThresholds({ soft: 90, hard: 100 }, 1_000), {
+      soft: 90,
+      hard: 100,
+      safetyHard: 900,
+    });
+  });
+
+  it("scales the reserve for smaller windows and bypasses the loop guard only for safety", () => {
+    const bounded = boundRolloverThresholds({ soft: 80_000, hard: 95_000 }, 100_000);
+    assert.equal(bounded.hard, 90_000);
+    assert.equal(rolloverUsageAction("idle", 89_999, bounded, 84_000), "none");
+    assert.equal(rolloverUsageAction("idle", 90_000, bounded, 84_000), "hard");
+    assert.equal(rolloverUsageAction("hardNudged", 90_000, bounded, 84_000), "none");
+    const explicit = boundRolloverThresholds({ soft: 80_000, hard: 95_000 }, 200_000);
+    assert.equal(rolloverUsageAction("idle", 95_000, explicit, 84_000), "none");
   });
 });
 
@@ -93,6 +133,33 @@ describe("threadRolloverThresholds", () => {
     );
     assert.isNotNull(
       threadRolloverThresholds(settings({ delegatedThreads: false }), topLevel, "claude-opus"),
+    );
+  });
+});
+
+describe("assignedRolloverThresholds", () => {
+  const variant = { softLimit: 80_000, hardLimit: 100_000 };
+  it("enables an explicit experiment despite globally disabled rollover", () => {
+    assert.deepEqual(
+      assignedRolloverThresholds(settings({ enabled: false }), topLevel, "model", variant),
+      {
+        soft: 80_000,
+        hard: 100_000,
+      },
+    );
+    assert.isNull(
+      assignedRolloverThresholds(settings({ enabled: false }), topLevel, "model", undefined),
+    );
+  });
+  it("keeps native subagents and disabled delegated children outside experiment rollover", () => {
+    assert.isNull(assignedRolloverThresholds(settings(), native, "model", variant));
+    assert.isNull(
+      assignedRolloverThresholds(
+        settings({ delegatedThreads: false }),
+        delegated,
+        "model",
+        variant,
+      ),
     );
   });
 });

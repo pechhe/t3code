@@ -148,3 +148,15 @@ Use `Ctrl+Shift+1/2/3/4` (`Cmd+Shift+1/2/3/4` on macOS) for the past
 24 hours, 7 days, 30 days, or 90 days. Period shortcuts do nothing on Limits.
 Press `Escape` to return to the previous page. Customize these shortcuts in
 **Settings → Keybindings**.
+
+## Compare configurations on normal work
+
+Open **Settings → Experiments** on the environment where your agents run. Create a draft with a question, eligible projects or models, variants, an end date and a sample limit. Starting it assigns eligible new work to variants; it does not replay tasks or replace your defaults. A rollover experiment stays with its thread, while reviewer and delegation experiments stay with their delegated task. A review task is identified by the delegation's `review` role.
+
+For a first rollover comparison, keep the same hard limit in both variants and move one soft warning earlier. The warning asks for a natural break; completing work without a handoff does not restart it. Provider-reported context capacity may reduce the effective thresholds to leave room for a safe handoff.
+
+Pause stops new assignments. Resume admits new work again. Stop ends enrollment permanently. Existing assignments retain their settings through pauses, stops, retries and rollovers, so changing a trial's status does not silently change work already under way. Thread rollover holds still take precedence.
+
+Judge the results using evidence of useful completion, corrections and rework alongside time and usage. Reports preserve original thread links, incomplete telemetry and assigned versus actual model selections. Context recovered is not billed tokens saved. Subscription token usage is not a monetary charge. Record outcomes with their evidence and distinguish human review from an automated judgement. Historical imports remain observational and are counted separately from randomized work.
+
+Agents can use the `t3_experiments_*` tools to create drafts, control enrollment, inspect reports, record outcomes and import historical assignments. An experiment does not automatically promote a winning configuration.

@@ -1300,6 +1300,32 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:server:signal-process",
       tag: WS_METHODS.serverSignalProcess,
     }),
+    experimentsList: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:experiments:list",
+      tag: WS_METHODS.experimentsList,
+    }),
+    experimentsReport: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:experiments:report",
+      tag: WS_METHODS.experimentsReport,
+    }),
+    experimentsCreate: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:experiments:create",
+      tag: WS_METHODS.experimentsCreate,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    experimentsRecordOutcome: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:experiments:outcome",
+      tag: WS_METHODS.experimentsRecordOutcome,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    experimentsTransition: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:experiments:transition",
+      tag: WS_METHODS.experimentsTransition,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     upsertScheduledTask: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:scheduled-task:upsert",
       tag: WS_METHODS.scheduledTasksUpsert,

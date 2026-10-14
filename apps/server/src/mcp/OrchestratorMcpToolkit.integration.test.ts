@@ -1,3 +1,4 @@
+import * as Experiments from "../experiments/ExperimentService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
@@ -136,7 +137,15 @@ const readDelegatedTaskStatusTranscript = Effect.fn("readDelegatedTaskStatusTran
     );
     return yield* decodeProviderReplayNdjson(text);
   },
-  Effect.provide(NodeServices.layer),
+  Effect.provide(
+    Layer.merge(
+      NodeServices.layer,
+      Layer.mock(Experiments.ExperimentService)({
+        assignForTask: () => Effect.succeed([]),
+        assignments: () => Effect.succeed([]),
+      }),
+    ),
+  ),
 );
 
 interface CapturedTurn {
@@ -708,7 +717,15 @@ describe("orchestrator MCP toolkit", () => {
                 Layer.provide(layerOrchestration),
               ),
             ),
-            Layer.provide(NodeServices.layer),
+            Layer.provide(
+              Layer.merge(
+                NodeServices.layer,
+                Layer.mock(Experiments.ExperimentService)({
+                  assignForTask: () => Effect.succeed([]),
+                  assignments: () => Effect.succeed([]),
+                }),
+              ),
+            ),
           );
 
           yield* Effect.gen(function* () {
@@ -3856,7 +3873,15 @@ describe("orchestrator MCP toolkit", () => {
               Layer.provide(layerOrchestration),
             ),
           ),
-          Layer.provide(NodeServices.layer),
+          Layer.provide(
+            Layer.merge(
+              NodeServices.layer,
+              Layer.mock(Experiments.ExperimentService)({
+                assignForTask: () => Effect.succeed([]),
+                assignments: () => Effect.succeed([]),
+              }),
+            ),
+          ),
         );
 
         yield* Effect.gen(function* () {

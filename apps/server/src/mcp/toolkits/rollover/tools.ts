@@ -1,3 +1,4 @@
+import * as ExperimentService from "../../../experiments/ExperimentService.ts";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
@@ -18,6 +19,7 @@ const WriteRolloverNoteTool = Tool.make(ROLLOVER_NOTE_TOOL_NAME, {
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies: [
+    ExperimentService.ExperimentService,
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
     ServerSettings.ServerSettingsService,

@@ -2,6 +2,7 @@ import {
   CommandId,
   MessageId,
   type OrchestrationV2DomainEvent,
+  type RunId,
   type OrchestrationV2Run,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -10,26 +11,27 @@ import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
+import * as ExperimentService from "../experiments/ExperimentService.ts";
+
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   ContextRolloverNotes,
-  grownSinceRollover,
-  lowestSoftThreshold,
+  boundRolloverThresholds,
   ROLLOVER_MIN_GROWTH_TOKENS,
   ROLLOVER_RESUME_TEXT,
   rolloverHardNudge,
   rolloverHeld,
   rolloverSoftNudge,
   rolloverUsageAction,
-  threadRolloverThresholds,
+  assignedRolloverThresholds,
   type RolloverPhase,
-  type RolloverThresholds,
 } from "./ContextRollover.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
@@ -39,8 +41,10 @@ interface ThreadRollover {
   phase: RolloverPhase;
   /** The last context size the provider reported. */
   used: number;
-  /** The run-end hard nudge was sent; a run that ends without a note again gets no second one. */
-  fallbackSent: boolean;
+  /** Last known context window for this provider session; omitted reports do not erase it. */
+  maxTokens: number | null;
+  /** Provider report time, used to reject delayed reports without masking compaction. */
+  usageUpdatedAt: number | null;
   /**
    * The context the session began with after a rollover ("pending" until its
    * first usage report), or null when it did not begin with one. Nudges wait
@@ -50,6 +54,7 @@ interface ThreadRollover {
   floor: number | "pending" | null;
   /** The warning that a threshold sits below this floor was logged. */
   floorWarned: boolean;
+  rollover?: { assignmentId: string; fromRunId: RunId; usedTokens: number; startedAt: number };
 }
 
 const floorOf = (state: ThreadRollover) => (typeof state.floor === "number" ? state.floor : null);
@@ -81,6 +86,7 @@ export const make = Effect.gen(function* () {
   const settingsService = yield* ServerSettings.ServerSettingsService;
   const notes = yield* ContextRolloverNotes;
   const crypto = yield* Crypto.Crypto;
+  const experiments = yield* ExperimentService.ExperimentService;
 
   const threads = new Map<ThreadId, ThreadRollover>();
 
@@ -91,7 +97,28 @@ export const make = Effect.gen(function* () {
     const settings = yield* settingsService.getSettings;
     const thread = yield* projections.getThread(threadId);
     if (rolloverHeld(thread.rolloverHold, yield* Clock.currentTimeMillis)) return null;
-    return threadRolloverThresholds(settings.contextRollover, thread, run.modelSelection.model);
+    if (
+      assignedRolloverThresholds(settings.contextRollover, thread, run.modelSelection.model, {
+        softLimit: settings.contextRollover.softThreshold,
+        hardLimit: settings.contextRollover.hardThreshold,
+      }) === null
+    )
+      return null;
+    const assignments = yield* experiments.assignForThread({
+      threadId,
+      projectId: thread.projectId,
+      modelSelection: run.modelSelection,
+      enrollment: "new",
+      unitCreatedAt: DateTime.formatIso(thread.createdAt),
+    });
+    const assignment = assignments.find((candidate) => candidate.lever === "rollover");
+    const thresholds = assignedRolloverThresholds(
+      settings.contextRollover,
+      thread,
+      run.modelSelection.model,
+      assignment?.variant.rollover,
+    );
+    return thresholds === null ? null : { thresholds, assignment };
   });
 
   const message = Effect.fn("ContextRolloverReactor.message")(function* (
@@ -125,38 +152,56 @@ export const make = Effect.gen(function* () {
     const used = turn.tokenUsage?.usedTokens;
     // Native subagent turns report no run attempt; they are not the thread's own context.
     if (used === undefined || turn.runAttemptId === null) return;
+    if (turn.status !== "running") return;
+    // Resolve the active attempt before touching session state: late reports from
+    // a previous run must not reset a fresh session's growth floor or nudge phase.
+    const { runs } = yield* projections.getThreadRecords(event.threadId, ["runs"]);
+    const run = runs.find((candidate) => candidate.activeAttemptId === turn.runAttemptId);
+    if (run === undefined || (run.status !== "running" && run.status !== "waiting")) return;
     const state: ThreadRollover = threads.get(event.threadId) ?? {
       phase: "idle",
       used,
-      fallbackSent: false,
+      maxTokens: null,
+      usageUpdatedAt: null,
       floor: null,
       floorWarned: false,
     };
+    const reportedAt = Date.parse(turn.tokenUsage!.updatedAt);
+    if (Number.isFinite(reportedAt)) {
+      if (state.usageUpdatedAt !== null && reportedAt < state.usageUpdatedAt) return;
+      state.usageUpdatedAt = reportedAt;
+    }
     state.used = used;
-    // The first report after a rollover is the fresh session's starting size; a
-    // provider compaction below it lowers it.
+    const maxTokens = turn.tokenUsage?.maxTokens;
+    if (maxTokens != null && Number.isFinite(maxTokens) && maxTokens > 0) {
+      state.maxTokens = maxTokens;
+    }
+    if (state.floor === "pending" && state.rollover !== undefined) {
+      const previous = state.rollover;
+      yield* experiments.recordObservation({
+        id: `rollover:${previous.assignmentId}:${run.id}:fresh-context`,
+        assignmentId: previous.assignmentId,
+        runId: run.id,
+        kind: "fresh-context",
+        usedTokens: used,
+        maxTokens: state.maxTokens,
+        recoveredTokens: Math.max(0, previous.usedTokens - used),
+        delayMs: Math.max(0, (yield* Clock.currentTimeMillis) - previous.startedAt),
+        lowYield: previous.usedTokens - used < ROLLOVER_MIN_GROWTH_TOKENS,
+        evidence: [`rollover-of-run:${previous.fromRunId}`, `provider-turn:${turn.id}`],
+      });
+      delete state.rollover;
+    }
     if (state.floor === "pending" || (state.floor !== null && used < state.floor)) {
       state.floor = used;
     }
     threads.set(event.threadId, state);
-    if (turn.status !== "running") return;
-    // Usage reports arrive many times a turn; read the thread only past the lowest threshold.
-    // Usage below it (a fresh thread, or one the provider compacted) starts over.
-    const lowest = lowestSoftThreshold((yield* settingsService.getSettings).contextRollover);
-    if (lowest === null || used < lowest) {
-      state.phase = "idle";
-      state.fallbackSent = false;
-      return;
-    }
     if (notes.get(event.threadId) !== undefined) return;
-    const { runs } = yield* projections.getThreadRecords(event.threadId, ["runs"]);
-    const run = runs.find((candidate) => candidate.activeAttemptId === turn.runAttemptId);
-    if (run === undefined || (run.status !== "running" && run.status !== "waiting")) return;
-    const thresholds = yield* thresholdsFor(event.threadId, run);
-    if (thresholds === null) return;
+    const configured = yield* thresholdsFor(event.threadId, run);
+    if (configured === null) return;
+    const thresholds = boundRolloverThresholds(configured.thresholds, state.maxTokens);
     if (used < thresholds.soft) {
       state.phase = "idle";
-      state.fallbackSent = false;
       return;
     }
     const floor = floorOf(state);
@@ -175,13 +220,24 @@ export const make = Effect.gen(function* () {
     }
     const action = rolloverUsageAction(state.phase, used, thresholds, floor);
     if (action === "none") return;
-    state.phase = action === "hard" ? "hardNudged" : "softNudged";
     yield* message(
       event.threadId,
       run,
       action === "hard" ? rolloverHardNudge(used) : rolloverSoftNudge(used, thresholds.hard),
       "steer",
     );
+    state.phase = action === "hard" ? "hardNudged" : "softNudged";
+    if (configured.assignment !== undefined) {
+      yield* experiments.recordObservation({
+        id: `rollover:${configured.assignment.id}:${run.id}:${action}:${turn.id}:${turn.tokenUsage!.updatedAt}`,
+        assignmentId: configured.assignment.id,
+        runId: run.id,
+        kind: action,
+        usedTokens: used,
+        maxTokens: state.maxTokens,
+        evidence: [`provider-turn:${turn.id}`],
+      });
+    }
   });
 
   const rollOver = Effect.fn("ContextRolloverReactor.rollOver")(function* (
@@ -199,13 +255,26 @@ export const make = Effect.gen(function* () {
         const state = threads.get(threadId);
         if (state !== undefined) {
           state.phase = "idle";
-          state.fallbackSent = false;
         }
         yield* Effect.logInfo("context rollover deferred to a new note", { threadId, reason });
       });
     const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
     if (runs.some((other) => other.id !== run.id && !isTerminalRunStatus(other.status))) {
       return yield* giveUp("another run started first");
+    }
+    const policy = yield* thresholdsFor(threadId, run);
+    const before = threads.get(threadId);
+    const startedAt = yield* Clock.currentTimeMillis;
+    if (policy?.assignment !== undefined && before !== undefined) {
+      yield* experiments.recordObservation({
+        id: `rollover:${policy.assignment.id}:${run.id}:rollover`,
+        assignmentId: policy.assignment.id,
+        runId: run.id,
+        kind: "rollover",
+        usedTokens: before.used,
+        maxTokens: before.maxTokens,
+        evidence: [`rollover-of-run:${run.id}`],
+      });
     }
     const dispatched = yield* engine
       .dispatch({
@@ -229,16 +298,43 @@ export const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.as(true),
-        Effect.catch((error) => giveUp(String(error)).pipe(Effect.as(false))),
+        Effect.catch((error) =>
+          Effect.gen(function* () {
+            if (policy?.assignment !== undefined && before !== undefined) {
+              yield* experiments.recordObservation({
+                id: `rollover:${policy.assignment.id}:${run.id}:restart-failure`,
+                assignmentId: policy.assignment.id,
+                runId: run.id,
+                kind: "restart-failure",
+                usedTokens: before.used,
+                maxTokens: before.maxTokens,
+                evidence: [`rollover-of-run:${run.id}`, "fresh-session-dispatch-failed"],
+              });
+            }
+            yield* giveUp(String(error));
+            return false;
+          }),
+        ),
       );
     if (!dispatched) return;
     notes.delete(threadId);
     threads.set(threadId, {
       phase: "idle",
       used: 0,
-      fallbackSent: false,
+      maxTokens: null,
+      usageUpdatedAt: null,
       floor: "pending",
       floorWarned: false,
+      ...(policy?.assignment === undefined || before === undefined
+        ? {}
+        : {
+            rollover: {
+              assignmentId: policy.assignment.id,
+              fromRunId: run.id,
+              usedTokens: before.used,
+              startedAt,
+            },
+          }),
     });
   });
 
@@ -259,26 +355,15 @@ export const make = Effect.gen(function* () {
       }
       return yield* rollOver(threadId, run, pending.note);
     }
-    const state = threads.get(threadId);
-    if (state === undefined || state.phase === "idle" || run.status !== "completed") return;
-    if (state.fallbackSent) return;
-    const thresholds: RolloverThresholds | null = yield* thresholdsFor(threadId, run);
-    if (thresholds === null || state.used < thresholds.soft) return;
-    if (!grownSinceRollover(state.used, floorOf(state))) return;
-    // Another run already follows this one: a queued message, or a nudge that
-    // arrived after the turn ended and started its own run.
-    const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
-    if (runs.some((other) => other.id !== run.id && !isTerminalRunStatus(other.status))) return;
-    // Asked for a note and ended the turn without one: ask once more, now.
-    state.phase = "hardNudged";
-    state.fallbackSent = true;
-    yield* message(threadId, run, rolloverHardNudge(state.used), "start");
+    // A completed task needs no bookkeeping turn. If an advisory was ignored,
+    // the next real user turn can receive a hard nudge when it actually needs one.
   });
 
   const handle = (event: RolloverEvent) => {
     if (event.type === "provider-turn.updated") return onUsage(event);
-    return isTerminalRunStatus(event.payload.status)
-      ? onRunEnd(event.threadId, event.payload)
+    if (isTerminalRunStatus(event.payload.status)) return onRunEnd(event.threadId, event.payload);
+    return event.payload.status === "running" || event.payload.status === "waiting"
+      ? thresholdsFor(event.threadId, event.payload).pipe(Effect.asVoid)
       : Effect.void;
   };
 
@@ -312,7 +397,6 @@ export const make = Effect.gen(function* () {
               const state = threads.get(event.threadId);
               if (state === undefined) return;
               state.phase = "idle";
-              state.fallbackSent = false;
             });
           case "thread.archived":
           case "thread.deleted":

@@ -1,3 +1,4 @@
+import * as Experiments from "../../experiments/ExperimentService.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
@@ -168,7 +169,15 @@ it.effect("checks capability through the production registration", () =>
     Effect.provide(
       layerThreadToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
       ),
     ),
@@ -209,7 +218,15 @@ it.effect("returns a bounded public failure without serializing storage causes",
     Effect.provide(
       layerThreadToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadShell: () =>
@@ -288,7 +305,15 @@ it.effect("returns an HTML render reference that Codex and Claude tool rows both
         Layer.provideMerge(McpServer.McpServer.layer),
         Layer.provide(PreviewBrowser.layer),
         Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-html-render-" })),
-        Layer.provide(NodeServices.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeServices.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         // The preview browser is not installed in a fresh home, so nothing downloads.
         Layer.provide(FetchHttpClient.layer),
         Layer.provide(
@@ -324,7 +349,15 @@ it.effect("returns invalid parameter errors through the production registration"
     Effect.provide(
       layerThreadToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(Layer.mock(ThreadManagement.ThreadManagementService)({})),
       ),
     ),
@@ -349,7 +382,15 @@ it.effect("keeps unexpected handler defects private through the production regis
     Effect.provide(
       layerThreadToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadShell: () => Effect.die(new Error("private-storage-path")),
@@ -467,7 +508,15 @@ it.effect("a client caller targets any thread within its ceiling and cannot act 
     Effect.provide(
       layerThreadToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadShell: (id) =>
@@ -527,7 +576,15 @@ it.effect("a read-only client reads threads and is refused every write before it
     Effect.provide(
       layerThreadToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadShell: () =>
@@ -580,7 +637,15 @@ it.effect("refuses act-as-caller tools to a client caller", () =>
     Effect.provide(
       McpHttpServer.layerOrchestratorToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(Layer.mock(ThreadManagement.ThreadManagementService)({})),
         Layer.provide(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
@@ -619,7 +684,15 @@ it.effect("a caller cannot rewrite a scheduled task that runs above its own mode
     Effect.provide(
       McpHttpServer.layerOrchestratorToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(Layer.mock(ThreadManagement.ThreadManagementService)({})),
         Layer.provide(ServerSettings.layerTest()),
         Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
@@ -694,7 +767,15 @@ it.effect.each(["t3_thread_interrupt", "t3_workflow_stop"])(
       Effect.provide(
         McpHttpServer.layerOrchestratorToolkit.pipe(
           Layer.provideMerge(McpServer.McpServer.layer),
-          Layer.provide(NodeCrypto.layer),
+          Layer.provide(
+            Layer.merge(
+              NodeCrypto.layer,
+              Layer.mock(Experiments.ExperimentService)({
+                assignForTask: () => Effect.succeed([]),
+                assignments: () => Effect.succeed([]),
+              }),
+            ),
+          ),
           Layer.provide(
             Layer.mock(ThreadManagement.ThreadManagementService)({
               getThreadShell: () =>
@@ -798,7 +879,15 @@ it.effect("discovers workflow stop targets and requires orchestration capability
     Effect.provide(
       McpHttpServer.layerOrchestratorToolkit.pipe(
         Layer.provideMerge(McpServer.McpServer.layer),
-        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeCrypto.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
         Layer.provide(
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
@@ -874,7 +963,15 @@ it.effect("only the caller that prepared a pending upload can discard it", () =>
         Layer.provide(McpToolAccessTestkit.liveThreadsLayer),
         Layer.provide(ServerSecretStore.layer),
         Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-attachment-" })),
-        Layer.provide(NodeServices.layer),
+        Layer.provide(
+          Layer.merge(
+            NodeServices.layer,
+            Layer.mock(Experiments.ExperimentService)({
+              assignForTask: () => Effect.succeed([]),
+              assignments: () => Effect.succeed([]),
+            }),
+          ),
+        ),
       ),
     ),
   ),
