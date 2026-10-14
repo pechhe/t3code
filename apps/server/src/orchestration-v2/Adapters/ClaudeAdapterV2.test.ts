@@ -564,6 +564,17 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.deepEqual(overrides, {});
   });
 
+  it("attaches no t3-code tools to a managed task even when a session exists", () => {
+    const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession: mcpSessionFor(ThreadId.make("thread-claude-mcp-managed")),
+      readOnlySandbox: true,
+      managedAgent: true,
+      allowedTools: ["Read"],
+    });
+
+    assert.deepEqual(overrides, { allowedTools: ["Read"] });
+  });
+
   it("preserves an explicit allowlist when no MCP session exists", () => {
     const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
       mcpSession: undefined,

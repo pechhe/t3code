@@ -11,6 +11,7 @@ import {
   ExperimentOutcomeInput,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as CliError from "effect/cli/CliError";
 import * as Option from "effect/Option";
 
 import {
@@ -18,6 +19,7 @@ import {
   decodeAgentRequest,
   readAgentRequest,
   resolveAgentCredentialsDirectory,
+  toAgentCommandError,
 } from "./agent.ts";
 
 it.effect("reads agent request JSON from either a file path or stdin", () =>
@@ -199,4 +201,18 @@ it("uses a separate default agent credential directory and honors an explicit di
     resolveAgentCredentialsDirectory(Option.some("/tmp/isolated-agent-creds"), "/home/person"),
     "/tmp/isolated-agent-creds",
   );
+});
+
+it("keeps request errors visible and hides unexpected failure detail behind a credential hint", () => {
+  const request = new CliError.UserError({
+    cause: "read",
+    userMessage: "Could not read request JSON.",
+  });
+  assert.strictEqual(toAgentCommandError(request), request);
+  const unexpected = toAgentCommandError(new Error("secret-token-value"));
+  assert.equal(
+    unexpected.userMessage,
+    "T3 agent command failed. Check the endpoint and local credentials.",
+  );
+  assert.notInclude(unexpected.userMessage, "secret-token-value");
 });
