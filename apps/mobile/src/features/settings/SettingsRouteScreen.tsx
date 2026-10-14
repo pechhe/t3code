@@ -163,6 +163,7 @@ function SettingsIndexSections() {
 
       <SettingsSection title="Automations">
         <SettingsRow icon="clock" label="Scheduled tasks" target="SettingsScheduledTasks" />
+        <SettingsRow icon="slider.horizontal.3" label="Experiments" target="SettingsExperiments" />
       </SettingsSection>
 
       <SettingsSection title="Projects & threads">

@@ -1,3 +1,4 @@
+import { SettingsExperimentsRouteScreen } from "./features/settings/SettingsExperimentsRouteScreen";
 import { PullRequestGuideStopScreen } from "./features/pull-requests/guide/PullRequestGuideScreen";
 import { PullRequestInlineCommentScreen } from "./features/pull-requests/PullRequestInlineCommentScreen";
 import { PullRequestDiscussionScreen } from "./features/pull-requests/PullRequestDiscussionScreen";
@@ -342,6 +343,11 @@ const SettingsContentStack = createV5SheetStackNavigator({
       options: {
         title: "Follow-ups",
       },
+    }),
+    SettingsExperiments: createNativeStackScreen({
+      screen: SettingsExperimentsRouteScreen,
+      linking: "experiments",
+      options: { title: "Experiments" },
     }),
     SettingsScheduledTasks: createNativeStackScreen({
       screen: SettingsScheduledTasksRouteScreen,

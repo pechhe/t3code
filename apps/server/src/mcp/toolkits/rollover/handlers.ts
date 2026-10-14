@@ -4,8 +4,9 @@ import * as Effect from "effect/Effect";
 import {
   ContextRolloverNotes,
   ROLLOVER_NOTE_MAX_BYTES,
-  threadRolloverThresholds,
+  assignedRolloverThresholds,
 } from "../../../orchestration-v2/ContextRollover.ts";
+import * as ExperimentService from "../../../experiments/ExperimentService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -41,9 +42,17 @@ const handlers = {
           code: "run_not_found",
           message: "This thread has no running turn to hand off from.",
         });
+      const assignments = yield* (yield* ExperimentService.ExperimentService)
+        .assignments({ threadId })
+        .pipe(Effect.mapError(unavailable));
+      const assignment = assignments.find((candidate) => candidate.lever === "rollover");
       if (
-        threadRolloverThresholds(settings.contextRollover, thread, run.modelSelection.model) ===
-        null
+        assignedRolloverThresholds(
+          settings.contextRollover,
+          thread,
+          run.modelSelection.model,
+          assignment?.variant.rollover,
+        ) === null
       )
         return yield* new OrchestratorMcpFailure({
           code: "capability_denied",

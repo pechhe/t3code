@@ -1,3 +1,4 @@
+import * as Experiments from "../experiments/ExperimentService.ts";
 import {
   EnvironmentId,
   NodeId,
@@ -166,7 +167,13 @@ it("readThread prefers activity-run status over a newer cancelled queued run", a
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         } satisfies Partial<ProviderAdapterRegistry.ProviderAdapterRegistryV2["Service"]>),
-        NodeCrypto.layer,
+        Layer.merge(
+          NodeCrypto.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
       ),
     ),
   );
@@ -232,7 +239,13 @@ it("readThread prefers waiting activity status over a newer cancelled queued run
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         } satisfies Partial<ProviderAdapterRegistry.ProviderAdapterRegistryV2["Service"]>),
-        NodeCrypto.layer,
+        Layer.merge(
+          NodeCrypto.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
       ),
     ),
   );
@@ -346,7 +359,13 @@ it("taskStatus returns task.providerInstanceId rather than the driver kind", asy
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         } satisfies Partial<ProviderAdapterRegistry.ProviderAdapterRegistryV2["Service"]>),
-        NodeCrypto.layer,
+        Layer.merge(
+          NodeCrypto.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
       ),
     ),
   );
@@ -480,7 +499,13 @@ it("readThread and sendToThread reach threads in other projects", async () => {
         Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({
           list: () => Effect.succeed([]),
         } satisfies Partial<ProviderAdapterRegistry.ProviderAdapterRegistryV2["Service"]>),
-        NodeCrypto.layer,
+        Layer.merge(
+          NodeCrypto.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
       ),
     ),
   );
