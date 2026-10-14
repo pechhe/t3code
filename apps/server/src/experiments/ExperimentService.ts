@@ -35,7 +35,9 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as Option from "effect/Option";
 import * as PolicyStore from "../agents/AgentPolicyStore.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 
 type WorkReader = {
   readonly environmentId: string;
@@ -281,6 +283,7 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const policyStore = yield* PolicyStore.AgentPolicyStore;
+  const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
   const persist = <A, E>(operation: string, entityId: string, effect: Effect.Effect<A, E>) =>
     effect.pipe(
       Effect.mapError((cause) =>
@@ -361,11 +364,29 @@ const make = Effect.gen(function* () {
     if (!rows[0]) return yield* fail("assignment", id, "not-found");
     return yield* persist("assignment", id, decodeAssignment(rows[0].payload_json));
   });
+  // With a managed policy, a trial cannot use a model no pool allows: every unit assigned that
+  // arm would be refused at dispatch and counted against it. Checked at create and at start,
+  // because the policy can change between the two.
+  const armModelsAllowed = Effect.fn("ExperimentService.armModelsAllowed")(function* (
+    input: ExperimentDefinition,
+  ) {
+    if (Option.isNone(managed) || !input.variants.some((v) => v.modelSelection !== undefined))
+      return true;
+    const snapshot = yield* Effect.option(managed.value.snapshot());
+    if (Option.isNone(snapshot)) return true;
+    const { models, pools } = snapshot.value.manifest;
+    const allowed = new Set(
+      Object.values(pools).flatMap((pool) => pool.allow.map((alias) => models[alias]?.model)),
+    );
+    return input.variants.every((v) => !v.modelSelection || allowed.has(v.modelSelection.model));
+  });
   const create = Effect.fn("ExperimentService.create")(function* (input: ExperimentDefinition) {
     const now = yield* nowIso;
     if ((yield* list()).length >= 1000)
       return yield* fail("create", input.id, "invalid-definition");
     if (!isExperimentDefinition(input) || !validDefinition(input, now))
+      return yield* fail("create", input.id, "invalid-definition");
+    if (!(yield* armModelsAllowed(input)))
       return yield* fail("create", input.id, "invalid-definition");
     const value: Experiment = {
       ...input,
@@ -398,6 +419,8 @@ const make = Effect.gen(function* () {
             return yield* fail("transition", experiment.id, "invalid-transition");
           const now = yield* nowIso;
           if (input.status === "running") {
+            if (!(yield* armModelsAllowed(experiment)))
+              return yield* fail("transition", experiment.id, "invalid-transition");
             const samples = yield* assignments({ experimentId: experiment.id });
             if (
               Date.parse(experiment.endsAt) <= Date.parse(now) ||

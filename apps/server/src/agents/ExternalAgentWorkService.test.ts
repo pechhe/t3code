@@ -398,7 +398,7 @@ function buildFixture(input: {
         eligibility: {
           projectIds: [projectId],
           models: [],
-          taskCategories: ["implementation-worker"],
+          taskCategories: ["implementation"],
         },
         maxAssignments: 100,
         endsAt: "2999-01-01T00:00:00Z",
@@ -888,7 +888,7 @@ it.effect(
           request: {
             workId: "external-ticket",
             description: "A coherent implementation",
-            taskCategory: "implementation-worker",
+            taskCategory: "implementation",
           },
           owner,
           orchestratorSelection: selection,
@@ -966,6 +966,98 @@ it.effect(
           .submit(foreignClient, f.submitInput(foreignSession, { agentTask: task }))
           .pipe(Effect.flip);
         expect(foreign.reason).toBe("authority");
+      }),
+    ),
+);
+
+it.effect(
+  "records a refused external child on its own task, never as a failure of the whole work unit",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const client = yield* f.issueSession("mcp-client:work-refusal");
+        const session = yield* f.attach(client);
+        const managed = yield* Managed.ManagedAgentService;
+        const pinned = yield* managed.snapshot();
+        const experiments = yield* Experiments.ExperimentService;
+        const selection = {
+          instanceId: ProviderInstanceId.make("codex-test"),
+          model: "gpt-sol-test",
+        };
+        yield* experiments.create({
+          id: "external-refusal",
+          title: "Allocation",
+          question: "Inline or delegated?",
+          lever: "orchestration-policy",
+          primaryOutcome: "Independent acceptance",
+          orchestrationControls: {
+            orchestratorSelection: selection,
+            policyHash: pinned.hash,
+            reviewerPolicyRevision: "review-r1",
+            verificationRevision: "checks-r1",
+            concurrency: 2,
+          },
+          variants: [
+            { id: "inline", label: "Inline", allocationPolicy: "inline-first" },
+            { id: "delegated", label: "Delegated", allocationPolicy: "delegate-earlier" },
+          ],
+          eligibility: { projectIds: [projectId], models: [], taskCategories: [] },
+          maxAssignments: 20,
+          endsAt: "2999-01-01T00:00:00Z",
+          stopConditions: [],
+          codeRevision: null,
+          briefRevision: null,
+        });
+        yield* experiments.transition({ experimentId: "external-refusal", status: "running" });
+        const owner = {
+          environmentId,
+          projectId,
+          workspacePath: session.workspacePath,
+          parentThreadId: null,
+          externalSessionKey: session.key,
+          clientSessionId: client,
+        };
+        const unit = yield* experiments.enrollWork({
+          request: {
+            workId: "external-refused-ticket",
+            description: "A coherent implementation",
+            taskCategory: "implementation",
+          },
+          owner,
+          orchestratorSelection: selection,
+          modelSource: "self-report",
+          policyHash: pinned.hash,
+          policyRevision: pinned.sourceRevision,
+          alreadyStarted: false,
+        });
+        expect(unit.assignedPolicies).toHaveLength(1);
+        expect(unit.owner.parentThreadId).toBeNull();
+        const task = { ...request({ workspacePath: session.workspacePath }), workUnitId: unit.id };
+        const before = yield* f
+          .submit(client, f.submitInput(session, { agentTask: task }))
+          .pipe(Effect.flip);
+        expect(before.reason).toBe("policy");
+        yield* experiments.allocateWork(
+          {
+            id: "external-refused-allocation",
+            workUnitId: unit.id,
+            allocation: "delegated",
+            reason: "An independent bounded responsibility",
+            deviationReason: "An explicit specialist handoff",
+          },
+          { environmentId, clientSessionId: client },
+        );
+        // The policy becomes unreadable between acceptance of the unit and dispatch.
+        yield* f.fs.writeFileString(`${f.policyRoot}/roles/policy.json`, "not json");
+        const refused = yield* f.submit(client, f.submitInput(session, { agentTask: task }));
+        expect(refused.launchState).toBe("refused");
+        expect((yield* Ref.get(f.state)).calls).toHaveLength(0);
+        const report = yield* experiments.report(
+          { experimentId: "external-refusal" },
+          { environmentId, clientSessionId: client },
+        );
+        const outcomes = report.assignments.flatMap((entry) => entry.outcomes);
+        expect(outcomes.filter((outcome) => outcome.kind === "failure")).toHaveLength(0);
       }),
     ),
 );
