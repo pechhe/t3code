@@ -1,3 +1,4 @@
+import { AgentTaskBinding } from "./agentPolicy.ts";
 import { OrchestrationMessageContext } from "./composerContext.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -372,6 +373,7 @@ export const OrchestrationV2RolloverHold = Schema.Union([
 export type OrchestrationV2RolloverHold = typeof OrchestrationV2RolloverHold.Type;
 
 export const OrchestrationV2AppThread = Schema.Struct({
+  agentTask: Schema.optional(AgentTaskBinding),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -1950,6 +1952,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
+  agentTask: Schema.optional(AgentTaskBinding),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
@@ -3145,6 +3148,7 @@ export const OrchestrationV2Command = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literal("delegated_task.request"),
+    agentTask: Schema.optional(AgentTaskBinding),
     ...OrchestrationV2CreationFields,
     commandId: CommandId,
     parentThreadId: ThreadId,

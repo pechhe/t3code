@@ -1,3 +1,4 @@
+import { AgentTaskBinding } from "./agentPolicy.ts";
 import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
@@ -67,6 +68,7 @@ export const ExperimentAssignmentsInput = Schema.Struct({
 });
 export type ExperimentAssignmentsInput = typeof ExperimentAssignmentsInput.Type;
 export const ExperimentAssignInput = Schema.Struct({
+  agentTask: Schema.optional(AgentTaskBinding),
   threadId: ThreadId,
   projectId: ProjectId,
   modelSelection: ModelSelection,
@@ -80,6 +82,7 @@ export const ExperimentAssignInput = Schema.Struct({
 });
 export type ExperimentAssignInput = typeof ExperimentAssignInput.Type;
 export const ExperimentAssignment = Schema.Struct({
+  agentTask: Schema.optional(AgentTaskBinding),
   id: TrimmedNonEmptyString,
   experimentId: TrimmedNonEmptyString,
   revision: PositiveInt,

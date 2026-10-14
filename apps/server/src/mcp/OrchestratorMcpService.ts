@@ -1,3 +1,5 @@
+import * as Hex from "effect/encoding/Hex";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import { derive as deriveIds } from "@t3tools/provider-core/server/IdAllocator";
 import {
@@ -19,7 +21,7 @@ import {
   type OrchestratorMcpCreateThreadsInput,
   type OrchestratorMcpCreateThreadsResult,
   type OrchestratorMcpCreatedThread,
-  type OrchestratorMcpDelegateTaskInput,
+  OrchestratorMcpDelegateTaskInput,
   type OrchestratorMcpDelegateTaskResult,
   type OrchestratorMcpInteractionMode,
   type OrchestratorMcpDeleteScheduledTaskInput,
@@ -100,6 +102,10 @@ import {
 } from "./McpInvocationContext.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+
+const encodeDelegateTaskFingerprint = Schema.encodeEffect(
+  Schema.fromJsonString(OrchestratorMcpDelegateTaskInput),
+);
 
 const DEFAULT_WAIT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_WAIT_TIMEOUT_MS = 60 * 60 * 1_000;
@@ -1447,6 +1453,9 @@ const make = Effect.gen(function* () {
       const resultTransfer = taskResultTransfer(parentProjection, childProjection, task) ?? null;
       const terminalStatus = terminalRun === undefined ? null : taskStatusForRun(terminalRun);
       const response = {
+        ...(childControls.thread.agentTask === undefined
+          ? {}
+          : { agentTask: childControls.thread.agentTask }),
         taskId: task.id,
         childThreadId: task.childThreadId,
         childRunId: childRun?.id ?? null,
@@ -1981,6 +1990,11 @@ const make = Effect.gen(function* () {
     delegateTask: (callerScope, input) =>
       Effect.gen(function* () {
         const { scope, parent } = yield* loadThreadCaller(callerScope, "delegate_task");
+        if (parent.thread.agentTask !== undefined)
+          return yield* failure(
+            "capability_denied",
+            "Managed child tasks cannot delegate recursively.",
+          );
         const parentRun = parent.runs
           .filter(ThreadManagementService.isActiveRun)
           .toSorted((left, right) => right.ordinal - left.ordinal)[0];
@@ -2006,9 +2020,116 @@ const make = Effect.gen(function* () {
           operation: "delegate-task",
         });
         const isRetryOfAcceptedDelegation = yield* threadManagement.hasReceipt(commandId);
+        if (input.agentTask !== undefined && input.clientRequestId === undefined)
+          return yield* failure(
+            "invalid_request",
+            "Managed work requires a stable clientRequestId.",
+          );
+        const fingerprintText = yield* encodeDelegateTaskFingerprint({
+          ...input,
+          mode: undefined,
+          timeoutMs: undefined,
+        }).pipe(Effect.orDie);
+        const requestFingerprint = yield* crypto
+          .digest("SHA-256", new TextEncoder().encode(fingerprintText))
+          .pipe(Effect.map(Hex.encode), Effect.orDie);
+        const managed =
+          input.agentTask === undefined
+            ? undefined
+            : yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+        if (managed !== undefined && Option.isNone(managed))
+          return yield* failure(
+            "capability_denied",
+            "Managed delegation is not configured in this environment.",
+          );
+        const managedService =
+          managed !== undefined && Option.isSome(managed) ? managed.value : undefined;
+        const existing =
+          input.agentTask !== undefined && isRetryOfAcceptedDelegation
+            ? yield* threadManagement
+                .getThreadRecords(deriveIds.delegatedTaskThread({ commandId }), [])
+                .pipe(Effect.mapError(threadManagementFailure))
+            : undefined;
+        if (existing !== undefined) {
+          const prior = existing.thread.agentTask;
+          if (
+            prior === undefined ||
+            prior.requestFingerprint !== requestFingerprint ||
+            prior.workId !== input.agentTask?.workId ||
+            prior.attemptId !== input.agentTask?.attemptId ||
+            prior.role !== input.agentTask?.role ||
+            prior.taskClass !== input.agentTask?.taskClass ||
+            prior.workspacePath !== input.agentTask?.workspacePath
+          )
+            return yield* failure(
+              "invalid_request",
+              "The request identity already belongs to different managed work.",
+            );
+          return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
+        }
+        const eligibleProviders =
+          input.agentTask === undefined
+            ? providers
+            : yield* Effect.filter(providers, (provider) =>
+                threadManagement.isProviderInstanceEnabledForProject({
+                  projectId: parent.thread.projectId,
+                  instanceId: provider.instanceId,
+                }),
+              );
+        const priorAssignments =
+          input.agentTask === undefined
+            ? []
+            : yield* experiments
+                .assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
+                .pipe(
+                  Effect.mapError(() =>
+                    failure("orchestration_error", "Unable to read managed work assignments."),
+                  ),
+                );
+        const recordedBinding = priorAssignments.find(
+          (assignment) => assignment.agentTask !== undefined,
+        )?.agentTask;
+        const prepared =
+          managedService === undefined || input.agentTask === undefined
+            ? undefined
+            : yield* managedService
+                .prepare({
+                  request: input.agentTask,
+                  requestFingerprint,
+                  ...(recordedBinding === undefined ? {} : { recordedBinding }),
+                  providers: eligibleProviders.filter(
+                    (provider) =>
+                      (input.target?.providerInstanceId === undefined ||
+                        provider.instanceId === input.target.providerInstanceId) &&
+                      (input.target?.driverKind === undefined ||
+                        provider.driver === input.target.driverKind),
+                  ),
+                  ceiling: parent.thread.runtimeMode,
+                  workspacePath: parent.thread.worktreePath,
+                  currentInstanceId: parent.thread.modelSelection.instanceId,
+                  ...(input.target?.model === undefined
+                    ? {}
+                    : {
+                        selection: {
+                          instanceId:
+                            input.target.providerInstanceId ??
+                            parent.thread.modelSelection.instanceId,
+                          model: input.target.model,
+                          options: input.target.options ?? [],
+                        },
+                      }),
+                })
+                .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
         let target = yield* resolveTargetRechecking({
           parent,
-          target: input.target,
+          target:
+            prepared === undefined
+              ? input.target
+              : {
+                  providerInstanceId: prepared.binding.requested.instanceId,
+                  model: prepared.binding.requested.model,
+                  options: prepared.binding.requested.options,
+                },
           providers,
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
         });
@@ -2016,13 +2137,17 @@ const make = Effect.gen(function* () {
           isRetryOfAcceptedDelegation
             ? experiments.assignments({ threadId: deriveIds.delegatedTaskThread({ commandId }) })
             : experiments.assignForTask({
+                ...(prepared === undefined ? {} : { agentTask: prepared.binding }),
                 threadId: deriveIds.delegatedTaskThread({ commandId }),
                 projectId: parent.thread.projectId,
                 modelSelection: target.modelSelection,
                 unitId: deriveIds.delegatedTaskNode({ commandId }),
                 unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
-                taskLever: input.role === "review" ? "reviewer" : "delegation",
-                taskCategory: input.role ?? "general",
+                taskLever:
+                  input.agentTask?.role === "reviewer" || input.role === "review"
+                    ? "reviewer"
+                    : "delegation",
+                taskCategory: input.agentTask?.role ?? input.role ?? "general",
                 enrollment: "new",
               })
         ).pipe(
@@ -2030,26 +2155,29 @@ const make = Effect.gen(function* () {
             failure("orchestration_error", "Unable to assign the delegated experiment."),
           ),
         );
-        const recordExperimentFailure = Effect.forEach(
-          assignments,
-          (assignment) =>
-            experiments.recordOutcome({
-              id: `${assignment.id}:dispatch-failure:${commandId}`,
-              assignmentId: assignment.id,
-              runId: null,
-              kind: "failure",
-              source: "independent-evidence",
-              evidence: [`command:${commandId}`],
-              note: "The delegated request failed before a child run was accepted.",
-              actualModelSelection: null,
-              fallbackReason: null,
-            }),
-          { discard: true },
-        ).pipe(
-          Effect.mapError(() =>
-            failure("orchestration_error", "Unable to record the experiment dispatch failure."),
-          ),
-        );
+        const recordExperimentFailure = (
+          note = "The delegated request failed before a child run was accepted.",
+        ) =>
+          Effect.forEach(
+            assignments,
+            (assignment) =>
+              experiments.recordOutcome({
+                id: `${assignment.id}:dispatch-failure:${commandId}`,
+                assignmentId: assignment.id,
+                runId: null,
+                kind: "failure",
+                source: "independent-evidence",
+                evidence: [`command:${commandId}`],
+                note,
+                actualModelSelection: null,
+                fallbackReason: null,
+              }),
+            { discard: true },
+          ).pipe(
+            Effect.mapError(() =>
+              failure("orchestration_error", "Unable to record the experiment dispatch failure."),
+            ),
+          );
         const experimentSelection = assignments.find(
           (assignment) => assignment.variant.modelSelection !== undefined,
         )?.variant.modelSelection;
@@ -2064,7 +2192,21 @@ const make = Effect.gen(function* () {
               options: experimentSelection.options,
             },
             skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
-          }).pipe(Effect.tapError(() => recordExperimentFailure));
+          }).pipe(Effect.tapError(() => recordExperimentFailure()));
+        }
+        if (prepared !== undefined && managedService !== undefined) {
+          yield* managedService
+            .validate({
+              binding: prepared.binding,
+              selection: target.modelSelection,
+              providers: eligibleProviders,
+              ceiling: parent.thread.runtimeMode,
+              workspacePath: parent.thread.worktreePath,
+            })
+            .pipe(
+              Effect.tapError((error) => recordExperimentFailure(error.message)),
+              Effect.mapError((error) => failure("capability_denied", error.message)),
+            );
         }
         const runtimeMode = yield* resolveRuntimeMode(
           parent.thread.runtimeMode,
@@ -2102,7 +2244,19 @@ const make = Effect.gen(function* () {
             parentThreadId: scope.thread.threadId,
             parentRunId: parentRun.id,
             parentNodeId: parentRun.rootNodeId,
-            task: taskPrompt(input),
+            ...(prepared === undefined
+              ? {}
+              : {
+                  agentTask: {
+                    ...prepared.binding,
+                    assigned: experimentSelection ?? null,
+                    effective: target.modelSelection,
+                  },
+                }),
+            task:
+              prepared === undefined
+                ? taskPrompt(input)
+                : `${prepared.brief}\n\n${taskPrompt(input)}`,
             ...(input.title === undefined ? {} : { title: input.title }),
             modelSelection: target.modelSelection,
             runtimeMode,
@@ -2114,7 +2268,7 @@ const make = Effect.gen(function* () {
             completionWake: input.mode === "wait" ? "settled_only" : "always",
           })
           .pipe(
-            Effect.tapError(() => recordExperimentFailure),
+            Effect.tapError(() => recordExperimentFailure()),
             Effect.mapError((error) =>
               error._tag === "ThreadManagementProviderInstanceDisabledError"
                 ? threadManagementFailure(error)

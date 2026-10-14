@@ -1332,6 +1332,7 @@ export function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
+  readonly disabledMcpServers?: ReadonlyArray<string>;
 }): {
   readonly cwd?: string;
   readonly model?: string;
@@ -1343,7 +1344,24 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
-      ...(mcpSession === undefined
+      ...(input.runtimePolicy?.managedAgent !== true
+        ? {}
+        : {
+            "features.multi_agent": false,
+            "features.apps": false,
+            "features.plugins": false,
+            "features.browser_use": false,
+            "features.computer_use": false,
+            web_search: "disabled",
+          }),
+      ...(input.disabledMcpServers === undefined
+        ? {}
+        : {
+            mcp_servers: Object.fromEntries(
+              input.disabledMcpServers.map((name) => [name, { enabled: false }]),
+            ),
+          }),
+      ...(mcpSession === undefined || input.runtimePolicy?.managedAgent === true
         ? {}
         : {
             mcp_servers: {
@@ -1827,6 +1845,22 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             yield* Ref.set(initialized, true);
           }),
         );
+        const threadRuntimeParams = Effect.fn(function* (
+          params: Parameters<typeof codexThreadRuntimeParams>[0],
+        ) {
+          if (params.runtimePolicy?.managedAgent !== true) return codexThreadRuntimeParams(params);
+          yield* ensureInitialized;
+          const effective = yield* client.request("config/read", {
+            cwd: params.runtimePolicy.cwd,
+            includeLayers: false,
+          });
+          const servers = effective.config.mcp_servers;
+          const names =
+            servers !== null && typeof servers === "object" && !Array.isArray(servers)
+              ? Object.keys(servers)
+              : [];
+          return codexThreadRuntimeParams({ ...params, disabledMcpServers: names });
+        });
         const now = yield* DateTime.now;
         const session = providerSession({
           providerSessionId: input.providerSessionId,
@@ -6567,14 +6601,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             ensureInitialized.pipe(
               Effect.andThen(mcpSessions.read(threadInput.threadId)),
               Effect.flatMap((mcpSession) =>
-                client.request(
-                  "thread/start",
-                  codexThreadRuntimeParams({
-                    mcpSession,
-                    modelSelection: threadInput.modelSelection,
-                    runtimePolicy: threadInput.runtimePolicy,
-                  }),
-                ),
+                threadRuntimeParams({
+                  mcpSession,
+                  modelSelection: threadInput.modelSelection,
+                  runtimePolicy: threadInput.runtimePolicy,
+                }).pipe(Effect.flatMap((params) => client.request("thread/start", params))),
               ),
               Effect.map((response): OrchestrationV2ProviderThread =>
                 providerThreadFromCodexThread({
@@ -6602,7 +6633,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               const resume = client.raw.request("thread/resume", {
                 threadId: nativeThreadId,
                 excludeTurns: true,
-                ...codexThreadRuntimeParams({
+                ...(yield* threadRuntimeParams({
                   mcpSession: yield* readMcpSession(
                     threadInput.threadId ?? threadInput.providerThread.appThreadId,
                   ),
@@ -6612,7 +6643,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   ...(threadInput.runtimePolicy === undefined
                     ? {}
                     : { runtimePolicy: threadInput.runtimePolicy }),
-                }),
+                })),
               });
               const response = yield* ensureInitialized.pipe(
                 Effect.andThen(
@@ -7333,11 +7364,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 yield* client.raw.request("thread/resume", {
                   threadId,
                   excludeTurns: true,
-                  ...codexThreadRuntimeParams({
+                  ...(yield* threadRuntimeParams({
                     mcpSession: yield* readMcpSession(threadInput.providerThread.appThreadId),
                     modelSelection: input.modelSelection,
                     runtimePolicy: input.runtimePolicy,
-                  }),
+                  })),
                 });
               }
               const response = yield* ensureInitialized.pipe(
@@ -7382,7 +7413,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     ...(boundary.lastTurnId === undefined
                       ? {}
                       : { lastTurnId: boundary.lastTurnId }),
-                    ...codexThreadRuntimeParams({
+                    ...(yield* threadRuntimeParams({
                       mcpSession: yield* mcpSessions.read(threadInput.targetThreadId),
                       ...(threadInput.modelSelection === undefined
                         ? {}
@@ -7390,7 +7421,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                       ...(threadInput.runtimePolicy === undefined
                         ? {}
                         : { runtimePolicy: threadInput.runtimePolicy }),
-                    }),
+                    })),
                   }),
                 ),
                 Effect.mapError(
