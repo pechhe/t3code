@@ -3876,6 +3876,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     readonly scheduledTaskId?: OrchestrationV2ConversationMessage["scheduledTaskId"];
     readonly senderThreadId?: OrchestrationV2ConversationMessage["senderThreadId"];
     readonly delegatedCompletion?: OrchestrationV2ConversationMessage["delegatedCompletion"];
+    readonly notification?: OrchestrationV2ConversationMessage["notification"];
     readonly forceRestart: boolean;
   }) =>
     Effect.gen(function* () {
@@ -4025,6 +4026,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(input.delegatedCompletion === undefined
               ? {}
               : { delegatedCompletion: input.delegatedCompletion }),
+            ...(input.notification === undefined ? {} : { notification: input.notification }),
             ...(input.scheduledTaskId === undefined
               ? {}
               : { scheduledTaskId: input.scheduledTaskId }),
@@ -4800,17 +4802,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: "A context rollover is a server-started run.",
         });
       }
-      // A restart continuation or context rollover resumes the thread's work,
-      // so it starts immediately rather than queueing like other wakes.
+      // T3's own notices (a restart continuation, a context rollover, a rollover
+      // request) act on the thread's current work, so they steer into the running
+      // turn or start immediately rather than queueing like other wakes.
       if (
         command.notification !== undefined &&
         (command.createdBy !== "agent" ||
           (command.creationSource !== "server" && command.creationSource !== "provider") ||
           (dispatchMode.type !== "queue_after_active" &&
             !(
-              (command.restartContinuationOfRunId !== undefined ||
-                command.contextRollover !== undefined) &&
-              dispatchMode.type === "start_immediately"
+              command.creationSource === "server" &&
+              command.notification.source.kind === "system" &&
+              (dispatchMode.type === "start_immediately" || dispatchMode.type === "steer_active")
             )))
       ) {
         return yield* new OrchestratorDispatchError({
@@ -4976,6 +4979,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(command.senderThreadId === undefined
             ? {}
             : { senderThreadId: command.senderThreadId }),
+          ...(command.notification === undefined ? {} : { notification: command.notification }),
           forceRestart: dispatchMode.type === "restart_active",
         });
         return;
