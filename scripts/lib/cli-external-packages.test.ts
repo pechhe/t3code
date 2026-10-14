@@ -60,6 +60,16 @@ describe("shouldBundleCliDependency", () => {
   // The real package is `node-gyp-build-optional-packages`, reached by prefix.
   // It is transitive to a selected dependency root, so the runtime closure test
   // below ensures it follows that root into the sidecar.
+  // Cursor loads these from disk, so they ship beside the bundle, but bundled
+  // code that imports one must inline it: a single executable cannot import a
+  // file-backed package.
+  it("bundles Cursor's disk-backed dependencies when bundled code imports them", () => {
+    for (const id of ["zod", "zod/v4", "undici"]) {
+      assert.strictEqual(shouldBundleCliDependency(id), true, id);
+      assert.strictEqual(isRuntimeExternalCliDependency(id), true, id);
+    }
+  });
+
   it("treats prefix-matched siblings as external", () => {
     assert.strictEqual(shouldBundleCliDependency("node-gyp-build-optional-packages"), false);
   });
