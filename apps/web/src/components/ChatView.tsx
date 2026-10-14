@@ -11,6 +11,11 @@ import {
 import * as DateTime from "effect/DateTime";
 import { restorePlanFollowUpComposer } from "./ChatView.logic";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
+import {
+  describeRolloverHold,
+  parseRolloverCommand,
+  rolloverHoldForCommand,
+} from "./chat/rolloverCommand";
 import { prepareQueuedEditAttachments, recoverQueuedMessageEdit } from "./chat/queuedMessageEdit";
 import {
   isPaintOnlyThreadTimeline,
@@ -1596,7 +1601,8 @@ export default function ChatView(props: ChatViewProps) {
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread, setThreadRolloverHold } =
+    useThreadActions();
   const routeThreadRef = useMemo(
     () => scopeThreadRef(environmentId, threadId),
     [environmentId, threadId],
@@ -8858,6 +8864,69 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftPrompt(composerDraftTarget, "");
         composerRef.current?.resetCursorState();
       }
+      return;
+    }
+
+    // `/rollover ...` holds or resumes this thread's automatic rollover; it never reaches the provider.
+    const rolloverCommand =
+      !directAnnotation && !composerHasNonPromptContent
+        ? parseRolloverCommand(promptRef.current)
+        : null;
+    if (rolloverCommand) {
+      if (!rolloverCommand.ok) {
+        toastManager.add(stackedThreadToast({ type: "warning", title: rolloverCommand.message }));
+        return;
+      }
+      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
+      if (!isServerThread || !activeThreadRef) {
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: "Send a message first",
+            description: "Rollover can be held once the thread has started.",
+          }),
+        );
+        return;
+      }
+      const clearRolloverCommand = () => {
+        promptRef.current = "";
+        setComposerDraftPrompt(composerDraftTarget, "");
+        composerRef.current?.resetCursorState();
+      };
+      const nowMs = Date.now();
+      const hold = rolloverHoldForCommand(rolloverCommand.command, nowMs);
+      if (hold === undefined) {
+        const label = describeRolloverHold(activeThreadShell?.rolloverHold, nowMs);
+        toastManager.add(
+          stackedThreadToast({
+            type: "info",
+            title: label ?? "Rollover is not held",
+            description: label === null ? "It follows your settings for this thread." : undefined,
+          }),
+        );
+        clearRolloverCommand();
+        return;
+      }
+      clearRolloverCommand();
+      const result = await setThreadRolloverHold(activeThreadRef, hold);
+      if (result._tag === "Failure") {
+        if (isAtomCommandInterrupted(result)) return;
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Failed to update rollover",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+        return;
+      }
+      toastManager.add(
+        stackedThreadToast({
+          type: "success",
+          title: describeRolloverHold(hold, nowMs) ?? "Rollover on",
+        }),
+      );
       return;
     }
 

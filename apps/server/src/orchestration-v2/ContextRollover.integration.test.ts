@@ -5,6 +5,7 @@ import {
   MessageId,
   type ModelSelection,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2RolloverHold,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -365,11 +366,17 @@ it.live("continues a thread on a fresh native session seeded with the rollover n
  * Runs a thread whose first turn reports 1.5k context tokens against a 1k/2k
  * rollover, waits for the reactor's steer, saves `note` when given, optionally
  * queues a user message, ends the turn and waits for the run that follows it.
+ * With a `hold` set on the thread beforehand, no request is expected (`nudged: false`)
+ * and the turn is the only run.
  */
 const runHeldTurnScenario = (
   name: string,
   note: string | null,
-  options: { readonly queueMessage?: boolean } = {},
+  options: {
+    readonly queueMessage?: boolean;
+    readonly hold?: OrchestrationV2RolloverHold;
+    readonly nudged?: boolean;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const cwd = yield* checkpointWorkspace(name);
@@ -439,6 +446,15 @@ const runHeldTurnScenario = (
         branch: null,
         worktreePath: cwd,
       });
+      if (options.hold !== undefined) {
+        yield* orchestrator.dispatch({
+          type: "thread.rollover-hold.set",
+          commandId: CommandId.make(`command:${name}:hold`),
+          threadId,
+          hold: options.hold,
+        });
+      }
+      const nudged = options.nudged !== false;
       const bothDone = yield* eventSink
         .stream({ threadId, afterSequence: yield* eventSink.latestSequence({ threadId }) })
         .pipe(
@@ -446,7 +462,19 @@ const runHeldTurnScenario = (
           Stream.filter(
             (event) => event.type === "run.updated" && event.payload.status === "completed",
           ),
-          Stream.take(2),
+          Stream.take(nudged ? 2 : 1),
+          Stream.runDrain,
+          Effect.forkScoped,
+        );
+      const usageReported = yield* eventSink
+        .stream({ threadId, afterSequence: yield* eventSink.latestSequence({ threadId }) })
+        .pipe(
+          Stream.map((stored) => stored.event),
+          Stream.filter(
+            (event) =>
+              event.type === "provider-turn.updated" && event.payload.tokenUsage !== undefined,
+          ),
+          Stream.take(1),
           Stream.runDrain,
           Effect.forkScoped,
         );
@@ -464,7 +492,9 @@ const runHeldTurnScenario = (
       });
 
       // Past the soft threshold the reactor steers a note request into the running turn.
-      const steer = yield* Deferred.await(held.steered);
+      const steer = nudged ? yield* Deferred.await(held.steered) : undefined;
+      // Nothing to wait for without a request: wait for the turn itself to be running.
+      if (!nudged) yield* Deferred.await(held.running);
       const firstRun = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
       assert.equal(firstRun.status, "running");
 
@@ -483,7 +513,11 @@ const runHeldTurnScenario = (
           dispatchMode: { type: "queue_after_active" },
         });
       }
-      yield* yield* Deferred.await(held.running);
+      const complete = yield* Deferred.await(held.running);
+      // Without a request to wait for, make sure the usage report was handled first.
+      yield* Fiber.join(usageReported);
+      yield* reactor.drain;
+      yield* complete;
       yield* Fiber.join(bothDone);
       yield* reactor.drain;
       yield* worker.drain();
@@ -512,9 +546,9 @@ it.live(
           note,
         );
 
-        assert.equal(steer.runId, firstRun.id);
-        assert.include(JSON.stringify(steer.message), ROLLOVER_NOTE_TOOL_NAME);
-        assert.include(JSON.stringify(steer.message), "next natural break");
+        assert.equal(steer!.runId, firstRun.id);
+        assert.include(JSON.stringify(steer!.message), ROLLOVER_NOTE_TOOL_NAME);
+        assert.include(JSON.stringify(steer!.message), "next natural break");
 
         assert.lengthOf(after.runs, 2);
         const rolloverRun = after.runs[1]!;
@@ -568,6 +602,38 @@ it.live("drops the note and lets a queued message run on when it starts before t
       assert.include(JSON.stringify(queued.message), "queued");
       assert.notInclude(JSON.stringify(queued.message), "Never delivered.");
       assert.isFalse(after.contextHandoffs.some((entry) => entry.strategy === "manual_context"));
+    }),
+  ),
+);
+
+it.live("sends no request and no end-of-run fallback while a thread's rollover is off", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { after, captured } = yield* runHeldTurnScenario(
+        "context-rollover-reactor-held",
+        null,
+        { hold: { kind: "off" }, nudged: false },
+      );
+
+      assert.lengthOf(after.runs, 1);
+      assert.lengthOf(captured.steered, 0);
+      assert.lengthOf(captured.started, 1);
+    }),
+  ),
+);
+
+it.live("asks again once a pause has lapsed", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const lapsed = DateTime.formatIso(DateTime.subtract(yield* DateTime.now, { minutes: 1 }));
+      const { steer, firstRun } = yield* runHeldTurnScenario(
+        "context-rollover-reactor-lapsed",
+        null,
+        { hold: { kind: "paused", until: lapsed } },
+      );
+
+      assert.equal(steer!.runId, firstRun.id);
+      assert.include(JSON.stringify(steer!.message), ROLLOVER_NOTE_TOOL_NAME);
     }),
   ),
 );

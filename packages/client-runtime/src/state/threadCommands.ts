@@ -42,6 +42,7 @@ import {
   type ReorderPinnedThreadInput,
   type ReorderActiveThreadInput,
   type SetThreadAutoSettleInput,
+  type SetThreadRolloverHoldInput,
   type SettleThreadInput,
   type SnoozeThreadInput,
   type StartThreadTurnInput,
@@ -78,6 +79,7 @@ import {
   reorderPinnedThread,
   reorderActiveThread,
   setThreadAutoSettle,
+  setThreadRolloverHold,
   settleThread,
   snoozeThread,
   startThreadTurn,
@@ -123,6 +125,7 @@ export type {
   ReorderPinnedThreadInput,
   ReorderActiveThreadInput,
   SetThreadAutoSettleInput,
+  SetThreadRolloverHoldInput,
   SettleThreadInput,
   SnoozeThreadInput,
   StartThreadTurnInput,
@@ -218,6 +221,12 @@ export function createThreadEnvironmentAtoms<R, E>(
     setAutoSettle: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:set-auto-settle",
       execute: (input: SetThreadAutoSettleInput) => setThreadAutoSettle(input),
+      scheduler,
+      concurrency,
+    }),
+    setRolloverHold: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:set-rollover-hold",
+      execute: (input: SetThreadRolloverHoldInput) => setThreadRolloverHold(input),
       scheduler,
       concurrency,
     }),
@@ -457,6 +466,10 @@ export function createThreadEnvironmentAtoms<R, E>(
     setAutoSettle: optimistic.wrap(commands.setAutoSettle, (thread, input, now) => ({
       ...thread,
       autoSettleDisabledAt: input.enabled ? null : (thread.autoSettleDisabledAt ?? now),
+    })),
+    setRolloverHold: optimistic.wrap(commands.setRolloverHold, (thread, input) => ({
+      ...thread,
+      rolloverHold: input.hold,
     })),
     pin: optimistic.wrap(commands.pin, (thread, input, now) => ({
       ...thread,

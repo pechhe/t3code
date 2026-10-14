@@ -6,6 +6,7 @@ import {
   lowestSoftThreshold,
   makeRolloverNotes,
   resolveRolloverThresholds,
+  rolloverHeld,
   rolloverUsageAction,
   threadRolloverThresholds,
 } from "./ContextRollover.ts";
@@ -56,6 +57,27 @@ describe("resolveRolloverThresholds", () => {
       modelRules: [{ modelPattern: "gpt", enabled: false, softThreshold: 1, hardThreshold: 2 }],
     });
     assert.isNull(resolveRolloverThresholds(configured, "gpt-5.1-codex"));
+  });
+});
+
+describe("rolloverHeld", () => {
+  const now = Date.parse("2026-10-14T12:00:00.000Z");
+
+  it("holds nothing without a hold", () => {
+    assert.isFalse(rolloverHeld(undefined, now));
+    assert.isFalse(rolloverHeld(null, now));
+  });
+
+  it("holds an off thread until it is lifted", () => {
+    assert.isTrue(rolloverHeld({ kind: "off" }, now));
+  });
+
+  it("holds a pause until its time, and not after", () => {
+    const until = "2026-10-14T13:00:00.000Z";
+    assert.isTrue(rolloverHeld({ kind: "paused", until }, now));
+    assert.isTrue(rolloverHeld({ kind: "paused", until }, Date.parse(until) - 1));
+    assert.isFalse(rolloverHeld({ kind: "paused", until }, Date.parse(until)));
+    assert.isFalse(rolloverHeld({ kind: "paused", until }, Date.parse(until) + 1));
   });
 });
 

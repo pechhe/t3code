@@ -2,6 +2,7 @@ import {
   isProviderNativeSubagentThread,
   type ContextRolloverSettings,
   type OrchestrationV2AppThread,
+  type OrchestrationV2RolloverHold,
   type OrchestrationV2Run,
   type RunId,
   type ThreadId,
@@ -84,6 +85,19 @@ export function threadRolloverThresholds(
     return null;
   }
   return resolveRolloverThresholds(settings, model);
+}
+
+/**
+ * Whether a thread's rollover hold stops new nudges at `nowMs`. A pause ends by
+ * itself. A note already written or asked for is not withdrawn: only the
+ * reactor's own nudges check this.
+ */
+export function rolloverHeld(
+  hold: OrchestrationV2RolloverHold | null | undefined,
+  nowMs: number,
+): boolean {
+  if (hold == null) return false;
+  return hold.kind === "off" || Date.parse(hold.until) > nowMs;
 }
 
 /** The lowest soft threshold any model rolls over at, or null when rollover is off. */
