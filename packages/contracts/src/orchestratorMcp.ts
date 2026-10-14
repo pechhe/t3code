@@ -1,3 +1,4 @@
+import { AgentTaskRequest, AgentTaskBinding } from "./agentPolicy.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
@@ -168,6 +169,7 @@ export type OrchestratorMcpTerminalDelegatedTaskStatus =
   typeof OrchestratorMcpTerminalDelegatedTaskStatus.Type;
 
 export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
+  agentTask: Schema.optional(AgentTaskRequest),
   task: OrchestratorMcpPrompt.annotate({
     description: "Self-contained task for one delegated child agent/subagent.",
   }),
@@ -202,6 +204,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
 
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
+  agentTask: Schema.optional(AgentTaskBinding),
   taskId: NodeId,
   childThreadId: ThreadId,
   childRunId: Schema.NullOr(RunId),

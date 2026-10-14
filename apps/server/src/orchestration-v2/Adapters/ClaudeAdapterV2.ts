@@ -1057,6 +1057,7 @@ function claudeLiveSelectionFlagSettings(
 
 export function makeClaudeQueryOptions(input: {
   readonly modelSelection: ModelSelection;
+  readonly managedAgent?: boolean | undefined;
   readonly nativeThreadId: string;
   readonly resume: boolean;
   readonly resumeSessionAt?: string;
@@ -1086,7 +1087,9 @@ export function makeClaudeQueryOptions(input: {
     "permission-mode": launchArgPermissionMode,
     "dangerously-skip-permissions": launchArgSkipPermissions,
     ...extraArgs
-  } = input.settings === undefined ? {} : parseCliArgs(input.settings.launchArgs).flags;
+  } = input.settings === undefined || input.managedAgent === true
+    ? {}
+    : parseCliArgs(input.settings.launchArgs).flags;
   const requestThinkingSummaries =
     compiledSelection.settings.alwaysThinkingEnabled !== false &&
     extraArgs["thinking-display"] !== "omitted";
@@ -1115,6 +1118,9 @@ export function makeClaudeQueryOptions(input: {
           autoCompactWindow: Number(input.settings.autoCompactWindow),
         } as ClaudeSdkSettings);
   const options: ClaudeAgentSdkQueryOptions = {
+    ...(input.managedAgent === true
+      ? { settingSources: [], skills: [], plugins: [], strictMcpConfig: true }
+      : {}),
     model: compiledSelection.apiModelId,
     tools: claudeAgentSdkQueryToolsForSdk(selectedTools),
     permissionMode:
@@ -8497,6 +8503,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const shouldResume =
             resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
           const queryOptions = makeClaudeQueryOptions({
+            managedAgent: turnInput.runtimePolicy.managedAgent,
             modelSelection: turnInput.modelSelection,
             nativeThreadId,
             resume: shouldResume,

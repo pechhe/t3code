@@ -117,15 +117,27 @@ const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
  * capability of their own (preview, device, worktree, pull requests) check it
  * themselves.
  */
+const refuseManagedChildWrites = ({ caller }: Caller) =>
+  caller?.agentTask === undefined
+    ? Effect.void
+    : Effect.fail(
+        new OrchestratorMcpFailure({
+          code: "capability_denied",
+          message: "Managed workers are leaf tasks and cannot change T3 state or delegate.",
+        }),
+      );
+
 const writingCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(loadCaller()),
   Effect.tap(assertLiveCaller),
+  Effect.tap(refuseManagedChildWrites),
 );
 
 /** The same, for tools whose only capability is controlling threads. */
 const orchestratingCaller = refuseReadOnlyClient.pipe(
   Effect.andThen(readCaller()),
   Effect.tap(assertLiveCaller),
+  Effect.tap(refuseManagedChildWrites),
 );
 
 const requireThreadCaller = McpInvocationContext.McpInvocationContext.pipe(

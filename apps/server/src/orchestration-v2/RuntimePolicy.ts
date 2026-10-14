@@ -1,5 +1,8 @@
+import * as ServerSettings from "../serverSettings.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import {
   ModelSelection,
+  resolveProjectProviderInstanceEnabled,
   OrchestrationV2AppThread,
   ProjectId,
   ProviderInstanceId,
@@ -125,6 +128,67 @@ export const layerFromProjectStore: Layer.Layer<
               }),
             ),
           ));
+        if (input.thread.agentTask !== undefined) {
+          const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+          if (Option.isNone(managed) || instance === undefined)
+            return yield* new RuntimePolicyResolveError({
+              projectId: input.thread.projectId,
+              providerInstanceId: input.modelSelection.instanceId,
+            });
+          const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+          if (
+            Option.isNone(settings) ||
+            !(yield* settings.value.getSettings.pipe(
+              Effect.map((value) =>
+                resolveProjectProviderInstanceEnabled(
+                  value,
+                  input.thread.projectId,
+                  input.modelSelection.instanceId,
+                ),
+              ),
+              Effect.orElseSucceed(() => false),
+            ))
+          )
+            return yield* new RuntimePolicyResolveError({
+              projectId: input.thread.projectId,
+              providerInstanceId: input.modelSelection.instanceId,
+            });
+          yield* managed.value
+            .validate({
+              binding: input.thread.agentTask,
+              selection: input.modelSelection,
+              providers: [yield* instance.snapshot.getSnapshot],
+              ceiling: input.thread.runtimeMode,
+              workspacePath: input.thread.worktreePath,
+            })
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new RuntimePolicyResolveError({
+                    projectId: input.thread.projectId,
+                    providerInstanceId: input.modelSelection.instanceId,
+                    cause,
+                  }),
+              ),
+            );
+          return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+            runtimeMode: input.thread.runtimeMode,
+            interactionMode: "default",
+            cwd,
+            managedAgent: true,
+            approvalPolicy: "never",
+            sandboxPolicy:
+              input.thread.agentTask.sourceAccess === "read-only"
+                ? { type: "readOnly", networkAccess: false }
+                : {
+                    type: "workspaceWrite",
+                    writableRoots: [cwd],
+                    networkAccess: false,
+                    excludeTmpdirEnvVar: true,
+                    excludeSlashTmp: true,
+                  },
+          });
+        }
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,

@@ -6805,6 +6805,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           createdBy: command.createdBy,
           creationSource: command.creationSource,
         }),
+        ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
         runtimeMode: command.runtimeMode,
         interactionMode: command.interactionMode,
         ...(command.workspaceStrategy === undefined ? {} : { branch: null, worktreePath: null }),

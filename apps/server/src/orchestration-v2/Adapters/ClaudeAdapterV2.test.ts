@@ -714,6 +714,42 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
 });
 
 describe("ClaudeAdapterV2 native protocol logging", () => {
+  it("keeps managed readonly SDK options isolated from conflicting launch permissions", () => {
+    const policy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: "/managed-workspace",
+      managedAgent: true,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+    });
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "managed-claude-native",
+      resume: false,
+      cwd: "/managed-workspace",
+      managedAgent: true,
+      settings: {
+        ...DEFAULT_CLAUDE_SETTINGS,
+        launchArgs:
+          "--permission-mode bypassPermissions --dangerously-skip-permissions --mcp-config /unsafe/config.json",
+      },
+      ...policy,
+      mcpServers: {},
+    });
+    assert.deepEqual(options.settingSources, []);
+    assert.deepEqual(options.skills, []);
+    assert.deepEqual(options.plugins, []);
+    assert.isTrue(options.strictMcpConfig);
+    assert.equal(options.permissionMode, "dontAsk");
+    assert.isUndefined(options.allowDangerouslySkipPermissions);
+    assert.deepEqual(options.tools, ["Read", "Glob", "Grep"]);
+    assert.deepEqual(options.mcpServers, {});
+    assert.isUndefined(options.extraArgs?.["permission-mode"]);
+    assert.isUndefined(options.extraArgs?.["dangerously-skip-permissions"]);
+    assert.isUndefined(options.extraArgs?.["mcp-config"]);
+  });
+
   it("injects thread-scoped MCP configuration without logging the credential", () => {
     const threadId = ThreadId.make("thread-claude-mcp");
     const mcpSession = {

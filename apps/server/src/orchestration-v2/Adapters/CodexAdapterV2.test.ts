@@ -637,6 +637,46 @@ describe("CodexAdapterV2 runtime policy", () => {
 });
 
 describe("CodexAdapterV2 process spawning", () => {
+  it("locks managed native capabilities and disables every enumerated MCP server without T3 credentials", () => {
+    const params = CodexAdapterV2.codexThreadRuntimeParams({
+      mcpSession: {
+        environmentId: EnvironmentId.make("managed-environment"),
+        threadId: ThreadId.make("managed-thread"),
+        providerSessionId: "managed-session",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        endpoint: "http://127.0.0.1:43123/mcp",
+        authorizationHeader: "Bearer managed-test-token",
+        browserToolsAvailable: true,
+      },
+      modelSelection: { model: "gpt-5.4" },
+      runtimePolicy: {
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/managed-workspace",
+        managedAgent: true,
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      },
+      disabledMcpServers: ["external-shell", "browser-tools", "t3-code"],
+    });
+    assert.equal(params.cwd, "/managed-workspace");
+    assert.equal(params.model, "gpt-5.4");
+    assert.deepEqual(params.config, {
+      "tools.update_plan.enabled": true,
+      "features.multi_agent": false,
+      "features.apps": false,
+      "features.plugins": false,
+      "features.browser_use": false,
+      "features.computer_use": false,
+      web_search: "disabled",
+      mcp_servers: {
+        "external-shell": { enabled: false },
+        "browser-tools": { enabled: false },
+        "t3-code": { enabled: false },
+      },
+    });
+  });
+
   it("injects cwd, model, and MCP authorization into thread-scoped params", () => {
     const threadId = ThreadId.make("thread-codex-mcp");
     const mcpSession = {
@@ -1758,6 +1798,7 @@ describe("CodexAdapterV2 session initialize", () => {
   const openReplaySession = (
     transcript: CodexReplay.CodexAppServerReplayTranscript,
     beforeEmitInbound?: CodexReplay.CodexAppServerReplayDriver["beforeEmitInbound"],
+    runtimePolicy = CODEX_TEST_RUNTIME_POLICY,
   ) =>
     Effect.gen(function* () {
       const driver = yield* CodexReplay.makeReplayDriver(
@@ -1804,14 +1845,14 @@ describe("CodexAdapterV2 session initialize", () => {
         threadId: ThreadId.make(`thread-${transcript.scenario}`),
         providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
         modelSelection: CODEX_TEST_MODEL_SELECTION,
-        runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+        runtimePolicy,
       });
       return {
         ensureThread: (threadId: string) =>
           runtime.ensureThread({
             threadId: ThreadId.make(threadId),
             modelSelection: CODEX_TEST_MODEL_SELECTION,
-            runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+            runtimePolicy,
           }),
         initializeRequests: () => initializeRequests,
       };
@@ -1819,6 +1860,90 @@ describe("CodexAdapterV2 session initialize", () => {
 
   const replayPreamble = (nativeThreadId: string) =>
     codexReplayPreamble({ nativeThreadId, nativeTurnId: "unused", prompt: "unused" });
+
+  it.effect(
+    "reads effective managed MCP servers and disables them before native thread start",
+    () =>
+      Effect.gen(function* () {
+        const nativeThreadId = "managed-native-thread";
+        const preamble = replayPreamble(nativeThreadId);
+        const session = yield* openReplaySession(
+          makeCodexReplayTranscript({
+            scenario: "managed-mcp-enumeration",
+            entries: [
+              ...preamble.slice(0, 3),
+              {
+                type: "expect_outbound",
+                label: "config/read",
+                frame: {
+                  id: 2,
+                  method: "config/read",
+                  params: { cwd: "/workspace", includeLayers: false },
+                },
+              },
+              {
+                type: "emit_inbound",
+                label: "config/read",
+                frame: {
+                  id: 2,
+                  result: {
+                    config: {
+                      mcp_servers: {
+                        inherited: { command: "external" },
+                        browser: { url: "http://example.invalid" },
+                        "t3-code": { enabled: true },
+                      },
+                    },
+                    origins: {},
+                  },
+                },
+              },
+              {
+                type: "expect_outbound",
+                label: "thread/start",
+                frame: {
+                  id: 3,
+                  method: "thread/start",
+                  params: {
+                    cwd: "/workspace",
+                    model: CODEX_TEST_MODEL_SELECTION.model,
+                    config: {
+                      "tools.update_plan.enabled": true,
+                      "features.multi_agent": false,
+                      "features.apps": false,
+                      "features.plugins": false,
+                      "features.browser_use": false,
+                      "features.computer_use": false,
+                      web_search: "disabled",
+                      mcp_servers: {
+                        inherited: { enabled: false },
+                        browser: { enabled: false },
+                        "t3-code": { enabled: false },
+                      },
+                    },
+                  },
+                },
+              },
+              withReplayRequestId(preamble[4]!, 3),
+            ],
+          }),
+          undefined,
+          {
+            ...CODEX_TEST_RUNTIME_POLICY,
+            managedAgent: true,
+            approvalPolicy: "never",
+            sandboxPolicy: { type: "readOnly", networkAccess: false },
+          },
+        );
+        const thread = yield* session.ensureThread("managed-replay-thread");
+        assert.equal(thread.nativeThreadRef?.nativeId, nativeThreadId);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+  );
 
   it.effect("sends one initialize when two threads start on a fresh session at once", () =>
     Effect.gen(function* () {

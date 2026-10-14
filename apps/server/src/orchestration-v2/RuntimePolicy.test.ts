@@ -1,5 +1,6 @@
 import { assert, it } from "@effect/vitest";
 import {
+  type AgentTaskBinding,
   type ModelSelection,
   type OrchestrationV2AppThread,
   ProjectId,
@@ -18,6 +19,8 @@ import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 
 const projectId = ProjectId.make("project:runtime-policy");
 const providerInstanceId = ProviderInstanceId.make("codex");
@@ -151,6 +154,151 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       assert.equal(yield* modeFor(grokInstanceId, "full-access"), "full-access");
       // A provider that advertises no restriction runs every mode as stored.
       assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
+    }),
+  );
+});
+
+const managedBinding: AgentTaskBinding = {
+  role: "reviewer",
+  taskClass: "non-ui",
+  workId: "runtime-work",
+  attemptId: "runtime-attempt",
+  workspacePath: "/managed-worktree",
+  sourceRevision: "pinned-source",
+  requestFingerprint: "a".repeat(64),
+  policyHash: "b".repeat(64),
+  policyRevision: "policy-runtime",
+  briefHash: "c".repeat(64),
+  sourceAccess: "read-only",
+  toolProfile: "source-reader",
+  requested: modelSelection,
+  assigned: null,
+  effective: modelSelection,
+};
+
+it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
+  it.effect("fails closed when the managed validation guard is absent", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const failure = yield* policy
+        .resolve({
+          thread: {
+            ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
+            agentTask: managedBinding,
+          },
+          modelSelection,
+        })
+        .pipe(Effect.flip);
+      assert.equal(failure._tag, "RuntimePolicyResolveError");
+    }),
+  );
+
+  it.effect("propagates managed validation refusal before returning a runtime policy", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const cause = new ManagedAgent.ManagedAgentError({ reason: "revoked" });
+      const failure = yield* policy
+        .resolve({
+          thread: {
+            ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
+            agentTask: managedBinding,
+          },
+          modelSelection,
+        })
+        .pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ServerSettings.layerTest(),
+              Layer.mock(ManagedAgent.ManagedAgentService)({ validate: () => Effect.fail(cause) }),
+            ),
+          ),
+          Effect.flip,
+        );
+      assert.equal(failure._tag, "RuntimePolicyResolveError");
+      assert.strictEqual(failure.cause, cause);
+    }),
+  );
+
+  it.effect("keeps approved managed review read-only with exact cwd under full access", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const validations: Array<
+        Parameters<ManagedAgent.ManagedAgentService["Service"]["validate"]>[0]
+      > = [];
+      const result = yield* policy
+        .resolve({
+          thread: {
+            ...makeThread({
+              now,
+              worktreePath: managedBinding.workspacePath,
+              runtimeMode: "full-access",
+            }),
+            interactionMode: "plan",
+            agentTask: managedBinding,
+          },
+          modelSelection,
+        })
+        .pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              ServerSettings.layerTest(),
+              Layer.mock(ManagedAgent.ManagedAgentService)({
+                validate: (value) =>
+                  Effect.sync(() => {
+                    validations.push(value);
+                  }),
+              }),
+            ),
+          ),
+        );
+      assert.lengthOf(validations, 1);
+      assert.equal(validations[0]?.workspacePath, managedBinding.workspacePath);
+      assert.deepEqual(validations[0]?.selection, modelSelection);
+      assert.equal(validations[0]?.ceiling, "full-access");
+      assert.equal(result.cwd, managedBinding.workspacePath);
+      assert.equal(result.managedAgent, true);
+      assert.equal(result.approvalPolicy, "never");
+      assert.equal(result.interactionMode, "default");
+      assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: false });
+    }),
+  );
+  it.effect("requires settings authority and rejects a current project account revocation", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const call = policy.resolve({
+        thread: {
+          ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
+          agentTask: managedBinding,
+        },
+        modelSelection,
+      });
+      let validations = 0;
+      const guard = Layer.mock(ManagedAgent.ManagedAgentService)({
+        validate: () =>
+          Effect.sync(() => {
+            validations++;
+          }),
+      });
+      const missing = yield* call.pipe(Effect.provide(guard), Effect.flip);
+      assert.equal(missing._tag, "RuntimePolicyResolveError");
+      assert.equal(validations, 0);
+      yield* Effect.gen(function* () {
+        const settings = yield* ServerSettings.ServerSettingsService;
+        yield* call;
+        assert.equal(validations, 1);
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [projectId]: { providerInstances: { [providerInstanceId]: { enabled: false } } },
+          },
+        });
+        const revoked = yield* call.pipe(Effect.flip);
+        assert.equal(revoked._tag, "RuntimePolicyResolveError");
+        assert.equal(validations, 1);
+      }).pipe(Effect.provide(Layer.mergeAll(guard, ServerSettings.layerTest())));
     }),
   );
 });

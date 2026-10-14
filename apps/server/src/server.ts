@@ -1,3 +1,4 @@
+import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
@@ -662,6 +663,7 @@ const layerRuntimeCoreDependencies = layerRuntimeCoreDependenciesBase.pipe(
   Layer.provideMerge(Layer.mergeAll(NativeAppIconResolver.layer, layerProjectFaviconResolver)),
   Layer.provideMerge(layerRepositoryIdentityResolver),
   Layer.provideMerge(layerServerEnvironment),
+  Layer.provideMerge(ManagedAgent.layer.pipe(Layer.provide(ProcessRunner.layer))),
   Layer.provideMerge(layerAuth),
   Layer.provideMerge(ServerSecretStore.layer),
   Layer.provideMerge(

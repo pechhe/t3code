@@ -397,6 +397,7 @@ const make = Effect.gen(function* () {
               experimentId: experiment.id,
               revision: experiment.revision,
               lever: experiment.lever,
+              ...(input.agentTask === undefined ? {} : { agentTask: input.agentTask }),
               unitKind: input.unitKind,
               unitId: input.unitId,
               threadId: input.threadId,

@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema";
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { ProviderDriverKind } from "./providerInstance.ts";
+import { ModelSelection } from "./modelSelection.ts";
 
 export const AgentRole = Schema.Literals([
   "chore-worker",
@@ -129,3 +130,31 @@ export const AgentPolicySnapshot = Schema.Struct({
   ),
 });
 export type AgentPolicySnapshot = typeof AgentPolicySnapshot.Type;
+
+/** A coherent work identity survives new launch attempts and transport retries. */
+export const AgentTaskRequest = Schema.Struct({
+  role: AgentRole,
+  taskClass: AgentTaskClass,
+  workId: TrimmedNonEmptyString,
+  attemptId: TrimmedNonEmptyString,
+  workspacePath: TrimmedNonEmptyString,
+  sourceRevision: Schema.optional(TrimmedNonEmptyString),
+  demanding: Schema.optional(Schema.Boolean),
+  readOnly: Schema.optional(Schema.Boolean),
+  authorModel: Schema.optional(TrimmedNonEmptyString),
+});
+export type AgentTaskRequest = typeof AgentTaskRequest.Type;
+
+export const AgentTaskBinding = Schema.Struct({
+  ...AgentTaskRequest.fields,
+  requestFingerprint: Sha256,
+  policyHash: Sha256,
+  policyRevision: TrimmedNonEmptyString,
+  briefHash: Sha256,
+  sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
+  toolProfile: Schema.Literals(["source-reader", "implementation", "phi"]),
+  requested: ModelSelection,
+  assigned: Schema.NullOr(ModelSelection),
+  effective: ModelSelection,
+});
+export type AgentTaskBinding = typeof AgentTaskBinding.Type;
