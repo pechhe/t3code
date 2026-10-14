@@ -6807,6 +6807,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           creationSource: command.creationSource,
         }),
         ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
+        // An isolated helper runs, resumes and checkpoints in its own validated workspace.
+        ...(command.agentTask?.workspaceAssignment === "isolated"
+          ? { worktreePath: command.agentTask.workspacePath, branch: null }
+          : {}),
         runtimeMode: command.runtimeMode,
         interactionMode: command.interactionMode,
         ...(command.workspaceStrategy === undefined ? {} : { branch: null, worktreePath: null }),

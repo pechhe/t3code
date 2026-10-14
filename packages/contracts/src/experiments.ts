@@ -1,4 +1,4 @@
-import { AgentTaskBinding } from "./agentPolicy.ts";
+import { AgentReviewScope, AgentTaskBinding } from "./agentPolicy.ts";
 import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
@@ -57,6 +57,12 @@ export const ExperimentDefinition = Schema.Struct({
     projectIds: Schema.Array(ProjectId),
     models: Schema.Array(TrimmedNonEmptyString),
     taskCategories: Schema.Array(TrimmedNonEmptyString),
+    /**
+     * Review units each reviewer experiment admits; required for new reviewer
+     * experiments. A definition without it predates typed scope and admits only reviews
+     * that declare none, so change and Spec reviews are never silently pooled with it.
+     */
+    reviewScopes: Schema.optional(Schema.Array(AgentReviewScope).check(Schema.isMinLength(1))),
   }),
   maxAssignments: PositiveInt.check(Schema.isLessThanOrEqualTo(1000)),
   endsAt: Schema.String,
@@ -420,6 +426,16 @@ export const ExperimentPolicySummary = Schema.Struct({
 export type ExperimentPolicySummary = typeof ExperimentPolicySummary.Type;
 export const ExperimentReport = Schema.Struct({
   work: Schema.optional(Schema.Array(ExperimentWorkReport)),
+  /** Reviewer assignments by declared scope; `unscoped` covers records from before it. */
+  reviewScopes: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        scope: Schema.Literals(["change", "spec", "unscoped"]),
+        variantId: TrimmedNonEmptyString,
+        count: NonNegativeInt,
+      }),
+    ),
+  ),
   policySummary: Schema.optional(Schema.Array(ExperimentPolicySummary)),
   exclusions: Schema.optional(
     Schema.Array(Schema.Struct({ unit: ExperimentWorkUnit, reason: TrimmedNonEmptyString })),

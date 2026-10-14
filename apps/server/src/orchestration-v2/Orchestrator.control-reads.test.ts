@@ -27,6 +27,10 @@ import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
+import {
+  request as agentTaskRequest,
+  snapshot as agentPolicySnapshot,
+} from "../agents/agentPolicy.testkit.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 const instanceId = ProviderInstanceId.make("codex");
@@ -601,6 +605,45 @@ it.effect("keeps delegated child pull-request links independent of the parent", 
     assert.equal(child.thread.branch, parent.thread.branch);
     assert.equal(child.thread.worktreePath, parent.thread.worktreePath);
     assert.equal(child.thread.lineage.parentThreadId, parentThreadId);
+
+    // An isolated helper runs in its own validated workspace, not the lead's checkout.
+    const policy = agentPolicySnapshot();
+    const isolated = {
+      ...agentTaskRequest({
+        workspacePath: "/helper-workspace",
+        workspaceAssignment: "isolated",
+      }),
+      requestFingerprint: "c".repeat(64),
+      policyHash: policy.hash,
+      policyRevision: policy.sourceRevision,
+      briefHash: policy.briefs["implementation-worker"].hash,
+      sourceAccess: "scoped-write" as const,
+      toolProfile: "implementation" as const,
+      requested: modelSelection,
+      assigned: null,
+      effective: modelSelection,
+    };
+    yield* orchestrator.dispatch({
+      type: "delegated_task.request",
+      commandId: CommandId.make("delegate-isolated-helper"),
+      parentThreadId,
+      parentRunId: parentRun.id,
+      parentNodeId: parentRun.rootNodeId!,
+      agentTask: isolated,
+      task: "Implement the importer",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const helperThreadId = (yield* projections.getThreadProjection(parentThreadId)).subagents.find(
+      (task) => task.prompt === "Implement the importer",
+    )!.childThreadId!;
+    const helper = yield* projections.getThreadProjection(helperThreadId);
+    assert.equal(helper.thread.worktreePath, "/helper-workspace");
+    assert.isNull(helper.thread.branch);
+    assert.equal(helper.thread.agentTask?.workspaceAssignment, "isolated");
 
     const childPullRequest = {
       ...parentPullRequest,

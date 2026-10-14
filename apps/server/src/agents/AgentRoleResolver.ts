@@ -20,6 +20,8 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "unsupported-permissions",
     "unsupported-options",
     "source-pin-required",
+    "review-scope-required",
+    "review-scope-invalid",
   ]),
 }) {
   override get message(): string {
@@ -51,6 +53,21 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
     return yield* new AgentRoleError({ reason: "classification" });
   if (request.role === "reviewer" && request.sourceRevision === undefined)
     return yield* new AgentRoleError({ reason: "source-pin-required" });
+  const review = request.review;
+  if (request.role === "reviewer" && review === undefined)
+    return yield* new AgentRoleError({ reason: "review-scope-required" });
+  if (
+    review !== undefined &&
+    (request.role !== "reviewer" ||
+      (review.scope === "change" && review.includedChanges.length === 0) ||
+      (review.scope === "spec" &&
+        (review.specRef === undefined || review.specRevision === undefined)) ||
+      // A delta covers exactly the material changes since the earlier report.
+      (review.priorReview !== undefined &&
+        (review.priorReview.sourceRevision !== review.baseRevision ||
+          review.priorReview.sourceRevision === request.sourceRevision)))
+  )
+    return yield* new AgentRoleError({ reason: "review-scope-invalid" });
   // Phi needs an attested, restricted tool transport. A general shell or native browser
   // is not a substitute; advertise refusal until that route can enforce its contract.
   if (role.toolProfile === "phi") return yield* new AgentRoleError({ reason: "unsupported-tools" });

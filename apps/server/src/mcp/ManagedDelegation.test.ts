@@ -8,15 +8,17 @@ import {
   RunId,
   NodeId,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Managed from "../agents/ManagedAgentService.ts";
-import { snapshot, request, codex, claude } from "../agents/agentPolicy.testkit.ts";
+import { snapshot, request, codex, claude, changeReview } from "../agents/agentPolicy.testkit.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -148,7 +150,12 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           lever: "reviewer",
           primaryOutcome: "Guard holds",
           variants: ["a", "b"].map((id) => ({ id, label: id, modelSelection: forbidden })),
-          eligibility: { projectIds: [], models: [], taskCategories: ["review"] },
+          eligibility: {
+            projectIds: [],
+            models: [],
+            taskCategories: ["review"],
+            reviewScopes: ["change"],
+          },
           maxAssignments: 10,
           endsAt: "2999-01-01T00:00:00Z",
           stopConditions: ["Guard failure"],
@@ -166,6 +173,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               taskClass: "mixed",
               workspacePath: root,
               sourceRevision: "source-pin",
+              review: changeReview,
             }),
           };
           for (let retry = 0; retry < 2; retry++) {
@@ -208,5 +216,192 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           ),
         );
       }),
+  );
+
+  /** A codex lead in a jj workspace, with a captured dispatch and configurable occupants. */
+  const harness = (
+    occupantsFor: (helper: string) => ReadonlyArray<OrchestrationV2ThreadShell> = () => [],
+  ) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const base = yield* fs.realPath(
+        yield* fs.makeTempDirectoryScoped({ prefix: "managed-workspace-test-" }),
+      );
+      const policyRoot = `${base}/policy`;
+      const lead = `${base}/lead`;
+      const helper = `${base}/helper`;
+      yield* fs.makeDirectory(`${policyRoot}/roles`, { recursive: true });
+      yield* fs.makeDirectory(`${lead}/.jj/repo`, { recursive: true });
+      yield* fs.makeDirectory(`${helper}/.jj`, { recursive: true });
+      yield* fs.writeFileString(`${helper}/.jj/repo`, `${lead}/.jj/repo`);
+      const policy = snapshot();
+      yield* fs.writeFileString(
+        `${policyRoot}/roles/policy.json`,
+        yield* encodeManifest(policy.manifest),
+      );
+      for (const role of Object.values(policy.manifest.roles))
+        yield* fs.writeFileString(`${policyRoot}/${role.brief}`, "Role brief\n");
+      const threadId = ThreadId.make("lead-thread");
+      const projectId = ProjectId.make("lead-project");
+      const parent = {
+        thread: {
+          id: threadId,
+          projectId,
+          title: "Lead",
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          worktreePath: lead,
+          modelSelection: { instanceId: codex.instanceId, model: codex.models[0]!.slug },
+        },
+        runs: [
+          {
+            id: RunId.make("lead-run"),
+            ordinal: 1,
+            status: "running",
+            rootNodeId: NodeId.make("lead-node"),
+            providerInstanceId: codex.instanceId,
+          },
+        ],
+        contextTransfers: [],
+        subagents: [],
+      } as unknown as OrchestrationV2ThreadProjection;
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("managed-environment"),
+        requestNamespace: "lead-caller",
+        thread: {
+          threadId,
+          providerSessionId: "lead-session",
+          providerInstanceId: codex.instanceId,
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const dispatched: Array<unknown> = [];
+      const transport = Layer.mergeAll(
+        Layer.mock(Threads.ThreadManagementService)({
+          getThreadRecords: () => Effect.succeed(parent),
+          hasReceipt: () => Effect.succeed(false),
+          isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+          listProjectThreads: () => Effect.succeed(occupantsFor(helper)),
+          dispatch: (command) =>
+            Effect.suspend(() => {
+              dispatched.push(command);
+              // Stop after capture: launching the child is the orchestrator's concern.
+              return Effect.fail(new Error("captured") as never);
+            }),
+        }),
+        Layer.mock(Providers.ProviderRegistry)({
+          getProviders: Effect.succeed([codex, claude]),
+          refreshInstance: () => Effect.succeed([codex, claude]),
+        }),
+        Layer.mock(Adapters.ProviderAdapterRegistryV2)({
+          list: () => Effect.succeed([codex.instanceId, claude.instanceId]),
+        }),
+        Layer.mock(Projects.ProjectService)({
+          getById: () => Effect.succeed(Option.some({ workspaceRoot: `${base}/main` } as never)),
+        }),
+        Layer.mock(Secrets.SecretRequests)({}),
+        Layer.mock(Scheduled.ScheduledTaskService)({}),
+        Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+        Layer.mock(GitVcs.GitVcsDriver)({}),
+        Settings.layerTest(),
+      );
+      const delegate = (
+        input: Parameters<Mcp.OrchestratorMcpService["Service"]["delegateTask"]>[1],
+      ) =>
+        Effect.gen(function* () {
+          const mcp = yield* Mcp.OrchestratorMcpService;
+          return yield* mcp.delegateTask(scope, input).pipe(Effect.flip);
+        }).pipe(
+          Effect.provide(Mcp.layer.pipe(Layer.provide(transport))),
+          Effect.provideService(
+            ConfigProvider.ConfigProvider,
+            ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
+          ),
+        );
+      return { lead, helper, base, policyRoot, delegate, dispatched };
+    });
+
+  it.effect("delegates by role where a policy is configured, with an explicit escape", () =>
+    Effect.gen(function* () {
+      const h = yield* harness();
+      const raw = { task: "Do something", clientRequestId: "raw-1" };
+      expect((yield* h.delegate(raw)).code).toBe("invalid_request");
+      expect(h.dispatched).toHaveLength(0);
+      // A recorded reason lets an unmanaged delegation through to dispatch.
+      expect(
+        (yield* h.delegate({ ...raw, offPolicyReason: "No canonical role fits a spike." })).code,
+      ).toBe("orchestration_error");
+      expect(h.dispatched).toHaveLength(1);
+      // A named but unreadable policy still refuses; an outage does not open free choice.
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.remove(`${h.policyRoot}/roles/policy.json`);
+      expect((yield* h.delegate({ ...raw, clientRequestId: "raw-2" })).code).toBe(
+        "invalid_request",
+      );
+      // The escape is not a way to add free choice to managed work.
+      expect(
+        (yield* h.delegate({
+          ...raw,
+          clientRequestId: "managed-1",
+          offPolicyReason: "Prefer my model",
+          agentTask: request({ workspacePath: h.lead }),
+        })).code,
+      ).toBe("invalid_request");
+    }),
+  );
+
+  it.effect("launches an isolated helper in its own workspace and refuses a second writer", () =>
+    Effect.gen(function* () {
+      const isolatedTask = (path: string, workId = "importer") => ({
+        task: "Implement the importer",
+        clientRequestId: `isolated-${workId}`,
+        agentTask: request({ workspacePath: path, workspaceAssignment: "isolated", workId }),
+      });
+      const h = yield* harness();
+      yield* h.delegate(isolatedTask(h.helper));
+      const command = h.dispatched[0] as { agentTask?: { workspacePath: string } };
+      expect(command.agentTask?.workspacePath).toBe(h.helper);
+      // The lead's own checkout is not an isolated workspace.
+      expect((yield* h.delegate(isolatedTask(h.lead, "lead-path"))).code).toBe("capability_denied");
+      // A T3-created worktree would not be the workspace the binding validated.
+      const worktree = yield* h.delegate({
+        ...isolatedTask(h.helper, "t3-worktree"),
+        isolation: "worktree",
+      });
+      expect(worktree.code).toBe("invalid_request");
+      expect(h.dispatched).toHaveLength(1);
+      // Another thread is already writing in the helper workspace; a reader is fine.
+      const occupant = (sourceAccess: "scoped-write" | "read-only") => (helper: string) => [
+        {
+          id: "sibling-helper",
+          lineage: { rootThreadId: "lead-thread" },
+          worktreePath: helper,
+          status: "running",
+          agentTask: { workId: "someone-else", sourceAccess },
+        } as unknown as OrchestrationV2ThreadShell,
+      ];
+      const contested = yield* harness(occupant("scoped-write"));
+      expect((yield* contested.delegate(isolatedTask(contested.helper))).code).toBe(
+        "capability_denied",
+      );
+      expect(contested.dispatched).toHaveLength(0);
+      const shared = yield* harness(occupant("read-only"));
+      expect((yield* shared.delegate(isolatedTask(shared.helper))).code).toBe("capability_denied");
+      const reading = yield* harness(occupant("read-only"));
+      yield* reading.delegate({
+        ...isolatedTask(reading.helper, "review"),
+        agentTask: request({
+          role: "reviewer",
+          workId: "review",
+          workspacePath: reading.helper,
+          workspaceAssignment: "isolated",
+          sourceRevision: "source-pin",
+          review: changeReview,
+        }),
+      });
+      expect(reading.dispatched).toHaveLength(1);
+    }),
   );
 });

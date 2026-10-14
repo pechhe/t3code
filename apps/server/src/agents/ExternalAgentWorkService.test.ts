@@ -47,6 +47,8 @@ interface LaunchState {
   readonly activeThreads: ReadonlySet<string>;
   readonly failNextLaunch: boolean;
   readonly queueNextLaunch: boolean;
+  /** Threads whose run finished, for reading a terminal result and its handoff. */
+  readonly completedThreads?: ReadonlySet<string>;
 }
 
 type FixtureEnvironment =
@@ -104,7 +106,7 @@ const makeTestLayer = (
       isProviderInstanceEnabledForProject: () => Effect.succeed(true),
       getThreadShell: (threadId: ThreadId) =>
         Effect.map(Ref.get(state), (current) =>
-          current.activeThreads.has(threadId)
+          current.activeThreads.has(threadId) || current.completedThreads?.has(threadId)
             ? ({ id: threadId, threadId, projectId } as never)
             : null,
         ),
@@ -113,16 +115,19 @@ const makeTestLayer = (
           Ref.get(state),
           (current) =>
             ({
-              runs: current.activeThreads.has(threadId)
-                ? [
-                    {
-                      id: RunId.make(`run:${threadId}`),
-                      ordinal: 1,
-                      status: "running",
-                      rootNodeId: `node:${threadId}`,
-                    },
-                  ]
-                : [],
+              runs:
+                current.activeThreads.has(threadId) || current.completedThreads?.has(threadId)
+                  ? [
+                      {
+                        id: RunId.make(`run:${threadId}`),
+                        ordinal: 1,
+                        status: current.activeThreads.has(threadId) ? "running" : "completed",
+                        rootNodeId: `node:${threadId}`,
+                      },
+                    ]
+                  : [],
+              messages: [],
+              turnItems: [],
               subagents: [],
             }) as never,
         ),
@@ -144,6 +149,22 @@ const makeTestLayer = (
           })).pipe(Effect.andThen(Deferred.succeed(stopped, undefined)));
         }),
       stopDelegatedTasks: () => Effect.void,
+      listProjectThreads: () =>
+        Effect.map(Ref.get(state), (current) =>
+          current.calls
+            .filter((call) => current.activeThreads.has(call.threadId!))
+            .map(
+              (call) =>
+                ({
+                  worktreePath:
+                    call.workspaceStrategy?.type === "existing_worktree"
+                      ? call.workspaceStrategy.worktreePath
+                      : null,
+                  status: "running",
+                  agentTask: call.agentTask,
+                }) as never,
+            ),
+        ),
     } as unknown as Threads.ThreadManagementService["Service"]),
   );
   const launch = Layer.succeed(
@@ -1060,4 +1081,59 @@ it.effect(
         expect(outcomes.filter((outcome) => outcome.kind === "failure")).toHaveLength(0);
       }),
     ),
+);
+
+it.effect("runs an isolated helper under the same lead session and hands back its source", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const client = yield* f.issueSession("client-isolated");
+      const lead = yield* f.attach(client);
+      const helper = `${f.root}/helper-workspace`;
+      const second = `${f.root}/second-helper`;
+      for (const path of [helper, second]) {
+        yield* f.fs.makeDirectory(`${path}/.jj`, { recursive: true });
+        yield* f.fs.writeFileString(`${path}/.jj/repo`, `${f.sharedStore}\n`);
+      }
+      const isolated = (path: string, workId: string, attemptId = "attempt-1") =>
+        f.submitInput(lead, {
+          clientRequestId: `${workId}-${attemptId}`,
+          agentTask: request({
+            workspacePath: path,
+            workspaceAssignment: "isolated",
+            workId,
+            attemptId,
+          }),
+        });
+      const task = yield* f.submit(client, isolated(helper, "importer"));
+      const call = (yield* Ref.get(f.state)).calls[0]!;
+      expect(call.workspaceStrategy).toEqual({ type: "existing_worktree", worktreePath: helper });
+      // The child stays accountable to the attached lead session, not a second lease.
+      expect(task.agentTask?.externalOwner?.externalSessionKey).toBe(lead.key);
+      expect(task.handoff).toBeUndefined();
+      // A second writer in the same workspace, or one in another repository, is refused.
+      expect((yield* Effect.flip(f.submit(client, isolated(helper, "other-work")))).reason).toBe(
+        "policy",
+      );
+      expect(
+        (yield* Effect.flip(f.submit(client, isolated(f.foreignWorkspace, "foreign")))).reason,
+      ).toBe("policy");
+      // A new attempt resumes the same work in its workspace, not a different one.
+      yield* f.cancel(client, task.taskId);
+      expect(
+        (yield* Effect.flip(f.submit(client, isolated(second, "importer", "attempt-2")))).reason,
+      ).toBe("conflict");
+      // A finished helper reports the exact revision for the lead to adopt.
+      const finished = yield* f.submit(client, isolated(second, "exporter"));
+      yield* Ref.update(f.state, (current) => ({
+        ...current,
+        activeThreads: new Set<string>(),
+        completedThreads: new Set([String(finished.childThreadId)]),
+      }));
+      expect((yield* f.status(client, finished.taskId)).handoff).toEqual({
+        workspacePath: second,
+        revision: "fixture-source-revision",
+        quiescent: true,
+      });
+    }),
+  ),
 );

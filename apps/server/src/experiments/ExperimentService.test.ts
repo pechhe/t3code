@@ -33,6 +33,7 @@ import * as Experiments from "./ExperimentService.ts";
 import {
   claudeModel,
   codexModel,
+  changeReview,
   request as agentTaskRequest,
   snapshot as agentPolicySnapshot,
 } from "../agents/agentPolicy.testkit.ts";
@@ -42,6 +43,17 @@ const SchemaEncodeExpired = (value: typeof import("@t3tools/contracts").Experime
   encodeExperiment({
     ...value,
     endsAt: "1900-01-01T00:00:00Z",
+  });
+/** Rewrites a stored reviewer definition as it was before typed review scope existed. */
+const storeAsUnscopedLegacy = (experimentId: string) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const rows = yield* sql<{
+      definition_json: string;
+    }>`SELECT definition_json FROM experiments WHERE id = ${experimentId}`;
+    const stored = JSON.parse(rows[0]!.definition_json);
+    delete stored.eligibility.reviewScopes;
+    yield* sql`UPDATE experiments SET definition_json = ${JSON.stringify(stored)} WHERE id = ${experimentId}`;
   });
 const dependencies = ProjectionStore.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
 const layer = Experiments.layer.pipe(Layer.provideMerge(dependencies));
@@ -380,7 +392,10 @@ describe("ExperimentService", () => {
             { id: "control", label: "Codex", modelSelection },
             { id: "early", label: "Muse", modelSelection: taskModel },
           ],
+          eligibility: { ...definition().eligibility, reviewScopes: ["change"] },
         });
+        // The original trial predates typed review scope; its unscoped tasks still enroll.
+        yield* storeAsUnscopedLegacy("review");
         yield* service.transition({ experimentId: "review", status: "running" });
         const assigned = (yield* service.assignForTask({
           ...assignInput("future-child"),
@@ -839,7 +854,9 @@ describe("ExperimentService", () => {
               modelSelection: { ...modelSelection, model: "gpt-5.5" },
             },
           ],
+          eligibility: { ...definition().eligibility, reviewScopes: ["change"] },
         });
+        yield* storeAsUnscopedLegacy("review");
         yield* service.transition({ experimentId: "review", status: "running" });
         const review = (yield* service.assignForTask({
           ...assignInput("child"),
@@ -1011,6 +1028,145 @@ describe("ExperimentService trial admission against the managed policy", () => {
     Effect.gen(function* () {
       const service = yield* Experiments.ExperimentService;
       assert.strictEqual((yield* service.create(trial("no-policy", unlisted))).status, "draft");
+    }).pipe(Effect.provide(layer)),
+  );
+});
+
+describe("ExperimentService review scope", () => {
+  const reviewerBinding = (scope?: "change" | "spec"): AgentTaskBinding => {
+    const policy = agentPolicySnapshot();
+    const task = agentTaskRequest({
+      role: "reviewer",
+      sourceRevision: "candidate",
+      ...(scope === undefined
+        ? {}
+        : {
+            review:
+              scope === "change"
+                ? { ...changeReview }
+                : {
+                    scope,
+                    baseRevision: "spec-base",
+                    includedChanges: [],
+                    specRef: "owner/repo#12",
+                    specRevision: "body-3",
+                    coverage: "complete",
+                  },
+          }),
+    });
+    return {
+      ...task,
+      requestFingerprint: "c".repeat(64),
+      policyHash: policy.hash,
+      policyRevision: policy.sourceRevision,
+      briefHash: policy.briefs.reviewer.hash,
+      sourceAccess: "read-only",
+      toolProfile: "source-reader",
+      requested: modelSelection,
+      assigned: null,
+      effective: modelSelection,
+    };
+  };
+  const reviewTrial = (
+    id: string,
+    reviewScopes?: ReadonlyArray<"change" | "spec">,
+  ): ExperimentDefinition => ({
+    ...definition(id),
+    lever: "reviewer",
+    variants: [
+      { id: "control", label: "Control", modelSelection },
+      {
+        id: "early",
+        label: "Alternative",
+        modelSelection: { ...modelSelection, model: "gpt-5.5" },
+      },
+    ],
+    eligibility: {
+      ...definition().eligibility,
+      ...(reviewScopes === undefined ? {} : { reviewScopes }),
+    },
+  });
+  const review = (
+    service: Experiments.ExperimentService["Service"],
+    unit: string,
+    scope?: "change" | "spec",
+  ) =>
+    service.assignForTask({
+      ...assignInput(`thread:${unit}`),
+      unitId: unit,
+      taskLever: "reviewer",
+      ...(scope === undefined && unit.startsWith("bare")
+        ? {}
+        : { agentTask: reviewerBinding(scope) }),
+    });
+
+  it.effect("requires new reviewer trials to name the review units they compare", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      assert.strictEqual(
+        (yield* Effect.flip(service.create(reviewTrial("unscoped")))).reason,
+        "invalid-definition",
+      );
+      assert.strictEqual(
+        (yield* Effect.flip(
+          service.create({
+            ...externalDefinition(),
+            eligibility: { ...externalDefinition().eligibility, reviewScopes: ["change"] },
+          }),
+        )).reason,
+        "invalid-definition",
+      );
+      assert.strictEqual(
+        (yield* service.create(reviewTrial("change", ["change"]))).status,
+        "draft",
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("enrolls only the declared scope and never pools legacy and scoped reviews", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create(reviewTrial("change-trial", ["change"]));
+      yield* service.transition({ experimentId: "change-trial", status: "running" });
+      assert.lengthOf(yield* review(service, "change-1", "change"), 1);
+      assert.lengthOf(yield* review(service, "spec-1", "spec"), 0);
+      assert.lengthOf(yield* review(service, "legacy-1"), 0);
+      assert.lengthOf(yield* review(service, "bare-1"), 0);
+      // A Spec trial runs beside it; disjoint scopes do not conflict.
+      yield* service.create(reviewTrial("spec-trial", ["spec"]));
+      yield* service.transition({ experimentId: "spec-trial", status: "running" });
+      assert.lengthOf(yield* review(service, "spec-2", "spec"), 1);
+      // A second change trial would compete for the same units.
+      yield* service.create(reviewTrial("change-again", ["change", "spec"]));
+      assert.strictEqual(
+        (yield* Effect.flip(
+          service.transition({ experimentId: "change-again", status: "running" }),
+        )).reason,
+        "conflict",
+      );
+      const report = yield* service.report({ experimentId: "change-trial" });
+      assert.deepStrictEqual(
+        report.reviewScopes?.map(({ scope, count }) => ({ scope, count })),
+        [{ scope: "change", count: 1 }],
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("keeps a legacy reviewer trial to the unscoped reviews it was designed for", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      yield* service.create(reviewTrial("legacy", ["change"]));
+      yield* storeAsUnscopedLegacy("legacy");
+      yield* service.transition({ experimentId: "legacy", status: "running" });
+      assert.lengthOf(yield* review(service, "bare-1"), 1);
+      assert.lengthOf(yield* review(service, "legacy-unscoped"), 1);
+      assert.lengthOf(yield* review(service, "change-1", "change"), 0);
+      const scopes = (yield* service.report({ experimentId: "legacy" })).reviewScopes ?? [];
+      assert.isTrue(scopes.every((entry) => entry.scope === "unscoped"));
+      assert.strictEqual(
+        scopes.reduce((total, entry) => total + entry.count, 0),
+        2,
+      );
     }).pipe(Effect.provide(layer)),
   );
 });

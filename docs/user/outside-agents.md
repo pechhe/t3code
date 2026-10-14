@@ -122,6 +122,26 @@ models and unsupported execution boundaries before you submit. Some roles are
 refused today and say why: a Claude model can only take read-only roles, and the
 browser and visual-check roles cannot be started through this route.
 
+The session's workspace is the lead's own. To run a helper at the same time as
+the lead, allocate it a separate workspace of the same repository (with SlipJay,
+its own workspace) and submit with `"workspaceAssignment": "isolated"` and that
+path. T3 refuses the lead's own checkout, the project's main checkout, a
+subdirectory, another repository and a workspace another task is already writing
+in. The helper stays owned by the same session. When it finishes, `status`
+returns a `handoff` with the exact revision to adopt and whether the workspace
+was clean. Adopting it into the lead's candidate is the lead's job and is not a
+landing.
+
+A review task pins the candidate as `sourceRevision` and declares `review`:
+`"scope": "change"` for a candidate landing, with its `baseRevision` and the
+`includedChanges` attributed to it, or `"scope": "spec"` for a Spec's integrated
+outcome, with `specRef` and the `specRevision` of the body read. `coverage` says
+whether the review covers the whole landing or Spec (`complete`) or only part
+(`partial`). A follow-up review of material changes since an earlier one sets
+`priorReview` to that review's work ID and source revision, with the same source
+as its `baseRevision`. The reviewer role, rubric and permissions are the same
+for both scopes.
+
 Keep the same work and attempt IDs when retrying a submission, including after a
 disconnect or server restart. Use a new attempt ID for new execution of that work,
 after the previous writer has stopped. The response includes a task ID, selections

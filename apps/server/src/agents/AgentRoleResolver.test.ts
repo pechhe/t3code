@@ -10,6 +10,7 @@ import {
   claude,
   codexModel,
   claudeModel,
+  changeReview,
 } from "./agentPolicy.testkit.ts";
 
 type Input = Parameters<Resolver.AgentRoleResolver["Service"]["resolve"]>[0];
@@ -70,6 +71,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           request: request({
             role: "reviewer",
             sourceRevision: "reviewed-commit",
+            review: changeReview,
             authorModel: codexModel,
           }),
           currentInstanceId: codex.instanceId,
@@ -89,10 +91,65 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
+  it.effect("requires a typed review scope and coherent coverage for review", () =>
+    Effect.gen(function* () {
+      const reviewer = (review: Partial<typeof changeReview> | undefined, extra = {}) =>
+        input({
+          request: request({
+            role: "reviewer",
+            sourceRevision: "reviewed-commit",
+            ...(review === undefined ? {} : { review: { ...changeReview, ...review } }),
+            ...extra,
+          }),
+        });
+      expect((yield* refusal(reviewer(undefined))).reason).toBe("review-scope-required");
+      yield* resolve(reviewer({}));
+      // A change review names what it covers; unrelated interleaved commits stay out.
+      expect((yield* refusal(reviewer({ includedChanges: [] }))).reason).toBe(
+        "review-scope-invalid",
+      );
+      // A Spec review judges a specific Spec body revision.
+      const spec = { scope: "spec", coverage: "partial" } as const;
+      expect((yield* refusal(reviewer(spec))).reason).toBe("review-scope-invalid");
+      yield* resolve(reviewer({ ...spec, specRef: "owner/repo#12", specRevision: "body-3" }));
+      // A Spec review of a no-Ticket Spec has no Ticket changes to list.
+      yield* resolve(
+        reviewer({
+          ...spec,
+          includedChanges: [],
+          specRef: "owner/repo#12",
+          specRevision: "body-3",
+        }),
+      );
+      // A delta covers exactly the changes since the earlier report.
+      const prior = { workId: "review-1", sourceRevision: "earlier-commit" };
+      yield* resolve(reviewer({ priorReview: prior, baseRevision: "earlier-commit" }));
+      expect((yield* refusal(reviewer({ priorReview: prior }))).reason).toBe(
+        "review-scope-invalid",
+      );
+      expect(
+        (yield* refusal(
+          reviewer({
+            priorReview: { ...prior, sourceRevision: "reviewed-commit" },
+            baseRevision: "reviewed-commit",
+          }),
+        )).reason,
+      ).toBe("review-scope-invalid");
+      // Review scope belongs to the reviewer role alone.
+      expect((yield* refusal(input({ request: request({ review: changeReview }) }))).reason).toBe(
+        "review-scope-invalid",
+      );
+    }),
+  );
+
   it.effect("rejects forbidden experimental selections and incompatible options", () =>
     Effect.gen(function* () {
       const base = input({
-        request: request({ role: "reviewer", sourceRevision: "reviewed-commit" }),
+        request: request({
+          role: "reviewer",
+          sourceRevision: "reviewed-commit",
+          review: changeReview,
+        }),
       });
       expect(
         (yield* refusal({
@@ -146,7 +203,11 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       Effect.gen(function* () {
         const unavailable: ServerProvider = { ...codex, availability: "unavailable" };
         const base = input({
-          request: request({ role: "reviewer", sourceRevision: "reviewed-commit" }),
+          request: request({
+            role: "reviewer",
+            sourceRevision: "reviewed-commit",
+            review: changeReview,
+          }),
           providers: [unavailable, claude],
           currentInstanceId: codex.instanceId,
         });
@@ -183,7 +244,12 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       Effect.gen(function* () {
         for (const taskClass of ["ui", "mixed"] as const) {
           const base = input({
-            request: request({ role: "reviewer", sourceRevision: "reviewed-commit", taskClass }),
+            request: request({
+              role: "reviewer",
+              sourceRevision: "reviewed-commit",
+              review: changeReview,
+              taskClass,
+            }),
             currentInstanceId: codex.instanceId,
           });
           expect((yield* resolve(base)).model).toBe(claudeModel);
@@ -219,7 +285,12 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       };
       const base = input({
         snapshot: policy,
-        request: request({ role: "reviewer", sourceRevision: "reviewed-commit", taskClass: "ui" }),
+        request: request({
+          role: "reviewer",
+          sourceRevision: "reviewed-commit",
+          review: changeReview,
+          taskClass: "ui",
+        }),
       });
       expect((yield* refusal(base)).reason).toBe("no-eligible-model");
       const disguised = provider("claudeAgent", "disguised-openai", [codexModel]);

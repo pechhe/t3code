@@ -10,6 +10,7 @@ import {
   type AgentPolicySnapshot,
   AuthSessionId,
   type AgentTaskBinding,
+  type AgentTaskHandoff,
   type ModelSelection,
   type ProviderInstanceId,
   type RuntimeMode,
@@ -22,10 +23,12 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Resolver from "./AgentRoleResolver.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import { handoffRevision, repositoryStore } from "./workspaceIdentity.ts";
 
 export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   "ManagedAgentError",
@@ -38,10 +41,27 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
     return `Managed agent dispatch refused (${this.reason}).`;
   }
 }
+/** A thread bound to some workspace; unmanaged threads count as writers. */
+export type WorkspaceOccupant = {
+  readonly workspacePath: string;
+  /** The accountable lead: its root thread, or the external session key. */
+  readonly owner: string;
+  readonly workId: string | null;
+  readonly attemptId: string | null;
+  readonly writes: boolean;
+  readonly running: boolean;
+};
 type Authority = {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly ceiling: RuntimeMode;
+  /** The accountable lead's own workspace. */
   readonly workspacePath: string | null;
+  /** The project's main checkout, which an isolated helper never uses. */
+  readonly projectRoot?: string;
+  /** Threads bound to workspaces, so an isolated one has one owner and one writer. */
+  readonly occupants?: ReadonlyArray<WorkspaceOccupant>;
+  /** The accountable lead requesting the work, in the same terms as an occupant's owner. */
+  readonly owner?: string;
 };
 const decodeExternalSession = Schema.decodeUnknownEffect(
   Schema.fromJsonString(AgentExternalSession),
@@ -69,6 +89,14 @@ export class ManagedAgentService extends Context.Service<
         readonly selection: ModelSelection;
       },
     ) => Effect.Effect<void, ManagedAgentError>;
+    /** Whether this environment names a policy, readable or not. */
+    readonly configured: () => Effect.Effect<boolean>;
+    /** Serialises isolated workspace checks with the launch they authorise, across routes. */
+    readonly exclusive: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+    /** The finished source of an isolated scoped-write task, or none for other tasks. */
+    readonly handoff: (
+      binding: AgentTaskBinding,
+    ) => Effect.Effect<AgentTaskHandoff | undefined, ManagedAgentError>;
   }
 >()("t3/agents/ManagedAgentService") {}
 
@@ -89,19 +117,51 @@ const make = Effect.gen(function* () {
       .snapshot(root)
       .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
   });
+  const workspaceError = (cause: unknown) => new ManagedAgentError({ reason: "workspace", cause });
+  const local = <A, E>(
+    effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner>,
+  ) =>
+    effect.pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
+      Effect.provideService(ProcessRunner.ProcessRunner, processes),
+    );
   const workspace = Effect.fn("ManagedAgentService.workspace")(function* (
     request: AgentTaskRequest,
-    expected: string | null,
+    authority: Authority,
+    writes: boolean,
   ) {
-    if (
-      expected === null ||
-      !path.isAbsolute(request.workspacePath) ||
-      request.workspacePath !== expected
-    )
+    const lead = authority.workspacePath;
+    const expected = request.workspacePath;
+    if (lead === null || !path.isAbsolute(expected))
       return yield* new ManagedAgentError({ reason: "workspace" });
-    const actual = yield* fs
-      .realPath(expected)
-      .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "workspace", cause })));
+    if ((request.workspaceAssignment ?? "lead") === "lead") {
+      if (expected !== lead) return yield* new ManagedAgentError({ reason: "workspace" });
+    } else {
+      // An isolated helper gets its own registered workspace of the lead's repository on
+      // this host: never the lead's checkout, the main checkout, a subdirectory, another
+      // repository, or a workspace another thread is already writing in.
+      if (expected === lead || expected === authority.projectRoot)
+        return yield* new ManagedAgentError({ reason: "workspace" });
+      const [leadStore, childStore] = yield* local(
+        Effect.all([repositoryStore(lead), repositoryStore(expected)]),
+      ).pipe(Effect.mapError(workspaceError));
+      if (leadStore !== childStore) return yield* new ManagedAgentError({ reason: "workspace" });
+      // A workspace bound to another lead is theirs even while idle. Under this lead, only
+      // the same attempt may continue beside a live writer; a new attempt waits for it.
+      if (
+        (authority.occupants ?? []).some(
+          (occupant) =>
+            occupant.workspacePath === expected &&
+            (occupant.owner !== authority.owner ||
+              (occupant.running &&
+                (writes || occupant.writes) &&
+                (occupant.workId !== request.workId || occupant.attemptId !== request.attemptId))),
+        )
+      )
+        return yield* new ManagedAgentError({ reason: "workspace" });
+    }
+    const actual = yield* fs.realPath(expected).pipe(Effect.mapError(workspaceError));
     if (actual !== expected) return yield* new ManagedAgentError({ reason: "workspace" });
     const stat = yield* fs
       .stat(actual)
@@ -137,7 +197,24 @@ const make = Effect.gen(function* () {
       }
     }
   });
+  const isolatedLaunches = yield* Semaphore.make(1);
   return ManagedAgentService.of({
+    configured: () =>
+      Config.option(Config.String("T3CODE_AGENT_POLICY_ROOT")).pipe(
+        Effect.map(Option.isSome),
+        Effect.orElseSucceed(() => false),
+      ),
+    exclusive: (effect) => isolatedLaunches.withPermit(effect),
+    handoff: (binding) =>
+      binding.workspaceAssignment !== "isolated" || binding.sourceAccess !== "scoped-write"
+        ? Effect.succeed(undefined)
+        : local(handoffRevision(binding.workspacePath)).pipe(
+            Effect.map((source) => ({ workspacePath: binding.workspacePath, ...source })),
+            Effect.tapError((cause) =>
+              Effect.logWarning("Unable to read an isolated task's handoff revision.", { cause }),
+            ),
+            Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
+          ),
     snapshot: () =>
       currentPolicy.pipe(
         Effect.tap((snapshot) =>
@@ -164,6 +241,18 @@ const make = Effect.gen(function* () {
                   workId: "capability-discovery",
                   attemptId: "capability-discovery",
                   workspacePath: "/capability-discovery",
+                  ...(role !== "reviewer"
+                    ? {}
+                    : {
+                        review: {
+                          scope: input.request.reviewScope ?? "change",
+                          baseRevision: "capability-discovery",
+                          includedChanges: ["capability-discovery"],
+                          specRef: "capability-discovery",
+                          specRevision: "capability-discovery",
+                          coverage: "complete" as const,
+                        },
+                      }),
                 },
               }),
             );
@@ -182,7 +271,6 @@ const make = Effect.gen(function* () {
       return { policyHash: snapshot.hash, policyRevision: snapshot.sourceRevision, roles };
     }),
     prepare: Effect.fn("ManagedAgentService.prepare")(function* (input) {
-      yield* workspace(input.request, input.workspacePath);
       if (
         input.recordedBinding !== undefined &&
         input.recordedBinding.requestFingerprint !== input.requestFingerprint
@@ -194,6 +282,12 @@ const make = Effect.gen(function* () {
           : yield* store
               .get(input.recordedBinding?.policyHash ?? input.policyHash!)
               .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
+      const role = snapshot.manifest.roles[input.request.role];
+      yield* workspace(
+        input.request,
+        input,
+        input.request.readOnly !== true && role.sourceAccess === "scoped-write",
+      );
       const selection = yield* resolver
         .resolve({
           ...input,
@@ -206,7 +300,6 @@ const make = Effect.gen(function* () {
       yield* store
         .save(snapshot)
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
-      const role = snapshot.manifest.roles[input.request.role];
       return {
         binding: input.recordedBinding ?? {
           ...input.request,
@@ -224,7 +317,7 @@ const make = Effect.gen(function* () {
       };
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
-      yield* workspace(input.binding, input.workspacePath);
+      yield* workspace(input.binding, input, input.binding.sourceAccess === "scoped-write");
       const owner = input.binding.externalOwner;
       if (owner !== undefined) {
         const auth = yield* Effect.serviceOption(AuthSessions.AuthSessionRepository);

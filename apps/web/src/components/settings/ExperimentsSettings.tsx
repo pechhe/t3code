@@ -189,6 +189,7 @@ function ExperimentDraft({
   const hard = baseline?.hard ?? settings.contextRollover.hardThreshold;
   const softB = earlierSoft ?? Math.max(1, Math.floor(softA * 0.8));
   const [categories, setCategories] = useState("");
+  const [reviewScope, setReviewScope] = useState<"change" | "spec">("change");
   const [stop, setStop] = useState("Stop if verified completion falls or rework increases.");
   const [codeRevision, setCodeRevision] = useState("");
   const [briefRevision, setBriefRevision] = useState("");
@@ -275,6 +276,7 @@ function ExperimentDraft({
             .split(",")
             .map((value) => value.trim())
             .filter(Boolean),
+          ...(lever === "reviewer" ? { reviewScopes: [reviewScope] } : {}),
         },
         maxAssignments: limit,
         endsAt: new Date(end).toISOString(),
@@ -480,6 +482,19 @@ function ExperimentDraft({
           placeholder="All models"
         />
       </label>
+      {lever === "reviewer" && (
+        <label className="block text-sm">
+          Reviews compared
+          <select
+            className="mt-1 block rounded-md border bg-background p-2"
+            value={reviewScope}
+            onChange={(event) => setReviewScope(event.target.value as "change" | "spec")}
+          >
+            <option value="change">Change reviews (a candidate landing)</option>
+            <option value="spec">Spec reviews (the integrated outcome)</option>
+          </select>
+        </label>
+      )}
       <label className="block text-sm">
         Task categories (comma separated)
         <Input
