@@ -316,6 +316,12 @@ import {
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { RolloverHoldIndicator } from "./RolloverHoldIndicator";
 import {
+  ROLLOVER_MENU_OPTIONS,
+  describeRolloverMenuState,
+  isBareRolloverCommand,
+  type RolloverCommand,
+} from "./rolloverCommand";
+import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
   shouldReserveContextWindowMeter,
@@ -1591,6 +1597,8 @@ export interface ChatComposerProps {
   onToggleKeepFullHistory: () => void;
   /** Picking /usage-limits from the menu is the action itself; the draft keeps nothing of it. */
   onUsageLimitsCommand?: (() => void) | undefined;
+  /** Runs a `/rollover` command picked from the menu a bare `/rollover` opens; unset when the typed command would send as a prompt. */
+  onRolloverCommand?: ((command: RolloverCommand) => void) | undefined;
   environmentUnavailable: {
     readonly label: string;
     readonly connection: EnvironmentConnectionPresentation;
@@ -2479,6 +2487,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isLiteralPendingAnswer ? null : detectComposerTrigger(prompt, prompt.length),
   );
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
+  // Opened by Enter on a bare `/rollover`; its options stand in for the trigger's items.
+  const [isRolloverMenuOpen, setIsRolloverMenuOpen] = useState(false);
+  const isRolloverMenuOpenRef = useRef(false);
+  isRolloverMenuOpenRef.current = isRolloverMenuOpen;
+  useEffect(() => {
+    if (!isBareRolloverCommand(prompt)) setIsRolloverMenuOpen(false);
+  }, [prompt]);
   const composerSuggestionId = useId();
   const composerSuggestionListId = `${composerSuggestionId}-${encodeURIComponent(draftId ?? activeThreadId ?? "new")}-suggestions`;
   // Active ArrowUp recall. Cleared on edit and on thread switch.
@@ -2727,6 +2742,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
 
   const composerMenuItems = useMemo<ComposerCommandItem[]>(() => {
+    if (isRolloverMenuOpen) {
+      return ROLLOVER_MENU_OPTIONS.map((option) => ({ ...option, type: "rollover-option" }));
+    }
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       // Threads only surface for a typed query so `@` alone stays a file picker. A title match
@@ -2899,6 +2917,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     environmentThreadShells,
     exactPullRequestLookup.data,
+    isRolloverMenuOpen,
     linkedPullRequests,
     planModeUiEnabled,
     rolloverHoldSupported,
@@ -2914,10 +2933,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     workspaceEntries.entries,
   ]);
 
-  const composerMenuOpen = Boolean(composerTrigger);
-  const composerMenuSearchKey = composerTrigger
-    ? `${composerSuggestionListId}:${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
+  const composerMenuOpen = Boolean(composerTrigger) || isRolloverMenuOpen;
+  const rolloverMenuDescription = isRolloverMenuOpen
+    ? describeRolloverMenuState(props.activeThreadShell?.rolloverHold, Date.now())
     : null;
+  const composerMenuSearchKey = isRolloverMenuOpen
+    ? `${composerSuggestionListId}:rollover`
+    : composerTrigger
+      ? `${composerSuggestionListId}:${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
+      : null;
   const activeComposerMenuItem = useMemo(() => {
     const activeItemId = resolveComposerMenuActiveItemId({
       items: composerMenuItems,
@@ -4130,7 +4154,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   }, [isLiteralPendingAnswer, readComposerSnapshot, resolveComposerTrigger]);
 
-  const { onUsageLimitsCommand } = props;
+  const { onUsageLimitsCommand, onRolloverCommand } = props;
   const onSelectComposerItem = useCallback(
     (item: ComposerCommandItem) => {
       if (composerSelectLockRef.current) return;
@@ -4138,6 +4162,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       window.requestAnimationFrame(() => {
         composerSelectLockRef.current = false;
       });
+      if (item.type === "rollover-option") {
+        setIsRolloverMenuOpen(false);
+        onRolloverCommand?.(item.command);
+        return;
+      }
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       if (!trigger) return;
       if (item.type === "path") {
@@ -4311,6 +4340,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       handleInteractionModeChange,
       planModeUiEnabled,
       onUsageLimitsCommand,
+      onRolloverCommand,
       resolveActiveComposerTrigger,
     ],
   );
@@ -4655,8 +4685,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       !isLiteralPendingAnswer && (composerMenuOpenRef.current || trigger !== null);
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
+      if (isRolloverMenuOpenRef.current) setIsRolloverMenuOpen(false);
       dismissComposerTrigger(trigger);
       composerMenuOpenRef.current = false;
+      return true;
+    }
+    if (
+      key === "Enter" &&
+      !event.isComposing &&
+      onRolloverCommand &&
+      rolloverHoldSupported &&
+      !isLiteralPendingAnswer &&
+      !isRolloverMenuOpenRef.current &&
+      isBareRolloverCommand(promptRef.current) &&
+      (submissionIntent === "foreground" || (submissionIntent === null && menuIsActive))
+    ) {
+      setIsRolloverMenuOpen(true);
+      setComposerHighlightedItemId(null);
       return true;
     }
     if (menuIsActive && (submissionIntent === null || submissionIntent === "foreground")) {
@@ -7279,6 +7324,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isLoading={isComposerMenuLoading}
                     triggerKind={composerTriggerKind}
                     emptyStateText={composerMenuEmptyState}
+                    description={rolloverMenuDescription}
                     activeItemId={activeComposerMenuItem?.id ?? null}
                     onHighlightedItemChange={onComposerMenuItemHighlighted}
                     onSelect={onSelectComposerItem}
