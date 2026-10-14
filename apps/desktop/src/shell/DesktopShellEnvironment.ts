@@ -91,6 +91,7 @@ const LOGIN_SHELL_ENV_NAMES = [
   "NODE_EXTRA_CA_CERTS",
   "T3CODE_TELEMETRY_ENABLED",
   "__MISE_DIFF",
+  "T3CODE_AGENT_POLICY_ROOT",
 ] as const;
 const WINDOWS_PROFILE_ENV_NAMES = ["PATH", "FNM_DIR", "FNM_MULTISHELL_PATH"] as const;
 const LOCALE_ENV_NAMES = ["LANG", "LC_ALL", "LC_CTYPE"] as const;
@@ -465,6 +466,8 @@ const installPosixEnvironment = Effect.fn("desktop.shellEnvironment.installPosix
       "NODE_EXTRA_CA_CERTS",
       // The telemetry opt-out is documented as a shell variable; GUI launches never see it.
       "T3CODE_TELEMETRY_ENABLED",
+      // Managed agent delegation reads its policy root the same way.
+      "T3CODE_AGENT_POLICY_ROOT",
     ] as const) {
       if (!config.env[name] && shellEnvironment[name]) {
         config.env[name] = shellEnvironment[name];

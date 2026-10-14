@@ -14,6 +14,9 @@ checkout in the environment of the T3 Code server, then restart the server:
 T3CODE_AGENT_POLICY_ROOT=/path/to/agent-config t3 serve
 ```
 
+The desktop app reads the variable from your login shell, so export it there
+(for example in `~/.zprofile`) and quit and reopen the app.
+
 Without the variable, managed delegation is not configured: `t3 agent` commands
 that need a policy fail with `policy`, and unmanaged delegation behaves as
 before. Running trials are unaffected either way, and installing the code starts
