@@ -158,6 +158,7 @@ const layerTestProviderInstanceRegistry = Layer.succeed(
       ),
     listInstances: Effect.succeed([providerInstance, alternateProviderInstance]),
     listUnavailable: Effect.succeed([]),
+    listPools: Effect.succeed([]),
     streamChanges: Stream.empty,
     subscribeChanges: Effect.never,
   },

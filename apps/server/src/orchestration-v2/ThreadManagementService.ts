@@ -56,6 +56,8 @@ import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimi
 import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { pickPoolMember } from "../provider/providerPools.ts";
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 
@@ -555,6 +557,9 @@ const make = Effect.gen(function* () {
   const legacyImporter = yield* LegacyV1ThreadImporter.LegacyV1ThreadImporter;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
+  // Optional like other orchestration reads of provider state: without the
+  // registry there are no pools to route.
+  const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
 
   const assertProviderInstanceEnabled: ThreadManagementServiceShape["assertProviderInstanceEnabled"] =
     (input) =>
@@ -713,8 +718,62 @@ const make = Effect.gen(function* () {
     }
   };
 
-  const dispatch: ThreadManagementServiceShape["dispatch"] = (command) =>
+  // An account pool never reaches the orchestrator: a selection naming one is
+  // replaced here by the member that should run it, keeping the thread's
+  // current member while it has allowance.
+  const routePoolSelection = (selection: ModelSelection, threadId?: ThreadId) =>
     Effect.gen(function* () {
+      if (Option.isNone(providerRegistry)) return selection;
+      const providers = yield* providerRegistry.value.getProviders;
+      const pool = providers.find((provider) => provider.instanceId === selection.instanceId);
+      const members = pool?.poolMembers;
+      if (pool === undefined || members === undefined) return selection;
+      const current =
+        threadId === undefined
+          ? undefined
+          : (yield* orchestrator.getThreadShell(threadId))?.modelSelection.instanceId;
+      const member =
+        pickPoolMember({
+          pool: { driver: pool.driver, members },
+          providers,
+          nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+          current,
+        }) ?? members[0];
+      return member === undefined ? selection : { ...selection, instanceId: member };
+    });
+
+  const routePoolCommand = (
+    command: OrchestrationV2ServerCommand,
+  ): Effect.Effect<OrchestrationV2ServerCommand, Orchestrator.OrchestratorV2Error> => {
+    switch (command.type) {
+      case "thread.create":
+        return routePoolSelection(command.modelSelection).pipe(
+          Effect.map((modelSelection) => ({ ...command, modelSelection })),
+        );
+      case "message.dispatch": {
+        const selection = command.modelSelection;
+        if (selection === undefined) return Effect.succeed(command);
+        return routePoolSelection(selection, command.threadId).pipe(
+          Effect.map((modelSelection) => ({ ...command, modelSelection })),
+        );
+      }
+      case "thread.model-selection.set":
+      case "provider.switch":
+        return routePoolSelection(command.modelSelection, command.threadId).pipe(
+          Effect.map((modelSelection) => ({ ...command, modelSelection })),
+        );
+      case "delegated_task.request":
+        return routePoolSelection(command.modelSelection, command.parentThreadId).pipe(
+          Effect.map((modelSelection) => ({ ...command, modelSelection })),
+        );
+      default:
+        return Effect.succeed(command);
+    }
+  };
+
+  const dispatch: ThreadManagementServiceShape["dispatch"] = (input) =>
+    Effect.gen(function* () {
+      const command = yield* routePoolCommand(input);
       // `defer_start` is the launch protocol's own first message; an external work thread
       // accepts that and no other agent message.
       if (
@@ -731,10 +790,9 @@ const make = Effect.gen(function* () {
           });
       }
       yield* ensureCommandTranscripts(command);
-    }).pipe(
-      Effect.andThen(assertDispatchTargetEnabled(command)),
-      Effect.andThen(orchestrator.dispatch(command)),
-    );
+      yield* assertDispatchTargetEnabled(command);
+      return yield* orchestrator.dispatch(command);
+    });
 
   const getProjectThread: ThreadManagementServiceShape["getProjectThread"] = (input) =>
     getThreadProjection(input.threadId).pipe(

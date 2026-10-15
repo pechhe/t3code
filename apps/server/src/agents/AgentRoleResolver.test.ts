@@ -1,5 +1,9 @@
 import { expect, it } from "@effect/vitest";
-import type { AgentPolicySnapshot, ServerProvider } from "@t3tools/contracts";
+import {
+  type AgentPolicySnapshot,
+  ProviderInstanceId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Resolver from "./AgentRoleResolver.ts";
 import {
@@ -335,6 +339,40 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           (yield* refusal(input({ request: request({ role, taskClass: "ui" }) }))).reason,
         ).toBe("unsupported-tools");
       }
+    }),
+  );
+
+  it.effect("delegates within the caller's pool to the member whose usage resets soonest", () =>
+    Effect.gen(function* () {
+      const usage = (usedPercent: number, resetsAt: string) => ({
+        checkedAt: "2026-10-15T00:00:00.000Z",
+        windows: [
+          { id: "five_hour", kind: "session" as const, label: "Session", usedPercent, resetsAt },
+        ],
+      });
+      const member = (id: string, usedPercent: number, resetsAt: string): ServerProvider => ({
+        ...claude,
+        instanceId: ProviderInstanceId.make(id),
+        usageLimits: usage(usedPercent, resetsAt),
+      });
+      const caller = member("claude-caller", 100, "2026-10-15T01:00:00.000Z");
+      const later = member("claude-later", 20, "2026-10-15T04:00:00.000Z");
+      const sooner = member("claude-sooner", 60, "2026-10-15T02:00:00.000Z");
+      const pool: ServerProvider = {
+        ...claude,
+        instanceId: ProviderInstanceId.make("claude-pool"),
+        poolMembers: [caller.instanceId, later.instanceId, sooner.instanceId],
+      };
+      const base = input({
+        request: request({
+          role: "reviewer",
+          sourceRevision: "reviewed-commit",
+          review: changeReview,
+        }),
+        providers: [caller, later, sooner, pool],
+        currentInstanceId: caller.instanceId,
+      });
+      expect((yield* resolve(base)).instanceId).toBe(sooner.instanceId);
     }),
   );
 });

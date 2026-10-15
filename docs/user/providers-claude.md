@@ -41,6 +41,29 @@ Claude Code's verbose mode can stay enabled when you use Claude for text generat
 thread titles, branch names, commit messages, and pull request descriptions. On a remote connection,
 T3 Code uses the Claude configuration on the connected server.
 
+## Pool several accounts
+
+A pool is one entry in the model picker that runs each new thread on whichever of
+its accounts resets its usage soonest, skipping accounts that have run out. Usage
+that would otherwise lapse at a reset is spent first. Delegated tasks that name the
+pool are routed the same way.
+
+Set up each account as its own Claude instance first, then add the pool to
+`providerInstances` in `settings.json`, listing the member instance ids:
+
+```json
+"claude_pool": {
+  "driver": "claudeAgent",
+  "displayName": "Claude (pooled)",
+  "pool": ["claude_work", "claude_personal"]
+}
+```
+
+A thread keeps its account while that account has usage left. When it runs out,
+the thread waits for the reset as usual; pick the pool again in the model picker
+to move the thread to the account with usage left. The pool's settings page lists
+its accounts; usage, sign-in and models stay on each account's own page.
+
 ## Compact long conversations
 
 Set **Auto-compact after** in the Claude provider settings to an integer between

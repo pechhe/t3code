@@ -72,6 +72,7 @@ const layerInstanceRegistry = Layer.succeed(ProviderInstanceRegistry.ProviderIns
     Effect.succeed(instances.find((instance) => instance.instanceId === instanceId)),
   listInstances: Effect.succeed(instances),
   listUnavailable: Effect.succeed([]),
+  listPools: Effect.succeed([]),
   streamChanges: Stream.empty,
   subscribeChanges: Effect.never,
 });

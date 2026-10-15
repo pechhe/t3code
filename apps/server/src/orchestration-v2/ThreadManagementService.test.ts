@@ -17,6 +17,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   RunId,
+  type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
@@ -40,6 +41,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import { DispatchModeLimit, type DispatchModeRefusal } from "./DispatchModeLimit.ts";
 
 it("stamps authoritative provenance on commands that create threads or messages", () => {
@@ -430,6 +432,98 @@ it.effect(
     }).pipe(Effect.provide(layerTest));
   },
 );
+
+it.effect("routes a pooled selection to a member account before the orchestrator sees it", () => {
+  const projectId = ProjectId.make("project:thread-management:pool");
+  const threadId = ThreadId.make("thread:thread-management:pool");
+  const pool = ProviderInstanceId.make("claude_pool");
+  const later = ProviderInstanceId.make("claude_later");
+  const sooner = ProviderInstanceId.make("claude_sooner");
+  const member = (instanceId: ProviderInstanceId, resetsAt: string): ServerProvider => ({
+    instanceId,
+    driver: ProviderDriverKind.make("claudeAgent"),
+    enabled: true,
+    installed: true,
+    version: "1.0.0",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: "2026-10-15T00:00:00.000Z",
+    models: [],
+    slashCommands: [],
+    skills: [],
+    usageLimits: {
+      checkedAt: "2026-10-15T00:00:00.000Z",
+      windows: [{ id: "five_hour", kind: "session", label: "Session", usedPercent: 50, resetsAt }],
+    },
+  });
+  const providers: ReadonlyArray<ServerProvider> = [
+    member(later, "2026-10-15T04:00:00.000Z"),
+    member(sooner, "2026-10-15T02:00:00.000Z"),
+    {
+      ...member(sooner, "2026-10-15T02:00:00.000Z"),
+      instanceId: pool,
+      poolMembers: [later, sooner],
+    },
+  ];
+  const dispatched: Array<OrchestrationV2ServerCommand> = [];
+  const layerTest = ThreadManagementService.layer.pipe(
+    Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+    Layer.provide(
+      Layer.mock(Orchestrator.OrchestratorV2)({
+        getThreadRecords: () =>
+          Effect.succeed({
+            thread: { id: threadId, projectId, deletedAt: null },
+          } as unknown as OrchestrationV2ThreadProjection),
+        getThreadShell: () =>
+          Effect.succeed({
+            modelSelection: { instanceId: later, model: "claude-test" },
+          } as unknown as OrchestrationV2ThreadShell),
+        dispatch: (command) =>
+          Effect.sync(() => {
+            dispatched.push(command);
+            return { sequence: 1, storedEvents: [] } as never;
+          }),
+      }),
+    ),
+    Layer.provide(ProviderRegistryMock.layer(providers)),
+    Layer.provide(
+      ServerSettings.layerTest({
+        providerInstances: {
+          [later]: { driver: ProviderDriverKind.make("claudeAgent") },
+          [sooner]: { driver: ProviderDriverKind.make("claudeAgent") },
+        },
+      }),
+    ),
+    Layer.provide(layerReceiptsTest),
+  );
+
+  return Effect.gen(function* () {
+    const threads = yield* ThreadManagementService.ThreadManagementService;
+    yield* threads.dispatch({
+      type: "thread.model-selection.set",
+      commandId: CommandId.make("command:thread-management:pool-new"),
+      threadId,
+      modelSelection: { instanceId: pool, model: "claude-test" },
+    });
+    yield* threads.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("command:thread-management:pool-follow-up"),
+      threadId,
+      messageId: MessageId.make("message:thread-management:pool-follow-up"),
+      text: "Carry on.",
+      attachments: [],
+      modelSelection: { instanceId: pool, model: "claude-test" },
+      dispatchMode: { type: "queue_after_active" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const selections = dispatched.map((command) =>
+      "modelSelection" in command ? command.modelSelection?.instanceId : undefined,
+    );
+    // Both keep the thread on its member, which still has allowance.
+    expect(selections).toEqual([later, later]);
+  }).pipe(Effect.provide(layerTest));
+});
 
 it.effect(
   "a replay of an already-accepted command id dispatches despite the instance now being disabled",

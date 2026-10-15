@@ -7,9 +7,12 @@ import type {
   ServerProvider,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+
+import { compareByUsageReset } from "../provider/providerPools.ts";
 
 export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentRoleError", {
   reason: Schema.Literals([
@@ -76,7 +79,8 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
   const pool = snapshot.manifest.pools[role.pool];
   const allowed = role.restrictions[request.taskClass] ?? pool.allow;
-  const candidates: Array<{ selection: ModelSelection; alias: string }> = [];
+  const candidates: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
+    [];
   for (const alias of allowed) {
     const binding = snapshot.manifest.models[alias];
     const effort = request.demanding ? role.effort[alias]?.demanding : role.effort[alias]?.default;
@@ -94,6 +98,8 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
     if (!readOnly && binding.driverKind === "claudeAgent") continue;
     for (const provider of input.providers) {
       if (
+        // A pool is reached through its members, ranked below.
+        provider.poolMembers !== undefined ||
         provider.driver !== binding.driverKind ||
         !provider.enabled ||
         !provider.installed ||
@@ -111,6 +117,7 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
         continue;
       candidates.push({
         alias,
+        provider,
         selection: {
           instanceId: provider.instanceId,
           model: binding.model,
@@ -145,15 +152,24 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
     const index = pool.prefer.indexOf(alias);
     return index < 0 ? pool.prefer.length : index;
   };
+  // Accounts in one pool count as one account, so a caller on any member
+  // stays within its pool and gets the member whose usage resets soonest.
+  const account = (instanceId: ProviderInstanceId) =>
+    input.providers.find((provider) => provider.poolMembers?.includes(instanceId))?.instanceId ??
+    instanceId;
+  const currentAccount =
+    input.currentInstanceId === undefined ? undefined : account(input.currentInstanceId);
+  const byUsageReset = compareByUsageReset(DateTime.toEpochMillis(yield* DateTime.now));
   candidates.sort(
     (a, b) =>
       (request.role === "reviewer"
         ? Number(a.selection.model === request.authorModel) -
           Number(b.selection.model === request.authorModel)
         : 0) ||
-      Number(b.selection.instanceId === input.currentInstanceId) -
-        Number(a.selection.instanceId === input.currentInstanceId) ||
-      preference(a.alias) - preference(b.alias),
+      Number(account(b.selection.instanceId) === currentAccount) -
+        Number(account(a.selection.instanceId) === currentAccount) ||
+      preference(a.alias) - preference(b.alias) ||
+      byUsageReset(a.provider, b.provider),
   );
   const first = candidates[0];
   if (first === undefined) return yield* new AgentRoleError({ reason: "no-eligible-model" });

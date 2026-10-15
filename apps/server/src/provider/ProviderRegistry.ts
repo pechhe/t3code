@@ -71,6 +71,7 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import type { ProviderSnapshotSource } from "./builtInProviderCatalog.ts";
+import { withPoolSnapshots, type ProviderPool } from "./providerPools.ts";
 
 export type ProviderMaintenanceActionKind = "update";
 
@@ -528,6 +529,9 @@ export const layer = Layer.effect(
     const maintenanceActionStatesRef = yield* Ref.make<
       ReadonlyMap<ProviderInstanceId, { readonly update?: ServerProviderUpdateState | undefined }>
     >(new Map());
+    const poolsRef = yield* Ref.make<ReadonlyArray<ProviderPool>>(
+      yield* instanceRegistry.listPools,
+    );
 
     // Live-source registry — the dynamic counterpart to the boot-time
     // `bootSources`. Keyed by `instanceId`; the stored `ProviderInstance`
@@ -933,7 +937,9 @@ export const layer = Layer.effect(
             return [[previousProviders, providers] as const, providers];
           },
         );
-        if (haveProvidersChanged(previousProviders, providers)) {
+        const pools = yield* instanceRegistry.listPools;
+        const poolsChanged = !Equal.equals(yield* Ref.getAndSet(poolsRef, pools), pools);
+        if (poolsChanged || haveProvidersChanged(previousProviders, providers)) {
           yield* PubSub.publish(changesPubSub, providers);
         }
         yield* Ref.update(maintenanceActionStatesRef, (previous) => {
@@ -1129,18 +1135,33 @@ export const layer = Layer.effect(
       );
     });
 
+    // Pool snapshots are derived on every read so they follow their members'
+    // latest usage; they are never cached, persisted or refreshed themselves.
+    const withPools = (providers: ReadonlyArray<ServerProvider>) =>
+      Effect.gen(function* () {
+        const pools = yield* Ref.get(poolsRef);
+        const now = yield* DateTime.now;
+        return withPoolSnapshots(providers, pools, DateTime.toEpochMillis(now));
+      });
+
     return {
-      getProviders: Ref.get(providersRef),
+      getProviders: Ref.get(providersRef).pipe(Effect.flatMap(withPools)),
       refresh: (provider?: ProviderDriverKind) =>
-        refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure)),
+        refresh(provider).pipe(Effect.catchCause(recoverRefreshFailure), Effect.flatMap(withPools)),
       refreshInstance: (instanceId: ProviderInstanceId) =>
-        refreshInstance(instanceId).pipe(Effect.catchCause(recoverRefreshFailure)),
+        refreshInstance(instanceId).pipe(
+          Effect.catchCause(recoverRefreshFailure),
+          Effect.flatMap(withPools),
+        ),
       refreshWorkspaceSnapshot: (input) =>
-        refreshWorkspaceSnapshot(input).pipe(Effect.catchCause(recoverRefreshFailure)),
+        refreshWorkspaceSnapshot(input).pipe(
+          Effect.catchCause(recoverRefreshFailure),
+          Effect.flatMap(withPools),
+        ),
       getProviderMaintenanceCapabilitiesForInstance,
       setProviderMaintenanceActionState,
       get streamChanges() {
-        return Stream.fromPubSub(changesPubSub);
+        return Stream.fromPubSub(changesPubSub).pipe(Stream.mapEffect(withPools));
       },
     } satisfies ProviderRegistry["Service"];
   }),

@@ -346,6 +346,47 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.live("records an account pool without starting a driver for it", () =>
+    Effect.gen(function* () {
+      const memberId = ProviderInstanceId.make("codex_member");
+      const poolId = ProviderInstanceId.make("codex_pool");
+      const codexDriverKind = ProviderDriverKind.make("codex");
+      const configMap: ProviderInstanceConfigMap = {
+        [memberId]: {
+          driver: codexDriverKind,
+          enabled: false,
+          config: makeCodexConfig({}),
+        },
+        [poolId]: {
+          driver: codexDriverKind,
+          displayName: "Codex (pooled)",
+          pool: [memberId],
+        },
+      };
+
+      const { registry } = yield* makeProviderInstanceRegistry({
+        drivers: [CodexDriver],
+        configMap,
+      });
+
+      expect((yield* registry.listInstances).map((instance) => instance.instanceId)).toEqual([
+        memberId,
+      ]);
+      expect(yield* registry.getInstance(poolId)).toBeUndefined();
+      expect(yield* registry.listUnavailable).toEqual([]);
+      expect(yield* registry.listPools).toEqual([
+        {
+          instanceId: poolId,
+          driver: codexDriverKind,
+          displayName: "Codex (pooled)",
+          accentColor: undefined,
+          enabled: true,
+          members: [memberId],
+        },
+      ]);
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.live("reports Codex's answer when a redemption changed nothing", () =>
     Effect.gen(function* () {
       if (yield* HostProcess.isWindows) return;

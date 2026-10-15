@@ -128,6 +128,12 @@ export const ProviderInstanceConfig = Schema.Struct({
   environment: Schema.optionalKey(ProviderInstanceEnvironment),
   enabled: Schema.optionalKey(Schema.Boolean),
   config: Schema.optionalKey(Schema.Unknown),
+  /**
+   * Makes this entry an account pool over other instances of `driver`. No
+   * driver runs for a pool: each new thread or turn that selects it is routed
+   * to one member, and `config` is ignored.
+   */
+  pool: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 
