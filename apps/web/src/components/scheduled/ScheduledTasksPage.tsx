@@ -15,7 +15,16 @@ import {
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { CalendarClockIcon, InboxIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import {
+  CalendarClockIcon,
+  InboxIcon,
+  LinkIcon,
+  LockIcon,
+  MessageSquareIcon,
+  PlayIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -25,7 +34,7 @@ import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
 } from "../../logicalProject";
-import { useProjects } from "../../state/entities";
+import { useProjects, useThreadShells } from "../../state/entities";
 import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAllScheduledTasks, useSeenScheduledFailures } from "../../state/scheduledTasks";
@@ -43,6 +52,7 @@ import { Switch } from "../ui/switch";
 import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { useRelativeTimeTick } from "../settings/settingsLayout";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
@@ -647,7 +657,16 @@ function TaskDetail(props: {
         </div>
       ) : null}
 
-      <ChipRow label="On">
+      {boundThreadId !== null && leadEnvironmentId !== null ? (
+        <LinkedThreadPanel
+          environmentId={leadEnvironmentId}
+          threadId={boundThreadId}
+          keepThread={draft.keepThread}
+          project={projectChoices.find((choice) => choice.key === projectKeys[0])?.project ?? null}
+          onToggle={() => update({ keepThread: !draft.keepThread })}
+        />
+      ) : null}
+      <ChipRow label="On" locked={bound}>
         {machines.map((machine) => (
           <Toggle
             key={machine.environmentId}
@@ -671,7 +690,7 @@ function TaskDetail(props: {
           </Toggle>
         ))}
       </ChipRow>
-      <ChipRow label="In">
+      <ChipRow label="In" locked={bound}>
         {projectChoices.map((choice) => {
           const pressed = projectKeys.includes(choice.key);
           return (
@@ -711,39 +730,11 @@ function TaskDetail(props: {
           .
         </p>
       ) : null}
-      {boundThreadId !== null ? (
-        <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-          <span>
-            {draft.keepThread
-              ? "An agent set this task to post into its own thread, so it runs where that thread does."
-              : "Each run starts a new thread once you save."}
-          </span>
-          <Button
-            size="xs"
-            variant="ghost-muted"
-            onClick={() => update({ keepThread: !draft.keepThread })}
-          >
-            {draft.keepThread ? "Start a new thread each run" : "Keep posting into its thread"}
-          </Button>
-          {draft.keepThread && leadEnvironmentId !== null ? (
-            <Button
-              size="xs"
-              variant="ghost-muted"
-              onClick={() =>
-                void navigate({
-                  to: "/$environmentId/$threadId",
-                  params: { environmentId: leadEnvironmentId, threadId: boundThreadId },
-                })
-              }
-            >
-              Open thread
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
-        <span className="text-muted-foreground">Works in</span>
+        <span className="inline-flex items-center gap-1 text-muted-foreground">
+          {bound ? <LockedMark /> : null}
+          Works in
+        </span>
         <Select
           value={draft.workspace}
           onValueChange={(workspace) => workspace && update({ workspace })}
@@ -941,10 +932,87 @@ function RunProjectLabel(props: {
   );
 }
 
-function ChipRow(props: { readonly label: string; readonly children: React.ReactNode }) {
+/** The lock beside a choice the linked thread decides. */
+function LockedMark() {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<span className="inline-flex" aria-label="Set by the linked thread" />}
+      >
+        <LockIcon aria-hidden className="size-3" />
+      </TooltipTrigger>
+      <TooltipPopup side="top">Set by the linked thread</TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/**
+ * The thread a task posts into, when an agent bound it to one. Machine, project and
+ * workspace follow that thread, so the panel names it and offers the way out.
+ */
+function LinkedThreadPanel(props: {
+  readonly environmentId: EnvironmentId;
+  readonly threadId: NonNullable<ScheduledTaskGroup["lead"]["threadId"]>;
+  readonly keepThread: boolean;
+  readonly project: ReturnType<typeof useProjects>[number] | null;
+  readonly onToggle: () => void;
+}) {
+  const navigate = useNavigate();
+  const thread = useThreadShells().find(
+    (candidate) =>
+      candidate.environmentId === props.environmentId && candidate.id === props.threadId,
+  );
+  return (
+    <div
+      data-unlinked={props.keepThread ? undefined : ""}
+      className="flex flex-col gap-2 rounded-lg border border-info/30 bg-info/6 p-3 text-sm data-unlinked:border-border data-unlinked:bg-transparent"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <LinkIcon aria-hidden className="size-3.5 shrink-0 text-info" />
+        <span className="text-muted-foreground">
+          {props.keepThread ? "Posts into" : "Was posting into"}
+        </span>
+        <Button
+          size="xs"
+          variant="outline"
+          className="min-w-0 max-w-80"
+          onClick={() =>
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: { environmentId: props.environmentId, threadId: props.threadId },
+            })
+          }
+        >
+          <MessageSquareIcon />
+          <span className="min-w-0 truncate">{thread?.title ?? "A thread not loaded here"}</span>
+        </Button>
+        {props.project ? <ProjectChip project={props.project} /> : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+        <span>
+          {props.keepThread
+            ? "An agent linked this task to its thread. Each run posts there, so the machine, project and workspace are that thread's and stay locked."
+            : "After you save, each run starts a new thread and you choose where it runs."}
+        </span>
+        <Button size="xs" variant="ghost-muted" onClick={props.onToggle}>
+          {props.keepThread ? "Start a new thread each run" : "Keep posting into this thread"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ChipRow(props: {
+  readonly label: string;
+  readonly locked?: boolean;
+  readonly children: React.ReactNode;
+}) {
   return (
     <div className="flex items-start gap-2 text-sm">
-      <span className="w-8 shrink-0 pt-1 text-muted-foreground">{props.label}</span>
+      <span className="inline-flex w-10 shrink-0 items-center gap-1 pt-1 text-muted-foreground">
+        {props.label}
+        {props.locked ? <LockedMark /> : null}
+      </span>
       <div className="flex flex-wrap gap-1.5">{props.children}</div>
     </div>
   );
