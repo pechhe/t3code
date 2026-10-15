@@ -16,11 +16,17 @@ import { useNowMinute } from "../../hooks/useNowMinute";
 import { observeResize } from "../../lib/observeResize";
 import { environmentPresentations } from "../../state/presentation";
 import { providerClients } from "../settings/providerDriverMeta";
+import { ArrowRightIcon } from "lucide-react";
+
+import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
+import { THREAD_DETAILS_CARD_GAP, THREAD_DETAILS_CARD_WIDTH } from "../chat/threadDetailsCardLayout";
+import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { barColor } from "./UsageLimits";
 
-const CARD_WIDTH_PX = 240;
-const GUTTER_MARGIN_PX = 16;
+// Same width and edge as the thread details card above it, so the two read as one column.
+const CARD_WIDTH_PX = THREAD_DETAILS_CARD_WIDTH;
+const GUTTER_MARGIN_PX = THREAD_DETAILS_CARD_GAP;
 
 /**
  * The account-wide session and weekly windows of each provider pool. Claude also reports
@@ -93,28 +99,36 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
   );
   if (rows.length === 0) return null;
   return (
-    <section
-      aria-label="Usage left"
-      className="pointer-events-auto absolute right-4 flex flex-col gap-2 rounded-xl border border-border/70 bg-popover/95 p-3 text-xs text-popover-foreground shadow-lg backdrop-blur-sm"
-      style={{ bottom, width: CARD_WIDTH_PX }}
+    <div
+      className="dropdown-glass pointer-events-auto absolute overflow-hidden rounded-3xl text-xs"
+      style={{ bottom, right: GUTTER_MARGIN_PX, width: CARD_WIDTH_PX }}
     >
-      <button
-        type="button"
-        className="flex items-center justify-between text-2xs font-medium tracking-wide text-muted-foreground uppercase hover:text-foreground"
-        onClick={() => void navigate({ to: "/usage" })}
+      <ThreadDetailsSection
+        headingId="usage-corner-heading"
+        title="Usage left"
+        separated={false}
+        actions={
+          <ThreadDetailsControl
+            part="icon"
+            aria-label="Open Usage"
+            onClick={() => void navigate({ to: "/usage" })}
+          >
+            <ArrowRightIcon className="size-3.5 text-muted-foreground" />
+          </ThreadDetailsControl>
+        }
       >
-        <span>Usage left</span>
-        <span aria-hidden>→</span>
-      </button>
-      {rows.map(({ pool, window }, index) => (
-        <Fragment key={`${pool.driver}:${window.kind}:${window.id}`}>
-          <UsageCornerRow pool={pool} window={window} now={now} />
-          {pool.accounts.length > 1 && rows[index + 1]?.pool !== pool ? (
-            <PoolLegend pool={pool} />
-          ) : null}
-        </Fragment>
-      ))}
-    </section>
+        <div className="flex flex-col gap-2 px-1.5">
+          {rows.map(({ pool, window }, index) => (
+            <Fragment key={`${pool.driver}:${window.kind}:${window.id}`}>
+              <UsageCornerRow pool={pool} window={window} now={now} />
+              {pool.accounts.length > 1 && rows[index + 1]?.pool !== pool ? (
+                <PoolLegend pool={pool} />
+              ) : null}
+            </Fragment>
+          ))}
+        </div>
+      </ThreadDetailsSection>
+    </div>
   );
 }
 
