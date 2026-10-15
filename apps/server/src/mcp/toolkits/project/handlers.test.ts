@@ -24,6 +24,7 @@ import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../../vcs/VcsProcess.ts";
+import * as ProcessRunner from "../../../processRunner.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as ProjectHandlers from "./handlers.ts";
@@ -82,6 +83,7 @@ it.effect("attributes a launched thread's first message to the calling thread", 
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
       NodeServices.layer,
+      ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
       ServerConfig.layerTest(process.cwd(), { prefix: "t3-source-link-" }).pipe(
         Layer.provide(NodeServices.layer),
       ),
@@ -157,6 +159,7 @@ it.effect("launches a scratch thread into the Scratch project", () =>
       }),
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
       NodeServices.layer,
+      ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
       ServerConfig.layerTest(process.cwd(), { prefix: "t3-scratch-launch-" }).pipe(
         Layer.provide(NodeServices.layer),
       ),
@@ -261,6 +264,7 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
       }),
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
       NodeServices.layer,
+      ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
       ServerConfig.layerTest(process.cwd(), { prefix: "t3-named-project-" }).pipe(
         Layer.provide(NodeServices.layer),
       ),
@@ -363,6 +367,7 @@ const clientLaunchHarness = (input: {
     }),
     Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
     NodeServices.layer,
+    ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
   ).pipe(
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(VcsProcess.layer),
@@ -465,6 +470,56 @@ it.effect("a launch binds only an existing checkout that is one of the project's
     expect((yield* launchInto(worktree)).at(-1)?.result).toMatchObject({
       code: "invalid_request",
     });
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("a colocated jj project binds its jj workspaces and its git worktrees", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-launch-jj-" });
+    const repo = path.join(root, "repo");
+    const jjWorkspace = path.join(root, "jj-feature");
+    const gitWorktree = path.join(root, "git-feature");
+    yield* fileSystem.makeDirectory(repo);
+
+    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+    const { projectId, dependencies } = clientLaunchHarness({
+      runtimeModeCeiling: "auto",
+      launched,
+      workspaceRoot: repo,
+    });
+    const processes = yield* ProcessRunner.ProcessRunner.pipe(Effect.provide(dependencies));
+    for (const [command, args] of [
+      ["git", ["init", "-b", "main"]],
+      [
+        "git",
+        ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init"],
+      ],
+      ["jj", ["git", "init", "--colocate"]],
+      ["jj", ["workspace", "add", jjWorkspace]],
+      ["git", ["worktree", "add", "-b", "feature", gitWorktree]],
+    ] as const) {
+      const output = yield* processes.run({ command, args, cwd: repo, timeout: "30 seconds" });
+      expect(output.code, `${command} ${args.join(" ")}`).toBe(0);
+    }
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+      ),
+    );
+    const launchInto = (worktreePath: string) =>
+      toolkit
+        .handle("t3_thread_launch", {
+          title: "Fix",
+          projectId,
+          workspaceStrategy: { type: "existing_worktree", worktreePath },
+        })
+        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+
+    expect((yield* launchInto(jjWorkspace)).at(-1)?.result).toMatchObject({ projectId });
+    expect((yield* launchInto(gitWorktree)).at(-1)?.result).toMatchObject({ projectId });
+    expect((yield* launchInto(root)).at(-1)?.result).toMatchObject({ code: "invalid_request" });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 

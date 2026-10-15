@@ -33,6 +33,7 @@ import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcs from "../vcs/GitVcsDriver.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Mcp from "./OrchestratorMcpService.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(AgentPolicyManifest));
@@ -209,7 +210,12 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           const after = yield* experiments.report({ experimentId: "forbidden-reviewer" });
           expect(after.assignments).toHaveLength(1);
         }).pipe(
-          Effect.provide(Mcp.layer.pipe(Layer.provide(transportDependencies))),
+          Effect.provide(
+            Mcp.layer.pipe(
+              Layer.provide(transportDependencies),
+              Layer.provide(WorkspaceProvider.layerGitWorktree),
+            ),
+          ),
           Effect.provideService(
             ConfigProvider.ConfigProvider,
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: root }),
@@ -315,7 +321,12 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           const mcp = yield* Mcp.OrchestratorMcpService;
           return yield* mcp.delegateTask(scope, input).pipe(Effect.flip);
         }).pipe(
-          Effect.provide(Mcp.layer.pipe(Layer.provide(transport))),
+          Effect.provide(
+            Mcp.layer.pipe(
+              Layer.provide(transport),
+              Layer.provide(WorkspaceProvider.layerGitWorktree),
+            ),
+          ),
           Effect.provideService(
             ConfigProvider.ConfigProvider,
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),

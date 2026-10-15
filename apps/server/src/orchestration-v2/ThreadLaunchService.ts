@@ -5,6 +5,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import {
   type AgentTaskBinding,
   CommandId,
+  type GitCommandError,
   type ChatAttachment,
   type MessageId,
   type ModelSelection,
@@ -40,6 +41,7 @@ import {
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -212,6 +214,7 @@ const make = Effect.gen(function* () {
   const terminals = yield* TerminalManager.TerminalManager;
   const git = yield* GitWorkflow.GitWorkflowService;
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
+  const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const textGeneration = yield* TextGeneration.TextGeneration;
@@ -276,6 +279,8 @@ const make = Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* projects.getById(input.projectId));
       if (project === undefined) return undefined;
       const cwd = project.workspaceRoot;
+      // SlipJay always starts from the integration branch.
+      if ((yield* workspaces.resolve(cwd)) === "slipjay") return undefined;
       // `git worktree add` reads `-` as the previous checkout.
       if (yield* git.hasCommit({ cwd, refName: baseRef === "-" ? "@{-1}" : baseRef }))
         return undefined;
@@ -319,6 +324,7 @@ const make = Effect.gen(function* () {
     const reused = input.reusedWorktree;
     const tracked = input.workspaceStrategy.type === "worktree" || reused !== undefined;
     let createdWorktreePath: string | null = null;
+    let createdBySlipJay = false;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
     let runReleased = false;
@@ -391,18 +397,36 @@ const make = Effect.gen(function* () {
         input.workspaceStrategy.type === "existing_worktree"
           ? input.workspaceStrategy.worktreePath
           : null;
-      if (input.workspaceStrategy.type === "worktree") {
-        if (runId !== null) {
-          yield* threads
-            .dispatch({
-              type: "prepared-run.progress",
-              commandId: CommandId.make(`${input.commandId}:progress:worktree`),
-              threadId,
-              runId,
-              phase: "worktree",
-            })
-            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
-        }
+      if (input.workspaceStrategy.type === "worktree" && runId !== null) {
+        yield* threads
+          .dispatch({
+            type: "prepared-run.progress",
+            commandId: CommandId.make(`${input.commandId}:progress:worktree`),
+            threadId,
+            runId,
+            phase: "worktree",
+          })
+          .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+      }
+      const slipjay =
+        input.workspaceStrategy.type === "worktree" &&
+        (yield* workspaces.resolve(project.workspaceRoot)) === "slipjay";
+      if (slipjay) {
+        // SlipJay names the workspace after the task and starts it from the
+        // integration branch, so there is no branch to fetch, name or rename.
+        yield* setupTracker.stageStatus(threadId, "fetch", "skipped");
+        yield* setupTracker.stageStatus(threadId, "checkout", "running");
+        const task =
+          requestedBranch ?? initialMessage?.text.trim().split("\n")[0]?.slice(0, 80) ?? "";
+        worktreePath = yield* workspaces
+          .allocate({ projectRoot: project.workspaceRoot, task: task || "T3 thread" })
+          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+        branch = null;
+        createdWorktreePath = worktreePath;
+        createdBySlipJay = true;
+        yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
+        yield* setupTracker.stageStatus(threadId, "checkout", "done");
+      } else if (input.workspaceStrategy.type === "worktree") {
         let startRef = input.workspaceStrategy.baseRef;
         // "Start from origin" is a stored default; repos without the requested
         // remote branch fall back to the local base branch.
@@ -668,29 +692,33 @@ const make = Effect.gen(function* () {
             // The thread forgets the worktree only once it is gone; a failed
             // removal leaves the directory for the user to clean up rather than
             // reusing a checkout that may be half written.
-            yield* git
-              .removeWorktree({ cwd: project.workspaceRoot, path: removedPath, force: true })
-              .pipe(
-                Effect.andThen(
-                  threads
-                    .dispatch({
-                      type: "thread.metadata.update",
-                      commandId: CommandId.make(`${input.commandId}:cancel-workspace`),
-                      threadId,
-                      worktreePath: null,
-                      branch: null,
-                    })
-                    .pipe(Effect.ignore),
-                ),
-                Effect.catchCause((removeCause) =>
-                  Effect.logWarning("Failed to remove an abandoned thread worktree", {
-                    commandId: input.commandId,
+            const removal: Effect.Effect<
+              void,
+              WorkspaceProvider.WorkspaceProviderError | GitCommandError
+            > = createdBySlipJay
+              ? workspaces.release({ projectRoot: project.workspaceRoot, path: removedPath })
+              : git.removeWorktree({ cwd: project.workspaceRoot, path: removedPath, force: true });
+            yield* removal.pipe(
+              Effect.andThen(
+                threads
+                  .dispatch({
+                    type: "thread.metadata.update",
+                    commandId: CommandId.make(`${input.commandId}:cancel-workspace`),
                     threadId,
-                    path: removedPath,
-                    cause: removeCause,
-                  }),
-                ),
-              );
+                    worktreePath: null,
+                    branch: null,
+                  })
+                  .pipe(Effect.ignore),
+              ),
+              Effect.catchCause((removeCause) =>
+                Effect.logWarning("Failed to remove an abandoned thread worktree", {
+                  commandId: input.commandId,
+                  threadId,
+                  path: removedPath,
+                  cause: removeCause,
+                }),
+              ),
+            );
           }
         }),
       ),

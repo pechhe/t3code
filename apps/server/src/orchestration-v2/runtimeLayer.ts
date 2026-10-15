@@ -13,6 +13,7 @@ import * as AgentSessionScanner from "../project/AgentSessionScanner.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -261,6 +262,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
       layerProjectService,
       layerProjectSetupScriptRunner,
       layerManagedProjectFoldersProvided,
+      WorkspaceProvider.layer,
       layerThreadManagementProvided,
       layerCommandReceiptStoreProvided,
       IdAllocator.layer,

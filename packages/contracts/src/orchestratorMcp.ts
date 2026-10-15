@@ -204,7 +204,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   isolation: Schema.optional(
     Schema.Literals(["shared", "worktree"]).annotate({
       description:
-        "Defaults to shared: use the parent's checkout. Worktree creates a separate checkout from the parent's current local commit before starting the child. Uncommitted edits are not copied.",
+        "Defaults to shared: use the parent's checkout. Worktree creates a separate checkout from the parent's current local commit before starting the child; in a repository with slipjay.json it allocates a SlipJay workspace from the integration branch instead. Uncommitted edits are not copied.",
     }),
   ),
   mode: Schema.optional(

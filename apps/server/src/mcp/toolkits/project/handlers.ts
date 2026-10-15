@@ -1,6 +1,5 @@
 import { MessageId, ThreadId, OrchestratorMcpFailure, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
@@ -8,6 +7,8 @@ import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
+import * as FileSystem from "effect/FileSystem";
+import { repositoryStore } from "../../../agents/workspaceIdentity.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
@@ -25,14 +26,20 @@ function projectFailure(error: Project.ProjectServiceError) {
 }
 
 /**
- * An existing checkout a launch may bind: one of the project's own git
- * worktrees. Without this check a launch could point an agent at any directory
- * on the machine.
+ * An existing checkout a launch may bind: a workspace root of the project's own
+ * repository, whether a git worktree or a jj workspace. Without this check a
+ * launch could point an agent at any directory on the machine.
  */
 const assertProjectWorktree = Effect.fn("mcp.assertProjectWorktree")(function* (
   workspaceRoot: string,
   worktreePath: string,
 ) {
+  const store = (root: string) =>
+    repositoryStore(root).pipe(Effect.orElseSucceed((): string | null => null));
+  const project = yield* store(workspaceRoot);
+  if (project !== null && (yield* store(worktreePath)) === project) return;
+  // A colocated jj project's identity is its jj store, while its linked git
+  // worktrees report git's common directory, so git's own list decides those.
   const git = yield* GitVcsDriver.GitVcsDriver;
   const fileSystem = yield* FileSystem.FileSystem;
   const real = (path: string) => fileSystem.realPath(path).pipe(Effect.orElseSucceed(() => path));
@@ -44,7 +51,7 @@ const assertProjectWorktree = Effect.fn("mcp.assertProjectWorktree")(function* (
     return yield* new OrchestratorMcpFailure({
       code: "invalid_request",
       message:
-        "worktreePath must be one of the project's git worktrees. t3_worktree_list shows them.",
+        "worktreePath must be a git worktree or jj workspace of the project's repository. t3_worktree_list shows git worktrees.",
     });
 });
 

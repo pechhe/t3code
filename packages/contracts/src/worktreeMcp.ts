@@ -5,8 +5,8 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 /**
  * Input for the `t3_worktree_handoff` MCP tool.
  *
- * Creates a git worktree for the calling agent thread and re-points the
- * thread at it. Changing the thread's workspace detaches the live provider
+ * Creates a git worktree (or, in a SlipJay repository, a SlipJay workspace)
+ * for the calling agent thread and re-points the thread at it. Changing the thread's workspace detaches the live provider
  * session, so the current turn ends shortly after the handoff is recorded;
  * the conversation continues inside the worktree on the thread's next run.
  */
@@ -86,8 +86,12 @@ export type WorktreeMcpContinuationStatus = typeof WorktreeMcpContinuationStatus
 
 export const WorktreeMcpHandoffResult = Schema.Struct({
   worktreePath: TrimmedNonEmptyString,
-  branch: TrimmedNonEmptyString,
-  baseRef: TrimmedNonEmptyString,
+  branch: Schema.NullOr(TrimmedNonEmptyString).annotate({
+    description: "The new worktree's branch; null for a SlipJay workspace, which has none.",
+  }),
+  baseRef: Schema.NullOr(TrimmedNonEmptyString).annotate({
+    description: "The ref the worktree started from; null for a SlipJay workspace.",
+  }),
   startedFromOrigin: Schema.Boolean,
   setupScript: WorktreeMcpSetupScriptStatus,
   continuation: WorktreeMcpContinuationStatus,

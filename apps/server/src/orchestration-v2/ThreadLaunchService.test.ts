@@ -47,6 +47,7 @@ import * as ProjectStore from "./ProjectStore.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -116,6 +117,8 @@ interface HarnessOptions {
   readonly serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   readonly providers?: ReadonlyArray<ServerProvider>;
   readonly git?: Partial<GitWorkflow.GitWorkflowService["Service"]>;
+  /** The project allocates its workspaces through SlipJay. */
+  readonly slipjay?: boolean;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -152,6 +155,14 @@ function makeHarness(options: HarnessOptions = {}) {
     options.runSetup ?? (() => Effect.succeed({ status: "no-script" as const })),
   );
   const closeTerminal = vi.fn(options.closeTerminal ?? (() => Effect.void));
+  const allocateWorkspace = vi.fn(
+    (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["allocate"]>[0]) =>
+      Effect.succeed("/slipjay/workspaces/build-the-feature"),
+  );
+  const releaseWorkspace = vi.fn(
+    (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["release"]>[0]) =>
+      Effect.void,
+  );
   const generateBranchName = vi.fn(
     options.generateBranchName ?? (() => Effect.succeed({ branch: "generated-branch" })),
   );
@@ -201,6 +212,11 @@ function makeHarness(options: HarnessOptions = {}) {
     }),
     layerServerSettings,
     ProviderRegistryMock.layer(options.providers),
+    Layer.succeed(WorkspaceProvider.WorkspaceProvider, {
+      resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
+      allocate: allocateWorkspace,
+      release: releaseWorkspace,
+    }),
     options.managedFolders ??
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
@@ -255,6 +271,8 @@ function makeHarness(options: HarnessOptions = {}) {
     ),
     createWorktree,
     removeWorktree,
+    allocateWorkspace,
+    releaseWorkspace,
     renameBranch,
     generateBranchName,
     generateThreadTitle,
@@ -1167,6 +1185,72 @@ it.effect("names the worktree itself when the client provides no branch", () =>
           .getThreadProjection(launched.threadId)
           .pipe(Effect.map((projection) => projection.thread.branch === "generated-branch")),
       );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("allocates a SlipJay project's worktree through SlipJay", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({ slipjay: true });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:slipjay",
+          thread: "thread:launch:slipjay",
+          message: "Build the feature\nwith details",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+      );
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(launched.threadId)
+          .pipe(
+            Effect.map(
+              (projection) =>
+                projection.thread.worktreePath === "/slipjay/workspaces/build-the-feature",
+            ),
+          ),
+      );
+      assert.deepEqual(
+        harness.allocateWorkspace.mock.calls.map(([input]) => input),
+        [{ projectRoot: project.workspaceRoot, task: "Build the feature" }],
+      );
+      assert.isEmpty(harness.createWorktree.mock.calls);
+      assert.isEmpty(harness.generateBranchName.mock.calls);
+      assert.isNull((yield* threads.getThreadProjection(launched.threadId)).thread.branch);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("releases a SlipJay workspace when its setup is cancelled", () =>
+  Effect.gen(function* () {
+    const entered = yield* Deferred.make<void>();
+    const harness = makeHarness({
+      slipjay: true,
+      runSetup: () => Deferred.succeed(entered, undefined).pipe(Effect.andThen(Effect.never)),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:slipjay-cancel",
+          thread: "thread:launch:slipjay-cancel",
+          message: "Start",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+      );
+      yield* Deferred.await(entered);
+      assert.isTrue(yield* tracker.cancel(launched.threadId));
+      assert.deepEqual(
+        harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
+        ["/slipjay/workspaces/build-the-feature"],
+      );
+      assert.isEmpty(harness.removeWorktree.mock.calls);
+      assert.isNull((yield* threads.getThreadProjection(launched.threadId)).thread.worktreePath);
     }).pipe(Effect.provide(harness.layer));
   }),
 );
@@ -2923,6 +3007,7 @@ it.effect.each(
         Layer.provide(NodeCrypto.layer),
         Layer.provide(harness.layer),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ resolveCommit })),
+        Layer.provide(WorkspaceProvider.layerGitWorktree),
         Layer.provide(
           Layer.mock(Experiments.ExperimentService)({
             assignForTask: () => Effect.succeed([]),

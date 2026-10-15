@@ -26,6 +26,7 @@ import * as Scheduled from "../scheduledTasks/ScheduledTaskService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as Settings from "../serverSettings.ts";
 import * as Mcp from "./OrchestratorMcpService.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 
@@ -283,7 +284,15 @@ it.effect(
             .pipe(Effect.flip)).code,
         ).toBe("task_not_found");
       }).pipe(
-        Effect.provide(Layer.merge(Mcp.layer.pipe(Layer.provide(dependencies)), dependencies)),
+        Effect.provide(
+          Layer.merge(
+            Mcp.layer.pipe(
+              Layer.provide(dependencies),
+              Layer.provide(WorkspaceProvider.layerGitWorktree),
+            ),
+            dependencies,
+          ),
+        ),
       );
     }),
 );

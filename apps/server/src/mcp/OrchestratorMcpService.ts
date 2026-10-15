@@ -109,6 +109,7 @@ import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -972,6 +973,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const threadLaunch = yield* ThreadLaunchService.ThreadLaunchService;
   const gitDriver = yield* GitVcsDriver.GitVcsDriver;
+  const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
 
   /** A caller-named project, which must exist before anything is recorded against it. */
@@ -2774,18 +2776,23 @@ const make = Effect.gen(function* () {
           const project = yield* requireProject(parent.thread.projectId).pipe(
             Effect.tapError((error) => recordExperimentFailure(error.message)),
           );
-          const base = yield* gitDriver
-            .resolveCommit({
-              cwd: parent.thread.worktreePath ?? project.workspaceRoot,
-              revision: "HEAD",
-            })
-            .pipe(
-              Effect.mapError(() =>
-                failure("invalid_request", "Unable to resolve the parent checkout commit."),
-              ),
-              Effect.tapError((error) => recordExperimentFailure(error.message)),
-            );
-          workspaceStrategy = { type: "worktree", baseRef: base.commitSha, startFromOrigin: false };
+          // A SlipJay workspace starts from the integration branch, so the
+          // parent's commit (which a jj workspace may not expose to git) is unused.
+          const baseRef =
+            (yield* workspaces.resolve(project.workspaceRoot)) === "slipjay"
+              ? "HEAD"
+              : (yield* gitDriver
+                  .resolveCommit({
+                    cwd: parent.thread.worktreePath ?? project.workspaceRoot,
+                    revision: "HEAD",
+                  })
+                  .pipe(
+                    Effect.mapError(() =>
+                      failure("invalid_request", "Unable to resolve the parent checkout commit."),
+                    ),
+                    Effect.tapError((error) => recordExperimentFailure(error.message)),
+                  )).commitSha;
+          workspaceStrategy = { type: "worktree", baseRef, startFromOrigin: false };
         }
         if (workUnit !== undefined && prepared !== undefined)
           yield* experiments
@@ -3616,4 +3623,5 @@ export const layer: Layer.Layer<
   | ProjectService.ProjectService
   | SecretRequests.SecretRequests
   | ServerSettings.ServerSettingsService
+  | WorkspaceProvider.WorkspaceProvider
 > = Layer.effect(OrchestratorMcpService, make);

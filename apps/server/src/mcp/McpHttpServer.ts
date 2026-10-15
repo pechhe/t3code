@@ -1,5 +1,7 @@
 import { ExperimentsToolkit } from "./toolkits/experiments/tools.ts";
 import * as ExperimentsHandlers from "./toolkits/experiments/handlers.ts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -813,10 +815,14 @@ export const layerPreviewToolkit = Layer.mergeAll(
   layerPreviewSnapshotRegistration,
 );
 
+const layerOrchestratorMcpService = OrchestratorMcpService.layer.pipe(
+  Layer.provide(WorkspaceProvider.layer),
+);
+
 export const layerOrchestratorToolkit = toolkitRegistration(
   OrchestratorToolkit,
   OrchestratorHandlers.layer,
-).pipe(Layer.provide(OrchestratorMcpService.layer), Layer.provide(ThreadMetadataMcpService.layer));
+).pipe(Layer.provide(layerOrchestratorMcpService), Layer.provide(ThreadMetadataMcpService.layer));
 
 export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
 
@@ -828,7 +834,7 @@ const layerRolloverToolkitRegistration = toolkitRegistration(
 const layerWorktreeToolkitRegistration = toolkitRegistration(
   WorktreeToolkit,
   WorktreeHandlers.layer,
-).pipe(Layer.provide(WorktreeMcpService.layer));
+).pipe(Layer.provide(WorktreeMcpService.layer.pipe(Layer.provide(WorkspaceProvider.layer))));
 
 const layerPreviewControlsRegistration = toolkitRegistration(
   PreviewControlsToolkit,
@@ -840,7 +846,10 @@ export const layerEnvironmentToolkit = toolkitRegistration(
   EnvironmentHandlers.layer,
 ).pipe(Layer.provide(ThreadCommandExecutor.layer));
 
-const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer);
+// Binding an existing checkout reads its repository identity through jj or git.
+const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer).pipe(
+  Layer.provide(ProcessRunner.layer),
+);
 
 export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentToolkit,
@@ -885,7 +894,7 @@ export const layer = Layer.mergeAll(
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(
-    Layer.provide(OrchestratorMcpService.layer),
+    Layer.provide(layerOrchestratorMcpService),
   ),
   layerRolloverToolkitRegistration,
   layerPullRequestsToolkit,

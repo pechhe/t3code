@@ -37,6 +37,7 @@ import {
 } from "../agents/agentPolicy.testkit.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 
 const environmentId = EnvironmentId.make("environment:work-mcp-test");
@@ -127,6 +128,7 @@ const dependencies = (input: {
       input.session?.(scope, key) ?? Effect.die("unexpected external session lookup"),
   });
   const serviceLayer = OrchestratorMcpService.layer.pipe(
+    Layer.provide(WorkspaceProvider.layerGitWorktree),
     Layer.provide(
       Layer.mergeAll(
         Layer.merge(

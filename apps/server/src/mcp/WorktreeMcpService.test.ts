@@ -28,6 +28,7 @@ import {
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import type * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -86,6 +87,8 @@ const project: Project = {
 } as Project;
 
 interface HarnessOptions {
+  /** The project allocates its workspaces through SlipJay. */
+  readonly slipjay?: boolean;
   readonly thread?: ThreadFixture | null;
   readonly threadReadError?: "projection" | "dispatch";
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
@@ -287,6 +290,15 @@ const makeHarness = (options: HarnessOptions = {}) => {
     }
   });
 
+  const allocateWorkspace = vi.fn(
+    (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["allocate"]>[0]) =>
+      Effect.succeed("/slipjay/workspaces/feature-handoff"),
+  );
+  const releaseWorkspace = vi.fn(
+    (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["release"]>[0]) =>
+      Effect.void,
+  );
+
   // Optional deterministic Path semantics: providing this BEFORE the general
   // mocks means the service resolves Path here rather than from NodeServices,
   // so absolute-path validation is testable independently of the host OS. The
@@ -334,6 +346,11 @@ const makeHarness = (options: HarnessOptions = {}) => {
         Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({
           refreshStatus,
         } satisfies Partial<VcsStatusBroadcaster.VcsStatusBroadcaster["Service"]>),
+        Layer.succeed(WorkspaceProvider.WorkspaceProvider, {
+          resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
+          allocate: allocateWorkspace,
+          release: releaseWorkspace,
+        }),
         NodeServices.layer,
       ),
     ),
@@ -351,6 +368,8 @@ const makeHarness = (options: HarnessOptions = {}) => {
     deleteLocalBranch,
     localStatus,
     runForThread,
+    allocateWorkspace,
+    releaseWorkspace,
   };
 };
 
@@ -933,6 +952,47 @@ describe("t3_worktree_handoff", () => {
         path: "/worktrees/project/feature/dispatch-fails",
         force: true,
       });
+    });
+  });
+
+  it.effect("allocates a SlipJay workspace named after the branch", () => {
+    const harness = makeHarness({ slipjay: true });
+    return Effect.gen(function* () {
+      const result = yield* runHandoff(harness, { branch: "feature/handoff" });
+
+      expect(result).toMatchObject({
+        worktreePath: "/slipjay/workspaces/feature-handoff",
+        branch: null,
+        baseRef: null,
+        startedFromOrigin: false,
+      });
+      expect(harness.allocateWorkspace).toHaveBeenCalledWith({
+        projectRoot: workspaceRoot,
+        task: "feature/handoff",
+      });
+      expect(harness.localStatus).not.toHaveBeenCalled();
+      expect(harness.createWorktree).not.toHaveBeenCalled();
+      expect(harness.dispatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "thread.metadata.update",
+          branch: null,
+          worktreePath: "/slipjay/workspaces/feature-handoff",
+        }),
+      );
+    });
+  });
+
+  it.effect("releases the SlipJay workspace when the thread update fails", () => {
+    const harness = makeHarness({ slipjay: true, dispatchFails: true });
+    return Effect.gen(function* () {
+      const exit = yield* Effect.exit(runHandoff(harness, { branch: "feature/handoff" }));
+      expectTypedFailure(exit, { _tag: "WorktreeMcpFailure", code: "operation_failed" });
+      expect(harness.releaseWorkspace).toHaveBeenCalledWith({
+        projectRoot: workspaceRoot,
+        path: "/slipjay/workspaces/feature-handoff",
+      });
+      expect(harness.removeWorktree).not.toHaveBeenCalled();
+      expect(harness.deleteLocalBranch).not.toHaveBeenCalled();
     });
   });
 
