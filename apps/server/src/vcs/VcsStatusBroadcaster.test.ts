@@ -1,4 +1,5 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
+import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { assert, it, describe } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Cause from "effect/Cause";
@@ -83,6 +84,7 @@ function layerTestFor(state: {
   beforeRemoteStatus?: Effect.Effect<void>;
 }) {
   return VcsStatusBroadcaster.layer.pipe(
+    Layer.provide(SlipJayLandings.layerNone),
     Layer.provideMerge(NodeServices.layer),
     Layer.provide(layerBackgroundPolicy(() => state.backgroundWorkEnabled !== false)),
     Layer.provide(
@@ -164,6 +166,7 @@ describe("VcsStatusBroadcaster", () => {
         refName: "main",
       };
       const layerTest = VcsStatusBroadcaster.layer.pipe(
+        Layer.provide(SlipJayLandings.layerNone),
         Layer.provideMerge(NodeServices.layer),
         Layer.provide(layerBackgroundPolicy(() => true)),
         Layer.provide(
@@ -280,6 +283,7 @@ describe("VcsStatusBroadcaster", () => {
     const firstPollStarted = Deferred.makeUnsafe<void>();
     let remoteReads = 0;
     const layer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provide(SlipJayLandings.layerNone),
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(layerBackgroundPolicy(() => true)),
       Layer.provide(
@@ -325,6 +329,7 @@ describe("VcsStatusBroadcaster", () => {
     const releaseFirstRead = Deferred.makeUnsafe<void>();
     let remoteReads = 0;
     const layer = VcsStatusBroadcaster.layer.pipe(
+      Layer.provide(SlipJayLandings.layerNone),
       Layer.provide(FileSystem.layerNoop({ realPath: (path) => Effect.succeed(path) })),
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(layerBackgroundPolicy(() => true)),
@@ -433,6 +438,7 @@ describe("VcsStatusBroadcaster", () => {
       failRemoteStatus: false,
     };
     const layerTest = VcsStatusBroadcaster.layer.pipe(
+      Layer.provide(SlipJayLandings.layerNone),
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(layerBackgroundPolicy(() => true)),
       Layer.provide(
@@ -543,6 +549,7 @@ describe("VcsStatusBroadcaster", () => {
         remoteInvalidationCalls: 0,
       };
       const layerTest = VcsStatusBroadcaster.layer.pipe(
+        Layer.provide(SlipJayLandings.layerNone),
         Layer.provideMerge(NodeServices.layer),
         Layer.provide(layerBackgroundPolicy(() => true)),
         Layer.provide(
@@ -723,6 +730,7 @@ describe("VcsStatusBroadcaster", () => {
     });
     let firstRemoteAttemptDeferred: Deferred.Deferred<void> | null = null;
     const layerTest = VcsStatusBroadcaster.layer.pipe(
+      Layer.provide(SlipJayLandings.layerNone),
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(layerBackgroundPolicy(() => true)),
       Layer.provide(
@@ -1007,6 +1015,7 @@ describe("VcsStatusBroadcaster", () => {
       remoteInvalidationCalls: 0,
     };
     const layerTest = VcsStatusBroadcaster.layer.pipe(
+      Layer.provide(SlipJayLandings.layerNone),
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(layerBackgroundPolicy(() => false)),
       Layer.provide(
@@ -1060,6 +1069,7 @@ describe("VcsStatusBroadcaster", () => {
     let remoteInterruptedDeferred: Deferred.Deferred<void, never> | null = null;
     let remoteStartedDeferred: Deferred.Deferred<void, never> | null = null;
     const layerTest = VcsStatusBroadcaster.layer.pipe(
+      Layer.provide(SlipJayLandings.layerNone),
       Layer.provideMerge(NodeServices.layer),
       Layer.provide(layerBackgroundPolicy(() => true)),
       Layer.provide(

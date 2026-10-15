@@ -2,6 +2,7 @@ import * as PhiBrowser from "./preview/PhiBrowser.ts";
 import * as PhiBrowserRunner from "./preview/PhiBrowserRunner.ts";
 import * as AdvisorIdleCloseReactor from "./orchestration-v2/AdvisorIdleCloseReactor.ts";
 import * as WorkspaceProvider from "./project/WorkspaceProvider.ts";
+import * as SlipJayLandings from "./project/SlipJayLandings.ts";
 import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
@@ -371,6 +372,8 @@ const layerGit = Layer.empty.pipe(
 
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
   Layer.provide(WorkspaceProvider.layer),
+  // One landing watch per server, shared by status and the landing log RPC.
+  Layer.provideMerge(SlipJayLandings.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
   Layer.provideMerge(layerGit),
 );

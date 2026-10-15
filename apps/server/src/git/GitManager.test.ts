@@ -1,4 +1,5 @@
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
+import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
@@ -896,6 +897,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       let remoteReads = 0;
       const workflowContext = yield* Layer.build(
         GitWorkflowService.layer.pipe(
+          Layer.provide(SlipJayLandings.layerNone),
           Layer.provide(WorkspaceProvider.layerGitWorktree),
           Layer.provide(
             Layer.succeed(GitManager.GitManager, {
@@ -920,6 +922,7 @@ it.layer(layerGitManagerTest)("GitManager", (it) => {
       );
       const broadcasterContext = yield* Layer.build(
         VcsStatusBroadcaster.layer.pipe(
+          Layer.provide(SlipJayLandings.layerNone),
           Layer.provide(
             Layer.succeed(
               GitWorkflowService.GitWorkflowService,

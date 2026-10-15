@@ -12,6 +12,8 @@ import {
   type VcsCreateWorktreeInput,
   type VcsCreateWorktreeResult,
   type VcsListRefsInput,
+  type VcsSlipJayLandingLogInput,
+  type VcsSlipJayLandingLogResult,
   type VcsListRefsResult,
   type GitManagerServiceError,
   type GitPreparePullRequestThreadInput,
@@ -33,6 +35,7 @@ import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
+import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -75,6 +78,10 @@ export class GitWorkflowService extends Context.Service<
     readonly preparePullRequestThread: (
       input: GitPreparePullRequestThreadInput,
     ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
+    /** A SlipJay landing's runner log, for the operation a workspace's status names. */
+    readonly readSlipJayLandingLog: (
+      input: VcsSlipJayLandingLogInput,
+    ) => Effect.Effect<VcsSlipJayLandingLogResult, GitCommandError>;
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
@@ -172,6 +179,7 @@ export const make = Effect.gen(function* () {
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
+  const landings = yield* SlipJayLandings.SlipJayLandings;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -253,6 +261,21 @@ export const make = Effect.gen(function* () {
                 cause,
               }),
           ),
+          // A SlipJay workspace also shows the landing of its change, if one is in view.
+          Effect.flatMap((status) => {
+            const slipJay = status.slipJay;
+            return slipJay === undefined || slipJay.integration === null
+              ? Effect.succeed(status)
+              : landings
+                  .landingFor(input.cwd, slipJay.integration)
+                  .pipe(
+                    Effect.map((landing) =>
+                      landing === undefined
+                        ? status
+                        : { ...status, slipJay: { ...slipJay, landing } },
+                    ),
+                  );
+          }),
         );
 
   const detectGitRepositoryForCommand = Effect.fn(
@@ -389,6 +412,7 @@ export const make = Effect.gen(function* () {
       "GitWorkflowService.preparePullRequestThread",
       gitManager.preparePullRequestThread,
     ),
+    readSlipJayLandingLog: (input) => landings.readLog(input),
     listRefs: (input) =>
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>

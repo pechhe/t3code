@@ -103,6 +103,8 @@ import {
   type TerminalMetadataStreamEvent,
   type PullRequestRef,
   WS_METHODS,
+  WsCoreRpcGroup,
+  WsPullRequestRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -553,6 +555,8 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 
 // Middleware added later wraps middleware added earlier, so instrumentation wraps authorization.
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
+const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
+const ServerWsPullRequestRpcGroup = WsPullRequestRpcGroup.middleware(RpcInstrumentation);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1208,7 +1212,7 @@ const layerWsRpc = (
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
-  ServerWsRpcGroup.toLayer(
+  ServerWsCoreRpcGroup.toLayer(
     Effect.gen(function* () {
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
@@ -1246,8 +1250,6 @@ const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
-      const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
-      const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
       const deviceService = yield* DeviceService.DeviceService;
       const deviceHostContext =
         yield* Effect.context<Effect.Services<ReturnType<typeof remoteSshDeviceHosts>>>();
@@ -1258,15 +1260,6 @@ const layerWsRpc = (
           Effect.orDie,
           Effect.map((id) => CommandId.make(`server:${tag}:${id}`)),
         );
-      const resolvePullRequestSyncKey = (reference: PullRequestRef) =>
-        reference.host !== undefined && reference.repository.includes("/")
-          ? Effect.succeed(pullRequestSyncKey(reference))
-          : projectService.getShell(reference.projectId).pipe(
-              Effect.map((project) =>
-                pullRequestSyncKey(reference, Option.getOrUndefined(project)?.repositoryIdentity),
-              ),
-              Effect.orElseSucceed(() => null),
-            );
       const experiments = yield* ExperimentService.ExperimentService;
       const agentPolicySettings = yield* AgentPolicySettings.AgentPolicySettingsService;
       const usage = yield* UsageService.UsageService;
@@ -1341,7 +1334,6 @@ const layerWsRpc = (
       );
       const sourceControlRepositories =
         yield* SourceControlRepositoryService.SourceControlRepositoryService;
-      const withPullRequestViewer = pullRequests.withRoutingCredential;
       const bootstrapCredentials = yield* PairingGrantStore.PairingGrantStore;
       const sessions = yield* SessionStore.SessionStore;
       const processDiagnostics = yield* ProcessDiagnostics.ProcessDiagnostics;
@@ -1838,7 +1830,7 @@ const layerWsRpc = (
         return result;
       });
 
-      const handlers = ServerWsRpcGroup.of({
+      const handlers = ServerWsCoreRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command) =>
           Effect.annotateCurrentSpan({
             "orchestration_v2.command_id": command.commandId,
@@ -2513,92 +2505,6 @@ const layerWsRpc = (
                 Effect.forkScoped,
               ),
           ),
-        [WS_METHODS.pullRequestsList]: (input) => pullRequests.list(input),
-        [WS_METHODS.pullRequestsListStats]: (input) => pullRequests.listStats(input),
-        [WS_METHODS.pullRequestsRoutingIdentity]: (input) => pullRequests.routingIdentity(input),
-        [WS_METHODS.pullRequestsRouting]: (input) => pullRequests.routing(input),
-        [WS_METHODS.pullRequestsSummary]: (input) =>
-          withPullRequestViewer(input, pullRequests.summary(input)),
-        [WS_METHODS.pullRequestsStack]: (input) =>
-          withPullRequestViewer(input, pullRequests.stack(input)),
-        [WS_METHODS.pullRequestsLinkedThreads]: (input) =>
-          resolvePullRequestSyncKey(input).pipe(
-            Effect.flatMap((key) =>
-              key === null
-                ? Effect.succeed({ threads: [] })
-                : listLinkedPullRequestThreads(key).pipe(
-                    Effect.provideService(SqlClient.SqlClient, sql),
-                  ),
-            ),
-          ),
-        [WS_METHODS.pullRequestsDetail]: (input) =>
-          withPullRequestViewer(input, pullRequests.detail(input)),
-        [WS_METHODS.pullRequestsPreview]: (input) =>
-          withPullRequestViewer(input, pullRequests.preview(input)),
-        [WS_METHODS.pullRequestsChecks]: (input) =>
-          withPullRequestViewer(input, pullRequests.checks(input)),
-        [WS_METHODS.pullRequestsActivity]: (input) =>
-          withPullRequestViewer(input, pullRequests.activity(input)),
-        [WS_METHODS.pullRequestsReviewGuide]: (input) =>
-          withPullRequestViewer(input, reviewGuides.get(input)),
-        [WS_METHODS.pullRequestsGenerateReviewGuide]: (input) =>
-          withPullRequestViewer(input, reviewGuides.generate(input)),
-        [WS_METHODS.pullRequestsThreadComments]: (input) =>
-          withPullRequestViewer(input, pullRequests.threadComments(input)),
-        [WS_METHODS.pullRequestsDiffFileContents]: (input) =>
-          withPullRequestViewer(input, pullRequests.diffFileContents(input)),
-        [WS_METHODS.pullRequestsFilesViewed]: (input) =>
-          withPullRequestViewer(input, pullRequests.filesViewed(input)),
-        [WS_METHODS.pullRequestsSetFilesViewed]: (input) =>
-          withPullRequestViewer(input, pullRequests.setFilesViewed(input)),
-        [WS_METHODS.pullRequestsRunAction]: (input) =>
-          withPullRequestViewer(input, pullRequests.runAction(input)).pipe(
-            Effect.tap(() =>
-              resolvePullRequestSyncKey(input).pipe(
-                Effect.flatMap((key) =>
-                  key === null ? Effect.void : pullRequestSync.requestSync(key),
-                ),
-              ),
-            ),
-          ),
-        [WS_METHODS.pullRequestsUpdate]: (input) =>
-          withPullRequestViewer(input, pullRequests.update(input)),
-        [WS_METHODS.pullRequestsComment]: (input) =>
-          withPullRequestViewer(input, pullRequests.comment(input)),
-        [WS_METHODS.pullRequestsUpdateComment]: (input) =>
-          withPullRequestViewer(input, pullRequests.updateComment(input)),
-        [WS_METHODS.pullRequestsSubmitReview]: (input) =>
-          withPullRequestViewer(input, pullRequests.submitReview(input)),
-        [WS_METHODS.pullRequestsReplyToThread]: (input) =>
-          withPullRequestViewer(input, pullRequests.replyToThread(input)),
-        [WS_METHODS.pullRequestsSetThreadResolution]: (input) =>
-          withPullRequestViewer(input, pullRequests.setThreadResolution(input)),
-        [WS_METHODS.pullRequestsSetReaction]: (input) =>
-          withPullRequestViewer(input, pullRequests.setReaction(input)),
-        [WS_METHODS.pullRequestsReportState]: (input) => pullRequests.reportState(input),
-        [WS_METHODS.pullRequestsInvalidate]: (input) =>
-          pullRequests.invalidate(input, { notifyReaders: true }).pipe(
-            // A reader asking for fresh host state also wants the thread badges it feeds to
-            // catch up, including a merged link the sweep would otherwise never revisit.
-            Effect.andThen(
-              input.reference === undefined || input.filesViewedOnly === true
-                ? Effect.void
-                : resolvePullRequestSyncKey(input.reference).pipe(
-                    Effect.flatMap((key) =>
-                      key === null ? Effect.void : pullRequestSync.requestSync(key),
-                    ),
-                  ),
-            ),
-          ),
-        [WS_METHODS.pullRequestsSubscribeRefreshes]: () => pullRequests.subscribeRefreshes,
-        [WS_METHODS.pullRequestsReviewerCandidates]: (input) =>
-          withPullRequestViewer(input, pullRequests.reviewerCandidates(input)),
-        [WS_METHODS.pullRequestsRequestReviewers]: (input) =>
-          withPullRequestViewer(input, pullRequests.requestReviewers(input)),
-        [WS_METHODS.pullRequestsLabelCandidates]: (input) =>
-          withPullRequestViewer(input, pullRequests.labelCandidates(input)),
-        [WS_METHODS.pullRequestsSetLabels]: (input) =>
-          withPullRequestViewer(input, pullRequests.setLabels(input)),
         [WS_METHODS.sourceControlLookupRepository]: (input) =>
           sourceControlRepositories.lookupRepository(input),
         [WS_METHODS.sourceControlCloneRepository]: (input) =>
@@ -2904,6 +2810,7 @@ const layerWsRpc = (
             .preparePullRequestThread(input)
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsListRefs]: (input) => gitWorkflow.listRefs(input),
+        [WS_METHODS.vcsSlipJayLandingLog]: (input) => gitWorkflow.readSlipJayLandingLog(input),
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>
@@ -3177,6 +3084,114 @@ const layerWsRpc = (
     }),
   );
 
+const layerWsPullRequestRpc = ServerWsPullRequestRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const projectService = yield* ProjectService.ProjectService;
+    const pullRequests = yield* PullRequestService.PullRequestService;
+    const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
+    const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
+    const withPullRequestViewer = pullRequests.withRoutingCredential;
+    const resolvePullRequestSyncKey = (reference: PullRequestRef) =>
+      reference.host !== undefined && reference.repository.includes("/")
+        ? Effect.succeed(pullRequestSyncKey(reference))
+        : projectService.getShell(reference.projectId).pipe(
+            Effect.map((project) =>
+              pullRequestSyncKey(reference, Option.getOrUndefined(project)?.repositoryIdentity),
+            ),
+            Effect.orElseSucceed(() => null),
+          );
+    return ServerWsPullRequestRpcGroup.of({
+      [WS_METHODS.pullRequestsList]: (input) => pullRequests.list(input),
+      [WS_METHODS.pullRequestsListStats]: (input) => pullRequests.listStats(input),
+      [WS_METHODS.pullRequestsRoutingIdentity]: (input) => pullRequests.routingIdentity(input),
+      [WS_METHODS.pullRequestsRouting]: (input) => pullRequests.routing(input),
+      [WS_METHODS.pullRequestsSummary]: (input) =>
+        withPullRequestViewer(input, pullRequests.summary(input)),
+      [WS_METHODS.pullRequestsStack]: (input) =>
+        withPullRequestViewer(input, pullRequests.stack(input)),
+      [WS_METHODS.pullRequestsLinkedThreads]: (input) =>
+        resolvePullRequestSyncKey(input).pipe(
+          Effect.flatMap((key) =>
+            key === null
+              ? Effect.succeed({ threads: [] })
+              : listLinkedPullRequestThreads(key).pipe(
+                  Effect.provideService(SqlClient.SqlClient, sql),
+                ),
+          ),
+        ),
+      [WS_METHODS.pullRequestsDetail]: (input) =>
+        withPullRequestViewer(input, pullRequests.detail(input)),
+      [WS_METHODS.pullRequestsPreview]: (input) =>
+        withPullRequestViewer(input, pullRequests.preview(input)),
+      [WS_METHODS.pullRequestsChecks]: (input) =>
+        withPullRequestViewer(input, pullRequests.checks(input)),
+      [WS_METHODS.pullRequestsActivity]: (input) =>
+        withPullRequestViewer(input, pullRequests.activity(input)),
+      [WS_METHODS.pullRequestsReviewGuide]: (input) =>
+        withPullRequestViewer(input, reviewGuides.get(input)),
+      [WS_METHODS.pullRequestsGenerateReviewGuide]: (input) =>
+        withPullRequestViewer(input, reviewGuides.generate(input)),
+      [WS_METHODS.pullRequestsThreadComments]: (input) =>
+        withPullRequestViewer(input, pullRequests.threadComments(input)),
+      [WS_METHODS.pullRequestsDiffFileContents]: (input) =>
+        withPullRequestViewer(input, pullRequests.diffFileContents(input)),
+      [WS_METHODS.pullRequestsFilesViewed]: (input) =>
+        withPullRequestViewer(input, pullRequests.filesViewed(input)),
+      [WS_METHODS.pullRequestsSetFilesViewed]: (input) =>
+        withPullRequestViewer(input, pullRequests.setFilesViewed(input)),
+      [WS_METHODS.pullRequestsRunAction]: (input) =>
+        withPullRequestViewer(input, pullRequests.runAction(input)).pipe(
+          Effect.tap(() =>
+            resolvePullRequestSyncKey(input).pipe(
+              Effect.flatMap((key) =>
+                key === null ? Effect.void : pullRequestSync.requestSync(key),
+              ),
+            ),
+          ),
+        ),
+      [WS_METHODS.pullRequestsUpdate]: (input) =>
+        withPullRequestViewer(input, pullRequests.update(input)),
+      [WS_METHODS.pullRequestsComment]: (input) =>
+        withPullRequestViewer(input, pullRequests.comment(input)),
+      [WS_METHODS.pullRequestsUpdateComment]: (input) =>
+        withPullRequestViewer(input, pullRequests.updateComment(input)),
+      [WS_METHODS.pullRequestsSubmitReview]: (input) =>
+        withPullRequestViewer(input, pullRequests.submitReview(input)),
+      [WS_METHODS.pullRequestsReplyToThread]: (input) =>
+        withPullRequestViewer(input, pullRequests.replyToThread(input)),
+      [WS_METHODS.pullRequestsSetThreadResolution]: (input) =>
+        withPullRequestViewer(input, pullRequests.setThreadResolution(input)),
+      [WS_METHODS.pullRequestsSetReaction]: (input) =>
+        withPullRequestViewer(input, pullRequests.setReaction(input)),
+      [WS_METHODS.pullRequestsReportState]: (input) => pullRequests.reportState(input),
+      [WS_METHODS.pullRequestsInvalidate]: (input) =>
+        pullRequests.invalidate(input, { notifyReaders: true }).pipe(
+          // A reader asking for fresh host state also wants the thread badges it feeds to
+          // catch up, including a merged link the sweep would otherwise never revisit.
+          Effect.andThen(
+            input.reference === undefined || input.filesViewedOnly === true
+              ? Effect.void
+              : resolvePullRequestSyncKey(input.reference).pipe(
+                  Effect.flatMap((key) =>
+                    key === null ? Effect.void : pullRequestSync.requestSync(key),
+                  ),
+                ),
+          ),
+        ),
+      [WS_METHODS.pullRequestsSubscribeRefreshes]: () => pullRequests.subscribeRefreshes,
+      [WS_METHODS.pullRequestsReviewerCandidates]: (input) =>
+        withPullRequestViewer(input, pullRequests.reviewerCandidates(input)),
+      [WS_METHODS.pullRequestsRequestReviewers]: (input) =>
+        withPullRequestViewer(input, pullRequests.requestReviewers(input)),
+      [WS_METHODS.pullRequestsLabelCandidates]: (input) =>
+        withPullRequestViewer(input, pullRequests.labelCandidates(input)),
+      [WS_METHODS.pullRequestsSetLabels]: (input) =>
+        withPullRequestViewer(input, pullRequests.setLabels(input)),
+    });
+  }),
+);
+
 // A defect in a handler's effect fails only its own request. RpcServer's default
 // sends a socket-level Defect frame instead, and the client ends every pending
 // request on the socket with it. DefectReporter logs these defects.
@@ -3240,12 +3255,15 @@ export const layer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            layerWsRpc(
-              session,
-              clientOrigin,
-              clientAnalyticsProps,
-              previewAutomationBroker,
-              serverBrowser,
+            Layer.merge(
+              layerWsRpc(
+                session,
+                clientOrigin,
+                clientAnalyticsProps,
+                previewAutomationBroker,
+                serverBrowser,
+              ),
+              layerWsPullRequestRpc,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

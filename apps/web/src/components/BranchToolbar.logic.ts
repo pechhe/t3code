@@ -3,6 +3,7 @@ import type {
   EnvironmentMachineKind,
   VcsRef,
   VcsStatusResult,
+  VcsStatusSlipJayLanding,
   ProjectId,
   WorktreeSubmodules,
 } from "@t3tools/contracts";
@@ -121,24 +122,51 @@ export function resolveLockedWorkspaceLabel(
 
 /** Where a thread works in a SlipJay project, from the checkout's VCS status. */
 export interface SlipJayCheckoutStatus {
+  /** The checkout the status describes. */
+  cwd: string;
   /** Null when slipjay.json does not name a usable integration bookmark. */
   integration: string | null;
   workspace: NonNullable<VcsStatusResult["slipJay"]>["workspace"];
   behindCount: number;
   changedFileCount: number;
+  /** The latest landing of the workspace's change, or null when it has none. */
+  landing: VcsStatusSlipJayLanding | null;
 }
 
 /** A checkout in a SlipJay project: the server reports it from the same slipjay.json check. */
 export function resolveSlipJayCheckoutStatus(
   status: VcsStatusResult | null | undefined,
+  cwd: string | null,
 ): SlipJayCheckoutStatus | null {
-  if (status?.slipJay === undefined) return null;
+  if (status?.slipJay === undefined || cwd === null) return null;
   return {
+    cwd,
     integration: status.slipJay.integration,
     workspace: status.slipJay.workspace,
     behindCount: status.behindCount,
     changedFileCount: status.workingTree.files.length,
+    landing: status.slipJay.landing ?? null,
   };
+}
+
+/** The strip's label for a landing, in SlipJay's own stage names. */
+export function resolveSlipJayLandingLabel(landing: VcsStatusSlipJayLanding): string {
+  switch (landing.status) {
+    case "active":
+      return landing.live
+        ? `Landing · ${landing.stage}`
+        : `Landing · ${landing.stage} · reconnecting`;
+    case "landed":
+      return landing.commitId === undefined ? "Landed" : `Landed ${landing.commitId.slice(0, 7)}`;
+    case "failed":
+      return `Land failed: ${landing.stage}`;
+    case "cancelled":
+      return "Land cancelled";
+    case "declined":
+      return "Land declined";
+    case "unknown":
+      return "Land outcome unknown";
+  }
 }
 
 /**

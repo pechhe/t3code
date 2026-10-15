@@ -4367,8 +4367,8 @@ export default function ChatView(props: ChatViewProps) {
   }, [environmentId, gitStatusCwd, liveIsGitRepo]);
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
   const slipJayStatus = useMemo(
-    () => resolveSlipJayCheckoutStatus(gitStatusQuery.data),
-    [gitStatusQuery.data],
+    () => resolveSlipJayCheckoutStatus(gitStatusQuery.data, gitStatusCwd),
+    [gitStatusQuery.data, gitStatusCwd],
   );
   // When context is enabled, keep a hidden, off-flow strip mounted so the composer
   // can measure whether its relocated controls fit. The visible chrome remains

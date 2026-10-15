@@ -27,6 +27,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
 import * as BackgroundPolicy from "../background/BackgroundPolicy.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
+import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
@@ -222,6 +223,7 @@ const normalizeCwd = (cwd: string) =>
 export const make = Effect.gen(function* () {
   const autoPullPolicy = yield* VcsAutoPullPolicy;
   const workflow = yield* GitWorkflowService.GitWorkflowService;
+  const landings = yield* SlipJayLandings.SlipJayLandings;
   const backgroundPolicy = yield* BackgroundPolicy.BackgroundPolicy;
   const fs = yield* FileSystem.FileSystem;
   const changesPubSub = yield* Effect.acquireRelease(
@@ -397,6 +399,25 @@ export const make = Effect.gen(function* () {
       const local = yield* workflow.localStatus({ cwd });
       return yield* updateCachedLocalStatus(cwd, local, { publish: true });
     },
+  );
+
+  // A landing moves on SlipJay's runner, not in the checkout, so a landing change
+  // refreshes every SlipJay checkout this server is showing.
+  yield* landings.changes.pipe(
+    Stream.runForEach(() =>
+      Ref.get(cacheRef).pipe(
+        Effect.flatMap((cache) =>
+          Effect.forEach(
+            [...cache].flatMap(([cwd, cached]) =>
+              cached.local?.value.slipJay === undefined ? [] : [cwd],
+            ),
+            (cwd) => refreshLocalStatusCore(cwd).pipe(Effect.ignore),
+            { discard: true },
+          ),
+        ),
+      ),
+    ),
+    Effect.forkIn(broadcasterScope),
   );
 
   const refreshLocalStatus: VcsStatusBroadcaster["Service"]["refreshLocalStatus"] = Effect.fn(

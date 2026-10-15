@@ -1,4 +1,5 @@
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
+import * as SlipJayLandings from "../project/SlipJayLandings.ts";
 import { assert, describe, expect, it, vi } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -21,6 +22,7 @@ function layer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
 }) {
   return GitWorkflowService.layer.pipe(
+    Layer.provide(SlipJayLandings.layerNone),
     Layer.provide(WorkspaceProvider.layerGitWorktree),
     Layer.provide(
       Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -71,6 +73,7 @@ describe("GitWorkflowService", () => {
         Effect.scoped,
         Effect.provide(
           GitWorkflowService.layer.pipe(
+            Layer.provide(SlipJayLandings.layerNone),
             Layer.provide(WorkspaceProvider.layerGitWorktree),
             Layer.provide(Layer.mock(GitManager.GitManager)({})),
             Layer.provideMerge(GitVcsDriver.layer),
@@ -96,6 +99,7 @@ describe("GitWorkflowService", () => {
       }).pipe(
         Effect.provide(
           GitWorkflowService.layer.pipe(
+            Layer.provide(SlipJayLandings.layerNone),
             Layer.provide(
               Layer.mergeAll(
                 Layer.mock(WorkspaceProvider.WorkspaceProvider)({
@@ -240,6 +244,7 @@ describe("GitWorkflowService", () => {
     const status = vi.fn();
 
     const layerTest = GitWorkflowService.layer.pipe(
+      Layer.provide(SlipJayLandings.layerNone),
       Layer.provide(WorkspaceProvider.layerGitWorktree),
       Layer.provide(
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
@@ -368,6 +373,7 @@ describe("GitWorkflowService", () => {
       Effect.scoped,
       Effect.provide(
         GitWorkflowService.layer.pipe(
+          Layer.provide(SlipJayLandings.layerNone),
           Layer.provide(WorkspaceProvider.layerGitWorktree),
           Layer.provide(
             Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({

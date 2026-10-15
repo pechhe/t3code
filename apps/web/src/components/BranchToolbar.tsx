@@ -10,6 +10,7 @@ import {
   FolderGitIcon,
   FolderIcon,
   GitBranchIcon,
+  GitCommitHorizontalIcon,
   ScaleIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -39,6 +40,7 @@ import {
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
   resolveSlipJayBaseLabel,
+  resolveSlipJayLandingLabel,
   resolveSlipJayWorkspaceLabel,
   shouldShowEnvironmentIndicator,
   type SlipJayCheckoutStatus,
@@ -56,6 +58,7 @@ import {
   THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
 } from "./chat/threadDetailsPanelStyles";
 import { ComposerControl } from "./chat/ComposerControl";
+import { SlipJayLandingLogDialog } from "./SlipJayLandingLogDialog";
 import {
   Menu,
   MenuGroup,
@@ -147,32 +150,45 @@ function showWorkspaceContextMenu(event: ReactMouseEvent, workspacePath: string)
     });
 }
 
-/** A read-only strip or panel row: SlipJay assigns the workspace and its base. */
+/**
+ * A strip or panel row: SlipJay assigns the workspace and its base, so only a
+ * landing's row acts, opening its log.
+ */
 function SlipJayContextRow({
   displayMode = "toolbar",
   icon: Icon,
   label,
   tooltip,
   className,
+  onClick,
 }: {
   displayMode?: "toolbar" | "panel";
   icon: LucideIcon;
   label: string;
   tooltip: string;
   className?: string;
+  onClick?: () => void;
 }) {
   const isPanel = displayMode === "panel";
-  const row = (
-    <span
-      className={cn(
-        "inline-flex h-7 min-w-0 items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6",
-        isPanel && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
-        className,
-      )}
-      data-composer-context-control
-    >
+  const rowClassName = cn(
+    "inline-flex h-7 min-w-0 items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6",
+    isPanel && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
+    onClick && "cursor-pointer rounded-md hover:text-foreground",
+    className,
+  );
+  const content = (
+    <>
       <Icon className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"} />
       <ComposerContextLabel displayMode={displayMode}>{label}</ComposerContextLabel>
+    </>
+  );
+  const row = onClick ? (
+    <button type="button" className={rowClassName} onClick={onClick} data-composer-context-control>
+      {content}
+    </button>
+  ) : (
+    <span className={rowClassName} data-composer-context-control>
+      {content}
     </span>
   );
   return (
@@ -694,7 +710,21 @@ export const BranchToolbar = memo(function BranchToolbar({
       : {
           workspace: resolveSlipJayWorkspaceLabel(slipJayStatus, serverThread === null),
           base: resolveSlipJayBaseLabel(slipJayStatus, serverThread === null),
+          // A draft's status describes the root checkout, not a workspace's change.
+          landing: serverThread === null ? null : slipJayStatus.landing,
         };
+  const [landingLogOpen, setLandingLogOpen] = useState(false);
+  const openLandingLog = useCallback(() => setLandingLogOpen(true), []);
+  const landingLogDialog =
+    slipJayStatus !== null && slipJayRows?.landing ? (
+      <SlipJayLandingLogDialog
+        environmentId={environmentId}
+        cwd={slipJayStatus.cwd}
+        landing={slipJayRows.landing}
+        open={landingLogOpen}
+        onOpenChange={setLandingLogOpen}
+      />
+    ) : null;
 
   // "Previous worktree" hops a draft into the most recently active worktree
   // of this project — the "keep going where I just was" follow-up flow. Only
@@ -802,7 +832,15 @@ export const BranchToolbar = memo(function BranchToolbar({
               label={slipJayRows.workspace}
               tooltip="SlipJay workspace"
             />
-            {slipJayRows.base === null ? null : (
+            {slipJayRows.landing !== null ? (
+              <SlipJayContextRow
+                displayMode="panel"
+                icon={GitCommitHorizontalIcon}
+                label={resolveSlipJayLandingLabel(slipJayRows.landing)}
+                tooltip={slipJayRows.landing.reason ?? "Open the landing log"}
+                onClick={openLandingLog}
+              />
+            ) : slipJayRows.base === null ? null : (
               <SlipJayContextRow
                 displayMode="panel"
                 icon={GitBranchIcon}
@@ -828,6 +866,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
           />
         ) : null}
+        {landingLogDialog}
       </div>
     );
   }
@@ -931,7 +970,15 @@ export const BranchToolbar = memo(function BranchToolbar({
       ) : null}
 
       {slipJayRows ? (
-        slipJayRows.base === null ? null : (
+        slipJayRows.landing !== null ? (
+          <SlipJayContextRow
+            icon={GitCommitHorizontalIcon}
+            label={resolveSlipJayLandingLabel(slipJayRows.landing)}
+            tooltip={slipJayRows.landing.reason ?? "Open the landing log"}
+            className="ml-auto"
+            onClick={openLandingLog}
+          />
+        ) : slipJayRows.base === null ? null : (
           <SlipJayContextRow
             icon={GitBranchIcon}
             label={slipJayRows.base}
@@ -957,6 +1004,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
         />
       ) : null}
+      {landingLogDialog}
     </ComposerSurface.ContextStrip>
   );
 });

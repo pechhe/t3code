@@ -17,6 +17,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import {
   createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
@@ -322,6 +323,12 @@ export function createVcsEnvironmentAtoms<R, E>(
       label: "environment-data:vcs:worktree-setup",
       tag: WS_METHODS.subscribeWorktreeSetup,
       idleTtlMs: VCS_STATUS_IDLE_TTL_MS,
+    }),
+    // A SlipJay landing's runner log, read when the user opens it.
+    slipJayLandingLog: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:slipjay-landing-log",
+      tag: WS_METHODS.vcsSlipJayLandingLog,
+      staleTimeMs: 0,
     }),
     cancelWorktreeSetup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:cancel-worktree-setup",

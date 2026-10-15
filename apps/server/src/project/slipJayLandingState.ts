@@ -1,0 +1,337 @@
+import * as Schema from "effect/Schema";
+
+import type { VcsStatusSlipJayLanding } from "@t3tools/contracts";
+
+/**
+ * SlipJay landing state as `slipjay watch --json` reports it, reduced to what a
+ * workspace's status shows. Only landing operations are tracked; releases, deploys
+ * and resets share the runner but never belong to a workspace.
+ */
+export interface TrackedLanding {
+  readonly operationId: string;
+  /** SlipJay's repository key, lowercase `owner/name`. */
+  readonly repo: string;
+  readonly changeId: string;
+  readonly status: VcsStatusSlipJayLanding["status"];
+  readonly stage: string;
+  readonly commitId?: string;
+  readonly reason?: string;
+}
+
+export interface LandingWatchState {
+  /** The watch is connected and its snapshot and replay are applied. */
+  readonly connected: boolean;
+  /** The last applied global event sequence, for resuming a restarted watch. */
+  readonly cursor: number;
+  /** In submission order, oldest first. */
+  readonly operations: ReadonlyMap<string, TrackedLanding>;
+}
+
+export const initialLandingWatchState: LandingWatchState = {
+  connected: false,
+  cursor: 0,
+  operations: new Map(),
+};
+
+/** Terminal landings kept after they finish, so a thread can still show the result. */
+const RETAINED_TERMINAL_LANDINGS = 200;
+
+const WatchOperation = Schema.Struct({
+  id: Schema.String,
+  kind: Schema.optional(Schema.String),
+  repo: Schema.String,
+  changeId: Schema.optional(Schema.String),
+  stage: Schema.String,
+});
+
+const WatchEvent = Schema.Struct({
+  type: Schema.String,
+  kind: Schema.optional(Schema.String),
+  repo: Schema.optional(Schema.String),
+  changeId: Schema.optional(Schema.String),
+  stage: Schema.optional(Schema.String),
+  commitId: Schema.optional(Schema.String),
+  reason: Schema.optional(Schema.String),
+});
+
+const WatchEnvelope = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("snapshot"),
+    snapshot: Schema.Struct({
+      seq: Schema.Number,
+      lanes: Schema.Struct({ serial: Schema.Array(WatchOperation) }),
+    }),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("event"),
+    event: Schema.Struct({ seq: Schema.Number, operationId: Schema.String, event: WatchEvent }),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("connection"),
+    state: Schema.Literals(["connecting", "connected", "disconnected"]),
+    cursor: Schema.Number,
+  }),
+  Schema.Struct({ type: Schema.Literal("heartbeat") }),
+]);
+export type WatchEnvelope = typeof WatchEnvelope.Type;
+
+const decodeWatchLine = Schema.decodeUnknownOption(Schema.fromJsonString(WatchEnvelope));
+
+/** One stdout line of `slipjay watch --json`; lines of another shape are skipped. */
+export const parseWatchLine = (line: string) => decodeWatchLine(line);
+
+const LandingOutcome = Schema.Struct({
+  status: Schema.String,
+  stage: Schema.String,
+  terminal: Schema.Boolean,
+  publication: Schema.optional(Schema.Struct({ commitId: Schema.optional(Schema.String) })),
+  failure: Schema.optional(
+    Schema.Struct({ reason: Schema.String, stage: Schema.optional(Schema.String) }),
+  ),
+});
+export type LandingOutcome = typeof LandingOutcome.Type;
+
+/** `slipjay runner outcome <operation>` output, or none when it is not one. */
+export const parseLandingOutcome = Schema.decodeUnknownOption(
+  Schema.fromJsonString(LandingOutcome),
+);
+
+const isLanding = (kind: string | undefined) => kind === undefined || kind === "landing";
+
+const withOperation = (
+  state: LandingWatchState,
+  landing: TrackedLanding,
+): ReadonlyMap<string, TrackedLanding> => {
+  const operations = new Map(state.operations);
+  operations.set(landing.operationId, landing);
+  const terminal = [...operations.values()].filter((entry) => entry.status !== "active");
+  for (const stale of terminal.slice(0, Math.max(0, terminal.length - RETAINED_TERMINAL_LANDINGS)))
+    operations.delete(stale.operationId);
+  return operations;
+};
+
+const update = (
+  state: LandingWatchState,
+  operationId: string,
+  change: (landing: TrackedLanding) => TrackedLanding,
+): LandingWatchState => {
+  const landing = state.operations.get(operationId);
+  return landing === undefined
+    ? state
+    : { ...state, operations: withOperation(state, change(landing)) };
+};
+
+export interface AppliedEnvelope {
+  readonly state: LandingWatchState;
+  /**
+   * Landings that were active but are missing from a fresh snapshot without a
+   * terminal event in view: their result has to be read from the runner.
+   */
+  readonly vanished: ReadonlyArray<string>;
+}
+
+export function applyWatchEnvelope(
+  state: LandingWatchState,
+  envelope: WatchEnvelope,
+): AppliedEnvelope {
+  switch (envelope.type) {
+    case "heartbeat":
+      return { state, vanished: [] };
+    case "connection":
+      return {
+        state: {
+          ...state,
+          connected: envelope.state === "connected",
+          cursor: envelope.state === "connected" ? envelope.cursor : state.cursor,
+        },
+        vanished: [],
+      };
+    case "snapshot": {
+      // A snapshot lists only active operations, so it never adds terminal landings to trim.
+      // The watch repeats one after every heartbeat: an unchanged snapshot keeps the same
+      // operations, so nothing downstream refreshes.
+      const listed = new Set<string>();
+      const operations = new Map(state.operations);
+      let changed = false;
+      for (const operation of envelope.snapshot.lanes.serial) {
+        if (!isLanding(operation.kind) || operation.changeId === undefined) continue;
+        listed.add(operation.id);
+        const known = operations.get(operation.id);
+        if (known?.status === "active" && known.stage === operation.stage) continue;
+        changed = true;
+        operations.set(operation.id, {
+          operationId: operation.id,
+          repo: operation.repo.toLowerCase(),
+          changeId: operation.changeId,
+          status: "active",
+          stage: operation.stage,
+          ...(known?.commitId === undefined ? {} : { commitId: known.commitId }),
+        });
+      }
+      const vanished = [...operations.values()]
+        .filter((landing) => landing.status === "active" && !listed.has(landing.operationId))
+        .map((landing) => landing.operationId);
+      return { state: changed ? { ...state, operations } : state, vanished };
+    }
+    case "event": {
+      const { operationId, event, seq } = envelope.event;
+      const advanced = { ...state, cursor: Math.max(state.cursor, seq) };
+      switch (event.type) {
+        case "submitted":
+          if (!isLanding(event.kind) || event.repo === undefined || event.changeId === undefined)
+            return { state: advanced, vanished: [] };
+          return {
+            state: {
+              ...advanced,
+              operations: withOperation(advanced, {
+                operationId,
+                repo: event.repo.toLowerCase(),
+                changeId: event.changeId,
+                status: "active",
+                stage: "queued",
+              }),
+            },
+            vanished: [],
+          };
+        case "stage":
+          return {
+            state: update(advanced, operationId, (landing) =>
+              landing.status === "active" && event.stage !== undefined
+                ? { ...landing, stage: event.stage }
+                : landing,
+            ),
+            vanished: [],
+          };
+        case "landed":
+          return {
+            state: update(advanced, operationId, (landing) => ({
+              ...landing,
+              status: "landed",
+              ...(event.commitId === undefined ? {} : { commitId: event.commitId }),
+            })),
+            vanished: [],
+          };
+        case "failed":
+        case "cancelled":
+        case "declined": {
+          const status = event.type;
+          return {
+            state: update(advanced, operationId, (landing) => ({
+              ...landing,
+              status,
+              ...(event.stage === undefined ? {} : { stage: event.stage }),
+              ...(event.reason === undefined ? {} : { reason: event.reason }),
+            })),
+            vanished: [],
+          };
+        }
+        case "superseded": {
+          // A newer submission of the same change replaces this one.
+          const operations = new Map(advanced.operations);
+          operations.delete(operationId);
+          return { state: { ...advanced, operations }, vanished: [] };
+        }
+        default:
+          return { state: advanced, vanished: [] };
+      }
+    }
+  }
+}
+
+/** Settles a vanished landing from its retained outcome, or marks it unknown without one. */
+export function applyLandingOutcome(
+  state: LandingWatchState,
+  operationId: string,
+  outcome: LandingOutcome | undefined,
+): LandingWatchState {
+  if (outcome?.status === "superseded" && state.operations.has(operationId)) {
+    // As the live event does: the resubmission is the landing to show.
+    const operations = new Map(state.operations);
+    operations.delete(operationId);
+    return { ...state, operations };
+  }
+  return update(state, operationId, (landing): TrackedLanding => {
+    if (landing.status !== "active") return landing;
+    if (outcome === undefined) return { ...landing, status: "unknown" };
+    if (!outcome.terminal) return { ...landing, stage: outcome.stage };
+    const status =
+      outcome.status === "landed" ||
+      outcome.status === "failed" ||
+      outcome.status === "cancelled" ||
+      outcome.status === "declined"
+        ? outcome.status
+        : "unknown";
+    const commitId = outcome.publication?.commitId;
+    const reason = outcome.failure?.reason;
+    return {
+      ...landing,
+      status,
+      stage: outcome.failure?.stage ?? outcome.stage,
+      ...(commitId === undefined ? {} : { commitId }),
+      ...(reason === undefined ? {} : { reason }),
+    };
+  });
+}
+
+/** The latest landing of `changeId` in `repo`, as a workspace's status shows it. */
+export function landingForChange(
+  state: LandingWatchState,
+  repo: string,
+  changeId: string,
+): VcsStatusSlipJayLanding | undefined {
+  const key = repo.toLowerCase();
+  const landing = [...state.operations.values()].findLast(
+    (entry) => entry.repo === key && entry.changeId === changeId,
+  );
+  return landing === undefined ? undefined : toStatusLanding(state, landing);
+}
+
+/** A tracked landing in `repo` by its operation id, as a workspace's status shows it. */
+export function landingForOperation(
+  state: LandingWatchState,
+  repo: string,
+  operationId: string,
+): VcsStatusSlipJayLanding | undefined {
+  const landing = state.operations.get(operationId);
+  return landing === undefined || landing.repo !== repo.toLowerCase()
+    ? undefined
+    : toStatusLanding(state, landing);
+}
+
+/**
+ * The landing a workspace shows for the change it would land. A change already on the
+ * integration bookmark shows only the landing `submitted` from this workspace earlier:
+ * a fresh workspace sits on the integration tip, which is someone else's landed change.
+ * Returns the operation to remember as this workspace's submission.
+ */
+export function resolveWorkspaceLanding(
+  state: LandingWatchState,
+  repo: string,
+  target: { readonly changeId: string; readonly integrated: boolean },
+  submitted: string | undefined,
+): {
+  readonly landing: VcsStatusSlipJayLanding | undefined;
+  readonly submitted: string | undefined;
+} {
+  if (target.integrated) {
+    const landing =
+      submitted === undefined ? undefined : landingForOperation(state, repo, submitted);
+    return { landing, submitted: landing === undefined ? undefined : submitted };
+  }
+  const landing = landingForChange(state, repo, target.changeId);
+  return { landing, submitted: landing?.operationId };
+}
+
+function toStatusLanding(
+  state: LandingWatchState,
+  landing: TrackedLanding,
+): VcsStatusSlipJayLanding {
+  return {
+    operationId: landing.operationId,
+    status: landing.status,
+    stage: landing.stage,
+    ...(landing.commitId === undefined ? {} : { commitId: landing.commitId }),
+    ...(landing.reason === undefined ? {} : { reason: landing.reason }),
+    live: state.connected,
+  };
+}

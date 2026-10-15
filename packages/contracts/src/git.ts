@@ -204,7 +204,21 @@ export const VcsInitInput = Schema.Struct({
 });
 export type VcsInitInput = typeof VcsInitInput.Type;
 
+export const VcsSlipJayLandingLogInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  /** A SlipJay operation id, such as `op_00mv9rf2w1_4e3fcc2f194dee0a482389e6`. */
+  operationId: Schema.String.check(Schema.isPattern(/^op_[A-Za-z0-9_]+$/)),
+});
+export type VcsSlipJayLandingLogInput = typeof VcsSlipJayLandingLogInput.Type;
+
 // RPC Results
+
+export const VcsSlipJayLandingLogResult = Schema.Struct({
+  log: Schema.String,
+  /** The log was longer than T3 reads and ends early. */
+  truncated: Schema.Boolean,
+});
+export type VcsSlipJayLandingLogResult = typeof VcsSlipJayLandingLogResult.Type;
 
 const VcsStatusChangeRequest = Schema.Struct({
   number: PositiveInt,
@@ -223,6 +237,24 @@ const VcsStatusChangeRequest = Schema.Struct({
   updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
+export const VcsStatusSlipJayLanding = Schema.Struct({
+  operationId: TrimmedNonEmptyStringSchema,
+  /**
+   * `active` while queued or running; otherwise SlipJay's terminal outcome, or
+   * `unknown` when the operation left the queue and its outcome could not be read.
+   */
+  status: Schema.Literals(["active", "landed", "failed", "cancelled", "declined", "unknown"]),
+  /** SlipJay's stage name as the runner reports it, e.g. `verifying`. */
+  stage: TrimmedNonEmptyStringSchema,
+  /** The published commit of a landed change. */
+  commitId: Schema.optional(TrimmedNonEmptyStringSchema),
+  /** SlipJay's own reason for a failed, cancelled or declined landing. */
+  reason: Schema.optional(Schema.String),
+  /** False while the runner watch is disconnected, so this is the last reported state. */
+  live: Schema.Boolean,
+});
+export type VcsStatusSlipJayLanding = typeof VcsStatusSlipJayLanding.Type;
+
 const VcsStatusSlipJay = Schema.Struct({
   /** The integration bookmark named by slipjay.json; null when the file cannot be read. */
   integration: Schema.NullOr(TrimmedNonEmptyStringSchema),
@@ -236,6 +268,8 @@ const VcsStatusSlipJay = Schema.Struct({
       isIntegration: Schema.Boolean,
     }),
   ),
+  /** The latest landing of the workspace's change seen on this host, from `slipjay watch`. */
+  landing: Schema.optional(VcsStatusSlipJayLanding),
 });
 
 const VcsStatusLocalShape = {
