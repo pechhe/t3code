@@ -1537,6 +1537,27 @@ export function applyThemeColorPreview(colors: ThemeColors, appearance: ThemeApp
   }
 }
 
+/** How strongly a theme's metal pigment tints the chassis, as in peach-pi's presets. */
+const THEME_METAL_TINT_AMOUNT = "35%";
+
+/**
+ * A theme's device colours, read by the composer finish rules (deviceComposer.css): they
+ * show while the finish is "Match theme" and give way to any other finish.
+ */
+function applyThemeDeviceColors(root: HTMLElement, device: ThemeDefinition["device"]): void {
+  const values: ReadonlyArray<readonly [string, string | undefined]> = [
+    ["--theme-metal-dye", device?.metal],
+    ["--theme-metal-tint-amount", device?.metal ? THEME_METAL_TINT_AMOUNT : undefined],
+    ["--theme-device-screen", device?.screen],
+    ["--theme-device-screen-text", device?.screenText],
+    ["--theme-engrave-active", device?.engraveActive],
+  ];
+  for (const [variable, value] of values) {
+    if (value) root.style.setProperty(variable, value);
+    else root.style.removeProperty(variable);
+  }
+}
+
 export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppearance): void {
   if (typeof document === "undefined") return;
 
@@ -1545,6 +1566,7 @@ export function applyThemePalette(theme: ThemePreference, appearance?: ThemeAppe
 
   setThemePreviewSidebarArtwork(null);
   const palette = getThemeDefinition(theme);
+  applyThemeDeviceColors(root, palette?.device);
 
   if (palette) {
     root.dataset.themeId = palette.id;

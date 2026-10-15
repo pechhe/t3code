@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { environmentThemeDefinition, publishedThemeDefinitions } from "./useEnvironmentTheme";
 import {
+  applyThemePalette,
   getDefaultThemeColors,
   getThemeDefinition,
   installCustomTheme,
@@ -168,6 +169,44 @@ describe("environment themes", () => {
         colors: { canvas: "#eff1f5", accent: "#1e66f5" },
       }).managed,
     ).toBeUndefined();
+  });
+
+  it("paints a published theme's device colours and clears them for a theme without", () => {
+    const style = new Map<string, string>();
+    vi.stubGlobal("document", {
+      documentElement: {
+        classList: { toggle: vi.fn() },
+        dataset: {},
+        style: {
+          setProperty: (name: string, value: string) => style.set(name, value),
+          removeProperty: (name: string) => style.delete(name),
+        },
+      },
+    });
+    try {
+      setEnvironmentThemes([
+        environmentThemeDefinition({
+          ...NIGHTFALL_THEME,
+          device: { metal: "#360202", screen: "#1e1515", engraveActive: "#907aa9" },
+        }),
+        environmentThemeDefinition({ ...NIGHTFALL_THEME, id: "plain" }),
+      ]);
+
+      applyThemePalette("nightfall");
+      expect(style.get("--theme-metal-dye")).toBe("#360202");
+      expect(style.get("--theme-metal-tint-amount")).toBe("35%");
+      expect(style.get("--theme-device-screen")).toBe("#1e1515");
+      expect(style.get("--theme-engrave-active")).toBe("#907aa9");
+      expect(style.has("--theme-device-screen-text")).toBe(false);
+
+      applyThemePalette("plain");
+      expect(style.has("--theme-metal-dye")).toBe(false);
+      expect(style.has("--theme-metal-tint-amount")).toBe(false);
+      expect(style.has("--theme-device-screen")).toBe(false);
+      expect(style.has("--theme-engrave-active")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("resolves published ids only while the machine publishes them", () => {

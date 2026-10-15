@@ -5,7 +5,8 @@
  *
  * A finish is applied on <html>: `data-composer-chassis` forces the silver or
  * anodized body (absent, the chassis follows the theme), and the colour
- * variables below are read by `deviceComposer.css`.
+ * variables below are read by `deviceComposer.css`. Under "Match theme" the
+ * theme's own device colours, if it has any, fill the same variables.
  */
 import { useEffect } from "react";
 
@@ -87,6 +88,8 @@ export function resolveComposerFinish(id: string): ComposerFinish {
 
 function applyComposerFinish(finish: ComposerFinish): void {
   const root = document.documentElement;
+  // "Match theme" lets the theme's own device colours through (deviceComposer.css).
+  root.dataset.composerFinish = finish.id;
   if (finish.chassis) root.dataset.composerChassis = finish.chassis;
   else delete root.dataset.composerChassis;
   for (const [key, variable] of Object.entries(FINISH_VARIABLES)) {

@@ -111,6 +111,19 @@ export const THEME_COLOR_ROLES = [
 export type ThemeColorRole = (typeof THEME_COLOR_ROLES)[number];
 export type ThemeColors = Readonly<Record<ThemeColorRole, string>>;
 export type ThemeVariants = Readonly<Partial<Record<ThemeAppearance, ThemeColors>>>;
+/**
+ * Colours for the machined composer and sidebar, which no palette role covers:
+ * a pigment mixed into the metal, the composer screen and its ink, and the lit
+ * label of the selected sidebar row. Each is optional; an unset one keeps the
+ * stock device look. A composer finish chosen in Settings overrides them.
+ */
+export type ThemeDeviceColors = Readonly<{
+  metal?: string;
+  screen?: string;
+  screenText?: string;
+  engraveActive?: string;
+}>;
+
 export type ThemeDefinition = Readonly<{
   id: string;
   label: string;
@@ -123,6 +136,7 @@ export type ThemeDefinition = Readonly<{
   sidebarArtwork?: boolean;
   /** Generated from the guided editor's canvas and accent roles. */
   managed?: boolean;
+  device?: ThemeDeviceColors;
 }>;
 
 /**

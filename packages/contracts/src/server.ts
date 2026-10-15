@@ -634,6 +634,15 @@ const environmentThemeFields = {
       dark: Schema.optional(EnvironmentThemeColors),
     }),
   ),
+  /** The machined composer and sidebar's own colours (metal pigment, screen, lit label). */
+  device: Schema.optional(
+    Schema.Struct({
+      metal: Schema.optionalKey(EnvironmentThemeColor),
+      screen: Schema.optionalKey(EnvironmentThemeColor),
+      screenText: Schema.optionalKey(EnvironmentThemeColor),
+      engraveActive: Schema.optionalKey(EnvironmentThemeColor),
+    }),
+  ),
 };
 
 /** One published theme file. The id is the filename, not part of the content,

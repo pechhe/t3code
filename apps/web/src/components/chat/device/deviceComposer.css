@@ -9,12 +9,25 @@
  * unlayered so they win over Tailwind utilities on the same elements.
  */
 
+/* Under "Match theme" the active theme's device colours (themePalette.ts) fill the
+   finish variables. Undefined theme variables leave these unset, so the stock look holds. */
+:root[data-composer-finish="auto"] {
+  --metal-dye: var(--theme-metal-dye);
+  --metal-tint-amount: var(--theme-metal-tint-amount);
+  --device-screen: var(--theme-device-screen);
+  --device-screen-text: var(--theme-device-screen-text);
+}
+
+:root {
+  --engrave-active: var(--theme-engrave-active);
+}
+
 /* The palette lives on the composer shell so the docked strips share it. */
 [data-slot="composer-shell"]:has(.composer-device) {
   --crt-metal-top: oklch(0.985 0.002 250);
   --crt-metal: oklch(0.9 0.003 250);
   --crt-metal-bottom: oklch(0.79 0.003 250);
-  /* A finish's pigment (lib/composerFinish.ts) mixed into the metal; none by default. */
+  /* A finish's or theme's pigment (lib/composerFinish.ts) mixed into the metal; none by default. */
   --crt-body-top: color-mix(
     in srgb,
     var(--crt-metal-top),
