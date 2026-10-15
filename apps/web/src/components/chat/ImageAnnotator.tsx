@@ -1,4 +1,5 @@
-import { EraserIcon, XIcon } from "lucide-react";
+import { IMAGE_ANNOTATION_NOTE_MAX_CHARS } from "@t3tools/contracts";
+import { EraserIcon, MousePointer2Icon, MoveUpRightIcon, Undo2Icon, XIcon } from "lucide-react";
 import {
   useEffect,
   useLayoutEffect,
@@ -15,6 +16,8 @@ import { randomUUID } from "~/lib/utils";
 import { notedMarks, toAnnotationMark, type ImageMark } from "~/lib/imageAnnotation";
 
 type Point = { x: number; y: number };
+/** `mark` turns a click into a point and a drag into a box; `arrow` turns a drag into an arrow. */
+type Tool = "mark" | "arrow";
 
 /** A press that travels less than this many pixels is a click, which drops a point. */
 const CLICK_TOLERANCE_PX = 6;
@@ -39,11 +42,16 @@ function sameMarks(left: ReadonlyArray<ImageMark>, right: ReadonlyArray<ImageMar
   return wire(left) === wire(right);
 }
 
+function isTextEntry(target: EventTarget | null): boolean {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+}
+
 /**
  * Full-screen editor for marking up one composer image. Click drops a point, drag draws a
- * box, ⌘/Ctrl-drag draws an arrow; each mark gets a note. Marks left without a note are
- * dropped when the editor closes. Enter finishes a note, ⌘/Ctrl-Enter adds the marks, and
- * leaving with unsaved marks asks first.
+ * box, and the Arrow tool (or holding ⌘/Ctrl) draws an arrow; each mark gets a note. Marks
+ * left without a note are dropped when the editor closes. Enter finishes a note, ⌘/Ctrl-Enter
+ * adds the marks, ⌘/Ctrl-Z takes the last mark back, and leaving with unsaved marks asks
+ * first. Focus stays inside the editor while it is open and returns to where it was after.
  */
 export function ImageAnnotator(props: {
   file: File;
@@ -60,9 +68,11 @@ export function ImageAnnotator(props: {
   const [drag, setDrag] = useState<{ start: Point; current: Point; arrow: boolean } | null>(null);
   const [frameSize, setFrameSize] = useState({ width: 1, height: 1 });
   const [arrowHeld, setArrowHeld] = useState(false);
+  const [tool, setTool] = useState<Tool>("mark");
   const [saving, setSaving] = useState(false);
   // Set by the first Esc or Cancel while there are unsaved marks; the second one leaves.
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const noteInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -84,8 +94,46 @@ export function ImageAnnotator(props: {
   }, []);
 
   useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    dialogRef.current?.focus();
+    return () => previous?.focus();
+  }, []);
+
+  useEffect(() => {
     if (activeId) noteInputRef.current?.focus();
+    else if (dialogRef.current?.contains(document.activeElement) !== true) {
+      dialogRef.current?.focus();
+    }
   }, [activeId]);
+
+  /** Keeps Tab cycling through the editor's own controls instead of the page behind it. */
+  const trapTab = (event: KeyboardEvent) => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = [...dialog.querySelectorAll<HTMLElement>("button:not(:disabled), input")];
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (!first || !last) {
+      event.preventDefault();
+      return;
+    }
+    const active = document.activeElement;
+    const outside = !dialog.contains(active) || active === dialog;
+    if (event.shiftKey && (outside || active === first)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (outside || active === last)) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const undoLastMark = () => {
+    const last = marks.at(-1);
+    if (!last) return;
+    setMarks(marks.slice(0, -1));
+    if (activeId === last.id) setActiveId(null);
+  };
 
   /** Closes the open note; a mark whose note is still empty goes with it. */
   const dismissActiveNote = () => {
@@ -119,6 +167,30 @@ export function ImageAnnotator(props: {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Meta" || event.key === "Control") setArrowHeld(true);
+      if (event.key === "Tab") {
+        trapTab(event);
+        return;
+      }
+      if (
+        event.key.toLowerCase() === "z" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !isTextEntry(event.target)
+      ) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        undoLastMark();
+        return;
+      }
+      // Single-letter tool keys, except while typing a note.
+      if (!event.metaKey && !event.ctrlKey && !event.altKey && !isTextEntry(event.target)) {
+        const key = event.key.toLowerCase();
+        if (key === "a" || key === "m") {
+          event.preventDefault();
+          setTool(key === "a" ? "arrow" : "mark");
+          return;
+        }
+      }
       // Esc closes the open note, then leaves; Enter finishes a note, then adds the marks;
       // ⌘/Ctrl-Enter adds them from anywhere.
       if (event.key === "Escape") {
@@ -129,6 +201,9 @@ export function ImageAnnotator(props: {
         return;
       }
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        // A focused button answers Enter itself; ⌘/Ctrl-Enter still adds the marks.
+        const onButton = event.target instanceof HTMLButtonElement;
+        if (onButton && !event.metaKey && !event.ctrlKey) return;
         event.preventDefault();
         event.stopImmediatePropagation();
         if (activeId && !event.metaKey && !event.ctrlKey) dismissActiveNote();
@@ -162,7 +237,11 @@ export function ImageAnnotator(props: {
     setConfirmingDiscard(false);
     dismissActiveNote();
     const point = pointFromEvent(event);
-    setDrag({ start: point, current: point, arrow: event.metaKey || event.ctrlKey });
+    setDrag({
+      start: point,
+      current: point,
+      arrow: tool === "arrow" || event.metaKey || event.ctrlKey,
+    });
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -263,10 +342,40 @@ export function ImageAnnotator(props: {
     : null;
 
   return createPortal(
-    <div className="image-annotator" role="dialog" aria-modal="true" aria-label="Annotate image">
+    <div
+      ref={dialogRef}
+      className="image-annotator"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Annotate image"
+      tabIndex={-1}
+    >
       <div className="image-annotator-heading">
         <strong>Annotate image</strong>
-        <span>Click to point · drag a box · ⌘-drag an arrow</span>
+        <div className="image-annotator-tools" role="radiogroup" aria-label="Annotation tool">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={tool === "mark"}
+            className="image-annotator-tool"
+            onClick={() => setTool("mark")}
+          >
+            <MousePointer2Icon className="size-3.5" />
+            Point or box
+            <kbd>M</kbd>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={tool === "arrow"}
+            className="image-annotator-tool"
+            onClick={() => setTool("arrow")}
+          >
+            <MoveUpRightIcon className="size-3.5" />
+            Arrow
+            <kbd>A</kbd>
+          </button>
+        </div>
       </div>
       <div className="image-annotator-stage">
         <div
@@ -274,7 +383,7 @@ export function ImageAnnotator(props: {
           role="application"
           aria-label="Annotation canvas"
           className="image-annotator-frame"
-          data-arrow={arrowHeld || drag?.arrow || undefined}
+          data-arrow={tool === "arrow" || arrowHeld || drag?.arrow || undefined}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
@@ -357,6 +466,7 @@ export function ImageAnnotator(props: {
                     type="text"
                     placeholder="What should change here?"
                     value={mark.note}
+                    maxLength={IMAGE_ANNOTATION_NOTE_MAX_CHARS}
                     aria-label="Annotation note"
                     onChange={(event) => updateNote(mark.id, event.currentTarget.value)}
                     onKeyDown={(event) => onNoteKeyDown(event, mark.id)}
@@ -378,12 +488,18 @@ export function ImageAnnotator(props: {
       <p className="image-annotator-hint" data-warning={confirmingDiscard || undefined}>
         {confirmingDiscard
           ? "Your marks will be lost. Press Esc or Cancel again to leave, or ⌘↩ to add them."
-          : arrowHeld
-            ? "Arrow mode: drag to show direction."
-            : "Enter finishes a note · ⌘↩ adds your marks · Esc leaves · Backspace on an empty note deletes the mark"}
+          : tool === "arrow" || arrowHeld
+            ? "Drag from what you mean to where it should go."
+            : "Click to point, drag to box. Enter finishes a note · ⌘Z undoes · ⌘↩ adds your marks"}
       </p>
       <div className="image-annotator-actions">
         {marks.length > 0 ? (
+          <button type="button" className="image-annotator-action" onClick={undoLastMark}>
+            <Undo2Icon className="size-3.5" />
+            Undo
+          </button>
+        ) : null}
+        {marks.length > 1 ? (
           <button
             type="button"
             className="image-annotator-action"

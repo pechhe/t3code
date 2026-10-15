@@ -103,14 +103,17 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-/** Draws the marks at the image's natural size; mark sizes scale with the image width. */
+/**
+ * Draws the marks at the image's natural size. Mark sizes follow the long edge, so a tall
+ * phone screenshot a provider scales down still carries readable numbers.
+ */
 export function drawImageMarks(
   context: CanvasRenderingContext2D,
   marks: ReadonlyArray<ImageAnnotationMark>,
   width: number,
   height: number,
 ): void {
-  const badge = Math.max(14, Math.round(width * 0.013));
+  const badge = Math.max(14, Math.round(Math.max(width, height) * 0.013));
   const stroke = Math.max(3, Math.round(badge * 0.22));
   const placeBadge = (x: number, y: number, label: string) =>
     drawBadge(

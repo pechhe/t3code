@@ -152,6 +152,8 @@ function RolloverBand(props: {
   onChange: ((thresholds: RolloverBandThresholds | null) => void) | undefined;
 }) {
   const [drag, setDrag] = useState<BandDrag | null>(null);
+  // Controlled so the tooltip stays up through a drag and closes on release.
+  const [hoverOpen, setHoverOpen] = useState(false);
   // A released drag holds its place until the saved thresholds come back from the server.
   const [released, setReleased] = useState<{
     readonly from: RolloverBandThresholds;
@@ -200,10 +202,15 @@ function RolloverBand(props: {
   const end = () => {
     if (!drag) return;
     setDrag(null);
+    setHoverOpen(false);
     const { current, start } = drag;
     if (current.soft === start.soft && current.hard === start.hard) return;
     setReleased({ from: props.thresholds, value: current });
     props.onChange?.(current);
+  };
+  const cancel = () => {
+    setDrag(null);
+    setHoverOpen(false);
   };
   const nudge = (part: "soft" | "hard") => (event: KeyboardEvent<HTMLSpanElement>) => {
     const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -232,13 +239,13 @@ function RolloverBand(props: {
         onPointerDown={begin(part)}
         onPointerMove={move}
         onPointerUp={end}
-        onPointerCancel={() => setDrag(null)}
+        onPointerCancel={cancel}
         onKeyDown={nudge(part)}
       />
     ) : null;
 
   return (
-    <Tooltip {...(drag ? { open: true } : {})}>
+    <Tooltip open={drag !== null || hoverOpen} onOpenChange={setHoverOpen}>
       <TooltipTrigger
         render={
           <span
@@ -250,7 +257,7 @@ function RolloverBand(props: {
             onPointerDown={begin("band")}
             onPointerMove={move}
             onPointerUp={end}
-            onPointerCancel={() => setDrag(null)}
+            onPointerCancel={cancel}
             onDoubleClick={() => {
               if (props.custom) props.onChange?.(null);
             }}

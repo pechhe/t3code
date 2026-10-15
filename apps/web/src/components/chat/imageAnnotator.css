@@ -15,20 +15,62 @@
   font-size: 12px;
 }
 
+.image-annotator:focus {
+  outline: none;
+}
+
 .image-annotator-heading {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
   text-align: center;
 }
 
-.image-annotator-heading span,
-.image-annotator-hint {
-  color: rgb(255 255 255 / 0.58);
+/* Two-way tool switch: the checked tool takes the mark colour. */
+.image-annotator-tools {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 0.06);
+}
+
+.image-annotator-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  color: rgb(255 255 255 / 0.7);
+}
+
+.image-annotator-tool:hover {
+  color: white;
+}
+
+.image-annotator-tool[aria-checked="true"] {
+  background: var(--annotation-mark);
+  color: white;
+  font-weight: 650;
+}
+
+.image-annotator-tool kbd {
+  font: inherit;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.image-annotator-tool:focus-visible,
+.image-annotator-action:focus-visible {
+  outline: 2px solid rgb(255 255 255 / 0.8);
+  outline-offset: 2px;
 }
 
 .image-annotator-hint {
   margin: 0;
+  color: rgb(255 255 255 / 0.58);
 }
 
 .image-annotator-hint[data-warning] {

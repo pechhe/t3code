@@ -194,7 +194,9 @@ export type PreviewAnnotationContextRecord = typeof PreviewAnnotationContextReco
 
 /** A position as a fraction of the image's width or height. */
 const ImageFraction = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
-const ImageAnnotationNote = BoundedString(COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS);
+/** The longest note one image mark can carry. */
+export const IMAGE_ANNOTATION_NOTE_MAX_CHARS = COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS;
+const ImageAnnotationNote = BoundedString(IMAGE_ANNOTATION_NOTE_MAX_CHARS);
 
 /** One numbered mark the user drew on an image, with their note about it. */
 export const ImageAnnotationMark = Schema.Union([
