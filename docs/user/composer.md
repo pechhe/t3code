@@ -271,8 +271,8 @@ history on demand, so attaching a long thread costs nothing until the agent look
 thread does not change it, and the agent cannot send messages to it unless you ask.
 
 You can also paste a thread's ID. Click a thread's title, or choose **Copy thread ID** in its
-menu, to copy it; the link button at the left of the header buttons attaches the thread you are
-viewing to its own composer straight away. A thread from an
+menu, to copy it. The link button that appears on a sidebar row when you hover it, left of the
+snooze button, attaches that thread to the composer you have open straight away. A thread from an
 environment [linked](remote-access.md#link-two-environments) to the composer's attaches as a
 live chip, by paste or drag, and the agent reads it live.
 

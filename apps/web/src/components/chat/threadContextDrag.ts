@@ -100,7 +100,18 @@ export function dropThreadContext(
   point: { x: number; y: number },
   threads: ReadonlyArray<ScopedThreadRef>,
 ): boolean {
-  const target = findDropTarget(point);
+  return handToComposer(findDropTarget(point), threads);
+}
+
+/** Hands threads to the composer on screen, as a drop would. False when no composer is open. */
+export function attachThreadsToComposer(threads: ReadonlyArray<ScopedThreadRef>): boolean {
+  return handToComposer(document.querySelector<HTMLElement>(`[${DROP_TARGET_ATTRIBUTE}]`), threads);
+}
+
+function handToComposer(
+  target: HTMLElement | null,
+  threads: ReadonlyArray<ScopedThreadRef>,
+): boolean {
   if (!target || threads.length === 0) return false;
   target.dispatchEvent(new CustomEvent(THREAD_CONTEXT_DROP_EVENT, { detail: threads }));
   return true;

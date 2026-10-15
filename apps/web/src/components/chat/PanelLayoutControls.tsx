@@ -1,10 +1,9 @@
-import { LinkIcon, PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
+import { PanelBottomIcon, PanelRightIcon, SquareMenuIcon } from "lucide-react";
 import { Maximize2, Minimize2 } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { memo, type ReactElement } from "react";
 
 import type { ThreadPanelPresentation } from "../../rightPanelLayout";
-import { Button } from "../ui/button";
 import { PopoverCreateHandle, PopoverTrigger } from "../ui/popover";
 import { Toggle } from "../ui/toggle";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -27,8 +26,6 @@ export interface PanelLayoutControlsProps {
   onToggleTerminal: () => void;
   onToggleThreadPanel: () => void;
   onToggleRightPanel: () => void;
-  /** Present for a thread that exists on the server: inserts it into the composer as context. */
-  onInsertThread?: () => void;
 }
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
@@ -49,7 +46,6 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
   onToggleTerminal,
   onToggleThreadPanel,
   onToggleRightPanel,
-  onInsertThread,
 }: PanelLayoutControlsProps) {
   const threadPanelToggle = (
     <Toggle
@@ -80,24 +76,6 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
-      {onInsertThread ? (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                className="shrink-0 [-webkit-app-region:no-drag]"
-                aria-label="Insert this thread into the composer"
-                variant="ghost"
-                size="icon-sm"
-                onClick={onInsertThread}
-              />
-            }
-          >
-            <LinkIcon className="size-4" />
-          </TooltipTrigger>
-          <TooltipPopup side="bottom">Insert this thread into the composer</TooltipPopup>
-        </Tooltip>
-      ) : null}
       {showThreadPanelControl
         ? threadPanelPresentation === "popover"
           ? threadPanelTooltip(
