@@ -1,0 +1,237 @@
+/* Full-screen image annotator. The marks match what `drawImageMarks` bakes into the image. */
+.image-annotator {
+  --annotation-mark: #14ce4c;
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: rgb(8 9 11 / 0.86);
+  backdrop-filter: blur(6px);
+  color: white;
+  font-size: 12px;
+}
+
+.image-annotator-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+}
+
+.image-annotator-heading span,
+.image-annotator-hint {
+  color: rgb(255 255 255 / 0.58);
+}
+
+.image-annotator-hint {
+  margin: 0;
+}
+
+.image-annotator-stage {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+}
+
+/* Shrink-wraps the image so percentage positions match its pixels. */
+.image-annotator-frame {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  max-height: 100%;
+  line-height: 0;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
+
+.image-annotator-frame[data-arrow] {
+  cursor: alias;
+}
+
+.image-annotator-image {
+  display: block;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 128px);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
+}
+
+.image-annotator-box {
+  position: absolute;
+  border: 2px solid var(--annotation-mark);
+  border-radius: 4px;
+  background: rgb(20 206 76 / 0.08);
+  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.75);
+}
+
+.image-annotator-box[data-preview] {
+  border-style: dashed;
+  pointer-events: none;
+}
+
+.image-annotator-box[data-active] {
+  background: rgb(20 206 76 / 0.24);
+}
+
+.image-annotator-line {
+  position: absolute;
+  height: 0;
+  border-top: 3px solid var(--annotation-mark);
+  transform-origin: left center;
+  filter: drop-shadow(0 0 1px white);
+}
+
+.image-annotator-line::after {
+  content: "";
+  position: absolute;
+  top: -7.5px;
+  right: -2px;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 12px solid var(--annotation-mark);
+}
+
+.image-annotator-line[data-preview] {
+  pointer-events: none;
+}
+
+.image-annotator-point {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.image-annotator-point i {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--annotation-mark);
+  box-shadow:
+    0 0 0 2px rgb(255 255 255 / 0.95),
+    0 2px 8px rgb(0 0 0 / 0.35);
+  transform: translate(-50%, -50%);
+}
+
+.image-annotator-badge {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1.5px solid rgb(255 255 255 / 0.9);
+  border-radius: 999px;
+  background: var(--annotation-mark);
+  color: white;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 0.38);
+  cursor: pointer;
+}
+
+.image-annotator-point .image-annotator-badge {
+  transform: translate(8px, -30px);
+}
+
+.image-annotator-badge-anchor {
+  transform: translate(-50%, -50%);
+}
+
+.image-annotator-badge[data-active] {
+  outline: 3px solid rgb(71 232 117 / 0.42);
+}
+
+.image-annotator-note {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 8px 8px 8px 12px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgb(34 36 40 / 0.98), rgb(18 19 22 / 0.98));
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.04),
+    0 18px 40px rgb(0 0 0 / 0.45);
+  line-height: normal;
+}
+
+.image-annotator-note input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 2px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: rgb(255 255 255 / 0.96);
+  font-size: 13px;
+}
+
+.image-annotator-note input::placeholder {
+  color: rgb(255 255 255 / 0.38);
+}
+
+.image-annotator-note-delete {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.06);
+  color: rgb(255 150 150 / 0.95);
+}
+
+.image-annotator-note-delete:hover {
+  background: rgb(255 80 80 / 0.18);
+}
+
+.image-annotator-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-annotator-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 9px;
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(255 255 255 / 0.86);
+}
+
+.image-annotator-action:hover {
+  background: rgb(255 255 255 / 0.16);
+}
+
+.image-annotator-action[data-primary] {
+  border-color: transparent;
+  background: var(--annotation-mark);
+  color: white;
+  font-weight: 650;
+}
+
+.image-annotator-action:disabled {
+  opacity: 0.6;
+}
+
+.image-annotator-kbd {
+  color: rgb(255 255 255 / 0.38);
+  font-size: 11px;
+}

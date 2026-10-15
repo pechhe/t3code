@@ -641,6 +641,8 @@ interface ComposerDraftStoreState {
     options?: { allowDuplicates?: boolean },
   ) => string[];
   removeImage: (threadRef: ComposerThreadTarget, imageId: string) => void;
+  /** Swaps an image's file in place, keeping its id so prompt references still point at it. */
+  replaceImageFile: (threadRef: ComposerThreadTarget, imageId: string, file: File) => void;
   /** Returns the ids of files appended; a re-pick that replaces a marker is not listed. */
   addFiles: (
     threadRef: ComposerThreadTarget,
@@ -3526,6 +3528,36 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftsByThreadKey[threadKey] = nextDraft;
             }
             return { draftsByThreadKey: nextDraftsByThreadKey };
+          });
+        },
+        replaceImageFile: (threadRef, imageId, file) => {
+          const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
+          if (threadKey.length === 0) return;
+          const previous = get().draftsByThreadKey[threadKey]?.images.find(
+            (image) => image.id === imageId,
+          );
+          if (!previous) return;
+          revokeObjectPreviewUrl(previous.previewUrl);
+          set((state) => {
+            const current = state.draftsByThreadKey[threadKey];
+            if (!current) return state;
+            // The name stays, so chips that label this image in the prompt stay accurate.
+            const nextImage: ComposerImageAttachment = {
+              ...previous,
+              mimeType: file.type,
+              sizeBytes: file.size,
+              previewUrl: URL.createObjectURL(file),
+              file,
+            };
+            return {
+              draftsByThreadKey: {
+                ...state.draftsByThreadKey,
+                [threadKey]: {
+                  ...current,
+                  images: current.images.map((image) => (image.id === imageId ? nextImage : image)),
+                },
+              },
+            };
           });
         },
         addFiles: (threadRef, files, options) => {

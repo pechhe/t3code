@@ -164,6 +164,13 @@ import {
 } from "./ComposerBannerStack";
 import { compressImageForStash, prepareImageForAttachment } from "../../lib/imageCompression";
 import {
+  buildAnnotationBrief,
+  flattenAnnotatedImage,
+  replaceAnnotationBrief,
+  type ImageMark,
+} from "../../lib/imageAnnotation";
+import { ImageAnnotator } from "./ImageAnnotator";
+import {
   fileAttachmentTooLargeMessage,
   formatAttachmentSize,
 } from "@t3tools/client-runtime/state/attachments";
@@ -1972,6 +1979,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const openPrLink = useOpenPrLink(routeThreadRef);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const previewFile = composerFiles.find((file) => file.id === previewFileId);
+  const [annotating, setAnnotating] = useState<{
+    image: ComposerImageAttachment;
+    original: File;
+    marks: ImageMark[];
+  } | null>(null);
+  /**
+   * Per image, the unmarked original, its marks and the brief written into the prompt, so
+   * reopening the annotator edits the marks instead of drawing over the baked-in ones.
+   * Lives for the page session; after a reload the marked image is annotated afresh.
+   */
+  const imageAnnotationsRef = useRef(
+    new Map<string, { original: File; marks: ImageMark[]; brief: string | null }>(),
+  );
   const composerContextActions = useMemo(
     () => ({
       environmentId,
@@ -2070,6 +2090,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
+  const replaceComposerDraftImageFile = useComposerDraftStore((store) => store.replaceImageFile);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const removeComposerDraftFile = useComposerDraftStore((store) => store.removeFile);
   const setComposerDraftFileUpload = useComposerDraftStore((store) => store.setFileUpload);
@@ -6274,6 +6295,39 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return true;
   };
 
+  /** Bakes the marks into the image and keeps its brief in the prompt in step with them. */
+  const applyImageAnnotation = async (image: ComposerImageAttachment, marks: ImageMark[]) => {
+    const previous = imageAnnotationsRef.current.get(image.id);
+    const original = previous?.original ?? image.file;
+    let nextFile = original;
+    if (marks.length > 0) {
+      try {
+        const prepared = await prepareImageForAttachment(
+          await flattenAnnotatedImage(original, marks),
+          PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+        );
+        if (!prepared.ok) throw new Error(prepared.reason);
+        nextFile = prepared.file;
+      } catch {
+        toastManager.add({ type: "error", title: `Could not annotate ${image.name}.` });
+        return;
+      }
+    }
+    setAnnotating(null);
+    if (!previous && marks.length === 0) return;
+    // The image may have been removed from the draft while the annotator was open.
+    if (!composerImagesRef.current.some((candidate) => candidate.id === image.id)) return;
+    const brief = buildAnnotationBrief(
+      formatInlineContextReference(imageContextReference(image)),
+      marks,
+    );
+    releaseAttachmentUpload(image.id);
+    replaceComposerDraftImageFile(attachmentDraftTarget, image.id, nextFile);
+    setPrompt(replaceAnnotationBrief(promptRef.current, previous?.brief ?? null, brief));
+    if (marks.length > 0) imageAnnotationsRef.current.set(image.id, { original, marks, brief });
+    else imageAnnotationsRef.current.delete(image.id);
+  };
+
   const removeComposerImage = (imageId: string) => {
     const image = composerImagesRef.current.find((candidate) => candidate.id === imageId);
     const referenced = collectInlineContextIds(promptRef.current).includes(
@@ -7483,15 +7537,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                             {image.previewUrl ? (
                               <button
                                 type="button"
-                                className="h-full w-full cursor-zoom-in"
-                                aria-label={`Preview ${image.name}`}
+                                className="h-full w-full cursor-crosshair"
+                                aria-label={`Annotate ${image.name}`}
                                 onClick={() => {
-                                  const preview = buildExpandedImagePreview(
-                                    composerImages,
-                                    image.id,
-                                  );
-                                  if (!preview) return;
-                                  onExpandImage(preview);
+                                  const session = imageAnnotationsRef.current.get(image.id);
+                                  setAnnotating({
+                                    image,
+                                    original: session?.original ?? image.file,
+                                    marks: session?.marks ?? [],
+                                  });
                                 }}
                               >
                                 <ComposerImageThumbnail
@@ -7805,6 +7859,15 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       />
                     </DialogPopup>
                   </Dialog>
+                ) : null}
+                {annotating ? (
+                  <ImageAnnotator
+                    key={annotating.image.id}
+                    file={annotating.original}
+                    initialMarks={annotating.marks}
+                    onDone={(marks) => applyImageAnnotation(annotating.image, marks)}
+                    onClose={() => setAnnotating(null)}
+                  />
                 ) : null}
                 <ComposerContextActionsContext value={composerContextActions}>
                   <ComposerPromptEditor
