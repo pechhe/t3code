@@ -20,7 +20,8 @@
 # When the desktop's managed server already runs this version (a rebuild of
 # the version that is live), it is restarted on the same port; the desktop's
 # tunnel reconnects to it. A newer version needs no restart: the desktop starts
-# it when the matching app connects.
+# it when the matching app connects. An installed boot service is reconciled
+# to the deployed version and restarted even for a rebuild of the same version.
 set -euo pipefail
 
 MODE="$1"
@@ -81,6 +82,19 @@ mkdir -p "$VERSIONS"
 mv "$work/fork/$ARCHIVE" "$PENDING"
 echo "built fork runtime $VERSION ($commit)"
 exit 0
+fi
+
+# Boot services live outside the desktop SSH-launch registry. Use the CLI's
+# service lifecycle so its unit, version state, base directory and drop-ins stay coherent.
+if [ -f "$HOME/.config/systemd/user/t3code.service" ]; then
+  service_pid="$(systemctl --user show t3code.service --property=MainPID --value)"
+  "$TARGET/t3" service install --base-dir "$HOME/.t3"
+  # install is a no-op for the same version, but the fork's executable changed.
+  if [ "$(systemctl --user show t3code.service --property=MainPID --value)" = "$service_pid" ]; then
+    "$TARGET/t3" service restart --base-dir "$HOME/.t3"
+  fi
+  "$TARGET/t3" service status --base-dir "$HOME/.t3"
+  echo "updated the boot service to $VERSION ($commit)"
 fi
 
 for state in "$HOME"/.t3/ssh-launch/*/; do

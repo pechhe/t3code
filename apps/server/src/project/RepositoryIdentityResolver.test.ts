@@ -312,6 +312,22 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 
+  it.effect("retains a partial clone's fork origin when git annotates its fetch URL", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-partial-fork-" });
+      yield* git(cwd, ["init"]);
+      yield* git(cwd, ["remote", "add", "origin", "https://github.com/pechhe/t3code.git"]);
+      yield* git(cwd, ["remote", "add", "upstream", "https://github.com/pingdotgg/t3code.git"]);
+      yield* git(cwd, ["config", "remote.origin.promisor", "true"]);
+      yield* git(cwd, ["config", "remote.origin.partialclonefilter", "blob:none"]);
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const identity = yield* resolver.resolve(cwd);
+      expect(identity?.canonicalKey).toBe("github.com/pingdotgg/t3code");
+      expect(identity?.origin?.canonicalKey).toBe("github.com/pechhe/t3code");
+    }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
   it.effect("uses the last remote path segment as the repository name for nested groups", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
