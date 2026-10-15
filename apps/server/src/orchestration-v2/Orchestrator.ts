@@ -6892,6 +6892,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ...(command.title === undefined ? {} : { title: command.title }),
         ordinal: parentProjection.subagents.length + 1,
       });
+      const leadCheckout =
+        parentProjection.thread.worktreePath ??
+        Option.getOrUndefined(
+          yield* projects.get(parentProjection.thread.projectId).pipe(mapDispatchError(command)),
+        )?.workspaceRoot;
       const childThread: OrchestrationV2AppThread = {
         ...makeSubagentChildThread({
           parentThread: parentProjection.thread,
@@ -6906,8 +6911,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           creationSource: command.creationSource,
         }),
         ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
-        // An isolated helper runs, resumes and checkpoints in its own validated workspace.
-        ...(command.agentTask?.workspaceAssignment === "isolated"
+        // A managed task runs, resumes and checkpoints in its admitted workspace: an isolated
+        // helper's own, or the workspace a pinned reader was sent to instead of the lead's.
+        ...(command.agentTask !== undefined && command.agentTask.workspacePath !== leadCheckout
           ? { worktreePath: command.agentTask.workspacePath, branch: null }
           : {}),
         runtimeMode: command.runtimeMode,

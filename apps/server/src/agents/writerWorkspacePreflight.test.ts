@@ -43,6 +43,63 @@ it.layer(NodeServices.layer)("writer workspace alias guard", (it) => {
         );
       }),
   );
+  it.effect(
+    "accepts sources hard-linked only into pnpm's install of a local file: dependency",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* fs.makeTempDirectoryScoped();
+        const workspace = `${root}/workspace`;
+        const source = `${workspace}/modules/native/index.ts`;
+        yield* fs.makeDirectory(`${workspace}/modules/native`, { recursive: true });
+        yield* fs.writeFileString(source, "source");
+        const installed = `${workspace}/node_modules/.pnpm/native@file+modules+native/node_modules/native`;
+        yield* fs.makeDirectory(installed, { recursive: true });
+        yield* fs.link(source, `${installed}/index.ts`);
+        yield* checkWriterWorkspace(workspace);
+
+        yield* fs.link(source, `${root}/outside`);
+        expect((yield* checkWriterWorkspace(workspace).pipe(Effect.flip)).path).toBe(source);
+      }),
+  );
+  it.effect("does not count links reached through a symlinked store or store entry", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      for (const symlinked of ["entry", "store"] as const) {
+        const root = yield* fs.makeTempDirectoryScoped();
+        const workspace = `${root}/workspace`;
+        const source = `${workspace}/src.ts`;
+        yield* fs.makeDirectory(`${root}/outside/native`, { recursive: true });
+        yield* fs.makeDirectory(`${workspace}/node_modules`, { recursive: true });
+        yield* fs.writeFileString(source, "source");
+        yield* fs.link(source, `${root}/outside/native/index.ts`);
+        if (symlinked === "entry") {
+          yield* fs.makeDirectory(`${workspace}/node_modules/.pnpm`);
+          yield* fs.symlink(
+            `${root}/outside/native`,
+            `${workspace}/node_modules/.pnpm/native@file+native`,
+          );
+        } else {
+          yield* fs.makeDirectory(`${root}/outside/store`);
+          yield* fs.symlink(`${root}/outside/native`, `${root}/outside/store/native@file+native`);
+          yield* fs.symlink(`${root}/outside/store`, `${workspace}/node_modules/.pnpm`);
+        }
+        expect((yield* checkWriterWorkspace(workspace).pipe(Effect.flip)).path).toBe(source);
+      }
+    }),
+  );
+  it.effect("still refuses sources hard-linked into other pnpm store entries", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const workspace = `${root}/workspace`;
+      const source = `${workspace}/src.ts`;
+      yield* fs.makeDirectory(`${workspace}/node_modules/.pnpm/pkg@1.0.0`, { recursive: true });
+      yield* fs.writeFileString(source, "source");
+      yield* fs.link(source, `${workspace}/node_modules/.pnpm/pkg@1.0.0/src.ts`);
+      expect((yield* checkWriterWorkspace(workspace).pipe(Effect.flip)).path).toBe(source);
+    }),
+  );
   it.effect("accepts ordinary files without following dangling, cyclic or outside symlinks", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

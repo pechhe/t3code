@@ -648,6 +648,44 @@ it.effect("keeps delegated child pull-request links independent of the parent", 
     assert.isNull(helper.thread.branch);
     assert.equal(helper.thread.agentTask?.workspaceAssignment, "isolated");
 
+    // A pinned reader admitted to another workspace reads there, not in the lead's checkout;
+    // one sent to the lead's own checkout keeps the lead's binding.
+    for (const [workspacePath, prompt] of [
+      ["/review-workspace", "Review elsewhere"],
+      ["/repo-worktree", "Review here"],
+    ] as const)
+      yield* orchestrator.dispatch({
+        type: "delegated_task.request",
+        commandId: CommandId.make(`delegate-${prompt}`),
+        parentThreadId,
+        parentRunId: parentRun.id,
+        parentNodeId: parentRun.rootNodeId!,
+        agentTask: {
+          ...isolated,
+          workspacePath,
+          workspaceAssignment: "lead",
+          sourceRevision: "a".repeat(40),
+          sourceAccess: "read-only",
+        },
+        task: prompt,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+    const readers = (yield* projections.getThreadProjection(parentThreadId)).subagents;
+    const readerThread = (prompt: string) =>
+      projections.getThreadProjection(
+        readers.find((task) => task.prompt === prompt)!.childThreadId!,
+      );
+    const elsewhere = yield* readerThread("Review elsewhere");
+    assert.equal(elsewhere.thread.worktreePath, "/review-workspace");
+    assert.isNull(elsewhere.thread.branch);
+    const here = yield* readerThread("Review here");
+    assert.equal(here.thread.worktreePath, "/repo-worktree");
+    assert.equal(here.thread.branch, "feature/parent-pr");
+
     const childPullRequest = {
       ...parentPullRequest,
       number: 456,
