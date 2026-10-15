@@ -62,8 +62,24 @@ branch name remains.
 
 ## Scheduled tasks
 
-On web and desktop, open **Scheduled** from the sidebar's bottom row, next to Usage,
-to create and manage scheduled tasks across your connected environments.
+On web and desktop, open **Scheduled** from the sidebar's bottom row, next to Usage.
+Your tasks are listed on the left; select one to edit it in place, or choose
+**New task**, which opens the same view empty.
+
+A task reads as a sentence: when it runs, which machines and projects it runs on,
+where each run works, and which subagent role runs it. Pick several machines or
+projects to run the same task in each: every machine runs its own copy, in each
+chosen project it has. A project a machine lacks is skipped, and the editor says so.
+
+- **A fresh workspace** gives each run its own checkout: a SlipJay workspace in a
+  project with `slipjay.json`, a Git worktree elsewhere. SlipJay projects always
+  get one.
+- **The role** (such as implementation-worker) picks the model and effort from your
+  delegation policy on each machine at every run, so a policy change reaches the
+  task without editing it. The editor shows the model the role prefers.
+
+The Scheduled icon shows a dot while a task runs and a count of failed runs you
+have not opened yet; its tooltip gives the next run time.
 
 ## Scheduled tasks on mobile
 
@@ -81,7 +97,7 @@ Leaving an edited form asks before discarding unsaved changes.
 ## Webhook automations
 
 In **Scheduled** in the sidebar (on mobile, **Settings → Scheduled tasks**), choose
-**On webhook** as a task's schedule to run it whenever another service calls its URL, such as
+**When a webhook arrives** as a task's trigger to run it whenever another service calls its URL, such as
 GitHub on a new pull request or a CI job that failed. A public URL needs a
 [T3 Connect](remote-access.md) managed tunnel; after you save the task, copy
 its URL from the editor. Without one, the editor shows only the URL's path.
@@ -93,7 +109,7 @@ request: `{{body.path}}` for a JSON or form field, `{{headers.name}}`,
 For example, `Review this PR: {{body.pull_request.html_url}}` sends only the
 pull request link. A placeholder with no value is left empty.
 
-For GitHub, turn on **Require signature**, keep the header
+Each machine a webhook task runs on has its own URL. For GitHub, turn on **Require signature**, keep the header
 `x-hub-signature-256`, hex encoding and the `sha256=` prefix, and enter the
 same secret in the repository's webhook settings with content type
 `application/json`. Requests without a valid signature are rejected. Set this

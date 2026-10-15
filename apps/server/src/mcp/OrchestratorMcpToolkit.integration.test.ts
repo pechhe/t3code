@@ -482,7 +482,10 @@ function scheduledTaskFromUpsert(input: ScheduledTaskUpsertInput): ScheduledTask
     projectId: input.projectId,
     threadId: input.threadId ?? null,
     workspaceStrategy: input.workspaceStrategy,
-    modelSelection: input.modelSelection,
+    modelSelection: input.modelSelection ?? {
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5",
+    },
     runtimeMode: input.runtimeMode,
     interactionMode: input.interactionMode,
     createdBy: input.createdBy ?? "user",

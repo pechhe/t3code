@@ -9,7 +9,7 @@ vi.mock("../../state/session", () => ({
 }));
 vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.allowed }));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
-vi.mock("../settings/ScheduledTasksSettings", () => ({
+vi.mock("../scheduled/scheduledTaskParts", () => ({
   relativeLabel: () => "later",
   scheduleLabel: () => "daily",
 }));

@@ -21,6 +21,9 @@ import {
   type ScheduledTaskRunNowResult,
   type ScheduledTaskSetEnabledInput,
   type ScheduledTaskUpsertInput,
+  type AgentRole,
+  type ProjectId,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -40,6 +43,8 @@ import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 import * as SqlClient from "effect/sql/SqlClient";
 
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as Metrics from "../observability/Metrics.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -197,6 +202,9 @@ interface ScheduledTaskRow {
   readonly run_count: number;
   readonly webhook_token: string | null;
   readonly webhook_secret: string | null;
+  readonly group_id: string | null;
+  readonly agent_role: string | null;
+  readonly last_run_thread_id: string | null;
 }
 
 interface WebhookDeliveryRow {
@@ -337,6 +345,9 @@ const decodeRow = (row: ScheduledTaskRow, origin: WebhookOrigin | null = null) =
       lastRunStatus: row.last_run_status,
       lastRunError: row.last_run_error,
       runCount: row.run_count,
+      lastRunThreadId: row.last_run_thread_id,
+      groupId: row.group_id,
+      agentRole: row.agent_role,
       ...(webhook === undefined ? {} : { webhook }),
     });
   }).pipe(
@@ -397,6 +408,54 @@ export const layer = Layer.effect(
     const secretRequests = yield* SecretRequests.SecretRequests;
     const scheduler = yield* Scheduler.Scheduler;
     const readWebhookOrigin = yield* ScheduledTaskWebhookOrigin;
+    // Optional: a server without a role policy runs every task on its saved model.
+    const managedAgents = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+    const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
+
+    /**
+     * The model a subagent role's policy picks for this project on this machine, or null when
+     * it cannot. Resolved the way `agent_roles` discovers roles, among the project's providers.
+     */
+    const resolveRoleModel = (role: AgentRole, runtimeMode: RuntimeMode, projectId: ProjectId) =>
+      Effect.gen(function* () {
+        if (Option.isNone(managedAgents) || Option.isNone(providerRegistry)) return null;
+        const snapshot = yield* managedAgents.value.snapshot();
+        const taskClass = snapshot.manifest.roles[role].taskClasses[0];
+        if (taskClass === undefined) return null;
+        const providers = yield* Effect.filter(
+          yield* providerRegistry.value.getProviders,
+          (provider) =>
+            threadManagement.isProviderInstanceEnabledForProject({
+              projectId,
+              instanceId: provider.instanceId,
+            }),
+        );
+        const result = yield* managedAgents.value.roles({
+          projectId,
+          providers,
+          ceiling: runtimeMode,
+          request: { taskClass, runtimeMode },
+        });
+        return result.roles.find((entry) => entry.role === role)?.selection ?? null;
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("Subagent role did not resolve a model", { role, cause }).pipe(
+            Effect.as(null),
+          ),
+        ),
+      );
+
+    /**
+     * A task that names a subagent role follows that role's policy at each run, so a
+     * policy change reaches it without a re-save. The saved selection is the fallback.
+     */
+    const runModel = (task: ScheduledTask) =>
+      task.agentRole == null
+        ? Effect.succeed(task.modelSelection)
+        : resolveRoleModel(task.agentRole, task.runtimeMode, task.projectId).pipe(
+            Effect.map((selection) => selection ?? task.modelSelection),
+          );
+
     // Webhook deliveries for one task dispatch in arrival order rather than
     // being dropped while an earlier delivery is still dispatching.
     const webhookPermits = yield* Ref.make<ReadonlyMap<ScheduledTaskId, Semaphore.Semaphore>>(
@@ -436,7 +495,10 @@ export const layer = Layer.effect(
         last_run_error,
         run_count,
         webhook_token,
-        webhook_secret
+        webhook_secret,
+        group_id,
+        agent_role,
+        last_run_thread_id
       FROM scheduled_tasks
       ORDER BY updated_at DESC, task_id ASC
     `;
@@ -471,7 +533,10 @@ export const layer = Layer.effect(
         last_run_error,
         run_count,
         webhook_token,
-        webhook_secret
+        webhook_secret,
+        group_id,
+        agent_role,
+        last_run_thread_id
       FROM scheduled_tasks
       WHERE task_id = ${id}
     `;
@@ -551,7 +616,9 @@ export const layer = Layer.effect(
           last_run_error,
           run_count,
           webhook_token,
-          webhook_secret
+          webhook_secret,
+          group_id,
+          agent_role
         )
         SELECT
           ${task.id},
@@ -575,7 +642,9 @@ export const layer = Layer.effect(
           ${task.lastRunError},
           ${task.runCount},
           ${webhook.token},
-          ${webhook.secret}
+          ${webhook.secret},
+          ${task.groupId ?? null},
+          ${task.agentRole ?? null}
         WHERE ${requireExisting ? 0 : 1} = 1
            OR EXISTS (SELECT 1 FROM scheduled_tasks WHERE task_id = ${task.id})
         ON CONFLICT (task_id)
@@ -590,6 +659,8 @@ export const layer = Layer.effect(
           model_selection_json = excluded.model_selection_json,
           runtime_mode = excluded.runtime_mode,
           interaction_mode = excluded.interaction_mode,
+          group_id = excluded.group_id,
+          agent_role = excluded.agent_role,
           creation_source = excluded.creation_source,
           updated_at = excluded.updated_at,
           next_run_at = excluded.next_run_at,
@@ -657,6 +728,7 @@ export const layer = Layer.effect(
       readonly status: "succeeded" | "failed";
       readonly error: string | null;
       readonly startedAtIso: string;
+      readonly threadId: string | null;
     }) =>
       sql`
         UPDATE scheduled_tasks
@@ -664,6 +736,7 @@ export const layer = Layer.effect(
             next_run_at = ${input.nextRunAtIso},
             last_run_status = ${input.status},
             last_run_error = ${input.error},
+            last_run_thread_id = COALESCE(${input.threadId}, last_run_thread_id),
             run_count = run_count + 1
         WHERE task_id = ${input.id}
           AND last_run_status = 'running'
@@ -788,6 +861,7 @@ export const layer = Layer.effect(
         // after the poll read are honoured. A webhook prompt was rendered
         // from the row when the request arrived.
         const prompt = webhook?.prompt ?? active.prompt;
+        const modelSelection = yield* runModel(active);
 
         // Effect.exit (not Effect.result) so defects and interruptions in the
         // dispatch are also captured and recorded as a failed run instead of
@@ -795,39 +869,43 @@ export const layer = Layer.effect(
         const result =
           active.threadId === null
             ? yield* Effect.exit(
-                threadLaunch.launch({
-                  commandId,
-                  projectId: active.projectId,
-                  title: active.title,
-                  modelSelection: active.modelSelection,
-                  runtimeMode: active.runtimeMode,
-                  interactionMode: active.interactionMode,
-                  workspaceStrategy: active.workspaceStrategy,
-                  initialMessage: {
+                threadLaunch
+                  .launch({
+                    commandId,
+                    projectId: active.projectId,
+                    title: active.title,
+                    modelSelection,
+                    runtimeMode: active.runtimeMode,
+                    interactionMode: active.interactionMode,
+                    workspaceStrategy: active.workspaceStrategy,
+                    initialMessage: {
+                      messageId,
+                      scheduledTaskId: active.id,
+                      text: prompt,
+                      attachments: [],
+                    },
+                    createdBy: active.createdBy,
+                    creationSource: active.creationSource,
+                  })
+                  .pipe(Effect.map((launched): string => launched.threadId)),
+              )
+            : yield* Effect.exit(
+                threadManagement
+                  .sendToThread({
+                    projectId: active.projectId,
+                    commandId,
+                    threadId: ThreadId.make(active.threadId),
                     messageId,
                     scheduledTaskId: active.id,
                     text: prompt,
                     attachments: [],
-                  },
-                  createdBy: active.createdBy,
-                  creationSource: active.creationSource,
-                }),
-              )
-            : yield* Effect.exit(
-                threadManagement.sendToThread({
-                  projectId: active.projectId,
-                  commandId,
-                  threadId: ThreadId.make(active.threadId),
-                  messageId,
-                  scheduledTaskId: active.id,
-                  text: prompt,
-                  attachments: [],
-                  modelSelection: active.modelSelection,
-                  // Scheduled prompts must not interrupt tools in the bound thread.
-                  mode: "queue",
-                  createdBy: active.createdBy,
-                  creationSource: active.creationSource,
-                }),
+                    modelSelection,
+                    // Scheduled prompts must not interrupt tools in the bound thread.
+                    mode: "queue",
+                    createdBy: active.createdBy,
+                    creationSource: active.creationSource,
+                  })
+                  .pipe(Effect.as(active.threadId)),
               );
 
         const completedAt = yield* localNow;
@@ -858,6 +936,7 @@ export const layer = Layer.effect(
             status: lastRunStatus,
             error: lastRunError,
             startedAtIso,
+            threadId: result._tag === "Success" ? result.value : null,
           });
           yield* notifyChanged;
         }
@@ -1080,6 +1159,20 @@ export const layer = Layer.effect(
           existingTask !== null &&
           existingTask.enabled === input.enabled &&
           isSameSchedule(existingTask.schedule, schedule);
+        const agentRole =
+          input.agentRole === undefined ? (existingTask?.agentRole ?? null) : input.agentRole;
+        // A role picks its model from this machine's policy, so each machine checks it.
+        const roleModel =
+          agentRole === null ? null : yield* resolveRoleModel(agentRole, input.runtimeMode, input.projectId);
+        const modelSelection = roleModel ?? input.modelSelection ?? existingTask?.modelSelection;
+        if (modelSelection === undefined) {
+          return yield* taskError(
+            agentRole === null
+              ? "Choose a model or a subagent role."
+              : `The ${agentRole} role has no available model on this machine.`,
+            { taskId: id },
+          );
+        }
         const task: ScheduledTask = {
           id,
           title: input.title,
@@ -1089,9 +1182,13 @@ export const layer = Layer.effect(
           projectId: input.projectId,
           threadId: input.threadId ?? null,
           workspaceStrategy: input.workspaceStrategy,
-          modelSelection: input.modelSelection,
+          modelSelection,
           runtimeMode: input.runtimeMode,
           interactionMode: input.interactionMode,
+          // Omitted keeps the stored value, so a caller that does not know these fields
+          // (an agent's update tool, an older client) cannot drop them.
+          groupId: input.groupId === undefined ? (existingTask?.groupId ?? null) : input.groupId,
+          agentRole,
           createdBy: existingTask?.createdBy ?? input.createdBy ?? "user",
           creationSource: input.creationSource ?? "web",
           createdAt: existingTask?.createdAt ?? iso(now),

@@ -1,6 +1,11 @@
-import { ArrowLeftIcon, CalendarClockIcon, ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  CalendarClockIcon,
+  ChartNoAxesColumnIcon,
+  SettingsIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -30,6 +35,9 @@ import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
 import { SidebarUpdateArchitectureWarning, SidebarUpdatePill } from "./SidebarUpdatePill";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import { observeResize } from "~/lib/observeResize";
+import { useAllScheduledTasks, useSeenScheduledFailures } from "~/state/scheduledTasks";
+import { relativeLabel } from "../scheduled/scheduledTaskParts";
+import { groupScheduledTasks, scheduledSignal } from "../scheduled/scheduledTasks.logic";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
   isElectron,
@@ -146,14 +154,20 @@ function SidebarBrandMark({ onBackdrop }: { onBackdrop: boolean }) {
 function SidebarUtilityItem({
   icon,
   label,
+  hint,
+  indicator,
   onClick,
 }: {
   icon: ReactNode;
   label: string;
+  /** Extra tooltip line, such as when something next happens. */
+  hint?: string | null;
+  /** A small mark over the icon's corner. */
+  indicator?: ReactNode;
   onClick: () => void;
 }) {
   return (
-    <SidebarMenuItem className="shrink-0">
+    <SidebarMenuItem className="relative shrink-0">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -162,10 +176,53 @@ function SidebarUtilityItem({
             </SidebarMenuButton>
           }
         />
-        <TooltipPopup side="top">{label}</TooltipPopup>
+        <TooltipPopup side="top">
+          {label}
+          {hint ? <span className="block text-muted-foreground">{hint}</span> : null}
+        </TooltipPopup>
       </Tooltip>
+      {indicator ? (
+        <span className="pointer-events-none absolute end-0.5 top-0.5">{indicator}</span>
+      ) : null}
     </SidebarMenuItem>
   );
+}
+
+/**
+ * Scheduled tasks speak up only when it matters: a dot while one runs, a count of failed
+ * runs nobody has opened yet. The next run time sits in the tooltip.
+ */
+function useScheduledSignal() {
+  const sources = useAllScheduledTasks();
+  const [seen] = useSeenScheduledFailures();
+  const signal = useMemo(
+    () =>
+      scheduledSignal(
+        groupScheduledTasks(
+          sources.flatMap((source) =>
+            source.tasks === null
+              ? []
+              : [{ environmentId: source.environmentId, tasks: source.tasks }],
+          ),
+        ),
+        seen,
+      ),
+    [sources, seen],
+  );
+  const indicator =
+    signal.unseenFailures > 0 ? (
+      <span className="flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 font-medium text-2xs text-destructive-foreground leading-none">
+        {signal.unseenFailures}
+      </span>
+    ) : signal.running ? (
+      <span className="block size-2 rounded-full bg-success" />
+    ) : null;
+  const hint = signal.running
+    ? "A task is running"
+    : signal.nextRunAt
+      ? `Next run ${relativeLabel(signal.nextRunAt)}`
+      : null;
+  return { indicator, hint };
 }
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
@@ -200,6 +257,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
     void navigate({ to: "/usage" });
   }, [isMobile, navigate, setOpenMobile]);
 
+  const scheduledSignalView = useScheduledSignal();
   const handleScheduledClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/scheduled" });
@@ -241,6 +299,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
           <SidebarUtilityItem
             icon={<CalendarClockIcon />}
             label="Scheduled"
+            hint={scheduledSignalView.hint}
+            indicator={scheduledSignalView.indicator}
             onClick={handleScheduledClick}
           />
         </>

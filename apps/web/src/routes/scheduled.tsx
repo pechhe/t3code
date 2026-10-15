@@ -1,9 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { ScheduledTasksSettings } from "../components/settings/ScheduledTasksSettings";
-import { SettingsScopeProvider } from "../components/settings/SettingsScopeContext";
-import { validateScheduledTasksSearch } from "../components/settings/scheduledTasksSettings.logic";
-import { validateSettingsRouteSearch } from "../components/settings/settingsScopeNavigation";
+import { ScheduledTasksPage } from "../components/scheduled/ScheduledTasksPage";
+import { validateScheduledTasksSearch } from "../components/scheduled/scheduledTasks.logic";
 import { SidebarInset } from "../components/ui/sidebar";
 import { WorkspaceBreadcrumb, WorkspaceBreadcrumbItem } from "../components/WorkspaceBreadcrumb";
 import { WorkspacePageHeader } from "../components/WorkspacePageHeader";
@@ -13,12 +11,10 @@ import { useEscapeToGoBack } from "../hooks/useNavigateBack";
 /**
  * Scheduled tasks across every connected machine. It lives beside Usage and Pull requests
  * rather than in Settings because tasks run and produce threads; they are not preferences.
- * The project and machine filters reuse the settings scope.
  */
 function ScheduledRoute() {
   useEscapeToGoBack();
   const search = Route.useSearch();
-  const navigate = Route.useNavigate();
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none isolate">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background text-foreground">
@@ -29,37 +25,14 @@ function ScheduledRoute() {
             </WorkspaceBreadcrumbItem>
           </WorkspaceBreadcrumb>
         </WorkspacePageHeader>
-        <SettingsScopeProvider
-          search={search}
-          // A new filter drops the linked task, which may not be in it.
-          onChange={(next) =>
-            void navigate({
-              search: () => ({
-                project: next.project,
-                machine: next.machine,
-                checkout: next.checkout,
-              }),
-              resetScroll: false,
-            })
-          }
-        >
-          <div className="min-h-0 flex flex-1 flex-col">
-            <ScheduledTasksSettings
-              {...(search.environmentId ? { environmentId: search.environmentId } : {})}
-              taskId={search.taskId}
-            />
-          </div>
-        </SettingsScopeProvider>
+        <ScheduledTasksPage environmentId={search.environmentId} taskId={search.taskId} />
       </div>
     </SidebarInset>
   );
 }
 
 export const Route = createFileRoute("/scheduled")({
-  validateSearch: (raw: Record<string, unknown>) => ({
-    ...validateSettingsRouteSearch(raw),
-    ...validateScheduledTasksSearch(raw),
-  }),
+  validateSearch: (raw: Record<string, unknown>) => validateScheduledTasksSearch(raw),
   beforeLoad: async ({ context }) => {
     if (
       context.authGateState.status !== "authenticated" &&

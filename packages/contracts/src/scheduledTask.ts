@@ -10,6 +10,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { AgentRole } from "./agentPolicy.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
   OrchestrationV2Actor,
@@ -170,6 +171,19 @@ export const ScheduledTaskWebhookEndpoint = Schema.Struct({
 });
 export type ScheduledTaskWebhookEndpoint = typeof ScheduledTaskWebhookEndpoint.Type;
 
+/**
+ * Links tasks a client saved together: one task per machine and project, edited as one.
+ * Each task still runs on its own environment's server.
+ */
+const ScheduledTaskGroupId = TrimmedNonEmptyString.annotate({
+  description: "Shared by tasks saved together across machines and projects.",
+});
+
+const ScheduledTaskAgentRole = AgentRole.annotate({
+  description:
+    "Subagent role whose policy picks the model and effort at each run. modelSelection holds the last resolved choice and is used when the policy cannot resolve.",
+});
+
 export const ScheduledTask = Schema.Struct({
   id: ScheduledTaskId,
   title: TrimmedNonEmptyString,
@@ -191,6 +205,10 @@ export const ScheduledTask = Schema.Struct({
   lastRunStatus: ScheduledTaskRunStatus,
   lastRunError: Schema.NullOr(Schema.String),
   runCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  /** The thread the latest successful run started or posted into. */
+  lastRunThreadId: Schema.optional(Schema.NullOr(ThreadId)),
+  groupId: Schema.optional(Schema.NullOr(ScheduledTaskGroupId)),
+  agentRole: Schema.optional(Schema.NullOr(ScheduledTaskAgentRole)),
   webhook: Schema.optional(ScheduledTaskWebhookEndpoint),
 });
 export type ScheduledTask = typeof ScheduledTask.Type;
@@ -218,9 +236,13 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   projectId: ProjectId,
   threadId: Schema.optional(Schema.NullOr(ThreadId)),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
-  modelSelection: ModelSelection,
+  modelSelection: Schema.optional(ModelSelection).annotate({
+    description: "Required unless agentRole is set; a role's policy picks the model on save.",
+  }),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
+  groupId: Schema.optional(Schema.NullOr(ScheduledTaskGroupId)),
+  agentRole: Schema.optional(Schema.NullOr(ScheduledTaskAgentRole)),
   createdBy: Schema.optional(OrchestrationV2Actor),
   creationSource: Schema.optional(OrchestrationV2CreationSource),
 });
