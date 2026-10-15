@@ -7,7 +7,12 @@ import type {
   ScopedThreadRef,
   ThreadId,
 } from "@t3tools/contracts";
-import { isProviderNativeSubagentThread } from "@t3tools/contracts";
+import {
+  hiddenSideChatIds,
+  isProviderNativeSubagentThread,
+  isSideChatThread,
+} from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import { Atom } from "effect/reactivity";
 
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
@@ -138,6 +143,21 @@ export function createEnvironmentThreadShellAtoms(input: {
     ).pipe(Atom.withLabel(`environment-threads:${environmentId}`)),
   );
 
+  // Every list reads this: side chats show only in their parent's composer,
+  // so they are reachable by id but never listed.
+  const environmentListedThreadsAtom = Atom.family((environmentId: EnvironmentId) => {
+    let previous: ReadonlyArray<OrchestrationV2ThreadShell> = EMPTY_THREADS;
+    return Atom.make((get): ReadonlyArray<OrchestrationV2ThreadShell> => {
+      const threads = get(environmentThreadsAtom(environmentId));
+      const hidden = hiddenSideChatIds(threads);
+      if (hidden.size === 0) return threads;
+      const next = threads.filter((thread) => !hidden.has(thread.id));
+      if (arrayElementsEqual(previous, next)) return previous;
+      previous = next;
+      return next;
+    }).pipe(Atom.withLabel(`environment-listed-threads:${environmentId}`));
+  });
+
   const environmentThreadIndexAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get): ReadonlyMap<ThreadId, OrchestrationV2ThreadShell> => {
       const threads = get(environmentThreadsAtom(environmentId));
@@ -166,7 +186,7 @@ export function createEnvironmentThreadShellAtoms(input: {
   const environmentThreadRefsAtom = Atom.family((environmentId: EnvironmentId) => {
     let previous: ReadonlyArray<ScopedThreadRef> = [];
     return Atom.make((get) => {
-      const next = get(environmentThreadsAtom(environmentId)).map((thread) => ({
+      const next = get(environmentListedThreadsAtom(environmentId)).map((thread) => ({
         environmentId,
         threadId: thread.id,
       }));
@@ -185,7 +205,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     > = EMPTY_THREAD_REFS_BY_PROJECT;
     return Atom.make((get) => {
       const grouped = new Map<ProjectId, ScopedThreadRef[]>();
-      for (const thread of get(environmentThreadsAtom(environmentId))) {
+      for (const thread of get(environmentListedThreadsAtom(environmentId))) {
         const refs = grouped.get(thread.projectId);
         const ref = { environmentId, threadId: thread.id };
         if (refs === undefined) {
@@ -281,6 +301,27 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-child-thread-inputs:${key}`));
   });
 
+  // The newest open side chat of a thread. An id, so other shell updates do
+  // not re-render the composer that hosts it.
+  const sideChatThreadIdAtomFamily = Atom.family((key: string) => {
+    const ref = parseThreadKey(key);
+    return Atom.make((get) => {
+      let latest: OrchestrationV2ThreadShell | null = null;
+      for (const thread of get(environmentThreadsAtom(ref.environmentId))) {
+        if (
+          isSideChatThread(thread) &&
+          thread.lineage.parentThreadId === ref.threadId &&
+          thread.archivedAt === null &&
+          (latest === null ||
+            DateTime.toEpochMillis(thread.createdAt) > DateTime.toEpochMillis(latest.createdAt))
+        ) {
+          latest = thread;
+        }
+      }
+      return latest?.id ?? null;
+    }).pipe(Atom.withLabel(`environment-side-chat-thread-id:${key}`));
+  });
+
   const threadShellsForProjectRefsAtomFamily = Atom.family((key: string) => {
     const projectRefs = parseProjectRefCollectionKey(key);
     let previous: ReadonlyArray<EnvironmentThreadShell> = [];
@@ -333,7 +374,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next: EnvironmentThreadShell[] = [];
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
-      for (const thread of get(environmentThreadsAtom(environmentId))) {
+      for (const thread of get(environmentListedThreadsAtom(environmentId))) {
         next.push(scopedThread(environmentId, thread, subagentRequests));
       }
     }
@@ -349,7 +390,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     const next: EnvironmentThreadShell[] = [];
     for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
       const subagentRequests = get(pendingSubagentRequestsAtom(environmentId));
-      for (const thread of get(environmentThreadsAtom(environmentId))) {
+      for (const thread of get(environmentListedThreadsAtom(environmentId))) {
         if (thread.archivedAt !== null || thread.lineage.relationshipToParent === "subagent")
           continue;
         next.push(scopedThread(environmentId, thread, subagentRequests));
@@ -372,5 +413,6 @@ export function createEnvironmentThreadShellAtoms(input: {
       threadShellsForProjectRefsAtomFamily(projectRefCollectionKey(refs)),
     threadShellAtom: (ref: ScopedThreadRef) => threadShellAtomFamily(threadKey(ref)),
     childThreadInputsAtom: (ref: ScopedThreadRef) => childThreadInputsAtomFamily(threadKey(ref)),
+    sideChatThreadIdAtom: (ref: ScopedThreadRef) => sideChatThreadIdAtomFamily(threadKey(ref)),
   };
 }

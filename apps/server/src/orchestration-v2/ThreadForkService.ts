@@ -62,6 +62,7 @@ export interface ThreadForkServiceV2Shape {
     readonly transferId: ContextTransferId;
     readonly targetThreadId: ThreadId;
     readonly title?: string;
+    readonly sideChat?: boolean;
     readonly createdBy: OrchestrationV2Actor;
     readonly creationSource: OrchestrationV2CreationSource;
     readonly createdAt: DateTime.Utc;
@@ -85,8 +86,15 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
             cause: forkableSourceRunStatusError(input.sourceRun),
           });
         }
+        // A fork of a side chat is an ordinary fork unless asked otherwise.
+        const {
+          agentTask,
+          sideChat: _sourceSideChat,
+          ...sourceThread
+        } = input.sourceProjection.thread;
         const targetThread: OrchestrationV2AppThread = {
-          ...input.sourceProjection.thread,
+          ...sourceThread,
+          ...(agentTask === undefined || input.sideChat === true ? {} : { agentTask }),
           createdBy: input.createdBy,
           creationSource: input.creationSource,
           id: input.targetThreadId,
@@ -111,6 +119,19 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           snoozedAt: null,
           lastVisitedAt: null,
           deletedAt: null,
+          // A side chat is a scratch conversation: it carries none of the
+          // parent's list placement, pull requests or delegated task.
+          ...(input.sideChat === true
+            ? {
+                sideChat: true,
+                pinnedAt: null,
+                pinOrderKey: null,
+                activeOrderKey: null,
+                linkedPullRequest: null,
+                pullRequests: [],
+                branchPullRequest: null,
+              }
+            : {}),
         };
         const transfer: OrchestrationV2ContextTransfer = {
           id: input.transferId,

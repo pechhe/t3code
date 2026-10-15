@@ -652,6 +652,12 @@ function runForSourcePoint(
   switch (sourcePoint.type) {
     case "latest_stable":
       return latestStableRun(projection);
+    case "latest_finished":
+      return (
+        projection.runs
+          .filter((run) => isForkableSourceRunStatus(run.status))
+          .toSorted((left, right) => right.ordinal - left.ordinal)[0] ?? null
+      );
     case "run":
       return projection.runs.find((run) => run.id === sourcePoint.runId) ?? null;
     case "checkpoint": {
@@ -3028,7 +3034,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         case "thread.rollover-thresholds.set": {
           const current = thread.rolloverThresholds ?? null;
           const unchanged =
-            current?.soft === command.thresholds?.soft && current?.hard === command.thresholds?.hard;
+            current?.soft === command.thresholds?.soft &&
+            current?.hard === command.thresholds?.hard;
           return {
             ...thread,
             rolloverThresholds: command.thresholds,
@@ -3131,6 +3138,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 : {}),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            ...(command.keepSideChat === true ? { sideChat: false } : {}),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {
@@ -3774,6 +3782,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         transferId,
         targetThreadId: command.targetThreadId,
         ...(command.title === undefined ? {} : { title: command.title }),
+        ...(command.sideChat === true ? { sideChat: true } : {}),
         createdBy: command.createdBy,
         creationSource: command.creationSource,
         createdAt: now,

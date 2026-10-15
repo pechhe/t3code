@@ -5,6 +5,7 @@ import {
 import { pendingSubagentRequestsByThread } from "@t3tools/client-runtime/state/threads";
 import { useAtomValue } from "@effect/atom-react";
 import { useNavigate, useParams } from "@tanstack/react-router";
+import { hiddenSideChatIds } from "@t3tools/contracts";
 import type { EnvironmentId, OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import {
@@ -129,8 +130,13 @@ function EnvironmentNotifications({
     const next = new Map<ThreadId, NotificationState>();
     // Subagents are skipped below, so their requests notify through the thread above them.
     const subagentRequests = pendingSubagentRequestsByThread(threads);
+    const hiddenSideChats = hiddenSideChatIds(threads);
     for (const rawThread of threads) {
-      if (rawThread.lineage.relationshipToParent === "subagent") continue;
+      if (
+        rawThread.lineage.relationshipToParent === "subagent" ||
+        hiddenSideChats.has(rawThread.id)
+      )
+        continue;
       const prior = previous.current.get(rawThread.id);
       const subagentRequest = subagentRequests.get(rawThread.id) ?? null;
       // The same object cannot produce a new notification.

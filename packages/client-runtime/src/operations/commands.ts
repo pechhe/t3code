@@ -224,6 +224,14 @@ export interface ForkThreadFromRunInput extends CommandMetadata {
   readonly title?: string;
 }
 
+export interface OpenSideChatInput extends CommandMetadata {
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  readonly title: string;
+}
+
+export type KeepSideChatInput = ThreadCommandInput;
+
 export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
@@ -995,6 +1003,35 @@ export const forkThreadFromRun = Effect.fn("EnvironmentCommands.forkThreadFromRu
     targetThreadId: input.targetThreadId,
     sourcePoint: { type: "run", runId: input.runId },
     ...(input.title === undefined ? {} : { title: input.title }),
+  });
+});
+
+/** Forks the source's latest finished turn into a side chat. */
+export const openSideChat = Effect.fn("EnvironmentCommands.openSideChat")(function* (
+  input: OpenSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.fork",
+    commandId: yield* allocateCommandId(input),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    sourceThreadId: input.sourceThreadId,
+    targetThreadId: input.targetThreadId,
+    sourcePoint: { type: "latest_finished" },
+    title: input.title,
+    sideChat: true,
+  });
+});
+
+/** Turns a side chat into an ordinary fork that thread lists show. */
+export const keepSideChat = Effect.fn("EnvironmentCommands.keepSideChat")(function* (
+  input: KeepSideChatInput,
+) {
+  return yield* dispatch({
+    type: "thread.metadata.update",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    keepSideChat: true,
   });
 });
 

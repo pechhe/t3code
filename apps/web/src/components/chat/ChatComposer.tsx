@@ -53,7 +53,10 @@ import {
   PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 import {
   isPasteAsTextShortcut,
@@ -271,6 +274,7 @@ import {
   readEnvironmentSupportsRolloverHold,
   readEnvironmentSupportsRolloverThresholds,
   readThreadShell,
+  useSideChatThreadId,
   useThreadShells,
 } from "~/state/entities";
 import { requestConfirmDialog } from "~/confirmDialog";
@@ -371,7 +375,7 @@ import {
 } from "../../lib/snapShotAnimation";
 import { resizeSnapShotSource } from "../../lib/snapShotSource";
 import { basenameOfPath } from "../../pierre-icons";
-import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
+import { cn, isMacPlatform, newThreadId, randomUUID } from "~/lib/utils";
 import {
   getComposerPromptLengthValidationMessage,
   getComposerSubmissionValidationMessage,
@@ -1134,10 +1138,12 @@ import { Button } from "../ui/button";
 import { Select, SelectItem, SelectPopup, SelectValue } from "../ui/select";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
+import { SideChatBox } from "./SideChatBox";
 import {
   FileIcon,
   BotIcon,
   CircleAlertIcon,
+  MessagesSquareIcon,
   PaperclipIcon,
   PencilRulerIcon,
   PlayIcon,
@@ -2606,9 +2612,42 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const setRolloverThresholds = useOrchestrationCommand(threadEnvironment.setRolloverThresholds, {
     label: "thread rollover thresholds",
   });
+  // A side chat forks this thread's latest finished turn and docks above the composer.
+  const sideChatThreadId = useSideChatThreadId(routeKind === "server" ? routeThreadRef : null);
+  const openSideChatCommand = useOrchestrationCommand(threadEnvironment.openSideChat, {
+    label: "open side chat",
+  });
+  const [isOpeningSideChat, setIsOpeningSideChat] = useState(false);
+  const canOpenSideChat =
+    routeKind === "server" &&
+    canOperateThread &&
+    sideChatThreadId === null &&
+    props.activeThreadShell?.latestRun != null;
+  const openSideChat = async () => {
+    if (!canOpenSideChat || isOpeningSideChat) return;
+    setIsOpeningSideChat(true);
+    const result = await openSideChatCommand({
+      environmentId: routeThreadRef.environmentId,
+      input: {
+        sourceThreadId: routeThreadRef.threadId,
+        targetThreadId: newThreadId(),
+        title: `${props.activeThreadShell?.title ?? "Thread"} side chat`,
+      },
+    });
+    setIsOpeningSideChat(false);
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: "Could not open a side chat",
+        description: error instanceof Error ? error.message : undefined,
+      });
+    }
+  };
   // Dragging the context strip's rollover band sets this thread's own thresholds.
   const onRolloverChange =
-    routeKind === "server" && readEnvironmentSupportsRolloverThresholds(routeThreadRef.environmentId)
+    routeKind === "server" &&
+    readEnvironmentSupportsRolloverThresholds(routeThreadRef.environmentId)
       ? (thresholds: { readonly soft: number; readonly hard: number } | null) =>
           void setRolloverThresholds({
             environmentId: routeThreadRef.environmentId,
@@ -6370,6 +6409,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return inserted;
   };
   const insertComposerTextAtEndStable = useStableCallback(insertComposerTextAtEnd);
+  const insertSideChatAnswer = useStableCallback((text: string) => {
+    insertComposerTextAtEnd(text, { ensureLeadingBoundary: true });
+  });
 
   // Context produced by other panels (diff comments, preview picks) asks the store to place
   // its chip; while this composer is mounted for the draft, that means the caret.
@@ -7155,6 +7197,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               steps={activeTaskSteps}
             />
           ) : null}
+          {sideChatThreadId !== null ? (
+            <SideChatBox
+              key={sideChatThreadId}
+              environmentId={routeThreadRef.environmentId}
+              threadId={sideChatThreadId}
+              cwd={gitCwd ?? undefined}
+              instanceEntries={providerInstanceEntries}
+              modelOptionsByInstance={modelOptionsByInstance}
+              onUseInMain={insertSideChatAnswer}
+            />
+          ) : null}
           {showTasksTab ? (
             <ComposerBanner.Attachment>
               <ComposerTasksBadge
@@ -7891,6 +7944,32 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
+                  {routeKind === "server" && canOperateThread ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled={!canOpenSideChat || isOpeningSideChat}
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() => void openSideChat()}
+                            aria-label="Side chat"
+                          />
+                        }
+                      >
+                        <MessagesSquareIcon />
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        {sideChatThreadId !== null
+                          ? "Side chat is open"
+                          : props.activeThreadShell?.latestRun == null
+                            ? "Side chat opens after the first reply"
+                            : "Side chat: ask about the thread up to its last finished reply"}
+                      </TooltipPopup>
+                    </Tooltip>
+                  ) : null}
                   {showComposerAttachAction && !deviceComposer ? (
                     <>
                       <input

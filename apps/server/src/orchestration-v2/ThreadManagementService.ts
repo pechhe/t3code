@@ -30,6 +30,7 @@ import {
   ProjectId,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   ProviderInstanceId,
+  hiddenSideChatIds,
   resolveProjectProviderInstanceEnabled,
   RunId,
   type ScheduledTaskId,
@@ -870,18 +871,20 @@ const make = Effect.gen(function* () {
             cause,
           }),
       ),
-      Effect.map((snapshot) =>
-        snapshot.threads
+      Effect.map((snapshot) => {
+        const hiddenSideChats = hiddenSideChatIds(snapshot.threads);
+        return snapshot.threads
           .filter(
             (thread) =>
-              input.includeSubagents || thread.lineage.relationshipToParent !== "subagent",
+              !hiddenSideChats.has(thread.id) &&
+              (input.includeSubagents || thread.lineage.relationshipToParent !== "subagent"),
           )
           .toSorted(
             (left, right) =>
               DateTime.toEpochMillis(right.updatedAt) - DateTime.toEpochMillis(left.updatedAt) ||
               right.id.localeCompare(left.id),
-          ),
-      ),
+          );
+      }),
     );
 
   const sendToThread: ThreadManagementServiceShape["sendToThread"] = (input) =>

@@ -83,9 +83,12 @@ function makeSourceRun(status: OrchestrationV2Run["status"]): OrchestrationV2Run
   };
 }
 
-function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2ThreadProjection {
+function makeSourceProjection(
+  sourceRun: OrchestrationV2Run,
+  thread: OrchestrationV2AppThread = makeSourceThread(),
+): OrchestrationV2ThreadProjection {
   return {
-    thread: makeSourceThread(),
+    thread,
     runs: [sourceRun],
     attempts: [],
     nodes: [],
@@ -106,11 +109,15 @@ function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2Thr
   };
 }
 
-const planFork = (sourceRun: OrchestrationV2Run) =>
+const planFork = (
+  sourceRun: OrchestrationV2Run,
+  options: { readonly sourceThread?: OrchestrationV2AppThread; readonly sideChat?: boolean } = {},
+) =>
   Effect.gen(function* () {
     const service = yield* ThreadForkService.ThreadForkServiceV2;
     return yield* service.plan({
-      sourceProjection: makeSourceProjection(sourceRun),
+      sourceProjection: makeSourceProjection(sourceRun, options.sourceThread),
+      ...(options.sideChat === undefined ? {} : { sideChat: options.sideChat }),
       sourceRun,
       sourceProviderThread: undefined,
       canonicalSourcePoint: {
@@ -189,5 +196,46 @@ it.effect("rejects in-progress and rolled-back fork sources", () =>
       assert.equal(error.targetThreadId, targetThreadId);
       assert.equal(error.cause, ThreadForkService.forkableSourceRunStatusError(sourceRun));
     }
+  }),
+);
+
+it.effect("opens a side chat without the source's list placement or pull requests", () =>
+  Effect.gen(function* () {
+    const pinnedAt = DateTime.makeUnsafe("2026-07-24T09:01:00.000Z");
+    const pullRequest = {
+      projectId: ProjectId.make("project:fork-snooze"),
+      repository: "pechhe/t3code",
+      number: 12,
+      url: "https://github.com/pechhe/t3code/pull/12",
+    };
+    const sourceThread: OrchestrationV2AppThread = {
+      ...makeSourceThread(),
+      pinnedAt,
+      pinOrderKey: "a0",
+      activeOrderKey: "a1",
+      linkedPullRequest: pullRequest,
+      branchPullRequest: pullRequest,
+    };
+    const result = yield* planFork(makeSourceRun("completed"), { sourceThread, sideChat: true });
+
+    assert.isTrue(result.targetThread.sideChat);
+    assert.isNull(result.targetThread.pinnedAt);
+    assert.isNull(result.targetThread.pinOrderKey);
+    assert.isNull(result.targetThread.activeOrderKey);
+    assert.isNull(result.targetThread.linkedPullRequest);
+    assert.isNull(result.targetThread.branchPullRequest);
+    assert.deepEqual(result.targetThread.pullRequests, []);
+    // The side chat keeps the source's model, so it can reuse the native session.
+    assert.deepEqual(result.targetThread.modelSelection, sourceThread.modelSelection);
+    assert.equal(result.targetThread.lineage.relationshipToParent, "fork");
+  }),
+);
+
+it.effect("forks a side chat into an ordinary fork", () =>
+  Effect.gen(function* () {
+    const sourceThread: OrchestrationV2AppThread = { ...makeSourceThread(), sideChat: true };
+    const result = yield* planFork(makeSourceRun("completed"), { sourceThread });
+
+    assert.isUndefined(result.targetThread.sideChat);
   }),
 );
