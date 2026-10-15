@@ -301,6 +301,7 @@ export const make = Effect.gen(function* () {
         const project = yield* findSlipJayProject(workspaceRoot).pipe(
           Effect.provideService(FileSystem.FileSystem, fs),
           Effect.provideService(Path.Path, path),
+          Effect.provideService(ProcessRunner.ProcessRunner, processes),
         );
         const driver = Option.getOrUndefined(yield* jjDriver);
         const remotes =

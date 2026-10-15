@@ -20,6 +20,7 @@ import {
 } from "@t3tools/contracts";
 import * as VcsDriver from "./VcsDriver.ts";
 import { listGitCheckpointAuthoredPaths } from "./GitCheckpointPaths.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 import { PATCH_RENDER_PREFIX_ARGS } from "./GitVcsDriverCore.ts";
 import { findSlipJayProject } from "./SlipJayProject.ts";
@@ -102,6 +103,8 @@ const clipPatch = (patch: string, limit: number) => {
 
 export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
   const vcsProcess = yield* VcsProcess.VcsProcess;
+  // Reads the policy a SlipJay checkout of an older revision lacks; see findSlipJayProject.
+  const processes = yield* ProcessRunner.make();
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -699,6 +702,7 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
     const slipJayProject = yield* findSlipJayProject(rootPath).pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(Path.Path, path),
+      Effect.provideService(ProcessRunner.ProcessRunner, processes),
     );
     const isSlipJay = slipJayProject !== null;
     const integration = slipJayProject?.integration ?? null;

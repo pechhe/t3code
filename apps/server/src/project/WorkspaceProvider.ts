@@ -99,6 +99,7 @@ export const make = Effect.gen(function* () {
     findSlipJayProject(projectRoot).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.provideService(Path.Path, path),
+      Effect.provideService(ProcessRunner.ProcessRunner, processes),
     );
 
   const resolve: WorkspaceProvider["Service"]["resolve"] = (projectRoot) =>

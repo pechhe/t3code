@@ -69,6 +69,9 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
             Layer.mock(Processes.ProcessRunner)({
               run: (input) =>
                 Effect.sync(() => {
+                  // Nothing is committed on trunk() in these repositories.
+                  if (input.command === "jj")
+                    return { ...output(), code: ChildProcessSpawner.ExitCode(1) };
                   cwds.push(input.cwd ?? "");
                   return output(JSON.stringify({ workspacePath: `${root}/allocated` }));
                 }),
