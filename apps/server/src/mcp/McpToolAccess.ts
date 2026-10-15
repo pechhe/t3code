@@ -16,6 +16,7 @@ import {
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
+import { assertManagedBrowserCaller } from "./ManagedBrowserAccess.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./OrchestratorMcpService.ts";
 import {
   assertFullAccess,
@@ -162,6 +163,29 @@ export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A,
   declare((params: P) =>
     requireThreadCaller.pipe(
       Effect.flatMap(() => writingCaller),
+      Effect.flatMap(() => handle(params)),
+    ),
+  );
+
+/**
+ * A managed browser task's own tab tools, on the `/mcp/browser` endpoint only. The credential,
+ * the task's Phi pin and the project's browser settings are checked on every call.
+ */
+export const asManagedBrowser = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare((params: P) =>
+    assertManagedBrowserCaller({ checkSettings: true }).pipe(
+      Effect.tap(assertLiveCaller),
+      Effect.flatMap(() => handle(params)),
+    ),
+  );
+
+/** Closing a managed browser task's tab stays possible after its browser access is revoked. */
+export const cleansUpAsManagedBrowser = <P, A, E, R>(
+  handle: (params: P) => Effect.Effect<A, E, R>,
+) =>
+  declare((params: P) =>
+    assertManagedBrowserCaller({ checkSettings: false }).pipe(
+      Effect.tap(assertLiveCaller),
       Effect.flatMap(() => handle(params)),
     ),
   );

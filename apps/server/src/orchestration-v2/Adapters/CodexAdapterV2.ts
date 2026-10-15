@@ -116,6 +116,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
   MCP_APP_EXTENSION_ID,
@@ -1339,6 +1340,30 @@ export function codexThreadRuntimeParams(input: {
   readonly config: Readonly<Record<string, Schema.Json>>;
 } {
   const { mcpSession } = input;
+  // One `mcp_servers` table: every configured server a managed task must not reach is disabled,
+  // and a managed browser task's own endpoint (Phi's operations only) is then added. A managed
+  // task is otherwise a leaf with no T3 tools.
+  const t3Server =
+    mcpSession === undefined ||
+    (input.runtimePolicy?.managedAgent === true && mcpSession.managedBrowser !== true)
+      ? undefined
+      : {
+          url: mcpSession.endpoint,
+          tool_timeout_sec: CODEX_T3_MCP_TOOL_TIMEOUT_SEC,
+          ...(mcpSession.managedBrowser === true
+            ? { enabled_tools: [...MANAGED_BROWSER_TOOL_NAMES] }
+            : {}),
+          http_headers: { Authorization: mcpSession.authorizationHeader },
+        };
+  const mcpServers: Record<string, Schema.Json> | undefined =
+    input.disabledMcpServers === undefined && t3Server === undefined
+      ? undefined
+      : {
+          ...Object.fromEntries(
+            (input.disabledMcpServers ?? []).map((name) => [name, { enabled: false }]),
+          ),
+          ...(t3Server === undefined ? {} : { "t3-code": t3Server }),
+        };
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
@@ -1354,26 +1379,7 @@ export function codexThreadRuntimeParams(input: {
             "features.computer_use": false,
             web_search: "disabled",
           }),
-      ...(input.disabledMcpServers === undefined
-        ? {}
-        : {
-            mcp_servers: Object.fromEntries(
-              input.disabledMcpServers.map((name) => [name, { enabled: false }]),
-            ),
-          }),
-      ...(mcpSession === undefined || input.runtimePolicy?.managedAgent === true
-        ? {}
-        : {
-            mcp_servers: {
-              "t3-code": {
-                url: mcpSession.endpoint,
-                tool_timeout_sec: CODEX_T3_MCP_TOOL_TIMEOUT_SEC,
-                http_headers: {
-                  Authorization: mcpSession.authorizationHeader,
-                },
-              },
-            },
-          }),
+      ...(mcpServers === undefined ? {} : { mcp_servers: mcpServers }),
     },
   };
 }

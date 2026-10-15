@@ -371,10 +371,13 @@ export const layerWithOptions = (
               device: false,
               browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
               phiBrowserSkillDirectory: undefined,
+              managedBrowser: false,
             };
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
             const thread = yield* projectionStore.getThread(threadId);
+            // A Phi-pinned managed task reaches only its own narrow browser endpoint.
+            const managedBrowser = thread.agentTask?.toolProfile === "phi";
             const entries = Object.values(settings.projectSettingsOverrides);
             const browserOverridden = entries.some(
               (entry) => entry.enableAgentBrowserAccess !== undefined,
@@ -392,6 +395,7 @@ export const layerWithOptions = (
                   device: deviceOverridden ? false : settings.enableAgentDeviceAccess,
                   browserBackends: settings.agentBrowserBackends,
                   phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
+                  managedBrowser,
                 };
             }
             const effective = resolveProjectSettings(settings, thread.projectId).settings;
@@ -400,6 +404,7 @@ export const layerWithOptions = (
               browserBackends: effective.agentBrowserBackends,
               phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
               device: effective.enableAgentDeviceAccess,
+              managedBrowser,
             };
           }).pipe(
             Effect.catch((cause) =>
@@ -412,6 +417,7 @@ export const layerWithOptions = (
                   device: false,
                   browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
                   phiBrowserSkillDirectory: undefined,
+                  managedBrowser: false,
                 }),
               ),
             ),
@@ -511,7 +517,20 @@ export const layerWithOptions = (
                 const accessSettings = yield* agentAccessSettings(threadId);
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   accessSettings;
-                const { browserBackends, phiBrowserSkillDirectory } = accessSettings;
+                const { browserBackends, phiBrowserSkillDirectory, managedBrowser } =
+                  accessSettings;
+                // A managed browser task whose project no longer allows Phi gets no credential.
+                if (
+                  managedBrowser &&
+                  !(browserToolsAvailable && browserBackends?.enabled.includes("phi") === true)
+                )
+                  return yield* mcpSessions.clear(threadId).pipe(
+                    Effect.andThen(mcpSessionRegistry.revokeThread(threadId)),
+                    Effect.as<PreparedMcpCredential>({
+                      mcpCredentialId: undefined,
+                      issued: false,
+                    }),
+                  );
                 const capabilities = new Set<
                   import("../mcp/McpInvocationContext.ts").McpCapability
                 >(["orchestration", "worktree", "pull-requests"]);
@@ -540,8 +559,11 @@ export const layerWithOptions = (
                     resolved.thread.providerInstanceId === providerInstanceId &&
                     // A flipped browser-access setting must not survive through
                     // credential reuse: rotate so the new scope reflects it.
-                    resolved.capabilities.has("preview") === browserToolsAvailable &&
-                    resolved.capabilities.has("device") === deviceToolsAvailable
+                    (resolved.managedBrowser === true) === managedBrowser &&
+                    resolved.capabilities.has("preview") ===
+                      (managedBrowser || browserToolsAvailable) &&
+                    resolved.capabilities.has("device") ===
+                      (!managedBrowser && deviceToolsAvailable)
                   ) {
                     // Backend defaults and skill configuration apply to the
                     // next session. Rotating this live session would revoke its
@@ -556,6 +578,7 @@ export const layerWithOptions = (
                   providerInstanceId,
                   browserToolsAvailable,
                   capabilities,
+                  ...(managedBrowser ? { managedBrowser: true } : {}),
                   ...(browserBackends === undefined ? {} : { browserBackends }),
                   ...(phiBrowserSkillDirectory === undefined ? {} : { phiBrowserSkillDirectory }),
                 });

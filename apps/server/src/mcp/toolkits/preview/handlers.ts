@@ -105,7 +105,7 @@ const invoke = Effect.fn("PreviewToolkit.invoke")(function* <A>(
   };
 });
 
-const invokeTargeted = <A extends object>(
+export const invokeTargeted = <A extends object>(
   operation: PreviewAutomationOperation,
   input: {
     readonly tabId?: PreviewTabId | undefined;

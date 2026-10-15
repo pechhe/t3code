@@ -43,6 +43,8 @@ import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
+import * as ManagedBrowserHandlers from "./toolkits/managedBrowser/handlers.ts";
+import { ManagedBrowserToolkit } from "./toolkits/managedBrowser/tools.ts";
 import {
   PreviewSnapshotTool,
   PreviewSnapshotToolkit,
@@ -150,44 +152,60 @@ export const normalizeMcpHttpResponse = (
 // Session tokens are `<payload>.<signature>`; registry tokens are a bare base64url secret.
 const looksLikeProviderToken = (token: string) => token.length > 0 && !token.includes(".");
 
-const makeMcpAuthMiddleware = Effect.gen(function* () {
-  const registry = yield* McpSessionRegistry.McpSessionRegistry;
-  const clients = yield* Effect.serviceOption(McpClientAuthenticator);
-  return Effect.fn("McpHttpServer.authenticateRequest")(function* (httpEffect) {
-    const request = yield* HttpServerRequest.HttpServerRequest;
-    const authorization = request.headers.authorization;
-    const token =
-      authorization?.startsWith("Bearer ") === true
-        ? authorization.slice("Bearer ".length).trim()
-        : "";
-    const invocation =
-      (yield* registry.resolve(token)) ??
-      (Option.isSome(clients) && token.length > 0
-        ? yield* clients.value.authenticate(request)
-        : undefined);
-    if (!invocation) {
-      // Without this the only symptom of a dead credential is the agent
-      // quietly losing the whole `t3-code` toolkit for the rest of its
-      // session, with nothing on the server to explain why.
-      yield* Effect.logWarning("rejected MCP request with an unusable credential", {
-        reason: token.length === 0 ? "missing_bearer_token" : "unknown_or_expired_token",
-      });
-      return unauthorized({
-        request,
-        presentedToken: token.length > 0,
-        offerOAuth: Option.isSome(clients) && !looksLikeProviderToken(token),
-      });
-    }
-    return yield* httpEffect.pipe(
-      Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
-      Effect.map(normalizeMcpHttpResponse),
-    );
-  }) satisfies McpAuthMiddleware;
-}).pipe(Effect.withSpan("McpHttpServer.makeAuthMiddleware"));
+/**
+ * `/mcp` serves every credential except a managed browser task's, and `/mcp/browser` serves only
+ * that one, so a task's token cannot reach the general toolkits and no other token can reach it.
+ */
+const makeMcpAuthMiddleware = (endpoint: "general" | "managed-browser") =>
+  Effect.gen(function* () {
+    const registry = yield* McpSessionRegistry.McpSessionRegistry;
+    const clients = yield* Effect.serviceOption(McpClientAuthenticator);
+    return Effect.fn("McpHttpServer.authenticateRequest")(function* (httpEffect) {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const authorization = request.headers.authorization;
+      const token =
+        authorization?.startsWith("Bearer ") === true
+          ? authorization.slice("Bearer ".length).trim()
+          : "";
+      const invocation =
+        (yield* registry.resolve(token)) ??
+        (Option.isSome(clients) && token.length > 0
+          ? yield* clients.value.authenticate(request)
+          : undefined);
+      if (
+        invocation !== undefined &&
+        (invocation.managedBrowser === true) !== (endpoint === "managed-browser")
+      ) {
+        yield* Effect.logWarning("rejected MCP request on the wrong endpoint", { endpoint });
+        return unauthorized({ request, presentedToken: true, offerOAuth: false });
+      }
+      if (!invocation) {
+        // Without this the only symptom of a dead credential is the agent
+        // quietly losing the whole `t3-code` toolkit for the rest of its
+        // session, with nothing on the server to explain why.
+        yield* Effect.logWarning("rejected MCP request with an unusable credential", {
+          reason: token.length === 0 ? "missing_bearer_token" : "unknown_or_expired_token",
+        });
+        return unauthorized({
+          request,
+          presentedToken: token.length > 0,
+          offerOAuth: Option.isSome(clients) && !looksLikeProviderToken(token),
+        });
+      }
+      return yield* httpEffect.pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, invocation),
+        Effect.map(normalizeMcpHttpResponse),
+      );
+    }) satisfies McpAuthMiddleware;
+  }).pipe(Effect.withSpan("McpHttpServer.makeAuthMiddleware"));
 
 const layerMcpAuthMiddleware = HttpRouter.middleware<{
   provides: McpInvocationContext.McpInvocationContext;
-}>()(makeMcpAuthMiddleware).layer;
+}>()(makeMcpAuthMiddleware("general")).layer;
+
+const layerManagedBrowserAuthMiddleware = HttpRouter.middleware<{
+  provides: McpInvocationContext.McpInvocationContext;
+}>()(makeMcpAuthMiddleware("managed-browser")).layer;
 
 /**
  * Claude Code moves an MCP result above its output limit to a file and hands
@@ -883,7 +901,27 @@ export const layerMcpTransport = McpServer.layerHttp({
   allowSessionTermination: true,
 }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
+/**
+ * The narrow server a managed browser task talks to: Phi's operations and nothing else, so no
+ * other tool is listed or callable through its credential.
+ */
+export const layerManagedBrowserToolkit = Layer.mergeAll(
+  toolkitRegistration(ManagedBrowserToolkit, ManagedBrowserHandlers.layer),
+  imageToolRegistration(registerPreviewSnapshot(), ManagedBrowserHandlers.layerSnapshot),
+).pipe(
+  Layer.provide(
+    McpServer.layerHttp({
+      name: "T3 Code browser",
+      version: packageJson.version,
+      path: McpSessionRegistry.MANAGED_BROWSER_MCP_PATH,
+      protocols: [McpProtocol.v2025_06_18],
+      allowSessionTermination: true,
+    }).pipe(Layer.provide(layerManagedBrowserAuthMiddleware)),
+  ),
+);
+
 export const layer = Layer.mergeAll(
+  layerManagedBrowserToolkit,
   layerPreviewToolkit,
   layerOrchestratorToolkit,
   layerThreadToolkit,

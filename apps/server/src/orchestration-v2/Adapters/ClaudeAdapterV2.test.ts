@@ -575,6 +575,27 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     assert.deepEqual(overrides, { allowedTools: ["Read"] });
   });
 
+  it("gives a managed browser task only its endpoint's tools, never the wildcard", () => {
+    const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
+      mcpSession: {
+        ...mcpSessionFor(ThreadId.make("thread-claude-mcp-managed-browser")),
+        endpoint: "http://127.0.0.1:43123/mcp/browser",
+        managedBrowser: true,
+      },
+      readOnlySandbox: true,
+      managedAgent: true,
+      allowedTools: ["Read"],
+    });
+
+    assert.deepEqual(overrides.allowedTools, [
+      "Read",
+      ...ClaudeAdapterV2.CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS,
+    ]);
+    assert.notInclude(overrides.allowedTools ?? [], ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_WILDCARD);
+    assert.notInclude(overrides.allowedTools ?? [], "mcp__t3-code__preview_evaluate");
+    assert.deepEqual(Object.keys(overrides.mcpServers ?? {}), ["t3-code"]);
+  });
+
   it("preserves an explicit allowlist when no MCP session exists", () => {
     const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
       mcpSession: undefined,

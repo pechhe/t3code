@@ -22,6 +22,10 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "no-eligible-model",
     "selection-denied",
     "unsupported-tools",
+    "browser-access-off",
+    "phi-disabled",
+    "phi-skill-missing",
+    "phi-unreachable",
     "unsupported-permissions",
     "unsupported-options",
     "source-pin-required",
@@ -56,7 +60,18 @@ type ResolutionInput = {
   /** The model the asking agent runs, which a role's `callers` exception may key on. */
   readonly callerModel?: string;
   readonly selection?: RequestedModel;
+  /**
+   * What the caller found out about the Phi route. A role with the phi tool profile needs it:
+   * without a finding it stays refused as unsupported, so no path can start one unchecked.
+   */
+  readonly browser?: { readonly refusal: BrowserRefusal | null };
 };
+
+export type BrowserRefusal =
+  | "browser-access-off"
+  | "phi-disabled"
+  | "phi-skill-missing"
+  | "phi-unreachable";
 
 export class AgentRoleResolver extends Context.Service<
   AgentRoleResolver,
@@ -90,9 +105,14 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           review.priorReview.sourceRevision === request.sourceRevision)))
   )
     return yield* new AgentRoleError({ reason: "review-scope-invalid" });
-  // Phi needs an attested, restricted tool transport. A general shell or native browser
-  // is not a substitute; advertise refusal until that route can enforce its contract.
-  if (role.toolProfile === "phi") return yield* new AgentRoleError({ reason: "unsupported-tools" });
+  // A Phi role runs only over its pinned Phi endpoint, never a general shell or another
+  // browser, so it starts only once the caller has checked that route.
+  if (role.toolProfile === "phi") {
+    if (input.browser === undefined)
+      return yield* new AgentRoleError({ reason: "unsupported-tools" });
+    if (input.browser.refusal !== null)
+      return yield* new AgentRoleError({ reason: input.browser.refusal });
+  }
   const readOnly = role.sourceAccess === "read-only" || request.readOnly === true;
   if (!readOnly && input.ceiling === "approval-required")
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });

@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Sqlite from "../persistence/Sqlite.ts";
+import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Managed from "./ManagedAgentService.ts";
 import * as Store from "./AgentPolicyStore.ts";
@@ -734,6 +735,78 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect((yield* reviewer()).refusal).toBeNull();
       expect((yield* reviewer("spec")).refusal).toBeNull();
     }),
+  );
+
+  it.effect("starts a Phi role only on a checked route, and says which check refused it", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const settings = yield* Settings.ServerSettingsService;
+      const probes: Array<boolean> = [];
+      let availability: PhiBrowser.PhiAvailability = "available";
+      const phi = PhiBrowser.PhiBrowser.of({
+        hasTab: () => Effect.succeed(false),
+        invoke: () => Effect.die("unused"),
+        list: () => Effect.succeed([]),
+        releaseSession: () => Effect.void,
+        availability: ({ probe }) =>
+          Effect.sync(() => {
+            probes.push(probe);
+            return availability;
+          }),
+      });
+      const browserRequest = request({ role: "browser", taskClass: "ui", readOnly: false });
+      const discover = f.service
+        .roles({
+          providers: [codex, claude],
+          ceiling: "full-access",
+          request: { taskClass: "ui" },
+        })
+        .pipe(
+          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+          Effect.provideService(PhiBrowser.PhiBrowser, phi),
+          Effect.map((result) => result.roles.find((entry) => entry.role === "browser")!),
+        );
+      const launch = () =>
+        f
+          .prepare({
+            request: { ...browserRequest, workspacePath: f.workspacePath },
+            providers: [codex, claude],
+          })
+          .pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+
+      // Phi is off by default, and an owner's access switch beats every other setting.
+      expect((yield* discover).refusal).toBe("phi-disabled");
+      yield* settings.updateSettings({
+        agentBrowserBackends: { enabled: ["phi", "integrated"], default: "integrated" },
+        enableAgentBrowserAccess: false,
+      });
+      expect((yield* discover).refusal).toBe("browser-access-off");
+      expect((yield* launch().pipe(Effect.flip)).message).toContain("browser-access-off");
+      yield* settings.updateSettings({ enableAgentBrowserAccess: true });
+
+      availability = "skill-missing";
+      expect((yield* discover).refusal).toBe("phi-skill-missing");
+      availability = "unreachable";
+      expect((yield* discover).refusal).toBe("phi-unreachable");
+      expect((yield* launch().pipe(Effect.flip)).message).toContain("phi-unreachable");
+
+      // The general default is integrated, yet the role is admitted for Phi alone.
+      availability = "available";
+      probes.length = 0;
+      const found = yield* discover;
+      expect(found.refusal).toBeNull();
+      expect(found.selection?.model).toBe("claude-haiku-test");
+      const accepted = yield* launch();
+      expect(accepted.binding.toolProfile).toBe("phi");
+      // Discovery (browser and ui-verifier) reads the last answer; only a launch asks Phi now.
+      expect(probes).toEqual([false, false, true]);
+
+      // A running task is not stranded by a brief outage: resuming never probes or refuses.
+      availability = "unreachable";
+      probes.length = 0;
+      yield* f.validate(accepted.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+      expect(probes).toEqual([]);
+    }).pipe(Effect.provide(Settings.layerTest())),
   );
 
   it.effect("discovers each role under a requested model, as a launch would resolve it", () =>

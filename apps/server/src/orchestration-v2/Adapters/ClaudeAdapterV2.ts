@@ -148,6 +148,7 @@ import {
   normalizeMcpText,
 } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
@@ -1217,6 +1218,10 @@ export function makeClaudeQueryOptions(input: {
 
 export const CLAUDE_T3_MCP_TOOL_WILDCARD = "mcp__t3-code__*";
 
+/** A managed browser task pre-approves only its endpoint's tools, never the wildcard. */
+export const CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS: ReadonlyArray<string> =
+  MANAGED_BROWSER_TOOL_NAMES.map((name) => `mcp__t3-code__${name}`);
+
 // Must stay in sync with the Tool.Readonly annotations on OrchestratorToolkit;
 // ClaudeAdapterV2.test.ts cross-checks this list against the toolkit.
 export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
@@ -1262,20 +1267,27 @@ export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 export function claudeMcpQueryOverrides(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
   readonly readOnlySandbox: boolean;
-  /** A managed task is a leaf: no T3 tools, so an independent reviewer cannot read the author's thread. */
+  /**
+   * A managed task is a leaf: no T3 tools, so an independent reviewer cannot read the author's
+   * thread. A managed browser task alone keeps its own session, whose endpoint serves Phi's
+   * browser operations and nothing else.
+   */
   readonly managedAgent?: boolean;
   readonly allowedTools?: ReadonlyArray<string>;
 }): {
   readonly allowedTools?: ReadonlyArray<string>;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
 } {
-  const session = input.managedAgent === true ? undefined : input.mcpSession;
+  const managedBrowser = input.mcpSession?.managedBrowser === true;
+  const session = input.managedAgent === true && !managedBrowser ? undefined : input.mcpSession;
   if (session === undefined) {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
   }
-  const mcpAllowedTools = input.readOnlySandbox
-    ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
-    : [CLAUDE_T3_MCP_TOOL_WILDCARD];
+  const mcpAllowedTools = managedBrowser
+    ? CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS
+    : input.readOnlySandbox
+      ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+      : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
     mcpServers: {

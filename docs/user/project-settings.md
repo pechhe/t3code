@@ -137,6 +137,12 @@ work needing your sign-in uses the shared Agents Space and waits when you take c
 control back before asking the agent to resume. If Phi is unavailable, the agent reports that
 failure rather than opening the page in another browser.
 
+Delegated browser and UI-verifier agents use Phi through T3 Code's browser tools only: they have
+no shell, cannot change files, and cannot touch tabs they did not open. They are refused up front,
+with the reason, when browser access is off for the project, Phi is not enabled, the Phi skill is
+missing, or Phi cannot be reached. Turning access off mid-task stops their browser actions, but
+they can still close their own tabs.
+
 Phi's key helper supports ordinary keys and Shift selection, but native Meta shortcuts are
 unavailable. Agents replace text with `preview_type` and `clear=true` instead. Custom click and
 typing deadlines are also unavailable; navigation accepts a deadline.

@@ -2263,6 +2263,7 @@ const make = Effect.gen(function* () {
         );
         const result = yield* managed.value
           .roles({
+            projectId,
             providers: eligible,
             ceiling: limits.runtimeMode,
             request: input,
@@ -2462,6 +2463,7 @@ const make = Effect.gen(function* () {
                 runtimeMode: child.thread.runtimeMode,
                 followupWithoutRevision: followup.sourceRevision === undefined,
                 selection: binding.effective,
+                projectId: parent.thread.projectId,
                 providers,
                 ceiling: parent.thread.runtimeMode,
                 workspacePath: parent.thread.worktreePath,
@@ -2688,6 +2690,7 @@ const make = Effect.gen(function* () {
                       ),
                     )).delegation.defaultChildRuntimeMode,
                   ),
+                  projectId: parent.thread.projectId,
                   request: input.agentTask,
                   requestFingerprint,
                   ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
@@ -2870,6 +2873,7 @@ const make = Effect.gen(function* () {
                 binding: prepared.binding,
                 runtimeMode,
                 selection: target.modelSelection,
+                projectId: parent.thread.projectId,
                 providers: eligibleProviders,
                 ceiling: parent.thread.runtimeMode,
                 workspacePath: parent.thread.worktreePath,

@@ -2,6 +2,7 @@ import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
@@ -188,6 +189,7 @@ it.effect(
     Effect.gen(function* () {
       let timestamp = 1000;
       const released: Array<string> = [];
+      const releasedOnce = yield* Deferred.make<void>();
       const phi = PhiBrowser.PhiBrowser.of({
         availability: () => Effect.succeed("available"),
         hasTab: () => Effect.succeed(false),
@@ -196,7 +198,7 @@ it.effect(
         releaseSession: (id) =>
           Effect.sync(() => {
             released.push(id);
-          }),
+          }).pipe(Effect.andThen(Deferred.succeed(releasedOnce, undefined))),
       });
       const registry = yield* makeRegistry(() => timestamp).pipe(
         Effect.provideService(PhiBrowser.PhiBrowser, phi),
@@ -214,6 +216,75 @@ it.effect(
       expect(caller?.phiBrowserSkillDirectory).toBe("/fixture/phi");
       timestamp += 101;
       expect(yield* registry.resolve(token)).toBeUndefined();
+      // Cleanup runs off the request path, so wait for it rather than assume it already ran.
+      yield* Deferred.await(releasedOnce);
       expect(released).toEqual([issued.config.providerSessionId]);
     }),
+);
+
+it.effect("denies a revoked credential at once while its Phi cleanup is still blocked", () =>
+  Effect.gen(function* () {
+    const releaseStarted = yield* Deferred.make<void>();
+    const unblock = yield* Deferred.make<void>();
+    const released = yield* Deferred.make<string>();
+    const phi = PhiBrowser.PhiBrowser.of({
+      availability: () => Effect.succeed("available"),
+      hasTab: () => Effect.succeed(false),
+      invoke: () => Effect.die("unused"),
+      list: () => Effect.succeed([]),
+      releaseSession: (id) =>
+        Deferred.succeed(releaseStarted, undefined).pipe(
+          Effect.andThen(Deferred.await(unblock)),
+          Effect.andThen(Deferred.succeed(released, id)),
+        ),
+    });
+    const registry = yield* makeRegistry(() => 1_000).pipe(
+      Effect.provideService(PhiBrowser.PhiBrowser, phi),
+    );
+    const threadId = ThreadId.make("phi-stop-thread");
+    const issued = yield* registry.issue({
+      threadId,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      capabilities: new Set(["preview"]),
+    });
+    const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+
+    // The stop returns while the browser is still being closed, and the token is already dead.
+    yield* registry.revokeThread(threadId);
+    yield* Deferred.await(releaseStarted);
+    expect(yield* registry.resolve(token)).toBeUndefined();
+    expect(yield* Deferred.isDone(released)).toBe(false);
+
+    // A fresh credential can be issued without waiting on the old session's cleanup.
+    yield* registry.issue({
+      threadId,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      capabilities: new Set(["preview"]),
+    });
+
+    yield* Deferred.succeed(unblock, undefined);
+    expect(yield* Deferred.await(released)).toBe(issued.config.providerSessionId);
+  }),
+);
+
+it.effect("mints a managed browser credential for the narrow endpoint, pinned to Phi", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry(() => 1_000);
+    const issued = yield* registry.issue({
+      threadId: ThreadId.make("thread-managed-browser"),
+      providerInstanceId: ProviderInstanceId.make("claudeAgent"),
+      managedBrowser: true,
+      // Settings that would route a general task to the integrated browser change nothing.
+      browserBackends: { enabled: ["integrated"], default: "integrated" },
+      capabilities: new Set(["orchestration", "worktree", "device"]),
+    });
+    expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp/browser");
+    expect(issued.config.managedBrowser).toBe(true);
+    const resolved = yield* registry.resolve(
+      issued.config.authorizationHeader.replace(/^Bearer\s+/, ""),
+    );
+    expect(resolved?.capabilities).toEqual(new Set(["preview"]));
+    expect(resolved?.managedBrowser).toBe(true);
+    expect(resolved?.browserBackends).toEqual({ enabled: ["phi"], default: "phi" });
+  }),
 );

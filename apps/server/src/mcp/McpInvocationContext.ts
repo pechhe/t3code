@@ -56,6 +56,11 @@ export interface McpInvocationScope {
   readonly issuedAt: number;
   readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly phiBrowserSkillDirectory?: string;
+  /**
+   * Set on the credential of a managed browser task. It reaches only the narrow
+   * `/mcp/browser` endpoint, pinned to Phi, and is refused by the general `/mcp` endpoint.
+   */
+  readonly managedBrowser?: true;
   /** Namespaces idempotency keys so two callers reusing a clientRequestId cannot collide. */
   readonly requestNamespace: string;
   readonly thread: McpThreadCaller | undefined;

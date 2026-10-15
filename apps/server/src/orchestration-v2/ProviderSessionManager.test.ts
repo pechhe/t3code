@@ -229,6 +229,7 @@ function makeThreadCreatedEvent(input: {
   readonly threadId: ThreadId;
   readonly now: DateTime.Utc;
   readonly projectId?: ProjectId;
+  readonly managedBrowser?: boolean;
 }) {
   return Effect.gen(function* () {
     const projectId =
@@ -266,6 +267,27 @@ function makeThreadCreatedEvent(input: {
       settledAt: null,
       lastVisitedAt: null,
       deletedAt: null,
+      ...(input.managedBrowser
+        ? {
+            agentTask: {
+              role: "browser" as const,
+              taskClass: "ui" as const,
+              workId: "browser-work",
+              attemptId: "1",
+              workspacePath: "/fixture/browser",
+              sourceRevision: "revision-one",
+              requestFingerprint: "a".repeat(64),
+              policyHash: "b".repeat(64),
+              policyRevision: "test",
+              briefHash: "c".repeat(64),
+              sourceAccess: "read-only" as const,
+              toolProfile: "phi" as const,
+              requested: modelSelection,
+              assigned: null,
+              effective: modelSelection,
+            },
+          }
+        : {}),
     };
     return {
       id: yield* input.idAllocator.allocate.event({ threadId: input.threadId }),
@@ -637,6 +659,7 @@ function runBrowserAccessScenario(input: {
   readonly projectOverride?: boolean;
   readonly agentBrowserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly deviceOverride?: boolean;
+  readonly managedBrowser?: boolean;
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
 }) {
@@ -667,7 +690,15 @@ function runBrowserAccessScenario(input: {
       });
       if (input.createThread !== false) {
         yield* eventSink.write({
-          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now, projectId })],
+          events: [
+            yield* makeThreadCreatedEvent({
+              idAllocator,
+              threadId,
+              now,
+              projectId,
+              ...(input.managedBrowser ? { managedBrowser: true } : {}),
+            }),
+          ],
         });
       }
       yield* manager
@@ -708,7 +739,11 @@ function runBrowserAccessScenario(input: {
     const captured = (yield* Ref.get(mcpConfigs))[0];
     return captured === undefined
       ? undefined
-      : { ...captured, browserBackends: resolved?.browserBackends };
+      : {
+          ...captured,
+          browserBackends: resolved?.browserBackends,
+          resolvedManagedBrowser: resolved?.managedBrowser,
+        };
   });
 }
 
@@ -2052,6 +2087,36 @@ it.effect(
       assert.deepEqual(captured?.browserBackends, { enabled: ["phi"], default: "phi" });
       assert.isFalse(captured?.capabilities?.has("device"));
     }),
+);
+
+it.effect("mints a Phi-only managed browser credential for a Phi-pinned task", () =>
+  Effect.gen(function* () {
+    const captured = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: { enabled: ["phi", "integrated"], default: "integrated" },
+      managedBrowser: true,
+    });
+    assert.isTrue(captured?.resolvedManagedBrowser);
+    assert.deepEqual(captured?.browserBackends, { enabled: ["phi"], default: "phi" });
+    assert.isFalse(captured?.capabilities?.has("orchestration"));
+  }),
+);
+
+it.effect("mints no credential for a managed browser task when access or Phi is off", () =>
+  Effect.gen(function* () {
+    const accessOff = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: false,
+      agentBrowserBackends: { enabled: ["phi"], default: "phi" },
+      managedBrowser: true,
+    });
+    assert.isUndefined(accessOff);
+    const phiOff = yield* runBrowserAccessScenario({
+      enableAgentBrowserAccess: true,
+      agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
+      managedBrowser: true,
+    });
+    assert.isUndefined(phiOff);
+  }),
 );
 
 it.effect("ProviderSessionManagerV2 revokes MCP credentials when release persistence fails", () =>

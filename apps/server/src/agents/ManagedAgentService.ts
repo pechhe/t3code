@@ -1,4 +1,6 @@
+import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Settings from "../serverSettings.ts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { checkWriterWorkspace } from "./writerWorkspacePreflight.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
@@ -15,6 +17,7 @@ import {
   type AgentTaskBinding,
   type AgentTaskHandoff,
   type ModelSelection,
+  type ProjectId,
   type RuntimeMode,
   type ServerProvider,
   isReviewerRole,
@@ -68,6 +71,8 @@ export type WorkspaceOccupant = {
   readonly running: boolean;
 };
 type Authority = {
+  /** The calling project, whose browser settings decide whether a Phi role may start. */
+  readonly projectId?: ProjectId;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly ceiling: RuntimeMode;
   readonly runtimeMode?: RuntimeMode;
@@ -173,6 +178,48 @@ const make = Effect.gen(function* () {
       runtimeMode: mode,
       allowTrustedClaudeWriters: trustedEnabled,
       request: { ...request, executionRequirement: requirement },
+    };
+  });
+  /**
+   * Whether a Phi role may start: the project still allows agent browsing and Phi, the skill is
+   * installed and Phi answers. Discovery accepts a recent answer; a launch asks Phi now; a
+   * resumed task is checked by its own tools on every call, so a brief outage cannot strand it.
+   */
+  const browserRoute = Effect.fn("ManagedAgentService.browserRoute")(function* (
+    toolProfile: string,
+    projectId: ProjectId | undefined,
+    when: "discovery" | "launch" | "resume",
+  ) {
+    if (toolProfile !== "phi") return undefined;
+    if (when === "resume") return { refusal: null };
+    const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+    const configured = Option.isSome(settings)
+      ? yield* settings.value.getSettings.pipe(Effect.orElseSucceed(() => undefined))
+      : undefined;
+    if (configured === undefined) return { refusal: "browser-access-off" as const };
+    const effective =
+      projectId === undefined
+        ? {
+            enableAgentBrowserAccess: configured.enableAgentBrowserAccess,
+            agentBrowserBackends: configured.agentBrowserBackends,
+          }
+        : resolveProjectSettings(configured, projectId).settings;
+    if (!effective.enableAgentBrowserAccess) return { refusal: "browser-access-off" as const };
+    if (!effective.agentBrowserBackends.enabled.includes("phi"))
+      return { refusal: "phi-disabled" as const };
+    const phi = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
+    if (Option.isNone(phi)) return { refusal: "phi-unreachable" as const };
+    const availability = yield* phi.value.availability({
+      skillDirectory: configured.phiBrowserSkillDirectory,
+      probe: when === "launch",
+    });
+    return {
+      refusal:
+        availability === "skill-missing"
+          ? ("phi-skill-missing" as const)
+          : availability === "unreachable"
+            ? ("phi-unreachable" as const)
+            : null,
     };
   });
   const workspaceError = (cause: unknown) => new ManagedAgentError({ reason: "workspace", cause });
@@ -322,10 +369,12 @@ const make = Effect.gen(function* () {
               false,
               policy.sourceAccess === "read-only" || input.request.readOnly === true,
             );
+            const browser = yield* browserRoute(policy.toolProfile, input.projectId, "discovery");
             const result = yield* Effect.result(
               resolver.resolve({
                 ...context,
                 snapshot,
+                ...(browser === undefined ? {} : { browser }),
                 providers: input.providers,
                 ...(input.selection === undefined ? {} : { selection: input.selection }),
                 ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
@@ -396,11 +445,17 @@ const make = Effect.gen(function* () {
         input.recordedBinding !== undefined,
         role.sourceAccess === "read-only" || input.request.readOnly === true,
       );
+      const browser = yield* browserRoute(
+        role.toolProfile,
+        input.projectId,
+        input.recordedBinding === undefined ? "launch" : "resume",
+      );
       const selection = yield* resolver
         .resolve({
           ...input,
           ...context,
           snapshot,
+          ...(browser === undefined ? {} : { browser }),
           ...(input.recordedBinding === undefined
             ? {}
             : { selection: input.recordedBinding.requested }),
@@ -508,8 +563,9 @@ const make = Effect.gen(function* () {
         input.binding.executionBoundary !== boundary
       )
         return yield* new ManagedAgentError({ reason: "selection" });
+      const browser = yield* browserRoute(recordedRole.toolProfile, input.projectId, "resume");
       yield* resolver
-        .resolve({ ...input, ...context, snapshot })
+        .resolve({ ...input, ...context, snapshot, ...(browser === undefined ? {} : { browser }) })
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "selection", cause })));
       // Preserve the original effort and brief; current policy can revoke authority,
       // but a preference edit cannot rewrite the treatment of an accepted task.

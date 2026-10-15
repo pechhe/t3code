@@ -179,6 +179,7 @@ export const layerFromProjectStore: Layer.Layer<
                     }
                   : input.thread.agentTask,
               selection: input.modelSelection,
+              projectId: input.thread.projectId,
               providers: [yield* instance.snapshot.getSnapshot],
               ceiling: input.thread.runtimeMode,
               runtimeMode: input.thread.runtimeMode,

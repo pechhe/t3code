@@ -14,6 +14,11 @@ export interface McpProviderSessionConfig {
    * call would reject.
    */
   readonly browserToolsAvailable: boolean;
+  /**
+   * Set for a managed browser task. Its endpoint serves only Phi's browser operations, so a
+   * managed task may attach it while no other T3 tool reaches the task.
+   */
+  readonly managedBrowser?: boolean;
   /** Capabilities the credential grants ("preview", "device"). */
   readonly capabilities?: ReadonlySet<string>;
   /**

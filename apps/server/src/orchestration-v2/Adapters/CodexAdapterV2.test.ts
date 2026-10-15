@@ -63,6 +63,7 @@ import * as Orchestrator from "../Orchestrator.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
+import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { makeReplayServerConfig, withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
 import * as CodexAdapterV2Testkit from "./CodexAdapterV2.testkit.ts";
@@ -676,6 +677,37 @@ describe("CodexAdapterV2 process spawning", () => {
         "t3-code": { enabled: false },
       },
     });
+  });
+
+  it("keeps every other MCP server disabled while a managed browser task gets its own narrow endpoint", () => {
+    const params = CodexAdapterV2.codexThreadRuntimeParams({
+      mcpSession: {
+        environmentId: EnvironmentId.make("managed-browser-environment"),
+        threadId: ThreadId.make("managed-browser-thread"),
+        providerSessionId: "managed-browser-session",
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        endpoint: "http://127.0.0.1:43123/mcp/browser",
+        authorizationHeader: "Bearer managed-browser-token",
+        browserToolsAvailable: true,
+        managedBrowser: true,
+      },
+      modelSelection: { model: "gpt-5.4" },
+      runtimePolicy: {
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/managed-workspace",
+        managedAgent: true,
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      },
+      disabledMcpServers: ["external-shell", "t3-code"],
+    });
+    const servers = params.config.mcp_servers as Record<string, Record<string, unknown>>;
+    // The user's own servers stay off; only the pinned t3-code endpoint is on.
+    assert.deepEqual(servers["external-shell"], { enabled: false });
+    assert.equal(servers["t3-code"]?.url, "http://127.0.0.1:43123/mcp/browser");
+    assert.deepEqual(servers["t3-code"]?.enabled_tools, [...MANAGED_BROWSER_TOOL_NAMES]);
+    assert.notProperty(servers["t3-code"] ?? {}, "enabled");
   });
 
   it("injects cwd, model, and MCP authorization into thread-scoped params", () => {

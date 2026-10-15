@@ -425,6 +425,31 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
+  it.effect(
+    "admits a Phi role only once its route is checked, refusing each cause specifically",
+    () =>
+      Effect.gen(function* () {
+        for (const role of ["browser", "ui-verifier"] as const) {
+          const base = input({
+            providers: [claude],
+            request: request({ role, taskClass: "ui" }),
+          });
+          // Unchecked callers cannot start it, whatever the default or settings say.
+          expect((yield* refusal(base)).reason).toBe("unsupported-tools");
+          for (const reason of [
+            "browser-access-off",
+            "phi-disabled",
+            "phi-skill-missing",
+            "phi-unreachable",
+          ] as const) {
+            expect((yield* refusal({ ...base, browser: { refusal: reason } })).reason).toBe(reason);
+          }
+          const admitted = yield* resolve({ ...base, browser: { refusal: null } });
+          expect(admitted.instanceId).toBe(claude.instanceId);
+        }
+      }),
+  );
+
   it.effect("follows the list order whichever provider asks", () =>
     Effect.gen(function* () {
       for (const callerModel of [undefined, claudeModel, codexModel]) {
