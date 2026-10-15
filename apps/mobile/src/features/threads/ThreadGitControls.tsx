@@ -26,6 +26,7 @@ import {
   type TerminalMenuSession,
 } from "../terminal/terminalMenu";
 import { projectScriptMenuLabel } from "@t3tools/shared/projectScripts";
+import { resolveJujutsuCheckoutLabels } from "./git/jujutsuCheckout";
 
 function truncateMiddle(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
@@ -46,7 +47,7 @@ function compactMenuStatus(gitStatus: VcsStatusResult | null): string {
     return "Checking status";
   }
   if (!gitStatus.isRepo) {
-    return "Not a repo";
+    return resolveJujutsuCheckoutLabels(gitStatus)?.summary ?? "Not a repo";
   }
 
   const parts: string[] = [];
@@ -124,9 +125,13 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   const threadId = props.threadId;
   const { gitStatus, gitOperationLabel, onPull, onRunAction } = props;
 
-  const currentBranchLabel = gitStatus?.refName ?? props.currentBranch ?? "Detached HEAD";
+  const jujutsu = useMemo(() => resolveJujutsuCheckoutLabels(gitStatus), [gitStatus]);
+  const currentBranchLabel =
+    jujutsu?.title ?? gitStatus?.refName ?? props.currentBranch ?? "Detached HEAD";
   const busy = gitOperationLabel !== null;
   const isRepo = gitStatus?.isRepo ?? true;
+  // A Jujutsu checkout has no Git actions, but its changes can still be reviewed.
+  const canReview = isRepo || jujutsu !== null;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus?.isDefaultRef ?? false;
 
@@ -136,7 +141,10 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
         label: "Git unavailable",
         disabled: true,
         kind: "show_hint" as const,
-        hint: "This workspace is not a git repository.",
+        hint:
+          jujutsu === null
+            ? "This workspace is not a git repository."
+            : "Git actions do not apply to a Jujutsu checkout.",
       };
     }
     const action = resolveQuickAction(gitStatus, busy, isDefaultRef, hasPrimaryRemote);
@@ -147,7 +155,7 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
           hint: "This connection cannot change source control.",
         }
       : action;
-  }, [busy, canWriteSourceControl, gitStatus, hasPrimaryRemote, isDefaultRef, isRepo]);
+  }, [busy, canWriteSourceControl, gitStatus, hasPrimaryRemote, isDefaultRef, isRepo, jujutsu]);
 
   const quickActionHint = quickAction.disabled
     ? (quickAction.hint ?? "This action is unavailable.")
@@ -262,8 +270,8 @@ function useThreadGitControlModel(props: ThreadGitMenuProps) {
   }, [environmentId, props.onOpenGitInspector, navigation, threadId]);
 
   return {
+    canReview,
     currentBranchLabel,
-    isRepo,
     openFiles,
     openGitInspector,
     openReview,
@@ -376,7 +384,7 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
             },
             {
               description: "Turn diffs and worktree changes",
-              disabled: !model.isRepo,
+              disabled: !model.canReview,
               icon: { name: "text.bubble", type: "sfSymbol" },
               label: "Review changes",
               onPress: model.openReview,
@@ -409,8 +417,8 @@ function useThreadGitHeaderActionItems(props: ThreadGitControlsProps): ThreadGit
       },
     }),
     [
+      model.canReview,
       model.currentBranchLabel,
-      model.isRepo,
       model.openFiles,
       model.openGitInspector,
       model.openReview,
@@ -586,7 +594,7 @@ function threadGitMenuDefinition(
         id: "git-review",
         title: "Review changes",
         icon: "text.bubble",
-        disabled: !model.isRepo,
+        disabled: !model.canReview,
         subtitle: "Turn diffs and worktree changes",
         onPress: model.openReview,
       },

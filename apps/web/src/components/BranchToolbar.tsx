@@ -31,6 +31,12 @@ import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject, useThreadShell, useThreadShellsForProjectRefs } from "../state/entities";
 import {
+  resolveSlipJayBaseLabel,
+  resolveSlipJayLandingLabel,
+  resolveSlipJayWorkspaceLabel,
+  type SlipJayCheckoutStatus,
+} from "@t3tools/client-runtime/slipjay-checkout";
+import {
   type EnvMode,
   type EnvironmentOption,
   resolveContextStripLabelsCompact,
@@ -39,11 +45,7 @@ import {
   resolveLockedWorkspaceLabel,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
-  resolveSlipJayBaseLabel,
-  resolveSlipJayLandingLabel,
-  resolveSlipJayWorkspaceLabel,
   shouldShowEnvironmentIndicator,
-  type SlipJayCheckoutStatus,
 } from "./BranchToolbar.logic";
 import {
   BranchToolbarBranchSelector,

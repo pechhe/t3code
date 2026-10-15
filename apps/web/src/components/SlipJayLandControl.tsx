@@ -10,11 +10,11 @@ import { useState } from "react";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
+import { type SlipJayCheckoutStatus } from "@t3tools/client-runtime/slipjay-checkout";
 import {
   isSlipJayLandRefusal,
   resolveSlipJayLandAvailability,
   resolveSlipJayLandToast,
-  type SlipJayCheckoutStatus,
 } from "./BranchToolbar.logic";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import {

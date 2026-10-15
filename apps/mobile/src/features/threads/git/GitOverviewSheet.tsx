@@ -44,6 +44,7 @@ import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-wo
 import { vcsEnvironment } from "../../../state/vcs";
 import { resolveGitOverviewReviewNavigationAction } from "./git-overview-navigation";
 import { MetaCard, SheetListRow, menuItemIconName, statusSummary } from "./gitSheetComponents";
+import { resolveJujutsuCheckoutLabels } from "./jujutsuCheckout";
 
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
@@ -103,8 +104,10 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
       : null,
   );
 
-  const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
-  const currentStatusSummary = statusSummary(gitStatus.data);
+  const jujutsu = resolveJujutsuCheckoutLabels(gitStatus.data);
+  const currentBranchLabel =
+    jujutsu?.title ?? gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
+  const currentStatusSummary = jujutsu?.summary ?? statusSummary(gitStatus.data);
   const currentWorktreePath = selectedThreadWorktreePath;
   const gitOperationLabel = gitState.gitOperationLabel;
   const busy = gitOperationLabel !== null;
@@ -304,7 +307,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
             />
           </View>
         ))}
-        {behindCount > 0 ? (
+        {behindCount > 0 && jujutsu === null ? (
           <>
             {Platform.OS !== "android" ? <View className="ml-12 h-px bg-border" /> : null}
             <SheetListRow
@@ -325,7 +328,7 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
           icon="text.bubble"
           title="Review changes"
           subtitle="Inspect changes, uncommitted edits, and turn diffs"
-          disabled={busy || !isRepo}
+          disabled={busy || (!isRepo && jujutsu === null)}
           onPress={() => {
             const params = { environmentId, threadId };
             navigation.dispatch(

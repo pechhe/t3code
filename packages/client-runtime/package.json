@@ -31,6 +31,10 @@
       "types": "./src/preview/serverBrowserStream.ts",
       "default": "./src/preview/serverBrowserStream.ts"
     },
+    "./slipjay-checkout": {
+      "types": "./src/slipJayCheckout.ts",
+      "default": "./src/slipJayCheckout.ts"
+    },
     "./worktree-setup": {
       "types": "./src/worktreeSetup.ts",
       "default": "./src/worktreeSetup.ts"

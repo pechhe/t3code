@@ -2,7 +2,7 @@ import type { EnvironmentId, VcsStatusSlipJayLanding } from "@t3tools/contracts"
 
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
-import { resolveSlipJayLandingLabel } from "./BranchToolbar.logic";
+import { resolveSlipJayLandingLabel } from "@t3tools/client-runtime/slipjay-checkout";
 import {
   Dialog,
   DialogDescription,
