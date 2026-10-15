@@ -102,8 +102,7 @@ it.effect("attributes a launched thread's first message to the calling thread", 
       .pipe(
         Stream.unwrap,
         Stream.runCollect,
-        Effect.provide(WorkspaceProvider.layer),
-        Effect.provide(layerDependencies),
+        Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(layerDependencies))),
       );
     expect(result.at(-1)?.result).toMatchObject({ projectId, modelSelection });
     expect(launchedSender).toBe(sourceThreadId);
@@ -185,8 +184,7 @@ it.effect("launches a scratch thread into the Scratch project", () =>
         .pipe(
           Stream.unwrap,
           Stream.runCollect,
-          Effect.provide(WorkspaceProvider.layer),
-          Effect.provide(layerDependencies),
+          Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(layerDependencies))),
         );
 
     const result = yield* handle({ title: "Notes", scratch: true, message: "Draft a list" });
@@ -296,8 +294,7 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
         .pipe(
           Stream.unwrap,
           Stream.runCollect,
-          Effect.provide(WorkspaceProvider.layer),
-          Effect.provide(layerDependencies),
+          Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(layerDependencies))),
         );
 
     const result = yield* handle({ title: "Pinball Stats" });
@@ -421,8 +418,7 @@ it.effect("a client launches at its ceiling with the project's default model", (
         .pipe(
           Stream.unwrap,
           Stream.runCollect,
-          Effect.provide(WorkspaceProvider.layer),
-          Effect.provide(dependencies),
+          Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
         );
 
     const result = yield* handle({ title: "Fix", projectId, message: "Fix the bug" });
@@ -457,8 +453,7 @@ it.effect("a launch binds only an existing checkout that is one of the project's
       workspaceRoot: repo,
     });
     const git = yield* GitVcsDriver.GitVcsDriver.pipe(
-      Effect.provide(WorkspaceProvider.layer),
-      Effect.provide(dependencies),
+      Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
     );
     for (const args of [
       ["init", "-b", "main"],
@@ -485,8 +480,7 @@ it.effect("a launch binds only an existing checkout that is one of the project's
         .pipe(
           Stream.unwrap,
           Stream.runCollect,
-          Effect.provide(WorkspaceProvider.layer),
-          Effect.provide(dependencies),
+          Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
         );
 
     expect((yield* launchInto(worktree)).at(-1)?.result).toMatchObject({ projectId });
@@ -528,8 +522,7 @@ it.effect("a colocated jj project binds its jj workspaces and its git worktrees"
       workspaceRoot: repo,
     });
     const processes = yield* ProcessRunner.ProcessRunner.pipe(
-      Effect.provide(WorkspaceProvider.layer),
-      Effect.provide(dependencies),
+      Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
     );
     for (const [command, args] of [
       ["git", ["init", "-b", "main"]],
@@ -562,8 +555,7 @@ it.effect("a colocated jj project binds its jj workspaces and its git worktrees"
         .pipe(
           Stream.unwrap,
           Stream.runCollect,
-          Effect.provide(WorkspaceProvider.layer),
-          Effect.provide(dependencies),
+          Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
         );
 
     expect((yield* launchInto(jjWorkspace)).at(-1)?.result).toMatchObject({ projectId });
@@ -608,8 +600,7 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
         .pipe(
           Stream.unwrap,
           Stream.runCollect,
-          Effect.provide(WorkspaceProvider.layer),
-          Effect.provide(dependencies),
+          Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
         );
 
     const refused = (yield* launchFrom("t3/renamed")).at(-1)?.result;
