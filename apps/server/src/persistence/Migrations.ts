@@ -81,6 +81,7 @@ import Migration0064 from "./Migrations/064_AgentPolicySnapshots.ts";
 import Migration0065 from "./Migrations/065_ExternalAgentWork.ts";
 import Migration0066 from "./Migrations/066_ExperimentWork.ts";
 import Migration0067 from "./Migrations/067_AdvisorConsultations.ts";
+import Migration0068 from "./Migrations/068_ExperimentEvidence.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -162,6 +163,7 @@ export const migrationEntries = [
   [65, "ExternalAgentWork", Migration0065],
   [66, "ExperimentWork", Migration0066],
   [67, "AdvisorConsultations", Migration0067],
+  [68, "ExperimentEvidence", Migration0068],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -5527,6 +5527,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           completedAt: null,
           checkpointId: null,
           contextHandoffId: seedHandoff?.id ?? null,
+          ...(command.contextRollover === undefined
+            ? {}
+            : { rolloverOfRunId: command.contextRollover.ofRunId }),
           ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
           ...(command.restartContinuationOfRunId === undefined
             ? {}

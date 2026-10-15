@@ -814,7 +814,7 @@ it.live("applies assigned rollover with global defaults off and records the obse
       );
       assert.deepEqual(
         observations.map((entry) => entry.kind),
-        ["soft", "rollover", "fresh-context"],
+        ["soft", "rollover", "fresh-context", "continuation-ended"],
       );
       assert.isTrue(observations.every((entry) => entry.assignmentId === testAssignment.id));
       assert.equal(observations[0]!.runId, after.runs[0]!.id);

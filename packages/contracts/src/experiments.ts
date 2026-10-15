@@ -256,10 +256,92 @@ export const ExperimentOutcome = Schema.Struct({
   recordedAt: Schema.String,
 });
 export type ExperimentOutcome = typeof ExperimentOutcome.Type;
+/** Immutable evidence facts; evaluation is recorded separately against exact captures. */
+export const ExperimentEvidenceArtifact = Schema.Struct({
+  kind: TrimmedNonEmptyString,
+  reference: TrimmedNonEmptyString,
+  content: Schema.NullOr(Schema.String.check(Schema.isMaxLength(32_000))),
+});
+export const ExperimentEvidenceInput = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  assignmentId: TrimmedNonEmptyString,
+  episodeId: TrimmedNonEmptyString,
+  recipeRevision: TrimmedNonEmptyString,
+  runId: RunId,
+  phase: Schema.Literals(["before", "action", "after", "failure"]),
+  source: Schema.Literals(["runtime", "human", "agent"]),
+  artifacts: Schema.Array(ExperimentEvidenceArtifact).check(Schema.isMaxLength(32)),
+  missing: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(32)),
+});
+export type ExperimentEvidenceInput = typeof ExperimentEvidenceInput.Type;
+export const ExperimentEvidence = Schema.Struct({
+  ...ExperimentEvidenceInput.fields,
+  capturedAt: Schema.String,
+});
+export type ExperimentEvidence = typeof ExperimentEvidence.Type;
+export const ExperimentEvaluationInput = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  assignmentId: TrimmedNonEmptyString,
+  episodeId: TrimmedNonEmptyString,
+  rubricRevision: TrimmedNonEmptyString,
+  evaluator: TrimmedNonEmptyString,
+  source: Schema.Literals(["human-review", "automated-judgement", "self-report"]),
+  evidenceIds: Schema.Array(TrimmedNonEmptyString).check(Schema.isMaxLength(100)),
+  findings: Schema.Array(
+    Schema.Struct({
+      criterion: TrimmedNonEmptyString,
+      result: Schema.Literals(["pass", "fail", "unknown"]),
+      evidenceIds: Schema.Array(TrimmedNonEmptyString),
+      note: Schema.String.check(Schema.isMaxLength(8_000)),
+    }),
+  ).check(Schema.isMaxLength(32)),
+  usage: Schema.NullOr(TurnTokenUsage),
+  supersedesId: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type ExperimentEvaluationInput = typeof ExperimentEvaluationInput.Type;
+export const ExperimentEvaluation = Schema.Struct({
+  ...ExperimentEvaluationInput.fields,
+  recordedAt: Schema.String,
+});
+export type ExperimentEvaluation = typeof ExperimentEvaluation.Type;
+export const ExperimentEpisodeReport = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  recipeRevision: TrimmedNonEmptyString,
+  captureIds: Schema.Array(TrimmedNonEmptyString),
+  evaluationIds: Schema.Array(TrimmedNonEmptyString),
+});
+export type ExperimentEpisodeReport = typeof ExperimentEpisodeReport.Type;
+
+export const ExperimentEvidenceReadInput = Schema.Struct({
+  assignmentId: TrimmedNonEmptyString,
+  episodeId: TrimmedNonEmptyString,
+  offset: Schema.optional(NonNegativeInt),
+  limit: Schema.optional(PositiveInt.check(Schema.isLessThanOrEqualTo(5))),
+});
+export type ExperimentEvidenceReadInput = typeof ExperimentEvidenceReadInput.Type;
+export const ExperimentEvidenceBundle = Schema.Struct({
+  rubric: Schema.NullOr(
+    Schema.Struct({
+      revision: TrimmedNonEmptyString,
+      criteria: Schema.Array(TrimmedNonEmptyString),
+      instructions: Schema.String,
+    }),
+  ),
+  captures: Schema.Array(ExperimentEvidence),
+  evaluations: Schema.Array(ExperimentEvaluation),
+  hasMoreCaptures: Schema.Boolean,
+  evaluationsTruncated: Schema.Boolean,
+  nextOffset: Schema.NullOr(NonNegativeInt),
+});
+export type ExperimentEvidenceBundle = typeof ExperimentEvidenceBundle.Type;
+
 export const ExperimentObservationInput = Schema.Struct({
   id: TrimmedNonEmptyString,
   assignmentId: TrimmedNonEmptyString,
   runId: RunId,
+  episodeId: Schema.optional(TrimmedNonEmptyString),
+  configuredPolicy: Schema.optional(ExperimentRolloverPolicy),
+  effectivePolicy: Schema.optional(ExperimentRolloverPolicy),
   kind: Schema.Literals([
     "soft",
     "hard",
@@ -269,6 +351,7 @@ export const ExperimentObservationInput = Schema.Struct({
     "context-growth",
     "native-compaction",
     "restart-failure",
+    "continuation-ended",
   ]),
   usedTokens: Schema.NullOr(NonNegativeInt),
   maxTokens: Schema.NullOr(PositiveInt),
@@ -342,6 +425,8 @@ export const ExperimentAssignmentReport = Schema.Struct({
   missingThreadIds: Schema.Array(ThreadId),
   outcomes: Schema.Array(ExperimentOutcome),
   observations: Schema.Array(ExperimentObservation),
+  episodes: Schema.optional(Schema.Array(ExperimentEpisodeReport)),
+  episodeSummariesTruncated: Schema.optional(Schema.Boolean),
   projectionAvailable: Schema.Boolean,
   wallClockMs: Schema.NullOr(NonNegativeInt),
   activeMs: Schema.NullOr(NonNegativeInt),
