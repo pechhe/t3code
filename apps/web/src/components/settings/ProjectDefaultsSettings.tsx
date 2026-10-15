@@ -84,8 +84,8 @@ function WorkspaceProviderRow({
       title="Workspaces"
       description={
         slipJay
-          ? `Every new thread gets its own SlipJay workspace, as this Jujutsu repository has a ${SLIPJAY_PROJECT_FILE_NAME}.`
-          : `New worktree threads get their own Git worktree. In a Jujutsu repository with a ${SLIPJAY_PROJECT_FILE_NAME}, every new thread gets a SlipJay workspace instead.`
+          ? `This Jujutsu repository has a ${SLIPJAY_PROJECT_FILE_NAME}, so every new thread gets its own SlipJay workspace, except one a scheduled task or agent starts in the project checkout.`
+          : `New worktree threads get their own Git worktree. In a Jujutsu repository with a ${SLIPJAY_PROJECT_FILE_NAME}, new threads get SlipJay workspaces instead.`
       }
       control={
         <span className="text-sm text-muted-foreground">

@@ -250,7 +250,8 @@ switching branches. Use `jj` for those.
 
 A Jujutsu repository with a `slipjay.json` at its root is a SlipJay project. Every new thread
 in it gets its own SlipJay workspace when you send the first message, so there is no branch or
-worktree to choose. With the project selected, **Settings → Source Control** shows
+worktree to choose. The exception is a thread a scheduled task or agent starts in the project
+checkout itself. With the project selected, **Settings → Source Control** shows
 **Workspaces: SlipJay workspaces**.
 
 The composer strip shows the thread's workspace and its Issue, then the integration bookmark it

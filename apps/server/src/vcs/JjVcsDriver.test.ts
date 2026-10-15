@@ -408,6 +408,32 @@ it.layer(layerJjWithSlipJay)("Jujutsu VCS driver", (it) => {
     }),
   );
 
+  it.effect("reads the named base as a bookmark, never as a revset expression", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeRepo;
+      const driver = yield* VcsDriver.VcsDriver;
+      yield* writeFile(cwd, "a.ts", "one\n");
+      yield* runJj(cwd, ["commit", "-m", "base"]);
+      yield* runJj(cwd, ["bookmark", "create", "release+1", "-r", "@-"]);
+      yield* runJj(cwd, ["bookmark", "create", "main", "-r", "@-"]);
+      yield* writeFile(cwd, "b.ts", "two\n");
+      yield* runJj(cwd, ["commit", "-m", "work"]);
+      const rangeFiles = (baseRef: string | undefined) =>
+        driver.getDiffPreview!({ cwd, ...(baseRef === undefined ? {} : { baseRef }) }).pipe(
+          Effect.map(({ sources }) =>
+            sources.find(({ kind }) => kind === "branch-range")!.files?.map(({ path }) => path),
+          ),
+        );
+
+      assert.deepStrictEqual(yield* rangeFiles("release+1"), ["b.ts"]);
+      // As an expression this would be the fork point of root() and @, the whole history.
+      assert.deepStrictEqual(yield* rangeFiles("root() | main"), []);
+      // With no base named, trunk() is the base; a plain repository has none.
+      yield* runJj(cwd, ["config", "set", "--repo", 'revset-aliases."trunk()"', "main"]);
+      assert.deepStrictEqual(yield* rangeFiles(undefined), ["b.ts"]);
+    }),
+  );
+
   it.effect("reads both sides of a changed file, and refuses binary files", () =>
     Effect.gen(function* () {
       const cwd = yield* makeRepo;

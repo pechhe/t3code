@@ -319,7 +319,10 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
       ),
     );
 
-  /** The commit where this work left the base, the Jujutsu form of Git's merge-base. */
+  /**
+   * The commit where this work left the base, the Jujutsu form of Git's merge-base. A
+   * client names the base, so it is read as a bookmark or ref, never as an expression.
+   */
   const resolveBase = (cwd: string, baseRef: string | undefined) =>
     jj(
       "JjVcsDriver.getDiffPreview.base",
@@ -329,7 +332,7 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
         "--ignore-working-copy",
         "--no-graph",
         "-r",
-        `fork_point((${baseRef ?? "trunk()"}) | @)`,
+        `fork_point((${baseRef === undefined ? "trunk()" : quoteRevsetSymbol(baseRef)}) | @)`,
         "-T",
         "commit_id",
       ],
@@ -464,9 +467,10 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
           kind: "jj",
           detail: `No Jujutsu repository at ${input.cwd}.`,
         });
+      // The working copy always compares with its parent, whatever base the client echoes.
       const oldRevision =
         input.sourceKind === "working-tree"
-          ? (input.baseRef ?? "@-")
+          ? "@-"
           : yield* resolveBase(rootPath, input.baseRef ?? undefined);
       if (oldRevision === null)
         return yield* new VcsUnsupportedOperationError({
