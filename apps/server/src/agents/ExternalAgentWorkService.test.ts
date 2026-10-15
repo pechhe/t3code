@@ -1364,7 +1364,7 @@ it.effect("refuses continuing an external reviewer", () =>
         clientRequestId: "review-open",
         task: "Review",
         agentTask: request({
-          role: "reviewer",
+          role: "ticket-reviewer",
           workspacePath: fixture.workspacePath,
           sourceRevision: "fixture-source-revision",
           review: changeReview,

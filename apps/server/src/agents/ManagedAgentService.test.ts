@@ -275,7 +275,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           workspacePath: null,
           projectRoot: f.workspacePath,
           request: request({
-            role: "reviewer",
+            role: "ticket-reviewer",
             workspacePath: f.workspacePath,
             readOnly: true,
             sourceRevision,
@@ -494,7 +494,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const f = yield* fixture;
       const reviewerRequest = request({
         workspacePath: f.workspacePath,
-        role: "reviewer",
+        role: "ticket-reviewer",
         sourceRevision,
         review: changeReview,
       });
@@ -661,7 +661,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       });
       // A pinned read-only view tolerates other readers but not a live writer.
       const reviewer = isolated(helper, {
-        role: "reviewer",
+        role: "ticket-reviewer",
         sourceRevision,
         review: changeReview,
       });
@@ -729,7 +729,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           })
           .pipe(
             Effect.provideService(ConfigProvider.ConfigProvider, f.config),
-            Effect.map((result) => result.roles.find((role) => role.role === "reviewer")!),
+            Effect.map((result) => result.roles.find((role) => role.role === "ticket-reviewer")!),
           );
       expect((yield* reviewer()).refusal).toBeNull();
       expect((yield* reviewer("spec")).refusal).toBeNull();
@@ -761,11 +761,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect(outside.selection).toBeNull();
       expect(outside.refusal).toBe("selection-denied");
       // Model identity is a preference; an explicit eligible author-model choice is allowed.
-      const reviewer = yield* roles(codexModel, "reviewer");
+      const reviewer = yield* roles(codexModel, "ticket-reviewer");
       expect(reviewer.refusal).toBeNull();
       const accepted = yield* f.prepare({
         request: request({
-          role: "reviewer",
+          role: "ticket-reviewer",
           workspacePath: f.workspacePath,
           sourceRevision,
           review: changeReview,
@@ -791,7 +791,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         (yield* f.validate({ ...accepted.binding, workspacePath: f.root }).pipe(Effect.flip))
           .reason,
       ).toBe("workspace");
-      expect((yield* roles(claudeModel, "reviewer")).selection?.model).toBe(claudeModel);
+      expect((yield* roles(claudeModel, "ticket-reviewer")).selection?.model).toBe(claudeModel);
       // A launch names why the choice was refused.
       const refused = yield* f.prepare({ selection: { model: claudeModel } }).pipe(Effect.flip);
       expect(refused.message).toContain("selection-denied");
@@ -827,20 +827,21 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
   it.effect("discovers the model a launch for the same caller would use", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
-      const advisorFor = (currentInstanceId?: typeof codex.instanceId) =>
+      const advisorFor = (callerModel: string) =>
         f.service
           .roles({
             providers: [codex, claude],
             ceiling: "full-access",
             request: { taskClass: "non-ui" },
-            ...(currentInstanceId === undefined ? {} : { currentInstanceId }),
+            callerModel,
           })
           .pipe(
             Effect.provideService(ConfigProvider.ConfigProvider, f.config),
             Effect.map((result) => result.roles.find((role) => role.role === "advisor")!),
           );
-      expect((yield* advisorFor(claude.instanceId)).selection?.instanceId).toBe(codex.instanceId);
-      expect((yield* advisorFor(codex.instanceId)).selection?.instanceId).toBe(claude.instanceId);
+      // The policy starts an Opus caller's advisor with Astra; others follow the list.
+      expect((yield* advisorFor("claude-opus-test")).selection?.model).toBe("gpt-astra-test");
+      expect((yield* advisorFor(claudeModel)).selection?.model).toBe("claude-fable-test");
     }),
   );
 });

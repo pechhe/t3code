@@ -1,12 +1,7 @@
-import * as Settings from "../serverSettings.ts";
-import * as Option from "effect/Option";
-import { defaultChildMode } from "./delegationRuntime.ts";
 import {
   AgentPolicySettingsError,
   type AgentPolicySettings,
   type AgentPolicySaveInput,
-  type AgentPolicyPreviewInput,
-  type AgentPolicyPreview,
   type AgentPolicyManifest,
 } from "@t3tools/contracts";
 import * as Config from "effect/Config";
@@ -16,7 +11,6 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Policy from "./AgentPolicyService.ts";
-import * as Resolver from "./AgentRoleResolver.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Processes from "../processRunner.ts";
 
@@ -27,15 +21,11 @@ export class AgentPolicySettingsService extends Context.Service<
     readonly save: (
       input: AgentPolicySaveInput,
     ) => Effect.Effect<AgentPolicySettings, AgentPolicySettingsError>;
-    readonly preview: (
-      input: AgentPolicyPreviewInput,
-    ) => Effect.Effect<AgentPolicyPreview, AgentPolicySettingsError>;
   }
 >()("t3/agents/AgentPolicySettingsService") {}
 
 const make = Effect.gen(function* () {
   const policy = yield* Policy.AgentPolicyService;
-  const resolver = yield* Resolver.AgentRoleResolver;
   const providers = yield* Providers.ProviderRegistry;
   const process = yield* Processes.ProcessRunner;
   const fs = yield* FileSystem.FileSystem;
@@ -93,25 +83,26 @@ const make = Effect.gen(function* () {
           previous.effortOption !== binding.effortOption)
       )
         return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
-      for (const role of Object.values(manifest.roles)) {
-        const effort = role.effort[alias];
-        if (effort === undefined) continue;
-        const options = matching
-          .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
-          .filter((option) => option.id === binding.effortOption);
-        if (
-          matching.length > 0 &&
-          [effort.default, effort.demanding].some(
-            (value) =>
-              value !== undefined &&
-              !options.some(
-                (option) =>
-                  option.type === "select" && option.options.some((choice) => choice.id === value),
-              ),
-          )
+      const options = matching
+        .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
+        .filter((option) => option.id === binding.effortOption);
+      const efforts = [
+        ...Object.values(manifest.lists).flat(),
+        ...Object.values(manifest.roles).flatMap((role) => (role.large ? [role.large] : [])),
+      ]
+        .filter((entry) => entry.model === alias)
+        .map((entry) => entry.effort);
+      if (
+        matching.length > 0 &&
+        efforts.some(
+          (value) =>
+            !options.some(
+              (option) =>
+                option.type === "select" && option.options.some((choice) => choice.id === value),
+            ),
         )
-          return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
-      }
+      )
+        return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
     }
   });
   return AgentPolicySettingsService.of({
@@ -136,60 +127,10 @@ const make = Effect.gen(function* () {
       );
       return yield* read();
     }),
-    preview: Effect.fn("AgentPolicySettingsService.preview")(function* (input) {
-      const current = yield* load();
-      const service = yield* Effect.serviceOption(Settings.ServerSettingsService);
-      const settings = Option.isSome(service)
-        ? yield* service.value.getSettings.pipe(
-            Effect.mapError((cause) => new AgentPolicySettingsError({ reason: "read", cause })),
-          )
-        : undefined;
-      const mode =
-        input.runtimeMode ??
-        defaultChildMode("full-access", settings?.delegation.defaultChildRuntimeMode ?? "inherit");
-      const trustedEnabled = settings?.delegation.allowTrustedClaudeWriters === true;
-      const trusted = mode === "full-access" && trustedEnabled;
-      return yield* resolver.preview({
-        allowTrustedClaudeWriters: trustedEnabled,
-        snapshot: { ...current, manifest: input.manifest },
-        request: {
-          role: input.role,
-          executionRequirement:
-            input.manifest.roles[input.role].sourceAccess === "read-only"
-              ? "sandbox-required"
-              : (input.executionRequirement ??
-                (trusted ? "trusted-host-allowed" : "sandbox-required")),
-          taskClass: input.taskClass,
-          workId: "settings-preview",
-          attemptId: "preview",
-          workspacePath: yield* root,
-          demanding: input.demanding,
-          authorModel: input.authorModel,
-          ...(input.role === "reviewer"
-            ? {
-                sourceRevision: "preview-only",
-                review: {
-                  scope: "change" as const,
-                  baseRevision: "preview-base",
-                  includedChanges: ["preview-only"],
-                  coverage: "complete" as const,
-                },
-              }
-            : {}),
-        },
-        providers: yield* providers.getProviders,
-        ceiling: "full-access",
-        runtimeMode: mode,
-        ...(input.callerProviderInstanceId === undefined
-          ? {}
-          : { currentInstanceId: input.callerProviderInstanceId }),
-      });
-    }),
   });
 });
 
 export const layer = Layer.effect(AgentPolicySettingsService, make).pipe(
   Layer.provide(Policy.layer),
-  Layer.provide(Resolver.layer),
   Layer.provide(Processes.layer),
 );

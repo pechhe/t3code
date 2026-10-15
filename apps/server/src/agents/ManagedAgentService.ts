@@ -15,9 +15,10 @@ import {
   type AgentTaskBinding,
   type AgentTaskHandoff,
   type ModelSelection,
-  type ProviderInstanceId,
   type RuntimeMode,
   type ServerProvider,
+  isReviewerRole,
+  REVIEWER_SCOPE,
 } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -89,7 +90,7 @@ export class ManagedAgentService extends Context.Service<
     readonly roles: (
       input: Omit<Authority, "workspacePath"> & {
         readonly request: AgentRolesInput;
-        readonly currentInstanceId?: ProviderInstanceId;
+        readonly callerModel?: string;
         readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
@@ -99,7 +100,7 @@ export class ManagedAgentService extends Context.Service<
         readonly requestFingerprint: string;
         readonly recordedBinding?: AgentTaskBinding;
         readonly policyHash?: string;
-        readonly currentInstanceId?: ProviderInstanceId;
+        readonly callerModel?: string;
         readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<{ binding: AgentTaskBinding; brief: string }, ManagedAgentError>;
@@ -327,16 +328,14 @@ const make = Effect.gen(function* () {
                 snapshot,
                 providers: input.providers,
                 ...(input.selection === undefined ? {} : { selection: input.selection }),
-                ...(input.currentInstanceId === undefined
-                  ? {}
-                  : { currentInstanceId: input.currentInstanceId }),
+                ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
                 request: {
                   ...context.request,
-                  ...(role !== "reviewer"
+                  ...(!isReviewerRole(role)
                     ? {}
                     : {
                         review: {
-                          scope: input.request.reviewScope ?? "change",
+                          scope: REVIEWER_SCOPE[role],
                           baseRevision: "capability-discovery",
                           includedChanges: ["capability-discovery"],
                           specRef: "capability-discovery",
@@ -516,8 +515,7 @@ const make = Effect.gen(function* () {
       // but a preference edit cannot rewrite the treatment of an accepted task.
       const current = yield* currentPolicy;
       const role = current.manifest.roles[input.binding.role];
-      const allowed =
-        role.restrictions[input.binding.taskClass] ?? current.manifest.pools[role.pool].allow;
+      const allowed = (current.manifest.lists[role.list] ?? []).map((entry) => entry.model);
       if (
         !role.taskClasses.includes(input.binding.taskClass) ||
         (input.binding.sourceAccess === "scoped-write" && role.sourceAccess === "read-only") ||

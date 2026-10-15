@@ -35,6 +35,7 @@ import {
   type ExperimentTurnEvidence,
   ThreadId,
   type OrchestrationV2Run,
+  isReviewerRole,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -429,9 +430,9 @@ const make = Effect.gen(function* () {
       return true;
     const snapshot = yield* Effect.option(managed.value.snapshot());
     if (Option.isNone(snapshot)) return true;
-    const { models, pools } = snapshot.value.manifest;
+    const { models, lists } = snapshot.value.manifest;
     const allowed = new Set(
-      Object.values(pools).flatMap((pool) => pool.allow.map((alias) => models[alias]?.model)),
+      Object.values(lists).flatMap((list) => list.map((entry) => models[entry.model]?.model)),
     );
     return input.variants.every((v) => !v.modelSelection || allowed.has(v.modelSelection.model));
   });
@@ -875,7 +876,8 @@ const make = Effect.gen(function* () {
         : yield* persist("dispatch", unit.id, decodeAllocation(rows[0].payload_json));
     if (
       input.role !== "advisor" &&
-      (allocation === null || (input.role !== "reviewer" && allocation.allocation !== "delegated"))
+      (allocation === null || (!(input.role !== undefined && isReviewerRole(input.role)) &&
+          allocation.allocation !== "delegated"))
     )
       return yield* fail("dispatch", unit.id, "invalid-evidence");
     return unit;
@@ -1220,7 +1222,7 @@ const make = Effect.gen(function* () {
             phase:
               binding.role === "advisor"
                 ? "advice"
-                : binding.role === "reviewer"
+                : isReviewerRole(binding.role)
                   ? "verification"
                   : "execution",
           });
@@ -1288,7 +1290,7 @@ const make = Effect.gen(function* () {
     const childUsage = aggregateUsage(childTurns);
     const implementationTasks = tasks.filter(
       (task, index) =>
-        !["advisor", "reviewer"].includes(taskBindings[index]!.role) &&
+        !(taskBindings[index]!.role === "advisor" || isReviewerRole(taskBindings[index]!.role)) &&
         task.launch_state !== "refused",
     );
     const actualAllocation =
@@ -1389,7 +1391,7 @@ const make = Effect.gen(function* () {
                 ? observedRolePhase("advice")
                 : reportedPhaseMs.advice,
             verification:
-              taskBindings.some((b) => b.role === "reviewer") && childTimingComplete
+              taskBindings.some((b) => isReviewerRole(b.role)) && childTimingComplete
                 ? observedRolePhase("verification")
                 : reportedPhaseMs.verification,
             startup:

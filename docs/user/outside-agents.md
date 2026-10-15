@@ -120,7 +120,7 @@ a canonical role, task class, work ID, attempt ID and transport request ID;
 review tasks also pin the source revision. Role discovery explains unavailable
 models and unsupported execution boundaries before you submit. Claude writers
 require the destination owner's trusted-writer opt-in (**Settings → Delegation →
-Allow trusted Claude writers**) and an effective Full access child. This allows shell networking and host filesystem access beyond
+Let Claude helpers write with full access**) and an effective Full access child. This allows shell networking and host filesystem access beyond
 the assigned checkout; the task's authorised scope remains its assigned work.
 Use `"executionRequirement": "sandbox-required"` when that access is unacceptable.
 Browser and visual-check roles remain unavailable through this route. See
@@ -144,8 +144,8 @@ outcome, with `specRef` and the `specRevision` of the body read. `coverage` says
 whether the review covers the whole landing or Spec (`complete`) or only part
 (`partial`). A follow-up review of material changes since an earlier one sets
 `priorReview` to that review's work ID and source revision, with the same source
-as its `baseRevision`. The reviewer role, rubric and permissions are the same
-for both scopes.
+as its `baseRevision`. Use `ticket-reviewer` for a change and `spec-reviewer`
+for a Spec; both are read-only with fresh context.
 
 Keep the same work and attempt IDs when retrying a submission, including after a
 disconnect or server restart. Use a new attempt ID for new execution of that work,

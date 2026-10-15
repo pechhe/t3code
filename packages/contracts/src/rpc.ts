@@ -39,8 +39,6 @@ import * as Schema from "effect/Schema";
 import {
   AgentPolicySettings,
   AgentPolicySaveInput,
-  AgentPolicyPreviewInput,
-  AgentPolicyPreview,
   AgentPolicySettingsError,
 } from "./agentPolicySettings.ts";
 import * as Rpc from "effect/rpc/Rpc";
@@ -508,7 +506,6 @@ export const WS_METHODS = {
   serverGetSettings: "server.getSettings",
   agentPolicyRead: "agentPolicy.read",
   agentPolicySave: "agentPolicy.save",
-  agentPolicyPreview: "agentPolicy.preview",
   serverUpdateSettings: "server.updateSettings",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
@@ -807,11 +804,6 @@ const WsAgentPolicyReadRpc = Rpc.make(WS_METHODS.agentPolicyRead, {
 const WsAgentPolicySaveRpc = Rpc.make(WS_METHODS.agentPolicySave, {
   payload: AgentPolicySaveInput,
   success: AgentPolicySettings,
-  error: Schema.Union([EnvironmentAuthorizationError, AgentPolicySettingsError]),
-});
-const WsAgentPolicyPreviewRpc = Rpc.make(WS_METHODS.agentPolicyPreview, {
-  payload: AgentPolicyPreviewInput,
-  success: AgentPolicyPreview,
   error: Schema.Union([EnvironmentAuthorizationError, AgentPolicySettingsError]),
 });
 
@@ -1998,7 +1990,6 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetSettingsRpc,
   WsAgentPolicyReadRpc,
   WsAgentPolicySaveRpc,
-  WsAgentPolicyPreviewRpc,
   WsServerUpdateSettingsRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerSearchAcpRegistryRpc,

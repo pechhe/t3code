@@ -11,7 +11,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { resolveSettingsScope } from "./settingsScope";
 import { retainSettingsScope, validateSettingsRouteSearch } from "./settingsScopeNavigation";
 
-
 const checkoutSearch = {
   project: "repository:t3code",
   machine: "remote-server",
@@ -60,13 +59,7 @@ function createSettingsRouter(initialEntry = "/settings/general") {
   });
   return createRouter({
     routeTree: root.addChildren([
-      settings.addChildren([
-        general,
-        projects,
-        integrations,
-        sourceControl,
-        providers,
-      ]),
+      settings.addChildren([general, projects, integrations, sourceControl, providers]),
       legacyProject,
     ]),
     history: createMemoryHistory({ initialEntries: [initialEntry] }),
@@ -113,11 +106,7 @@ describe("settings scope navigation", () => {
     expect(router.state.location.search).toEqual(checkoutSearch);
   });
 
-  it.each([
-    "/settings/projects",
-    "/settings/integrations",
-    "/settings/source-control",
-  ] as const)(
+  it.each(["/settings/projects", "/settings/integrations", "/settings/source-control"] as const)(
     "keeps %s when regrouping or selecting a target from the shared settings layout",
     async (to) => {
       const router = createSettingsRouter();
@@ -256,4 +245,3 @@ describe("settings scope navigation", () => {
     expect(router.state.location.search).toEqual({ machine: "remote-server" });
   });
 });
-

@@ -1005,8 +1005,8 @@ it.effect(
       };
       const review = {
         ...bindingFor(unit, "attempt:review"),
-        role: "reviewer" as const,
-        briefHash: policy.briefs.reviewer.hash,
+        role: "ticket-reviewer" as const,
+        briefHash: policy.briefs["ticket-reviewer"].hash,
         sourceAccess: "read-only" as const,
         toolProfile: "source-reader" as const,
         requested: reviewerSelection,
@@ -1145,7 +1145,7 @@ it.effect.each(["verified-completion", "cancellation"] as const)(
           .pipe(Effect.flip)).reason,
       ).toBe("invalid-evidence");
       expect(
-        (yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role: "reviewer" })).id,
+        (yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role: "ticket-reviewer" })).id,
       ).toBe(unit.id);
     }).pipe(Effect.provide(layer)),
 );

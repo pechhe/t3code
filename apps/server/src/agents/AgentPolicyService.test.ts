@@ -11,22 +11,20 @@ import * as AgentPolicy from "./AgentPolicyService.ts";
 
 function manifest() {
   const role = (
-    pool: string,
+    list: string,
     name: string,
     sourceAccess: string,
     toolProfile: string,
     taskClasses = ["non-ui"],
-  ) => ({
-    pool,
-    brief: `roles/${name}.md`,
-    sourceAccess,
-    toolProfile,
-    taskClasses,
-    restrictions: {},
-    effort: { [pool]: { default: "medium" } },
-  });
+  ) => ({ list, brief: `roles/${name}.md`, sourceAccess, toolProfile, taskClasses });
+  const lists: Record<string, Array<{ model: string; effort: string }>> = Object.fromEntries(
+    ["fast", "workhorse", "ui", "advisor"].map((name) => [
+      name,
+      [{ model: name, effort: "medium" }],
+    ]),
+  );
   return {
-    version: 1,
+    version: 2,
     revision: "test-policy",
     models: Object.fromEntries(
       ["fast", "workhorse", "ui", "advisor"].map((name) => [
@@ -34,12 +32,7 @@ function manifest() {
         { driverKind: "claudeAgent", model: `test-${name}`, effortOption: "effort" },
       ]),
     ),
-    pools: Object.fromEntries(
-      ["fast", "workhorse", "ui", "advisor"].map((name) => [
-        name,
-        { allow: [name], prefer: [name] },
-      ]),
-    ),
+    lists,
     roles: {
       "chore-worker": role("fast", "chore-worker", "scoped-write", "implementation"),
       "implementation-worker": role(
@@ -52,45 +45,47 @@ function manifest() {
       browser: role("fast", "browser", "read-only", "phi"),
       "ui-verifier": role("fast", "ui-verifier", "read-only", "phi", ["ui"]),
       advisor: role("advisor", "advisor", "read-only", "source-reader"),
-      reviewer: role("workhorse", "reviewer", "read-only", "source-reader"),
+      "ticket-reviewer": role("workhorse", "ticket-reviewer", "read-only", "source-reader"),
+      "spec-reviewer": role("advisor", "spec-reviewer", "read-only", "source-reader"),
     },
   };
 }
 
 describe("policy authority", () => {
   const decode = Schema.decodeUnknownSync(AgentPolicyManifest);
-  it("keeps preferences separate from allowed candidates", () => {
+  it("names each model in a list once", () => {
     const input = manifest();
-    input.pools.workhorse = { allow: ["workhorse"], prefer: [] };
-    expect(decode(input).pools.workhorse).toEqual({ allow: ["workhorse"], prefer: [] });
-    input.pools.workhorse.prefer = ["fast"];
+    input.lists.workhorse = [
+      { model: "workhorse", effort: "medium" },
+      { model: "workhorse", effort: "high" },
+    ];
     expect(() => decode(input)).toThrow();
   });
-  it("refuses dangling aliases, missing effort and role escalation", () => {
+  it("refuses dangling aliases, empty or missing lists and role escalation", () => {
     const missing = manifest();
     delete missing.models.fast;
     expect(() => decode(missing)).toThrow();
-    const effort = manifest();
-    effort.roles.reviewer.effort = {};
-    expect(() => decode(effort)).toThrow();
+    const empty = manifest();
+    empty.lists.advisor = [];
+    expect(() => decode(empty)).toThrow();
+    const unknownList = manifest();
+    unknownList.roles.advisor.list = "nowhere";
+    expect(() => decode(unknownList)).toThrow();
     const access = manifest();
-    access.roles.reviewer.sourceAccess = "scoped-write";
+    access.roles["ticket-reviewer"].sourceAccess = "scoped-write";
     expect(() => decode(access)).toThrow();
     const browser = manifest();
     browser.roles.browser.toolProfile = "implementation";
     expect(() => decode(browser)).toThrow();
   });
-  it("requires seven roles and contained canonical brief paths", () => {
+  it("requires every role and contained canonical brief paths", () => {
     const input = manifest();
-    const { reviewer: _reviewer, ...roles } = input.roles;
+    const { "spec-reviewer": _spec, ...roles } = input.roles;
     expect(() => decode({ ...input, roles })).toThrow();
-    input.roles.reviewer.brief = "../secrets";
+    input.roles["ticket-reviewer"].brief = "../secrets";
     expect(() => decode(input)).toThrow();
   });
-  it("does not allow a separate reviewer pool or UI implementation worker", () => {
-    const input = manifest();
-    input.roles.reviewer.pool = "advisor";
-    expect(() => decode(input)).toThrow();
+  it("does not allow a UI implementation worker", () => {
     const mixed = manifest();
     mixed.roles["implementation-worker"].taskClasses = ["mixed"];
     expect(() => decode(mixed)).toThrow();
@@ -119,20 +114,60 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const first = yield* service.snapshot(root);
       const edited = manifest();
       edited.revision = "caller-cannot-set-revision";
-      edited.pools.workhorse!.prefer = [];
+      edited.lists.workhorse = [{ model: "workhorse", effort: "high" }];
       const saved = yield* service.save(root, { expectedHash: first.hash, manifest: edited });
       expect(saved.sourceRevision).toBe("test-policy.1");
-      expect(saved.manifest.pools.workhorse.prefer).toEqual([]);
+      expect(saved.manifest.lists["workhorse"]).toEqual([{ model: "workhorse", effort: "high" }]);
       expect(saved.hash).not.toBe(first.hash);
       expect((yield* service.snapshot(root)).hash).toBe(saved.hash);
       expect((yield* fs.stat(`${root}/roles/policy.json`)).mode & 0o777).toBe(0o640);
-      expect(first.manifest.pools.workhorse.prefer).toEqual(["workhorse"]);
+      expect(first.manifest.lists["workhorse"]?.[0]?.effort).toBe("medium");
       expect(Object.isFrozen(saved.manifest)).toBe(true);
       const again = yield* service.save(root, { expectedHash: saved.hash, manifest: manifest() });
       expect(again.sourceRevision).toBe("test-policy.2");
       expect(yield* fs.readDirectory(`${root}/roles`)).not.toContainEqual(
         expect.stringMatching(/^\.policy-edit-/),
       );
+    }),
+  );
+  it.effect("reads an unconverted version 1 policy and saves it as version 2", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const current = manifest();
+      const legacyRole = (name: string, role: (typeof current.roles)["advisor"]) => ({
+        pool: role.list,
+        brief: `roles/${name}.md`,
+        sourceAccess: role.sourceAccess,
+        toolProfile: role.toolProfile,
+        taskClasses: role.taskClasses,
+        restrictions: {},
+        effort: { [role.list]: { default: "medium" } },
+      });
+      const { "ticket-reviewer": reviewer, "spec-reviewer": _spec, ...roles } = current.roles;
+      yield* fs.writeFileString(
+        `${root}/roles/policy.json`,
+        JSON.stringify({
+          version: 1,
+          revision: "legacy-policy",
+          models: current.models,
+          pools: Object.fromEntries(
+            Object.keys(current.lists).map((name) => [name, { allow: [name], prefer: [name] }]),
+          ),
+          roles: {
+            ...Object.fromEntries(
+              Object.entries(roles).map(([name, role]) => [name, legacyRole(name, role)]),
+            ),
+            reviewer: legacyRole("reviewer", reviewer),
+          },
+        }),
+      );
+      const legacy = yield* service.snapshot(root);
+      expect(legacy.manifest.roles["spec-reviewer"].list).toBe("spec-reviewer");
+      expect(legacy.briefs["spec-reviewer"].text).toBe("Brief for roles/spec-reviewer.md\n");
+      yield* service.save(root, { expectedHash: legacy.hash, manifest: legacy.manifest });
+      expect(JSON.parse(yield* fs.readFileString(`${root}/roles/policy.json`)).version).toBe(2);
     }),
   );
   it.effect(
@@ -157,7 +192,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
         ).toBe("stale");
         expect(yield* fs.readFileString(`${root}/roles/policy.json`)).toBe(newerBytes);
         const second = yield* service.snapshot(root);
-        yield* fs.writeFileString(`${root}/roles/reviewer.md`, "External rubric change");
+        yield* fs.writeFileString(`${root}/roles/ticket-reviewer.md`, "External rubric change");
         expect(
           (yield* service
             .save(root, {
@@ -196,7 +231,7 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const first = yield* service.snapshot(root);
       const original = yield* fs.readFileString(`${root}/roles/policy.json`);
       const invalid = manifest();
-      invalid.pools.workhorse!.allow = [];
+      invalid.lists.workhorse = [];
       const oversized = manifest();
       oversized.models.workhorse!.model = "x".repeat(65_537);
       for (const [proposed, reason] of [
@@ -323,21 +358,24 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const root = yield* source;
       const first = yield* service.snapshot(root);
       const crypto = yield* Crypto.Crypto;
-      expect(first.briefs.reviewer.text).toBe("Brief for roles/reviewer.md\n");
-      expect(first.briefs.reviewer.hash).toBe(
+      expect(first.briefs["ticket-reviewer"].text).toBe("Brief for roles/ticket-reviewer.md\n");
+      expect(first.briefs["ticket-reviewer"].hash).toBe(
         Hex.encode(
-          yield* crypto.digest("SHA-256", new TextEncoder().encode(first.briefs.reviewer.text)),
+          yield* crypto.digest(
+            "SHA-256",
+            new TextEncoder().encode(first.briefs["ticket-reviewer"].text),
+          ),
         ),
       );
       const retry = yield* service.snapshot(root);
       expect(retry.hash).toBe(first.hash);
-      yield* fs.writeFileString(`${root}/roles/reviewer.md`, "Changed rubric");
+      yield* fs.writeFileString(`${root}/roles/ticket-reviewer.md`, "Changed rubric");
       const second = yield* service.snapshot(root);
       expect(second.hash).not.toBe(first.hash);
-      expect(second.briefs.reviewer.hash).not.toBe(first.briefs.reviewer.hash);
-      expect(first.briefs.reviewer.text).not.toBe("Changed rubric");
-      expect(Object.isFrozen(first.manifest.pools.workhorse.allow)).toBe(true);
-      expect(Object.isFrozen(first.briefs.reviewer)).toBe(true);
+      expect(second.briefs["ticket-reviewer"].hash).not.toBe(first.briefs["ticket-reviewer"].hash);
+      expect(first.briefs["ticket-reviewer"].text).not.toBe("Changed rubric");
+      expect(Object.isFrozen(first.manifest.lists["workhorse"])).toBe(true);
+      expect(Object.isFrozen(first.briefs["ticket-reviewer"])).toBe(true);
     }),
   );
   it.effect("refuses missing briefs and symlinks outside the source root", () =>
@@ -345,12 +383,12 @@ it.layer(testLayer)("immutable policy snapshots", (it) => {
       const service = yield* AgentPolicy.AgentPolicyService;
       const fs = yield* FileSystem.FileSystem;
       const root = yield* source;
-      yield* fs.remove(`${root}/roles/reviewer.md`);
+      yield* fs.remove(`${root}/roles/ticket-reviewer.md`);
       const missing = yield* service.snapshot(root).pipe(Effect.flip);
       expect(missing.reason).toBe("read");
       const other = yield* fs.makeTempDirectoryScoped({ prefix: "agent-policy-outside-" });
       yield* fs.writeFileString(`${other}/brief.md`, "Outside");
-      yield* fs.symlink(`${other}/brief.md`, `${root}/roles/reviewer.md`);
+      yield* fs.symlink(`${other}/brief.md`, `${root}/roles/ticket-reviewer.md`);
       const escaped = yield* service.snapshot(root).pipe(Effect.flip);
       expect(escaped.reason).toBe("outside-root");
     }),

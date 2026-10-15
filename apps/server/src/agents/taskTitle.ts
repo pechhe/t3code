@@ -7,22 +7,26 @@ const roleLabels: Record<AgentRole, string> = {
   browser: "Browser",
   "ui-verifier": "UI verifier",
   advisor: "Advisor",
-  reviewer: "Reviewer",
+  "ticket-reviewer": "Ticket reviewer",
+  "spec-reviewer": "Spec reviewer",
 };
 
+/** Thread-title prefixes callers used before T3 named the role itself. */
+const callerPrefix = /^(?:lead|worker|solo|chat)\s*[·:\-–—]\s+/i;
+
 /**
- * The title of a managed task: the caller's own, else its role and the first line of
- * the task, so a sub-agent row names what it is rather than quoting its role brief.
+ * The title of a managed task: its role, then the caller's topic or else the first line
+ * of the task, so every sub-agent row says which job it is doing.
  */
 export const managedTaskTitle = (
   role: AgentRole,
   task: string,
   title: string | undefined,
 ): string => {
-  if (title !== undefined) return title;
-  const firstLine = task
-    .split("\n")
-    .find((line) => line.trim().length > 0)
-    ?.trim();
-  return firstLine === undefined ? roleLabels[role] : `${roleLabels[role]}: ${firstLine}`;
+  const topic = (
+    title?.trim().replace(callerPrefix, "") ||
+    task.split("\n").find((line) => line.trim().length > 0) ||
+    ""
+  ).trim();
+  return topic.length === 0 ? roleLabels[role] : `${roleLabels[role]} · ${topic}`;
 };

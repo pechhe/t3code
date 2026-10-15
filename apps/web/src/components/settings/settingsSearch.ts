@@ -103,7 +103,7 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/providers": "Providers",
   "/settings/integrations": "Integrations",
   "/settings/experiments": "Experiments",
-  "/settings/delegation": "Agents · Delegation",
+  "/settings/delegation": "Delegation",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
@@ -168,9 +168,35 @@ const SOURCE_CONTROL_HOST_SEARCH_ITEMS = sourceControlClients.definitions.flatMa
 export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "delegation",
-    title: "Agents · Delegation",
+    title: "Delegation",
     to: "/settings/delegation",
-    searchTerms: ["agent models pools roles reviewer effort permissions policy preview"],
+    searchTerms: [
+      "agent models roles jobs subagents reviewer advisor effort large tasks order policy",
+    ],
+  },
+  {
+    id: "delegation-child-permissions",
+    title: "Helper permissions",
+    to: "/settings/delegation",
+    scope: "environment",
+    environmentOnly: true,
+    searchTerms: ["delegated child runtime mode subagent permissions"],
+  },
+  {
+    id: "delegation-trusted-claude-writers",
+    title: "Let Claude helpers write with full access",
+    to: "/settings/delegation",
+    scope: "environment",
+    environmentOnly: true,
+    searchTerms: ["trusted claude writers delegated subagent host access"],
+  },
+  {
+    id: "delegation-advisor-idle-close",
+    title: "Close idle advisors",
+    to: "/settings/delegation",
+    scope: "environment",
+    environmentOnly: true,
+    searchTerms: ["advisor timeout idle close subagent"],
   },
   {
     id: "experiments",

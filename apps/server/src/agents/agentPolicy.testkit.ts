@@ -3,7 +3,6 @@ import {
   AgentTaskRequest,
   ServerProvider,
   type AgentRole,
-  type AgentModelPool,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
@@ -16,70 +15,51 @@ const decodeProvider = Schema.decodeUnknownSync(ServerProvider);
 export function snapshot() {
   const role = (
     name: AgentRole,
-    pool: AgentModelPool,
-    aliases: string[],
+    list: string,
     sourceAccess = "read-only",
     toolProfile = "source-reader",
     taskClasses = ["non-ui"],
-    restrictions = {},
-  ) => ({
-    pool,
-    brief: `roles/${name}.md`,
-    sourceAccess,
-    toolProfile,
-    taskClasses,
-    restrictions,
-    effort: Object.fromEntries(
-      aliases.map((alias) => [alias, { default: "medium", demanding: "high" }]),
-    ),
-  });
+    extra = {},
+  ) => ({ list, brief: `roles/${name}.md`, sourceAccess, toolProfile, taskClasses, ...extra });
+  const entries = (...models: string[]) => models.map((model) => ({ model, effort: "medium" }));
   const roles = {
-    "chore-worker": role(
-      "chore-worker",
-      "fast",
-      ["luna", "haiku"],
-      "scoped-write",
-      "implementation",
-    ),
+    "chore-worker": role("chore-worker", "fast", "scoped-write", "implementation"),
     "implementation-worker": role(
       "implementation-worker",
       "workhorse",
-      ["sol", "sonnet"],
       "scoped-write",
       "implementation",
+      ["non-ui"],
+      { large: { model: "sol", effort: "high" } },
     ),
-    "ui-worker": role("ui-worker", "ui", ["opus"], "scoped-write", "implementation", [
-      "ui",
-      "mixed",
-    ]),
-    browser: role("browser", "fast", ["haiku"], "read-only", "phi", ["ui"], { ui: ["haiku"] }),
-    "ui-verifier": role("ui-verifier", "fast", ["haiku"], "read-only", "phi", ["ui"], {
-      ui: ["haiku"],
+    "ui-worker": role("ui-worker", "ui", "scoped-write", "implementation", ["ui", "mixed"]),
+    browser: role("browser", "browser", "read-only", "phi", ["ui"]),
+    "ui-verifier": role("ui-verifier", "browser", "read-only", "phi", ["ui"]),
+    advisor: role("advisor", "advisor", "read-only", "source-reader", ["non-ui", "ui", "mixed"], {
+      callers: { opus: "astra" },
     }),
-    advisor: role(
-      "advisor",
-      "advisor",
-      ["astra", "fable"],
-      "read-only",
-      "source-reader",
-      ["non-ui", "ui", "mixed"],
-      { ui: ["fable"], mixed: ["fable"] },
-    ),
-    reviewer: role(
-      "reviewer",
+    "ticket-reviewer": role(
+      "ticket-reviewer",
       "workhorse",
-      ["sol", "sonnet"],
       "read-only",
       "source-reader",
       ["non-ui", "ui", "mixed"],
-      { ui: ["sonnet"], mixed: ["sonnet"] },
+      { preferOtherAuthorProvider: true },
+    ),
+    "spec-reviewer": role(
+      "spec-reviewer",
+      "workhorse",
+      "read-only",
+      "source-reader",
+      ["non-ui", "ui", "mixed"],
+      { preferOtherAuthorProvider: true },
     ),
   };
   return decodeSnapshot({
     hash: "a".repeat(64),
     sourceRevision: "policy-commit",
     manifest: {
-      version: 1,
+      version: 2,
       revision: "policy-test",
       models: {
         sol: { driverKind: "codex", model: codexModel, effortOption: "reasoning" },
@@ -90,11 +70,12 @@ export function snapshot() {
         astra: { driverKind: "codex", model: "gpt-astra-test", effortOption: "reasoning" },
         fable: { driverKind: "claudeAgent", model: "claude-fable-test", effortOption: "effort" },
       },
-      pools: {
-        fast: { allow: ["luna", "haiku"], prefer: ["haiku", "luna"] },
-        workhorse: { allow: ["sol", "sonnet"], prefer: ["sonnet", "sol"] },
-        ui: { allow: ["opus"], prefer: ["opus"] },
-        advisor: { allow: ["astra", "fable"], prefer: ["fable", "astra"] },
+      lists: {
+        fast: entries("haiku", "luna"),
+        workhorse: entries("sonnet", "sol"),
+        ui: entries("opus"),
+        browser: entries("haiku"),
+        advisor: entries("fable", "astra"),
       },
       roles,
     },

@@ -54,61 +54,39 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       );
     }),
   );
-  it.effect("reviewer provider requirements fail closed while preferences remain soft", () =>
+  it.effect("a reviewer prefers another provider than the author's, without refusing", () =>
     Effect.gen(function* () {
-      const resolver = yield* Resolver.AgentRoleResolver;
       const original = snapshot();
-      const policy = {
-        ...original,
-        manifest: {
-          ...original.manifest,
-          reviewer: { prefer: ["sol", "sonnet"], requireDifferentProvider: true },
-        },
-      };
-      const value = input({
-        snapshot: policy,
-        request: request({
-          role: "reviewer",
-          sourceRevision: "candidate",
-          review: changeReview,
-          authorModel: codexModel,
-        }),
-      });
-      expect((yield* resolver.resolve(value)).model).toBe(claudeModel);
-      const missing = yield* resolver.preview({ ...value, providers: [codex] });
-      expect(missing.refusal).toBe("no-eligible-model");
-      expect(missing.candidates).toContainEqual(
-        expect.objectContaining({ alias: "sol", reason: "reviewer-requires-different-provider" }),
-      );
-      expect(
-        (yield* resolver.preview({
-          ...value,
-          request: { ...value.request, authorModel: "unknown" },
-        })).refusal,
-      ).toBe("author-provider-required");
-      const custom = {
-        ...original,
-        manifest: {
-          ...original.manifest,
-          pools: {
-            ...original.manifest.pools,
-            workhorse: { ...original.manifest.pools.workhorse, crossProvider: false },
-          },
-          reviewer: { prefer: ["sonnet", "sol"], requireDifferentProvider: false },
-        },
-      };
-      expect(
-        (yield* resolver.resolve(
+      const review = (preferOtherAuthorProvider: boolean, providers = [codex, claude]) =>
+        resolve(
           input({
-            snapshot: custom,
+            snapshot: {
+              ...original,
+              manifest: {
+                ...original.manifest,
+                roles: {
+                  ...original.manifest.roles,
+                  "ticket-reviewer": {
+                    ...original.manifest.roles["ticket-reviewer"],
+                    preferOtherAuthorProvider,
+                  },
+                },
+              },
+            },
+            providers,
             request: request({
-              role: "reviewer",
+              role: "ticket-reviewer",
               sourceRevision: "candidate",
               review: changeReview,
+              authorModel: "claude-opus-test",
             }),
           }),
-        )).model,
-      ).toBe(claudeModel);
+        );
+      // The list puts Sonnet first; a Claude author moves Codex ahead of it.
+      expect((yield* review(true)).model).toBe(codexModel);
+      expect((yield* review(false)).model).toBe(claudeModel);
+      // With only the author's provider available, it still reviews.
+      expect((yield* review(true, [claude])).model).toBe(claudeModel);
     }),
   );
   it.effect("selects a workhorse with explicit medium and deliberate high effort", () =>
@@ -133,7 +111,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("keeps roles inside their pools and rejects UI implementation classification", () =>
+  it.effect("keeps roles inside their lists and rejects UI implementation classification", () =>
     Effect.gen(function* () {
       expect(
         (yield* refusal(
@@ -151,12 +129,11 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       const value = yield* resolve(
         input({
           request: request({
-            role: "reviewer",
+            role: "ticket-reviewer",
             sourceRevision: "reviewed-commit",
             review: changeReview,
             authorModel: codexModel,
           }),
-          currentInstanceId: codex.instanceId,
         }),
       );
       expect(value.model).toBe(claudeModel);
@@ -167,9 +144,9 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
 
   it.effect("requires a pinned source revision for review", () =>
     Effect.gen(function* () {
-      expect((yield* refusal(input({ request: request({ role: "reviewer" }) }))).reason).toBe(
-        "source-pin-required",
-      );
+      expect(
+        (yield* refusal(input({ request: request({ role: "ticket-reviewer" }) }))).reason,
+      ).toBe("source-pin-required");
     }),
   );
 
@@ -178,7 +155,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       const reviewer = (review: Partial<typeof changeReview> | undefined, extra = {}) =>
         input({
           request: request({
-            role: "reviewer",
+            role: "ticket-reviewer",
             sourceRevision: "reviewed-commit",
             ...(review === undefined ? {} : { review: { ...changeReview, ...review } }),
             ...extra,
@@ -190,19 +167,16 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* refusal(reviewer({ includedChanges: [] }))).reason).toBe(
         "review-scope-invalid",
       );
-      // A Spec review judges a specific Spec body revision.
+      // A Spec review judges a specific Spec body revision, and only the Spec reviewer does.
       const spec = { scope: "spec", coverage: "partial" } as const;
-      expect((yield* refusal(reviewer(spec))).reason).toBe("review-scope-invalid");
-      yield* resolve(reviewer({ ...spec, specRef: "owner/repo#12", specRevision: "body-3" }));
+      const specReviewer = { role: "spec-reviewer" } as const;
+      expect((yield* refusal(reviewer(spec, specReviewer))).reason).toBe("review-scope-invalid");
+      const pinned = { ...spec, specRef: "owner/repo#12", specRevision: "body-3" };
+      yield* resolve(reviewer(pinned, specReviewer));
+      expect((yield* refusal(reviewer(pinned))).reason).toBe("review-scope-invalid");
+      expect((yield* refusal(reviewer({}, specReviewer))).reason).toBe("review-scope-invalid");
       // A Spec review of a no-Ticket Spec has no Ticket changes to list.
-      yield* resolve(
-        reviewer({
-          ...spec,
-          includedChanges: [],
-          specRef: "owner/repo#12",
-          specRevision: "body-3",
-        }),
-      );
+      yield* resolve(reviewer({ ...pinned, includedChanges: [] }, specReviewer));
       // A delta covers exactly the changes since the earlier report.
       const prior = { workId: "review-1", sourceRevision: "earlier-commit" };
       yield* resolve(reviewer({ priorReview: prior, baseRevision: "earlier-commit" }));
@@ -228,7 +202,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     Effect.gen(function* () {
       const base = input({
         request: request({
-          role: "reviewer",
+          role: "ticket-reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
         }),
@@ -285,12 +259,11 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         const unavailable: ServerProvider = { ...codex, availability: "unavailable" };
         const base = input({
           request: request({
-            role: "reviewer",
+            role: "ticket-reviewer",
             sourceRevision: "reviewed-commit",
             review: changeReview,
           }),
           providers: [unavailable, claude],
-          currentInstanceId: codex.instanceId,
         });
         expect((yield* resolve(base)).instanceId).toBe(claude.instanceId);
         expect(
@@ -326,12 +299,11 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         for (const taskClass of ["ui", "mixed"] as const) {
           const base = input({
             request: request({
-              role: "reviewer",
+              role: "ticket-reviewer",
               sourceRevision: "reviewed-commit",
               review: changeReview,
               taskClass,
             }),
-            currentInstanceId: codex.instanceId,
           });
           expect((yield* resolve(base)).model).toBe(claudeModel);
           expect((yield* refusal({ ...base, providers: [codex] })).reason).toBe(
@@ -367,7 +339,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       const base = input({
         snapshot: policy,
         request: request({
-          role: "reviewer",
+          role: "ticket-reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
           taskClass: "ui",
@@ -453,20 +425,63 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("prefers a model from a different provider than the caller's", () =>
+  it.effect("follows the list order whichever provider asks", () =>
     Effect.gen(function* () {
-      const advisor = (currentInstanceId?: typeof codex.instanceId) =>
-        resolve(
+      for (const callerModel of [undefined, claudeModel, codexModel]) {
+        const value = yield* resolve(
           input({
             request: request({ role: "advisor" }),
-            ...(currentInstanceId === undefined ? {} : { currentInstanceId }),
+            ...(callerModel === undefined ? {} : { callerModel }),
           }),
         );
-      // The pool prefers Claude's fable, so without a caller that is the choice.
-      expect((yield* advisor()).instanceId).toBe(claude.instanceId);
-      // A Claude caller is advised by Codex, ahead of the pool's own preference.
-      expect((yield* advisor(claude.instanceId)).instanceId).toBe(codex.instanceId);
-      expect((yield* advisor(codex.instanceId)).instanceId).toBe(claude.instanceId);
+        expect(value.model).toBe("claude-fable-test");
+      }
+    }),
+  );
+
+  it.effect("starts with a caller's own first choice when the role names one", () =>
+    Effect.gen(function* () {
+      const original = snapshot();
+      const policy: AgentPolicySnapshot = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          roles: {
+            ...original.manifest.roles,
+            advisor: { ...original.manifest.roles.advisor, callers: { sonnet: "astra" } },
+          },
+        },
+      };
+      const advisor = (callerModel: string, providers = [codex, claude]) =>
+        resolve(
+          input({
+            snapshot: policy,
+            request: request({ role: "advisor" }),
+            callerModel,
+            providers,
+          }),
+        );
+      expect((yield* advisor(claudeModel)).model).toBe("gpt-astra-test");
+      expect((yield* advisor("claude-opus-test")).model).toBe("claude-fable-test");
+      // An unavailable first choice falls back to the list order.
+      expect((yield* advisor(claudeModel, [claude])).model).toBe("claude-fable-test");
+    }),
+  );
+
+  it.effect("starts a large task with the role's large-task model at its effort", () =>
+    Effect.gen(function* () {
+      const value = (demanding: boolean) =>
+        resolve(input({ request: request({ demanding, readOnly: true }) }));
+      // The list puts Sonnet first; large work goes to Sol at high effort.
+      expect(yield* value(false)).toMatchObject({
+        model: claudeModel,
+        options: [{ id: "effort", value: "medium" }],
+      });
+      expect(yield* value(true)).toEqual({
+        instanceId: codex.instanceId,
+        model: codexModel,
+        options: [{ id: "reasoning", value: "high" }],
+      });
     }),
   );
 
@@ -478,7 +493,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           ...(selection === undefined ? {} : { selection }),
           ...extra,
         });
-      // The pool prefers fable; a named model replaces that order, with the role's own effort.
+      // The list prefers fable; a named model replaces that order, with the role's own effort.
       expect(yield* resolve(advisor())).toMatchObject({ model: "claude-fable-test" });
       expect(yield* resolve(advisor({ model: "gpt-astra-test" }))).toEqual({
         instanceId: codex.instanceId,
@@ -490,7 +505,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         (yield* resolve(advisor({ model: "claude-fable-test", instanceId: claude.instanceId })))
           .instanceId,
       ).toBe(claude.instanceId);
-      // A model outside the role's pool, or on an account that lacks it, is refused.
+      // A model outside the role's list, or on an account that lacks it, is refused.
       expect((yield* refusal(advisor({ model: claudeModel }))).reason).toBe("selection-denied");
       expect(
         (yield* refusal(advisor({ model: "gpt-astra-test", instanceId: claude.instanceId })))
@@ -514,7 +529,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       Effect.gen(function* () {
         const resolver = yield* Resolver.AgentRoleResolver;
         const review = request({
-          role: "reviewer",
+          role: "ticket-reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
           authorModel: codexModel,
@@ -540,43 +555,6 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
-  it.effect("ignores the caller's provider when the pool's switch is off", () =>
-    Effect.gen(function* () {
-      const base = snapshot();
-      const off = {
-        ...base,
-        manifest: {
-          ...base.manifest,
-          pools: {
-            ...base.manifest.pools,
-            advisor: { ...base.manifest.pools.advisor, crossProvider: false },
-          },
-        },
-      };
-      const value = yield* resolve(
-        input({
-          snapshot: off,
-          request: request({ role: "advisor" }),
-          currentInstanceId: claude.instanceId,
-        }),
-      );
-      expect(value.instanceId).toBe(claude.instanceId);
-    }),
-  );
-
-  it.effect("keeps the caller's provider when no other provider is eligible", () =>
-    Effect.gen(function* () {
-      const value = yield* resolve(
-        input({
-          request: request({ role: "advisor" }),
-          providers: [claude],
-          currentInstanceId: claude.instanceId,
-        }),
-      );
-      expect(value.instanceId).toBe(claude.instanceId);
-    }),
-  );
-
   it.effect("delegates to the member whose usage resets soonest", () =>
     Effect.gen(function* () {
       const usage = (usedPercent: number, resetsAt: string) => ({
@@ -600,12 +578,11 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       };
       const base = input({
         request: request({
-          role: "reviewer",
+          role: "ticket-reviewer",
           sourceRevision: "reviewed-commit",
           review: changeReview,
         }),
         providers: [caller, later, sooner, pool],
-        currentInstanceId: caller.instanceId,
       });
       expect((yield* resolve(base)).instanceId).toBe(sooner.instanceId);
     }),

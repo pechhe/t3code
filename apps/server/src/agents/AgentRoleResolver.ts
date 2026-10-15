@@ -7,7 +7,7 @@ import type {
   ServerProvider,
   AgentPolicyPreview,
 } from "@t3tools/contracts";
-import { AgentPolicyCandidate } from "@t3tools/contracts";
+import { AgentPolicyCandidate, isReviewerRole, REVIEWER_SCOPE } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -27,7 +27,6 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "source-pin-required",
     "review-scope-required",
     "review-scope-invalid",
-    "author-provider-required",
   ]),
   candidates: Schema.optional(Schema.Array(AgentPolicyCandidate)),
 }) {
@@ -54,7 +53,8 @@ type ResolutionInput = {
   readonly ceiling: RuntimeMode;
   readonly runtimeMode?: RuntimeMode;
   readonly allowTrustedClaudeWriters?: boolean;
-  readonly currentInstanceId?: ProviderInstanceId;
+  /** The model the asking agent runs, which a role's `callers` exception may key on. */
+  readonly callerModel?: string;
   readonly selection?: RequestedModel;
 };
 
@@ -71,14 +71,16 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const role = snapshot.manifest.roles[request.role];
   if (!role.taskClasses.includes(request.taskClass))
     return yield* new AgentRoleError({ reason: "classification" });
-  if (request.role === "reviewer" && request.sourceRevision === undefined)
+  const reviewer = isReviewerRole(request.role);
+  if (reviewer && request.sourceRevision === undefined)
     return yield* new AgentRoleError({ reason: "source-pin-required" });
   const review = request.review;
-  if (request.role === "reviewer" && review === undefined)
+  if (reviewer && review === undefined)
     return yield* new AgentRoleError({ reason: "review-scope-required" });
   if (
     review !== undefined &&
-    (request.role !== "reviewer" ||
+    (!isReviewerRole(request.role) ||
+      review.scope !== REVIEWER_SCOPE[request.role] ||
       (review.scope === "change" && review.includedChanges.length === 0) ||
       (review.scope === "spec" &&
         (review.specRef === undefined || review.specRevision === undefined)) ||
@@ -94,8 +96,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const readOnly = role.sourceAccess === "read-only" || request.readOnly === true;
   if (!readOnly && input.ceiling === "approval-required")
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
-  const pool = snapshot.manifest.pools[role.pool];
-  const allowed = role.restrictions[request.taskClass] ?? pool.allow;
+  const list = snapshot.manifest.lists[role.list] ?? [];
   const diagnostics: Array<AgentPolicyCandidate> = [];
   const record = (
     alias: string,
@@ -118,28 +119,13 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       .map((model) => model.driverKind),
   );
   const authorDriver = authorDrivers.size === 1 ? [...authorDrivers][0] : undefined;
-  if (
-    request.role === "reviewer" &&
-    snapshot.manifest.reviewer?.requireDifferentProvider &&
-    authorDriver === undefined
-  )
-    return yield* new AgentRoleError({ reason: "author-provider-required" });
+  const large = request.demanding ? role.large : undefined;
   const eligible: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
     [];
-  for (const [alias, binding] of Object.entries(snapshot.manifest.models)) {
-    const effort = request.demanding ? role.effort[alias]?.demanding : role.effort[alias]?.default;
-    if (!pool.allow.includes(alias)) {
-      record(alias, binding.model, "outside-pool");
-      continue;
-    }
-    if (!allowed.includes(alias)) {
-      record(alias, binding.model, "task-restriction");
-      continue;
-    }
-    if (effort === undefined) {
-      record(alias, binding.model, "unsupported-effort");
-      continue;
-    }
+  for (const entry of list) {
+    const alias = entry.model;
+    const binding = snapshot.manifest.models[alias]!;
+    const effort = large?.model === alias ? large.effort : entry.effort;
     // Managed enforcement is implemented only in these adapters. Custom model aliases
     // must still resolve to the advertised literal model; no inherited-model fallback.
     if (binding.driverKind !== "codex" && binding.driverKind !== "claudeAgent") {
@@ -186,14 +172,6 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       }
       if (provider.auth.status !== "authenticated") {
         skip("not-signed-in");
-        continue;
-      }
-      if (
-        request.role === "reviewer" &&
-        snapshot.manifest.reviewer?.requireDifferentProvider &&
-        provider.driver === authorDriver
-      ) {
-        skip("reviewer-requires-different-provider");
         continue;
       }
       const model = provider.models.find((candidate) => candidate.slug === binding.model);
@@ -251,52 +229,47 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       return yield* new AgentRoleError({ reason: "unsupported-options", candidates: diagnostics });
     candidates = matching;
   }
-  const preference = (alias: string) => {
-    const order =
-      request.role === "reviewer"
-        ? (snapshot.manifest.reviewer?.prefer ?? pool.prefer)
-        : pool.prefer;
-    const index = order.indexOf(alias);
-    return index < 0 ? order.length : index;
-  };
-  // A pool prefers a model from a different provider than the caller's, so work
-  // is checked and advised across providers; its own account earns no preference.
-  const callerDriver =
-    input.currentInstanceId === undefined
+  // The list order, unless the task is large or the asking model has its own first choice.
+  const callerFirst =
+    input.callerModel === undefined
       ? undefined
-      : input.providers.find(
-          (provider) =>
-            provider.instanceId === input.currentInstanceId ||
-            provider.poolMembers?.includes(input.currentInstanceId!),
-        )?.driver;
+      : Object.entries(snapshot.manifest.models)
+          .filter(([, binding]) => binding.model === input.callerModel)
+          .map(([alias]) => role.callers?.[alias])
+          .find((alias) => alias !== undefined);
+  const first = large?.model ?? callerFirst;
+  const position = (alias: string) =>
+    alias === first ? -1 : list.findIndex((entry) => entry.model === alias);
   const otherProvider = (candidate: { readonly provider: ServerProvider }) =>
-    pool.crossProvider !== false &&
-    callerDriver !== undefined &&
-    candidate.provider.driver !== callerDriver
+    reviewer &&
+    role.preferOtherAuthorProvider === true &&
+    authorDriver !== undefined &&
+    candidate.provider.driver !== authorDriver
       ? 1
       : 0;
   const byUsageReset = compareByUsageReset(DateTime.toEpochMillis(yield* DateTime.now));
   candidates.sort(
     (a, b) =>
-      (request.role === "reviewer"
+      // A reviewer never defaults to the model that wrote the work.
+      (reviewer
         ? Number(a.selection.model === request.authorModel) -
           Number(b.selection.model === request.authorModel)
         : 0) ||
       otherProvider(b) - otherProvider(a) ||
-      preference(a.alias) - preference(b.alias) ||
+      position(a.alias) - position(b.alias) ||
       byUsageReset(a.provider, b.provider),
   );
-  const first = candidates[0];
-  if (first === undefined)
+  const chosen = candidates[0];
+  if (chosen === undefined)
     return yield* new AgentRoleError({ reason: "no-eligible-model", candidates: diagnostics });
   return {
-    selection: first.selection,
+    selection: chosen.selection,
     executionRequirement: readOnly
       ? "sandbox-required"
       : (request.executionRequirement ?? "sandbox-required"),
     executionBoundary: readOnly
       ? ("read-only" as const)
-      : first.provider.driver === "claudeAgent"
+      : chosen.provider.driver === "claudeAgent"
         ? ("trusted-host-access" as const)
         : ("workspace-sandbox" as const),
     refusal: null,
@@ -306,8 +279,8 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         : {
             ...candidate,
             reason:
-              candidate.alias === first.alias &&
-              candidate.providerInstanceId === first.provider.instanceId
+              candidate.alias === chosen.alias &&
+              candidate.providerInstanceId === chosen.provider.instanceId
                 ? "selected"
                 : "lower-preference",
           },

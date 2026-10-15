@@ -42,12 +42,8 @@ describe("RPC authorization scopes", () => {
       AuthOrchestrationOperateScope,
     );
   });
-  it("restricts policy reads, saves and previews to settings owners", () => {
-    for (const method of [
-      WS_METHODS.agentPolicyRead,
-      WS_METHODS.agentPolicySave,
-      WS_METHODS.agentPolicyPreview,
-    ])
+  it("restricts policy reads and saves to settings owners", () => {
+    for (const method of [WS_METHODS.agentPolicyRead, WS_METHODS.agentPolicySave])
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
   });
 
@@ -272,18 +268,14 @@ describe("RPC scope middleware", () => {
 });
 
 describe("owner delegation settings boundary", () => {
-  const tested = [
-    WS_METHODS.agentPolicyRead,
-    WS_METHODS.agentPolicySave,
-    WS_METHODS.agentPolicyPreview,
-  ] as const;
+  const tested = [WS_METHODS.agentPolicyRead, WS_METHODS.agentPolicySave] as const;
   const group = WsRpcGroup.omit(
     ...[...WsRpcGroup.requests.keys()].filter(
       (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof tested)[number]> =>
         !(tested as readonly string[]).includes(tag),
     ),
   );
-  it.effect("operate permission cannot read, change or preview owner policy", () =>
+  it.effect("operate permission cannot read or change owner policy", () =>
     Effect.gen(function* () {
       const handled: string[] = [];
       const reject = (method: string) =>
@@ -293,7 +285,6 @@ describe("owner delegation settings boundary", () => {
           Layer.mergeAll(
             group.toLayerHandler(WS_METHODS.agentPolicyRead, () => reject("read")),
             group.toLayerHandler(WS_METHODS.agentPolicySave, () => reject("save")),
-            group.toLayerHandler(WS_METHODS.agentPolicyPreview, () => reject("preview")),
             RpcAuthorization.layer([AuthOrchestrationReadScope, AuthOrchestrationOperateScope]),
           ),
         ),
@@ -304,11 +295,6 @@ describe("owner delegation settings boundary", () => {
         client[WS_METHODS.agentPolicySave]({
           expectedHash: policy.hash,
           manifest: policy.manifest,
-        }).pipe(Effect.asVoid),
-        client[WS_METHODS.agentPolicyPreview]({
-          manifest: policy.manifest,
-          role: "advisor",
-          taskClass: "non-ui",
         }).pipe(Effect.asVoid),
       ]) {
         expect(yield* effect.pipe(Effect.flip)).toMatchObject({
@@ -332,9 +318,6 @@ describe("owner delegation settings boundary", () => {
           Layer.mergeAll(
             group.toLayerHandler(WS_METHODS.agentPolicyRead, () => Effect.succeed(response)),
             group.toLayerHandler(WS_METHODS.agentPolicySave, () => Effect.succeed(response)),
-            group.toLayerHandler(WS_METHODS.agentPolicyPreview, () =>
-              Effect.succeed({ selection: null, refusal: "no-eligible-model", candidates: [] }),
-            ),
             RpcAuthorization.layer([AuthSettingsWriteScope]),
           ),
         ),

@@ -1326,10 +1326,6 @@ export function createServerEnvironmentAtoms<R, E>(
       scheduler: configScheduler,
       concurrency: configConcurrency,
     }),
-    agentPolicyPreview: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:agent-policy:preview",
-      tag: WS_METHODS.agentPolicyPreview,
-    }),
     experimentsAssignments: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:experiments:assignments",
       tag: WS_METHODS.experimentsAssignments,

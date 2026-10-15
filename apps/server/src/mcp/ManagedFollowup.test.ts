@@ -289,7 +289,7 @@ it.effect(
         };
         child = {
           ...child,
-          thread: { ...child.thread, agentTask: { ...binding, role: "reviewer" } },
+          thread: { ...child.thread, agentTask: { ...binding, role: "ticket-reviewer" } },
         };
         expect(
           (yield* service

@@ -17,6 +17,7 @@ import {
   type OrchestratorMcpTaskCancelInput,
   type OrchestratorMcpTaskCancelResult,
   AGENT_ROLE_COARSE_KIND,
+  isReviewerRole,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -816,7 +817,7 @@ const make = Effect.gen(function* () {
             unitId: `external-work:${session.key}:${work.binding.workId}`,
             agentTask: work.binding,
             unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
-            taskLever: work.binding.role === "reviewer" ? "reviewer" : "delegation",
+            taskLever: isReviewerRole(work.binding.role) ? "reviewer" : "delegation",
             taskCategory: AGENT_ROLE_COARSE_KIND[work.binding.role],
             enrollment: "new",
           }),

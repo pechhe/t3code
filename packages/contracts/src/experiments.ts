@@ -1,4 +1,4 @@
-import { AgentReviewScope, AgentTaskBinding } from "./agentPolicy.ts";
+import { AgentReviewScope, AgentTaskBinding, Sha256 } from "./agentPolicy.ts";
 import * as Schema from "effect/Schema";
 import {
   NonNegativeInt,
@@ -31,7 +31,7 @@ export const ExperimentAllocationPolicy = Schema.Literals(["inline-first", "dele
 export type ExperimentAllocationPolicy = typeof ExperimentAllocationPolicy.Type;
 export const ExperimentOrchestrationControls = Schema.Struct({
   orchestratorSelection: ModelSelection,
-  policyHash: AgentTaskBinding.fields.policyHash,
+  policyHash: Sha256,
   reviewerPolicyRevision: TrimmedNonEmptyString,
   verificationRevision: TrimmedNonEmptyString,
   concurrency: PositiveInt,
@@ -122,7 +122,7 @@ export const ExperimentWorkUnit = Schema.Struct({
   owner: ExperimentWorkOwner,
   orchestratorSelection: ModelSelection,
   modelSource: Schema.Literals(["run-selection", "self-report"]),
-  policyHash: AgentTaskBinding.fields.policyHash,
+  policyHash: Sha256,
   policyRevision: Schema.NullOr(TrimmedNonEmptyString),
   createdAt: Schema.String,
   assignmentIds: Schema.Array(TrimmedNonEmptyString),

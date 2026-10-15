@@ -2459,7 +2459,6 @@ const layerWsRpc = (
         [WS_METHODS.experimentsCreate]: (input) => experiments.create(input),
         [WS_METHODS.agentPolicyRead]: () => agentPolicySettings.read(),
         [WS_METHODS.agentPolicySave]: (input) => agentPolicySettings.save(input),
-        [WS_METHODS.agentPolicyPreview]: (input) => agentPolicySettings.preview(input),
         [WS_METHODS.experimentsTransition]: (input) => experiments.transition(input),
         [WS_METHODS.experimentsList]: (_input) => experiments.list(),
         [WS_METHODS.experimentsAssignments]: (input) => experiments.assignments(input),

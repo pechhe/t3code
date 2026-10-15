@@ -9,38 +9,23 @@ import {
   AgentPolicyManifest,
   AgentPolicySettingsError,
   EnvironmentId,
-  ServerProvider,
   type AgentPolicySettings,
 } from "@t3tools/contracts";
 
 const state = vi.hoisted(() => ({
   data: null as AgentPolicySettings | null,
   save: vi.fn(),
-  preview: vi.fn(),
-  runtime: vi.fn(),
   refresh: vi.fn(),
-  canEdit: true,
 }));
-vi.mock("@effect/atom-react", () => ({
-  useAtomValue: (atom: { kind?: string }) =>
-    atom.kind === "settings"
-      ? {
-          delegation: {
-            allowTrustedClaudeWriters: false,
-            defaultChildRuntimeMode: "inherit",
-            advisorIdleCloseMinutes: null,
-          },
-        }
-      : state.canEdit,
+const { passthrough } = vi.hoisted(() => ({
+  passthrough: ({ children }: { children?: ReactNode }) => children,
 }));
+vi.mock("@effect/atom-react", () => ({ useAtomValue: () => true }));
 vi.mock("../../state/server", () => ({
   serverEnvironment: {
     configValueAtom: () => ({}),
-    settingsValueAtom: () => ({ kind: "settings" }),
-    updateSettings: { kind: "runtime", permissionAtom: () => ({}) },
     agentPolicyRead: () => ({}),
-    agentPolicySave: { kind: "save", permissionAtom: () => ({}) },
-    agentPolicyPreview: { kind: "preview" },
+    agentPolicySave: { permissionAtom: () => ({}) },
   },
 }));
 vi.mock("../../state/query", () => ({
@@ -51,14 +36,7 @@ vi.mock("../../state/query", () => ({
     refresh: state.refresh,
   }),
 }));
-vi.mock("../../state/use-atom-command", () => ({
-  useAtomCommand: (command: { kind: string }) =>
-    command.kind === "save"
-      ? state.save
-      : command.kind === "runtime"
-        ? state.runtime
-        : state.preview,
-}));
+vi.mock("../../state/use-atom-command", () => ({ useAtomCommand: () => state.save }));
 vi.mock("./SettingsScopeContext", () => ({
   useSettingsScope: () => ({
     environments: [
@@ -66,121 +44,71 @@ vi.mock("./SettingsScopeContext", () => ({
     ],
   }),
 }));
-vi.mock("./settingsLayout", () => ({
-  SettingsPageContainer: ({ children }: { children: ReactNode }) => <main>{children}</main>,
-  SettingsSection: ({
-    children,
-    title,
-    headerAction,
-  }: {
-    children: ReactNode;
-    title: string;
-    headerAction: ReactNode;
-  }) => (
-    <section>
-      <h2>{title}</h2>
-      {headerAction}
-      {children}
-    </section>
-  ),
+vi.mock("./useScopedSettings", () => ({
+  useScopedSettings: (select: (settings: typeof DEFAULT_SERVER_SETTINGS) => unknown) =>
+    select(DEFAULT_SERVER_SETTINGS),
+  useUpdateScopedSettings: () => vi.fn(),
 }));
-vi.mock("../ui/input", () => ({
-  Input: (props: React.ComponentProps<"input">) => <input {...props} />,
+vi.mock("./settingsLayout", () => ({
+  SettingsPageContainer: passthrough,
+  SettingsSection: passthrough,
+  SettingsRow: () => null,
+}));
+vi.mock("../ui/collapsible", () => ({
+  Collapsible: passthrough,
+  CollapsibleTrigger: passthrough,
+  CollapsiblePanel: passthrough,
+}));
+vi.mock("../ui/menu", () => ({
+  Menu: () => null,
+  MenuTrigger: passthrough,
+  MenuPopup: passthrough,
+  MenuItem: passthrough,
 }));
 vi.mock("../ui/select", () => ({
-  Select: ({
-    children,
-    value,
-    onValueChange,
-  }: {
-    children: ReactNode;
-    value: string;
-    onValueChange: (value: string) => void;
-  }) => (
-    <select value={value} onChange={(event) => onValueChange(event.target.value)}>
-      {children}
-    </select>
-  ),
-  SelectTrigger: ({
-    children,
-    "aria-label": label,
-  }: {
-    children: ReactNode;
-    "aria-label": string;
-  }) => <span aria-label={label}>{children}</span>,
-  SelectValue: ({ children }: { children: ReactNode }) => <span>{children}</span>,
-  SelectPopup: ({ children }: { children: ReactNode }) => <>{children}</>,
-  SelectItem: ({ children, value }: { children: ReactNode; value: string }) => (
-    <option value={value}>{children}</option>
-  ),
-}));
-vi.mock("../ui/checkbox", () => ({
-  Checkbox: ({
-    checked,
-    onCheckedChange,
-  }: {
-    checked: boolean;
-    onCheckedChange: (checked: boolean) => void;
-  }) => (
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={(event) => onCheckedChange(event.target.checked)}
-    />
-  ),
+  Select: () => null,
+  SelectTrigger: passthrough,
+  SelectValue: passthrough,
+  SelectPopup: passthrough,
+  SelectItem: passthrough,
 }));
 
 import { DelegationSettings } from "./DelegationSettings";
-const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
-const decodeProvider = Schema.decodeUnknownSync(ServerProvider);
 
+const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
 function fixture(): AgentPolicySettings {
-  const role = (
-    name: string,
-    pool: string,
-    sourceAccess: string,
-    toolProfile: string,
-    taskClasses: string[] = ["non-ui"],
-  ) => ({
-    pool,
+  const role = (name: string, list: string, extra: object = {}) => ({
+    list,
     brief: `roles/${name}.md`,
-    sourceAccess,
-    toolProfile,
-    taskClasses,
-    restrictions: {},
-    effort: {
-      [pool === "ui" || pool === "advisor" ? "opus" : "sol"]: {
-        default: "medium",
-        demanding: "high",
-      },
-    },
+    sourceAccess: "read-only",
+    toolProfile: "source-reader",
+    taskClasses: ["non-ui"],
+    ...extra,
   });
+  const writer = { sourceAccess: "scoped-write", toolProfile: "implementation" };
   const manifest = decodeManifest({
-    version: 1,
+    version: 2,
     revision: "fixture.1",
     models: {
       sol: { driverKind: "codex", model: "gpt-test", effortOption: "reasoning" },
       opus: { driverKind: "claudeAgent", model: "claude-test", effortOption: "effort" },
     },
-    pools: Object.fromEntries(
-      ["fast", "workhorse", "ui", "advisor"].map((pool) => {
-        const alias = pool === "ui" || pool === "advisor" ? "opus" : "sol";
-        return [pool, { allow: [alias], prefer: [alias], crossProvider: true }];
-      }),
-    ),
+    lists: {
+      workhorse: [
+        { model: "sol", effort: "medium" },
+        { model: "opus", effort: "high" },
+      ],
+      fast: [{ model: "sol", effort: "low" }],
+    },
     roles: {
-      "chore-worker": role("chore-worker", "fast", "scoped-write", "implementation"),
-      "implementation-worker": role(
-        "implementation-worker",
-        "workhorse",
-        "scoped-write",
-        "implementation",
-      ),
-      "ui-worker": role("ui-worker", "ui", "scoped-write", "implementation", ["ui", "mixed"]),
-      browser: role("browser", "fast", "read-only", "phi", ["ui"]),
-      "ui-verifier": role("ui-verifier", "fast", "read-only", "phi", ["ui"]),
-      advisor: role("advisor", "advisor", "read-only", "source-reader"),
-      reviewer: role("reviewer", "workhorse", "read-only", "source-reader"),
+      "chore-worker": role("chore-worker", "fast", writer),
+      "implementation-worker": role("implementation-worker", "workhorse", writer),
+      "ui-worker": role("ui-worker", "workhorse", { ...writer, taskClasses: ["ui"] }),
+      browser: role("browser", "fast", { toolProfile: "phi" }),
+      "ui-verifier": role("ui-verifier", "fast", { toolProfile: "phi" }),
+      advisor: role("advisor", "workhorse"),
+      "ticket-reviewer": role("ticket-reviewer", "workhorse"),
+      "spec-reviewer": role("spec-reviewer", "workhorse"),
     },
   });
   return {
@@ -189,10 +117,7 @@ function fixture(): AgentPolicySettings {
       sourceRevision: manifest.revision,
       manifest,
       briefs: Object.fromEntries(
-        Object.keys(manifest.roles).map((name) => [
-          name,
-          { hash: "b".repeat(64), text: "Read-only role brief" },
-        ]),
+        Object.keys(manifest.roles).map((name) => [name, { hash: "b".repeat(64), text: "Brief" }]),
       ) as AgentPolicySettings["snapshot"]["briefs"],
     },
     sourceRoot: "/policy-fixture",
@@ -200,24 +125,14 @@ function fixture(): AgentPolicySettings {
     providers: [],
   };
 }
+
 let renderer: ReactTestRenderer | undefined;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.data = fixture();
-  state.canEdit = true;
-  state.runtime.mockReset();
-  state.runtime.mockResolvedValue(AsyncResult.success(DEFAULT_SERVER_SETTINGS));
   state.save.mockReset();
-  state.preview.mockReset();
   state.refresh.mockReset();
   state.save.mockResolvedValue(AsyncResult.success(state.data));
-  state.preview.mockResolvedValue(
-    AsyncResult.success({
-      selection: null,
-      refusal: "no-eligible-model",
-      candidates: [{ alias: "sol", model: "gpt-test", reason: "not-signed-in" }],
-    }),
-  );
 });
 afterEach(async () => {
   if (renderer) await act(() => renderer!.unmount());
@@ -228,224 +143,57 @@ const mount = async () => {
   await act(() => {
     renderer = create(<DelegationSettings />);
   });
-  return renderer!.root;
 };
-const button = (label: string) =>
-  renderer!.root.findAllByType("button").find((node) => node.children.includes(label))!;
-const checkbox = (label: string) =>
-  renderer!.root
-    .findAllByType("label")
-    .find((node) => node.children.includes(label))!
-    .findByType("input");
-
-it("saves edited reviewer rules against the loaded revision without mutating the loaded snapshot", async () => {
-  await mount();
-  await act(() =>
-    checkbox("Require a different provider from the author").props.onChange({
-      target: { checked: true },
-    }),
+const buttons = (label: string) =>
+  renderer!.root.findAll(
+    (node) =>
+      typeof node.type === "string" &&
+      node.props.onClick !== undefined &&
+      (node.props["aria-label"] === label || (node.children as unknown[]).flat().includes(label)),
   );
-  await act(() => button("Save policy").props.onClick());
+const button = (label: string) => buttons(label)[0]!;
+const click = (label: string) => act(() => button(label).props.onClick());
+const text = () => JSON.stringify(renderer!.toJSON());
+
+it("saves a reordered list against the loaded revision without touching the loaded policy", async () => {
+  await mount();
+  await click("Move claude-test up");
+  await click("Save");
   expect(state.save).toHaveBeenCalledWith({
     environmentId: EnvironmentId.make("test-env"),
     input: {
       expectedHash: "a".repeat(64),
       manifest: expect.objectContaining({
-        reviewer: { prefer: ["sol"], requireDifferentProvider: true },
+        lists: expect.objectContaining({
+          workhorse: [
+            { model: "opus", effort: "high" },
+            { model: "sol", effort: "medium" },
+          ],
+        }),
       }),
     },
   });
-  expect(state.data!.snapshot.manifest.reviewer).toBeUndefined();
+  expect(state.data!.snapshot.manifest.lists["workhorse"]?.[0]?.model).toBe("sol");
   expect(state.refresh).toHaveBeenCalledOnce();
 });
-it("previews unsaved choices without saving and displays the refusal explanation", async () => {
-  await mount();
-  await act(() =>
-    checkbox("Require a different provider from the author").props.onChange({
-      target: { checked: true },
-    }),
-  );
-  const select = renderer!.root
-    .findAllByType("select")
-    .find((node) => node.findAllByProps({ "aria-label": "Role" }).length > 0)!;
-  await act(() => select.props.onChange({ target: { value: "reviewer" } }));
-  await act(() => button("Preview selection").props.onClick());
-  expect(state.preview).toHaveBeenCalledWith(
-    expect.objectContaining({
-      input: expect.objectContaining({
-        role: "reviewer",
-        manifest: expect.objectContaining({
-          reviewer: { prefer: ["sol"], requireDifferentProvider: true },
-        }),
-      }),
-    }),
-  );
-  expect(state.save).not.toHaveBeenCalled();
-  expect(
-    renderer!.root
-      .findAllByType("p")
-      .some((node) => node.children.join("").includes("not signed in")),
-  ).toBe(true);
-});
-it("reports a stale save, refreshes current values and does not retry the write", async () => {
+
+it("reports a stale save, reloads the current policy and does not retry", async () => {
   state.save.mockResolvedValue(
     AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
   );
   await mount();
-  await act(() =>
-    checkbox("Require a different provider from the author").props.onChange({
-      target: { checked: true },
-    }),
-  );
-  await act(() => button("Save policy").props.onClick());
-  expect(renderer!.root.findByProps({ role: "alert" }).children.join("")).toContain(
-    "policy changed on disk",
-  );
+  await click("Move claude-test up");
+  await click("Save");
+  expect(text()).toContain("policy changed on disk");
   expect(state.refresh).toHaveBeenCalledOnce();
   expect(state.save).toHaveBeenCalledOnce();
-  state.data = {
-    ...state.data!,
-    snapshot: { ...state.data!.snapshot, hash: "c".repeat(64), sourceRevision: "fixture.2" },
-  };
-  await act(() => renderer!.update(<DelegationSettings />));
-  expect(checkbox("Require a different provider from the author").props.checked).toBe(false);
-});
-it("removing a pool's last model blocks saving and discarding restores it", async () => {
-  await mount();
-  await act(() => renderer!.root.findByProps({ "aria-label": "Remove model sol" }).props.onClick());
-  expect(button("Save policy").props.disabled).toBe(true);
-  expect(state.save).not.toHaveBeenCalled();
-  await act(() => button("Discard edits").props.onClick());
-  expect(button("Save policy").props.disabled).toBe(false);
-});
-it("changing a model preserves default and demanding effort when the new model supports them", async () => {
-  state.data = {
-    ...state.data!,
-    providers: [
-      decodeProvider({
-        driver: "codex",
-        instanceId: "codex-test",
-        enabled: true,
-        installed: true,
-        version: "test-version",
-        status: "ready",
-        auth: { status: "authenticated" },
-        checkedAt: "2026-10-15T00:00:00.000Z",
-        models: ["gpt-test", "gpt-second"].map((slug) => ({
-          slug,
-          name: slug,
-          isCustom: false,
-          capabilities: {
-            optionDescriptors: [
-              {
-                id: "reasoning",
-                label: "Effort",
-                type: "select",
-                options: ["medium", "high"].map((id) => ({ id, label: id })),
-              },
-            ],
-          },
-        })),
-        slashCommands: [],
-        skills: [],
-      }),
-    ],
-  };
-  await mount();
-  const select = renderer!.root
-    .findAllByType("select")
-    .find((node) => node.findAllByProps({ "aria-label": "sol" }).length > 0)!;
-  await act(() => select.props.onChange({ target: { value: "codex:gpt-second" } }));
-  await act(() => button("Save policy").props.onClick());
-  expect(state.save).toHaveBeenCalledWith(
-    expect.objectContaining({
-      input: expect.objectContaining({
-        manifest: expect.objectContaining({
-          models: expect.objectContaining({
-            sol: expect.objectContaining({ model: "gpt-second" }),
-          }),
-          roles: expect.objectContaining({
-            "implementation-worker": expect.objectContaining({
-              effort: { sol: { default: "medium", demanding: "high" } },
-            }),
-          }),
-        }),
-      }),
-    }),
-  );
-  expect(state.data!.snapshot.manifest.models.sol!.model).toBe("gpt-test");
 });
 
-it("saves runtime behavior to server settings separately from the policy file", async () => {
-  const root = await mount();
-  const mode = root.findAllByType("select").find((node) => node.props.value === "inherit")!;
-  await act(() => mode.props.onChange({ target: { value: "approval-required" } }));
-  const duration = root.findAllByType("input").find((node) => node.props.placeholder === "Off")!;
-  await act(() => duration.props.onChange({ target: { value: "15" } }));
-  await act(() => button("Save runtime settings").props.onClick());
-  expect(state.runtime).toHaveBeenCalledWith({
-    environmentId: "test-env",
-    input: {
-      patch: {
-        delegation: {
-          allowTrustedClaudeWriters: false,
-          defaultChildRuntimeMode: "approval-required",
-          advisorIdleCloseMinutes: 15,
-        },
-      },
-    },
-  });
-  expect(state.save).not.toHaveBeenCalled();
-});
-it("rejects invalid timeout and discards runtime edits", async () => {
-  const root = await mount();
-  const duration = root.findAllByType("input").find((node) => node.props.placeholder === "Off")!;
-  await act(() => duration.props.onChange({ target: { value: "0.5" } }));
-  expect(button("Save runtime settings").props.disabled).toBe(true);
-  await act(() => button("Discard runtime changes").props.onClick());
-  expect(duration.props.value).toBe("");
-  expect(state.runtime).not.toHaveBeenCalled();
-});
-it("enables trusted Claude writers only through the owner's saved runtime settings, and discard restores it", async () => {
+it("a job without models cannot be saved, and discarding restores it", async () => {
   await mount();
-  const trusted = checkbox("Allow trusted Claude writers");
-  expect(trusted.props.checked).toBe(false);
-  await act(() => trusted.props.onChange({ target: { checked: true } }));
-  await act(() => button("Discard runtime changes").props.onClick());
-  expect(checkbox("Allow trusted Claude writers").props.checked).toBe(false);
-  await act(() =>
-    checkbox("Allow trusted Claude writers").props.onChange({ target: { checked: true } }),
-  );
-  await act(() => button("Save runtime settings").props.onClick());
-  expect(state.runtime).toHaveBeenCalledWith({
-    environmentId: "test-env",
-    input: {
-      patch: {
-        delegation: {
-          allowTrustedClaudeWriters: true,
-          defaultChildRuntimeMode: "inherit",
-          advisorIdleCloseMinutes: null,
-        },
-      },
-    },
-  });
-  expect(state.save).not.toHaveBeenCalled();
-});
-it("reports the execution boundary a previewed selection would run under", async () => {
-  state.preview.mockResolvedValue(
-    AsyncResult.success({
-      executionRequirement: "trusted-host-allowed",
-      executionBoundary: "trusted-host-access",
-      selection: { instanceId: "claudeAgent", model: "claude-test" },
-      refusal: null,
-      candidates: [],
-    }),
-  );
-  await mount();
-  await act(() => button("Preview selection").props.onClick());
-  expect(
-    renderer!.root
-      .findAllByType("p")
-      .some((node) => node.children.join("") === "Execution: Trusted host access"),
-  ).toBe(true);
+  // The chore job's list holds only gpt-test; the shared workhorse list keeps a model.
+  await act(() => buttons("Remove gpt-test").at(-1)!.props.onClick());
+  expect(button("Save").props.disabled).toBe(true);
+  await click("Discard");
+  expect(buttons("Save")).toHaveLength(0);
 });

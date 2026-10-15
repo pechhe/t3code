@@ -80,6 +80,7 @@ import {
   type ServerProvider,
   ThreadId,
   AGENT_ROLE_COARSE_KIND,
+  isReviewerRole,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as Clock from "effect/Clock";
@@ -2275,9 +2276,7 @@ const make = Effect.gen(function* () {
                       : { instanceId: input.providerInstanceId }),
                   },
                 }),
-            ...(parent === undefined
-              ? {}
-              : { currentInstanceId: parent.thread.modelSelection.instanceId }),
+            ...(parent === undefined ? {} : { callerModel: parent.thread.modelSelection.model }),
           })
           .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
         return { ...result, environmentId: scope.environmentId };
@@ -2703,7 +2702,7 @@ const make = Effect.gen(function* () {
                   ceiling: parent.thread.runtimeMode,
                   workspacePath: parent.thread.worktreePath,
                   ...workspaceAuthority,
-                  currentInstanceId: parent.thread.modelSelection.instanceId,
+                  callerModel: parent.thread.modelSelection.model,
                   ...(input.target?.model === undefined
                     ? {}
                     : {
@@ -2745,7 +2744,7 @@ const make = Effect.gen(function* () {
                 taskLever: (
                   input.agentTask === undefined
                     ? input.role === "review"
-                    : input.agentTask.role === "reviewer"
+                    : isReviewerRole(input.agentTask.role)
                 )
                   ? "reviewer"
                   : "delegation",

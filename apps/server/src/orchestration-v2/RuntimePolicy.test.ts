@@ -160,7 +160,7 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
 });
 
 const managedBinding: AgentTaskBinding = {
-  role: "reviewer",
+  role: "ticket-reviewer",
   taskClass: "non-ui",
   workId: "runtime-work",
   attemptId: "runtime-attempt",

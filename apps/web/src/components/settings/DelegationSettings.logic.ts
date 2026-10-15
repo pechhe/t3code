@@ -1,0 +1,265 @@
+import {
+  AgentRole,
+  type AgentListEntry,
+  type AgentPolicyManifest,
+  type ServerProvider,
+} from "@t3tools/contracts";
+
+type Manifest = AgentPolicyManifest;
+type Binding = Manifest["models"][string];
+
+/** The jobs in the order the page lists them; roles sharing a list appear together. */
+export const ROLE_ORDER: ReadonlyArray<AgentRole> = [
+  "implementation-worker",
+  "ui-worker",
+  "ticket-reviewer",
+  "spec-reviewer",
+  "advisor",
+  "chore-worker",
+  "browser",
+  "ui-verifier",
+];
+
+export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
+  "implementation-worker": "Non-UI code changes",
+  "ui-worker": "UI changes",
+  "ticket-reviewer": "Reviews a Ticket's change before it lands",
+  "spec-reviewer": "Reviews a finished Spec across its landings",
+  advisor: "Read-only second opinion",
+  "chore-worker": "Mechanical edits",
+  browser: "Drives web pages",
+  "ui-verifier": "Checks the running app",
+};
+
+/** Roles the server refuses until T3 has an enforceable Phi tool route. */
+export const UNAVAILABLE_ROLES: ReadonlySet<AgentRole> = new Set(["browser", "ui-verifier"]);
+
+export interface RoleGroup {
+  readonly list: string;
+  readonly roles: ReadonlyArray<AgentRole>;
+}
+
+export function roleGroups(manifest: Manifest): RoleGroup[] {
+  const groups: Array<{ list: string; roles: AgentRole[] }> = [];
+  for (const role of ROLE_ORDER) {
+    const list = manifest.roles[role].list;
+    const group = groups.find((candidate) => candidate.list === list);
+    if (group) group.roles.push(role);
+    else groups.push({ list, roles: [role] });
+  }
+  return groups;
+}
+
+/** True when no role in the row takes non-UI work, so the server's UI model rule applies. */
+export function isUiOnly(manifest: Manifest, roles: ReadonlyArray<AgentRole>): boolean {
+  return roles.every((role) => !manifest.roles[role].taskClasses.includes("non-ui"));
+}
+
+/**
+ * Why a model cannot take work now, mirroring the server's account checks and its fixed
+ * rule that OpenAI models never take UI work; null when it can.
+ */
+export function unavailableReason(
+  binding: Binding | undefined,
+  providers: ReadonlyArray<ServerProvider>,
+  { uiOnly = false, now = Date.now() }: { uiOnly?: boolean; now?: number } = {},
+): string | null {
+  if (binding === undefined) return "not configured";
+  if (uiOnly && (binding.driverKind === "codex" || /^(gpt-|o[134]-)/i.test(binding.model)))
+    return "not used for UI work";
+  const accounts = providers.filter(
+    (provider) => provider.poolMembers === undefined && provider.driver === binding.driverKind,
+  );
+  if (accounts.length === 0) return "not installed";
+  const reasons = accounts.map((provider) => {
+    if (!provider.enabled || provider.status === "disabled") return "disabled";
+    if (!provider.installed) return "not installed";
+    if (provider.availability === "unavailable" || provider.status === "error")
+      return "unavailable";
+    if (provider.auth.status !== "authenticated") return "signed out";
+    if (!provider.models.some((model) => model.slug === binding.model)) return "model unavailable";
+    const limited = provider.usageLimits?.windows.some(
+      (window) =>
+        window.usedPercent >= 100 &&
+        (window.resetsAt === undefined || Date.parse(window.resetsAt) > now),
+    );
+    return limited ? "rate limited" : null;
+  });
+  return reasons.includes(null) ? null : (reasons[0] ?? null);
+}
+
+export function modelLabel(
+  binding: Binding | undefined,
+  alias: string,
+  providers: ReadonlyArray<ServerProvider>,
+): string {
+  if (binding === undefined) return alias;
+  return (
+    providers
+      .filter((provider) => provider.driver === binding.driverKind)
+      .flatMap((provider) => provider.models)
+      .find((model) => model.slug === binding.model)?.name ?? binding.model
+  );
+}
+
+/** The effort values a model offers, or none when its account is not installed here. */
+export function effortChoices(
+  binding: Binding | undefined,
+  providers: ReadonlyArray<ServerProvider>,
+): string[] {
+  if (binding === undefined) return [];
+  return [
+    ...new Set(
+      providers
+        .filter((provider) => provider.driver === binding.driverKind)
+        .flatMap((provider) => provider.models.filter((model) => model.slug === binding.model))
+        .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
+        .filter((option) => option.id === binding.effortOption)
+        .flatMap((option) =>
+          option.type === "select" ? option.options.map((choice) => choice.id) : [],
+        ),
+    ),
+  ];
+}
+
+/** Keeps an effort the model offers, else its medium, else its first choice. */
+export function effortFor(choices: ReadonlyArray<string>, current?: string): string {
+  if (current !== undefined && (choices.length === 0 || choices.includes(current))) return current;
+  return choices.includes("medium") ? "medium" : (choices[0] ?? current ?? "medium");
+}
+
+export interface CatalogModel {
+  readonly key: string;
+  readonly label: string;
+  readonly binding: Binding;
+  readonly efforts: ReadonlyArray<string>;
+}
+
+/** Models an installed Codex or Claude account offers with a selectable effort. */
+export function catalogModels(providers: ReadonlyArray<ServerProvider>): CatalogModel[] {
+  const models = new Map<string, CatalogModel>();
+  for (const provider of providers) {
+    if (provider.poolMembers !== undefined) continue;
+    if (provider.driver !== "codex" && provider.driver !== "claudeAgent") continue;
+    for (const model of provider.models) {
+      const option = model.capabilities?.optionDescriptors?.find(
+        (candidate) => candidate.type === "select",
+      );
+      if (option?.type !== "select") continue;
+      const key = `${provider.driver}:${model.slug}`;
+      if (models.has(key)) continue;
+      models.set(key, {
+        key,
+        label: model.name,
+        binding: { driverKind: provider.driver, model: model.slug, effortOption: option.id },
+        efforts: option.options.map((choice) => choice.id),
+      });
+    }
+  }
+  return [...models.values()];
+}
+
+/** The alias naming a catalog model, adding one derived from its slug when it has none. */
+export function ensureModel(manifest: Manifest, model: CatalogModel): [Manifest, string] {
+  const existing = Object.entries(manifest.models).find(
+    ([, binding]) =>
+      binding.driverKind === model.binding.driverKind && binding.model === model.binding.model,
+  );
+  if (existing) return [manifest, existing[0]];
+  const base = `m-${model.binding.model.toLowerCase().replace(/[^a-z0-9-]+/g, "-")}`.slice(0, 60);
+  let alias = base;
+  for (let suffix = 2; manifest.models[alias] !== undefined; suffix++) alias = `${base}-${suffix}`;
+  return [{ ...manifest, models: { ...manifest.models, [alias]: model.binding } }, alias];
+}
+
+const withList = (manifest: Manifest, list: string, entries: ReadonlyArray<AgentListEntry>) => ({
+  ...manifest,
+  lists: { ...manifest.lists, [list]: entries },
+});
+
+const withRole = (
+  manifest: Manifest,
+  role: AgentRole,
+  edit: (policy: Manifest["roles"][AgentRole]) => Manifest["roles"][AgentRole],
+): Manifest => ({ ...manifest, roles: { ...manifest.roles, [role]: edit(manifest.roles[role]) } });
+
+export function moveEntry(manifest: Manifest, list: string, index: number, delta: -1 | 1) {
+  const entries = [...(manifest.lists[list] ?? [])];
+  const target = index + delta;
+  if (target < 0 || target >= entries.length) return manifest;
+  [entries[index], entries[target]] = [entries[target]!, entries[index]!];
+  return withList(manifest, list, entries);
+}
+
+export function setEntryEffort(manifest: Manifest, list: string, model: string, effort: string) {
+  return withList(
+    manifest,
+    list,
+    (manifest.lists[list] ?? []).map((entry) =>
+      entry.model === model ? { ...entry, effort } : entry,
+    ),
+  );
+}
+
+export function addEntry(manifest: Manifest, list: string, entry: AgentListEntry) {
+  return withList(manifest, list, [...(manifest.lists[list] ?? []), entry]);
+}
+
+/** Removes a model from a list, and the exceptions of that list's roles that named it. */
+export function removeEntry(manifest: Manifest, list: string, model: string): Manifest {
+  let next = withList(
+    manifest,
+    list,
+    (manifest.lists[list] ?? []).filter((entry) => entry.model !== model),
+  );
+  for (const role of AgentRole.literals) {
+    if (next.roles[role].list !== list) continue;
+    next = withRole(next, role, ({ large, callers, ...policy }) => {
+      const kept = Object.entries(callers ?? {}).filter(([, first]) => first !== model);
+      return {
+        ...policy,
+        ...(large === undefined || large.model === model ? {} : { large }),
+        ...(kept.length === 0 ? {} : { callers: Object.fromEntries(kept) }),
+      };
+    });
+  }
+  return next;
+}
+
+export function setLarge(manifest: Manifest, role: AgentRole, large: AgentListEntry | undefined) {
+  return withRole(manifest, role, ({ large: _previous, ...policy }) =>
+    large === undefined ? policy : { ...policy, large },
+  );
+}
+
+export function setCaller(
+  manifest: Manifest,
+  role: AgentRole,
+  caller: string,
+  first: string | undefined,
+) {
+  return withRole(manifest, role, ({ callers, ...policy }) => {
+    const next = { ...callers };
+    if (first === undefined) delete next[caller];
+    else next[caller] = first;
+    return Object.keys(next).length === 0 ? policy : { ...policy, callers: next };
+  });
+}
+
+export function setPreferOtherAuthorProvider(manifest: Manifest, role: AgentRole, value: boolean) {
+  return withRole(manifest, role, (policy) => ({ ...policy, preferOtherAuthorProvider: value }));
+}
+
+/** Gives each of the group's roles its own copy of the shared list, named after the role. */
+export function splitGroup(manifest: Manifest, group: RoleGroup): Manifest {
+  const entries = manifest.lists[group.list] ?? [];
+  let next = manifest;
+  for (const role of group.roles) {
+    const list = manifest.lists[role] === undefined || role === group.list ? role : `${role}-list`;
+    next = withRole(withList(next, list, entries), role, (policy) => ({ ...policy, list }));
+  }
+  const { [group.list]: _shared, ...lists } = next.lists;
+  return group.roles.some((role) => next.roles[role].list === group.list)
+    ? next
+    : { ...next, lists };
+}

@@ -4,13 +4,10 @@ import {
   AgentExecutionBoundary,
   AgentPolicyManifest,
   AgentPolicySnapshot,
-  AgentRole,
-  AgentTaskClass,
   Sha256,
 } from "./agentPolicy.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { RuntimeMode } from "./providerPolicy.ts";
 import { ServerProvider } from "./server.ts";
 
 export const AgentPolicyCandidate = Schema.Struct({
@@ -40,17 +37,6 @@ export const AgentPolicySaveInput = Schema.Struct({
   manifest: AgentPolicyManifest,
 });
 export type AgentPolicySaveInput = typeof AgentPolicySaveInput.Type;
-export const AgentPolicyPreviewInput = Schema.Struct({
-  runtimeMode: Schema.optional(RuntimeMode),
-  executionRequirement: Schema.optional(AgentExecutionRequirement),
-  manifest: AgentPolicyManifest,
-  role: AgentRole,
-  taskClass: AgentTaskClass,
-  callerProviderInstanceId: Schema.optional(ProviderInstanceId),
-  authorModel: Schema.optional(Schema.String),
-  demanding: Schema.optional(Schema.Boolean),
-});
-export type AgentPolicyPreviewInput = typeof AgentPolicyPreviewInput.Type;
 export class AgentPolicySettingsError extends Schema.TaggedError<AgentPolicySettingsError>()(
   "AgentPolicySettingsError",
   {
