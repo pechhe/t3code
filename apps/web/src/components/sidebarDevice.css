@@ -127,11 +127,11 @@
     height: calc(100dvh - 16px);
     margin: 8px 8px 8px 0;
     border-radius: 16px;
-    /* peach-pi's values: light falls from the upper right, so the card casts
-       left and down, and no outline ring hardens its edge. */
+    /* Light falls from the upper right, so the card casts left and down, and
+       no outline ring hardens its edge. Wider and a touch deeper than peach-pi's. */
     box-shadow:
-      -4px 7px 18px -6px rgb(0 0 0 / 0.14),
-      -4px 6px 10px -4px rgb(0 0 0 / 0.18);
+      -6px 10px 30px -6px rgb(0 0 0 / 0.2),
+      -4px 6px 14px -4px rgb(0 0 0 / 0.2);
   }
 
   [data-slot="sidebar"][data-state="collapsed"] ~ [data-slot="sidebar-inset"] {
