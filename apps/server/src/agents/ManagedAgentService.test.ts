@@ -320,11 +320,14 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           .prepare({ request: { ...reviewerRequest, sourceRevision: "wrong-source" } })
           .pipe(Effect.flip)).reason,
       ).toBe("source");
-      expect(
-        (yield* f
-          .validate({ ...accepted.binding, sourceRevision: "wrong-source" })
-          .pipe(Effect.flip)).reason,
-      ).toBe("source");
+      const refused = yield* f
+        .validate({ ...accepted.binding, sourceRevision: "wrong-source" })
+        .pipe(Effect.flip);
+      expect(refused.reason).toBe("source");
+      // The caller learns what to pass, not only that dispatch was refused.
+      expect(refused.message).toContain("full commit id");
+      expect(refused.message).toContain("jj log -r @");
+      expect(refused.message).not.toContain("wrong-source");
     }),
   );
 

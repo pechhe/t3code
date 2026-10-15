@@ -38,7 +38,10 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   },
 ) {
   override get message(): string {
-    return `Managed agent dispatch refused (${this.reason}).`;
+    const refusal = `Managed agent dispatch refused (${this.reason}).`;
+    return this.reason === "source"
+      ? `${refusal} The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: \`jj log -r @ --no-graph -T commit_id\` in a jj workspace, or \`git rev-parse HEAD\` in a clean git checkout.`
+      : refusal;
   }
 }
 /** A thread bound to some workspace; unmanaged threads count as writers. */
