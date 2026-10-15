@@ -523,12 +523,15 @@ const make = Effect.gen(function* () {
           const result = yield* decodeObserved(response.result).pipe(
             Effect.mapError((cause) => failure("invalid-response", cause)),
           );
-          const generation = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+          // Refs resolve only through this tab's map, which each snapshot replaces, so a short
+          // random token per snapshot is enough to make another tab's or snapshot's ref fail.
+          // Long refs would crowd page text out of the bounded snapshot response.
+          const generation = (yield* crypto.randomUUIDv4().pipe(Effect.orDie)).slice(0, 8);
           const refs = new Map<string, string>();
           const names = new Map<string, string>();
           const elements = result.observed.elements.flatMap((element, index) => {
             if (element.ref === null) return [];
-            const ref = `${binding!.tabId}-${generation}-${index}`;
+            const ref = `${generation}-${index}`;
             refs.set(ref, `@${element.ref}`);
             names.set(String(element.ref), ref);
             return [

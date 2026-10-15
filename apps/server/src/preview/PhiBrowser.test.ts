@@ -334,6 +334,27 @@ it.effect("scopes refs to a tab and snapshot generation without prefix collision
         .invoke({ scope, operation: "click", tabId, input: { locator } })
         .pipe(Effect.flip, Effect.orDie);
       expect(stale.reason).toBe("stale-reference");
+      const other = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: { reuseExistingTab: false },
+      })) as PreviewAutomationStatus;
+      yield* browser.invoke({ scope, operation: "snapshot", tabId: other.tabId!, input: {} });
+      const fresh = (yield* browser.invoke({
+        scope,
+        operation: "snapshot",
+        tabId,
+        input: {},
+      })) as PreviewAutomationSnapshot;
+      const crossTab = yield* browser
+        .invoke({
+          scope,
+          operation: "click",
+          tabId: other.tabId!,
+          input: { locator: fresh.interactiveElements[0]!.selector },
+        })
+        .pipe(Effect.flip, Effect.orDie);
+      expect(crossTab.reason).toBe("stale-reference");
     }),
   ),
 );
