@@ -1,5 +1,5 @@
 import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useDeferredValue, useEffect, useState, type ReactNode } from "react";
 import { RotateCcwIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
@@ -105,12 +105,26 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
   return children;
 }
 
+/**
+ * The page, or the search view while there is a query. The swap follows the
+ * deferred query, so a keystroke only updates the search box and the sidebar
+ * list; unmounting the page and mounting the results happen behind it.
+ */
+function SettingsPageBody({ pathname }: { pathname: string }) {
+  const query = useDeferredValue(useSettingsSearchQuery((state) => state.query));
+  if (query.trim().length > 0) return <SettingsSearchResults query={query} />;
+  return (
+    <SettingsScopeBoundary pathname={pathname}>
+      <Outlet />
+    </SettingsScopeBoundary>
+  );
+}
+
 function SettingsContentLayout() {
   const location = useLocation();
   const navigateToMainApp = useNavigateToMainApp();
-  const searchQuery = useSettingsSearchQuery((state) => state.query);
+  const isSearching = useSettingsSearchQuery((state) => state.query.trim().length > 0);
   const setSearchQuery = useSettingsSearchQuery((state) => state.setQuery);
-  const isSearching = searchQuery.trim().length > 0;
   const clearSearch = useCallback(() => setSearchQuery(""), [setSearchQuery]);
   useEscapeToGoBack(isSearching ? clearSearch : navigateToMainApp);
   // A search left behind would greet the next visit to settings.
@@ -139,13 +153,7 @@ function SettingsContentLayout() {
         </WorkspacePageHeader>
 
         <div key={`${contentScopeKey}:${restoreSignal}`} className="min-h-0 flex flex-1 flex-col">
-          {isSearching ? (
-            <SettingsSearchResults query={searchQuery} />
-          ) : (
-            <SettingsScopeBoundary pathname={location.pathname}>
-              <Outlet />
-            </SettingsScopeBoundary>
-          )}
+          <SettingsPageBody pathname={location.pathname} />
         </div>
       </div>
     </SidebarInset>

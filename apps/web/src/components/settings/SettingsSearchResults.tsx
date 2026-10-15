@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { lazy, memo, Suspense, useDeferredValue, useMemo, type ComponentType } from "react";
+import { lazy, memo, Suspense, useMemo, type ComponentType } from "react";
 
 import { useEnvironments } from "~/state/environments";
 import { WorkspacePageContainer } from "../WorkspacePageContainer";
@@ -21,6 +21,7 @@ import {
 } from "./settingsSearch";
 import { useSettingsSearchQuery } from "./settingsSearchStore";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
+import { useProgressiveMount } from "./useProgressiveMount";
 
 // Lazy so the settings layout keeps each page in its own route chunk.
 const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
@@ -105,12 +106,7 @@ function filterStylesheet(anchorIds: readonly string[]): string {
  * page with its real controls, grouped under the page it lives on. Matches the
  * selected scope cannot show stay in the sidebar list, which explains them.
  */
-export function SettingsSearchResults({ query }: { query: string }) {
-  // Stacked pages are heavy; render them behind the keystroke so typing stays instant.
-  return <SettingsSearchResultsView query={useDeferredValue(query)} />;
-}
-
-const SettingsSearchResultsView = memo(function SettingsSearchResultsView({
+export const SettingsSearchResults = memo(function SettingsSearchResults({
   query,
 }: {
   query: string;
@@ -144,6 +140,7 @@ const SettingsSearchResultsView = memo(function SettingsSearchResultsView({
     };
   }, [connectedEnvironments.length, environments, query, scope, searchableItems]);
 
+  const mountedPages = useProgressiveMount(pages);
   const scopedPage = pages.find((page) => !SETTINGS_DEVICE_ONLY_PATHS.has(page));
 
   return (
@@ -157,7 +154,7 @@ const SettingsSearchResultsView = memo(function SettingsSearchResultsView({
         {scopedPage ? <SettingsScopeSentence pathname={scopedPage} /> : null}
         <SettingsSearchResultsProvider value>
           <div data-settings-search-filter="" className="flex flex-col gap-10">
-            {pages.map((page) => {
+            {mountedPages.map((page) => {
               const Panel = SETTINGS_PAGE_PANELS[page];
               return (
                 <div key={page} className="flex flex-col gap-4">
@@ -186,13 +183,15 @@ const SettingsSearchResultsView = memo(function SettingsSearchResultsView({
             })}
           </div>
         </SettingsSearchResultsProvider>
-        <p
-          data-settings-search-empty=""
-          role="status"
-          className="py-12 text-center text-sm text-muted-foreground"
-        >
-          No settings match “{query.trim()}”{matchCount > 0 ? " for the selected target" : ""}.
-        </p>
+        {mountedPages.length === pages.length ? (
+          <p
+            data-settings-search-empty=""
+            role="status"
+            className="py-12 text-center text-sm text-muted-foreground"
+          >
+            No settings match “{query.trim()}”{matchCount > 0 ? " for the selected target" : ""}.
+          </p>
+        ) : null}
       </WorkspacePageContainer>
     </div>
   );

@@ -2,6 +2,7 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -125,7 +126,13 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const setQuery = useSettingsSearchQuery((state) => state.setQuery);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const searchableItems = useAvailableSettingsSearchItems(scopeSearch);
-  const results = useMemo(() => searchSettings(query, searchableItems), [query, searchableItems]);
+  // The list lags the box by a render, so a keystroke never waits on up to
+  // hundreds of result rows.
+  const listedQuery = useDeferredValue(query);
+  const results = useMemo(
+    () => searchSettings(listedQuery, searchableItems),
+    [listedQuery, searchableItems],
+  );
   const isSearching = query.trim().length > 0;
   const hasResults = results.length > 0;
 
@@ -243,24 +250,35 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         clearSearch();
         return;
       }
-      if (results.length === 0) return;
+      // Keys act on what the box says now, even while the list still shows the last query.
+      const current = listedQuery === query ? results : searchSettings(query, searchableItems);
+      if (current.length === 0) return;
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setActiveResultIndex((index) => (index + 1) % results.length);
+        setActiveResultIndex((index) => (index + 1) % current.length);
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setActiveResultIndex((index) => (index - 1 + results.length) % results.length);
+        setActiveResultIndex((index) => (index - 1 + current.length) % current.length);
         return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        const result = results[activeResultIndex];
+        const result = current[activeResultIndex];
         if (result) handleSearchResultClick(result);
       }
     },
-    [activeResultIndex, clearSearch, handleSearchResultClick, isSearching, results],
+    [
+      activeResultIndex,
+      clearSearch,
+      handleSearchResultClick,
+      isSearching,
+      listedQuery,
+      query,
+      results,
+      searchableItems,
+    ],
   );
   return (
     <>
@@ -286,7 +304,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 aria-expanded={isSearching && hasResults}
                 aria-controls={isSearching && hasResults ? "settings-search-results" : undefined}
                 aria-activedescendant={
-                  isSearching && results[activeResultIndex]
+                  isSearching && listedQuery === query && results[activeResultIndex]
                     ? `settings-search-result-${results[activeResultIndex].id}`
                     : undefined
                 }
@@ -310,7 +328,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
                 <Kbd>/</Kbd>
               )}
             </div>
-            {isSearching && results.length === 0 ? (
+            {isSearching && listedQuery === query && results.length === 0 ? (
               <p
                 role="status"
                 className="px-2 py-6 text-center text-xs text-sidebar-muted-foreground"
