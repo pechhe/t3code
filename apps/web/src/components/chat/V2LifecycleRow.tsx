@@ -4,6 +4,7 @@ import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subag
 import type { ReactNode } from "react";
 import { useThreadShell, useProject } from "../../state/entities";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
+import { AgentRoleChip } from "../AgentRoleChip";
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { environmentThreadDetails } from "../../state/threads";
@@ -17,6 +18,7 @@ import {
 } from "@t3tools/client-runtime/handoff";
 import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
 import {
+  agentTaskTopic,
   ProviderDriverKind,
   type OrchestrationV2Notification,
   type OrchestrationV2TurnItem,
@@ -406,6 +408,11 @@ function SubagentTimelineLink(props: {
     (thread) => thread?.projection.subagents.find((agent) => agent.id === props.subagentId) ?? null,
   );
   const threadId = props.threadId;
+  // A managed task names its role in its title; the row shows it as the role chip instead.
+  const role = useThreadShell(
+    threadId ? scopeThreadRef(props.parentRef.environmentId, threadId) : null,
+  )?.source.agentTask?.role;
+  const topic = role ? agentTaskTopic(props.title, role) : props.title;
   const liveStatus = agent?.status ?? props.status;
   const status = props.event ? props.event.status : liveStatus;
   const statusLabel = props.event?.label ?? subagentStatusVisual(liveStatus).label;
@@ -429,10 +436,11 @@ function SubagentTimelineLink(props: {
         status={status ?? undefined}
       />
       <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2">
-          <span className="min-w-0 truncate text-xs font-medium text-foreground">
-            {props.title}
-          </span>
+        <span className="flex items-center gap-2">
+          {role ? <AgentRoleChip role={role} className="shrink-0" /> : null}
+          {topic ? (
+            <span className="min-w-0 truncate text-xs font-medium text-foreground">{topic}</span>
+          ) : null}
           {detail !== null && (props.event !== undefined || status !== "completed") ? (
             <span
               className={cn(

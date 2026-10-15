@@ -7,6 +7,7 @@ import type {
   ProviderInstanceId,
   OrchestrationV2Subagent,
 } from "@t3tools/contracts";
+import { agentTaskTopic } from "@t3tools/contracts";
 import {
   agentExecutionBoundaryLabel,
   resolveSubagentMetadata,
@@ -127,7 +128,7 @@ export function SubagentTooltipContent(props: {
         ? CheckIcon
         : CircleDashedIcon;
   return (
-    <ThreadHoverCard title={props.title}>
+    <ThreadHoverCard title={(role && agentTaskTopic(props.title, role)) || props.title}>
       <div className="flex min-w-0 items-center gap-2">
         {driver ? (
           <ProviderInstanceIcon

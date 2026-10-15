@@ -16,6 +16,26 @@ export const AgentRole = Schema.Literals([
   "spec-reviewer",
 ]);
 export type AgentRole = typeof AgentRole.Type;
+/** How a managed task's thread title names its role: `<label> · <topic>`. */
+export const AGENT_ROLE_TITLE_LABEL = {
+  "chore-worker": "Chore worker",
+  "implementation-worker": "Implementation worker",
+  "ui-worker": "UI worker",
+  browser: "Browser",
+  "ui-verifier": "UI verifier",
+  advisor: "Advisor",
+  "ticket-reviewer": "Ticket reviewer",
+  "spec-reviewer": "Spec reviewer",
+} as const satisfies Record<AgentRole, string>;
+/**
+ * A managed task's title without its role prefix, for places that already show the role as
+ * a chip. Empty when the title names only the role; unchanged when it lacks the prefix.
+ */
+export const agentTaskTopic = (title: string, role: AgentRole): string => {
+  const label = AGENT_ROLE_TITLE_LABEL[role];
+  if (title === label) return "";
+  return title.startsWith(`${label} · `) ? title.slice(label.length + 3) : title;
+};
 /** The roles that judge pinned work: fresh-context, read-only and scoped by `review`. */
 export const isReviewerRole = (role: AgentRole) =>
   role === "ticket-reviewer" || role === "spec-reviewer";

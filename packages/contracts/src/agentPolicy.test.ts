@@ -1,6 +1,11 @@
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
-import { AgentPolicyManifest, AgentPolicySnapshot, AgentTaskRequest } from "./agentPolicy.ts";
+import {
+  AgentPolicyManifest,
+  AgentPolicySnapshot,
+  AgentTaskRequest,
+  agentTaskTopic,
+} from "./agentPolicy.ts";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
 const encodeManifest = Schema.encodeSync(AgentPolicyManifest);
@@ -150,5 +155,20 @@ describe("AgentTaskRequest", () => {
     expect(decodeRequest(recorded).role).toBe("ticket-reviewer");
     expect(decodeRequest({ ...recorded, review: review("change") }).role).toBe("ticket-reviewer");
     expect(decodeRequest({ ...recorded, review: review("spec") }).role).toBe("spec-reviewer");
+  });
+});
+
+describe("agentTaskTopic", () => {
+  it("drops the role prefix T3 gives a managed task's title", () => {
+    expect(agentTaskTopic("Implementation worker · Smoke edit", "implementation-worker")).toBe(
+      "Smoke edit",
+    );
+    expect(agentTaskTopic("Advisor", "advisor")).toBe("");
+  });
+
+  it("keeps a title that does not start with the role's label", () => {
+    expect(agentTaskTopic("Advisor · Smoke edit", "implementation-worker")).toBe(
+      "Advisor · Smoke edit",
+    );
   });
 });

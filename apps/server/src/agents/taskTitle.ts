@@ -1,15 +1,4 @@
-import type { AgentRole } from "@t3tools/contracts";
-
-const roleLabels: Record<AgentRole, string> = {
-  "chore-worker": "Chore worker",
-  "implementation-worker": "Implementation worker",
-  "ui-worker": "UI worker",
-  browser: "Browser",
-  "ui-verifier": "UI verifier",
-  advisor: "Advisor",
-  "ticket-reviewer": "Ticket reviewer",
-  "spec-reviewer": "Spec reviewer",
-};
+import { AGENT_ROLE_TITLE_LABEL, type AgentRole } from "@t3tools/contracts";
 
 /** Thread-title prefixes callers used before T3 named the role itself. */
 const callerPrefix = /^(?:lead|worker|solo|chat)\s*[·:\-–—]\s+/i;
@@ -28,5 +17,7 @@ export const managedTaskTitle = (
     task.split("\n").find((line) => line.trim().length > 0) ||
     ""
   ).trim();
-  return topic.length === 0 ? roleLabels[role] : `${roleLabels[role]} · ${topic}`;
+  return topic.length === 0
+    ? AGENT_ROLE_TITLE_LABEL[role]
+    : `${AGENT_ROLE_TITLE_LABEL[role]} · ${topic}`;
 };
