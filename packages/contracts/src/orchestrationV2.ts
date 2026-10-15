@@ -859,6 +859,12 @@ export const OrchestrationV2Subagent = Schema.Struct({
     "interrupted",
   ]),
   progress: Schema.optional(Schema.String),
+  /**
+   * Context tokens the child thread has used, mirrored from its provider turns
+   * so parent-side cards can show it without loading the child. Workflow
+   * coordinators report their own total on `workflow`.
+   */
+  totalTokens: Schema.optional(NonNegativeInt),
   /** Present only on a workflow coordinator task; absent on ordinary subagents. */
   workflow: Schema.optional(OrchestrationV2SubagentWorkflow),
   result: Schema.NullOr(Schema.String),
