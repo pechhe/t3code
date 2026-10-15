@@ -81,7 +81,9 @@ const read = (
             Layer.unwrap(
               Effect.map(makeThread(options.hold ?? null), (thread) =>
                 Layer.mock(ThreadManagement.ThreadManagementService)({
-                  getThreadRecords: () => Effect.succeed({ thread }),
+                  // The service reads only the thread record; the generic field-picked shape
+                  // is not worth rebuilding in a mock.
+                  getThreadRecords: () => Effect.succeed({ thread } as never),
                 }),
               ),
             ),

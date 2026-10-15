@@ -6,6 +6,7 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Schema from "effect/Schema";
 
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as Settings from "../serverSettings.ts";
@@ -23,12 +24,17 @@ import * as Threads from "./ThreadManagementService.ts";
  * provider's context window. A thread not yet assigned to an experiment reads
  * the configured thresholds until its first usage report assigns it.
  */
+export class ContextRolloverThresholdError extends Schema.TaggedError<ContextRolloverThresholdError>()(
+  "ContextRolloverThresholdError",
+  { cause: Schema.Defect() },
+) {}
+
 export class ContextRolloverThresholdService extends Context.Service<
   ContextRolloverThresholdService,
   {
     readonly read: (
       input: OrchestrationV2GetRolloverThresholdsInput,
-    ) => Effect.Effect<OrchestrationV2RolloverThresholds, unknown>;
+    ) => Effect.Effect<OrchestrationV2RolloverThresholds, ContextRolloverThresholdError>;
   }
 >()("t3/orchestration-v2/ContextRolloverThresholdService") {}
 
@@ -37,21 +43,24 @@ const make = Effect.gen(function* () {
   const threads = yield* Threads.ThreadManagementService;
   const experiments = yield* Experiments.ExperimentService;
   return ContextRolloverThresholdService.of({
-    read: Effect.fn("ContextRolloverThresholdService.read")(function* (input) {
-      const { thread } = yield* threads.getThreadRecords(input.threadId, []);
-      if (rolloverHeld(thread.rolloverHold, yield* Clock.currentTimeMillis)) return null;
-      const settings = yield* settingsService.getSettings;
-      const assignment = yield* experiments.getRolloverAssignment(input.threadId);
-      const thresholds = assignedRolloverThresholds(
-        settings.contextRollover,
-        thread,
-        input.model,
-        assignment?.variant.rollover,
-      );
-      if (thresholds === null) return null;
-      const { soft, hard } = boundRolloverThresholds(thresholds, input.maxTokens);
-      return { soft, hard };
-    }),
+    read: Effect.fn("ContextRolloverThresholdService.read")(
+      function* (input) {
+        const { thread } = yield* threads.getThreadRecords(input.threadId, []);
+        if (rolloverHeld(thread.rolloverHold, yield* Clock.currentTimeMillis)) return null;
+        const settings = yield* settingsService.getSettings;
+        const assignment = yield* experiments.getRolloverAssignment(input.threadId);
+        const thresholds = assignedRolloverThresholds(
+          settings.contextRollover,
+          thread,
+          input.model,
+          assignment?.variant.rollover,
+        );
+        if (thresholds === null) return null;
+        const { soft, hard } = boundRolloverThresholds(thresholds, input.maxTokens);
+        return { soft, hard };
+      },
+      Effect.mapError((cause) => new ContextRolloverThresholdError({ cause })),
+    ),
   });
 });
 
