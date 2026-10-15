@@ -343,6 +343,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["click tick audio sound effects hover composer sidebar mute"],
   },
   {
+    id: "composer-finish",
+    title: "Composer finish",
+    to: "/settings/appearance",
+    searchTerms: ["composer metal chassis silver anodized black screen colour color skin peach"],
+  },
+  {
     id: "composer-context",
     title: "Composer context",
     to: "/settings/appearance",

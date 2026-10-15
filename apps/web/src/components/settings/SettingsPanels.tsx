@@ -171,6 +171,7 @@ import {
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
+import { COMPOSER_FINISHES, resolveComposerFinish } from "~/lib/composerFinish";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Artwork",
@@ -600,6 +601,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.interfaceSounds !== DEFAULT_UNIFIED_SETTINGS.interfaceSounds
         ? ["Interface sounds"]
         : []),
+      ...(settings.composerFinish !== DEFAULT_UNIFIED_SETTINGS.composerFinish
+        ? ["Composer finish"]
+        : []),
       ...(settings.persistComposerContextStrip !==
       DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
         ? ["Composer context"]
@@ -730,6 +734,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.inAppNotificationsEnabled,
       settings.wordWrap,
       settings.interfaceSounds,
+      settings.composerFinish,
       followSystem,
       theme,
       themeHalves,
@@ -807,6 +812,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       interfaceSounds: DEFAULT_UNIFIED_SETTINGS.interfaceSounds,
+      composerFinish: DEFAULT_UNIFIED_SETTINGS.composerFinish,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
@@ -1778,6 +1784,47 @@ function InterfaceSoundsRow() {
   );
 }
 
+function ComposerFinishRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const finish = resolveComposerFinish(settings.composerFinish);
+  return (
+    <SettingsRow
+      {...searchableSetting("composer-finish")}
+      description="The composer's metal and screen, chosen apart from the app theme."
+      resetAction={
+        settings.composerFinish !== DEFAULT_UNIFIED_SETTINGS.composerFinish ? (
+          <SettingResetButton
+            label="composer finish"
+            onClick={() =>
+              updateSettings({ composerFinish: DEFAULT_UNIFIED_SETTINGS.composerFinish })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={finish.id}
+          onValueChange={(value) => {
+            if (typeof value === "string") updateSettings({ composerFinish: value });
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Composer finish">
+            <SelectValue>{finish.label}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {COMPOSER_FINISHES.map((option) => (
+              <SelectItem hideIndicator key={option.id} value={option.id}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
 function FontSettingsGroup() {
   return (
     <>
@@ -1877,6 +1924,7 @@ function TypographySection() {
       {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
       <WordWrapRow />
       <InterfaceSoundsRow />
+      <ComposerFinishRow />
     </SettingsSection>
   );
 }

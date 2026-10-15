@@ -507,6 +507,8 @@ export const ClientSettingsSchema = Schema.Struct({
   snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   interfaceSounds: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** The device composer's metal and screen; ids are defined by the web client. */
+  composerFinish: TrimmedNonEmptyString.pipe(Schema.withDecodingDefault(Effect.succeed("auto"))),
   /** Names the composer's model slider shows for favourites, keyed by `instanceId:model`. */
   modelSlotLabels: Schema.Record(Schema.String, TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
@@ -1821,6 +1823,7 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
   interfaceSounds: Schema.optionalKey(Schema.Boolean),
+  composerFinish: Schema.optionalKey(TrimmedNonEmptyString),
   modelSlotLabels: Schema.optionalKey(Schema.Record(Schema.String, TrimmedNonEmptyString)),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

@@ -11,9 +11,31 @@
 
 /* The palette lives on the composer shell so the docked strips share it. */
 [data-slot="composer-shell"]:has(.composer-device) {
-  --crt-body-top: oklch(0.985 0.002 250);
-  --crt-body: oklch(0.9 0.003 250);
-  --crt-body-bottom: oklch(0.79 0.003 250);
+  --crt-metal-top: oklch(0.985 0.002 250);
+  --crt-metal: oklch(0.9 0.003 250);
+  --crt-metal-bottom: oklch(0.79 0.003 250);
+  /* A finish's pigment (lib/composerFinish.ts) mixed into the metal; none by default. */
+  --crt-body-top: color-mix(
+    in srgb,
+    var(--crt-metal-top),
+    var(--metal-dye, var(--crt-metal-top)) var(--metal-tint-amount, 0%)
+  );
+  --crt-body: color-mix(
+    in srgb,
+    var(--crt-metal),
+    var(--metal-dye, var(--crt-metal)) var(--metal-tint-amount, 0%)
+  );
+  --crt-body-bottom: color-mix(
+    in srgb,
+    var(--crt-metal-bottom),
+    var(--metal-dye, var(--crt-metal-bottom)) var(--metal-tint-amount, 0%)
+  );
+  /* The same pigment laid over the round caps and knobs. */
+  --metal-wash: color-mix(
+    in srgb,
+    var(--metal-dye, transparent) var(--metal-tint-amount, 0%),
+    transparent
+  );
   --crt-ink: oklch(0.13 0.005 250);
   --crt-ink-muted: oklch(0.34 0.005 250);
   --crt-seg: 9px;
@@ -23,12 +45,12 @@
   --crt-mono: var(--font-mono);
   --engrave-shadow: 0 2px 0 oklch(1 0.002 250 / 0.7);
 
-  /* The screen follows the active theme so every theme recolours it. */
-  --cream-bg: var(--background);
-  --cream-bg-hi: color-mix(in oklch, var(--background), white 6%);
-  --cream-bg-lo: color-mix(in oklch, var(--background), black 5%);
-  --cream-ink: var(--foreground);
-  --cream-ink-muted: color-mix(in oklch, var(--foreground), var(--background) 42%);
+  /* The screen follows the active theme unless a composer finish brings its own. */
+  --cream-bg: var(--device-screen, var(--background));
+  --cream-bg-hi: color-mix(in oklch, var(--cream-bg), white 6%);
+  --cream-bg-lo: color-mix(in oklch, var(--cream-bg), black 5%);
+  --cream-ink: var(--device-screen-text, var(--foreground));
+  --cream-ink-muted: color-mix(in oklch, var(--cream-ink), var(--cream-bg) 42%);
 
   /* Round machined caps: send dial and slider thumb. */
   --cap-bg:
@@ -90,13 +112,15 @@
   user-select: none;
 }
 
-:root.dark [data-slot="composer-shell"]:has(.composer-device) {
-  --crt-body-top: oklch(0.235 0.004 265);
-  --crt-body: oklch(0.17 0.004 265);
-  --crt-body-bottom: oklch(0.115 0.004 265);
+:root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
+  [data-slot="composer-shell"]:has(.composer-device) {
+  --crt-metal-top: oklch(0.235 0.004 265);
+  --crt-metal: oklch(0.17 0.004 265);
+  --crt-metal-bottom: oklch(0.115 0.004 265);
   --crt-ink: oklch(0.86 0.004 265);
   --crt-ink-muted: oklch(0.6 0.004 265);
-  --engrave-shadow: 0 -2px 0 oklch(0 0 0 / 0.7);
+  /* Light ink on anodized black catches a lit lip and a faint bloom. */
+  --engrave-shadow: 0 1px 0 oklch(1 0.002 250 / 0.42), 0 0 6px oklch(0.92 0.004 265 / 0.24);
 
   --cap-bg:
     radial-gradient(circle at 50% 44%, oklch(0.6 0.004 265 / 0.4), transparent 46%),
@@ -219,7 +243,9 @@
     radial-gradient(ellipse 130% 60% at 45% 0%, oklch(1 0.002 250 / 0.1), transparent 62%);
 }
 
-:root.dark .composer-device [data-chat-composer-surface] {
+:root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
+  .composer-device
+  [data-chat-composer-surface] {
   background:
     linear-gradient(
       180deg,
@@ -250,7 +276,9 @@
     0 16px 30px -12px oklch(0 0 0 / 0.78);
 }
 
-:root.dark .composer-device [data-chat-composer-surface]::before {
+:root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
+  .composer-device
+  [data-chat-composer-surface]::before {
   opacity: 0.5;
   background:
     linear-gradient(
@@ -293,15 +321,6 @@
     0 1px 1px 0 oklch(1 0.002 250 / 0.9),
     0 2px 4px 0 oklch(1 0.001 250 / 0.5),
     0 5px 12px -3px oklch(0.42 0.004 250 / 0.32);
-}
-
-:root.dark .composer-device [data-chat-composer-body] {
-  box-shadow:
-    inset 0 5px 12px -3px oklch(0 0 0 / 0.6),
-    inset 0 2px 6px oklch(0 0 0 / 0.4),
-    inset 0 0 0 1px oklch(0 0 0 / 0.55),
-    0 1px 0 0 oklch(0.5 0.004 265 / 0.25),
-    0 2px 4px 0 oklch(0 0 0 / 0.3);
 }
 
 /* One line tall when empty, like peach-pi; it still grows with the draft. */
@@ -427,33 +446,60 @@
   height: 80px;
 }
 
+/* A recessed black capsule with a lit silver lip, like the screen's. */
 .device-slider__track {
   position: absolute;
   left: var(--slider-inset);
   right: var(--slider-inset);
   top: 30px;
-  height: 12px;
+  height: 13px;
   overflow: hidden;
   border-radius: 999px;
   background:
-    linear-gradient(180deg, oklch(1 0.002 250 / 0.16), transparent 40%),
-    linear-gradient(90deg, oklch(0.02 0.004 250), oklch(0.08 0.004 250), oklch(0.02 0.004 250));
+    linear-gradient(180deg, oklch(1 0.002 250 / 0.08), transparent 38%),
+    linear-gradient(180deg, oklch(0.026 0.004 250), oklch(0.006 0.002 250) 78%);
   box-shadow:
-    inset 0 1px 2px oklch(0 0 0 / 0.82),
-    inset 0 -1px 0 oklch(1 0.002 250 / 0.24),
-    0 0 0 1px oklch(0.12 0.004 250 / 0.8),
-    0 1px 0 oklch(1 0.002 250 / 0.34);
+    inset 0 3px 8px oklch(0 0 0 / 0.88),
+    inset 0 -1px 4px oklch(0 0 0 / 0.46),
+    inset 0 0 0 1px oklch(0 0 0 / 0.86),
+    0 0 0 1.25px oklch(0.34 0.004 250 / 0.72),
+    0 1px 2px 1px oklch(0.98 0.002 250 / 0.72),
+    0 0 4px 2px oklch(0.96 0.002 250 / 0.38),
+    0 3px 7px -2px oklch(0 0 0 / 0.28);
 }
 
-/* Amber lamp lit under the thumb, clipped by the track. */
+/* Amber lamp lit under the thumb: a soft halo behind a solid core, clipped by the track. */
 .device-slider__glow {
   position: absolute;
-  top: 2px;
+  top: 0.5px;
   left: calc(100% * (var(--slider-position) + 0.5) / var(--slider-detents));
-  width: 64px;
-  height: 8px;
-  border-radius: 999px;
+  width: 104px;
+  height: 12px;
   transform: translateX(-50%);
+  transition: left 260ms cubic-bezier(0.2, 0.78, 0.25, 1);
+}
+.device-slider__glow::before,
+.device-slider__glow::after {
+  content: "";
+  position: absolute;
+  border-radius: 999px;
+}
+.device-slider__glow::before {
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    oklch(0.78 0.2 52 / 0.28) 12%,
+    oklch(0.84 0.22 57 / 0.5) 26%,
+    oklch(0.86 0.23 59 / 0.58) 50%,
+    oklch(0.84 0.22 57 / 0.5) 74%,
+    oklch(0.78 0.2 52 / 0.28) 88%,
+    transparent 100%
+  );
+  filter: blur(3.4px);
+}
+.device-slider__glow::after {
+  inset: 2px 11px;
   background: linear-gradient(
     180deg,
     oklch(0.84 0.18 55) 0%,
@@ -461,10 +507,9 @@
     oklch(0.58 0.17 44) 100%
   );
   box-shadow:
+    0 0 7px oklch(0.84 0.22 58 / 0.42),
     inset 0 1px 0 oklch(1 0.002 250 / 0.42),
-    inset 0 -1px 0 oklch(0.3 0.08 42 / 0.56),
-    0 0 8px oklch(0.74 0.2 55 / 0.62);
-  transition: left 260ms cubic-bezier(0.2, 0.78, 0.25, 1);
+    inset 0 -1px 0 oklch(0.3 0.08 42 / 0.56);
 }
 
 .device-slider__thumb {
@@ -476,7 +521,7 @@
   border-radius: 999px;
   transform: translateX(-50%);
   pointer-events: none;
-  background: var(--cap-bg);
+  background: linear-gradient(var(--metal-wash), var(--metal-wash)), var(--cap-bg);
   box-shadow: var(--cap-shadow);
   transition: left 260ms cubic-bezier(0.2, 0.78, 0.25, 1);
 }
@@ -637,7 +682,7 @@
   transform: translate(-50%, -50%);
   border: 0;
   border-radius: 999px;
-  background: var(--knob-bg);
+  background: linear-gradient(var(--metal-wash), var(--metal-wash)), var(--knob-bg);
   box-shadow: var(--knob-shadow);
   cursor: pointer;
 }
@@ -755,7 +800,7 @@
   overflow: hidden;
   border-radius: 999px;
   transform: translateX(-50%);
-  background: var(--knob-bg);
+  background: linear-gradient(var(--metal-wash), var(--metal-wash)), var(--knob-bg);
   box-shadow: var(--knob-shadow);
   transition: top 160ms cubic-bezier(0.2, 0.85, 0.2, 1);
 }
@@ -798,7 +843,7 @@
   border: 0;
   border-radius: 999px;
   color: var(--cap-ink);
-  background: var(--cap-bg);
+  background: linear-gradient(var(--metal-wash), var(--metal-wash)), var(--cap-bg);
   box-shadow: var(--cap-shadow);
   cursor: pointer;
   transition:
@@ -823,7 +868,8 @@
       oklch(0.42 0.004 250 / 0.045) 1.3deg 2.6deg
     );
 }
-:root.dark .send-dial::before {
+:root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
+  .send-dial::before {
   opacity: 0.35;
 }
 
@@ -915,7 +961,7 @@
     0 8px 16px -10px oklch(0 0 0 / 0.32);
 }
 
-:root.dark
+:root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
   [data-slot="composer-shell"]:has(.composer-device)
   :is([data-composer-banner-surface="attached"], [data-slot="composer-context-strip"])::before {
   background:
