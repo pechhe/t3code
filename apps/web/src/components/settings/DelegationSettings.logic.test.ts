@@ -6,7 +6,9 @@ import {
   effortFor,
   ensureModel,
   isUiOnly,
+  listModel,
   removeEntry,
+  replaceEntry,
   roleGroups,
   setCaller,
   splitGroup,
@@ -143,6 +145,29 @@ describe("delegation settings", () => {
     expect(created).toBe("m-claude-fable-5-1");
     expect(ensureModel(next, fresh)[1]).toBe(created);
     expect(isValid(setCaller(next, "advisor", created, "opus"))).toBe(true);
+  });
+
+  it("swapping a listed model keeps its place and the exceptions that named it", () => {
+    const [model] = catalogModels([provider()]);
+    const fable = { ...model!, binding: { ...model!.binding, model: "claude-fable" } };
+    const next = replaceEntry(manifest(), "advisor", "opus", fable, "medium");
+    const alias = next.lists["advisor"]![1]!.model;
+    expect(next.models[alias]?.model).toBe("claude-fable");
+    expect(next.lists["advisor"]![1]!.effort).toBe("medium");
+    expect(next.roles.advisor.large?.model).toBe(alias);
+    expect(next.roles.advisor.callers).toEqual({ haiku: alias });
+    expect(isValid(next)).toBe(true);
+    // A model already in the list is not listed twice.
+    const sol = { ...model!, binding: manifest().models.sol! };
+    expect(replaceEntry(manifest(), "advisor", "opus", sol, "high")).toEqual(manifest());
+  });
+
+  it("lists a large-task or per-agent choice the job did not list yet, last", () => {
+    const [model] = catalogModels([provider()]);
+    const [next, alias] = listModel(manifest(), "workhorse", model!, "medium");
+    expect(alias).toBe("opus");
+    expect(next.lists["workhorse"]!.map((entry) => entry.model)).toEqual(["sol", "opus"]);
+    expect(listModel(next, "workhorse", model!, "high")[0]).toEqual(next);
   });
 
   it("explains why a model cannot take work now", () => {

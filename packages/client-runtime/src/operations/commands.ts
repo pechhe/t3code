@@ -14,6 +14,7 @@ import {
   type OrchestrationV2Command,
   type OrchestrationV2CreationSource,
   type OrchestrationV2RolloverHold,
+  type OrchestrationV2ThreadRolloverThresholds,
   type PlanId,
   type ProjectId,
   type ProjectIconOverride,
@@ -493,6 +494,21 @@ export const setThreadRolloverHold = Effect.fn("EnvironmentCommands.setThreadRol
     });
   },
 );
+
+export interface SetThreadRolloverThresholdsInput extends ThreadCommandInput {
+  /** Null returns the thread to the server's thresholds. */
+  readonly thresholds: OrchestrationV2ThreadRolloverThresholds | null;
+}
+export const setThreadRolloverThresholds = Effect.fn(
+  "EnvironmentCommands.setThreadRolloverThresholds",
+)(function* (input: SetThreadRolloverThresholdsInput) {
+  return yield* dispatch({
+    type: "thread.rollover-thresholds.set",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    thresholds: input.thresholds,
+  });
+});
 
 export const reorderPinnedThread = Effect.fn("EnvironmentCommands.reorderPinnedThread")(function* (
   input: ReorderPinnedThreadInput,

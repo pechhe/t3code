@@ -162,6 +162,30 @@ describe("assignedRolloverThresholds", () => {
       ),
     );
   });
+  it("lets a thread's own thresholds win over disabled settings and an experiment", () => {
+    const own = { soft: 50_000, hard: 70_000 };
+    const ownTopLevel = { ...topLevel, rolloverThresholds: own };
+    assert.deepEqual(
+      assignedRolloverThresholds(settings({ enabled: false }), ownTopLevel, "model", undefined),
+      own,
+    );
+    assert.deepEqual(
+      assignedRolloverThresholds(settings(), ownTopLevel, "model", variant),
+      own,
+    );
+    assert.deepEqual(
+      assignedRolloverThresholds(
+        settings({ delegatedThreads: false }),
+        { ...delegated, rolloverThresholds: own },
+        "model",
+        undefined,
+      ),
+      own,
+    );
+    assert.isNull(
+      assignedRolloverThresholds(settings(), { ...native, rolloverThresholds: own }, "model", variant),
+    );
+  });
 });
 
 describe("rolloverUsageAction", () => {

@@ -372,6 +372,17 @@ export const OrchestrationV2RolloverHold = Schema.Union([
 ]);
 export type OrchestrationV2RolloverHold = typeof OrchestrationV2RolloverHold.Type;
 
+/**
+ * One thread's own context rollover thresholds, in tokens, set by dragging the
+ * composer's rollover band. Absent or null follows the server settings.
+ */
+export const OrchestrationV2ThreadRolloverThresholds = Schema.Struct({
+  soft: PositiveInt,
+  hard: PositiveInt,
+}).check(Schema.makeFilter((value) => value.soft < value.hard));
+export type OrchestrationV2ThreadRolloverThresholds =
+  typeof OrchestrationV2ThreadRolloverThresholds.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
   advisorResultObserved: Schema.optional(Schema.Struct({ runId: RunId, at: Schema.DateTimeUtc })),
@@ -425,6 +436,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
+  rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
   // payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1772,6 +1784,7 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.pinned",
       "thread.auto-settle-set",
       "thread.rollover-hold-set",
+      "thread.rollover-thresholds-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2035,6 +2048,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
+  rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   /** Slot in the user-arranged pinned order; omitted by pre-reorder servers. */
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   /** Slot in the user-arranged active order; omitted by pre-reorder servers. */
@@ -2615,6 +2629,7 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.pinned",
       "thread.auto-settle-set",
       "thread.rollover-hold-set",
+      "thread.rollover-thresholds-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2838,6 +2853,13 @@ export const OrchestrationV2Command = Schema.Union([
     threadId: ThreadId,
     /** Null lifts the hold. */
     hold: Schema.NullOr(OrchestrationV2RolloverHold),
+  }),
+  Schema.Struct({
+    type: Schema.Literal("thread.rollover-thresholds.set"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    /** Null returns the thread to the server's thresholds. */
+    thresholds: Schema.NullOr(OrchestrationV2ThreadRolloverThresholds),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin"),

@@ -134,6 +134,10 @@ export interface EnvironmentThreadShell {
   readonly pinnedAt: string | null;
   readonly autoSettleDisabledAt?: string | null;
   readonly rolloverHold?: import("@t3tools/contracts").OrchestrationV2RolloverHold | null;
+  /** The thread's own rollover thresholds, set from its composer. */
+  readonly rolloverThresholds?:
+    | import("@t3tools/contracts").OrchestrationV2ThreadRolloverThresholds
+    | null;
   /** Slot in the user-arranged pinned order; null for keyless (legacy) pins. */
   readonly pinOrderKey: string | null;
   /** Slot in the user-arranged active order; null for keyless active threads. */
@@ -285,6 +289,7 @@ export function presentThreadShell(
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
     rolloverHold: thread.rolloverHold ?? null,
+    rolloverThresholds: thread.rolloverThresholds ?? null,
     pinOrderKey: thread.pinOrderKey ?? null,
     activeOrderKey: thread.activeOrderKey ?? null,
     ...(thread.lastVisitedAt === undefined

@@ -226,6 +226,55 @@ export function removeEntry(manifest: Manifest, list: string, model: string): Ma
   return next;
 }
 
+/**
+ * The alias of `model` in `list`, adding the model to the manifest and to the end of the
+ * list when it is not there yet: a large-task or per-agent choice must be one of the job's
+ * listed models.
+ */
+export function listModel(
+  manifest: Manifest,
+  list: string,
+  model: CatalogModel,
+  effort: string,
+): [Manifest, string] {
+  const [next, alias] = ensureModel(manifest, model);
+  if ((next.lists[list] ?? []).some((entry) => entry.model === alias)) return [next, alias];
+  return [addEntry(next, list, { model: alias, effort }), alias];
+}
+
+/** Swaps one listed model for another in place, carrying the exceptions that named it. */
+export function replaceEntry(
+  manifest: Manifest,
+  list: string,
+  from: string,
+  model: CatalogModel,
+  effort: string,
+): Manifest {
+  const [withModel, alias] = ensureModel(manifest, model);
+  const entries = withModel.lists[list] ?? [];
+  if (alias === from || entries.some((entry) => entry.model === alias)) return manifest;
+  let next = withList(
+    withModel,
+    list,
+    entries.map((entry) => (entry.model === from ? { model: alias, effort } : entry)),
+  );
+  for (const role of AgentRole.literals) {
+    if (next.roles[role].list !== list) continue;
+    next = withRole(next, role, ({ large, callers, ...policy }) => ({
+      ...policy,
+      ...(large === undefined ? {} : { large: large.model === from ? { ...large, model: alias } : large }),
+      ...(callers === undefined
+        ? {}
+        : {
+            callers: Object.fromEntries(
+              Object.entries(callers).map(([caller, first]) => [caller, first === from ? alias : first]),
+            ),
+          }),
+    }));
+  }
+  return next;
+}
+
 export function setLarge(manifest: Manifest, role: AgentRole, large: AgentListEntry | undefined) {
   return withRole(manifest, role, ({ large: _previous, ...policy }) =>
     large === undefined ? policy : { ...policy, large },

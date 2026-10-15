@@ -103,6 +103,16 @@ export const make = Effect.gen(function* () {
     const settings = yield* settingsService.getSettings;
     const thread = yield* projections.getThread(threadId);
     if (rolloverHeld(thread.rolloverHold, yield* Clock.currentTimeMillis)) return null;
+    // A thread's own thresholds take it out of the rollover experiment.
+    if (thread.rolloverThresholds != null) {
+      const own = assignedRolloverThresholds(
+        settings.contextRollover,
+        thread,
+        run.modelSelection.model,
+        undefined,
+      );
+      return own === null ? null : { thresholds: own, assignment: undefined };
+    }
     if (
       assignedRolloverThresholds(settings.contextRollover, thread, run.modelSelection.model, {
         softLimit: settings.contextRollover.softThreshold,
@@ -585,7 +595,8 @@ export const make = Effect.gen(function* () {
               ? worker.enqueue(event)
               : Effect.void;
           case "thread.rollover-hold-set":
-            // A hold forgets a soft nudge not yet answered; lifting it starts over.
+          case "thread.rollover-thresholds-set":
+            // A hold or moved thresholds forget a soft nudge not yet answered; it starts over.
             return Effect.sync(() => {
               const state = threads.get(event.threadId);
               if (state === undefined) return;

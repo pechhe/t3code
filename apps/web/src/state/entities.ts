@@ -281,6 +281,15 @@ export function readEnvironmentSupportsRolloverHold(environmentId: EnvironmentId
   );
 }
 
+/** Whether the environment's server understands thread.rollover-thresholds.set.
+    Same version-skew contract as settlement. */
+export function readEnvironmentSupportsRolloverThresholds(environmentId: EnvironmentId): boolean {
+  return (
+    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
+      .threadRolloverThresholds === true
+  );
+}
+
 export function readEnvironmentSupportsActiveReorder(environmentId: EnvironmentId): boolean {
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities

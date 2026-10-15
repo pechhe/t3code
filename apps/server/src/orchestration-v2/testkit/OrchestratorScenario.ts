@@ -144,6 +144,7 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.unsnooze":
     case "thread.auto-settle.set":
     case "thread.rollover-hold.set":
+    case "thread.rollover-thresholds.set":
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":

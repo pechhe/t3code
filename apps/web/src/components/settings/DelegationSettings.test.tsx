@@ -65,6 +65,12 @@ vi.mock("../ui/menu", () => ({
   MenuPopup: passthrough,
   MenuItem: passthrough,
 }));
+// Model chips and pickers read live provider catalogs; these tests cover saving.
+vi.mock("../ModelLabel", () => ({ ModelLabel: () => null }));
+vi.mock("./PolicyModelPicker", () => ({
+  PolicyModelPicker: () => null,
+  PolicyEffortPicker: () => null,
+}));
 vi.mock("../ui/select", () => ({
   Select: () => null,
   SelectTrigger: passthrough,

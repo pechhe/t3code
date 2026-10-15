@@ -269,6 +269,7 @@ import {
 } from "./threadContextDrag";
 import {
   readEnvironmentSupportsRolloverHold,
+  readEnvironmentSupportsRolloverThresholds,
   readThreadShell,
   useThreadShells,
 } from "~/state/entities";
@@ -283,6 +284,8 @@ import { resolveAssetUrl } from "~/assets/assetUrls";
 import { assetEnvironment } from "~/state/assets";
 import { readPreparedConnection } from "~/state/session";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
+import { threadEnvironment } from "~/state/threads";
+import { useOrchestrationCommand } from "~/state/use-orchestration-command";
 import { orchestrationEnvironment } from "~/state/orchestration";
 import { threadContextAttachment } from "~/lib/threadContextAttachment";
 import {
@@ -2589,7 +2592,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Desktop-width composers render as the machined device; phones keep the compact composer.
   const deviceComposer = !isMobileViewport;
   const rolloverModel = activeThreadModelSelection?.model ?? null;
-  const rolloverThresholds = useRolloverThresholds(
+  const rolloverThresholdsQuery = useRolloverThresholds(
     deviceComposer && routeKind === "server" && rolloverModel !== null
       ? {
           environmentId: routeThreadRef.environmentId,
@@ -2598,7 +2601,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           maxTokens: activeContextWindow?.maxTokens ?? null,
         }
       : null,
-  ).data;
+  );
+  const rolloverThresholds = rolloverThresholdsQuery.data;
+  const setRolloverThresholds = useOrchestrationCommand(threadEnvironment.setRolloverThresholds, {
+    label: "thread rollover thresholds",
+  });
+  // Dragging the context strip's rollover band sets this thread's own thresholds.
+  const onRolloverChange =
+    routeKind === "server" && readEnvironmentSupportsRolloverThresholds(routeThreadRef.environmentId)
+      ? (thresholds: { readonly soft: number; readonly hard: number } | null) =>
+          void setRolloverThresholds({
+            environmentId: routeThreadRef.environmentId,
+            input: { threadId: routeThreadRef.threadId, thresholds },
+          }).then(() => rolloverThresholdsQuery.refresh())
+      : undefined;
   const reasoningDialRef = useRef<DeviceReasoningDialHandle>(null);
   const modelSliderRef = useRef<DeviceModelSliderHandle>(null);
   const [sendPressKey, setSendPressKey] = useState(0);
@@ -7821,6 +7837,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 <DeviceContextBar
                   usage={activeContextWindow}
                   rollover={rolloverThresholds ?? null}
+                  rolloverCustom={props.activeThreadShell?.rolloverThresholds != null}
+                  onRolloverChange={onRolloverChange}
                   modelDisplayName={activeThreadModelDisplayName}
                   compactDisabled={
                     compactDisabled || noProviderAvailable || isSendBusy || isConnecting

@@ -106,13 +106,32 @@ export function threadRolloverThresholds(
   return resolveRolloverThresholds(settings, model);
 }
 
-/** An assigned experiment changes timing, retaining thread ownership restrictions. */
+/**
+ * An assigned experiment changes timing, retaining thread ownership restrictions. A
+ * thread's own thresholds, set from its composer, win over both the settings and the
+ * experiment, and turn rollover on for that thread.
+ */
 export function assignedRolloverThresholds(
   settings: ContextRolloverSettings,
-  thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource">,
+  thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource" | "rolloverThresholds">,
   model: string,
   policy: ExperimentRolloverPolicy | undefined,
 ): RolloverThresholds | null {
+  const own = thread.rolloverThresholds;
+  if (own != null) {
+    return threadRolloverThresholds(
+      {
+        ...settings,
+        enabled: true,
+        delegatedThreads: true,
+        modelRules: [],
+        softThreshold: own.soft,
+        hardThreshold: own.hard,
+      },
+      thread,
+      model,
+    );
+  }
   if (policy === undefined) return threadRolloverThresholds(settings, thread, model);
   return threadRolloverThresholds(
     {

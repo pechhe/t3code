@@ -432,6 +432,8 @@ const runHeldTurnScenario = (
     readonly usedTokens?: number;
     readonly maxTokens?: number;
     readonly hold?: OrchestrationV2RolloverHold;
+    /** The thread's own thresholds, as set by dragging its composer's rollover band. */
+    readonly thresholds?: { readonly soft: number; readonly hard: number };
     readonly nudged?: boolean;
     /** Holds the rollover run's turn too and runs this against it before completing it. */
     readonly duringRollover?: (
@@ -527,6 +529,14 @@ const runHeldTurnScenario = (
           commandId: CommandId.make(`command:${name}:hold`),
           threadId,
           hold: options.hold,
+        });
+      }
+      if (options.thresholds !== undefined) {
+        yield* orchestrator.dispatch({
+          type: "thread.rollover-thresholds.set",
+          commandId: CommandId.make(`command:${name}:thresholds`),
+          threadId,
+          thresholds: options.thresholds,
         });
       }
       const nudged = options.nudged !== false;
@@ -761,6 +771,21 @@ it.live("sends no request and no end-of-run fallback while a thread's rollover i
       assert.lengthOf(after.runs, 1);
       assert.lengthOf(captured.steered, 0);
       assert.lengthOf(captured.started, 1);
+    }),
+  ),
+);
+
+it.live("rolls a thread over at its own thresholds with rollover off globally", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { steer, firstRun } = yield* runHeldTurnScenario(
+        "context-rollover-reactor-own-thresholds",
+        null,
+        { rolloverEnabled: false, thresholds: { soft: 1_000, hard: 2_000 } },
+      );
+
+      assert.equal(steer!.runId, firstRun.id);
+      assert.include(JSON.stringify(steer!.message), ROLLOVER_NOTE_TOOL_NAME);
     }),
   ),
 );

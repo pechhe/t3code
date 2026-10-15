@@ -459,6 +459,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.unsnooze":
     case "thread.auto-settle.set":
     case "thread.rollover-hold.set":
+    case "thread.rollover-thresholds.set":
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
@@ -2516,6 +2517,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.unsnooze"
           | "thread.auto-settle.set"
           | "thread.rollover-hold.set"
+          | "thread.rollover-thresholds.set"
           | "thread.pin"
           | "thread.unpin"
           | "thread.pin.reorder"
@@ -2655,6 +2657,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.unsnooze" ||
         command.type === "thread.auto-settle.set" ||
         command.type === "thread.rollover-hold.set" ||
+        command.type === "thread.rollover-thresholds.set" ||
         command.type === "thread.pin" ||
         command.type === "thread.unpin" ||
         command.type === "thread.pin.reorder" ||
@@ -3019,6 +3022,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return {
             ...thread,
             rolloverHold: command.hold,
+            updatedAt: unchanged ? thread.updatedAt : now,
+          };
+        }
+        case "thread.rollover-thresholds.set": {
+          const current = thread.rolloverThresholds ?? null;
+          const unchanged =
+            current?.soft === command.thresholds?.soft && current?.hard === command.thresholds?.hard;
+          return {
+            ...thread,
+            rolloverThresholds: command.thresholds,
             updatedAt: unchanged ? thread.updatedAt : now,
           };
         }
@@ -3399,6 +3412,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.auto-settle-set" as const;
         case "thread.rollover-hold.set":
           return "thread.rollover-hold-set" as const;
+        case "thread.rollover-thresholds.set":
+          return "thread.rollover-thresholds-set" as const;
         case "thread.pin":
           return "thread.pinned" as const;
         case "thread.unpin":
@@ -11307,6 +11322,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.unsnooze":
       case "thread.auto-settle.set":
       case "thread.rollover-hold.set":
+      case "thread.rollover-thresholds.set":
       case "thread.pin":
       case "thread.unpin":
       case "thread.pin.reorder":
