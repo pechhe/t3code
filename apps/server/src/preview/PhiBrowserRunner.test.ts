@@ -32,6 +32,7 @@ const setup = (
             listTabs: async () => [],
             listAgentSpaces: async () => [],
             observe: async () => ({ elements: [] }),
+            js: async () => ({ roots: [], texts: [] }),
             typeText: async (text: string) => text,
             cliLog: (text: string) => lines.push(text),
             process: { stdout: { write: (_chunk: string, done: () => void) => done() } },

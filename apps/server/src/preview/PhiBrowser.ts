@@ -99,7 +99,8 @@ const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknow
     isInputError(cause) &&
     (cause.reason === "stale-reference" ||
       cause.reason === "unavailable-route" ||
-      cause.reason === "unsupported-shortcut")
+      cause.reason === "unsupported-shortcut" ||
+      cause.reason === "unsupported-option")
   )
     reason = cause.reason;
   if (
@@ -107,7 +108,8 @@ const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknow
     (cause.reason === "missing-skill" ||
       cause.reason === "invalid-response" ||
       cause.reason === "human-control" ||
-      cause.reason === "login-required")
+      cause.reason === "login-required" ||
+      cause.reason === "action-failed")
   )
     reason = cause.reason;
   return new PreviewAutomationBackendError({

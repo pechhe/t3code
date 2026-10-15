@@ -20,6 +20,7 @@ export class PhiBrowserRunnerError extends Schema.TaggedError<PhiBrowserRunnerEr
       "invalid-response",
       "human-control",
       "login-required",
+      "action-failed",
     ]),
     cause: Schema.Defect(),
   },
@@ -36,6 +37,8 @@ export class PhiBrowserRunnerError extends Schema.TaggedError<PhiBrowserRunnerEr
         return "The human controls the Phi Space. Wait for explicit hand-back before resuming.";
       case "login-required":
         return "The shadow page requires human sign-in through the Agents lane.";
+      case "action-failed":
+        return "Phi could not complete the page action.";
     }
   }
 }
@@ -70,7 +73,7 @@ export interface PhiBrowserRound {
 const RunnerReply = Schema.Struct({
   result: Schema.Unknown,
   context: Schema.Unknown,
-  failure: Schema.optional(Schema.Literals(["human-control", "login-required"])),
+  failure: Schema.optional(Schema.Literals(["human-control", "login-required", "action-failed"])),
 });
 const decodeReply = Schema.decodeUnknownSync(RunnerReply);
 

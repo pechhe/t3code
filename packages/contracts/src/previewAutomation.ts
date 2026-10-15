@@ -1186,7 +1186,9 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
       "ownership",
       "conflicting-binding",
       "unsupported",
+      "unsupported-option",
       "unsupported-shortcut",
+      "action-failed",
       "login-required",
       "invalid-response",
       "storage",
@@ -1213,6 +1215,10 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
         return "An existing tab keeps its backend, profile and lane. Open a new tab to change them.";
       case "unsupported":
         return "This operation or option is unsupported by this browser backend. Read preview_status capabilities.";
+      case "unsupported-option":
+        return 'Phi does not support this locator or option. Use aria-ref=<ref> from the latest preview_snapshot, a CSS selector, or role=<role>[name="..."].';
+      case "action-failed":
+        return "The page action did not complete: the target was not found or not actionable, or a wait timed out. Take a fresh snapshot and retry.";
       case "unsupported-shortcut":
         return "Phi does not support native Meta shortcuts. Use preview_type with clear=true to replace input, or a supported key without Meta.";
       case "login-required":

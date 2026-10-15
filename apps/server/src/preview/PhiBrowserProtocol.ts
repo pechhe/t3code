@@ -150,11 +150,10 @@ export function translatePhiOperation(
     }
     case "click": {
       const value = decodeClick(input);
-      if (value.timeoutMs !== undefined)
-        throw new PhiBrowserInputError({ reason: "unsupported-option" });
       return {
         operation,
         target: target(value, refs),
+        timeout: value.timeoutMs === undefined ? undefined : value.timeoutMs / 1000,
         x: value.x,
         y: value.y,
         button: value.button,
@@ -163,11 +162,10 @@ export function translatePhiOperation(
     }
     case "type": {
       const value = decodeType(input);
-      if (value.timeoutMs !== undefined)
-        throw new PhiBrowserInputError({ reason: "unsupported-option" });
       return {
         operation,
         target: target(value, refs),
+        timeout: value.timeoutMs === undefined ? undefined : value.timeoutMs / 1000,
         text: value.text,
         clear: value.clear ?? false,
       };
@@ -188,12 +186,12 @@ export function translatePhiOperation(
     }
     case "scroll": {
       const value = decodeScroll(input);
-      // The skill can scroll at coordinates, but not a semantic container.
-      // Clicking a container to focus it would introduce an unrelated action.
-      if (value.locator !== undefined || value.selector !== undefined) {
-        throw new PhiBrowserInputError({ reason: "unsupported-option" });
-      }
-      return { operation, dx: value.deltaX ?? 0, dy: value.deltaY ?? 0 };
+      return {
+        operation,
+        target: target(value, refs),
+        dx: value.deltaX ?? 0,
+        dy: value.deltaY ?? 0,
+      };
     }
     case "waitFor": {
       const value = decodeWaitFor(input);
@@ -300,8 +298,64 @@ if (request.targetId) {
   if (!tabs.some(tab => tab.targetId === request.targetId)) throw new Error('Phi tab was lost');
 }
 const op = request.action;
+// Phi's scan treats an element without a box as invisible and skips everything inside it. A
+// display:contents wrapper never has a box, so a SvelteKit app (rooted in one) scans as empty.
+// Also scan the boxed children of such wrappers; refs are node ids, so the scans merge cleanly.
+// Runs in the page: XPaths of the boxed children of display:contents wrappers, and the visible
+// text sitting directly inside those wrappers, which no scan root reaches.
+const contentsRoots = () => {
+  const path = (el) => {
+    const steps = [];
+    for (; el && el.nodeType === 1; el = el.parentElement) {
+      let index = 1;
+      for (let sibling = el.previousElementSibling; sibling; sibling = sibling.previousElementSibling)
+        if (sibling.tagName === el.tagName) index++;
+      steps.unshift(el.localName + '[' + index + ']');
+    }
+    return '/' + steps.join('/');
+  };
+  const roots = [];
+  const texts = [];
+  for (const wrapper of document.body.querySelectorAll('*')) {
+    if (getComputedStyle(wrapper).display !== 'contents') continue;
+    for (const node of wrapper.childNodes) {
+      if (node.nodeType === 3) {
+        const text = node.textContent.trim();
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const box = range.getBoundingClientRect();
+        if (text && (box.width || box.height)) texts.push(text);
+      } else if (node.nodeType === 1 && getComputedStyle(node).display !== 'contents') {
+        const box = node.getBoundingClientRect();
+        if (box.width || box.height) roots.push(path(node));
+      }
+    }
+    if (roots.length >= 50) break;
+  }
+  return {roots, texts};
+};
+const scanPage = async (withText) => {
+  const observed = await observe();
+  const parts = withText ? [await snapshotText({maxChars: 20000})] : [];
+  if (observed.dialog) return {observed, text: parts[0] ?? ''};
+  const {roots, texts} = await js('(' + contentsRoots + ')()');
+  observed.elements = observed.elements ?? [];
+  for (const root of roots) {
+    const within = 'xpath=' + root;
+    observed.elements.push(...((await observe({within})).elements ?? []));
+    if (withText) parts.push(await snapshotText({within, maxChars: 20000}));
+  }
+  if (!withText) return {observed, text: ''};
+  // Each part arrives in the untrusted-content envelope; keep one around the merged body.
+  const lines = parts[0].split('\n');
+  // Raw wrapper text gets the skill's envelope-marker neutralising, as its own text does.
+  const neutral = texts.map(text => text.replace(/^(\s*)--- (BEGIN|END) UNTRUSTED/gm, '$1~~~ $2 UNTRUSTED'));
+  const body = [...parts.map(part => part.split('\n').slice(1, -1).join('\n')), ...neutral]
+    .filter(Boolean).join('\n').slice(0, 20000);
+  return {observed, text: [lines[0], body, lines.at(-1)].join('\n')};
+};
 if (request.context.kind === 'shadow' && ['click', 'type', 'press', 'scroll'].includes(op.operation)) {
-  const page = await observe();
+  const page = (await scanPage(false)).observed;
   if (page.elements?.some(element => element.type === 'password' && !element.hidden)) {
     cliLog(JSON.stringify({t3Phi: {result: null, context: currentContext(), failure: 'login-required'}}));
     return;
@@ -327,63 +381,78 @@ if (op.operation === 'status') {
     ? await setViewport({width: viewport.width, height: viewport.height})
     : op.operation === 'resize' ? await setViewport() : undefined;
   // Both lanes handle close above; this switch only operates on a live owned tab.
-  switch (op.operation) {
-    case 'open': result = await openTab(request.allocationUrl ?? op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
-    case 'navigate': result = await goto(op.url, {timeout: op.timeout}); break;
-    case 'snapshot': {
-      const observed = await observe();
-      const text = await snapshotText({maxChars: 20000});
-      const file = await screenshot();
-      const fs = require('node:fs');
-      try {
-        const png = fs.readFileSync(file);
-        result = { observed, text, screenshot: {mimeType: 'image/png', data: png.toString('base64'),
-          width: png.readUInt32BE(16), height: png.readUInt32BE(20)} };
-      } finally { fs.unlinkSync(file); }
-      break;
-    }
-    case 'click': result = op.target !== undefined
-      ? await click(op.target, {button: op.button, clickCount: op.clickCount})
-      : await click(op.x, op.y, {button: op.button, clickCount: op.clickCount}); break;
-    case 'type':
-      if (op.clear) result = await fillInput(op.target ?? 'loc=css::focus', op.text);
-      else {
-        if (op.target !== undefined) await click(op.target);
-        result = await typeText(op.text);
-      }
-      break;
-    case 'press': result = await pressKey(op.key, {modifiers: op.modifiers}); break;
-    case 'scroll': result = await scroll({dx: op.dx, dy: op.dy}); break;
-    case 'waitFor': {
-      // The text and URL arrive as JSON string literals inside a fixed condition: data, not code.
-      const conditions = [];
-      if (op.text !== undefined) conditions.push('(document.body ? document.body.innerText : "").includes(' + JSON.stringify(op.text) + ')');
-      if (op.urlIncludes !== undefined) conditions.push('location.href.includes(' + JSON.stringify(op.urlIncludes) + ')');
-      const expression = conditions.join(' && ');
-      // One probe: true when met, false on the helper's timeout. A dialog stops the wait.
-      const holds = async (probe) => {
+  try {
+    // A requested timeout bounds the wait for the target to appear; the helpers then act on it.
+    if (['click', 'type'].includes(op.operation) && op.target !== undefined && op.timeout !== undefined)
+      await waitForElement(op.target, {timeout: op.timeout});
+    switch (op.operation) {
+      case 'open': result = await openTab(request.allocationUrl ?? op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
+      case 'navigate': result = await goto(op.url, {timeout: op.timeout}); break;
+      case 'snapshot': {
+        const {observed, text} = await scanPage(true);
+        const file = await screenshot();
+        const fs = require('node:fs');
         try {
-          if ((await probe)?.dialog) throw new Error('A JavaScript dialog interrupted the wait');
-          return true;
-        } catch (error) {
-          if (/timed out/.test(error?.message ?? '')) return false;
-          throw error;
-        }
-      };
-      const deadline = Date.now() + op.timeout * 1000;
-      // Every condition is checked again on each poll, so they hold at the same moment.
-      for (;;) {
-        const element = op.target === undefined || await holds(waitForElement(op.target, {timeout: 0.25}));
-        const page = !expression || await holds(waitForFunction(expression, {timeout: 0}));
-        if (element && page) break;
-        if (Date.now() >= deadline) throw new Error('preview_wait_for timed out before every condition matched');
-        await wait(0.25);
+          const png = fs.readFileSync(file);
+          result = { observed, text, screenshot: {mimeType: 'image/png', data: png.toString('base64'),
+            width: png.readUInt32BE(16), height: png.readUInt32BE(20)} };
+        } finally { fs.unlinkSync(file); }
+        break;
       }
-      result = {};
-      break;
+      case 'click': result = op.target !== undefined
+        ? await click(op.target, {button: op.button, clickCount: op.clickCount})
+        : await click(op.x, op.y, {button: op.button, clickCount: op.clickCount}); break;
+      case 'type':
+        if (op.clear) result = await fillInput(op.target ?? 'loc=css::focus', op.text);
+        else {
+          if (op.target !== undefined) await click(op.target);
+          result = await typeText(op.text);
+        }
+        break;
+      case 'press': result = await pressKey(op.key, {modifiers: op.modifiers}); break;
+      case 'scroll': {
+        // A target scrolls whatever container sits under its centre, without clicking it.
+        const at = op.target === undefined ? {} : await waitForElement(op.target, {timeout: 5});
+        result = await scroll({dx: op.dx, dy: op.dy, x: at.x, y: at.y});
+        break;
+      }
+      case 'waitFor': {
+        // The text and URL arrive as JSON string literals inside a fixed condition: data, not code.
+        const conditions = [];
+        if (op.text !== undefined) conditions.push('(document.body ? document.body.innerText : "").includes(' + JSON.stringify(op.text) + ')');
+        if (op.urlIncludes !== undefined) conditions.push('location.href.includes(' + JSON.stringify(op.urlIncludes) + ')');
+        const expression = conditions.join(' && ');
+        // One probe: true when met, false on the helper's timeout. A dialog stops the wait.
+        const holds = async (probe) => {
+          try {
+            if ((await probe)?.dialog) throw new Error('A JavaScript dialog interrupted the wait');
+            return true;
+          } catch (error) {
+            if (/timed out/.test(error?.message ?? '')) return false;
+            throw error;
+          }
+        };
+        const deadline = Date.now() + op.timeout * 1000;
+        // Every condition is checked again on each poll, so they hold at the same moment.
+        for (;;) {
+          const element = op.target === undefined || await holds(waitForElement(op.target, {timeout: 0.25}));
+          const page = !expression || await holds(waitForFunction(expression, {timeout: 0}));
+          if (element && page) break;
+          if (Date.now() >= deadline) throw new Error('preview_wait_for timed out before every condition matched');
+          await wait(0.25);
+        }
+        result = {};
+        break;
+      }
+      case 'resize': result = {width: rendered.width, height: rendered.height}; break;
+      default: throw new Error('Unsupported Phi operation');
     }
-    case 'resize': result = {width: rendered.width, height: rendered.height}; break;
-    default: throw new Error('Unsupported Phi operation');
+  } catch (error) {
+    // The skill's own page-level refusals and timeouts. Anything else, such as a lost connection
+    // or a human takeover, keeps its own meaning.
+    if (!/timed out|target not found|not human-operable|target moved|navigation to .* failed|dialog (is open|interrupted)/.test(error?.message ?? '')) throw error;
+    cliLog(JSON.stringify({t3Phi: {result: null, context: currentContext(), failure: 'action-failed'}}));
+    return;
   }
 }
 cliLog(JSON.stringify({t3Phi: {result: result ?? null, context: currentContext()}}));
