@@ -29,10 +29,12 @@ import {
   applyLandingOutcome,
   applyWatchEnvelope,
   initialLandingWatchState,
+  landingChanges,
   landingForOperation,
   parseLandingOutcome,
   parseWatchLine,
   resolveWorkspaceLanding,
+  type LandingChange,
   type LandingOutcome,
   type LandingWatchState,
 } from "./slipJayLandingState.ts";
@@ -123,8 +125,13 @@ export class SlipJayLandings extends Context.Service<
       workspaceRoot: string,
       integration: string,
     ) => Effect.Effect<VcsStatusSlipJayLanding | undefined>;
-    /** Emits when any tracked landing, or the watch's connection, changes. */
-    readonly changes: Stream.Stream<void>;
+    /** Emits each tracked landing that changes, or every landing when the watch connects or drops. */
+    readonly changes: Stream.Stream<LandingChange>;
+    /**
+     * The repository key, as `changes` names it, of the SlipJay workspace holding `cwd`;
+     * null when it has none.
+     */
+    readonly repositoryOf: (cwd: string) => Effect.Effect<string | null>;
     /** A tracked landing's runner log, read through `slipjay runner log`. */
     readonly readLog: (
       input: VcsSlipJayLandingLogInput,
@@ -169,7 +176,7 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const scope = yield* Effect.scope;
   const state = yield* Ref.make<LandingWatchState>(initialLandingWatchState);
-  const changed = yield* PubSub.unbounded<void>();
+  const changed = yield* PubSub.unbounded<LandingChange>();
   const started = yield* Ref.make(false);
   const reconciling = yield* Ref.make(new Set<string>());
   // The landing each workspace root was seen submitting; see resolveWorkspaceLanding.
@@ -178,13 +185,8 @@ export const make = Effect.gen(function* () {
   const transition = (next: (current: LandingWatchState) => LandingWatchState) =>
     Ref.modify(state, (current) => {
       const updated = next(current);
-      return [
-        current.operations !== updated.operations || current.connected !== updated.connected,
-        updated,
-      ] as const;
-    }).pipe(
-      Effect.flatMap((published) => (published ? PubSub.publish(changed, undefined) : Effect.void)),
-    );
+      return [landingChanges(current, updated), updated] as const;
+    }).pipe(Effect.flatMap((changes) => PubSub.publishAll(changed, changes)));
 
   const readOutcome = (operationId: string) =>
     processes
@@ -315,6 +317,13 @@ export const make = Effect.gen(function* () {
       }),
     { capacity: 64, timeToLive: () => Duration.minutes(10) },
   );
+
+  const repositoryOf: SlipJayLandings["Service"]["repositoryOf"] = (cwd) =>
+    workspaceRootOf(cwd).pipe(
+      Effect.flatMap((root) =>
+        root === null ? Effect.succeed(null) : Cache.get(repositories, root),
+      ),
+    );
 
   const landingFor: SlipJayLandings["Service"]["landingFor"] = Effect.fn(
     "SlipJayLandings.landingFor",
@@ -466,6 +475,7 @@ export const make = Effect.gen(function* () {
     land,
     landingFor,
     changes: Stream.fromPubSub(changed),
+    repositoryOf,
     readLog,
   });
 });
@@ -478,6 +488,7 @@ export const layerNone = Layer.succeed(
   SlipJayLandings.of({
     landingFor: () => Effect.succeed(undefined),
     changes: Stream.empty,
+    repositoryOf: () => Effect.succeed(null),
     land: ({ cwd }) =>
       Effect.fail(
         new GitCommandError({

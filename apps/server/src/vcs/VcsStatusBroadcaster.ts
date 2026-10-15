@@ -402,20 +402,20 @@ export const make = Effect.gen(function* () {
   );
 
   // A landing moves on SlipJay's runner, not in the checkout, so a landing change
-  // refreshes every SlipJay checkout this server is showing.
+  // refreshes the SlipJay checkouts this server is showing for that repository.
   yield* landings.changes.pipe(
-    Stream.runForEach(() =>
-      Ref.get(cacheRef).pipe(
-        Effect.flatMap((cache) =>
-          Effect.forEach(
-            [...cache].flatMap(([cwd, cached]) =>
-              cached.local?.value.slipJay === undefined ? [] : [cwd],
-            ),
-            (cwd) => refreshLocalStatusCore(cwd).pipe(Effect.ignore),
-            { discard: true },
-          ),
-        ),
-      ),
+    Stream.runForEach((change) =>
+      Effect.gen(function* () {
+        for (const [cwd, cached] of yield* Ref.get(cacheRef)) {
+          if (cached.local?.value.slipJay === undefined) continue;
+          if (
+            change.repository !== null &&
+            (yield* landings.repositoryOf(cwd)) !== change.repository
+          )
+            continue;
+          yield* refreshLocalStatusCore(cwd).pipe(Effect.ignore);
+        }
+      }),
     ),
     Effect.forkIn(broadcasterScope),
   );

@@ -33,6 +33,35 @@ export const initialLandingWatchState: LandingWatchState = {
   operations: new Map(),
 };
 
+/**
+ * What a watch-state change concerns: a landing of `changeId` in `repository`, or,
+ * when the watch connected or dropped, every landing (`repository: null`).
+ */
+export type LandingChange =
+  | { readonly repository: string; readonly changeId: string }
+  | { readonly repository: null };
+
+/** The landings that differ between two watch states, one change per repository and change. */
+export function landingChanges(
+  before: LandingWatchState,
+  after: LandingWatchState,
+): ReadonlyArray<LandingChange> {
+  if (before.connected !== after.connected) return [{ repository: null }];
+  if (before.operations === after.operations) return [];
+  const changes = new Map<string, LandingChange>();
+  for (const id of new Set([...before.operations.keys(), ...after.operations.keys()])) {
+    const previous = before.operations.get(id);
+    const next = after.operations.get(id);
+    const landing = next ?? previous;
+    if (previous === next || landing === undefined) continue;
+    changes.set(`${landing.repo} ${landing.changeId}`, {
+      repository: landing.repo,
+      changeId: landing.changeId,
+    });
+  }
+  return [...changes.values()];
+}
+
 /** Terminal landings kept after they finish, so a thread can still show the result. */
 const RETAINED_TERMINAL_LANDINGS = 200;
 

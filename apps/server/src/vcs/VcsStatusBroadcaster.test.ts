@@ -1,5 +1,6 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
+import type { LandingChange } from "../project/slipJayLandingState.ts";
 import { assert, it, describe } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Cause from "effect/Cause";
@@ -14,6 +15,7 @@ import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Queue from "effect/Queue";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -1152,5 +1154,57 @@ describe("VcsStatusBroadcaster", () => {
       yield* Deferred.await(remoteInterrupted);
       assert.isTrue(Option.isSome(yield* Deferred.poll(remoteInterrupted)));
     }).pipe(Effect.provide(layerTest));
+  });
+
+  it.effect("a landing change refreshes only the SlipJay checkouts of its repository", () => {
+    const localReads: string[] = [];
+    let landingsArrived = false;
+    const refreshed = Deferred.makeUnsafe<void>();
+    const repositories: Record<string, string> = { "/a": "pechhe/a", "/b": "pechhe/b" };
+    const layerFor = (changes: Queue.Queue<LandingChange>) =>
+      VcsStatusBroadcaster.layer.pipe(
+        Layer.provide(
+          Layer.mock(SlipJayLandings.SlipJayLandings)({
+            changes: Stream.fromQueue(changes),
+            repositoryOf: (cwd) => Effect.succeed(repositories[cwd] ?? null),
+          }),
+        ),
+        Layer.provideMerge(NodeServices.layer),
+        Layer.provide(layerBackgroundPolicy(() => true)),
+        Layer.provide(
+          Layer.mock(GitWorkflowService.GitWorkflowService)({
+            localStatus: ({ cwd }) =>
+              Effect.sync(() => localReads.push(cwd)).pipe(
+                Effect.andThen(
+                  landingsArrived && cwd === "/b"
+                    ? Deferred.succeed(refreshed, undefined)
+                    : Effect.void,
+                ),
+                Effect.as({ ...baseLocalStatus, slipJay: { integration: "t3peach" } }),
+              ),
+            remoteStatus: () => Effect.succeed(baseRemoteStatus),
+            invalidateLocalStatus: () => Effect.void,
+            invalidateRemoteStatus: () => Effect.void,
+            invalidateStatus: () => Effect.void,
+          }),
+        ),
+      );
+
+    return Effect.gen(function* () {
+      const changes = yield* Queue.unbounded<LandingChange>();
+      yield* Effect.gen(function* () {
+        const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+        yield* broadcaster.getStatus({ cwd: "/a" });
+        yield* broadcaster.getStatus({ cwd: "/b" });
+        localReads.length = 0;
+        landingsArrived = true;
+        // Changes apply in order, so once /b has refreshed the other repository's change
+        // has been handled too.
+        yield* Queue.offer(changes, { repository: "pechhe/other", changeId: "x" });
+        yield* Queue.offer(changes, { repository: "pechhe/b", changeId: "y" });
+        yield* Deferred.await(refreshed);
+        assert.deepStrictEqual(localReads, ["/b"]);
+      }).pipe(Effect.provide(layerFor(changes)));
+    });
   });
 });

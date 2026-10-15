@@ -5,6 +5,7 @@ import {
   applyLandingOutcome,
   applyWatchEnvelope,
   initialLandingWatchState,
+  landingChanges,
   landingForChange,
   parseLandingOutcome,
   parseWatchLine,
@@ -176,6 +177,21 @@ describe("slipJayLandingState", () => {
     );
     expect(repeated.state).toBe(state);
     expect(repeated.vanished).toEqual([]);
+  });
+
+  it("names the repository and change a stage moved, and every landing on reconnect", () => {
+    const { state } = apply(
+      initialLandingWatchState,
+      connected(),
+      submitted(1, "op_a", "change-a"),
+    );
+    const staged = apply(state, event(2, "op_a", { type: "stage", stage: "checks" })).state;
+    expect(landingChanges(state, staged)).toEqual([
+      { repository: "pechhe/t3code", changeId: "change-a" },
+    ]);
+    expect(landingChanges(staged, apply(staged, { type: "heartbeat" }).state)).toEqual([]);
+    const dropped = apply(staged, { type: "connection", state: "disconnected", cursor: 2 }).state;
+    expect(landingChanges(staged, dropped)).toEqual([{ repository: null }]);
   });
 
   it("recovers a landing that finished beyond the replay window after a reconnect", () => {
