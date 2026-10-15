@@ -131,9 +131,15 @@ const make = Effect.gen(function* () {
     authority: Authority,
     writes: boolean,
   ) {
-    const lead = authority.workspacePath;
+    // Root-bound conversations need no allocated checkout for read-only work.
+    // Writers and isolated helpers still require the lead's explicit binding.
+    const lead =
+      authority.workspacePath ??
+      (!writes && (request.workspaceAssignment ?? "lead") === "lead"
+        ? authority.projectRoot
+        : undefined);
     const expected = request.workspacePath;
-    if (lead === null || !path.isAbsolute(expected))
+    if (lead === undefined || !path.isAbsolute(expected))
       return yield* new ManagedAgentError({ reason: "workspace" });
     if ((request.workspaceAssignment ?? "lead") === "lead") {
       if (expected !== lead) return yield* new ManagedAgentError({ reason: "workspace" });
