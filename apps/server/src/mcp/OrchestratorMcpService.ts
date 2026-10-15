@@ -2377,6 +2377,9 @@ const make = Effect.gen(function* () {
           }
           if (
             current.workState !== "result_available" ||
+            // Status may derive a terminal child result before parent publication.
+            // Orchestration creates a consultation task only after that publication.
+            !parent.subagents.some((task) => task.id === followup.taskId && task.result !== null) ||
             current.hasPendingChildRuns ||
             parent.subagents.some(
               (task) =>
@@ -2389,7 +2392,7 @@ const make = Effect.gen(function* () {
           )
             return yield* failure(
               "invalid_request",
-              "The advisor is busy or closed. Open a fresh advisor for new work.",
+              "The advisor is busy, awaiting result publication, or closed. Retry after publication; open a fresh advisor for new work.",
             );
           const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           if (Option.isNone(managed))
@@ -2400,13 +2403,19 @@ const make = Effect.gen(function* () {
             yield* assertLiveCaller(scope, owned);
             if (
               refreshed.hasPendingChildRuns ||
+              !owned.subagents.some(
+                (task) => task.id === followup.taskId && task.result !== null,
+              ) ||
               owned.subagents.some(
                 (task) =>
                   task.childThreadId === current.childThreadId &&
                   task.completionDelivery?.state === "disposed",
               )
             )
-              return yield* failure("invalid_request", "The advisor is busy or closed.");
+              return yield* failure(
+                "invalid_request",
+                "The advisor is busy, awaiting result publication, or closed.",
+              );
             const providers = yield* Effect.filter(yield* loadProviders, (provider) =>
               threadManagement.isProviderInstanceEnabledForProject({
                 projectId: parent.thread.projectId,
