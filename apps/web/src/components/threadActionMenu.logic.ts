@@ -216,17 +216,16 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
+    { id: "copy-thread-id", label: "Copy thread ID", icon: "hash", separatorBefore: true },
     {
       id: "copy",
       label: "Copy",
       icon: "copy",
-      separatorBefore: true,
       children: [
         { id: "copy-path", label: "Path", icon: "folder" },
         ...(state.branch
           ? [{ id: "copy-branch" as const, label: "Branch", icon: "git-branch" }]
           : []),
-        { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
       ],
     },
     { id: "project-settings", label: "Project settings", icon: "settings" },

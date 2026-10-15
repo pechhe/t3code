@@ -1549,6 +1549,8 @@ export interface ChatComposerHandle {
   }) => void;
   /** Insert a terminal context from the terminal drawer. */
   addTerminalContext: (selection: TerminalContextSelection) => void;
+  /** Attach threads as context, the way a sidebar drop or a pasted thread id does. */
+  attachThreadContexts: (refs: ReadonlyArray<ScopedThreadRef>) => void;
   /** Get the current prompt/effort/model state for use in send. */
   getSendContext: () => {
     answeringPendingUserInput: boolean;
@@ -6509,6 +6511,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     }
   };
 
+  const attachThreadContextsStable = useStableCallback(attachThreadContexts);
   useThreadContextDrop(composerFormRef, environmentId, attachmentTargetKey, attachThreadContexts);
 
   const onComposerMentionDragLeaveCapture = (event: React.DragEvent<HTMLFormElement>) => {
@@ -6752,6 +6755,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
             : null,
         );
       },
+      attachThreadContexts: (refs) => {
+        const targetKey = attachmentTargetKeyRef.current;
+        attachThreadContextsStable(refs, () => attachmentTargetKeyRef.current === targetKey);
+      },
       addTerminalContext: (selection: TerminalContextSelection) => {
         if (!activeThread || isChoiceOnlyPendingQuestion || isLiteralPendingAnswer) return;
         const snapshot = readComposerSnapshotStable();
@@ -6829,6 +6836,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [
       activeThread,
       addComposerAttachments,
+      attachThreadContextsStable,
       foldPastedText,
       composerDraftTarget,
       composerCursor,

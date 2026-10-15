@@ -4841,6 +4841,11 @@ export default function ChatView(props: ChatViewProps) {
     composerRef.current?.addTerminalContext(selection);
   };
   const addTerminalContextToDraftStable = useStableCallback(addTerminalContextToDraft);
+  const insertThreadIntoComposerStable = useStableCallback(() => {
+    if (!activeThreadRef) return;
+    composerRef.current?.attachThreadContexts([activeThreadRef]);
+    composerRef.current?.focusAtEnd();
+  });
   const setTerminalOpen = (open: boolean) => {
     if (!activeThreadRef) return;
     storeSetTerminalOpen(activeThreadRef, open);
@@ -11212,6 +11217,7 @@ export default function ChatView(props: ChatViewProps) {
     onToggleTerminal: toggleTerminalVisibilityStable,
     onToggleThreadPanel: toggleThreadPanelStable,
     onToggleRightPanel: toggleRightPanelStable,
+    ...(isServerThread ? { onInsertThread: insertThreadIntoComposerStable } : {}),
   } satisfies PanelLayoutControlsProps;
   const panelToggleControls = (
     <PanelLayoutControls

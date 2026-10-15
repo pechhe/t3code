@@ -68,13 +68,10 @@ export function resolveRenameCommit(input: {
   return { action: "commit", title: trimmed };
 }
 
-// How long a click on the thread title waits before opening the action menu,
-// so a double-click-to-rename can cancel it first. Only the native desktop
-// menu needs this: it swallows input while open, so the wait must cover the
-// OS double-click interval. The browser fallback menu keeps seeing DOM
-// events (the second click dismisses it and dblclick still fires), so it
-// opens immediately.
-const TITLE_MENU_OPEN_DELAY_MS = 500;
+// How long a click on the thread title waits before copying the thread id,
+// so a double-click-to-rename can cancel it first and leave the clipboard
+// alone. It covers the OS double-click interval.
+const TITLE_CLICK_COPY_DELAY_MS = 500;
 export const ChatHeader = memo(function ChatHeader({
   activeThreadEnvironmentId,
   activeThreadId,
@@ -202,70 +199,64 @@ export const ChatHeader = memo(function ChatHeader({
     },
     [activeThreadEnvironmentId, activeThreadId, activeThreadTitle, updateThreadMetadata],
   );
-  const { openMenu, closeMenu } = useThreadActionMenu({
+  const { openMenu, closeMenu, copyThreadId } = useThreadActionMenu({
     threadRef: isServerThread ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
   });
-  const titleButtonRef = useRef<HTMLButtonElement | null>(null);
-  const titleMenuTimerRef = useRef<number | null>(null);
-  const cancelPendingTitleMenu = useCallback(() => {
-    if (titleMenuTimerRef.current === null) return;
-    clearTimeout(titleMenuTimerRef.current);
-    titleMenuTimerRef.current = null;
+  const titleGroupRef = useRef<HTMLDivElement | null>(null);
+  const titleClickTimerRef = useRef<number | null>(null);
+  const cancelPendingTitleClick = useCallback(() => {
+    if (titleClickTimerRef.current === null) return;
+    clearTimeout(titleClickTimerRef.current);
+    titleClickTimerRef.current = null;
   }, []);
-  // Drop a pending menu-open when the thread changes or the header unmounts,
-  // so it can never fire for a thread the user already left.
+  // Drop a pending copy when the thread changes or the header unmounts, so it
+  // can never fire for a thread the user already left.
   useEffect(
     () => () => {
-      cancelPendingTitleMenu();
+      cancelPendingTitleClick();
     },
-    [activeThreadEnvironmentId, activeThreadId, cancelPendingTitleMenu],
+    [activeThreadEnvironmentId, activeThreadId, cancelPendingTitleClick],
   );
-  const openTitleMenuNow = useCallback(() => {
-    cancelPendingTitleMenu();
-    const rect = titleButtonRef.current?.getBoundingClientRect();
+  const openTitleMenu = useCallback(() => {
+    cancelPendingTitleClick();
+    const rect = titleGroupRef.current?.getBoundingClientRect();
     if (!rect) return;
     openMenu({ x: rect.left, y: rect.bottom + 4 });
-  }, [cancelPendingTitleMenu, openMenu]);
-  const openMenuFromTitle = useCallback(
+  }, [cancelPendingTitleClick, openMenu]);
+  const copyIdFromTitle = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
-      // The trailing click of a double-click belongs to rename, not the menu.
+      // The trailing click of a double-click belongs to rename, not the copy.
       if (isTrailingDoubleClick(event.detail)) return;
-      // Keyboard activation and the explicit chevron affordance can never be
-      // the first half of a double-click, so they open without waiting.
-      const clickedChevron =
-        (event.target as HTMLElement).closest("[data-thread-title-chevron]") !== null;
-      if (event.detail === 0 || clickedChevron || window.desktopBridge === undefined) {
-        openTitleMenuNow();
+      cancelPendingTitleClick();
+      // Keyboard activation, and a thread that cannot be renamed, have no
+      // double-click to wait for.
+      if (event.detail === 0 || !canOperateThread) {
+        copyThreadId();
         return;
       }
-      // Stay pending long enough for dblclick to cancel the open before the
-      // native menu appears and swallows the second click.
-      cancelPendingTitleMenu();
-      titleMenuTimerRef.current = window.setTimeout(() => {
-        titleMenuTimerRef.current = null;
-        openTitleMenuNow();
-      }, TITLE_MENU_OPEN_DELAY_MS);
+      titleClickTimerRef.current = window.setTimeout(() => {
+        titleClickTimerRef.current = null;
+        copyThreadId();
+      }, TITLE_CLICK_COPY_DELAY_MS);
     },
-    [cancelPendingTitleMenu, openTitleMenuNow],
+    [canOperateThread, cancelPendingTitleClick, copyThreadId],
   );
   const handleTitleDoubleClick = useCallback(
     (event: ReactMouseEvent) => {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      // The chevron is the explicit menu affordance; only the title text renames.
-      if ((event.target as HTMLElement).closest("[data-thread-title-chevron]") !== null) return;
-      cancelPendingTitleMenu();
+      cancelPendingTitleClick();
       closeMenu();
       startRename();
     },
-    [cancelPendingTitleMenu, closeMenu, startRename],
+    [cancelPendingTitleClick, closeMenu, startRename],
   );
   const handleHeaderContextMenu = useCallback(
     (event: ReactMouseEvent) => {
       if (renamingTitle !== null) return;
       if (!isServerThread && onOpenProjectSettings === undefined) return;
-      cancelPendingTitleMenu();
+      cancelPendingTitleClick();
       event.preventDefault();
       if (!isServerThread) {
         const api = readLocalApi();
@@ -282,7 +273,7 @@ export const ChatHeader = memo(function ChatHeader({
       }
       openMenu({ x: event.clientX, y: event.clientY });
     },
-    [cancelPendingTitleMenu, isServerThread, onOpenProjectSettings, openMenu, renamingTitle],
+    [cancelPendingTitleClick, isServerThread, onOpenProjectSettings, openMenu, renamingTitle],
   );
   const handleRenameKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -399,32 +390,42 @@ export const ChatHeader = memo(function ChatHeader({
               onKeyDown={handleRenameKeyDown}
             />
           ) : isServerThread ? (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <button
-                    ref={titleButtonRef}
-                    type="button"
-                    aria-label={`Thread actions for ${activeThreadTitle}`}
-                    aria-haspopup="menu"
-                    onClick={openMenuFromTitle}
-                    onDoubleClick={canOperateThread ? handleTitleDoubleClick : undefined}
-                    onBlur={cancelPendingTitleMenu}
-                    className="group/thread-title inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                  />
-                }
+            <div
+              ref={titleGroupRef}
+              className="group/thread-title flex min-w-0 max-w-full items-center gap-1"
+            >
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label={`Copy thread ID for ${activeThreadTitle}`}
+                      onClick={copyIdFromTitle}
+                      onDoubleClick={canOperateThread ? handleTitleDoubleClick : undefined}
+                      onBlur={cancelPendingTitleClick}
+                      className="inline-flex min-w-0 cursor-pointer items-center rounded-sm text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    />
+                  }
+                >
+                  <h2 className="min-w-0">
+                    <WorkspaceBreadcrumbText>{activeThreadTitle}</WorkspaceBreadcrumbText>
+                  </h2>
+                </TooltipTrigger>
+                <TooltipPopup side="top">
+                  {activeThreadTitle}
+                  <span className="block text-muted-foreground">Click to copy thread ID</span>
+                </TooltipPopup>
+              </Tooltip>
+              <button
+                type="button"
+                aria-label="Thread actions"
+                aria-haspopup="menu"
+                onClick={openTitleMenu}
+                className="inline-flex shrink-0 cursor-pointer items-center rounded-sm p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover/thread-title:opacity-100"
               >
-                <h2 className="min-w-0">
-                  <WorkspaceBreadcrumbText>{activeThreadTitle}</WorkspaceBreadcrumbText>
-                </h2>
-                <ChevronDownIcon
-                  aria-hidden
-                  data-thread-title-chevron
-                  className="size-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/thread-title:opacity-100 group-focus-visible/thread-title:opacity-100"
-                />
-              </TooltipTrigger>
-              <TooltipPopup side="top">{activeThreadTitle}</TooltipPopup>
-            </Tooltip>
+                <ChevronDownIcon aria-hidden className="size-3.5" />
+              </button>
+            </div>
           ) : (
             <Tooltip>
               <TooltipTrigger

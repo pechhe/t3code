@@ -373,5 +373,10 @@ export function useThreadActionMenu(input: {
     void readLocalApi()?.contextMenu.close();
   }, []);
 
-  return { openMenu, closeMenu };
+  const copyThreadId = useCallback(() => {
+    if (threadRef === null) return;
+    copyThreadIdToClipboard(threadRef.threadId, { threadId: threadRef.threadId });
+  }, [copyThreadIdToClipboard, threadRef]);
+
+  return { openMenu, closeMenu, copyThreadId };
 }

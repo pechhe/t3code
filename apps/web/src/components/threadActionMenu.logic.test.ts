@@ -84,6 +84,7 @@ describe("buildThreadActionMenuItems", () => {
     expect(denied.filter((item) => !item.disabled).map((item) => item.id)).toEqual([
       "new-thread-on-branch",
       "mark-unread",
+      "copy-thread-id",
       "copy",
       "project-settings",
     ]);
@@ -103,7 +104,22 @@ describe("buildThreadActionMenuItems", () => {
           titleRegeneration: false,
         },
       }),
-    ).toEqual(["rename", "mark-unread", "copy", "project-settings", "archive", "delete"]);
+    ).toEqual([
+      "rename",
+      "mark-unread",
+      "copy-thread-id",
+      "copy",
+      "project-settings",
+      "archive",
+      "delete",
+    ]);
+  });
+
+  it("copies the thread id from the top level, not the Copy submenu", () => {
+    const items = buildThreadActionMenuItems({ ...baseState, branch: "main" });
+    expect(items.map((item) => item.id)).toContain("copy-thread-id");
+    const copy = items.find((item) => item.id === "copy");
+    expect(copy?.children?.map((item) => item.id)).toEqual(["copy-path", "copy-branch"]);
   });
 
   it("groups project settings with utility actions before archive", () => {
