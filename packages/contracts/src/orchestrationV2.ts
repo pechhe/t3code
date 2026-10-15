@@ -3315,6 +3315,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   searchThreadStream: "orchestration.searchThreadStream",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   getThreadProjection: "orchestration.getThreadProjection",
+  getRolloverThresholds: "orchestration.getRolloverThresholds",
   getWorkflowScript: "orchestration.getWorkflowScript",
   stopWorkflow: "orchestration.stopWorkflow",
   getTurnItem: "orchestration.getTurnItem",
@@ -3803,6 +3804,31 @@ export class OrchestrationV2SearchThreadError extends Schema.TaggedError<Orchest
   }
 }
 
+export const OrchestrationV2GetRolloverThresholdsInput = Schema.Struct({
+  threadId: ThreadId,
+  /** The model the thread's next run uses. */
+  model: TrimmedNonEmptyString,
+  /** The provider's reported context window, when known; thresholds stay below it. */
+  maxTokens: Schema.NullOr(PositiveInt),
+});
+export type OrchestrationV2GetRolloverThresholdsInput =
+  typeof OrchestrationV2GetRolloverThresholdsInput.Type;
+
+/** Context sizes at which the thread is asked for a handoff; null when it does not roll over. */
+export const OrchestrationV2RolloverThresholds = Schema.NullOr(
+  Schema.Struct({ soft: PositiveInt, hard: PositiveInt }),
+);
+export type OrchestrationV2RolloverThresholds = typeof OrchestrationV2RolloverThresholds.Type;
+
+export class OrchestrationV2GetRolloverThresholdsError extends Schema.TaggedError<OrchestrationV2GetRolloverThresholdsError>()(
+  "OrchestrationV2GetRolloverThresholdsError",
+  { cause: Schema.Defect() },
+) {
+  override get message(): string {
+    return "Could not read this thread's rollover thresholds.";
+  }
+}
+
 export const OrchestrationV2RpcSchemas = {
   searchThread: {
     input: OrchestrationV2SearchThreadInput,
@@ -3827,6 +3853,10 @@ export const OrchestrationV2RpcSchemas = {
   getThreadProjection: {
     input: OrchestrationV2GetThreadProjectionInput,
     output: OrchestrationV2ThreadProjection,
+  },
+  getRolloverThresholds: {
+    input: OrchestrationV2GetRolloverThresholdsInput,
+    output: OrchestrationV2RolloverThresholds,
   },
   stopWorkflow: {
     input: OrchestrationV2StopWorkflowInput,

@@ -65,6 +65,11 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
         idleTtlMs: 0,
       }),
     },
+    // Keyed by model and context window, so a thread refetches as either changes.
+    rolloverThresholds: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:orchestration:rollover-thresholds",
+      tag: ORCHESTRATION_V2_WS_METHODS.getRolloverThresholds,
+    }),
     turnDiff: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-diff",
       tag: ORCHESTRATION_V2_WS_METHODS.getTurnDiff,

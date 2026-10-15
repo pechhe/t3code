@@ -277,7 +277,7 @@ import {
   type EnvironmentQueryTarget,
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
-import { useDebouncedValue } from "~/state/queries";
+import { useDebouncedValue, useRolloverThresholds } from "~/state/queries";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import {
@@ -2522,6 +2522,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isMobileViewport = useMediaQuery("max-sm");
   // Desktop-width composers render as the machined device; phones keep the compact composer.
   const deviceComposer = !isMobileViewport;
+  const rolloverModel = activeThreadModelSelection?.model ?? null;
+  const rolloverThresholds = useRolloverThresholds(
+    deviceComposer && routeKind === "server" && rolloverModel !== null
+      ? {
+          environmentId: routeThreadRef.environmentId,
+          threadId: routeThreadRef.threadId,
+          model: rolloverModel,
+          maxTokens: activeContextWindow?.maxTokens ?? null,
+        }
+      : null,
+  ).data;
   const reasoningDialRef = useRef<DeviceReasoningDialHandle>(null);
   const [sendPressKey, setSendPressKey] = useState(0);
   const {
@@ -7906,6 +7917,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               {deviceComposer && !isComposerApprovalState ? (
                 <DeviceContextBar
                   usage={activeContextWindow}
+                  rollover={rolloverThresholds ?? null}
                   modelDisplayName={activeThreadModelDisplayName}
                   compactDisabled={
                     compactDisabled || noProviderAvailable || isSendBusy || isConnecting

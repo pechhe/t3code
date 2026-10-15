@@ -393,6 +393,24 @@
   inset: -4px -5px;
 }
 
+/* Rollover: a dashed line where a handoff is asked for at the next break, a solid one where it is asked for now. */
+.device-context__rollover {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 0;
+  transform: translateX(-50%);
+  border-left: 2px dashed color-mix(in oklch, var(--cream-ink) 70%, transparent);
+}
+.device-context__rollover--hard {
+  border-left: 2px solid var(--color-error);
+}
+.device-context__rollover::before {
+  content: "";
+  position: absolute;
+  inset: -4px -5px -4px -7px;
+}
+
 .device-context__label {
   display: inline-flex;
   align-items: center;
