@@ -202,7 +202,7 @@ import {
   useOpenChangeRequestLink,
 } from "~/lib/openPullRequestLink";
 import { useOpenLink } from "../browser/useOpenLink";
-import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { useCopyToClipboard, writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isPreviewAvailableFor } from "../browser/previewRuntime";
 import {
   isBrowserPreviewFile,
@@ -1325,6 +1325,28 @@ const CHAT_MARKDOWN_WORKSPACE_IMAGE_CLASS_NAME = cn(
   CHAT_MARKDOWN_MEDIA_FRAME_CLASS_NAME,
 );
 const MarkdownLinkContext = React.createContext(false);
+
+/** Inline code copies its text on click; a text selection is left alone. */
+function CopyableInlineCode({
+  text,
+  children,
+  ...props
+}: React.ComponentProps<"code"> & { text: string }) {
+  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "code", timeout: 1200 });
+  return (
+    <code
+      {...props}
+      title={isCopied ? "Copied" : "Click to copy"}
+      className={cn(props.className, "cursor-pointer", isCopied && "opacity-60")}
+      onClick={() => {
+        if (window.getSelection()?.toString()) return;
+        copyToClipboard(text);
+      }}
+    >
+      {children}
+    </code>
+  );
+}
 
 function expandableMarkdownImageProps(
   onImageExpand: ((preview: ExpandedImagePreview) => void) | undefined,
@@ -3216,6 +3238,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
     const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip } = use(
       ChatMarkdownRendererContext,
     );
+    const insideLink = use(MarkdownLinkContext);
     if (node?.properties?.dataInlineCode != null) {
       const codeText = nodeToPlainText(children);
       const fileLinkMeta =
@@ -3228,6 +3251,13 @@ const CHAT_MARKDOWN_COMPONENTS = {
           inlineCodeFilePathCandidate(codeText) ?? codeText.trim(),
         );
       }
+    }
+    if (node?.properties?.dataInlineCode != null && !insideLink) {
+      return (
+        <CopyableInlineCode {...props} className={className} text={nodeToPlainText(children)}>
+          {children}
+        </CopyableInlineCode>
+      );
     }
     return (
       <code {...props} className={className}>
