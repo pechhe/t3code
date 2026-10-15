@@ -5,6 +5,7 @@ import * as Layer from "effect/Layer";
 import {
   GitManagerError,
   GitCommandError,
+  SlipJayCommandError,
   type VcsSwitchRefInput,
   type VcsSwitchRefResult,
   type VcsCreateRefInput,
@@ -83,10 +84,10 @@ export class GitWorkflowService extends Context.Service<
     /** A SlipJay landing's runner log, for the operation a workspace's status names. */
     readonly landSlipJay: (
       input: VcsSlipJayLandInput,
-    ) => Effect.Effect<VcsSlipJayLandResult, GitCommandError>;
+    ) => Effect.Effect<VcsSlipJayLandResult, SlipJayCommandError>;
     readonly readSlipJayLandingLog: (
       input: VcsSlipJayLandingLogInput,
-    ) => Effect.Effect<VcsSlipJayLandingLogResult, GitCommandError>;
+    ) => Effect.Effect<VcsSlipJayLandingLogResult, SlipJayCommandError>;
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;

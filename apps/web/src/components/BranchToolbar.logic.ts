@@ -141,7 +141,7 @@ export function isSlipJayLandRefusal(error: unknown): boolean {
     typeof error === "object" &&
     error !== null &&
     "_tag" in error &&
-    (error._tag === "GitCommandError" || error._tag === "EnvironmentAuthorizationError")
+    (error._tag === "SlipJayCommandError" || error._tag === "EnvironmentAuthorizationError")
   );
 }
 

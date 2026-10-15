@@ -297,3 +297,67 @@ describe("SlipJayLandings.readLog", () => {
     }),
   );
 });
+
+describe("SlipJay failures", () => {
+  const removed = "/nonexistent/.slipjay/workspaces/t3-51";
+  const spawnFailure = new ProcessRunner.ProcessSpawnError({
+    command: "slipjay",
+    argumentCount: 1,
+    cause: new Error("spawn slipjay ENOENT"),
+  });
+  const failingHost = (logExit: Land) =>
+    Layer.effect(SlipJayLandings, make).pipe(
+      Layer.provide(
+        Layer.succeed(ProcessRunner.ProcessRunner, {
+          run: (input) => {
+            if (input.args[0] === "landed")
+              return Effect.succeed(
+                output({
+                  stdout: JSON.stringify({ artifactCommitId: "abc1234", operationId: "op_landed" }),
+                  stderr: "",
+                  code: 0,
+                }),
+              );
+            if (input.args[0] === "runner") return Effect.succeed(output(logExit));
+            if (input.args[0] === "land") return Effect.fail(spawnFailure);
+            return Effect.die(`unexpected ${input.command} ${input.args.join(" ")}`);
+          },
+        }),
+      ),
+      Layer.provide(
+        Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+          detect: ({ cwd }) =>
+            Effect.succeed(
+              cwd === removed ? null : ({ repository: { kind: "jj", rootPath: ROOT } } as never),
+            ),
+        }),
+      ),
+      Layer.provide(NodeServices.layer),
+    );
+
+  it.effect("a failed runner log read says so without SlipJay's output", () =>
+    Effect.gen(function* () {
+      const stderr =
+        "error: GET https://runner.internal/v1/operations/op_landed/log?token=secret 500";
+      const error = yield* Effect.flatMap(SlipJayLandings, (landings) =>
+        landings.readLog({ cwd: removed, operationId: "op_landed" }),
+      ).pipe(Effect.flip, Effect.provide(failingHost({ stdout: "", stderr, code: 2 })));
+
+      assert.strictEqual(error._tag, "SlipJayCommandError");
+      assert.strictEqual(error.exitCode, 2);
+      assert.include(error.message, "SlipJay could not read the landing log.");
+      assert.notInclude(JSON.stringify(error), "runner.internal");
+    }),
+  );
+
+  it.effect("a land that cannot be spawned keeps the spawn failure as its cause", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flatMap(SlipJayLandings, (landings) =>
+        landings.land({ cwd: ROOT }),
+      ).pipe(Effect.flip, Effect.provide(failingHost({ stdout: "", stderr: "", code: 0 })));
+
+      assert.strictEqual(error.message, "SlipJay could not be run to land this workspace.");
+      assert.strictEqual(error.cause, spawnFailure);
+    }),
+  );
+});

@@ -16,7 +16,7 @@ import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import {
-  GitCommandError,
+  SlipJayCommandError,
   type VcsSlipJayLandInput,
   type VcsSlipJayLandResult,
   type VcsSlipJayLandingLogInput,
@@ -154,7 +154,7 @@ export class SlipJayLandings extends Context.Service<
     /** A tracked landing's runner log, read through `slipjay runner log`. */
     readonly readLog: (
       input: VcsSlipJayLandingLogInput,
-    ) => Effect.Effect<VcsSlipJayLandingLogResult, GitCommandError>;
+    ) => Effect.Effect<VcsSlipJayLandingLogResult, SlipJayCommandError>;
     /**
      * Runs `slipjay land` in a workspace, as an agent would, and resolves with its
      * verdict. The landing outlives the request: an interrupted caller stops waiting,
@@ -162,7 +162,7 @@ export class SlipJayLandings extends Context.Service<
      */
     readonly land: (
       input: VcsSlipJayLandInput,
-    ) => Effect.Effect<VcsSlipJayLandResult, GitCommandError>;
+    ) => Effect.Effect<VcsSlipJayLandResult, SlipJayCommandError>;
   }
 >()("t3/project/SlipJayLandings") {}
 
@@ -425,13 +425,16 @@ export const make = Effect.gen(function* () {
 
   const readLog: SlipJayLandings["Service"]["readLog"] = Effect.fn("SlipJayLandings.readLog")(
     function* ({ cwd, operationId }) {
-      const failure = (detail: string, exitCode?: number) =>
-        new GitCommandError({
+      const failure = (
+        detail: string,
+        extra: { readonly exitCode?: number; readonly cause?: unknown } = {},
+      ) =>
+        new SlipJayCommandError({
           operation: "SlipJayLandings.readLog",
           command: "slipjay runner log",
           cwd,
           detail,
-          ...(exitCode === undefined ? {} : { exitCode }),
+          ...extra,
         });
       // Only the landing the strip shows: one this host tracks for the checkout's
       // repository, or a removed workspace's own. A client cannot read arbitrary runner
@@ -453,11 +456,16 @@ export const make = Effect.gen(function* () {
           maxOutputBytes: LANDING_LOG_MAX_BYTES,
           outputMode: "truncate",
         })
-        .pipe(Effect.mapError(() => failure("SlipJay could not be run to read the landing log.")));
+        .pipe(
+          Effect.mapError((cause) =>
+            failure("SlipJay could not be run to read the landing log.", { cause }),
+          ),
+        );
+      // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
       if (output.code !== 0)
         return yield* failure(
-          output.stderr.trim() || "SlipJay could not read the landing log.",
-          output.code ?? undefined,
+          "SlipJay could not read the landing log. Run `slipjay runner log` on the server for details.",
+          output.code === null ? {} : { exitCode: output.code },
         );
       return { log: output.stdout, truncated: output.stdoutTruncated };
     },
@@ -476,12 +484,13 @@ export const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.mapError(
-          () =>
-            new GitCommandError({
+          (cause) =>
+            new SlipJayCommandError({
               operation: "SlipJayLandings.land",
               command: "slipjay land",
               cwd,
               detail: "SlipJay could not be run to land this workspace.",
+              cause,
             }),
         ),
         Effect.flatMap((output) => {
@@ -497,13 +506,13 @@ export const make = Effect.gen(function* () {
       );
 
   const lands = yield* Ref.make(
-    new Map<string, Deferred.Deferred<VcsSlipJayLandResult, GitCommandError>>(),
+    new Map<string, Deferred.Deferred<VcsSlipJayLandResult, SlipJayCommandError>>(),
   );
   const land: SlipJayLandings["Service"]["land"] = Effect.fn("SlipJayLandings.land")(function* ({
     cwd,
   }) {
     const refuse = (detail: string) =>
-      new GitCommandError({
+      new SlipJayCommandError({
         operation: "SlipJayLandings.land",
         command: "slipjay land",
         cwd,
@@ -517,7 +526,7 @@ export const make = Effect.gen(function* () {
     // registration that no landing will ever settle.
     const landing = yield* Effect.uninterruptible(
       Effect.gen(function* () {
-        const started = yield* Deferred.make<VcsSlipJayLandResult, GitCommandError>();
+        const started = yield* Deferred.make<VcsSlipJayLandResult, SlipJayCommandError>();
         const running = yield* Ref.modify(lands, (current) => {
           const existing = current.get(root);
           return existing === undefined
@@ -564,7 +573,7 @@ export const layerNone = Layer.succeed(
     repositoryOf: () => Effect.succeed(null),
     land: ({ cwd }) =>
       Effect.fail(
-        new GitCommandError({
+        new SlipJayCommandError({
           operation: "SlipJayLandings.land",
           command: "slipjay land",
           cwd,
@@ -573,7 +582,7 @@ export const layerNone = Layer.succeed(
       ),
     readLog: ({ cwd }) =>
       Effect.fail(
-        new GitCommandError({
+        new SlipJayCommandError({
           operation: "SlipJayLandings.readLog",
           command: "slipjay runner log",
           cwd,

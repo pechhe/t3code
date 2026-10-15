@@ -140,6 +140,7 @@ import {
   VcsSwitchRefInput,
   VcsSwitchRefResult,
   GitCommandError,
+  SlipJayCommandError,
   VcsCreateRefInput,
   VcsCreateRefResult,
   VcsCreateWorktreeInput,
@@ -1497,13 +1498,13 @@ const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
 const WsVcsSlipJayLandRpc = Rpc.make(WS_METHODS.vcsSlipJayLand, {
   payload: VcsSlipJayLandInput,
   success: VcsSlipJayLandResult,
-  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+  error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
 });
 
 const WsVcsSlipJayLandingLogRpc = Rpc.make(WS_METHODS.vcsSlipJayLandingLog, {
   payload: VcsSlipJayLandingLogInput,
   success: VcsSlipJayLandingLogResult,
-  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+  error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
 });
 
 const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {

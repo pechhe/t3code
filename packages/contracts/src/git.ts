@@ -485,6 +485,26 @@ export class GitCommandError extends Schema.TaggedError<GitCommandError>()("GitC
   }
 }
 
+/**
+ * A SlipJay command refused or failed. `detail` is a fixed sentence the client can show;
+ * SlipJay's own output never goes in it, and a failure underneath stays in `cause`.
+ */
+export class SlipJayCommandError extends Schema.TaggedError<SlipJayCommandError>()(
+  "SlipJayCommandError",
+  {
+    operation: Schema.String,
+    command: Schema.String,
+    cwd: Schema.String,
+    exitCode: Schema.optional(Schema.Number),
+    detail: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export class TextGenerationError extends Schema.TaggedError<TextGenerationError>()(
   "TextGenerationError",
   {

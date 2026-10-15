@@ -5,9 +5,7 @@ import {
   type VcsStatusSlipJayLanding,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import {
-  resolveSlipJayCheckoutStatus,
-} from "@t3tools/client-runtime/slipjay-checkout";
+import { resolveSlipJayCheckoutStatus } from "@t3tools/client-runtime/slipjay-checkout";
 import {
   dedupeRemoteBranchesWithLocalMatches,
   deriveLocalBranchNameFromRemoteRef,
@@ -91,7 +89,9 @@ describe("SlipJay composer strip", () => {
   });
 
   it("tells a refused land from a lost connection to a running one", () => {
-    expect(isSlipJayLandRefusal({ _tag: "GitCommandError", detail: "not a workspace" })).toBe(true);
+    expect(isSlipJayLandRefusal({ _tag: "SlipJayCommandError", detail: "not a workspace" })).toBe(
+      true,
+    );
     expect(isSlipJayLandRefusal({ _tag: "EnvironmentAuthorizationError" })).toBe(true);
     expect(isSlipJayLandRefusal({ _tag: "EnvironmentRpcUnavailableError" })).toBe(false);
     expect(isSlipJayLandRefusal(new Error("socket closed"))).toBe(false);
