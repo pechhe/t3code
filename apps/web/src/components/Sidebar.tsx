@@ -3904,16 +3904,22 @@ export default function Sidebar() {
   ]);
   const handleThreadDragOver = useCallback(
     (event: DragOverEvent) => {
-      const target = event.over
-        ? resolveSidebarDropTarget(sidebarListItems, String(event.active.id), String(event.over.id))
-        : null;
+      // Working rows have no lifecycle drop; they only drag out as context.
+      const target =
+        event.over && sectionByThreadKey.get(String(event.active.id)) !== "working"
+          ? resolveSidebarDropTarget(
+              sidebarListItems,
+              String(event.active.id),
+              String(event.over.id),
+            )
+          : null;
       setDragState((current) =>
         current === null || current.activeKey !== String(event.active.id)
           ? current
           : { ...current, targetSection: target?.section ?? null },
       );
     },
-    [sidebarListItems],
+    [sectionByThreadKey, sidebarListItems],
   );
   const sortableIds = useMemo(() => sidebarListItems.map(sidebarListItemId), [sidebarListItems]);
   const draggedSettledOrder = useMemo(() => {
@@ -4045,7 +4051,13 @@ export default function Sidebar() {
           ? null
           : resolveSidebarDropTarget(sidebarListItems, activeKey, String(event.over.id));
       const activeThread = threadByKey.get(activeKey);
-      if (activeSection === undefined || target === null || activeThread === undefined) return;
+      if (
+        activeSection === undefined ||
+        activeSection === "working" ||
+        target === null ||
+        activeThread === undefined
+      )
+        return;
       const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
       const plan = planSidebarThreadDrop({
         activeKey,
@@ -5366,7 +5378,6 @@ export default function Sidebar() {
                             environmentId={thread.environmentId}
                             disabled={
                               renamingThreadKey === threadKey ||
-                              section === "working" ||
                               !draggableThreadKeys.has(threadKey) ||
                               optimisticDrop !== null
                             }

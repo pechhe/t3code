@@ -102,7 +102,7 @@ export class Declaration<out Handler> {
 /** A client approved for read-only access changes nothing. */
 const refuseReadOnlyClient = McpInvocationContext.McpInvocationContext.pipe(
   Effect.flatMap((scope) =>
-    scope.client?.access === "read-only"
+    scope.client !== undefined && McpInvocationContext.isReadOnlyClient(scope.client)
       ? Effect.fail(
           new OrchestratorMcpFailure({
             code: "capability_denied",
@@ -365,8 +365,46 @@ export class HandlersLayer<Tools extends Record<string, Tool.Any>, EX = never, R
   }
 }
 
+/**
+ * The only tools a linked environment may call: it reads threads and learns
+ * the peer's identity and version, nothing else. Every other tool refuses it
+ * before running, so a tool added later is closed to peers until listed here.
+ */
+export const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
+  "t3_thread_list",
+  "t3_thread_search",
+  "t3_thread_read",
+  "t3_environment_read",
+]);
+
+const refusePeerClient = McpInvocationContext.McpInvocationContext.pipe(
+  Effect.flatMap((scope) =>
+    scope.client?.access === "peer-threads"
+      ? Effect.fail(
+          new OrchestratorMcpFailure({
+            code: "capability_denied",
+            message: "A linked environment may only read threads.",
+          }),
+        )
+      : Effect.void,
+  ),
+);
+
 const checkedHandlers = <Handlers>(declarations: Declarations<Handlers>): Handlers =>
-  Struct.map(declarations, checkedHandler);
+  Object.fromEntries(
+    Object.entries(declarations as Record<string, Declaration<(params: never) => unknown>>).map(
+      ([name, declaration]) => {
+        const handle = checkedHandler(declaration);
+        return [
+          name,
+          PEER_THREAD_TOOLS.has(name)
+            ? handle
+            : (params: never) =>
+                refusePeerClient.pipe(Effect.andThen(handle(params) as Effect.Effect<unknown>)),
+        ];
+      },
+    ),
+  ) as Handlers;
 
 /** `Toolkit.toLayer` for handlers that all declare their access. */
 export const toLayer = <Tools extends Record<string, Tool.Any>, EX = never, RX = never>(

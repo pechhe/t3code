@@ -14,6 +14,7 @@ import {
   type AuthCreatePairingCredentialInput,
   type AuthEnvironmentScope,
   type AuthMcpClientAccess,
+  type McpClientAccess,
   type AuthPairingLink,
   type AuthPairingCredentialResult,
   type AuthSessionId,
@@ -33,6 +34,8 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Clock from "effect/Clock";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 
@@ -85,6 +88,16 @@ export interface IssuedBearerSession {
 const MCP_CLIENT_SUBJECT = "mcp-client";
 const MCP_CLIENT_SESSION_TTL = Duration.days(30);
 
+/**
+ * Another T3 environment linked to this one. Its session reads threads over
+ * `/mcp` and nothing else; the tool allowlist lives in `McpToolAccess`.
+ */
+const MCP_PEER_SUBJECT = "peer-environment";
+const PEER_SESSION_TTL = Duration.days(30);
+/** A linked environment's use is recorded at most this often; one tool call is several requests. */
+const PEER_USE_RECORD_INTERVAL = Duration.minutes(1);
+const PEER_SESSION_SCOPES: ReadonlyArray<AuthEnvironmentScope> = [AuthOrchestrationReadScope];
+
 export const mcpClientScopes = (
   access: AuthMcpClientAccess,
 ): ReadonlyArray<AuthEnvironmentScope> =>
@@ -102,7 +115,7 @@ export const mcpClientScopes = (
 export interface McpClientSession {
   readonly sessionId: AuthSessionId;
   readonly label: string;
-  readonly access: AuthMcpClientAccess;
+  readonly access: McpClientAccess;
 }
 
 export interface AuthenticatedSession {
@@ -571,6 +584,30 @@ export class EnvironmentAuth extends Context.Service<
       ServerAuthInternalError
     >;
     /**
+     * Spends a one-time pairing code for a linked peer's session. The code
+     * must hold the read scope; proof-bound codes (T3 Connect) are refused
+     * without being spent, and desktop bootstrap grants never qualify.
+     */
+    readonly linkPeer: (input: {
+      readonly code: string;
+      readonly label: string;
+      readonly client: AuthClientMetadata;
+    }) => Effect.Effect<
+      { readonly token: string; readonly expiresAt: DateTime.Utc },
+      ServerAuthCredentialError | ServerAuthInvalidRequestError | ServerAuthInternalError
+    >;
+    /** Replaces a peer's session with a fresh one; the old token stops working. */
+    readonly renewPeer: (
+      request: HttpServerRequest.HttpServerRequest,
+    ) => Effect.Effect<
+      { readonly token: string; readonly expiresAt: DateTime.Utc },
+      ServerAuthCredentialError | ServerAuthInternalError
+    >;
+    /** Ends the peer's own session, as its side of unlinking. */
+    readonly unlinkPeer: (
+      request: HttpServerRequest.HttpServerRequest,
+    ) => Effect.Effect<boolean, ServerAuthCredentialError | ServerAuthInternalError>;
+    /**
      * Spends a one-time pairing code as approval for an MCP client with the
      * given access; the code must hold every scope that access grants.
      * Proof-bound codes (T3 Connect) are refused without being spent, and
@@ -623,7 +660,7 @@ export function toBootstrapExchangeError(
 }
 
 const rejectMcpClientAudience = <S extends { readonly subject: string }>(session: S) =>
-  session.subject === MCP_CLIENT_SUBJECT
+  session.subject === MCP_CLIENT_SUBJECT || session.subject === MCP_PEER_SUBJECT
     ? Effect.fail(
         new ServerAuthInvalidCredentialError({
           diagnostic: "MCP client sessions are only accepted by the MCP endpoint.",
@@ -739,6 +776,7 @@ export const make = Effect.gen(function* () {
   const descriptor = yield* policy.getDescriptor();
   const config = yield* ServerConfig.ServerConfig;
   const devAuth = resolveReusableDevAuth(config);
+  const peerUseRecordedAt = yield* Ref.make(new Map<AuthSessionId, number>());
 
   const authenticateToken = (
     token: string,
@@ -1271,29 +1309,56 @@ export const make = Effect.gen(function* () {
       return yield* authenticateRequest(request);
     });
 
-  const authenticateMcpClient: EnvironmentAuth["Service"]["authenticateMcpClient"] = (request) => {
-    const token = parseBearerToken(request);
-    if (token === null) return Effect.fail(new ServerAuthMissingCredentialError({}));
-    return sessions.verify(token).pipe(
-      mapSessionVerificationErrors,
-      Effect.flatMap((session) =>
-        session.subject === MCP_CLIENT_SUBJECT && session.method === "bearer-access-token"
-          ? Effect.succeed({
-              sessionId: session.sessionId,
-              label: session.client.label ?? "MCP client",
-              access: session.scopes.includes(AuthOrchestrationOperateScope)
-                ? (session.runtimeModeCeiling ?? "approval-required")
-                : "read-only",
-            } satisfies McpClientSession)
-          : Effect.fail(
-              new ServerAuthInvalidCredentialError({
-                diagnostic: "Only MCP client sessions are accepted here.",
-              }),
-            ),
+  const recordPeerUse = (sessionId: AuthSessionId) =>
+    Clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) =>
+        Ref.modify(peerUseRecordedAt, (current) => {
+          const last = current.get(sessionId);
+          if (last !== undefined && now - last < Duration.toMillis(PEER_USE_RECORD_INTERVAL)) {
+            return [false, current] as const;
+          }
+          return [true, new Map(current).set(sessionId, now)] as const;
+        }),
       ),
-      Effect.withSpan("EnvironmentAuth.authenticateMcpClient"),
+      Effect.flatMap((record) =>
+        record
+          ? sessions
+              .markConnected(sessionId)
+              .pipe(Effect.andThen(sessions.markDisconnected(sessionId)))
+          : Effect.void,
+      ),
     );
-  };
+
+  const authenticateMcpClient: EnvironmentAuth["Service"]["authenticateMcpClient"] = Effect.fn(
+    "EnvironmentAuth.authenticateMcpClient",
+  )(function* (request) {
+    const token = parseBearerToken(request);
+    if (token === null) return yield* new ServerAuthMissingCredentialError({});
+    const session = yield* sessions.verify(token).pipe(mapSessionVerificationErrors);
+    if (session.method === "bearer-access-token") {
+      if (session.subject === MCP_PEER_SUBJECT) {
+        // Shown with the session in this environment's connections list, as its last connection.
+        yield* recordPeerUse(session.sessionId);
+        return {
+          sessionId: session.sessionId,
+          label: session.client.label ?? "Linked environment",
+          access: "peer-threads",
+        } satisfies McpClientSession;
+      }
+      if (session.subject === MCP_CLIENT_SUBJECT) {
+        return {
+          sessionId: session.sessionId,
+          label: session.client.label ?? "MCP client",
+          access: session.scopes.includes(AuthOrchestrationOperateScope)
+            ? (session.runtimeModeCeiling ?? "approval-required")
+            : "read-only",
+        } satisfies McpClientSession;
+      }
+    }
+    return yield* new ServerAuthInvalidCredentialError({
+      diagnostic: "Only MCP client sessions are accepted here.",
+    });
+  });
 
   const issueMcpClientSession: EnvironmentAuth["Service"]["issueMcpClientSession"] = (input) =>
     sessions
@@ -1326,6 +1391,86 @@ export const make = Effect.gen(function* () {
       Effect.withSpan("EnvironmentAuth.authenticateBrowserSession"),
     );
   };
+
+  const issuePeerSession = (input: {
+    readonly client: AuthClientMetadata;
+    readonly replaceSessionId?: AuthSessionId;
+  }) =>
+    sessions
+      .issue({
+        subject: MCP_PEER_SUBJECT,
+        method: "bearer-access-token",
+        scopes: PEER_SESSION_SCOPES,
+        ttl: PEER_SESSION_TTL,
+        ...(input.replaceSessionId
+          ? { replaceSessionId: input.replaceSessionId, requireReplaced: true }
+          : {}),
+        client: { ...input.client, deviceType: "bot" },
+      })
+      .pipe(
+        Effect.map((issued) => ({
+          token: issued.token,
+          expiresAt: DateTime.toUtc(issued.expiresAt),
+        })),
+        Effect.mapError((cause) => new ServerAuthSessionTokenIssueError({ cause })),
+      );
+
+  const linkPeer: EnvironmentAuth["Service"]["linkPeer"] = Effect.fn("EnvironmentAuth.linkPeer")(
+    function* (input) {
+      // No proof key: a code bound to a T3 Connect client's key fails without being spent.
+      const grant = yield* resolveBootstrapGrant(input.code.trim());
+      if (
+        (grant.method !== "one-time-token" && grant.method !== "reusable-dev-token") ||
+        !PEER_SESSION_SCOPES.every((scope) => grant.scopes.includes(scope))
+      ) {
+        return yield* new ServerAuthScopeNotGrantedError({});
+      }
+      return yield* issuePeerSession({ client: { ...input.client, label: input.label } });
+    },
+  );
+
+  const renewPeer: EnvironmentAuth["Service"]["renewPeer"] = Effect.fn("EnvironmentAuth.renewPeer")(
+    function* (request) {
+      const token = parseBearerToken(request);
+      if (token === null) return yield* new ServerAuthMissingCredentialError({});
+      const session = yield* sessions.verify(token).pipe(mapSessionVerificationErrors);
+      if (session.subject !== MCP_PEER_SUBJECT || session.method !== "bearer-access-token") {
+        return yield* new ServerAuthInvalidCredentialError({
+          diagnostic: "Only a linked environment's session can be renewed here.",
+        });
+      }
+      // The old session is replaced in the same transaction, so a renewed link
+      // is never left with two live tokens, and a revocation that landed after the
+      // check above leaves nothing to renew.
+      return yield* issuePeerSession({
+        client: session.client,
+        replaceSessionId: session.sessionId,
+      }).pipe(
+        Effect.catch((issueFailure) =>
+          // Revoked or renewed by someone else meanwhile: the caller's credential is simply dead.
+          sessions
+            .verify(token)
+            .pipe(mapSessionVerificationErrors, Effect.andThen(Effect.fail(issueFailure))),
+        ),
+      );
+    },
+  );
+
+  const unlinkPeer: EnvironmentAuth["Service"]["unlinkPeer"] = Effect.fn(
+    "EnvironmentAuth.unlinkPeer",
+  )(function* (request) {
+    const token = parseBearerToken(request);
+    if (token === null) return yield* new ServerAuthMissingCredentialError({});
+    const session = yield* sessions.verify(token).pipe(mapSessionVerificationErrors);
+    if (session.subject !== MCP_PEER_SUBJECT || session.method !== "bearer-access-token") {
+      return yield* new ServerAuthInvalidCredentialError({
+        diagnostic: "Only a linked environment's session can be unlinked here.",
+      });
+    }
+    return yield* sessions
+      .revoke(session.sessionId)
+      .pipe(Effect.mapError((cause) => new ServerAuthSessionRevocationError({ cause })));
+  });
 
   const consumeMcpApprovalCode: EnvironmentAuth["Service"]["consumeMcpApprovalCode"] = (
     code,
@@ -1373,6 +1518,9 @@ export const make = Effect.gen(function* () {
     issueStartupPairingUrl,
     authenticateMcpClient,
     issueMcpClientSession,
+    linkPeer,
+    renewPeer,
+    unlinkPeer,
     consumeMcpApprovalCode,
     authenticateBrowserSession,
   });

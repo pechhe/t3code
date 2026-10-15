@@ -1,5 +1,6 @@
 import {
   type CommandId,
+  type EnvironmentId,
   type RuntimeRequestId,
   ThreadId,
   type OrchestrationV2ThreadProjection,
@@ -19,6 +20,8 @@ import {
   unavailable,
 } from "../../threadAccess.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
+import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
+import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as ScheduledTasks from "../../../scheduledTasks/ScheduledTaskService.ts";
 import { queuedRunsInDeliveryOrder } from "../../../orchestration-v2/QueuedRunOrder.ts";
 import { ThreadToolkit } from "./tools.ts";
@@ -99,19 +102,29 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   ),
   t3_thread_search: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
-      const { caller } = yield* readCaller();
-      const { projectId: requested, ...query } = input;
-      // Like the other project tools, an omitted project means the caller's own; a client
-      // outside a thread searches every project.
-      const projectId = requested ?? caller?.projectId;
-      const threadSearch = yield* ThreadSearch.ThreadSearch;
-      const result = yield* threadSearch.search(query).pipe(Effect.mapError(unavailable));
-      return {
-        matches:
-          projectId === undefined
-            ? result.matches
-            : result.matches.filter((match) => match.projectId === projectId),
-      };
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const directory = yield* ThreadDirectory.ThreadDirectory;
+      return yield* directory.searchAcross({
+        query: input,
+        localId: scope.environmentId,
+        fromPeer: scope.client?.access === "peer-threads",
+        local: Effect.gen(function* () {
+          const { caller } = yield* readCaller();
+          const { projectId: requested, environmentId: _environmentId, ...query } = input;
+          // Like the other project tools, an omitted project means the caller's own; a client
+          // outside a thread searches every project.
+          const projectId = requested ?? caller?.projectId;
+          const threadSearch = yield* ThreadSearch.ThreadSearch;
+          const result = yield* threadSearch.search(query).pipe(Effect.mapError(unavailable));
+          return {
+            environmentId: scope.environmentId,
+            matches: (projectId === undefined
+              ? result.matches
+              : result.matches.filter((match) => match.projectId === projectId)
+            ).map((match) => ({ ...match, environmentId: scope.environmentId })),
+          };
+        }),
+      });
     }),
   ),
   t3_thread_fork: writesThread((input) =>

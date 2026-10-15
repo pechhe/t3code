@@ -385,6 +385,8 @@ export class SessionStore extends Context.Service<
       readonly replaceActiveForSubjectAndMethod?: boolean;
       /** Replace only this session, of the same method, in the issuance transaction. */
       readonly replaceSessionId?: AuthSessionId;
+      /** With `replaceSessionId`: fail rather than issue when that session is no longer active. */
+      readonly requireReplaced?: boolean;
     }) => Effect.Effect<IssuedSession, SessionCredentialInternalError>;
     readonly verify: (token: string) => Effect.Effect<VerifiedSession, SessionCredentialError>;
     readonly issueWebSocketToken: (
@@ -721,9 +723,16 @@ export const make = Effect.gen(function* () {
               ...(input.replaceSessionId !== undefined
                 ? { replaceSessionId: input.replaceSessionId }
                 : {}),
+              ...(input.requireReplaced ? { requireReplaced: true } : {}),
             })
           : authSessions.create(sessionRecord).pipe(Effect.as([] as ReadonlyArray<AuthSessionId>))
       ).pipe(Effect.mapError((cause) => new SessionCredentialIssueError({ sessionId, cause })));
+      if (input?.requireReplaced && replacedSessionIds.length === 0) {
+        return yield* new SessionCredentialIssueError({
+          sessionId,
+          cause: new Error("The session to replace is no longer active."),
+        });
+      }
       if (replacedSessionIds.length > 0) {
         yield* Ref.update(connectedSessionsRef, (current) => {
           const next = new Map(current);

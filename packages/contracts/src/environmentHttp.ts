@@ -11,6 +11,9 @@ import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
 import {
   AuthAccessTokenResult,
+  AuthPeerLinkRequest,
+  AuthPeerSessionResult,
+  AuthPeerUnlinkResult,
   AuthBrowserSessionRequest,
   AuthBrowserSessionResult,
   AuthClientSession,
@@ -478,6 +481,27 @@ class EnvironmentAuthHttpApi extends HttpApiGroup.make("auth")
       headers: OptionalDpopProofHeaders,
       payload: AuthTokenExchangeRequest,
       success: AuthAccessTokenResult,
+      error: EnvironmentTokenExchangeErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("peerLink", "/api/auth/peer/link", {
+      payload: AuthPeerLinkRequest,
+      success: AuthPeerSessionResult,
+      error: EnvironmentTokenExchangeErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("peerRenew", "/api/auth/peer/renew", {
+      headers: OptionalBearerHeaders,
+      success: AuthPeerSessionResult,
+      error: EnvironmentTokenExchangeErrors,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("peerUnlink", "/api/auth/peer/unlink", {
+      headers: OptionalBearerHeaders,
+      success: AuthPeerUnlinkResult,
       error: EnvironmentTokenExchangeErrors,
     }),
   )

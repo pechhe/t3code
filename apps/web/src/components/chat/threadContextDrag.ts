@@ -1,5 +1,8 @@
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 import { type RefObject, useEffect, useEffectEvent, useSyncExternalStore } from "react";
+
+import { readThreadShells } from "../../state/entities";
 
 /**
  * Dragging a sidebar thread past the list edge turns the sort gesture into a context drop.
@@ -105,4 +108,26 @@ export function dropThreadContext(
 
 export function threadContextDropTargetProps() {
   return { [DROP_TARGET_ATTRIBUTE]: "true" } as const;
+}
+
+/**
+ * Threads named by pasted text that is nothing but thread ids (what "Copy thread ID" puts on the
+ * clipboard). Null when any token is not a known thread, so ordinary text pastes untouched. An
+ * id known to several environments resolves to `preferredEnvironmentId` when it is one of them.
+ */
+export function resolvePastedThreadIds(
+  text: string,
+  preferredEnvironmentId: EnvironmentId,
+): ScopedThreadRef[] | null {
+  const ids = text.trim().split(/\s+/);
+  if (ids.length === 0 || ids.length > 20 || ids[0] === "") return null;
+  const shells = readThreadShells();
+  const refs: ScopedThreadRef[] = [];
+  for (const id of ids) {
+    const matches = shells.filter((shell) => shell.id === id);
+    const match = matches.find((m) => m.environmentId === preferredEnvironmentId) ?? matches[0];
+    if (!match) return null;
+    refs.push(scopeThreadRef(match.environmentId, match.id));
+  }
+  return refs;
 }

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { formatThreadLink, parseThreadLinkHref, relabelThreadLinks } from "./threadLinks.ts";
+import {
+  formatThreadLink,
+  parseThreadLink,
+  parseThreadLinkHref,
+  relabelThreadLinks,
+} from "./threadLinks.ts";
 
 describe("thread links", () => {
   it("takes the thread id verbatim, percent escapes included", () => {
@@ -14,6 +19,36 @@ describe("thread links", () => {
     expect(parseThreadLinkHref("https://t3.codes")).toBeNull();
     expect(parseThreadLinkHref("t3-thread://v1/")).toBeNull();
     expect(parseThreadLinkHref("t3-thread://v1/ ")).toBeNull();
+  });
+
+  it("reads the environment qualifier and still names the thread without it", () => {
+    expect(parseThreadLink("t3-thread://v1/t1?environment=env-vps")).toEqual({
+      threadId: "t1",
+      environmentId: "env-vps",
+    });
+    expect(parseThreadLink("t3-thread://v1/t1")).toEqual({ threadId: "t1", environmentId: null });
+    // An older client's view of a qualified link: the id alone.
+    expect(parseThreadLinkHref("t3-thread://v1/t1?environment=env-vps")).toBe("t1");
+    // Unrelated parameters are ignored; an unusable qualifier is not silently local.
+    expect(parseThreadLink("t3-thread://v1/t1?x=1")).toEqual({
+      threadId: "t1",
+      environmentId: null,
+    });
+    expect(parseThreadLink("t3-thread://v1/t1?environment=")).toBeNull();
+  });
+
+  it("formats a qualified link that parses back to the same thread and environment", () => {
+    const link = formatThreadLink("t1", "Fix [login]", "env:vps/1" as never);
+    expect(link).toBe("[Fix login](t3-thread://v1/t1?environment=env%3Avps%2F1)");
+    const href = /\((.+)\)/.exec(link)![1]!;
+    expect(parseThreadLink(href)).toEqual({ threadId: "t1", environmentId: "env:vps/1" });
+    expect(formatThreadLink("t1", "Plain")).toBe("[Plain](t3-thread://v1/t1)");
+  });
+
+  it("leaves a qualified link's label alone when relabeling, since titles are one environment's", () => {
+    expect(relabelThreadLinks("[Kept](t3-thread://v1/t1?environment=env-vps)", () => "New")).toBe(
+      "[Kept](t3-thread://v1/t1?environment=env-vps)",
+    );
   });
 
   it("resolves a percent-encoded id when the id as written names no thread", () => {

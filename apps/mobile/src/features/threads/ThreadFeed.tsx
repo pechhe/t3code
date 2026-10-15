@@ -31,7 +31,7 @@ import {
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
+import { parseThreadLink } from "@t3tools/shared/threadLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
 import {
   parseComposerContextHref,
@@ -1824,13 +1824,16 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const userBubbleColor = theme["--color-user-bubble"];
   const onMarkdownLinkPress = useCallback(
     (href: string, imageEmbed = false) => {
-      // A thread link names a thread in this feed's environment.
-      const linkedThreadId = parseThreadLinkHref(href);
-      if (linkedThreadId) {
-        navigation.navigate("Thread", {
-          environmentId: String(props.environmentId),
-          threadId: String(linkedThreadId),
-        });
+      // A thread link names a thread in this feed's environment. One qualified with another
+      // environment shows its label here but is not opened.
+      const threadLink = parseThreadLink(href);
+      if (threadLink) {
+        if (threadLink.environmentId === null || threadLink.environmentId === props.environmentId) {
+          navigation.navigate("Thread", {
+            environmentId: String(props.environmentId),
+            threadId: String(threadLink.threadId),
+          });
+        }
         return;
       }
       const media = resolveMarkdownMediaPreview(href, {

@@ -189,6 +189,18 @@ URL from the source environment, downloads the bytes, and attaches them here. Th
 server-side clone; if the source is unreachable or the attachment is gone, a toast says so and
 the chip stays unresolved.
 
+## Thread records
+
+A `thread` record carries the thread's `environmentId` as well as its `threadId`, because an
+agent can read threads on environments linked to its own. The composer allows a ref from another
+environment only when that environment is in the composer environment's `peers.list`; otherwise
+it refuses. The record's `contextId` folds in the environment, so two environments that reuse an
+id never share a chip. The provider projection always names both fields and tells the agent to
+pass them to `t3_thread_read` as written. That is exact for a local thread too, since the tool
+treats its own environment's id as local, and it keeps the projection independent of which
+environment projects it. Do not give the agent a prefixed form such as `thread_<uuid>`: the tools
+accept only the bare id (upstream pingdotgg/t3code#19639).
+
 ## Ids, persistence, and the stash
 
 Producers keep their own id grammars; `toComposerContextId` folds anything outside

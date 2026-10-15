@@ -316,6 +316,27 @@ export const AuthAccessTokenResult = Schema.Struct({
 });
 export type AuthAccessTokenResult = typeof AuthAccessTokenResult.Type;
 
+/**
+ * A one-time pairing code that another environment trades for a session which
+ * can read threads over `/mcp` and nothing else.
+ */
+export const AuthPeerLinkRequest = Schema.Struct({
+  code: TrimmedNonEmptyString,
+  /** What this environment's connections list calls the peer. */
+  label: TrimmedNonEmptyString,
+});
+export type AuthPeerLinkRequest = typeof AuthPeerLinkRequest.Type;
+
+/** The peer's bearer token. Presenting it to `peer/renew` replaces it with a fresh one. */
+export const AuthPeerSessionResult = Schema.Struct({
+  token: TrimmedNonEmptyString,
+  expiresAt: Schema.DateTimeUtc,
+});
+export type AuthPeerSessionResult = typeof AuthPeerSessionResult.Type;
+
+export const AuthPeerUnlinkResult = Schema.Struct({ revoked: Schema.Boolean });
+export type AuthPeerUnlinkResult = typeof AuthPeerUnlinkResult.Type;
+
 export const AuthWebSocketTicketResult = Schema.Struct({
   ticket: TrimmedNonEmptyString,
   expiresAt: Schema.DateTimeUtc,
@@ -480,6 +501,13 @@ export const AuthMcpClientAccess = Schema.Literals([
   "full-access",
 ]);
 export type AuthMcpClientAccess = typeof AuthMcpClientAccess.Type;
+
+/**
+ * What an `/mcp` caller outside a thread may do: what an OAuth agent was
+ * approved for, or a linked environment's thread reads. A peer is never
+ * offered through OAuth, so the approval schemas keep `AuthMcpClientAccess`.
+ */
+export type McpClientAccess = AuthMcpClientAccess | "peer-threads";
 
 /** RFC 9728 metadata for an environment's `/mcp` resource. */
 export const AuthMcpProtectedResourceMetadata = Schema.Struct({

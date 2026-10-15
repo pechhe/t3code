@@ -545,6 +545,26 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
       }).pipe(Effect.provide(Layer.mergeAll(layerSessionStore(), SqlitePersistence.layerMemory))),
   );
 
+  it.effect("issues no replacement for a session revoked before renewal, so revocation holds", () =>
+    Effect.gen(function* () {
+      const sessions = yield* SessionStore.SessionStore;
+      const previous = yield* sessions.issue({ subject: "peer", method: "bearer-access-token" });
+      yield* sessions.revoke(previous.sessionId);
+
+      const error = yield* sessions
+        .issue({
+          subject: "peer",
+          method: "bearer-access-token",
+          replaceSessionId: previous.sessionId,
+          requireReplaced: true,
+        })
+        .pipe(Effect.flip);
+
+      expect(error._tag).toBe("SessionCredentialIssueError");
+      expect(yield* sessions.listActive()).toEqual([]);
+    }).pipe(Effect.provide(Layer.mergeAll(layerSessionStore(), SqlitePersistence.layerMemory))),
+  );
+
   it.effect("rejects websocket tokens once the parent session has expired", () =>
     Effect.gen(function* () {
       const sessions = yield* SessionStore.SessionStore;

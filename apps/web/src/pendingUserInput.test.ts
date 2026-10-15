@@ -26,19 +26,30 @@ describe("projectPendingUserInputAnswer", () => {
 
   it("sends thread chips as readable links with the actual thread ID", () => {
     const answer = `Compare ${formatInlineContextReference(threadContextReference(record))}`;
-    expect(projectPendingUserInputAnswer(answer, [record])).toBe(
+    expect(projectPendingUserInputAnswer(answer, [record], EnvironmentId.make("env-answer"))).toBe(
       "Compare [Reference work](t3-thread://v1/reference-thread)",
     );
   });
 
+  it("qualifies a thread from another environment so it does not resolve locally", () => {
+    const answer = `Compare ${formatInlineContextReference(threadContextReference(record))}`;
+    expect(projectPendingUserInputAnswer(answer, [record], EnvironmentId.make("env-other"))).toBe(
+      "Compare [Reference work](t3-thread://v1/reference-thread?environment=env-answer)",
+    );
+  });
+
   it("leaves plain answers unchanged when the draft has unreferenced thread records", () => {
-    expect(projectPendingUserInputAnswer("Plain answer", [record])).toBe("Plain answer");
+    expect(projectPendingUserInputAnswer("Plain answer", [record], record.environmentId)).toBe(
+      "Plain answer",
+    );
   });
 
   it("preserves option values and exact answer text", () => {
     const options = [" first\t", "second"];
-    expect(projectPendingUserInputAnswer(options, [record])).toBe(options);
-    expect(projectPendingUserInputAnswer("  Edited answer\n", [record])).toBe("  Edited answer\n");
+    expect(projectPendingUserInputAnswer(options, [record], record.environmentId)).toBe(options);
+    expect(projectPendingUserInputAnswer("  Edited answer\n", [record], record.environmentId)).toBe(
+      "  Edited answer\n",
+    );
   });
 });
 

@@ -59,6 +59,11 @@ export const CreateReplacingActiveAuthSessionInput = Schema.Struct({
   session: CreateAuthSessionInput,
   revokedAt: Schema.DateTimeUtcFromString,
   replaceSessionId: Schema.optionalKey(AuthSessionId),
+  /**
+   * With `replaceSessionId`: store nothing unless that session was still active and is now
+   * revoked, so a replacement cannot outlive a revocation that landed first.
+   */
+  requireReplaced: Schema.optionalKey(Schema.Boolean),
 });
 export type CreateReplacingActiveAuthSessionInput =
   typeof CreateReplacingActiveAuthSessionInput.Type;
@@ -389,9 +394,11 @@ export const make = Effect.gen(function* () {
       .withTransaction(
         revokeActiveSessionsForReplacement(input).pipe(
           Effect.flatMap((revokedRows) =>
-            createSessionRow(input.session).pipe(
-              Effect.as(revokedRows.map((row) => row.sessionId)),
-            ),
+            input.requireReplaced === true && revokedRows.length === 0
+              ? Effect.succeed([])
+              : createSessionRow(input.session).pipe(
+                  Effect.as(revokedRows.map((row) => row.sessionId)),
+                ),
           ),
         ),
       )

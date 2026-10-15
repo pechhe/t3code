@@ -104,6 +104,7 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsCoreRpcGroup,
+  WsPeersRpcGroup,
   WsPullRequestRpcGroup,
   WsRpcGroup,
 } from "@t3tools/contracts";
@@ -127,6 +128,7 @@ import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManag
 import * as ThreadLaunchService from "./orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
@@ -557,6 +559,7 @@ const PROVIDER_STATUS_DEBOUNCE_MS = 200;
 const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPullRequestRpcGroup = WsPullRequestRpcGroup.middleware(RpcInstrumentation);
+const ServerWsPeersRpcGroup = WsPeersRpcGroup.middleware(RpcInstrumentation);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -3086,6 +3089,20 @@ const layerWsRpc = (
     }),
   );
 
+const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const peers = yield* PeerEnvironments.PeerEnvironments;
+    return ServerWsPeersRpcGroup.of({
+      [WS_METHODS.peersList]: (input) => (input.probe === false ? peers.stored : peers.list),
+      [WS_METHODS.peersUpdate]: (input) =>
+        (input._tag === "link"
+          ? peers.link({ code: input.code, routes: input.routes })
+          : peers.unlink({ environmentId: input.environmentId })
+        ).pipe(Effect.andThen(peers.list)),
+    });
+  }),
+);
+
 const layerWsPullRequestRpc = ServerWsPullRequestRpcGroup.toLayer(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -3257,7 +3274,7 @@ export const layer = Layer.unwrap(
           return httpEffect;
         }).pipe(
           Effect.provide(
-            Layer.merge(
+            Layer.mergeAll(
               layerWsRpc(
                 session,
                 clientOrigin,
@@ -3266,6 +3283,7 @@ export const layer = Layer.unwrap(
                 serverBrowser,
               ),
               layerWsPullRequestRpc,
+              layerWsPeersRpc,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

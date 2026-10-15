@@ -1,5 +1,5 @@
 import {
-  type AuthMcpClientAccess,
+  type McpClientAccess,
   type EnvironmentId,
   McpCapabilityUnavailableError,
   OrchestratorMcpFailure,
@@ -32,7 +32,7 @@ export interface McpClientCaller {
   readonly sessionId: string;
   readonly label: string;
   /** Read only, or the most the threads it starts or changes may run with. */
-  readonly access: AuthMcpClientAccess;
+  readonly access: McpClientAccess;
 }
 
 /**
@@ -41,7 +41,13 @@ export interface McpClientCaller {
  * lowest mode rather than to nothing.
  */
 export const clientRuntimeModeCeiling = (client: McpClientCaller | undefined): RuntimeMode =>
-  client === undefined || client.access === "read-only" ? "approval-required" : client.access;
+  client === undefined || client.access === "read-only" || client.access === "peer-threads"
+    ? "approval-required"
+    : client.access;
+
+/** A client that changes nothing: an agent approved for read-only access, or a linked environment. */
+export const isReadOnlyClient = (client: McpClientCaller) =>
+  client.access === "read-only" || client.access === "peer-threads";
 
 /**
  * Who is calling and what they may do. Tool parameters choose the target

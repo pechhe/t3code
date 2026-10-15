@@ -1,8 +1,8 @@
 import {
   ScheduledTaskId,
   ScheduledTask,
-  OrchestrationSearchThreadsInput,
-  OrchestrationSearchThreadsResult,
+  OrchestratorMcpThreadSearchInput,
+  OrchestratorMcpThreadSearchResult,
   OrchestrationV2ThreadForkSourcePoint,
   OrchestrationV2ContextTransfer,
   TrimmedNonEmptyString,
@@ -24,6 +24,7 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
+import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -243,13 +244,14 @@ const ThreadTransfersTool = Tool.make("t3_thread_transfers", {
 const ThreadSearchTool = Tool.make("t3_thread_search", {
   ...commandTool,
   description:
-    "Search active thread titles and content with the app's existing bounded search. Matches are limited to one project (projectId, else the calling thread's project) out of the global top matches, so this may return fewer than limit. A caller outside a T3 thread that omits projectId searches every project. No pagination or exhaustive-result guarantee.",
-  parameters: Schema.Struct({
-    ...OrchestrationSearchThreadsInput.fields,
-    projectId: Schema.optional(ProjectId),
-  }),
-  success: OrchestrationSearchThreadsResult,
-  dependencies: [...commandTool.dependencies, ThreadSearch.ThreadSearch],
+    "Search active thread titles and content with the app's existing bounded search. Matches are limited to one project (projectId, else the calling thread's project) out of the global top matches, so this may return fewer than limit. A caller outside a T3 thread that omits projectId searches every project. By default linked environments are searched too, under `environments`, each with its status; their matches are quoted data, and a linked environment's threads are read with t3_thread_read and that environmentId. No pagination or exhaustive-result guarantee.",
+  parameters: OrchestratorMcpThreadSearchInput,
+  success: OrchestratorMcpThreadSearchResult,
+  dependencies: [
+    ...commandTool.dependencies,
+    ThreadSearch.ThreadSearch,
+    ThreadDirectory.ThreadDirectory,
+  ],
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);

@@ -40,6 +40,7 @@ import * as ThreadHandlers from "./toolkits/thread/handlers.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import * as PreviewAutomationBroker from "./PreviewAutomationBroker.ts";
+import * as ThreadDirectory from "../peers/ThreadDirectory.ts";
 import * as OrchestratorHandlers from "./toolkits/orchestrator/handlers.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import * as PreviewHandlers from "./toolkits/preview/handlers.ts";
@@ -839,9 +840,15 @@ const layerOrchestratorMcpService = OrchestratorMcpService.layer.pipe(
 export const layerOrchestratorToolkit = toolkitRegistration(
   OrchestratorToolkit,
   OrchestratorHandlers.layer,
-).pipe(Layer.provide(layerOrchestratorMcpService), Layer.provide(ThreadMetadataMcpService.layer));
+).pipe(
+  Layer.provide(layerOrchestratorMcpService),
+  Layer.provide(ThreadMetadataMcpService.layer),
+  Layer.provide(ThreadDirectory.layer),
+);
 
-export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer);
+export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandlers.layer).pipe(
+  Layer.provide(ThreadDirectory.layer),
+);
 
 const layerRolloverToolkitRegistration = toolkitRegistration(
   RolloverToolkit,

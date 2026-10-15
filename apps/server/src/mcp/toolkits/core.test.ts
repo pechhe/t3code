@@ -40,6 +40,7 @@ import * as ThreadLaunchService from "../../orchestration-v2/ThreadLaunchService
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadSearch from "../../orchestration-v2/ThreadSearch.ts";
+import * as PeerEnvironments from "../../peers/PeerEnvironments.ts";
 import * as PreviewBrowser from "../../preview/PreviewBrowser.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
@@ -626,6 +627,87 @@ it.effect("a read-only client reads threads and is refused every write before it
 const dispatched: Array<string> = [];
 
 it.effect(
+  "a linked environment searches threads and is refused every other tool before it runs",
+  () =>
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const call = (name: string, args: Record<string, unknown>) =>
+        server
+          .callTool({ name, arguments: args })
+          .pipe(
+            Effect.provideService(
+              McpInvocationContext.McpInvocationContext,
+              clientScope("peer-threads"),
+            ),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+
+      const searched = yield* call("t3_thread_search", { query: "rollover" });
+      expect(searched.isError).toBe(false);
+      expect(searched.structuredContent).toEqual({
+        environmentId: "mcp-core-environment",
+        matches: [],
+        environments: [],
+      });
+
+      // Reads that are not listed for peers are refused as well as writes.
+      const configuration = yield* call("t3_thread_configuration", {
+        threadId: "other-project-thread",
+      });
+      expect(declaredFailure(configuration)).toMatchObject({ code: "capability_denied" });
+      const pinned = yield* call("t3_thread_organize", {
+        action: "pin",
+        threadId: "other-project-thread",
+      });
+      expect(declaredFailure(pinned)).toMatchObject({ code: "capability_denied" });
+      expect(dispatched).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        McpHttpServer.layerThreadToolkit.pipe(
+          Layer.provide(
+            Layer.mock(ThreadSearch.ThreadSearch)({
+              search: () => Effect.succeed({ matches: [] } as never),
+            }),
+          ),
+          Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+          Layer.provideMerge(McpServer.McpServer.layer),
+          Layer.provide(
+            Layer.merge(
+              NodeCrypto.layer,
+              Layer.mock(Experiments.ExperimentService)({
+                assignForTask: () => Effect.succeed([]),
+                assignments: () => Effect.succeed([]),
+              }),
+            ),
+          ),
+          Layer.provide(
+            Layer.mock(ThreadManagement.ThreadManagementService)({
+              getThreadShell: (id) =>
+                Effect.succeed(McpToolAccessTestkit.liveThreadShell(id, { runtimeMode: "auto" })),
+              getProjectThreadRecords: () =>
+                Effect.succeed({
+                  thread: {
+                    id: ThreadId.make("other-project-thread"),
+                    projectId: "other-project",
+                    runtimeMode: "auto",
+                    interactionMode: "default",
+                    deletedAt: null,
+                  },
+                } as never),
+              dispatch: () =>
+                Effect.sync(() => {
+                  dispatched.push("dispatch");
+                  return { sequence: 7 } as never;
+                }),
+            }),
+          ),
+        ),
+      ),
+    ),
+);
+
+
+it.effect(
   "routes a client caller's delegation to external work, unavailable when unconfigured",
   () =>
     Effect.gen(function* () {
@@ -985,4 +1067,183 @@ it.effect("only the caller that prepared a pending upload can discard it", () =>
       ),
     ),
   ),
+);
+
+const peerCalls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+const peerEnvironmentId = EnvironmentId.make("peer-environment");
+const goneEnvironmentId = EnvironmentId.make("gone-environment");
+
+const peerThreadItem = {
+  threadId: "peer-thread",
+  environmentId: "claimed-by-the-peer",
+  projectId: "peer-project",
+  title: "Peer work",
+  createdBy: "user",
+  creationSource: "web",
+  status: "idle",
+  latestRunId: null,
+  providerInstanceId: "codex",
+  model: "gpt-5",
+  runtimeMode: "auto",
+  interactionMode: "default",
+  linkedPullRequest: null,
+  settled: false,
+  settledAt: null,
+  snoozed: false,
+  snoozedUntil: null,
+  parentThreadId: null,
+  relationshipToParent: null,
+  itemCount: 1,
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+/** Two linked environments: one answers, one is gone. Every call it receives is recorded. */
+const layerLinkedPeers = (calls: Array<{ name: string; arguments: Record<string, unknown> }>) =>
+  Layer.mock(PeerEnvironments.PeerEnvironments)({
+    linked: Effect.succeed([
+      { environmentId: peerEnvironmentId, label: "Mac" },
+      { environmentId: goneEnvironmentId, label: "Laptop" },
+    ]),
+    callTool: (input) =>
+      Effect.sync(() => calls.push({ name: input.name, arguments: input.arguments })).pipe(
+        Effect.andThen(
+          input.environmentId === goneEnvironmentId
+            ? Effect.fail(
+                new PeerEnvironments.PeerCallError({
+                  environmentId: goneEnvironmentId,
+                  status: "offline",
+                }),
+              )
+            : Effect.succeed({
+                isError: false,
+                text: "",
+                structuredContent:
+                  input.name === "t3_thread_list"
+                    ? {
+                        projectId: null,
+                        currentThreadId: null,
+                        threads: [peerThreadItem],
+                        nextCursor: null,
+                        total: 1,
+                      }
+                    : input.name === "t3_thread_search"
+                      ? { matches: [] }
+                      : { thread: { title: "Peer work" } },
+              }),
+        ),
+      ),
+  });
+
+it.effect(
+  "lists every linked environment, best effort, and keeps a peer's threads out of the top level",
+  () =>
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const result = yield* server
+        .callTool({ name: "t3_thread_list", arguments: { limit: 50 } })
+        .pipe(
+          Effect.provideService(
+            McpInvocationContext.McpInvocationContext,
+            clientScope("read-only"),
+          ),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      expect(result.isError).toBe(false);
+      const content = result.structuredContent as {
+        environmentId: string;
+        threads: ReadonlyArray<unknown>;
+        environments: ReadonlyArray<{
+          environmentId: string;
+          status: string;
+          page: { threads: ReadonlyArray<{ environmentId: string }> } | null;
+        }>;
+      };
+      expect(content.environmentId).toBe("mcp-core-environment");
+      expect(content.threads).toEqual([]);
+      expect(content.environments).toMatchObject([
+        { environmentId: peerEnvironmentId, status: "ok", notice: expect.any(String) },
+        { environmentId: goneEnvironmentId, status: "offline", page: null },
+      ]);
+      // The peer's own claim about where its threads are is replaced by the ID that reached it.
+      expect(content.environments[0]?.page?.threads[0]?.environmentId).toBe(peerEnvironmentId);
+      // Asked of every peer with a capped page, and without this environment's project IDs.
+      expect(peerCalls.map((call) => call.arguments)).toEqual([
+        { limit: 20, environmentId: peerEnvironmentId },
+        { limit: 20, environmentId: goneEnvironmentId },
+      ]);
+
+      // One linked environment asked for: its page is the top level, with its cursor.
+      peerCalls.length = 0;
+      const single = yield* server
+        .callTool({
+          name: "t3_thread_list",
+          arguments: { environmentId: peerEnvironmentId, cursor: 5, projectId: "peer-project" },
+        })
+        .pipe(
+          Effect.provideService(
+            McpInvocationContext.McpInvocationContext,
+            clientScope("read-only"),
+          ),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      expect(single.structuredContent).toMatchObject({
+        environmentId: peerEnvironmentId,
+        total: 1,
+        // The page stands in the top level; its status and quoted-data notice ride beside it.
+        environments: [{ environmentId: peerEnvironmentId, status: "ok", page: null }],
+      });
+      expect(single.structuredContent).toMatchObject({
+        environments: [{ notice: expect.stringContaining("quoted data") }],
+      });
+      expect(peerCalls.map((call) => call.arguments)).toEqual([
+        {
+          projectId: "peer-project",
+          cursor: 5,
+          limit: 20,
+          environmentId: peerEnvironmentId,
+        },
+      ]);
+
+      // A linked environment's own agent sees only this one, so reads never chain.
+      peerCalls.length = 0;
+      const fromPeer = yield* server
+        .callTool({ name: "t3_thread_list", arguments: {} })
+        .pipe(
+          Effect.provideService(
+            McpInvocationContext.McpInvocationContext,
+            clientScope("peer-threads"),
+          ),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      expect(fromPeer.structuredContent).toMatchObject({ environments: [] });
+      expect(peerCalls).toEqual([]);
+    }).pipe(
+      Effect.provide(
+        layerOrchestratorToolkit.pipe(
+          Layer.provideMerge(McpServer.McpServer.layer),
+          Layer.provide(
+            Layer.merge(
+              NodeCrypto.layer,
+              Layer.mock(Experiments.ExperimentService)({
+                assignForTask: () => Effect.succeed([]),
+                assignments: () => Effect.succeed([]),
+              }),
+            ),
+          ),
+          Layer.provide(Layer.mock(ThreadManagement.ThreadManagementService)({})),
+          Layer.provide(ServerSettings.layerTest()),
+          Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
+          Layer.provide(Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({})),
+          Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+          Layer.provide(
+            Layer.mock(ProjectService.ProjectService)({
+              snapshot: Effect.succeed({ projects: [] } as never),
+            }),
+          ),
+          Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+          Layer.provide(layerLinkedPeers(peerCalls)),
+        ),
+      ),
+    ),
 );

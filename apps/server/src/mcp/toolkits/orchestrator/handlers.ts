@@ -1,4 +1,4 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { type EnvironmentId, OrchestratorMcpFailure } from "@t3tools/contracts";
 import { OrchestratorToolkit } from "./tools.ts";
 import * as Effect from "effect/Effect";
 
@@ -7,6 +7,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
+import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 
 const handlers = {
   agent_task_outcome: McpToolAccess.writes((input) =>
@@ -127,7 +128,13 @@ const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.listThreads(scope, input);
+      const directory = yield* ThreadDirectory.ThreadDirectory;
+      return yield* directory.listAcross({
+        query: input,
+        localId: scope.environmentId,
+        fromPeer: scope.client?.access === "peer-threads",
+        local: service.listThreads(scope, input),
+      });
     }),
   ),
   // Reading a child's finished result also acknowledges its delivery to the
@@ -137,7 +144,15 @@ const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.readThread(scope, input);
+      const directory = yield* ThreadDirectory.ThreadDirectory;
+      const { environmentId, ...local } = input;
+      return yield* directory.readAcross({
+        environmentId,
+        localId: scope.environmentId,
+        fromPeer: scope.client?.access === "peer-threads",
+        arguments: local,
+        local: service.readThread(scope, local),
+      });
     }),
   ),
   t3_thread_update: McpToolAccess.writesThreads(

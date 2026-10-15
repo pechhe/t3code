@@ -11,7 +11,9 @@ not introduce another execution model. See
 An environment keeps its ID across server restarts and endpoint changes. Saved
 connections are local to a client profile; the server's identity and state are
 not. A repository identity can correlate clones across environments, but never
-routes work between them. A project and its threads belong to one environment.
+routes work between them. A project and its threads belong to one environment;
+linked environments may read each other's threads, so a thread is identified by
+`(environmentId, threadId)`.
 The canonical key follows the `upstream` remote when one exists, so pull request
 features target the repository a fork tracks. A fork also reports its own
 `origin`, and clients group and label by that, so a fork never collapses into a
@@ -54,6 +56,24 @@ learned route still has to answer as this environment before it is used.
 
 GitHub routing trust covers the whole route list. Adding or changing a route
 revokes it; reordering does not, because the same addresses remain trusted.
+
+## Linked environments
+
+A client never routes work between environments, but two servers can read each
+other's threads once linked. The link is made between servers, not through a
+client: a client connected to both mints a read-scoped pairing code on each and
+hands it, with the other's routes, to the other server
+([`PeerEnvironments`](../../apps/server/src/peers/PeerEnvironments.ts)). Each
+server then holds a session on the other for thread reads only; see
+[environment authentication](./environment-auth.md#linked-environments). The
+direction matters: A holding a session on B lets A's agents read B, not the
+reverse.
+
+Reads go over `/mcp` and open a fresh MCP session per call, so a peer that
+restarts or loses a route leaves nothing stale to recover. Only agent tool calls
+reach a peer; the sidebar, subscriptions and sending never wait on one. A
+peer's status is `ok`, `offline`, `timeout`, `unauthorized` or `unsupported`,
+and callers get the local answer plus each peer's status rather than an error.
 
 ## Hosted web is a client
 

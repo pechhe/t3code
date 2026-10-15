@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   AuthAdministrativeScopes,
+  AuthSessionId,
   type AuthCreatePairingCredentialInput,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
@@ -581,3 +582,152 @@ it("matches loopback redirects on everything but the port, and https redirects e
   expect(matches("https://bot.example/cb", "https://bot.example/cb?x=1")).toBe(false);
   expect(matches("https://bot.example/cb", "https://evil.example/cb")).toBe(false);
 });
+
+const mcpRequest = (token: string) =>
+  HttpServerRequest.fromWeb(at("/mcp", { headers: { authorization: `Bearer ${token}` } }));
+const peerCall = (
+  handler: Handler,
+  path: "link" | "renew" | "unlink",
+  body: unknown,
+  token?: string,
+) =>
+  handler(
+    at(`/api/auth/peer/${path}`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      },
+      ...(body === undefined ? {} : { body: encodeJson(body) }),
+    }),
+  );
+
+it.live("links a peer with a one-time read code, then renews and revokes its session", () =>
+  withRoutes((handler, auth) =>
+    Effect.gen(function* () {
+      const pairing = yield* auth.issuePairingCredential({ scopes: ["orchestration:read"] });
+      const linked = yield* peerCall(handler, "link", {
+        code: pairing.credential,
+        label: "Mac",
+      });
+      expect(linked.status).toBe(200);
+      const { token } = yield* json<{ token: string }>(linked);
+
+      const peer = yield* auth.authenticateMcpClient(mcpRequest(token));
+      expect(peer).toMatchObject({ label: "Mac", access: "peer-threads" });
+
+      // The code is spent, and the token reaches nothing but `/mcp`.
+      expect(
+        (yield* peerCall(handler, "link", { code: pairing.credential, label: "Mac" })).status,
+      ).toBe(401);
+      expect(
+        yield* handler(
+          at("/api/auth/session", { headers: { authorization: `Bearer ${token}` } }),
+        ).pipe(Effect.flatMap(json<unknown>)),
+      ).toMatchObject({ authenticated: false });
+      const ticket = yield* handler(
+        at("/api/auth/websocket-ticket", {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+        }),
+      );
+      expect(ticket.status).toBe(401);
+
+      // Renewal replaces the session: the old token stops working, the new one reads.
+      const renewed = yield* peerCall(handler, "renew", undefined, token);
+      expect(renewed.status).toBe(200);
+      const next = yield* json<{ token: string }>(renewed);
+      expect(next.token).not.toBe(token);
+      expect(yield* auth.authenticateMcpClient(mcpRequest(token)).pipe(Effect.flip)).toMatchObject({
+        _tag: "ServerAuthInvalidCredentialError",
+      });
+      expect((yield* peerCall(handler, "renew", undefined, token)).status).toBe(401);
+      const renewedPeer = yield* auth.authenticateMcpClient(mcpRequest(next.token));
+      expect(renewedPeer).toMatchObject({ label: "Mac", access: "peer-threads" });
+
+      // Revoking the session from the issuing environment ends the link.
+      yield* auth.revokeClientSession(
+        AuthSessionId.make("operator-session"),
+        renewedPeer.sessionId,
+      );
+      expect((yield* peerCall(handler, "renew", undefined, next.token)).status).toBe(401);
+      expect(
+        yield* auth.authenticateMcpClient(mcpRequest(next.token)).pipe(Effect.flip),
+      ).toMatchObject({ _tag: "ServerAuthInvalidCredentialError" });
+    }),
+  ),
+);
+
+it.live("records a linked environment's use with its session for the connections list", () =>
+  withRoutes((handler, auth) =>
+    Effect.gen(function* () {
+      const pairing = yield* auth.issuePairingCredential({ scopes: ["orchestration:read"] });
+      const { token } = yield* peerCall(handler, "link", {
+        code: pairing.credential,
+        label: "Mac",
+      }).pipe(Effect.flatMap(json<{ token: string }>));
+      const lastUse = () =>
+        auth
+          .listClientSessions(AuthSessionId.make("operator-session"))
+          .pipe(
+            Effect.map(
+              (sessions) =>
+                sessions.find((session) => session.client.label === "Mac")?.lastConnectedAt,
+            ),
+          );
+      expect(yield* lastUse()).toBeNull();
+
+      yield* auth.authenticateMcpClient(mcpRequest(token));
+      expect(yield* lastUse()).not.toBeNull();
+    }),
+  ),
+);
+
+it.live(
+  "refuses a peer link without the read scope, a reused token, and renewal by other clients",
+  () =>
+    withRoutes((handler, auth) =>
+      Effect.gen(function* () {
+        const noRead = yield* auth.issuePairingCredential({ scopes: ["orchestration:operate"] });
+        expect(
+          (yield* peerCall(handler, "link", { code: noRead.credential, label: "Mac" })).status,
+        ).toBeGreaterThanOrEqual(400);
+        expect((yield* peerCall(handler, "link", { code: "nope", label: "Mac" })).status).toBe(401);
+
+        // An MCP agent's own session is not a peer's, so it cannot be renewed as one.
+        const agent = yield* auth.issueMcpClientSession({
+          label: "Claude Code",
+          access: "read-only",
+          client: { deviceType: "bot" },
+        });
+        expect((yield* peerCall(handler, "renew", undefined, agent.token)).status).toBe(401);
+        expect((yield* peerCall(handler, "renew", undefined)).status).toBe(401);
+      }),
+    ),
+);
+
+it.live("lets a peer end its own session", () =>
+  withRoutes((handler, auth) =>
+    Effect.gen(function* () {
+      const pairing = yield* auth.issuePairingCredential({ scopes: ["orchestration:read"] });
+      const { token } = yield* peerCall(handler, "link", {
+        code: pairing.credential,
+        label: "Mac",
+      }).pipe(Effect.flatMap(json<{ token: string }>));
+
+      // Another kind of session cannot end a peer's, and the peer ends only its own.
+      const agent = yield* auth.issueMcpClientSession({
+        label: "Claude Code",
+        access: "read-only",
+        client: { deviceType: "bot" },
+      });
+      expect((yield* peerCall(handler, "unlink", undefined, agent.token)).status).toBe(401);
+
+      const unlinked = yield* peerCall(handler, "unlink", undefined, token);
+      expect(yield* json<unknown>(unlinked)).toEqual({ revoked: true });
+      expect(yield* auth.authenticateMcpClient(mcpRequest(token)).pipe(Effect.flip)).toMatchObject({
+        _tag: "ServerAuthInvalidCredentialError",
+      });
+    }),
+  ),
+);

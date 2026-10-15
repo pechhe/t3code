@@ -18,6 +18,7 @@ import {
   type ExperimentOutcome,
   type ExperimentOutcomeInput,
   CommandId,
+  type EnvironmentId,
   type RunId,
   isProviderAvailable,
   MessageId,
@@ -120,6 +121,7 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as ServerSettings from "../serverSettings.ts";
 import {
   clientRuntimeModeCeiling,
+  isReadOnlyClient,
   type McpInvocationScope,
   type McpThreadInvocationScope,
   requireThreadScope,
@@ -776,9 +778,12 @@ function threadSnooze(
 function listItemFromShell(
   shell: OrchestrationV2ThreadShell,
   nowMs: number,
+  environmentId: EnvironmentId,
 ): OrchestratorMcpThreadListItem {
   return {
     threadId: shell.id,
+    environmentId,
+    projectId: shell.projectId,
     title: shell.title,
     createdBy: shell.createdBy,
     creationSource: shell.creationSource,
@@ -1743,7 +1748,7 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const live =
         caller.parent === undefined
-          ? scope.client?.access !== "read-only"
+          ? scope.client === undefined || !isReadOnlyClient(scope.client)
           : Exit.isSuccess(yield* Effect.exit(assertLiveCaller(scope, caller.parent)));
       // This runs after a save, so a failed lookup of the bound thread hides
       // the webhook URL instead of reporting a saved task as an error.
@@ -3416,17 +3421,40 @@ const make = Effect.gen(function* () {
     listThreads: (scope, input) =>
       Effect.gen(function* () {
         const { parent } = yield* loadCaller(scope);
-        const projectId = yield* resolveProjectTarget(parent, input.projectId);
-        const projectThreads = yield* threadManagement
-          .listProjectThreads({
-            projectId,
-            includeSubagents: input.includeSubagents !== false,
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              failure("orchestration_error", `Unable to list threads: ${errorMessage(error)}`),
-            ),
-          );
+        // A caller with no thread of its own and no project spans every project, as a linked
+        // environment's agent does: it cannot know this environment's project IDs.
+        const spansProjects = input.projectId === undefined && parent === undefined;
+        const projectId = spansProjects
+          ? null
+          : yield* resolveProjectTarget(parent, input.projectId);
+        const listProject = (id: ProjectId) =>
+          threadManagement
+            .listProjectThreads({
+              projectId: id,
+              includeSubagents: input.includeSubagents !== false,
+            })
+            .pipe(
+              Effect.mapError((error) =>
+                failure("orchestration_error", `Unable to list threads: ${errorMessage(error)}`),
+              ),
+            );
+        const projectThreads =
+          projectId !== null
+            ? yield* listProject(projectId)
+            : (yield* projects.snapshot.pipe(
+                Effect.mapError((error) =>
+                  failure("orchestration_error", `Unable to list projects: ${errorMessage(error)}`),
+                ),
+                Effect.flatMap((snapshot) =>
+                  Effect.forEach(
+                    snapshot.projects.filter((project) => project.deletedAt === null),
+                    (project) => listProject(project.id),
+                    { concurrency: 4 },
+                  ),
+                ),
+              ))
+                .flat()
+                .toSorted((a, b) => b.updatedAt.epochMilliseconds - a.updatedAt.epochMilliseconds);
         const nowMs = yield* Clock.currentTimeMillis;
         const statuses = input.statuses === undefined ? null : new Set(input.statuses);
         const titleContains = input.titleContains?.toLocaleLowerCase();
@@ -3453,11 +3481,13 @@ const make = Effect.gen(function* () {
         const page = filtered.slice(cursor, cursor + limit);
         const nextCursor = cursor + page.length < filtered.length ? cursor + page.length : null;
         return {
+          environmentId: scope.environmentId,
           projectId,
           currentThreadId: parent?.thread.id ?? null,
-          threads: page.map((shell) => listItemFromShell(shell, nowMs)),
+          threads: page.map((shell) => listItemFromShell(shell, nowMs, scope.environmentId)),
           nextCursor,
           total: filtered.length,
+          environments: [],
         } satisfies OrchestratorMcpThreadListResult;
       }),
     readThread: (scope, input) =>
@@ -3538,6 +3568,7 @@ const make = Effect.gen(function* () {
           }
         }
         return {
+          environmentId: scope.environmentId,
           thread: threadDetail(target, timeline.totalItems, shell, yield* Clock.currentTimeMillis),
           recentRuns: target.runs
             .toSorted((left, right) => right.ordinal - left.ordinal)

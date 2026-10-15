@@ -158,9 +158,9 @@ export function previewAnnotationContextReference(
   };
 }
 
-/** One record per thread: attaching the same thread twice reuses the chip. */
-function threadContextId(threadId: ThreadId): ComposerContextId {
-  return toKindScopedComposerContextId("thread", threadId);
+/** One record per thread: attaching the same thread twice reuses the chip. Two environments may reuse an id. */
+function threadContextId(ref: ScopedThreadRef): ComposerContextId {
+  return toKindScopedComposerContextId("thread", `${ref.environmentId}:${ref.threadId}`);
 }
 
 export function threadContextReference(record: ThreadContextRecord): ComposerContextReference {
@@ -172,7 +172,7 @@ export function threadContextRecord(ref: ScopedThreadRef, title: string): Thread
   return {
     version: 1,
     kind: "thread",
-    contextId: threadContextId(ref.threadId),
+    contextId: threadContextId(ref),
     label,
     environmentId: ref.environmentId,
     threadId: ref.threadId,

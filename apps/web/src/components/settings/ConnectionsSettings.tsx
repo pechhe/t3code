@@ -195,6 +195,8 @@ import {
   type ServerUpdateTarget,
 } from "../ServerUpdateAction";
 import { CloudEnvironmentConnectRows } from "../cloud/CloudEnvironmentConnectList";
+import { peerLinkSubtitle } from "@t3tools/client-runtime/state/peers";
+import { PeerLinkMenuItem, usePeerLinked } from "./PeerLinkMenuItem";
 import { ITEM_ROW_CLASSNAME, ITEM_ROW_INNER_CLASSNAME } from "./itemRows";
 import {
   resolveShortcutCommand,
@@ -1442,6 +1444,8 @@ type SavedBackendListRowProps = {
   onSetEnabled: (environmentId: EnvironmentId, enabled: boolean) => void;
   onRemove: (environment: EnvironmentPresentation) => void;
   onAddRoute: (environment: EnvironmentPresentation) => void;
+  /** Extra addresses this device's own server advertises, which a linked peer may dial. */
+  advertisedUrls: ReadonlyArray<string>;
 };
 
 /**
@@ -1492,6 +1496,7 @@ function SavedBackendListRow({
   onSetEnabled,
   onRemove,
   onAddRoute,
+  advertisedUrls,
 }: SavedBackendListRowProps) {
   const [routesOpen, setRoutesOpen] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
@@ -1586,9 +1591,11 @@ function SavedBackendListRow({
       (lastDescriptor === undefined ? null : { environment: lastDescriptor }),
   );
   const routeCount = connectionRoutes(environment.entry).length;
+  const peerLink = usePeerLinked(environmentId, usePrimaryEnvironmentId());
   const subtitleText = [
     environmentTransportLabel(environment, connectedTarget),
     resumingServerUpdate ? "Restarting" : status.text,
+    peerLinkSubtitle(peerLink.readsThem, peerLink.readsUs),
     enabled && versionMismatch ? serverVersion : null,
   ]
     .filter((value): value is string => value !== null)
@@ -1776,6 +1783,7 @@ function SavedBackendListRow({
             <RouteIcon />
             {routesOpen ? "Hide routes" : "Routes"}
           </MenuItem>
+          <PeerLinkMenuItem environment={environment} advertisedUrls={advertisedUrls} />
           {mcpUrl ? (
             <MenuItem onClick={() => copyMcpUrl(mcpUrl, { url: mcpUrl })}>Copy MCP URL</MenuItem>
           ) : null}
@@ -2301,6 +2309,13 @@ export function ConnectionsSettings() {
   const desktopServerExposureState = desktopNetworkAccess.data?.serverExposureState ?? null;
   const desktopAdvertisedEndpoints =
     desktopNetworkAccess.data?.advertisedEndpoints ?? EMPTY_ADVERTISED_ENDPOINTS;
+  const advertisedEndpointUrls = useMemo(
+    () =>
+      desktopAdvertisedEndpoints
+        .filter((endpoint) => endpoint.status !== "unavailable")
+        .map((endpoint) => endpoint.httpBaseUrl),
+    [desktopAdvertisedEndpoints],
+  );
   const desktopServerExposureError =
     desktopServerExposureMutationError ?? desktopNetworkAccess.error;
   const desktopAccessManagementError =
@@ -4156,6 +4171,7 @@ export function ConnectionsSettings() {
             removingEnvironmentId={removingSavedEnvironmentId}
             onSetEnabled={handleSetSavedBackendEnabled}
             onRemove={handleRemoveSavedBackend}
+            advertisedUrls={advertisedEndpointUrls}
             onAddRoute={(target) => {
               setRouteTarget(target);
               setSavedBackendError(null);

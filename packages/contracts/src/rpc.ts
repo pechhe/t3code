@@ -371,6 +371,12 @@ import {
   ScheduledTaskUpsertInput,
   ScheduledTaskMutationResult,
 } from "./scheduledTask.ts";
+import {
+  PeerEnvironmentError,
+  PeersListInput,
+  PeersListResult,
+  PeersUpdateInput,
+} from "./peers.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
 import {
   ProjectCloneActionInput,
@@ -555,6 +561,10 @@ export const WS_METHODS = {
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
+
+  // Linked environments
+  peersList: "peers.list",
+  peersUpdate: "peers.update",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
 
@@ -1924,6 +1934,19 @@ const WsScheduledTasksRotateWebhookTokenRpc = Rpc.make(
   },
 );
 
+const WsPeersListRpc = Rpc.make(WS_METHODS.peersList, {
+  payload: PeersListInput,
+  success: PeersListResult,
+  error: Schema.Union([PeerEnvironmentError, EnvironmentAuthorizationError]),
+});
+
+/** Answers with the linked environments after the change. */
+const WsPeersUpdateRpc = Rpc.make(WS_METHODS.peersUpdate, {
+  payload: PeersUpdateInput,
+  success: PeersListResult,
+  error: Schema.Union([PeerEnvironmentError, EnvironmentAuthorizationError]),
+});
+
 const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   payload: SecretRequestAnswerInput,
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
@@ -2192,5 +2215,10 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsOrchestrationV2SubscribeThreadRpc,
 ).middleware(RpcScopeAuthorization);
 
+// Like the pull request group, the server serves these from their own handler layer.
+export const WsPeersRpcGroup = RpcGroup.make(WsPeersListRpc, WsPeersUpdateRpc).middleware(
+  RpcScopeAuthorization,
+);
+
 /** Every RPC the WebSocket serves. */
-export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup);
+export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup).merge(WsPeersRpcGroup);

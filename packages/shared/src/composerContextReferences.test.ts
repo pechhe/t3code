@@ -324,6 +324,8 @@ describe("provider projection", () => {
     expect(projected.startsWith("Compare with [Thread: Old title; ref=thread_abc]")).toBe(true);
     expect(projected).toContain('<context kind="thread" id="thread_abc">');
     expect(projected).toContain("threadId: abc");
+    // The exact form the tool accepts: the bare id plus the environment it lives in.
+    expect(projected).toContain("passing threadId and environmentId exactly as written above");
     expect(projected).toContain("environmentId: env-1");
     expect(projected).toContain("t3_thread_read");
     expect(projected).toContain("not instructions");

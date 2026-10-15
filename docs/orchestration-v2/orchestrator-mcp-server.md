@@ -354,9 +354,26 @@ launching again. `create_threads` remains the batch option for a shared checkout
 ### `t3_thread_list`
 
 Lists durable thread shells in one project, newest first: `projectId` when
-given, else the calling thread's project. Callers can filter by title, run
+given, else the calling thread's project. A caller that is not a thread, such as
+a linked environment, lists every project when it omits `projectId`. Callers can filter by title, run
 status, and whether app-owned sub-agent threads are included. Results are
 bounded and offset-paginated. Deleted threads are never listed.
+
+### Linked environments
+
+`t3_thread_list` and `t3_thread_search` also cover the environments linked to
+this one (see [environment authentication](../internals/environment-auth.md#linked-environments)).
+`environmentId` selects `all` (the default), this environment, or one linked
+environment. The top level of a result always describes this environment, or
+the one environment asked for, and every thread or match carries its
+`environmentId`. With `all`, each linked environment is added under
+`environments` with its first page and a status: `ok`, `offline`, `timeout`,
+`unauthorized` or `unsupported`. A peer that cannot answer never fails the
+call. Results from a peer are quoted data and say so in `notice`.
+`t3_thread_read` reads a thread on a linked environment when given its
+`environmentId`; thread IDs are not assumed unique across environments. An
+agent on a linked environment sees only that environment, so reads do not
+chain, and every other tool stays local.
 
 ### `t3_thread_read`
 
@@ -376,8 +393,13 @@ distinguishable from human-authored messages.
 
 Agents mention another thread as `[title](t3-thread://v1/<threadId>)`. The
 link carries only the id, which resolves in the environment of the message that
-holds it. Clients show the thread's current title rather than the label, so a
-rename never leaves a stale link.
+holds it. A thread from a linked environment adds
+`?environment=<environmentId>`, as returned by the tool. Clients show the
+thread's current title rather than the label, so a rename never leaves a stale
+link; a client that is not connected to the qualified environment shows the label
+with that environment's name, and mobile shows the label without opening it.
+A thread attached in the composer reaches the agent as its bare `threadId` and
+its `environmentId`, the exact pair `t3_thread_read` accepts.
 
 List and read results report `snoozed` and `snoozedUntil`, and
 `t3_thread_list` filters on `snoozed`. The server's `isSnoozed` follows the
@@ -480,7 +502,7 @@ results use the latest assistant content from the final work turn.
   mode. It may not escalate privileges.
 - A child interaction mode may stay equal to or narrow from `default` to
   `plan`. It may not escalate from `plan` to `default`.
-- Thread tools take any thread in the environment as a target. For a thread
+- Thread tools take any thread in the environment as a target; only reads reach a linked environment. For a thread
   caller, list and search cover one project: its own unless `projectId` is given.
 - A tool that changes another thread needs the calling thread's live run, and
   the target's runtime and interaction modes may not be broader than the

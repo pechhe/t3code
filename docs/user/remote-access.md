@@ -119,6 +119,24 @@ on that machine. Existing threads stay where they started. If resource checks ar
 unavailable or all eligible machines are full, choose a machine manually to continue.
 Mobile keeps its manual environment selection.
 
+### Link two environments
+
+Linking lets agents on one environment find, search and read the threads on the
+other, for example to check whether a thread on your Mac is already working on
+something before starting it on your VPS. On web and desktop, open the row menu
+of a saved environment in **Settings → Connections** and choose **Link threads**.
+One action links both directions; each environment then reads the other's thread
+titles and messages. Linked environments are read-only: they cannot send
+messages, change threads or run anything on each other.
+
+The row shows **Threads linked**, or the problem when one side cannot be
+reached, was revoked or needs a newer version. Choose **Unlink threads** to
+remove both directions at once. Either side can also revoke the link from its own
+**Manage or revoke access** list. Linking needs permission to manage access on both
+environments, and each environment must be reachable from the other at an address
+saved in its routes. T3 Connect and SSH routes only work from this device, so
+they cannot be passed on. Mobile does not manage links.
+
 ### Tailscale HTTPS
 
 Join both devices to the same tailnet. In the desktop app, enable **Tailscale

@@ -578,11 +578,12 @@ export const layerMcpClientAuthenticator = Layer.effect(
                   label: client.label,
                   access: client.access,
                 },
-                capabilities: new Set<McpInvocationContext.McpCapability>([
-                  "orchestration",
-                  "worktree",
-                  "pull-requests",
-                ]),
+                // A linked environment reads threads; worktrees and pull requests are not its business.
+                capabilities: new Set<McpInvocationContext.McpCapability>(
+                  client.access === "peer-threads"
+                    ? ["orchestration"]
+                    : ["orchestration", "worktree", "pull-requests"],
+                ),
                 issuedAt,
               })),
             ),

@@ -104,7 +104,7 @@ import { createIncrementalMarkdownPlugin } from "../markdown-incremental";
 import { defaultUrlTransform } from "react-markdown";
 import { parseAssistantCitationHref } from "@t3tools/shared/assistantCitations";
 import { parseComposerContextHref } from "@t3tools/shared/composerContextReferences";
-import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
+import { parseThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
@@ -2951,12 +2951,19 @@ const CHAT_MARKDOWN_COMPONENTS = {
     } = use(ChatMarkdownRendererContext);
     const citation = href ? parseAssistantCitationHref(href) : null;
     if (citation) return <AssistantCitationChip citation={citation} />;
-    // A thread link names a thread in this message's environment and opens it in the app.
-    const linkedThreadId = href ? parseThreadLinkHref(href) : null;
-    if (linkedThreadId) {
-      const label = hastPlainTextDeep(node) || linkedThreadId;
-      return environmentId ? (
-        <MarkdownThreadLink environmentId={environmentId} threadId={linkedThreadId} label={label} />
+    // A thread link names a thread in this message's environment, or the environment it is
+    // qualified with, and opens it in the app.
+    const threadLink = href ? parseThreadLink(href) : null;
+    if (threadLink) {
+      const label = hastPlainTextDeep(node) || threadLink.threadId;
+      const linkEnvironmentId = threadLink.environmentId ?? environmentId;
+      return linkEnvironmentId ? (
+        <MarkdownThreadLink
+          environmentId={linkEnvironmentId}
+          threadId={threadLink.threadId}
+          label={label}
+          foreign={threadLink.environmentId !== null && threadLink.environmentId !== environmentId}
+        />
       ) : (
         <span>{label}</span>
       );

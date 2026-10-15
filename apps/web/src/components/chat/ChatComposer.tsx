@@ -260,7 +260,11 @@ import {
   threadContextReference,
 } from "~/lib/composerContextRecords";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
-import { useThreadContextDrop, threadContextDropTargetProps } from "./threadContextDrag";
+import {
+  resolvePastedThreadIds,
+  threadContextDropTargetProps,
+  useThreadContextDrop,
+} from "./threadContextDrag";
 import {
   readEnvironmentSupportsRolloverHold,
   readThreadShell,
@@ -286,6 +290,8 @@ import {
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
 import { useDebouncedValue, useRolloverThresholds } from "~/state/queries";
+import { peerEnvironments } from "~/state/peers";
+import { unreadableThreadRefs } from "@t3tools/client-runtime/state/peers";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { resolveModelPickerSelectedModel } from "./ModelPickerContent";
 import {
@@ -6265,6 +6271,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       return;
     }
 
+    // A copied thread id (the thread menu's "Copy thread ID") becomes a thread chip.
+    const pastedThreads = resolvePastedThreadIds(plainText, environmentId);
+    if (pastedThreads !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      attachThreadContexts(
+        pastedThreads,
+        () => attachmentTargetKeyRef.current === attachmentTargetKey,
+      );
+      return;
+    }
+
     // Copied T3 chips need the structured importer to bring their records and files along.
     if ((readPastedComposerContext(event.clipboardData)?.records.length ?? 0) > 0) return;
     if (!foldPastedText(plainText, bypassAutoAttachment)) {
@@ -6421,9 +6439,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
   );
 
-  useThreadContextDrop(composerFormRef, environmentId, attachmentTargetKey, (refs, isActive) => {
+  // Environments whose threads this composer's agent can read live besides its own. Not probed:
+  // opening a thread must not reach other servers.
+  const linkedEnvironments = useEnvironmentQuery(
+    peerEnvironments.list({ environmentId, input: { probe: false } }),
+  ).data;
+  // Attaches threads as context chips; shared by sidebar drops and pasted ids. A thread the agent
+  // can read live (its own environment's, or a linked one's) becomes a chip; any other
+  // environment's is imported as a transcript file.
+  const attachThreadContexts = (refs: ReadonlyArray<ScopedThreadRef>, isActive: () => boolean) => {
+    // Whether a foreign thread is linked is not known until the list arrives; importing a
+    // transcript meanwhile would be the wrong answer for a linked environment.
+    if (linkedEnvironments === null && refs.some((ref) => ref.environmentId !== environmentId)) {
+      toastManager.add({
+        type: "error",
+        title: "Linked environments are still loading",
+        description: "Try again in a moment.",
+      });
+      return;
+    }
     const records = refs.flatMap((ref) => {
-      if (ref.environmentId !== environmentId) {
+      if (unreadableThreadRefs([ref], environmentId, linkedEnvironments ?? []).length > 0) {
         void importDroppedThread(
           ref,
           () => isActive() && attachmentTargetKeyRef.current === attachmentTargetKey,
@@ -6469,7 +6505,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     } else {
       addComposerDraftThreadContexts(composerDraftTarget, records);
     }
-  });
+  };
+
+  useThreadContextDrop(composerFormRef, environmentId, attachmentTargetKey, attachThreadContexts);
 
   const onComposerMentionDragLeaveCapture = (event: React.DragEvent<HTMLFormElement>) => {
     if (!dataTransferHasComposerMention(event.dataTransfer.types)) return;

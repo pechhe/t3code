@@ -49,6 +49,29 @@ above its ceiling. Inside MCP the credential sets the limits and tool
 parameters only pick targets; see
 [threadAccess](../../apps/server/src/mcp/threadAccess.ts).
 
+## Linked environments
+
+An environment linked to this one reads its threads over `/mcp` with a session
+whose subject is `peer-environment`. It is not an OAuth agent: a one-time
+pairing code holding `orchestration:read` is traded for it at
+`/api/auth/peer/link`, never through the approval page. The session holds
+`orchestration:read` alone, but unlike a read-only agent it may call only the
+tools in `PEER_THREAD_TOOLS` (thread list, search and read, and the environment
+read for identity and version). `McpToolAccess` refuses every other tool, reads
+included, before it runs, so a tool added later stays closed to peers until it
+is listed. Only `/mcp` accepts the subject.
+
+The peer renews by presenting its own token to `/api/auth/peer/renew`, which
+issues a fresh session and revokes the old one in the same transaction, so a
+link does not lapse at the 30-day limit. Revoking the session from the
+connections list ends the link. The replacement is stored only if the session
+it replaces was still active in that transaction (`requireReplaced`), because
+checking the token and issuing the successor are separate steps and a
+revocation between them must not be undone. The calling server mirrors this:
+a renewal that finishes after its link was removed unlinks the session it just
+received. Peer use is recorded as the session's last connection, at most once a
+minute, so the connections list shows when a linked environment last read.
+
 Issuer and resource URLs come from the request's Host and
 `X-Forwarded-Proto`, so one server answers over loopback, Tailscale Serve and a
 T3 Connect tunnel. A proxy that rewrites Host or drops the protocol header
