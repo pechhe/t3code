@@ -686,6 +686,13 @@ export function ThemeLibrary({
     if (!setAppearanceMode(mode)) notifyThemeSaveFailure();
   };
 
+  // A light-only or dark-only theme paints just its own half, so using it from the other
+  // appearance would change nothing on screen. Using it also switches to its appearance.
+  const pickSingleAppearanceTheme = (half: ThemeAppearance, themeId: string) => {
+    assignHalf(half, themeId);
+    if (initialAppearance !== half) setMode(half);
+  };
+
   // ----- Wireframe tiles on top, two-ball cards below --------------------
   const handlePairPick = (cardId: string | null) => (mode: ThemeMode) => {
     if (mode === "system") return;
@@ -841,7 +848,7 @@ export function ThemeLibrary({
               onUse={() => {
                 const half = singleAppearanceOf(environmentTheme);
                 if (half === null) persistTheme(environmentTheme.id);
-                else assignHalf(half, environmentTheme.id);
+                else pickSingleAppearanceTheme(half, environmentTheme.id);
               }}
               onUseMode={handlePairPick(environmentTheme.id)}
               theme={getThemeCardDefinition(environmentTheme)}
@@ -873,7 +880,7 @@ export function ThemeLibrary({
             onRemove={(customTheme) => handleRemoveTheme(customTheme, themes)}
             onUse={(customTheme) => {
               const modes = getThemeModes(customTheme);
-              if (modes.length === 1) assignHalf(modes[0]!, customTheme.id);
+              if (modes.length === 1) pickSingleAppearanceTheme(modes[0]!, customTheme.id);
               else persistTheme(customTheme.id);
             }}
             onUseMode={(customTheme, mode) => handlePairPick(customTheme.id)(mode)}
