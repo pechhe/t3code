@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
@@ -112,6 +113,7 @@ it.effect.each([false, true])(
         const notes = makeRolloverNotes();
         const projection = { ...idleThreadProjection(shell), runs: [run] };
         const dependencies = Layer.mergeAll(
+          NodeCrypto.layer,
           Layer.mock(ThreadManagement.ThreadManagementService)({
             getThreadProjection: () => Effect.succeed(projection),
             getThreadShell: () => Effect.succeed(shell),
@@ -120,6 +122,8 @@ it.effect.each([false, true])(
             // Imported history exists in both cases and must never enable live rollover.
             assignments: () => Effect.succeed([historical, ...(active ? [live] : [])]),
             getRolloverAssignment: () => Effect.succeed(active ? live : null),
+            recordEvidence: (input) =>
+              Effect.succeed({ ...input, capturedAt: "2026-10-15T00:00:00Z" }),
           }),
           ServerSettings.layerTest({ contextRollover: { enabled: false } }).pipe(
             Layer.orDie,

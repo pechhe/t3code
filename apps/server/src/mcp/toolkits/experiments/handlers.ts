@@ -53,6 +53,52 @@ export const layer = McpToolAccess.toLayer(ExperimentsToolkit, {
         .pipe(Effect.mapError(unavailable));
     }),
   ),
+  t3_experiments_record_evidence: McpToolAccess.writesEnvironment((input, check) =>
+    check.pipe(
+      Effect.andThen(
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          const service = yield* Experiments.ExperimentService;
+          return yield* service.recordEvidence(
+            { ...input, source: "agent" },
+            {
+              environmentId: scope.environmentId,
+              clientSessionId: scope.client?.sessionId,
+              threadId: scope.thread?.threadId,
+            },
+          );
+        }),
+      ),
+      Effect.mapError(unavailable),
+    ),
+  ),
+  t3_experiments_record_evaluation: McpToolAccess.writesEnvironment((input, check) =>
+    check.pipe(
+      Effect.andThen(
+        Effect.gen(function* () {
+          const scope = yield* McpInvocationContext.McpInvocationContext;
+          const service = yield* Experiments.ExperimentService;
+          return yield* service.recordEvaluation(input, {
+            environmentId: scope.environmentId,
+            clientSessionId: scope.client?.sessionId,
+            threadId: scope.thread?.threadId,
+          });
+        }),
+      ),
+      Effect.mapError(unavailable),
+    ),
+  ),
+  t3_experiments_read_evidence: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const scope = yield* McpInvocationContext.McpInvocationContext;
+      const service = yield* Experiments.ExperimentService;
+      return yield* service.readEvidence(input, {
+        environmentId: scope.environmentId,
+        clientSessionId: scope.client?.sessionId,
+        threadId: scope.thread?.threadId,
+      });
+    }).pipe(Effect.mapError(unavailable)),
+  ),
   t3_experiments_record_outcome: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
       Effect.andThen(

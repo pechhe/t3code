@@ -205,6 +205,7 @@ export const make = Effect.gen(function* () {
         assignmentId: previous.assignmentId,
         runId: run.id,
         kind: "fresh-context",
+        episodeId: `rollover:${previous.assignmentId}:${previous.fromRunId}`,
         usedTokens: used,
         maxTokens: state.maxTokens,
         recoveredTokens: Math.max(0, previous.usedTokens - used),
@@ -292,6 +293,12 @@ export const make = Effect.gen(function* () {
         assignmentId: configured.assignment.id,
         runId: run.id,
         kind: action,
+        episodeId: `rollover:${configured.assignment.id}:${run.id}`,
+        configuredPolicy: {
+          softLimit: configured.thresholds.soft,
+          hardLimit: configured.thresholds.hard,
+        },
+        effectivePolicy: { softLimit: thresholds.soft, hardLimit: thresholds.hard },
         usedTokens: used,
         maxTokens: state.maxTokens,
         evidence: [`provider-turn:${turn.id}`],
@@ -330,6 +337,7 @@ export const make = Effect.gen(function* () {
         assignmentId: policy.assignment.id,
         runId: run.id,
         kind: "rollover",
+        episodeId: `rollover:${policy.assignment.id}:${run.id}`,
         usedTokens: before.used,
         maxTokens: before.maxTokens,
         evidence: [`rollover-of-run:${run.id}`],
@@ -366,6 +374,7 @@ export const make = Effect.gen(function* () {
                 assignmentId: policy.assignment.id,
                 runId: run.id,
                 kind: "restart-failure",
+                episodeId: `rollover:${policy.assignment.id}:${run.id}`,
                 usedTokens: before.used,
                 maxTokens: before.maxTokens,
                 evidence: [`rollover-of-run:${run.id}`, "fresh-session-dispatch-failed"],
@@ -404,6 +413,20 @@ export const make = Effect.gen(function* () {
     threadId: ThreadId,
     run: OrchestrationV2Run,
   ) {
+    if (run.rolloverOfRunId !== undefined) {
+      const assignment = yield* experiments.getRolloverAssignment(threadId);
+      if (assignment !== null)
+        yield* experiments.recordObservation({
+          id: `rollover:${assignment.id}:${run.id}:continuation-ended`,
+          assignmentId: assignment.id,
+          runId: run.id,
+          kind: "continuation-ended",
+          episodeId: `rollover:${assignment.id}:${run.rolloverOfRunId}`,
+          usedTokens: threads.get(threadId)?.used ?? null,
+          maxTokens: threads.get(threadId)?.maxTokens ?? null,
+          evidence: [`run:${run.id}`, `run-status:${run.status}`],
+        });
+    }
     const pending = notes.get(threadId);
     // A note belongs to the run that wrote it; another run ending leaves it waiting.
     if (pending !== undefined && pending.runId !== run.id) return;

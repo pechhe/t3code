@@ -575,6 +575,7 @@ export const OrchestrationV2Run = Schema.Struct({
   contextHandoffId: Schema.NullOr(ContextHandoffId),
   /** Links server-generated restart continuations to the interrupted run. */
   restartContinuationOfRunId: Schema.optional(RunId),
+  rolloverOfRunId: Schema.optional(RunId),
   /** The delegated task this run answers, including a follow-up in an existing child thread. */
   delegatedTaskId: Schema.optional(NodeId),
   /**
@@ -1055,6 +1056,9 @@ export const OrchestrationV2ContextHandoff = Schema.Struct({
     Schema.Struct({
       nativeThreadId: Schema.String,
       status: Schema.Literals(["pending", "injected", "inline"]),
+      /** Normalized delivered handoff material retained for evidence; delivery is not proof of comprehension. */
+      contextText: Schema.optional(Schema.String),
+      summaryIncluded: Schema.optional(Schema.Boolean),
       itemIds: Schema.Array(TurnItemId),
       // Covered by recovery instructions, but not present in native model history.
       omittedItemIds: Schema.optional(Schema.Array(TurnItemId)),

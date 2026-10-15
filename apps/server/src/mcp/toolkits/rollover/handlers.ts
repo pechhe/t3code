@@ -1,17 +1,8 @@
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
-
-import {
-  ContextRolloverNotes,
-  ROLLOVER_NOTE_MAX_BYTES,
-  assignedRolloverThresholds,
-} from "../../../orchestration-v2/ContextRollover.ts";
-import * as ExperimentService from "../../../experiments/ExperimentService.ts";
-import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
-import * as ServerSettings from "../../../serverSettings.ts";
+import * as NoteService from "../../../orchestration-v2/ContextRolloverNoteService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import { unavailable } from "../../threadAccess.ts";
 import { RolloverToolkit } from "./tools.ts";
 
 const handlers = {
@@ -21,49 +12,25 @@ const handlers = {
         yield* McpInvocationContext.McpInvocationContext,
         "t3_write_rollover_note",
       );
-      const threadId = caller.threadId;
-      const bytes = Buffer.byteLength(note, "utf8");
-      if (bytes > ROLLOVER_NOTE_MAX_BYTES)
-        return yield* new OrchestratorMcpFailure({
-          code: "invalid_request",
-          message: `The note is ${bytes.toLocaleString("en-US")} bytes; the fresh session can take ${ROLLOVER_NOTE_MAX_BYTES.toLocaleString("en-US")}. Shorten it (point to files and issues instead of copying them) and call again; nothing was saved.`,
-        });
-      const settings = yield* (yield* ServerSettings.ServerSettingsService).getSettings.pipe(
-        Effect.mapError(unavailable),
-      );
-      const { thread, runs } = yield* (yield* ThreadManagementService.ThreadManagementService)
-        .getThreadProjection(threadId)
-        .pipe(Effect.mapError(unavailable));
-      const run = runs.findLast(
-        (candidate) => candidate.status === "running" || candidate.status === "waiting",
-      );
-      if (run === undefined)
-        return yield* new OrchestratorMcpFailure({
-          code: "run_not_found",
-          message: "This thread has no running turn to hand off from.",
-        });
-      const assignment = yield* (yield* ExperimentService.ExperimentService)
-        .getRolloverAssignment(threadId)
-        .pipe(Effect.mapError(unavailable));
-      if (
-        assignedRolloverThresholds(
-          settings.contextRollover,
-          thread,
-          run.modelSelection.model,
-          assignment?.variant.rollover,
-        ) === null
-      )
-        return yield* new OrchestratorMcpFailure({
-          code: "capability_denied",
-          message: "Context rollover is off for this thread. Continue normally; nothing was saved.",
-        });
-      (yield* ContextRolloverNotes).save(threadId, { runId: run.id, note });
+      yield* (yield* NoteService.ContextRolloverNoteService).submit({
+        threadId: caller.threadId,
+        note,
+      });
       return {
         message:
           "Saved. End your turn now with one short line at most; the thread continues on a fresh session seeded with this note.",
       };
-    }),
+    }).pipe(
+      Effect.provide(NoteService.layer),
+      Effect.mapError((error) =>
+        error._tag === "RolloverNoteError"
+          ? new OrchestratorMcpFailure({
+              code: error.reason === "operation" ? "orchestration_error" : error.reason,
+              message: error.message,
+            })
+          : error,
+      ),
+    ),
   ),
 } satisfies McpToolAccess.Handlers<typeof RolloverToolkit.tools>;
-
 export const layer = McpToolAccess.toLayer(RolloverToolkit, handlers);

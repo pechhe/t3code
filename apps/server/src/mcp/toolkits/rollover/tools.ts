@@ -1,5 +1,6 @@
 import * as ExperimentService from "../../../experiments/ExperimentService.ts";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
@@ -19,6 +20,7 @@ const WriteRolloverNoteTool = Tool.make(ROLLOVER_NOTE_TOOL_NAME, {
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies: [
+    Crypto.Crypto,
     ExperimentService.ExperimentService,
     McpInvocationContext.McpInvocationContext,
     ThreadManagementService.ThreadManagementService,
@@ -26,8 +28,8 @@ const WriteRolloverNoteTool = Tool.make(ROLLOVER_NOTE_TOOL_NAME, {
   ],
 })
   .annotate(Tool.Title, "Write a context rollover note")
-  // Saves a note in memory only; it changes neither the workspace nor the thread.
-  .annotate(Tool.Readonly, true)
+  // Saves the note and its immutable experiment evidence.
+  .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, false);
