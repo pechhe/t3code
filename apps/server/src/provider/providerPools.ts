@@ -2,14 +2,19 @@
  * Account pools: a configured instance whose turns run on one of its member
  * instances (for example several Claude subscriptions).
  *
- * A pooled turn goes to the member whose usage resets soonest among those
- * with allowance left, so allowance that would otherwise lapse at a reset is
- * spent first. A thread already on a member stays there while it has
+ * A pooled turn goes to the member whose weekly allowance resets soonest
+ * among those with allowance left, so allowance that would otherwise lapse at
+ * a reset is spent first. A thread already on a member stays there while it has
  * allowance, which avoids a provider switch and its context handoff.
  *
  * @module provider/providerPools
  */
-import type { ProviderDriverKind, ProviderInstanceId, ServerProvider } from "@t3tools/contracts";
+import type {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerProvider,
+  ServerProviderUsageWindow,
+} from "@t3tools/contracts";
 
 export interface ProviderPool {
   readonly instanceId: ProviderInstanceId;
@@ -37,9 +42,9 @@ export const isProviderUsageExhausted = (provider: ServerProvider, nowMs: number
       (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
   ) === true;
 
-const nextUsageResetMs = (provider: ServerProvider, nowMs: number): number => {
+const soonestResetMs = (windows: ReadonlyArray<ServerProviderUsageWindow>, nowMs: number) => {
   let soonest = Number.POSITIVE_INFINITY;
-  for (const window of provider.usageLimits?.windows ?? []) {
+  for (const window of windows) {
     const resetMs = window.resetsAt === undefined ? Number.NaN : Date.parse(window.resetsAt);
     if (resetMs > nowMs && resetMs < soonest) soonest = resetMs;
   }
@@ -47,16 +52,47 @@ const nextUsageResetMs = (provider: ServerProvider, nowMs: number): number => {
 };
 
 /**
- * Order accounts for a pooled turn: those with allowance left before those
- * at a limit, then by soonest usage reset. Ties keep their input order.
+ * When this account's unused allowance is next lost: the soonest reset of a
+ * weekly or longer window. A session window refills within hours and only
+ * spends the weekly allowance faster, so it decides only for an account that
+ * reports no longer window.
+ */
+const allowanceLapseMs = (provider: ServerProvider, nowMs: number): number => {
+  const windows = provider.usageLimits?.windows ?? [];
+  const banked = windows.filter((window) => window.kind !== "session");
+  return soonestResetMs(banked.length > 0 ? banked : windows, nowMs);
+};
+
+/** When an exhausted account can take a turn again: its last blocking window's reset. */
+const usableAgainMs = (provider: ServerProvider, nowMs: number): number => {
+  let latest = nowMs;
+  for (const window of provider.usageLimits?.windows ?? []) {
+    if (window.usedPercent < 100) continue;
+    const resetMs =
+      window.resetsAt === undefined ? Number.POSITIVE_INFINITY : Date.parse(window.resetsAt);
+    if (resetMs > latest) latest = resetMs;
+  }
+  return latest;
+};
+
+/**
+ * Order accounts for a pooled turn: those with allowance left first, by whose
+ * unused weekly allowance lapses soonest, so allowance that a reset would
+ * discard is spent first; then those at a limit, by which can take a turn
+ * again soonest. Ties keep their input order.
  */
 export const compareByUsageReset =
   (nowMs: number) =>
-  (a: ServerProvider, b: ServerProvider): number =>
-    Number(isProviderUsageExhausted(a, nowMs)) - Number(isProviderUsageExhausted(b, nowMs)) ||
+  (a: ServerProvider, b: ServerProvider): number => {
+    const aExhausted = isProviderUsageExhausted(a, nowMs);
+    const exhaustion = Number(aExhausted) - Number(isProviderUsageExhausted(b, nowMs));
+    if (exhaustion !== 0) return exhaustion;
     // Two accounts with no known reset subtract to NaN, which ties.
-    nextUsageResetMs(a, nowMs) - nextUsageResetMs(b, nowMs) ||
-    0;
+    const order = aExhausted
+      ? usableAgainMs(a, nowMs) - usableAgainMs(b, nowMs)
+      : allowanceLapseMs(a, nowMs) - allowanceLapseMs(b, nowMs);
+    return order || 0;
+  };
 
 const routableMembers = (
   pool: Pick<ProviderPool, "driver" | "members">,

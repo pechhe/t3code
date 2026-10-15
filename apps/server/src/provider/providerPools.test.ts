@@ -20,7 +20,10 @@ const claude = ProviderDriverKind.make("claudeAgent");
 
 const account = (
   id: string,
-  windows: ReadonlyArray<Pick<ServerProviderUsageWindow, "usedPercent" | "resetsAt">>,
+  windows: ReadonlyArray<
+    Pick<ServerProviderUsageWindow, "usedPercent" | "resetsAt"> &
+      Partial<Pick<ServerProviderUsageWindow, "kind">>
+  >,
   overrides: Partial<ServerProvider> = {},
 ): ServerProvider => ({
   instanceId: ProviderInstanceId.make(id),
@@ -70,6 +73,20 @@ describe("pickPoolMember", () => {
     expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("c");
   });
 
+  it("spends the account whose weekly allowance lapses soonest first", () => {
+    const providers = [
+      account("a", [
+        { kind: "session", usedPercent: 20, resetsAt: at(1) },
+        { kind: "weekly", usedPercent: 30, resetsAt: at(120) },
+      ]),
+      account("b", [
+        { kind: "session", usedPercent: 20, resetsAt: at(4) },
+        { kind: "weekly", usedPercent: 60, resetsAt: at(6) },
+      ]),
+    ];
+    expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("b");
+  });
+
   it("skips members that cannot take a turn and accounts outside the pool", () => {
     const providers = [
       account("a", [{ usedPercent: 10, resetsAt: at(5) }]),
@@ -110,10 +127,43 @@ describe("pickPoolMember", () => {
     expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("b");
     expect(pickPoolMember({ pool, providers: [], nowMs: NOW })).toBeUndefined();
   });
+
+  it("when every member is at a limit, picks the one usable again soonest", () => {
+    const providers = [
+      account("a", [
+        { kind: "session", usedPercent: 100, resetsAt: at(4) },
+        { kind: "weekly", usedPercent: 50, resetsAt: at(6) },
+      ]),
+      account("b", [
+        { kind: "session", usedPercent: 100, resetsAt: at(1) },
+        { kind: "weekly", usedPercent: 50, resetsAt: at(120) },
+      ]),
+      account("c", [
+        { kind: "session", usedPercent: 100, resetsAt: at(0.5) },
+        { kind: "weekly", usedPercent: 100, resetsAt: at(48) },
+      ]),
+    ];
+    expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("b");
+  });
 });
 
 describe("pickPoolFailoverMember", () => {
   const limited = ProviderInstanceId.make("a");
+
+  it("moves to the other member whose weekly allowance lapses soonest", () => {
+    const providers = [
+      account("a", [{ kind: "weekly", usedPercent: 100, resetsAt: at(1) }]),
+      account("b", [
+        { kind: "session", usedPercent: 10, resetsAt: at(1) },
+        { kind: "weekly", usedPercent: 10, resetsAt: at(90) },
+      ]),
+      account("c", [
+        { kind: "session", usedPercent: 10, resetsAt: at(4) },
+        { kind: "weekly", usedPercent: 80, resetsAt: at(3) },
+      ]),
+    ];
+    expect(pickPoolFailoverMember({ pool, providers, nowMs: NOW, limited })).toBe("c");
+  });
 
   it("moves to the other member with allowance whose usage resets soonest", () => {
     const providers = [
