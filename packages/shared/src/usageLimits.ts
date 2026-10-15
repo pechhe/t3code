@@ -377,6 +377,8 @@ export interface LimitPoolWindow {
   readonly columns: ReadonlyArray<{
     readonly account: LimitAccount;
     readonly window: ServerProviderUsageWindow | null;
+    /** The account's `planCapacity`, so a bar can size its segment by real allowance. */
+    readonly capacity: number;
   }>;
   readonly remainingPercent: number;
   readonly usedPercent: number;
@@ -384,7 +386,7 @@ export interface LimitPoolWindow {
   readonly resets: ReadonlyArray<{
     readonly member: LimitPoolMember;
     readonly at: number;
-    /** Points of the pool the reset restores: the member's used share over the member count. */
+    /** Points of the pool the reset restores: the member's used share of the pool's capacity. */
     readonly restoresPercent: number;
   }>;
 }
@@ -480,6 +482,17 @@ function poolKey(driver: ServerProvider["driver"], window: ServerProviderUsageWi
   return driver === "codex" ? window.kind : `${window.kind}:${window.id}`;
 }
 
+/**
+ * How much quota an account holds relative to its provider's base plan, read from the
+ * multiplier in the plan label: Max 20x is 20, Max 5x is 5, Pro or a label without one is 1.
+ * Percentages from different plans are shares of different allowances, so pools weigh each
+ * account by this rather than averaging them.
+ */
+export function planCapacity(plan: string | undefined): number {
+  const multiplier = Number(plan?.match(/(\d+(?:\.\d+)?)\s*x\b/i)?.[1]);
+  return multiplier > 0 ? multiplier : 1;
+}
+
 function poolWindows(accounts: readonly LimitAccount[], now: number): readonly LimitPoolWindow[] {
   const byKey = new Map<string, LimitPoolMember[]>();
   for (const account of accounts) {
@@ -500,17 +513,26 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
     // Pooled Codex slots take the pool's own key, so the id stays the same
     // whichever account sorts first.
     const id = members[0]!.account.driver === "codex" ? key : first.id;
-    const usedPercent = members.reduce((sum, m) => sum + m.window.usedPercent, 0) / members.length;
+    const capacity = members.reduce((sum, m) => sum + planCapacity(m.account.plan), 0);
+    /** A member's used points scaled to its share of the pool's capacity. */
+    const usedShare = (member: LimitPoolMember) =>
+      (member.window.usedPercent * planCapacity(member.account.plan)) / capacity;
+    const usedPercent = members.reduce((sum, m) => sum + usedShare(m), 0);
     // Pace compares spend against the clock, so it is judged only over the
     // members that have a clock; a window with no reset would otherwise
     // count as spend with no time elapsed and skew the verdict.
     const timed = members.flatMap((m) => {
       const share = elapsedShare(m.window, now);
-      return share === null ? [] : [{ used: m.window.usedPercent, elapsed: share }];
+      return share === null
+        ? []
+        : [{ used: m.window.usedPercent, elapsed: share, weight: planCapacity(m.account.plan) }];
     });
-    const timedUsed = timed.reduce((sum, t) => sum + t.used, 0) / timed.length;
+    const timedWeight = timed.reduce((sum, t) => sum + t.weight, 0);
+    const timedUsed = timed.reduce((sum, t) => sum + t.used * t.weight, 0) / timedWeight;
     const meanElapsed =
-      timed.length > 0 ? timed.reduce((sum, t) => sum + t.elapsed, 0) / timed.length : null;
+      timed.length > 0
+        ? timed.reduce((sum, t) => sum + t.elapsed * t.weight, 0) / timedWeight
+        : null;
     const resets = members
       .flatMap((member) => {
         const at = resetMillis(member.window);
@@ -520,7 +542,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
               {
                 member,
                 at,
-                restoresPercent: Math.round(member.window.usedPercent / members.length),
+                restoresPercent: Math.round(usedShare(member)),
               },
             ];
       })
@@ -530,9 +552,11 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
       kind: first.kind,
       label: first.label,
       members,
-      columns: accounts.map(
-        (account) => memberByAccount.get(account.key) ?? { account, window: null },
-      ),
+      columns: accounts.map((account) => ({
+        account,
+        window: memberByAccount.get(account.key)?.window ?? null,
+        capacity: planCapacity(account.plan),
+      })),
       usedPercent: Math.round(usedPercent),
       remainingPercent: Math.round(100 - usedPercent),
       pace: meanElapsed === null ? null : paceOfShares(timedUsed, meanElapsed),

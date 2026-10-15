@@ -22,6 +22,7 @@ import {
   formatResetsIn,
   limitsNotice,
   paceOf,
+  planCapacity,
   providersWithLimits,
   remainingPercent,
   usesChatGptSharing,
@@ -839,6 +840,43 @@ describe("pools", () => {
     // Session resets determine the account order for every row.
     expect(session?.members.map((member) => member.account.key)).toEqual(["hub:a", "hub:b"]);
     expect(pools[0]?.accounts.map((account) => account.key)).toEqual(["hub:a", "hub:b"]);
+  });
+});
+
+describe("plan capacity", () => {
+  it("reads the multiplier from a plan label and counts anything else as one", () => {
+    expect(
+      [
+        "Claude Max 20x Subscription",
+        "Max 5x",
+        "ChatGPT Pro 20x Subscription",
+        "Pro",
+        undefined,
+      ].map(planCapacity),
+    ).toEqual([20, 5, 20, 1, 1]);
+  });
+
+  it("weighs each account's share of the pool by its plan", () => {
+    const account = (key: string, plan: string, usedPercent: number): LimitAccount => ({
+      key,
+      driver: ProviderDriverKind.make("claudeAgent"),
+      displayName: key,
+      email: undefined,
+      plan,
+      accentColor: undefined,
+      environments: [],
+      sourceLabel: null,
+      redeem: null,
+      limits: { checkedAt: "2026-09-03T11:00:00.000Z", windows: [{ ...window, usedPercent }] },
+    });
+    // A spent Pro seat barely dents a Max 20x seat that is half used.
+    const [session] = collectLimitPools(
+      [account("max", "Max 20x", 50), account("pro", "Pro", 100)],
+      now,
+    )[0]!.windows;
+    expect(session).toMatchObject({ usedPercent: 52, remainingPercent: 48 });
+    expect(session?.columns.map((column) => column.capacity)).toEqual([20, 1]);
+    expect(session?.resets.map((reset) => reset.restoresPercent)).toEqual([48, 5]);
   });
 });
 

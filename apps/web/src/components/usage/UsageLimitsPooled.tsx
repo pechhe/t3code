@@ -444,9 +444,10 @@ function RedeemableSegmentPopup({
 }
 
 /**
- * One pooled window as equal-width segments, one per account, each filled by
- * the share of that account's quota still open. Equal widths are honest: every
- * account contributes the same share of the pool, whatever its plan.
+ * One pooled window as segments, one per account, each as wide as the account's
+ * plan capacity and filled by the share of its quota still open, so a Max 20x
+ * seat outweighs a Pro one and the filled area matches the pooled figure. A
+ * floor keeps the smallest segment wide enough to hover.
  *
  * Wide, each segment carries its own label. Narrow, the bar is a bare strip
  * and a legend below lists the accounts in the same order; both open the
@@ -466,7 +467,11 @@ function PoolBar({
     <div className="@container/pool min-w-0">
       <div
         className="grid gap-x-1 gap-y-1"
-        style={{ gridTemplateColumns: `repeat(${pool.columns.length}, minmax(0, 1fr))` }}
+        style={{
+          gridTemplateColumns: pool.columns
+            .map((column) => `minmax(1.5rem, ${column.capacity}fr)`)
+            .join(" "),
+        }}
       >
         {pool.columns.map((member, position) =>
           member.window ? (

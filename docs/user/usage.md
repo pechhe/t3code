@@ -81,7 +81,9 @@ the dialog.
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
 or Claude accounts across your environments and hubs you read one number per window rather than a
 list. Each window card shows how much of the pool is left and a bar with one segment per account,
-kept in the same column across windows. Accounts are ordered by their 5-hour reset, soonest
+kept in the same column across windows. Accounts count by plan size: a segment is as wide as its
+plan's multiplier (Max 20x is twenty times a Pro account), so the pooled figure is what is left of
+your combined allowance, not an average of percentages. Accounts are ordered by their 5-hour reset, soonest
 first, or by the first available window when no account reports a 5-hour limit. A gap means the
 account does not report that window. When the provider reports reset times, the card also says
 when the next reset lands and how much it hands back. The hatched
@@ -93,6 +95,9 @@ Keychain. On narrow screens, numbered rows below
 the bar show each account's quota, countdown, and credits. Tap a row to open its details.
 
 The same account signed in on more than one environment, or reported by a hub as well, counts once.
+
+In a thread, the same pooled 5-hour and weekly limits sit beside the composer when the window is
+wide enough to fit them. Hover a segment for that account, or click **Usage left** to open this page.
 Filter with the environment dropdown to see what a single machine has.
 
 Opening Limits checks the selected connected environments automatically. Each client waits at
