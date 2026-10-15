@@ -1,16 +1,28 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
-import type { AgentPolicyManifest, AgentTaskBinding, ModelSelection } from "@t3tools/contracts";
+import {
+  ProjectId,
+  type AgentPolicyManifest,
+  type AgentTaskBinding,
+  type ModelSelection,
+  type OrchestrationV2AppThread,
+} from "@t3tools/contracts";
+import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as Managed from "./ManagedAgentService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Policy from "./AgentPolicyService.ts";
+import * as RuntimePolicy from "../orchestration-v2/RuntimePolicy.ts";
+import * as Projects from "../orchestration-v2/ProjectStore.ts";
+import * as Providers from "../provider/ProviderInstanceRegistry.ts";
+import * as Settings from "../serverSettings.ts";
 import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
 
 const sourceRevision = "fixture-source-commit";
@@ -77,6 +89,76 @@ const fixture = Effect.gen(function* () {
 });
 
 it.layer(testLayer)("ManagedAgentService", (it) => {
+  it.effect(
+    "starts a root reader through the real runtime guard and still refuses an unbound writer",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const accepted = yield* f.prepare({
+          workspacePath: null,
+          projectRoot: f.workspacePath,
+          request: request({ workspacePath: f.workspacePath, readOnly: true }),
+        });
+        const provider = [codex, claude].find(
+          (p) => p.instanceId === accepted.binding.effective.instanceId,
+        )!;
+        const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(Projects.ProjectStoreV2)({
+                get: () => Effect.succeed(Option.some({ workspaceRoot: f.workspacePath } as never)),
+              }),
+              Layer.mock(Providers.ProviderInstanceRegistry)({
+                getInstance: () =>
+                  Effect.succeed({
+                    snapshot: { getSnapshot: Effect.succeed(provider) },
+                  } as ProviderInstance),
+              }),
+            ),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          const runtime = yield* RuntimePolicy.RuntimePolicyV2;
+          const settings = yield* Settings.ServerSettingsService;
+          const projectId = ProjectId.make("root-reader-project");
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [projectId]: { providerInstances: { [provider.instanceId]: { enabled: true } } },
+            },
+          });
+          const thread = {
+            projectId,
+            worktreePath: null,
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            agentTask: accepted.binding,
+          } as OrchestrationV2AppThread;
+          const resolved = yield* runtime.resolve({
+            thread,
+            modelSelection: accepted.binding.effective,
+          });
+          expect(resolved.cwd).toBe(f.workspacePath);
+          expect(resolved.managedAgent).toBe(true);
+          expect(resolved.sandboxPolicy).toEqual({ type: "readOnly", networkAccess: false });
+          // The runtime must not turn its resolved cwd into explicit writer authority.
+          const denied = yield* runtime
+            .resolve({
+              thread: {
+                ...thread,
+                agentTask: { ...accepted.binding, sourceAccess: "scoped-write" },
+              },
+              modelSelection: accepted.binding.effective,
+            })
+            .pipe(Effect.flip);
+          expect(denied.cause).toMatchObject({ reason: "workspace" });
+        }).pipe(
+          Effect.provide(runtimeLayer),
+          Effect.provide(Settings.layerTest()),
+          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+        );
+      }),
+  );
+
   it.effect("allows only read-only lead work at an unbound thread's canonical project root", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
