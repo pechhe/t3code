@@ -5,6 +5,8 @@ import {
   PreviewAutomationSnapshot,
   PreviewTabId,
   type PreviewSessionSnapshot,
+  PreviewRenderedViewportSize,
+  PreviewViewportSetting,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
@@ -43,6 +45,7 @@ const Binding = Schema.Struct({
   windowId: Schema.optional(Schema.Number),
   targetId: Schema.optional(Schema.String),
   allocationUrl: Schema.optional(Schema.String),
+  viewport: Schema.optional(PreviewViewportSetting),
   url: Schema.String,
   title: Schema.String,
 });
@@ -69,6 +72,7 @@ const OpenedTab = Schema.Struct({ targetId: Schema.String });
 const decodeOpened = Schema.decodeUnknownEffect(OpenedTab);
 const WindowContext = Schema.Struct({ windowId: Schema.Number });
 const decodeWindow = Schema.decodeUnknownEffect(WindowContext);
+const decodeRendered = Schema.decodeUnknownEffect(PreviewRenderedViewportSize);
 const ObservedSnapshot = Schema.Struct({
   text: Schema.String,
   observed: Schema.Struct({
@@ -203,6 +207,7 @@ const make = Effect.gen(function* () {
         ...(binding.windowId === undefined ? {} : { expectedWindow: binding.windowId }),
         ...(binding.targetId === undefined ? {} : { targetId: binding.targetId }),
         ...(binding.allocationUrl === undefined ? {} : { allocationUrl: binding.allocationUrl }),
+        ...(binding.viewport === undefined ? {} : { viewport: binding.viewport }),
         action,
         timeoutMs,
         readHumanMessages,
@@ -555,6 +560,22 @@ const make = Effect.gen(function* () {
             actionTimeline: [],
             screenshot: result.screenshot,
           }).pipe(Effect.mapError((cause) => failure("invalid-response", cause)));
+        }
+        if (request.operation === "resize" && action.viewport !== undefined) {
+          const rendered = yield* decodeRendered(response.result).pipe(
+            Effect.mapError((cause) => failure("invalid-response", cause)),
+          );
+          const tabId = binding.tabId;
+          const viewport = action.viewport._tag === "fill" ? undefined : action.viewport;
+          yield* save(
+            (yield* Ref.get(state)).map((tab) => {
+              if (tab.tabId !== tabId) return tab;
+              const { viewport: _previous, ...rest } = tab;
+              return viewport === undefined ? rest : { ...rest, viewport };
+            }),
+          );
+          setCurrent();
+          return { tabId, setting: action.viewport, viewport: rendered };
         }
         if (request.operation === "resume") {
           if (binding.lane !== "agents") return yield* failure("unsupported");

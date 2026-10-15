@@ -3,11 +3,15 @@ import {
   PreviewAutomationNavigateInput,
   PreviewAutomationOpenInput,
   PreviewAutomationPressInput,
+  PreviewAutomationResizeInput,
   PreviewAutomationScrollInput,
   PreviewAutomationTypeInput,
+  PreviewAutomationWaitForInput,
   type PreviewAutomationOperation,
+  type PreviewViewportSetting,
 } from "@t3tools/contracts";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
+import { resolvePreviewViewport } from "@t3tools/shared/previewViewport";
 import * as Schema from "effect/Schema";
 
 const decodeOpen = Schema.decodeUnknownSync(PreviewAutomationOpenInput);
@@ -16,6 +20,8 @@ const decodeClick = Schema.decodeUnknownSync(PreviewAutomationClickInput);
 const decodeType = Schema.decodeUnknownSync(PreviewAutomationTypeInput);
 const decodePress = Schema.decodeUnknownSync(PreviewAutomationPressInput);
 const decodeScroll = Schema.decodeUnknownSync(PreviewAutomationScrollInput);
+const decodeWaitFor = Schema.decodeUnknownSync(PreviewAutomationWaitForInput);
+const decodeResize = Schema.decodeUnknownSync(PreviewAutomationResizeInput);
 
 export const PHI_OPERATIONS = [
   "open",
@@ -26,6 +32,8 @@ export const PHI_OPERATIONS = [
   "type",
   "press",
   "scroll",
+  "waitFor",
+  "resize",
   "close",
   "handoff",
   "resume",
@@ -68,6 +76,8 @@ export interface PhiOperation {
   readonly url?: string | undefined;
   readonly timeout?: number | undefined;
   readonly text?: string | undefined;
+  readonly urlIncludes?: string | undefined;
+  readonly viewport?: PreviewViewportSetting | undefined;
   readonly message?: string | undefined;
   readonly clear?: boolean | undefined;
   readonly key?: string | undefined;
@@ -185,6 +195,20 @@ export function translatePhiOperation(
       }
       return { operation, dx: value.deltaX ?? 0, dy: value.deltaY ?? 0 };
     }
+    case "waitFor": {
+      const value = decodeWaitFor(input);
+      return {
+        operation,
+        target: target(value, refs),
+        text: value.text,
+        urlIncludes: value.urlIncludes,
+        timeout: (value.timeoutMs ?? 15_000) / 1000,
+      };
+    }
+    case "resize": {
+      const value = decodeResize(input);
+      return { operation, viewport: resolvePreviewViewport(value) };
+    }
     case "handoff": {
       if (
         typeof input !== "object" ||
@@ -297,6 +321,11 @@ if (op.operation === 'status') {
   result = {};
 } else {
   if (request.targetId) await switchTab(request.targetId);
+  // The skill's viewport override lasts one round, so a resized tab is re-sized every round.
+  const viewport = op.operation === 'resize' ? op.viewport : request.viewport;
+  const rendered = viewport && viewport._tag !== 'fill'
+    ? await setViewport({width: viewport.width, height: viewport.height})
+    : op.operation === 'resize' ? await setViewport() : undefined;
   // Both lanes handle close above; this switch only operates on a live owned tab.
   switch (op.operation) {
     case 'open': result = await openTab(request.allocationUrl ?? op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
@@ -325,6 +354,35 @@ if (op.operation === 'status') {
       break;
     case 'press': result = await pressKey(op.key, {modifiers: op.modifiers}); break;
     case 'scroll': result = await scroll({dx: op.dx, dy: op.dy}); break;
+    case 'waitFor': {
+      // The text and URL arrive as JSON string literals inside a fixed condition: data, not code.
+      const conditions = [];
+      if (op.text !== undefined) conditions.push('(document.body ? document.body.innerText : "").includes(' + JSON.stringify(op.text) + ')');
+      if (op.urlIncludes !== undefined) conditions.push('location.href.includes(' + JSON.stringify(op.urlIncludes) + ')');
+      const expression = conditions.join(' && ');
+      // One probe: true when met, false on the helper's timeout. A dialog stops the wait.
+      const holds = async (probe) => {
+        try {
+          if ((await probe)?.dialog) throw new Error('A JavaScript dialog interrupted the wait');
+          return true;
+        } catch (error) {
+          if (/timed out/.test(error?.message ?? '')) return false;
+          throw error;
+        }
+      };
+      const deadline = Date.now() + op.timeout * 1000;
+      // Every condition is checked again on each poll, so they hold at the same moment.
+      for (;;) {
+        const element = op.target === undefined || await holds(waitForElement(op.target, {timeout: 0.25}));
+        const page = !expression || await holds(waitForFunction(expression, {timeout: 0}));
+        if (element && page) break;
+        if (Date.now() >= deadline) throw new Error('preview_wait_for timed out before every condition matched');
+        await wait(0.25);
+      }
+      result = {};
+      break;
+    }
+    case 'resize': result = {width: rendered.width, height: rendered.height}; break;
     default: throw new Error('Unsupported Phi operation');
   }
 }

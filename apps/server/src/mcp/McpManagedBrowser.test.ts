@@ -103,7 +103,6 @@ it("lists exactly the managed browser tools the adapters pre-approve", () => {
   for (const forbidden of [
     "preview_evaluate",
     "preview_upload",
-    "preview_wait_for",
     "preview_recording_start",
     "delegate_task",
     "t3_thread_send",

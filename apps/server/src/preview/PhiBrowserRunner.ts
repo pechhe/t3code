@@ -1,4 +1,5 @@
 // @effect-diagnostics preferSchemaOverJson:off schemaSyncInEffect:off -- Fixed runner source needs JSON string-literal escaping; response decoding is enclosed in Effect.try.
+import type { PreviewViewportSetting } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -60,6 +61,8 @@ export interface PhiBrowserRound {
   readonly targetId?: string;
   /** A unique blank URL allocated before the owned tab's identifier is returned. */
   readonly allocationUrl?: string;
+  /** The tab's size from its last preview_resize, applied again on every round. */
+  readonly viewport?: PreviewViewportSetting;
   readonly action: PhiOperation;
   readonly timeoutMs: number;
 }
@@ -104,13 +107,20 @@ const make = Effect.gen(function* () {
     // JSON string decoding keeps even quotes, backticks and line separators in
     // user text as data. No shell parses the command or its stdin.
     const { skillDirectory: _skillDirectory, timeoutMs: _timeoutMs, ...data } = request;
+    // The skill runner calls process.exit() as soon as this script returns, which drops
+    // whatever part of a reply larger than the pipe buffer is still unwritten (every
+    // snapshot carries a screenshot). Wait for stdout to drain first.
     const source = `const request = JSON.parse(${JSON.stringify(JSON.stringify(data))});
 try {
+  await (async () => {
 ${PHI_RUNNER_PROGRAM}
+  })();
 } catch (error) {
   if (typeof error?.message === 'string' && error.message.startsWith('user is controlling')) {
     cliLog(JSON.stringify({t3Phi: {result: null, context: null, failure: 'human-control'}}));
   } else throw error;
+} finally {
+  await new Promise((resolve) => process.stdout.write('', resolve));
 }`;
     const output = yield* processRunner
       .run({

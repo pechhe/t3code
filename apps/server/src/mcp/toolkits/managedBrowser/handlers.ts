@@ -1,5 +1,9 @@
 import * as Effect from "effect/Effect";
-import type { PreviewAutomationSnapshot, PreviewAutomationStatus } from "@t3tools/contracts";
+import type {
+  PreviewAutomationResizeResult,
+  PreviewAutomationSnapshot,
+  PreviewAutomationStatus,
+} from "@t3tools/contracts";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -30,6 +34,12 @@ export const layer = McpToolAccess.toLayer(ManagedBrowserToolkit, {
   preview_press: McpToolAccess.asManagedBrowser((input) => invokeTargeted<object>("press", input)),
   preview_scroll: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<object>("scroll", input),
+  ),
+  preview_wait_for: McpToolAccess.asManagedBrowser((input) =>
+    invokeTargeted<object>("waitFor", input, input.timeoutMs),
+  ),
+  preview_resize: McpToolAccess.asManagedBrowser((input) =>
+    invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
   ),
   preview_handoff: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<object>("handoff", input),

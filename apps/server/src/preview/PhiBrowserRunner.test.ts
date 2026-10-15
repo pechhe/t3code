@@ -34,6 +34,7 @@ const setup = (
             observe: async () => ({ elements: [] }),
             typeText: async (text: string) => text,
             cliLog: (text: string) => lines.push(text),
+            process: { stdout: { write: (_chunk: string, done: () => void) => done() } },
           });
           yield* Effect.tryPromise(() =>
             NodeVM.runInContext(`(async () => {${input.stdin}\n})()`, context),

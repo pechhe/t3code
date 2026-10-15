@@ -11,6 +11,8 @@ export const MANAGED_BROWSER_TOOL_NAMES = [
   "preview_type",
   "preview_press",
   "preview_scroll",
+  "preview_wait_for",
+  "preview_resize",
   "preview_handoff",
   "preview_resume",
   "t3_preview_list",

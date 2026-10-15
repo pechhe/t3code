@@ -24,9 +24,14 @@ async function round(
     allocationUrl?: string;
     tabs?: Array<{ targetId: string; url: string }>;
     password?: boolean;
+    viewport?: { _tag: "freeform"; width: number; height: number };
+    pageText?: string | Array<string>;
+    elementPolls?: Array<boolean>;
+    dialog?: boolean;
   } = {},
 ) {
   const calls: Array<unknown> = [];
+  const polls = { element: 0, page: 0 };
   let value = options.initial ?? "existing";
   const guard = () => {
     if (options.human) throw new Error("user is controlling");
@@ -38,6 +43,7 @@ async function round(
       expectedWindow: options.expectedWindow,
       targetId: options.omitTarget ? undefined : "owned-tab",
       allocationUrl: options.allocationUrl,
+      viewport: options.viewport,
     },
     enterContext: async () => {
       calls.push("enter");
@@ -91,6 +97,28 @@ async function round(
       guard();
       calls.push(["close-tab", id]);
     },
+    setViewport: async (size?: { width: number; height: number }) => {
+      calls.push(["viewport", size]);
+      return size ?? { width: 1280, height: 800 };
+    },
+    // Each poll reads the next entry of `elementPolls`/`pageText`, keeping the last one.
+    waitForElement: async (target: string) => {
+      const present = options.elementPolls?.[polls.element++] ?? options.elementPolls?.at(-1);
+      calls.push(["wait-element", target]);
+      if (!present) throw new Error("waitForElement: timed out");
+    },
+    // Evaluates the adapter's fixed condition against the page text of this poll.
+    waitForFunction: async (expression: string) => {
+      if (options.dialog) return { dialog: { type: "alert" } };
+      const texts = [options.pageText ?? ""].flat();
+      const page = NodeVM.createContext({
+        document: { body: { innerText: texts[polls.page++] ?? texts.at(-1) } },
+        location: { href: "https://example.com/done" },
+      });
+      if (!NodeVM.runInContext(expression, page)) throw new Error("waitForFunction: timed out");
+      return true;
+    },
+    wait: async () => {},
     cliLog: (text: string) => {
       calls.push(JSON.parse(text));
     },
@@ -221,6 +249,70 @@ describe("fixed Phi skill adapter", () => {
     expect(
       (await round(translatePhiOperation("scroll", { deltaX: 10, deltaY: -40 }, refs))).calls,
     ).toContainEqual({ dx: 10, dy: -40 });
+  });
+
+  it("waits for an element, then for visible text and URL as literal data", async () => {
+    const wait = translatePhiOperation(
+      "waitFor",
+      {
+        locator: "aria-ref=tab-a-document-1-element-1",
+        text: 'Saved "draft"',
+        urlIncludes: "/done",
+        timeoutMs: 2000,
+      },
+      refs,
+    );
+    const done = await round(wait, {
+      elementPolls: [true],
+      pageText: 'Draft: Saved "draft" just now',
+    });
+    expect(done.calls).toContainEqual(["wait-element", "@123"]);
+    expect(done.calls.at(-1)).toMatchObject({ t3Phi: { result: {} } });
+    const hostile = translatePhiOperation(
+      "waitFor",
+      { text: '") || process.exit(1) || ("', timeoutMs: 100 },
+      refs,
+    );
+    await expect(round(hostile, { pageText: "nothing" })).rejects.toThrow("timed out");
+  });
+
+  it("waits until the element and the text hold at the same moment", async () => {
+    const wait = translatePhiOperation(
+      "waitFor",
+      { selector: ".save", text: "Saved", timeoutMs: 5000 },
+      refs,
+    );
+    // The button disappears just as the text appears; only the third poll has both.
+    const done = await round(wait, {
+      elementPolls: [true, false, true],
+      pageText: ["Saving", "Saved", "Saved"],
+    });
+    expect(
+      done.calls.filter((call) => Array.isArray(call) && call[0] === "wait-element"),
+    ).toHaveLength(3);
+    expect(done.calls.at(-1)).toMatchObject({ t3Phi: { result: {} } });
+  });
+
+  it("fails a wait interrupted by a dialog instead of reporting a match", async () => {
+    const wait = translatePhiOperation("waitFor", { text: "Saved", timeoutMs: 5000 }, refs);
+    await expect(round(wait, { dialog: true })).rejects.toThrow("dialog interrupted");
+  });
+
+  it("resizes to a preset, keeps the size on later rounds and resets to fill", async () => {
+    const preset = await round(
+      translatePhiOperation("resize", { mode: "preset", preset: "iphone-se" }, refs),
+    );
+    expect(preset.calls).toContainEqual(["viewport", { width: 375, height: 667 }]);
+    expect(preset.calls.at(-1)).toMatchObject({ t3Phi: { result: { width: 375, height: 667 } } });
+    const later = await round(
+      { operation: "click", target: "@123" },
+      { viewport: { _tag: "freeform", width: 375, height: 667 } },
+    );
+    expect(later.calls).toContainEqual(["viewport", { width: 375, height: 667 }]);
+    const fill = await round(translatePhiOperation("resize", { mode: "fill" }, refs), {
+      viewport: { _tag: "freeform", width: 375, height: 667 },
+    });
+    expect(fill.calls).toContainEqual(["viewport", undefined]);
   });
 
   it("does not use Agents-only ownership APIs in shadow status", async () => {

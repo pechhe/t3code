@@ -153,6 +153,14 @@ const withFixture = (
               return { result: {}, context: null };
             }
             if (request.action.operation === "handoff") control.human = true;
+            if (request.action.operation === "resize")
+              return {
+                result:
+                  request.action.viewport?._tag === "fill"
+                    ? { width: 1280, height: 800 }
+                    : { width: 375, height: 667 },
+                context: { windowId: tab?.windowId ?? 0 },
+              };
             if (request.action.operation === "snapshot")
               return {
                 result: {
@@ -268,6 +276,36 @@ it.effect("journals before allocation and refuses another task's tab", () =>
       expect(yield* browser.list(other)).toEqual([]);
       yield* browser.invoke({ scope, operation: "close", tabId, input: {} });
       expect(yield* browser.list(scope)).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("keeps a resized tab's size on every later round until it fills again", () =>
+  withFixture(({ browser, calls, journal }) =>
+    Effect.gen(function* () {
+      const opened = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: {},
+      })) as PreviewAutomationStatus;
+      const tabId = opened.tabId!;
+      const resized = yield* browser.invoke({
+        scope,
+        operation: "resize",
+        tabId,
+        input: { mode: "preset", preset: "iphone-se" },
+      });
+      expect(resized).toEqual({
+        tabId,
+        setting: { _tag: "preset", width: 375, height: 667, presetId: "iphone-se" },
+        viewport: { width: 375, height: 667 },
+      });
+      expect(yield* journal).toContain('"presetId":"iphone-se"');
+      yield* browser.invoke({ scope, operation: "snapshot", tabId, input: {} });
+      expect(calls.at(-1)?.viewport).toMatchObject({ width: 375, height: 667 });
+      yield* browser.invoke({ scope, operation: "resize", tabId, input: { mode: "fill" } });
+      yield* browser.invoke({ scope, operation: "snapshot", tabId, input: {} });
+      expect(calls.at(-1)?.viewport).toBeUndefined();
     }),
   ),
 );
