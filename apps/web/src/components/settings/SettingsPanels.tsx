@@ -600,6 +600,10 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.snoozeLimitedThreads !== DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads
         ? ["Snooze limited threads"]
         : []),
+      ...(settings.switchPooledAccountOnLimit !==
+      DEFAULT_UNIFIED_SETTINGS.switchPooledAccountOnLimit
+        ? ["Switch pooled account on limit"]
+        : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
       ...(settings.interfaceSounds !== DEFAULT_UNIFIED_SETTINGS.interfaceSounds
         ? ["Interface sounds"]
@@ -730,6 +734,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sidebarAutoSettleOnMerge,
       settings.autoResumeLimitedThreads,
       settings.snoozeLimitedThreads,
+      settings.switchPooledAccountOnLimit,
       settings.sidebarProjectGroupingMode,
       settings.sidebarProjectSortOrder,
       settings.sidebarWorkingShelfEnabled,
@@ -848,6 +853,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sidebarAutoSettleOnMerge: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleOnMerge,
       autoResumeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.autoResumeLimitedThreads,
       snoozeLimitedThreads: DEFAULT_UNIFIED_SETTINGS.snoozeLimitedThreads,
+      switchPooledAccountOnLimit: DEFAULT_UNIFIED_SETTINGS.switchPooledAccountOnLimit,
       responseStreamingMode: DEFAULT_UNIFIED_SETTINGS.responseStreamingMode,
       enableProviderUpdateChecks: DEFAULT_UNIFIED_SETTINGS.enableProviderUpdateChecks,
       continueThreadsAfterServerUpdate: DEFAULT_UNIFIED_SETTINGS.continueThreadsAfterServerUpdate,
@@ -2594,6 +2600,22 @@ export function GeneralSettingsPanel() {
           }
         />
 
+        <SettingsRow
+          serverScoped
+          {...searchableSetting("switch-pooled-account-on-limit")}
+          description="When a thread on a pooled account hits its usage limit, continue it at once on the next account with usage left, using the same model."
+          settingKeys={["switchPooledAccountOnLimit"]}
+          control={
+            <ScopedSwitch
+              settingKeys={["switchPooledAccountOnLimit"]}
+              checked={settings.switchPooledAccountOnLimit}
+              onCheckedChange={(checked) =>
+                updateSettings({ switchPooledAccountOnLimit: Boolean(checked) })
+              }
+              aria-label="Switch pooled account on limit"
+            />
+          }
+        />
         <SettingsRow
           serverScoped
           {...searchableSetting("auto-resume-limited-threads")}

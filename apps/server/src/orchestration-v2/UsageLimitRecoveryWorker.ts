@@ -1,11 +1,79 @@
-import { CommandId, MessageId, type OrchestrationV2Command } from "@t3tools/contracts";
+import {
+  CommandId,
+  MessageId,
+  type OrchestrationV2Command,
+  type RunId,
+  type ServerProvider,
+} from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { pickPoolFailoverMember } from "../provider/providerPools.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
+
+const CONTINUE_TEXT = "Continue where you left off.";
+
+/** A usage-limit stop with its window still closed that nothing else already handles. */
+function isLimitBlocked(
+  thread: ProjectionStore.ProjectionLimitRecoveryCandidate,
+): thread is ProjectionStore.ProjectionLimitRecoveryCandidate & {
+  readonly latestRunId: RunId;
+  readonly usageLimitResetAt: string;
+} {
+  return (
+    thread.status === "failed" &&
+    thread.lastErrorClass === "usage_limit" &&
+    !!thread.latestRunId &&
+    !!thread.usageLimitResetAt &&
+    thread.archivedAt === null &&
+    thread.settledOverride !== "settled" &&
+    thread.pendingRuntimeRequest === null
+  );
+}
+
+/**
+ * Continues a limited thread on the next account of the pool it runs on, with
+ * the same model, instead of waiting for the reset. The failed run is the
+ * identity: once the continuation starts it is no longer the latest run.
+ */
+export function poolFailoverCommand(
+  thread: ProjectionStore.ProjectionLimitRecoveryCandidate,
+  providers: ReadonlyArray<ServerProvider>,
+  nowMs: number,
+): OrchestrationV2Command | null {
+  if (!isLimitBlocked(thread) || Date.parse(thread.usageLimitResetAt) <= nowMs) return null;
+  const limited = thread.modelSelection.instanceId;
+  for (const pool of providers) {
+    if (pool.poolMembers?.includes(limited) !== true) continue;
+    const member = pickPoolFailoverMember({
+      pool: { driver: pool.driver, members: pool.poolMembers },
+      providers,
+      nowMs,
+      limited,
+    });
+    if (member === undefined) continue;
+    const identity = `limit-pool-switch:${thread.id}:${thread.latestRunId}`;
+    return {
+      type: "message.dispatch",
+      commandId: CommandId.make(identity),
+      messageId: MessageId.make(identity),
+      threadId: thread.id,
+      manualContinuationOfRunId: thread.latestRunId,
+      modelSelection: { ...thread.modelSelection, instanceId: member },
+      text: CONTINUE_TEXT,
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "server",
+    };
+  }
+  return null;
+}
 
 /** The persisted run and reset form the identity of one recovery opportunity. */
 export function limitRecoveryCommand(
@@ -14,16 +82,7 @@ export function limitRecoveryCommand(
   nowMs: number,
   snooze = false,
 ): OrchestrationV2Command | null {
-  if (
-    thread.status !== "failed" ||
-    thread.lastErrorClass !== "usage_limit" ||
-    !thread.latestRunId ||
-    !thread.usageLimitResetAt ||
-    thread.archivedAt !== null ||
-    thread.settledOverride === "settled" ||
-    thread.pendingRuntimeRequest !== null
-  )
-    return null;
+  if (!isLimitBlocked(thread)) return null;
   const resetMs = Date.parse(thread.usageLimitResetAt);
   // An already-expired window reported with a fresh failure cannot start a retry loop.
   if (
@@ -63,7 +122,7 @@ export function limitRecoveryCommand(
     ...(recovery.requestId === undefined
       ? {}
       : { usageLimitRecoveryRequestId: recovery.requestId }),
-    text: "Continue where you left off.",
+    text: CONTINUE_TEXT,
     attachments: [],
     dispatchMode: { type: "start_immediately" },
     createdBy: "user",
@@ -75,22 +134,33 @@ const makeSweep = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const settings = yield* ServerSettings.ServerSettingsService;
+  // Optional like ThreadManagementService: without the registry there are no pools.
+  const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
   return Effect.fn("UsageLimitRecoveryWorker.sweep")(function* () {
     const preferences = yield* settings.getSettings;
     const now = yield* DateTime.now;
+    const poolSwitch = preferences.switchPooledAccountOnLimit && Option.isSome(providerRegistry);
     const candidates = yield* projections.getLimitRecoveryCandidates({
       now,
       autoResume: preferences.autoResumeLimitedThreads,
       snooze: preferences.snoozeLimitedThreads,
+      poolSwitch,
     });
+    if (candidates.length === 0) return;
+    const providers =
+      poolSwitch && Option.isSome(providerRegistry)
+        ? yield* providerRegistry.value.getProviders
+        : [];
     const nowMs = DateTime.toEpochMillis(now);
     for (const thread of candidates) {
-      const command = limitRecoveryCommand(
-        thread,
-        preferences.autoResumeLimitedThreads,
-        nowMs,
-        preferences.snoozeLimitedThreads,
-      );
+      const command =
+        (poolSwitch ? poolFailoverCommand(thread, providers, nowMs) : null) ??
+        limitRecoveryCommand(
+          thread,
+          preferences.autoResumeLimitedThreads,
+          nowMs,
+          preferences.snoozeLimitedThreads,
+        );
       if (command === null) continue;
       yield* threads.dispatch(command).pipe(
         Effect.catchCause((cause) =>

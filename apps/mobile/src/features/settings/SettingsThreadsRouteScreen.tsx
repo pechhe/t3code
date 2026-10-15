@@ -96,6 +96,7 @@ function AutoSettleSettingsRows() {
     patch: Partial<AutoSettleSettings> & {
       autoResumeLimitedThreads?: boolean;
       snoozeLimitedThreads?: boolean;
+      switchPooledAccountOnLimit?: boolean;
     },
   ) => {
     if (
@@ -191,6 +192,13 @@ function AutoSettleSettingsRows() {
       ) : null}
       {!projectSelected ? (
         <SettingsSection title="Usage limits">
+          <SettingsSwitchRow
+            icon="clock"
+            label="Switch pooled account on limit"
+            value={uniformMobileSetting(displayTargets, "switchPooledAccountOnLimit")}
+            disabled={disabled}
+            onValueChange={(value) => writeToAll({ switchPooledAccountOnLimit: value })}
+          />
           <SettingsSwitchRow
             icon="clock"
             label="Auto-resume limited threads"

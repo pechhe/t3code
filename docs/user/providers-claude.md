@@ -60,9 +60,13 @@ Set up each account as its own Claude instance first, then add the pool to
 ```
 
 A thread keeps its account while that account has usage left. When it runs out,
-the thread waits for the reset as usual; pick the pool again in the model picker
-to move the thread to the account with usage left. The pool's settings page lists
-its accounts; usage, sign-in and models stay on each account's own page.
+T3 Code continues the thread on the account with usage left that resets soonest,
+with the same model. If every account is at a limit, the thread waits for the
+reset as usual. This applies to any thread running on one of the pool's accounts,
+including one you picked that account for directly. Turn it off with **Settings →
+General → Switch pooled account on limit**; pick the pool again in the model
+picker to move a thread yourself. The pool's settings page lists its accounts;
+usage, sign-in and models stay on each account's own page.
 
 ## Compact long conversations
 

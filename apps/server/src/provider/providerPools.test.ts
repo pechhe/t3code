@@ -7,7 +7,12 @@ import {
   type ServerProviderUsageWindow,
 } from "@t3tools/contracts";
 
-import { pickPoolMember, withPoolSnapshots, type ProviderPool } from "./providerPools.ts";
+import {
+  pickPoolFailoverMember,
+  pickPoolMember,
+  withPoolSnapshots,
+  type ProviderPool,
+} from "./providerPools.ts";
 
 const NOW = Date.parse("2026-10-15T12:00:00.000Z");
 const at = (hours: number) => DateTime.formatIso(DateTime.makeUnsafe(NOW + hours * 3_600_000));
@@ -104,6 +109,36 @@ describe("pickPoolMember", () => {
     ];
     expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("b");
     expect(pickPoolMember({ pool, providers: [], nowMs: NOW })).toBeUndefined();
+  });
+});
+
+describe("pickPoolFailoverMember", () => {
+  const limited = ProviderInstanceId.make("a");
+
+  it("moves to the other member with allowance whose usage resets soonest", () => {
+    const providers = [
+      account("a", [{ usedPercent: 100, resetsAt: at(1) }]),
+      account("b", [{ usedPercent: 40, resetsAt: at(4) }]),
+      account("c", [{ usedPercent: 40, resetsAt: at(2) }]),
+    ];
+    expect(pickPoolFailoverMember({ pool, providers, nowMs: NOW, limited })).toBe("c");
+  });
+
+  it("leaves the limited member even when its snapshot still shows allowance", () => {
+    const providers = [
+      account("a", [{ usedPercent: 10, resetsAt: at(1) }]),
+      account("b", [{ usedPercent: 90, resetsAt: at(4) }]),
+    ];
+    expect(pickPoolFailoverMember({ pool, providers, nowMs: NOW, limited })).toBe("b");
+  });
+
+  it("returns nothing when every other member is at a limit or cannot take a turn", () => {
+    const providers = [
+      account("a", [{ usedPercent: 100, resetsAt: at(1) }]),
+      account("b", [{ usedPercent: 100, resetsAt: at(2) }]),
+      account("c", [{ usedPercent: 0, resetsAt: at(3) }], { auth: { status: "unauthenticated" } }),
+    ];
+    expect(pickPoolFailoverMember({ pool, providers, nowMs: NOW, limited })).toBeUndefined();
   });
 });
 
