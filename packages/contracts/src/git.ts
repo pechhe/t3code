@@ -225,6 +225,11 @@ const VcsStatusChangeRequest = Schema.Struct({
 
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
+  /**
+   * Set when the folder is a repository of another kind, such as Jujutsu, so Git actions,
+   * including offering to initialise Git, do not apply. Absent on older servers.
+   */
+  otherVcsKind: Schema.optional(VcsDriverKind),
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
   isDefaultRef: Schema.Boolean,

@@ -193,4 +193,44 @@ describe("VcsDriverRegistry", () => {
       }).pipe(Effect.provide(makeDiskBackedLayer(repoDir, calls)));
     }).pipe(Effect.provide(NodeServices.layer)),
   );
+
+  it.effect(
+    "reads Jujutsu workspaces and colocated checkouts through Jujutsu, and a nested Git repository through Git",
+    () => {
+      const processLayer = VcsProcess.layer.pipe(Layer.provide(NodeServices.layer));
+      const layer = Layer.mergeAll(
+        Layer.effect(VcsDriverRegistry.VcsDriverRegistry, VcsDriverRegistry.make).pipe(
+          Layer.provide(VcsProjectConfig.layer),
+          Layer.provide(processLayer),
+          Layer.provide(NodeServices.layer),
+        ),
+        processLayer,
+        NodeServices.layer,
+      );
+      return Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
+        const process = yield* VcsProcess.VcsProcess;
+        const jj = (cwd: string, args: ReadonlyArray<string>) =>
+          process.run({ operation: "test.jj", command: "jj", args, cwd });
+        const plain = yield* fs.makeTempDirectoryScoped({ prefix: "t3-vcs-registry-jj-" });
+        yield* jj(plain, ["git", "init", "--no-colocate", "."]);
+        const colocated = yield* fs.makeTempDirectoryScoped({ prefix: "t3-vcs-registry-jj-" });
+        yield* jj(colocated, ["git", "init", "--colocate", "."]);
+
+        const nested = `${plain}/vendor/lib`;
+        yield* fs.makeDirectory(nested, { recursive: true });
+        yield* process.run({ operation: "test.git", command: "git", args: ["init"], cwd: nested });
+
+        assert.equal((yield* registry.detect({ cwd: plain }))?.kind, "jj");
+        assert.equal((yield* registry.detect({ cwd: colocated }))?.kind, "jj");
+        assert.equal((yield* registry.detect({ cwd: nested }))?.kind, "git");
+        // A colocated checkout can still be read through Git when the project asks for it.
+        assert.equal(
+          (yield* registry.detect({ cwd: colocated, requestedKind: "git" }))?.kind,
+          "git",
+        );
+      }).pipe(Effect.scoped, Effect.provide(layer));
+    },
+  );
 });

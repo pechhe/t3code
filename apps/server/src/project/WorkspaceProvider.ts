@@ -7,7 +7,11 @@ import * as Schema from "effect/Schema";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import type { GitCommandError, VcsRemoveWorktreeInput } from "@t3tools/contracts";
+import {
+  SLIPJAY_PROJECT_FILE_NAME,
+  type GitCommandError,
+  type VcsRemoveWorktreeInput,
+} from "@t3tools/contracts";
 import { repositoryStore } from "../agents/workspaceIdentity.ts";
 
 /**
@@ -95,7 +99,7 @@ export const make = Effect.gen(function* () {
       );
 
   const resolve: WorkspaceProvider["Service"]["resolve"] = (projectRoot) =>
-    fs.exists(path.join(projectRoot, "slipjay.json")).pipe(
+    fs.exists(path.join(projectRoot, SLIPJAY_PROJECT_FILE_NAME)).pipe(
       Effect.orElseSucceed(() => false),
       Effect.map((exists): WorkspaceProviderKind => (exists ? "slipjay" : "git-worktree")),
     );

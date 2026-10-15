@@ -52,10 +52,18 @@ const VCS_PROBES: ReadonlyArray<VcsProbe> = [
     label: "Jujutsu",
     executable: "jj",
     versionArgs: ["--version"],
-    implemented: false,
+    implemented: true,
     installHint: "Install Jujutsu with `brew install jj` or from https://github.com/jj-vcs/jj.",
   },
 ];
+
+const SLIPJAY_PROBE: DiscoveryProbe = {
+  label: "SlipJay",
+  executable: "slipjay",
+  versionArgs: ["--version"],
+  implemented: true,
+  installHint: "",
+};
 
 export class SourceControlDiscovery extends Context.Service<
   SourceControlDiscovery,
@@ -129,10 +137,33 @@ export const make = Effect.gen(function* () {
       );
   };
 
+  // SlipJay lands changes and allocates workspaces on top of Jujutsu, so it is a detail of that
+  // row rather than a version control system of its own.
+  const withSlipjay = (item: VcsDiscoveryItem): Effect.Effect<VcsDiscoveryItem> =>
+    item.kind !== "jj" || item.status !== "available"
+      ? Effect.succeed(item)
+      : probe({ ...SLIPJAY_PROBE, kind: "jj" }).pipe(
+          Effect.map((slipjay) =>
+            slipjay.status === "available"
+              ? {
+                  ...item,
+                  detail: Option.some(
+                    `SlipJay${Option.match(slipjay.version, {
+                      onNone: () => "",
+                      onSome: (version) => ` ${version}`,
+                    })} allocates workspaces for repositories with a slipjay.json.`,
+                  ),
+                }
+              : item,
+          ),
+        );
+
   return SourceControlDiscovery.of({
     discover: Effect.all({
       versionControlSystems: Effect.all(
-        VCS_PROBES.map((entry) => probe(entry)) as ReadonlyArray<Effect.Effect<VcsDiscoveryItem>>,
+        VCS_PROBES.map((entry) => probe(entry).pipe(Effect.flatMap(withSlipjay))) as ReadonlyArray<
+          Effect.Effect<VcsDiscoveryItem>
+        >,
         { concurrency: "unbounded" },
       ),
       sourceControlProviders: sourceControlProviders.discover,

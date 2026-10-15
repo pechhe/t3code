@@ -10,6 +10,7 @@ import * as Path from "effect/Path";
 import type { VcsDriverKind, VcsError, VcsRepositoryIdentity } from "@t3tools/contracts";
 import { VcsUnsupportedOperationError } from "@t3tools/contracts";
 import * as GitVcsDriver from "./GitVcsDriver.ts";
+import * as JjVcsDriver from "./JjVcsDriver.ts";
 import * as VcsProjectConfig from "./VcsProjectConfig.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 
@@ -70,8 +71,10 @@ export const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const projectConfig = yield* VcsProjectConfig.VcsProjectConfig;
   const git = yield* GitVcsDriver.makeVcsDriver;
+  const jj = yield* JjVcsDriver.makeVcsDriver;
   const drivers: Partial<Record<VcsDriverKind, VcsDriver.VcsDriver["Service"]>> = {
     git,
+    jj,
   };
 
   const get: VcsDriverRegistry["Service"]["get"] = (kind) => {
@@ -115,7 +118,19 @@ export const make = Effect.gen(function* () {
       return yield* detectWithDriver(requestedKind, driver, input.cwd);
     }
 
-    return yield* detectWithDriver("git", git, input.cwd);
+    // Jujutsu wins wherever it is present, colocated checkouts included. A Git repository
+    // nested inside a Jujutsu workspace is its own repository and stays Git.
+    const jjHandle = yield* detectWithDriver("jj", jj, input.cwd);
+    const gitHandle = yield* detectWithDriver("git", git, input.cwd);
+    if (jjHandle === null) return gitHandle;
+    if (gitHandle === null) return jjHandle;
+    const fromJjRoot = path.relative(
+      path.resolve(jjHandle.repository.rootPath),
+      path.resolve(gitHandle.repository.rootPath),
+    );
+    const gitIsNested =
+      fromJjRoot !== "" && !fromJjRoot.startsWith("..") && !path.isAbsolute(fromJjRoot);
+    return gitIsNested ? gitHandle : jjHandle;
   });
 
   // The cwd and each parent below the repository root. A new `.git` in any of

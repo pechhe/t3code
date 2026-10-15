@@ -92,6 +92,39 @@ describe("GitWorkflowService", () => {
     ),
   );
 
+  it.effect("tells the Git status of a Jujutsu repository which kind it is", () =>
+    Effect.gen(function* () {
+      const workflow = yield* GitWorkflowService.GitWorkflowService;
+      const local = yield* workflow.localStatus({ cwd: "/jj-repo" });
+      const full = yield* workflow.status({ cwd: "/jj-repo" });
+
+      assert.equal(local.isRepo, false);
+      assert.equal(local.otherVcsKind, "jj");
+      assert.equal(full.otherVcsKind, "jj");
+      assert.equal(yield* workflow.remoteStatus({ cwd: "/jj-repo" }), null);
+    }).pipe(
+      Effect.provide(
+        layer({
+          detect: () =>
+            Effect.succeed({
+              kind: "jj",
+              repository: {
+                kind: "jj",
+                rootPath: "/jj-repo",
+                metadataPath: "/jj-repo/.jj",
+                freshness: {
+                  source: "live-local",
+                  observedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
+                  expiresAt: Option.none(),
+                },
+              },
+              driver: {} as VcsDriverRegistry.VcsDriverHandle["driver"],
+            }),
+        }),
+      ),
+    ),
+  );
+
   it.effect("returns an empty local status when no VCS repository is detected", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;

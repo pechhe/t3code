@@ -254,7 +254,8 @@ function itemSummary({
     );
   }
 
-  return <span>Available</span>;
+  const detail = optionLabel(item.detail);
+  return <span>{detail ? `Available. ${detail}` : "Available"}</span>;
 }
 
 function DiscoveryItemRow({

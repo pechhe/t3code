@@ -15,6 +15,12 @@ import {
   type UnknownUnionMember,
 } from "./baseSchemas.ts";
 
+/**
+ * A project whose root holds this file allocates thread workspaces through SlipJay instead of
+ * Git worktrees.
+ */
+export const SLIPJAY_PROJECT_FILE_NAME = "slipjay.json";
+
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_CONTENTS_MAX_LIMIT = 500;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;

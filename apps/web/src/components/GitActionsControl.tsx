@@ -1701,7 +1701,8 @@ export default function GitActionsControl({
     </>
   );
 
-  if (!gitCwd) return null;
+  // Git actions, including starting a Git repository, do not apply to another kind of repository.
+  if (!gitCwd || (!isRepo && gitStatus?.otherVcsKind !== undefined)) return null;
 
   return (
     <>

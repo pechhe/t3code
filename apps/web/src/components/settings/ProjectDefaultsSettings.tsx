@@ -1,7 +1,9 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  type EnvironmentId,
   type ModelSelection,
   type ProviderInstanceId,
+  SLIPJAY_PROJECT_FILE_NAME,
   type WorktreeSubmodules,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
@@ -18,6 +20,7 @@ import {
 } from "../../providerInstances";
 import { useEnvironments } from "../../state/environments";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
+import { useProjectFileQuery } from "../files/projectFilesQueryState";
 import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
@@ -50,6 +53,34 @@ import {
 const WORKTREE_SUBMODULES_OPTIONS = ["recursive", "top-level", "none"] as const;
 function isWorktreeSubmodules(value: string | null): value is WorktreeSubmodules {
   return value !== null && (WORKTREE_SUBMODULES_OPTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * Read-only: the server allocates a project's thread workspaces through SlipJay when its root
+ * holds a slipjay.json, and through Git worktrees otherwise.
+ */
+function WorkspaceProviderRow({
+  environmentId,
+  workspaceRoot,
+}: {
+  environmentId: EnvironmentId;
+  workspaceRoot: string;
+}) {
+  const slipjayFile = useProjectFileQuery(environmentId, workspaceRoot, SLIPJAY_PROJECT_FILE_NAME);
+  // A missing file is a read error; no answer yet, or no file access, shows nothing.
+  if (slipjayFile.isPending || (!slipjayFile.data && !slipjayFile.readError)) return null;
+  return (
+    <SettingsRow
+      id="workspace-provider"
+      title="Workspaces"
+      description={`How new worktree threads get their own checkout. A ${SLIPJAY_PROJECT_FILE_NAME} at the project root selects SlipJay.`}
+      control={
+        <span className="text-sm text-muted-foreground">
+          {slipjayFile.data ? "SlipJay workspaces" : "Git worktrees"}
+        </span>
+      }
+    />
+  );
 }
 
 export function ProjectDefaultsSettings({ category }: { category: ProjectSettingsCategory }) {
@@ -97,6 +128,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const effective = target
     ? resolveProjectSettings(target.settings, null, null, null).settings
     : null;
+  const member =
+    (scope.kind === "project" || scope.kind === "checkout") && target
+      ? scope.members.find(
+          (candidate) =>
+            candidate.environmentId === target.environmentId && candidate.id === target.projectId,
+        )
+      : undefined;
 
   function modelDisabledReason(instanceId: ProviderInstanceId, model: string): string | null {
     const sourceEntry = entries.find((entry) => entry.instanceId === instanceId);
@@ -391,6 +429,12 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         </>
       ) : category === "source-control" ? (
         <>
+          {member ? (
+            <WorkspaceProviderRow
+              environmentId={member.environmentId}
+              workspaceRoot={member.workspaceRoot}
+            />
+          ) : null}
           <SettingsRow
             serverScoped
             settingKeys={["defaultAutoPull"]}

@@ -99,6 +99,12 @@ it.effect("reports implemented tools separately from locally available executabl
       if (input.command === "git") {
         return Effect.succeed(processOutput("git version 2.51.0\n"));
       }
+      if (input.command === "jj") {
+        return Effect.succeed(processOutput("jj 0.44.0\n"));
+      }
+      if (input.command === "slipjay") {
+        return Effect.succeed(processOutput("3.15.0\n"));
+      }
       if (input.command === "gh" && input.args[0] === "--version") {
         return Effect.succeed(processOutput("gh version 2.83.0\n"));
       }
@@ -169,8 +175,13 @@ it.effect("reports implemented tools separately from locally available executabl
       })),
       [
         { kind: "git", implemented: true, status: "available" },
-        { kind: "jj", implemented: false, status: "missing" },
+        { kind: "jj", implemented: true, status: "available" },
       ],
+    );
+    // SlipJay is noted on the Jujutsu row, not listed as a system of its own.
+    assert.include(
+      Option.getOrElse(result.versionControlSystems[1]!.detail, () => ""),
+      "SlipJay 3.15.0 allocates",
     );
     assert.deepStrictEqual(
       result.sourceControlProviders.map((item) => ({
