@@ -1,7 +1,7 @@
 {
   "version": 1,
   "projectCode": "t3",
-  "integrationBranch": "rollover",
+  "integrationBranch": "t3peach",
   "remote": "origin",
   "parallelExecution": true,
   "spares": 0,

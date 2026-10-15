@@ -1,9 +1,9 @@
 #!/bin/bash
-# Keeps the local fork build (branch `rollover`) on top of upstream nightlies.
+# Keeps the local fork build (branch `t3peach`) on top of upstream nightlies.
 #
 # Run hourly by launchd (install with `scripts/fork-nightly.sh --install-agent`):
 #   1. When upstream has a newer v*-nightly.* tag and no build ran in the last
-#      day, rebase `rollover` onto it, run the fork's focused checks, build the
+#      day, rebase `t3peach` onto it, run the fork's focused checks, build the
 #      macOS app, sign it with a stable local identity, install the fork's
 #      server as the SSH host's remote runtime (scripts/fork-vps-runtime.sh)
 #      and stage the app.
@@ -11,7 +11,7 @@
 #      /Applications/T3 Code (Nightly).app, keeping the previous app.
 #
 # `scripts/fork-nightly.sh --build-now` builds and installs straight away, on
-# the latest tag even when `rollover` already contains it (the first install).
+# the latest tag even when `t3peach` already contains it (the first install).
 #
 # A rebase conflict or a failed check never gets resolved here: the branch is
 # put back where it was and the tag is remembered as failed. If
@@ -22,7 +22,7 @@
 # The script works in its own git clone of the fork ($STATE/repo), never in the
 # developer's checkout: that one is a jj repository whose workspaces leave git
 # without a checked-out branch, and SlipJay lands changes there concurrently.
-# Each run starts the clone from origin's `rollover`, and the rebased branch is
+# Each run starts the clone from origin's `t3peach`, and the rebased branch is
 # pushed with a lease on exactly that commit, so a landing that happened during
 # the build is never overwritten (the push fails and the next tag retries).
 #
@@ -31,7 +31,7 @@
 # back to the official nightly.
 set -euo pipefail
 
-BRANCH=rollover
+BRANCH=t3peach
 # The overrides below let a dry run in a scratch clone touch nothing real.
 STATE="${T3FORK_STATE:-$HOME/.t3fork}"
 REPO="${T3FORK_REPO:-$STATE/repo}"
