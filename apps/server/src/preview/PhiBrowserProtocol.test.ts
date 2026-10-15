@@ -20,6 +20,7 @@ async function round(
     windows?: Array<{ windowId: number }>;
     omitTarget?: boolean;
     createdWindow?: number;
+    closeError?: unknown;
   } = {},
 ) {
   const calls: Array<unknown> = [];
@@ -78,6 +79,7 @@ async function round(
     },
     closeShadowWindow: async (name: string) => {
       calls.push(["close-shadow", name]);
+      if (options.closeError !== undefined) throw options.closeError;
     },
     closeTab: async (id: string) => {
       guard();
@@ -95,6 +97,10 @@ async function round(
 describe("Phi operation translation", () => {
   it("normalizes public URLs, blank opens and millisecond deadlines", () => {
     expect(translatePhiOperation("open", {}, refs)).toEqual({
+      operation: "open",
+      url: "about:blank",
+    });
+    expect(translatePhiOperation("open", { url: "about:blank" }, refs)).toEqual({
       operation: "open",
       url: "about:blank",
     });
@@ -208,6 +214,23 @@ describe("fixed Phi skill adapter", () => {
     expect(agents).toContainEqual(["close-tab", "owned-tab"]);
     expect(agents).not.toContainEqual(["close-shadow", "owned-task"]);
   });
+  it("finishes cleanup when interrupted allocation has no remaining shadow resource", async () => {
+    const closeError = Object.assign(new Error("agentSpace.shadow.close: unknown_task"), {
+      reply: { ok: false, error: "unknown_task" },
+    });
+    const result = await round({ operation: "close" }, { closeError });
+    expect(result.calls).toEqual([
+      ["close-shadow", "owned-task"],
+      { t3Phi: { result: {}, context: null } },
+    ]);
+    const disconnected = Object.assign(new Error("connection lost"), {
+      reply: { ok: false, error: "disconnected" },
+    });
+    await expect(round({ operation: "close" }, { closeError: disconnected })).rejects.toThrow(
+      "connection lost",
+    );
+  });
+
   it("refuses an Agents mutation without an explicit owned tab before binding", async () => {
     await expect(
       round({ operation: "close" }, { kind: "agent", omitTarget: true }),

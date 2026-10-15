@@ -109,6 +109,7 @@ export function translatePhiOperation(
   browserIsRemote = false,
 ): PhiOperation {
   const url = (raw: string) => {
+    if (raw === "about:blank") return raw;
     const normalized = normalizePreviewUrl(raw);
     if (browserIsRemote && /^(localhost|127\.[\d.]+|\[::1\])$/.test(new URL(normalized).hostname)) {
       throw new PhiBrowserInputError({ reason: "unavailable-route" });
@@ -212,7 +213,13 @@ if (request.action.operation === 'close' && request.context.kind === 'shadow') {
   // Close by the name recorded before allocation, even if the allocating
   // request was interrupted before its identifier reached T3. Never bind a
   // missing context merely to clean it up.
-  await closeShadowWindow(request.context.name);
+  try {
+    await closeShadowWindow(request.context.name);
+  } catch (error) {
+    // No resource was allocated, or an earlier cleanup already removed it.
+    // Keep connection, permission and other cleanup failures recoverable.
+    if (error?.reply?.error !== 'unknown_task') throw error;
+  }
   cliLog(JSON.stringify({t3Phi: {result: {}, context: null}}));
   return;
 }
