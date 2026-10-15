@@ -317,6 +317,8 @@ const make = Effect.gen(function* () {
       model: work.binding.effective.model,
       summary,
       resultContextTransferId: null,
+      // An external caller has no pending-request tools to answer a question with.
+      hasPendingQuestion: false,
       waitTimedOut: false,
       launchState: row.state,
       failureReason: row.failure_reason,
