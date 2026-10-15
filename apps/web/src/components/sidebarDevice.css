@@ -6,7 +6,7 @@
  * mobile sheet keeps the stock look.
  *
  * On desktop the metal runs behind the whole window, as in peach-pi: the rail is
- * transparent over it and the main view sits in a rounded port cut into it.
+ * transparent over it and the main view floats on it as a raised card.
  */
 :is([data-slot="sidebar-wrapper"], [data-slot="sidebar-inner"]) {
   --rail-metal-a: oklch(0.79 0.003 250);
@@ -15,11 +15,11 @@
   --rail-ink: oklch(0.2 0.005 250);
   --rail-ink-muted: oklch(0.38 0.005 250);
   --rail-lit: var(--engrave-active, oklch(0.74 0.185 52));
-  --engrave-lip: 0 2px 0 oklch(1 0.002 250 / 0.7);
+  --engrave-lip: 0 1px 0 oklch(1 0.002 250 / 0.55);
   --rail-catch: oklch(1 0.002 250 / 0.26);
   --rail-grain: oklch(0.35 0.004 250 / 0.06);
-  --port-shade: oklch(0.25 0.005 250 / 0.28);
-  --port-lip: oklch(1 0.002 250 / 0.75);
+  --card-shadow: oklch(0.22 0.01 250 / 0.3);
+  --card-edge: oklch(0.2 0.005 250 / 0.08);
 }
 
 :root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
@@ -29,11 +29,11 @@
   --rail-metal-c: oklch(0.235 0.004 265);
   --rail-ink: oklch(0.84 0.004 265);
   --rail-ink-muted: oklch(0.6 0.004 265);
-  --engrave-lip: 0 -2px 0 oklch(0 0 0 / 0.7);
+  --engrave-lip: 0 -1px 0 oklch(0 0 0 / 0.6);
   --rail-catch: oklch(0.62 0.004 265 / 0.22);
   --rail-grain: oklch(0.7 0.004 265 / 0.04);
-  --port-shade: oklch(0 0 0 / 0.5);
-  --port-lip: oklch(1 0 0 / 0.07);
+  --card-shadow: oklch(0 0 0 / 0.55);
+  --card-edge: oklch(1 0 0 / 0.06);
 }
 
 :is([data-slot="sidebar-wrapper"], [data-slot="sidebar-inner"][data-sidebar="sidebar"]) {
@@ -55,8 +55,43 @@
   );
 }
 
+/* Every sidebar text and icon colour reads from the rail's ink, so nothing on the
+   metal fades to the theme's pale greys. */
 [data-slot="sidebar-inner"][data-sidebar="sidebar"] {
   color: var(--rail-ink);
+  --color-foreground: var(--rail-ink);
+  --color-sidebar-foreground: var(--rail-ink);
+  --color-sidebar-muted-foreground: var(--rail-ink-muted);
+  --color-muted-foreground: var(--rail-ink-muted);
+  --color-secondary-label: var(--rail-ink-muted);
+  --color-icon-muted: var(--rail-ink-muted);
+  --sidebar-icon-color: var(--rail-ink-muted);
+}
+
+/* Faded row details (the branch line) stay legible on metal: muted ink, not a
+   translucent wash of it. */
+[data-slot="sidebar-inner"][data-sidebar="sidebar"]
+  [data-thread-item]
+  :is([class*="text-muted-foreground/"], [class*="text-secondary-label/"]) {
+  color: var(--rail-ink-muted);
+}
+
+/* Shelf headers are stamped into the metal like peach-pi's: bold capitals with an
+   engraved groove running to the chevron. */
+[data-slot="sidebar-inner"][data-sidebar="sidebar"] :is([data-testid$="-shelf-toggle"]) {
+  color: var(--rail-ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+[data-slot="sidebar-inner"][data-sidebar="sidebar"]
+  [data-testid$="-shelf-toggle"]
+  > span[aria-hidden] {
+  height: 2px;
+  background: none;
+  border-top: 1px solid color-mix(in srgb, var(--rail-ink) 22%, transparent);
+  border-bottom: 1px solid var(--rail-catch);
 }
 
 [data-slot="sidebar-inner"][data-sidebar="sidebar"],
@@ -86,28 +121,24 @@
     background: transparent;
   }
 
+  [data-slot="sidebar-container"] {
+    border: none;
+  }
+
+  /* The main view floats off the metal like a card, as in peach-pi. */
   [data-slot="sidebar-wrapper"] > [data-slot="sidebar-inset"] {
     height: calc(100dvh - 16px);
     margin: 8px 8px 8px 0;
-    border-radius: 12px;
-    box-shadow: 0 1px 0 var(--port-lip);
+    border-radius: 14px;
+    box-shadow:
+      0 0 0 1px var(--card-edge),
+      0 1px 2px color-mix(in srgb, var(--card-shadow) 40%, transparent),
+      0 6px 16px -4px color-mix(in srgb, var(--card-shadow) 70%, transparent),
+      0 18px 40px -12px var(--card-shadow);
   }
 
   [data-slot="sidebar"][data-state="collapsed"] ~ [data-slot="sidebar-inset"] {
     margin-left: 8px;
-  }
-
-  /* The port's cut edge: the metal rim shades the content just inside it. */
-  [data-slot="sidebar-wrapper"] > [data-slot="sidebar-inset"]::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 40;
-    pointer-events: none;
-    border-radius: inherit;
-    box-shadow:
-      inset 0 0 0 1px var(--port-shade),
-      inset 0 2px 3px -1px var(--port-shade);
   }
 }
 
