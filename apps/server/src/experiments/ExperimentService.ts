@@ -3,6 +3,13 @@ import {
   ExperimentAssignment,
   ExperimentOutcome,
   ExperimentObservation,
+  ExperimentEvidence,
+  ExperimentEvaluation,
+  ExperimentEvidenceInput,
+  ExperimentEvaluationInput,
+  type ExperimentEpisodeReport,
+  type ExperimentEvidenceReadInput,
+  type ExperimentEvidenceBundle,
   ExperimentError,
   ExperimentDefinition,
   type ExperimentTransitionInput,
@@ -24,6 +31,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import { historicalMessage } from "@t3tools/provider-core/server/handoffBudget";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 
 export class ExperimentService extends Context.Service<
@@ -57,6 +65,15 @@ export class ExperimentService extends Context.Service<
     readonly recordObservation: (
       input: ExperimentObservationInput,
     ) => Effect.Effect<ExperimentObservation, ExperimentError>;
+    readonly readEvidence: (
+      input: ExperimentEvidenceReadInput,
+    ) => Effect.Effect<ExperimentEvidenceBundle, ExperimentError>;
+    readonly recordEvidence: (
+      input: ExperimentEvidenceInput,
+    ) => Effect.Effect<ExperimentEvidence, ExperimentError>;
+    readonly recordEvaluation: (
+      input: ExperimentEvaluationInput,
+    ) => Effect.Effect<ExperimentEvaluation, ExperimentError>;
     readonly importHistorical: (
       input: ExperimentHistoricalInput,
     ) => Effect.Effect<ExperimentAssignment, ExperimentError>;
@@ -68,12 +85,34 @@ export class ExperimentService extends Context.Service<
 
 const isExperimentError = Schema.is(ExperimentError);
 const isExperimentDefinition = Schema.is(ExperimentDefinition);
+const isExperimentEvidenceInput = Schema.is(ExperimentEvidenceInput);
+const isExperimentEvaluationInput = Schema.is(ExperimentEvaluationInput);
 const jsonAssignment = Schema.fromJsonString(ExperimentAssignment);
 const jsonOutcome = Schema.fromJsonString(ExperimentOutcome);
 const jsonObservation = Schema.fromJsonString(ExperimentObservation);
 const encodeAssignment = Schema.encodeSync(jsonAssignment);
 const encodeOutcome = Schema.encodeSync(jsonOutcome);
 const encodeObservation = Schema.encodeSync(jsonObservation);
+const encodeSnapshot = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const rolloverRubric = {
+  revision: "rollover-quality-v1",
+  criteria: [
+    "goal-and-constraint-preservation",
+    "decision-preservation",
+    "live-work-accuracy",
+    "restart-actionability",
+    "interruption-timing",
+    "avoidable-rediscovery-or-rework",
+  ],
+  instructions:
+    "Compare pre-handoff instructions and observable work state with the submitted note, confirmed delivered material and resumed actions. Cite exact capture IDs and artifact references in each finding. Missing original constraints, delivery or resumed work requires unknown for affected criteria. A hard nudge or successful turn alone proves neither a bad interruption nor correct continuation. Do not infer hidden reasoning. Separate automated judgements from human review and self-report; record evaluator usage separately. Use actual effective thresholds and analyze within provider/model before pooling.",
+};
+const jsonEvidence = Schema.fromJsonString(ExperimentEvidence);
+const jsonEvaluation = Schema.fromJsonString(ExperimentEvaluation);
+const encodeEvidence = Schema.encodeSync(jsonEvidence);
+const encodeEvaluation = Schema.encodeSync(jsonEvaluation);
+const decodeEvidence = Schema.decodeUnknownEffect(jsonEvidence);
+const decodeEvaluation = Schema.decodeUnknownEffect(jsonEvaluation);
 const jsonExperiment = Schema.fromJsonString(Experiment);
 const encodeExperiment = Schema.encodeSync(jsonExperiment);
 const decodeExperiment = Schema.decodeUnknownEffect(jsonExperiment);
@@ -449,6 +488,286 @@ const make = Effect.gen(function* () {
         ),
       ),
   );
+  const readEvidence = Effect.fn("ExperimentService.readEvidence")(function* (
+    input: ExperimentEvidenceReadInput,
+  ) {
+    return yield* persist(
+      "evidence",
+      input.assignmentId,
+      Effect.gen(function* () {
+        yield* getAssignment(input.assignmentId);
+        const offset = input.offset ?? 0;
+        const limit = Math.min(5, input.limit ?? 1);
+        const rows = yield* sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} ORDER BY rowid LIMIT ${limit + 1} OFFSET ${offset}`;
+        const evaluationRows = yield* sql<{
+          payload_json: string;
+        }>`SELECT payload_json FROM experiment_evaluations WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} ORDER BY rowid DESC LIMIT 11`;
+        const hasMoreCaptures = rows.length > limit;
+        const captures = yield* Effect.forEach(rows.slice(0, limit), (row) =>
+          decodeEvidence(row.payload_json),
+        );
+        return {
+          rubric: captures.some((capture) => capture.recipeRevision === "rollover-v1")
+            ? rolloverRubric
+            : null,
+          captures,
+          evaluations: yield* Effect.forEach(evaluationRows.slice(0, 10), (row) =>
+            decodeEvaluation(row.payload_json),
+          ),
+          hasMoreCaptures,
+          evaluationsTruncated: evaluationRows.length > 10,
+          nextOffset: hasMoreCaptures ? offset + limit : null,
+        };
+      }),
+    );
+  });
+  const recordEvidence = Effect.fn("ExperimentService.recordEvidence")(
+    (input: ExperimentEvidenceInput) =>
+      persist(
+        "evidence",
+        input.id,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const assignment = yield* getAssignment(input.assignmentId);
+            if (
+              !isExperimentEvidenceInput(input) ||
+              input.artifacts.reduce(
+                (size, a) => size + Buffer.byteLength(a.content ?? "", "utf8"),
+                0,
+              ) > 128_000 ||
+              (input.artifacts.length === 0 && input.missing.length === 0)
+            )
+              return yield* fail("evidence", input.id, "invalid-evidence");
+            const { runs } = yield* projections.getThreadRecords(assignment.threadId, ["runs"]);
+            if (!runs.some((run) => run.id === input.runId))
+              return yield* fail("evidence", input.id, "invalid-evidence");
+            const previousRows = yield* sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM experiment_evidence WHERE id = ${input.id}`;
+            if (previousRows[0]) {
+              const previous = yield* decodeEvidence(previousRows[0].payload_json);
+              if (
+                encodeEvidence(previous) !==
+                encodeEvidence({ ...input, capturedAt: previous.capturedAt })
+              )
+                return yield* fail("evidence", input.id, "conflict");
+              return previous;
+            }
+            const recipes = yield* sql<{
+              recipe_revision: string;
+            }>`SELECT json_extract(payload_json, '$.recipeRevision') AS recipe_revision FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} LIMIT 1`;
+            if (recipes[0] && recipes[0].recipe_revision !== input.recipeRevision)
+              return yield* fail("evidence", input.id, "conflict");
+            const value: ExperimentEvidence = { ...input, capturedAt: yield* nowIso };
+            yield* sql`INSERT INTO experiment_evidence(id, assignment_id, episode_id, payload_json) VALUES (${value.id}, ${value.assignmentId}, ${value.episodeId}, ${encodeEvidence(value)})`;
+            return value;
+          }),
+        ),
+      ),
+  );
+  const recordEvaluation = Effect.fn("ExperimentService.recordEvaluation")(
+    (input: ExperimentEvaluationInput) =>
+      persist(
+        "evaluation",
+        input.id,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            yield* getAssignment(input.assignmentId);
+            if (
+              !isExperimentEvaluationInput(input) ||
+              input.evidenceIds.length === 0 ||
+              input.findings.length === 0 ||
+              input.findings.reduce((size, finding) => size + finding.note.length, 0) > 32_000 ||
+              input.findings.some(
+                (finding) => finding.result !== "unknown" && finding.evidenceIds.length === 0,
+              )
+            )
+              return yield* fail("evaluation", input.id, "invalid-evidence");
+            const captures = yield* sql<{
+              id: string;
+            }>`SELECT id FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId}`;
+            const available = new Set(captures.map((row) => row.id));
+            if (
+              input.evidenceIds.some((id) => !available.has(id)) ||
+              input.findings.some((finding) =>
+                finding.evidenceIds.some((id) => !input.evidenceIds.includes(id)),
+              )
+            )
+              return yield* fail("evaluation", input.id, "invalid-evidence");
+            if (input.supersedesId !== null) {
+              const superseded = yield* sql<{
+                assignment_id: string;
+                episode_id: string;
+              }>`SELECT assignment_id, episode_id FROM experiment_evaluations WHERE id = ${input.supersedesId}`;
+              if (
+                !superseded[0] ||
+                superseded[0].assignment_id !== input.assignmentId ||
+                superseded[0].episode_id !== input.episodeId ||
+                input.supersedesId === input.id
+              )
+                return yield* fail("evaluation", input.id, "invalid-evidence");
+            }
+            const previous = yield* sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM experiment_evaluations WHERE id = ${input.id}`;
+            if (previous[0]) {
+              const value = yield* decodeEvaluation(previous[0].payload_json);
+              if (
+                encodeEvaluation(value) !==
+                encodeEvaluation({ ...input, recordedAt: value.recordedAt })
+              )
+                return yield* fail("evaluation", input.id, "conflict");
+              return value;
+            }
+            const value: ExperimentEvaluation = { ...input, recordedAt: yield* nowIso };
+            yield* sql`INSERT INTO experiment_evaluations(id, assignment_id, episode_id, payload_json) VALUES (${value.id}, ${value.assignmentId}, ${value.episodeId}, ${encodeEvaluation(value)})`;
+            return value;
+          }),
+        ),
+      ),
+  );
+
+  // A bounded recipe freezes observable state; older history remains explicitly incomplete.
+  const captureRollover = Effect.fn("ExperimentService.captureRollover")(function* (
+    input: ExperimentObservationInput,
+  ) {
+    if (input.episodeId === undefined) return;
+    const assignment = yield* getAssignment(input.assignmentId);
+    const records = yield* projections.getThreadRecords(assignment.threadId, [
+      "runs",
+      "contextHandoffs",
+      "subagents",
+    ]);
+    const run = records.runs.find((candidate) => candidate.id === input.runId);
+    if (run === undefined) return yield* fail("evidence", input.id, "invalid-evidence");
+    const first = yield* projections.getTimelinePage(assignment.threadId, {
+      view: "activity",
+      limit: 1,
+    });
+    const page = yield* projections.getTimelinePage(assignment.threadId, {
+      view: "activity",
+      limit: 20,
+      afterPosition: Math.max(-1, first.totalItems - 21),
+    });
+    const artifacts: ExperimentEvidenceInput["artifacts"][number][] = [
+      {
+        kind: "policy-observation",
+        reference: `observation:${input.id}`,
+        content: encodeSnapshot(input),
+      },
+      {
+        kind: "work-state",
+        reference: `run:${run.id}`,
+        content: encodeSnapshot({
+          modelSelection: run.modelSelection,
+          status: run.status,
+          checkpointId: run.checkpointId,
+          branch: records.thread.branch,
+          worktreePath: records.thread.worktreePath,
+          subagents: records.subagents.slice(-20).map((child) => ({
+            id: child.id,
+            status: child.status,
+            childThreadId: child.childThreadId,
+          })),
+        }),
+      },
+    ];
+    const missing: string[] = [];
+    const { messages } = yield* projections.getThreadRecords(assignment.threadId, ["messages"], {
+      messageIds: [run.userMessageId],
+    });
+    const instruction = messages.find((message) => message.id === run.userMessageId);
+    if (instruction !== undefined) {
+      artifacts.push({
+        kind: "initiating-message",
+        reference: `message:${instruction.id}`,
+        content: instruction.text.slice(0, 8_000),
+      });
+      if (instruction.text.length > 8_000) missing.push("initiating-message-truncated");
+    } else missing.push("initiating-message-unavailable");
+    if (first.totalItems > page.items.length)
+      missing.push("earlier-history-not-snapshotted; recover with thread activity pagination");
+    for (const row of page.items) {
+      const item = row.item;
+      const text = historicalMessage(item)?.text ?? null;
+      artifacts.push({
+        kind: item.type,
+        reference: `thread:${row.sourceThreadId}:item:${item.id}`,
+        content: encodeSnapshot({
+          position: row.position,
+          runId: item.runId,
+          status: item.status,
+          title: item.title,
+          text: text?.slice(0, 4_000) ?? null,
+        }),
+      });
+      if (text !== null && text.length > 4_000) missing.push(`truncated-item:${item.id}`);
+    }
+    const handoff = records.contextHandoffs.find(
+      (candidate) => candidate.targetRunId === input.runId,
+    );
+    if (handoff !== undefined) {
+      artifacts.push({
+        kind: "handoff",
+        reference: `handoff:${handoff.id}`,
+        content: encodeSnapshot({
+          id: handoff.id,
+          targetRunId: handoff.targetRunId,
+          summaryText: handoff.summaryText.slice(0, 4_000),
+          delivery:
+            handoff.delivery === undefined
+              ? null
+              : {
+                  ...handoff.delivery,
+                  contextText: handoff.delivery.contextText?.slice(0, 24_000),
+                },
+        }),
+      });
+      if (handoff.summaryText.length > 4_000) missing.push("handoff-note-snapshot-truncated");
+      if (handoff.delivery === undefined || handoff.delivery.status === "pending")
+        missing.push("handoff-delivery-unconfirmed");
+      if (handoff.delivery?.summaryIncluded === false)
+        missing.push("handoff-note-omitted-at-delivery");
+      if (handoff.delivery?.contextText === undefined)
+        missing.push("delivered-context-payload-unavailable");
+      else if (handoff.delivery.contextText.length > 24_000)
+        missing.push("delivered-context-snapshot-truncated");
+    } else if (input.kind === "fresh-context") missing.push("handoff-record-unavailable");
+    if (records.subagents.length > 20) missing.push("older-subagents-not-snapshotted");
+    let remainingBytes = 128_000;
+    const boundedArtifacts = artifacts.map((artifact) => {
+      const bytes = Buffer.byteLength(artifact.content ?? "", "utf8");
+      if ((artifact.content?.length ?? 0) > 32_000 || bytes > remainingBytes) {
+        missing.push(`artifact-content-omitted:${artifact.reference}`);
+        return { ...artifact, content: null };
+      }
+      remainingBytes -= bytes;
+      return artifact;
+    });
+    yield* recordEvidence({
+      id: `capture:${input.id}`,
+      assignmentId: input.assignmentId,
+      episodeId: input.episodeId,
+      recipeRevision: "rollover-v1",
+      runId: input.runId,
+      phase:
+        input.kind === "restart-failure"
+          ? "failure"
+          : input.kind === "fresh-context" || input.kind === "continuation-ended"
+            ? "after"
+            : input.kind === "rollover"
+              ? "action"
+              : "before",
+      source: "runtime",
+      artifacts: boundedArtifacts,
+      missing:
+        missing.length > 32
+          ? [...missing.slice(0, 31), "additional-missing-evidence-markers-omitted"]
+          : missing,
+    });
+  });
   const recordObservation = Effect.fn("ExperimentService.recordObservation")(
     (input: ExperimentObservationInput) =>
       persist(
@@ -474,6 +793,7 @@ const make = Effect.gen(function* () {
             }
             const value: ExperimentObservation = { ...input, recordedAt: yield* nowIso };
             yield* sql`INSERT INTO experiment_observations(id, assignment_id, payload_json) VALUES (${input.id}, ${input.assignmentId}, ${encodeObservation(value)})`;
+            yield* captureRollover(input);
             return value;
           }),
         ),
@@ -552,6 +872,43 @@ const make = Effect.gen(function* () {
         const observations = yield* Effect.forEach(observationRows, (r) =>
           persist("report", assignment.id, decodeObservation(r.payload_json)),
         );
+        const evidenceRows = yield* persist(
+          "report",
+          assignment.id,
+          sql<{
+            id: string;
+            episode_id: string;
+            recipe_revision: string;
+          }>`SELECT id, episode_id, json_extract(payload_json, '$.recipeRevision') AS recipe_revision FROM experiment_evidence WHERE assignment_id = ${assignment.id} ORDER BY rowid DESC LIMIT 101`,
+        );
+        const captures = evidenceRows.slice(0, 100);
+        const evaluationRows = yield* persist(
+          "report",
+          assignment.id,
+          sql<{
+            id: string;
+            episode_id: string;
+          }>`SELECT id, episode_id FROM experiment_evaluations WHERE assignment_id = ${assignment.id} ORDER BY rowid DESC LIMIT 101`,
+        );
+        const episodes: ExperimentEpisodeReport[] = [
+          ...new Set(captures.map((capture) => capture.episode_id)),
+        ]
+          .slice(0, 20)
+          .map((id) => ({
+            id,
+            recipeRevision: captures.find((capture) => capture.episode_id === id)!.recipe_revision,
+            captureIds: captures
+              .filter((capture) => capture.episode_id === id)
+              .map((capture) => capture.id),
+            evaluationIds: evaluationRows
+              .slice(0, 100)
+              .filter((evaluation) => evaluation.episode_id === id)
+              .map((evaluation) => evaluation.id),
+          }));
+        const episodeSummariesTruncated =
+          evidenceRows.length > 100 ||
+          evaluationRows.length > 100 ||
+          new Set(captures.map((capture) => capture.episode_id)).size > 20;
         const reportNow = Date.parse(yield* nowIso);
         type Records = ProjectionStore.ProjectionRecords<
           "runs" | "attempts" | "nodes" | "subagents" | "providerTurns" | "providerThreads"
@@ -569,7 +926,9 @@ const make = Effect.gen(function* () {
               "providerThreads",
             ])
             .pipe(
-              Effect.catchTags({ ProjectionStoreThreadNotFoundError: () => Effect.succeed(null) }),
+              Effect.catchTags({
+                ProjectionStoreThreadNotFoundError: () => Effect.succeed(null),
+              }),
               (effect) => persist("report", assignment.id, effect),
             );
           recordCache.set(threadId, records);
@@ -816,6 +1175,8 @@ const make = Effect.gen(function* () {
           runs,
           outcomes,
           observations,
+          episodes,
+          episodeSummariesTruncated,
           projectionAvailable,
           descendantCoverage:
             missingThreadIds.length > 0 ||
@@ -858,6 +1219,9 @@ const make = Effect.gen(function* () {
     assignForTask: (input) => assign({ ...input, unitKind: "task" }),
     recordOutcome,
     recordObservation,
+    recordEvidence,
+    readEvidence,
+    recordEvaluation,
     importHistorical,
     report,
   });

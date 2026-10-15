@@ -1,3 +1,4 @@
+import * as Crypto from "effect/Crypto";
 import { OrchestratorMcpFailure } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 
@@ -57,6 +58,28 @@ const handlers = {
           code: "capability_denied",
           message: "Context rollover is off for this thread. Continue normally; nothing was saved.",
         });
+      if (assignment !== null) {
+        const digest = yield* (yield* Crypto.Crypto)
+          .digest("SHA-256", new TextEncoder().encode(note))
+          .pipe(Effect.mapError(unavailable));
+        yield* (yield* ExperimentService.ExperimentService)
+          .recordEvidence({
+            id: `rollover-note:${assignment.id}:${run.id}:${Buffer.from(digest).toString("hex")}`,
+            assignmentId: assignment.id,
+            episodeId: `rollover:${assignment.id}:${run.id}`,
+            recipeRevision: "rollover-v1",
+            runId: run.id,
+            phase: "action",
+            source: "agent",
+            artifacts: Array.from({ length: Math.ceil(note.length / 16_000) }, (_, index) => ({
+              kind: "submitted-handoff-note",
+              reference: `run:${run.id}:note-offset:${index * 16_000}`,
+              content: note.slice(index * 16_000, (index + 1) * 16_000),
+            })),
+            missing: [],
+          })
+          .pipe(Effect.mapError(unavailable));
+      }
       (yield* ContextRolloverNotes).save(threadId, { runId: run.id, note });
       return {
         message:

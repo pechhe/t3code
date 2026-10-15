@@ -1,6 +1,12 @@
 import {
   Experiment,
   ExperimentDefinition,
+  ExperimentEvidenceInput,
+  ExperimentEvidence,
+  ExperimentEvaluationInput,
+  ExperimentEvaluation,
+  ExperimentEvidenceReadInput,
+  ExperimentEvidenceBundle,
   ExperimentTransitionInput,
   ExperimentAssignmentsInput,
   ExperimentAssignment,
@@ -85,6 +91,33 @@ const import_historical = Tool.make("t3_experiments_import_historical", {
 })
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false);
+const record_evidence = Tool.make("t3_experiments_record_evidence", {
+  ...shared,
+  description:
+    "Append immutable, bounded evidence for an experiment episode. Captures are agent supplied; missing evidence must be explicit. Does not evaluate or start work.",
+  parameters: ExperimentEvidenceInput,
+  success: ExperimentEvidence,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const record_evaluation = Tool.make("t3_experiments_record_evaluation", {
+  ...shared,
+  description:
+    "Record a versioned, evidence-linked evaluation of an episode. Cite exact capture IDs and mark unknowns; automated judgments and self-reports are not independent verification. Evaluation usage is separate from measured work.",
+  parameters: ExperimentEvaluationInput,
+  success: ExperimentEvaluation,
+})
+  .annotate(Tool.Readonly, false)
+  .annotate(Tool.Destructive, false);
+const read_evidence = Tool.make("t3_experiments_read_evidence", {
+  ...shared,
+  description:
+    "Read an episode's immutable evidence bundle and evaluations. Paginate captures with nextOffset; evaluationsTruncated marks older evaluations beyond the bounded window.",
+  parameters: ExperimentEvidenceReadInput,
+  success: ExperimentEvidenceBundle,
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
 export const ExperimentsToolkit = Toolkit.make(
   create,
   transition,
@@ -92,5 +125,8 @@ export const ExperimentsToolkit = Toolkit.make(
   assignments,
   report,
   record_outcome,
+  record_evidence,
+  record_evaluation,
+  read_evidence,
   import_historical,
 );

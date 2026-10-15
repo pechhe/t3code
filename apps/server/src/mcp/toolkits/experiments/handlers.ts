@@ -35,6 +35,29 @@ export const layer = McpToolAccess.toLayer(ExperimentsToolkit, {
       Effect.mapError(unavailable),
     ),
   ),
+  t3_experiments_record_evidence: McpToolAccess.writesEnvironment((input, check) =>
+    check.pipe(
+      Effect.andThen(
+        Effect.flatMap(Experiments.ExperimentService, (service) =>
+          service.recordEvidence({ ...input, source: "agent" }),
+        ),
+      ),
+      Effect.mapError(unavailable),
+    ),
+  ),
+  t3_experiments_record_evaluation: McpToolAccess.writesEnvironment((input, check) =>
+    check.pipe(
+      Effect.andThen(
+        Effect.flatMap(Experiments.ExperimentService, (service) => service.recordEvaluation(input)),
+      ),
+      Effect.mapError(unavailable),
+    ),
+  ),
+  t3_experiments_read_evidence: McpToolAccess.reads((input) =>
+    Effect.flatMap(Experiments.ExperimentService, (service) => service.readEvidence(input)).pipe(
+      Effect.mapError(unavailable),
+    ),
+  ),
   t3_experiments_record_outcome: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
       Effect.andThen(

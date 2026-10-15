@@ -689,3 +689,34 @@ describe("handoff delivery", () => {
     }),
   );
 });
+
+it.effect("retains delivered material and distinguishes an omitted manual handoff note", () =>
+  Effect.gen(function* () {
+    const manual = { ...handoff, history: undefined, summaryText: "A short restart instruction" };
+    // Removing the optional history field keeps the legacy/manual note delivery path.
+    const { history: _history, ...note } = manual;
+    let saved: OrchestrationV2ContextHandoff | undefined;
+    const input = {
+      providerThread,
+      alreadyDeliveredItemIds: new Set<string>(),
+      persist: (value: OrchestrationV2ContextHandoff) =>
+        Effect.sync(() => {
+          saved = value;
+        }),
+    };
+    const included = yield* deliverContextHandoffs({ ...input, handoffs: [note], budget: 16_000 });
+    yield* included.delivered;
+    assert.isTrue(saved?.delivery?.summaryIncluded);
+    assert.include(saved?.delivery?.contextText ?? "", note.summaryText);
+    const oversized = { ...note, summaryText: "x".repeat(30_000) };
+    const omitted = yield* deliverContextHandoffs({
+      ...input,
+      handoffs: [oversized],
+      budget: 4_000,
+    });
+    yield* omitted.delivered;
+    assert.isFalse(saved?.delivery?.summaryIncluded);
+    assert.notInclude(saved?.delivery?.contextText ?? "", oversized.summaryText);
+    assert.include(saved?.delivery?.contextText ?? "", "Recover history");
+  }),
+);

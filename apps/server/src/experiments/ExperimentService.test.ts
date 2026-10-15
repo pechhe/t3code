@@ -743,3 +743,224 @@ describe("ExperimentService", () => {
       }).pipe(Effect.provide(layer)),
   );
 });
+
+describe("experiment evidence", () => {
+  it.effect(
+    "preserves captures across service reconstruction and keeps evaluation usage separate",
+    () =>
+      Effect.gen(function* () {
+        yield* start();
+        yield* addThread("thread:1");
+        yield* addRunTurn("thread:1", "1", {
+          usageScope: "main_agent",
+          usageStatus: "complete",
+          inputTokens: 100,
+          outputTokens: 20,
+          hasSubagents: false,
+        });
+        const service = yield* Experiments.ExperimentService;
+        const assignment = (yield* service.assign(assignInput()))[0]!;
+        const capture = {
+          id: "capture:before",
+          assignmentId: assignment.id,
+          episodeId: "episode:1",
+          recipeRevision: "custom-v1",
+          runId: RunId.make("run:1"),
+          phase: "before" as const,
+          source: "human" as const,
+          artifacts: [
+            {
+              kind: "instruction",
+              reference: "message:original",
+              content: "Keep the user's constraints",
+            },
+          ],
+          missing: ["tool-state-unavailable"],
+        };
+        const first = yield* service.recordEvidence(capture);
+        assert.deepStrictEqual(yield* service.recordEvidence(capture), first);
+        assert.equal(
+          (yield* Effect.flip(service.recordEvidence({ ...capture, artifacts: [] }))).reason,
+          "conflict",
+        );
+        for (let index = 2; index <= 3; index++)
+          yield* service.recordEvidence({ ...capture, id: `capture:${index}`, phase: "after" });
+        const evaluation = {
+          id: "evaluation:1",
+          assignmentId: assignment.id,
+          episodeId: "episode:1",
+          rubricRevision: "rubric-v1",
+          evaluator: "independent evaluator",
+          source: "automated-judgement" as const,
+          evidenceIds: [first.id],
+          findings: [
+            {
+              criterion: "constraint-preservation",
+              result: "unknown" as const,
+              evidenceIds: [first.id],
+              note: "No resumed evidence yet",
+            },
+          ],
+          usage: {
+            usageScope: "main_agent" as const,
+            usageStatus: "complete" as const,
+            inputTokens: 500,
+            outputTokens: 50,
+            hasSubagents: false,
+          },
+          supersedesId: null,
+        };
+        const judged = yield* service.recordEvaluation(evaluation);
+        assert.deepStrictEqual(yield* service.recordEvaluation(evaluation), judged);
+        yield* service.recordEvaluation({
+          ...evaluation,
+          id: "evaluation:2",
+          supersedesId: judged.id,
+          rubricRevision: "rubric-v2",
+        });
+        const bundle = yield* service.readEvidence({
+          assignmentId: assignment.id,
+          episodeId: "episode:1",
+          limit: 1,
+        });
+        assert.lengthOf(bundle.captures, 1);
+        assert.isTrue(bundle.hasMoreCaptures);
+        assert.equal(bundle.nextOffset, 1);
+        assert.lengthOf(bundle.evaluations, 2);
+        const recovered = yield* Effect.gen(function* () {
+          const rebuilt = yield* Experiments.ExperimentService;
+          return yield* rebuilt.readEvidence({
+            assignmentId: assignment.id,
+            episodeId: "episode:1",
+            offset: 1,
+            limit: 5,
+          });
+        }).pipe(Effect.provide(Experiments.layer));
+        assert.lengthOf(recovered.captures, 2);
+        assert.isFalse(recovered.hasMoreCaptures);
+        const report = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+        assert.equal(report.usage.inputTokens, 100);
+        assert.deepStrictEqual(report.episodes?.[0]?.evaluationIds, [
+          "evaluation:2",
+          "evaluation:1",
+        ]);
+        assert.lengthOf(report.episodes?.[0]?.captureIds ?? [], 3);
+      }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect(
+    "rejects foreign evidence, unsupported conclusions and cross-episode supersession",
+    () =>
+      Effect.gen(function* () {
+        yield* start();
+        yield* addThread("thread:1");
+        yield* addRunTurn("thread:1", "1", undefined);
+        const service = yield* Experiments.ExperimentService;
+        const assignment = (yield* service.assign(assignInput()))[0]!;
+        yield* service.recordEvidence({
+          id: "fact",
+          assignmentId: assignment.id,
+          episodeId: "episode",
+          recipeRevision: "v1",
+          runId: RunId.make("run:1"),
+          phase: "after",
+          source: "human",
+          artifacts: [],
+          missing: ["history-unavailable"],
+        });
+        const evaluation = {
+          id: "judgement",
+          assignmentId: assignment.id,
+          episodeId: "episode",
+          rubricRevision: "v1",
+          evaluator: "human",
+          source: "human-review" as const,
+          evidenceIds: ["fact"],
+          findings: [
+            {
+              criterion: "quality",
+              result: "pass" as const,
+              evidenceIds: [] as string[],
+              note: "",
+            },
+          ],
+          usage: null,
+          supersedesId: null,
+        };
+        assert.equal(
+          (yield* Effect.flip(service.recordEvaluation(evaluation))).reason,
+          "invalid-evidence",
+        );
+        assert.equal(
+          (yield* Effect.flip(
+            service.recordEvaluation({ ...evaluation, evidenceIds: ["nonexistent"] }),
+          )).reason,
+          "invalid-evidence",
+        );
+        yield* service.recordEvaluation({
+          ...evaluation,
+          findings: [{ ...evaluation.findings[0]!, result: "unknown" }],
+        });
+        assert.equal(
+          (yield* Effect.flip(
+            service.recordEvaluation({ ...evaluation, id: "next", supersedesId: "nonexistent" }),
+          )).reason,
+          "invalid-evidence",
+        );
+        assert.equal(
+          (yield* Effect.flip(
+            service.recordEvidence({
+              id: "foreign",
+              assignmentId: assignment.id,
+              episodeId: "episode",
+              recipeRevision: "v1",
+              runId: RunId.make("other-run"),
+              phase: "before",
+              source: "human",
+              artifacts: [],
+              missing: ["unknown"],
+            }),
+          )).reason,
+          "invalid-evidence",
+        );
+      }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("automatically snapshots rollover policy and marks unavailable evidence", () =>
+    Effect.gen(function* () {
+      yield* start();
+      yield* addThread("thread:1");
+      yield* addRunTurn("thread:1", "1", undefined);
+      const service = yield* Experiments.ExperimentService;
+      const assignment = (yield* service.assign(assignInput()))[0]!;
+      const observation = {
+        id: "soft-observation",
+        assignmentId: assignment.id,
+        episodeId: "rollover-episode",
+        runId: RunId.make("run:1"),
+        kind: "soft" as const,
+        usedTokens: 180000,
+        maxTokens: 200000,
+        configuredPolicy: { softLimit: 220000, hardLimit: 280000 },
+        effectivePolicy: { softLimit: 144000, hardLimit: 180000 },
+        evidence: ["turn:1"],
+      };
+      yield* service.recordObservation(observation);
+      // Replaying the event must retain the original snapshot, not recapture changed state.
+      yield* service.recordObservation(observation);
+      const bundle = yield* service.readEvidence({
+        assignmentId: assignment.id,
+        episodeId: "rollover-episode",
+      });
+      assert.lengthOf(bundle.captures, 1);
+      assert.equal(bundle.captures[0]?.source, "runtime");
+      assert.equal(bundle.rubric?.revision, "rollover-quality-v1");
+      assert.include(bundle.captures[0]?.missing ?? [], "initiating-message-unavailable");
+      assert.include(
+        bundle.captures[0]?.artifacts.find((item) => item.kind === "policy-observation")?.content ??
+          "",
+        '"effectivePolicy":{"softLimit":144000,"hardLimit":180000}',
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+});

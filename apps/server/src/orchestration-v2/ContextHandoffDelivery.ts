@@ -96,6 +96,9 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
                   delivery: {
                     nativeThreadId,
                     status,
+                    contextText: renderHistory(selected.messages, selected.context),
+                    summaryIncluded:
+                      handoff.history === undefined ? fullCoverage !== coverage : true,
                     omittedItemIds: [
                       ...(handoff.history?.omittedItemIds ?? []),
                       ...(handoff.history?.messages ?? [])
