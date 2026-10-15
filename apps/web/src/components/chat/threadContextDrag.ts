@@ -1,7 +1,8 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
-import { type RefObject, useEffect, useEffectEvent, useSyncExternalStore } from "react";
+import { type RefObject, useEffect, useSyncExternalStore } from "react";
 
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { readThreadShells } from "../../state/entities";
 
 /**
@@ -20,7 +21,9 @@ export function useThreadContextDrop(
   targetKey: string,
   onDrop: (refs: ReadonlyArray<ScopedThreadRef>, isActive: () => boolean) => void,
 ) {
-  const handleDrop = useEffectEvent(onDrop);
+  // useEffectEvent kept the first render's composer here, so a drop on a reused composer
+  // attached to the thread it was first mounted for.
+  const handleDrop = useStableCallback(onDrop);
   useEffect(() => {
     const target = targetRef.current;
     if (!target) return;
@@ -32,7 +35,7 @@ export function useThreadContextDrop(
       active = false;
       target.removeEventListener(THREAD_CONTEXT_DROP_EVENT, listener);
     };
-  }, [environmentId, targetKey, targetRef]);
+  }, [environmentId, handleDrop, targetKey, targetRef]);
 }
 
 const DROP_TARGET_ATTRIBUTE = "data-thread-context-drop";
