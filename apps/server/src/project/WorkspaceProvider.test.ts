@@ -26,6 +26,7 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+      yield* fs.makeDirectory(`${root}/.jj`);
       yield* fs.writeFileString(`${root}/slipjay.json`, "{}");
       yield* fs.makeDirectory(`${root}/jj-child/.jj`, { recursive: true });
       yield* fs.makeDirectory(`${root}/git-child`);
@@ -54,6 +55,42 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
       yield* service.remove({ cwd: root, path: `${root}/git-child`, force: true });
       expect(commands).toEqual([["slipjay", "remove", `${root}/jj-child`]]);
       expect(gitPaths).toEqual([`${root}/git-child`]);
+    }),
+  );
+
+  it.effect("finds a SlipJay project from its Jujutsu root, never from a Git-only repository", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
+      const cwds: string[] = [];
+      const service = yield* Workspaces.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(Processes.ProcessRunner)({
+              run: (input) =>
+                Effect.sync(() => {
+                  cwds.push(input.cwd ?? "");
+                  return output(JSON.stringify({ workspacePath: `${root}/allocated` }));
+                }),
+            }),
+            Layer.mock(Git.GitVcsDriver)({}),
+          ),
+        ),
+      );
+      yield* fs.makeDirectory(`${root}/jj/.jj`, { recursive: true });
+      yield* fs.makeDirectory(`${root}/jj/packages/app`, { recursive: true });
+      yield* fs.writeFileString(`${root}/jj/slipjay.json`, "{ not json");
+      yield* fs.makeDirectory(`${root}/git/.git`, { recursive: true });
+      yield* fs.makeDirectory(`${root}/git/packages/app`, { recursive: true });
+      yield* fs.writeFileString(`${root}/git/slipjay.json`, "{}");
+      yield* fs.makeDirectory(`${root}/plain-jj/.jj`, { recursive: true });
+      // A subdirectory of a SlipJay project is one too, even when SlipJay cannot read its config.
+      expect(yield* service.resolve(`${root}/jj/packages/app`)).toBe("slipjay");
+      expect(yield* service.resolve(`${root}/git/packages/app`)).toBe("git-worktree");
+      expect(yield* service.resolve(`${root}/plain-jj`)).toBe("git-worktree");
+      // It allocates from the SlipJay root, where slipjay.json lives.
+      yield* service.allocate({ projectRoot: `${root}/jj/packages/app`, task: "work" });
+      expect(cwds).toEqual([`${root}/jj`]);
     }),
   );
 

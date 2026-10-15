@@ -14,7 +14,6 @@ import {
   VcsProcessExitError,
   VcsUnsupportedOperationError,
   PositiveInt,
-  SLIPJAY_PROJECT_FILE_NAME,
   type ReviewDiffFileStat,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
@@ -23,6 +22,7 @@ import * as VcsDriver from "./VcsDriver.ts";
 import { listGitCheckpointAuthoredPaths } from "./GitCheckpointPaths.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 import { PATCH_RENDER_PREFIX_ARGS } from "./GitVcsDriverCore.ts";
+import { findSlipJayProject } from "./SlipJayProject.ts";
 
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const IGNORE_CHECK_MAX_STDIN_BYTES = 256 * 1024;
@@ -30,13 +30,6 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 const REVIEW_METADATA_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const TRUNCATED_MARKER = "\n\n[truncated]";
-const decodeSlipJayStatusConfig = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(
-    Schema.Struct({
-      integrationBranch: Schema.NonEmptyString,
-    }),
-  ),
-);
 const decodeSlipJayStatus = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Struct({
@@ -699,21 +692,12 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
         kind: "jj",
         detail: "No Jujutsu repository is available.",
       });
-    const configPath = path.join(rootPath, SLIPJAY_PROJECT_FILE_NAME);
-    // The file alone makes this a SlipJay project, as it does for WorkspaceProvider.
-    // A file SlipJay cannot use still reports the project, just without its base.
-    const isSlipJay = yield* fileSystem.exists(configPath).pipe(Effect.orElseSucceed(() => false));
-    const integration = isSlipJay
-      ? yield* fileSystem.readFileString(configPath).pipe(
-          Effect.flatMap(decodeSlipJayStatusConfig),
-          Effect.map((config): string | null => config.integrationBranch),
-          Effect.catch((cause) =>
-            Effect.logWarning("Could not read the SlipJay integration bookmark", cause).pipe(
-              Effect.as(null),
-            ),
-          ),
-        )
-      : null;
+    const slipJayProject = yield* findSlipJayProject(rootPath).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(Path.Path, path),
+    );
+    const isSlipJay = slipJayProject !== null;
+    const integration = slipJayProject?.integration ?? null;
     // Quote a bookmark as a revset symbol; config content cannot become a revset.
     // present() leaves a bookmark that does not exist yet with nothing behind it.
     const base = integration === null ? undefined : `present(${quoteRevsetSymbol(integration)})`;
@@ -787,11 +771,30 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
     };
   });
 
+  const slipJayLandCandidate: NonNullable<VcsDriver.VcsDriver["Service"]["slipJayLandCandidate"]> =
+    Effect.fn("JjVcsDriver.slipJayLandCandidate")(function* ({ cwd, integration }) {
+      // SlipJay never submits a change already on the integration bookmark or its remote.
+      const bookmark = quoteRevsetSymbol(integration);
+      const integrated = `::(present(${bookmark}) | remote_bookmarks(exact:${bookmark}))`;
+      const result = yield* jj("JjVcsDriver.slipJayLandCandidate", cwd, [
+        "log",
+        "--ignore-working-copy",
+        "--no-graph",
+        "-r",
+        "coalesce(@ ~ empty(), @-)",
+        "-T",
+        `change_id ++ " " ++ if(self.contained_in(${quoteRevsetSymbol(integrated)}), "integrated") ++ "\\n"`,
+      ]);
+      const [changeId, state] = result.stdout.split("\n")[0]?.trim().split(" ") ?? [];
+      return changeId ? { changeId, integrated: state === "integrated" } : null;
+    });
+
   return {
     capabilities,
     execute,
     checkpoints,
     getStatus,
+    slipJayLandCandidate,
     detectRepository,
     isInsideWorkTree,
     listWorkspaceFiles,

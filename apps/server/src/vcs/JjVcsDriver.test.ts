@@ -283,6 +283,34 @@ it.layer(layerJjWithSlipJay)("Jujutsu VCS driver", (it) => {
     }),
   );
 
+  it.effect("finds the change SlipJay would land and whether integration contains it", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeRepo;
+      const driver = yield* VcsDriver.VcsDriver;
+      const changeOf = (revision: string) =>
+        runJj(cwd, ["log", "--no-graph", "-r", revision, "-T", "change_id"]).pipe(
+          Effect.map((result) => result.stdout.trim()),
+        );
+      yield* writeFile(cwd, "work.txt", "work\n");
+      const work = yield* changeOf("@");
+      assert.deepEqual(yield* driver.slipJayLandCandidate!({ cwd, integration: "develop" }), {
+        changeId: work,
+        integrated: false,
+      });
+      // An empty working copy lands its parent.
+      yield* runJj(cwd, ["new"]);
+      assert.deepEqual(yield* driver.slipJayLandCandidate!({ cwd, integration: "develop" }), {
+        changeId: work,
+        integrated: false,
+      });
+      yield* runJj(cwd, ["bookmark", "set", "develop", "-r", "@-"]);
+      assert.deepEqual(yield* driver.slipJayLandCandidate!({ cwd, integration: "develop" }), {
+        changeId: work,
+        integrated: true,
+      });
+    }),
+  );
+
   it.effect("counts only a turn's own edits as authored, not earlier working-copy edits", () =>
     Effect.gen(function* () {
       const cwd = yield* makeRepo;

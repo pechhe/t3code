@@ -77,6 +77,18 @@ export class VcsDriver extends Context.Service<
     ) => Effect.Effect<VcsProcess.VcsProcessOutput, VcsError>;
     readonly checkpoints?: VcsCheckpointOps;
     readonly getStatus?: (input: VcsStatusInput) => Effect.Effect<VcsStatusResult, VcsError>;
+    /**
+     * Jujutsu only: the change `slipjay land` would submit from `cwd` (the working
+     * copy, or its parent when the working copy is empty), and whether the
+     * `integration` bookmark or its remote already contains it. Null when there is none.
+     */
+    readonly slipJayLandCandidate?: (input: {
+      readonly cwd: string;
+      readonly integration: string;
+    }) => Effect.Effect<
+      { readonly changeId: string; readonly integrated: boolean } | null,
+      VcsError
+    >;
     readonly detectRepository: (
       cwd: string,
     ) => Effect.Effect<VcsRepositoryIdentity | null, VcsError>;

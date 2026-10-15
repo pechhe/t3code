@@ -8,7 +8,8 @@ import * as Ref from "effect/Ref";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
-import { make, parseLandOutput, SlipJayLandings } from "./SlipJayLandings.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import { landResult, make, SlipJayLandings } from "./SlipJayLandings.ts";
 
 interface Land {
   readonly stdout: string;
@@ -41,99 +42,162 @@ const landingHost = (result: Land) =>
     const resolvedTwice = yield* Deferred.make<void>();
     const rootReads = yield* Ref.make(0);
     const runs = yield* Ref.make<ReadonlyArray<string | undefined>>([]);
+    const registry = Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+      detect: () =>
+        Ref.updateAndGet(rootReads, (count) => count + 1).pipe(
+          Effect.tap((count) =>
+            count === 2 ? Deferred.succeed(resolvedTwice, undefined) : Effect.void,
+          ),
+          Effect.as({ repository: { kind: "jj", rootPath: ROOT } } as never),
+        ),
+    });
     const runner = Layer.succeed(ProcessRunner.ProcessRunner, {
       run: (input) => {
-        if (input.command === "jj" && input.args.includes("root"))
-          return Ref.updateAndGet(rootReads, (count) => count + 1).pipe(
-            Effect.tap((count) =>
-              count === 2 ? Deferred.succeed(resolvedTwice, undefined) : Effect.void,
-            ),
-            Effect.as(output({ stdout: `${ROOT}\n`, stderr: "", code: 0 })),
-          );
         if (input.command === "slipjay" && input.args[0] === "land")
           return Ref.update(runs, (cwds) => [...cwds, input.cwd]).pipe(
             Effect.andThen(Deferred.succeed(started, undefined)),
             Effect.andThen(Deferred.await(release)),
             Effect.as(output(result)),
           );
+        if (input.command === "slipjay" && input.args[0] === "runner")
+          return Effect.succeed(
+            output({ stdout: JSON.stringify(FAILED_OUTCOME), stderr: "", code: 0 }),
+          );
         return Effect.die(`unexpected ${input.command} ${input.args.join(" ")}`);
       },
     });
     const layer = Layer.effect(SlipJayLandings, make).pipe(
       Layer.provide(runner),
+      Layer.provide(registry),
       Layer.provide(NodeServices.layer),
     );
     return { started, release, resolvedTwice, runs, layer };
   });
 
-describe("parseLandOutput", () => {
-  it("keeps SlipJay's failure and workspace changes, not the gate output", () => {
+// `slipjay land`'s stderr from a real landing (t3-45, 2026-10-15).
+const LANDED_STDERR = [
+  "[runner slipjay-test] paused (position 1)",
+  "[runner slipjay-test] connection lost; reconnecting",
+  "[runner slipjay-test] fetching",
+  "[runner slipjay-test] rebasing",
+  "[runner slipjay-test] installing",
+  "[runner slipjay-test] verifying",
+  "[runner slipjay-test] integrating",
+  "[runner slipjay-test] finalizing",
+  "[runner slipjay-test] publishing",
+  "Kept landed workspace t3-45: in use by a live process: pid 25736 (tail), pid 78172 (2.1.300)",
+  "[land] paused 181.4s · fetching 5.2s · rebasing 0.7s · installing 5.8s · verifying 57.0s · integrating 0.6s · finalizing 0.2s · publishing 6.5s · housekeeping 4.0s · total 271.9s",
+].join("\n");
+
+const FAILED_OUTCOME = {
+  version: 1,
+  operationId: "op_a",
+  status: "failed",
+  stage: "verifying",
+  terminal: true,
+  failure: { stage: "verifying", reason: "2 tests failed" },
+};
+
+describe("landResult", () => {
+  it("reports the published commit and the workspace SlipJay kept", () => {
     assert.deepStrictEqual(
-      parseLandOutput(
-        JSON.stringify({
-          ok: false,
-          verdict: "failed",
-          outcome: { operationId: "op_a", status: "failed" },
-        }),
-        [
-          "[runner r] queued (position 1)",
-          "[runner r] verifying",
-          "[runner r] failed at verifying: 2 tests failed",
-          "pnpm exec vp test run",
-          "FAIL src/a.test.ts > adds",
-          "slipjay runner log op_a",
-          "[land] queued 0.1s · verifying 59.9s · total 61.2s",
-        ].join("\n"),
+      landResult(
+        {
+          stdout: JSON.stringify({
+            ok: true,
+            verdict: "landed",
+            log: "slipjay runner log op_00mv9x0xe7_b1e30b9bdc77527be658cbf9",
+            outcome: {
+              version: 1,
+              operationId: "op_00mv9x0xe7_b1e30b9bdc77527be658cbf9",
+              status: "landed",
+              stage: "publishing",
+              terminal: true,
+              publication: { state: "published", commitId: "7bedaad91c943e9a" },
+            },
+          }),
+          stderr: LANDED_STDERR,
+        },
+        undefined,
+      ),
+      {
+        landed: true,
+        verdict: "landed",
+        operationId: "op_00mv9x0xe7_b1e30b9bdc77527be658cbf9",
+        commitId: "7bedaad91c943e9a",
+        messages: [
+          "Kept landed workspace t3-45: in use by a live process: pid 25736 (tail), pid 78172 (2.1.300)",
+        ],
+      },
+    );
+  });
+
+  it("takes a failure from the runner outcome, not the gate output", () => {
+    assert.deepStrictEqual(
+      landResult(
+        {
+          stdout: JSON.stringify({
+            ok: false,
+            verdict: "failed",
+            outcome: { operationId: "op_a", status: "failed" },
+          }),
+          stderr: [
+            "[runner r] verifying",
+            "[runner r] failed at verifying: printed text the result ignores",
+            "FAIL src/a.test.ts > adds",
+          ].join("\n"),
+        },
+        FAILED_OUTCOME,
       ),
       {
         landed: false,
         verdict: "failed",
         operationId: "op_a",
         commitId: null,
-        messages: ["[runner r] failed at verifying: 2 tests failed"],
+        messages: ["failed at verifying: 2 tests failed"],
       },
     );
   });
 
-  it("reports the published commit and the workspace SlipJay kept", () => {
+  it("still says why a landing did not publish without a failure to quote", () => {
+    const declined = { ok: false, verdict: "declined", outcome: { operationId: "op_d" } };
+    const stdout = JSON.stringify(declined);
     assert.deepStrictEqual(
-      parseLandOutput(
-        JSON.stringify({
-          ok: true,
-          verdict: "landed",
-          outcome: { operationId: "op_a", publication: { commitId: "6d1274008e7e" } },
-        }),
-        "[runner r] publishing\nKept landed workspace t3-24: in use by a live process: pid 1 (node)\n",
-      ),
-      {
-        landed: true,
-        verdict: "landed",
-        operationId: "op_a",
-        commitId: "6d1274008e7e",
-        messages: ["Kept landed workspace t3-24: in use by a live process: pid 1 (node)"],
-      },
+      landResult({ stdout, stderr: "" }, { status: "declined", stage: "queued", terminal: true })
+        .messages,
+      ["declined at queued"],
     );
+    // The outcome could not be read.
+    assert.deepStrictEqual(landResult({ stdout, stderr: "" }, undefined).messages, [
+      "SlipJay did not land this change (declined).",
+    ]);
   });
 
   it("does not count an older commit's landing as this workspace's", () => {
-    const result = parseLandOutput(
-      JSON.stringify({ ok: false, verdict: "landed" }),
-      "[runner r] followed an older commit (abc); land again to publish your current commit\n",
+    const result = landResult(
+      { stdout: JSON.stringify({ ok: false, verdict: "landed" }), stderr: "" },
+      undefined,
     );
     assert.strictEqual(result.landed, false);
     assert.deepStrictEqual(result.messages, [
-      "[runner r] followed an older commit (abc); land again to publish your current commit",
+      "SlipJay followed an older commit; land again to publish the current one.",
     ]);
   });
 
   it("reports a refusal before submission with SlipJay's message", () => {
-    assert.deepStrictEqual(parseLandOutput("", "Nothing to land: abc123 is already on t3peach\n"), {
-      landed: false,
-      verdict: null,
-      operationId: null,
-      commitId: null,
-      messages: ["Nothing to land: abc123 is already on t3peach"],
-    });
+    assert.deepStrictEqual(
+      landResult(
+        { stdout: "", stderr: "Nothing to land: abc123 is already on t3peach\n" },
+        undefined,
+      ),
+      {
+        landed: false,
+        verdict: null,
+        operationId: null,
+        commitId: null,
+        messages: ["Nothing to land: abc123 is already on t3peach"],
+      },
+    );
   });
 });
 
@@ -160,7 +224,11 @@ describe("SlipJayLandings.land", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const host = yield* landingHost({
-          stdout: JSON.stringify({ ok: false, verdict: "failed" }),
+          stdout: JSON.stringify({
+            ok: false,
+            verdict: "failed",
+            outcome: { operationId: "op_a", status: "failed" },
+          }),
           stderr: "[runner r] failed at verifying: gate failed",
           code: 1,
         });
@@ -178,7 +246,7 @@ describe("SlipJayLandings.land", () => {
           return yield* Fiber.join(second);
         }).pipe(Effect.provide(host.layer));
         assert.strictEqual((yield* Ref.get(host.runs)).length, 1);
-        assert.deepStrictEqual(result.messages, ["[runner r] failed at verifying: gate failed"]);
+        assert.deepStrictEqual(result.messages, ["failed at verifying: 2 tests failed"]);
       }),
     ),
   );

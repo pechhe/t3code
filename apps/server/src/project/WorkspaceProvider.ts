@@ -7,17 +7,14 @@ import * as Schema from "effect/Schema";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
-import {
-  SLIPJAY_PROJECT_FILE_NAME,
-  type GitCommandError,
-  type VcsRemoveWorktreeInput,
-} from "@t3tools/contracts";
+import { type GitCommandError, type VcsRemoveWorktreeInput } from "@t3tools/contracts";
 import { repositoryStore } from "../agents/workspaceIdentity.ts";
+import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
 
 /**
- * How a project creates a separate checkout for a thread. A repository with a
- * `slipjay.json` allocates through SlipJay, which owns its workspace pool and
- * landing; any other repository uses a Git worktree.
+ * How a project creates a separate checkout for a thread. A SlipJay project
+ * (see `findSlipJayProject`) allocates through SlipJay, which owns its workspace
+ * pool and landing; any other repository uses a Git worktree.
  */
 export type WorkspaceProviderKind = "git-worktree" | "slipjay";
 
@@ -98,10 +95,15 @@ export const make = Effect.gen(function* () {
         ),
       );
 
+  const slipJayProject = (projectRoot: string) =>
+    findSlipJayProject(projectRoot).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
+    );
+
   const resolve: WorkspaceProvider["Service"]["resolve"] = (projectRoot) =>
-    fs.exists(path.join(projectRoot, SLIPJAY_PROJECT_FILE_NAME)).pipe(
-      Effect.orElseSucceed(() => false),
-      Effect.map((exists): WorkspaceProviderKind => (exists ? "slipjay" : "git-worktree")),
+    slipJayProject(projectRoot).pipe(
+      Effect.map((project): WorkspaceProviderKind => (project ? "slipjay" : "git-worktree")),
     );
 
   const allocate: WorkspaceProvider["Service"]["allocate"] = Effect.fn(
@@ -109,12 +111,9 @@ export const make = Effect.gen(function* () {
   )(({ projectRoot, task }) =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
-        const output = yield* slipjay("allocate", projectRoot, [
-          "start",
-          "--integration",
-          "--json",
-          task,
-        ]);
+        // A project registered in a subdirectory allocates from its SlipJay root.
+        const root = (yield* slipJayProject(projectRoot))?.root ?? projectRoot;
+        const output = yield* slipjay("allocate", root, ["start", "--integration", "--json", task]);
         const result = yield* decodeSlipJayStartResult(output.stdout.trim()).pipe(
           Effect.mapError(
             (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),

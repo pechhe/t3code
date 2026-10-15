@@ -24,8 +24,9 @@ import {
   sortProviderInstanceEntries,
 } from "../../providerInstances";
 import { useEnvironments } from "../../state/environments";
+import { useEnvironmentQuery } from "../../state/query";
 import { EMPTY_SERVER_PROVIDERS } from "../../state/server";
-import { useProjectFileQuery } from "../files/projectFilesQueryState";
+import { vcsEnvironment } from "../../state/vcs";
 import { resolveEnvModeLabel, WORKTREE_SUBMODULES_LABELS } from "../BranchToolbar.logic";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
@@ -61,8 +62,8 @@ function isWorktreeSubmodules(value: string | null): value is WorktreeSubmodules
 }
 
 /**
- * Read-only: the server allocates a project's thread workspaces through SlipJay when its root
- * holds a slipjay.json, and through Git worktrees otherwise.
+ * Read-only: how the server allocates this project's thread workspaces, as its VCS status
+ * reports it (SlipJay for a SlipJay project, Git worktrees otherwise).
  */
 function WorkspaceProviderRow({
   environmentId,
@@ -71,17 +72,19 @@ function WorkspaceProviderRow({
   environmentId: EnvironmentId;
   workspaceRoot: string;
 }) {
-  const slipjayFile = useProjectFileQuery(environmentId, workspaceRoot, SLIPJAY_PROJECT_FILE_NAME);
-  // A missing file is a read error; no answer yet, or no file access, shows nothing.
-  if (slipjayFile.isPending || (!slipjayFile.data && !slipjayFile.readError)) return null;
+  const status = useEnvironmentQuery(
+    vcsEnvironment.status({ environmentId, input: { cwd: workspaceRoot } }),
+  );
+  // No answer yet, or no answer at all, shows nothing.
+  if (!status.data) return null;
   return (
     <SettingsRow
       id="workspace-provider"
       title="Workspaces"
-      description={`How new worktree threads get their own checkout. A ${SLIPJAY_PROJECT_FILE_NAME} at the project root selects SlipJay.`}
+      description={`How new worktree threads get their own checkout. A Jujutsu repository with a ${SLIPJAY_PROJECT_FILE_NAME} uses SlipJay.`}
       control={
         <span className="text-sm text-muted-foreground">
-          {slipjayFile.data ? "SlipJay workspaces" : "Git worktrees"}
+          {status.data.slipJay !== undefined ? "SlipJay workspaces" : "Git worktrees"}
         </span>
       }
     />

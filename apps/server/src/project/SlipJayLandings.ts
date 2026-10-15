@@ -16,7 +16,6 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import {
   GitCommandError,
-  SLIPJAY_PROJECT_FILE_NAME,
   type VcsSlipJayLandInput,
   type VcsSlipJayLandResult,
   type VcsSlipJayLandingLogInput,
@@ -24,6 +23,8 @@ import {
   type VcsStatusSlipJayLanding,
 } from "@t3tools/contracts";
 import * as ProcessRunner from "../processRunner.ts";
+import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
+import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import {
   applyLandingOutcome,
   applyWatchEnvelope,
@@ -32,11 +33,9 @@ import {
   parseLandingOutcome,
   parseWatchLine,
   resolveWorkspaceLanding,
+  type LandingOutcome,
   type LandingWatchState,
 } from "./slipJayLandingState.ts";
-
-/** A jj revset or template string literal. */
-const quoteRevsetString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
 const decodeLandVerdict = Schema.decodeUnknownOption(
   Schema.fromJsonString(
@@ -53,30 +52,54 @@ const decodeLandVerdict = Schema.decodeUnknownOption(
   ),
 );
 
-// `slipjay land` interleaves stages and gate output on stderr. These are the lines that
-// state its verdict or a change it made to the workspace.
-const LAND_VERDICT_LINE =
-  /^\[runner [^\]]+\] (?:failed at |declined|cancelled|followed an older commit)/;
+// `slipjay land` interleaves stages and gate output on stderr. Only these lines are
+// kept: they report a change it made to the workspace, which no outcome records.
 const LAND_WORKSPACE_LINE =
   /^(?:Could not |Abandon it |Kept landed workspace |Removed workspace: )/;
 
-/** `slipjay land`'s outcome from its stdout verdict and stderr lines. */
-export function parseLandOutput(stdout: string, stderr: string): VcsSlipJayLandResult {
-  const verdict = Option.getOrUndefined(decodeLandVerdict(stdout.trim().split("\n").at(-1) ?? ""));
-  const lines = stderr
+/** Why a landing did not publish, from its runner outcome when there is one. */
+function notLandedReason(verdict: string, outcome: LandingOutcome | undefined): string {
+  // SlipJay followed an older submission of this workspace and reports its verdict.
+  if (verdict === "landed")
+    return "SlipJay followed an older commit; land again to publish the current one.";
+  if (!outcome?.terminal) return `SlipJay did not land this change (${verdict}).`;
+  const where = `${outcome.status} at ${outcome.failure?.stage ?? outcome.stage}`;
+  return outcome.failure === undefined ? where : `${where}: ${outcome.failure.reason}`;
+}
+
+/**
+ * `slipjay land`'s result: its stdout verdict, the runner's `outcome` of a landing
+ * that did not publish, and the workspace changes stderr reports. Without a verdict
+ * SlipJay refused before submitting, and its last line says why.
+ */
+export function landResult(
+  output: { readonly stdout: string; readonly stderr: string },
+  outcome: LandingOutcome | undefined,
+): VcsSlipJayLandResult {
+  const verdict = Option.getOrUndefined(
+    decodeLandVerdict(output.stdout.trim().split("\n").at(-1) ?? ""),
+  );
+  const lines = output.stderr
     .split("\n")
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
-  const messages = lines.filter(
-    (line) => LAND_VERDICT_LINE.test(line) || LAND_WORKSPACE_LINE.test(line),
-  );
+  const notices = lines.filter((line) => LAND_WORKSPACE_LINE.test(line));
+  if (verdict === undefined)
+    return {
+      landed: false,
+      verdict: null,
+      operationId: null,
+      commitId: null,
+      messages: notices.length === 0 ? lines.slice(-1) : notices,
+    };
+  const landed = verdict.ok && verdict.verdict === "landed";
+  const explanation = landed ? [] : [notLandedReason(verdict.verdict, outcome)];
   return {
-    landed: verdict?.ok === true && verdict.verdict === "landed",
-    verdict: verdict?.verdict ?? null,
-    operationId: verdict?.outcome?.operationId ?? null,
-    commitId: verdict?.outcome?.publication?.commitId ?? null,
-    // Without a verdict SlipJay refused before submitting, and its last line says why.
-    messages: verdict === undefined && messages.length === 0 ? lines.slice(-1) : messages,
+    landed,
+    verdict: verdict.verdict,
+    operationId: verdict.outcome?.operationId ?? null,
+    commitId: verdict.outcome?.publication?.commitId ?? null,
+    messages: [...explanation, ...notices],
   };
 }
 
@@ -117,10 +140,6 @@ export class SlipJayLandings extends Context.Service<
   }
 >()("t3/project/SlipJayLandings") {}
 
-const decodePublicationRemote = Schema.decodeUnknownOption(
-  Schema.fromJsonString(Schema.Struct({ remote: Schema.optional(Schema.String) })),
-);
-
 /** `owner/name` of a GitHub remote URL, the key SlipJay's runner files a landing under. */
 export const githubRepository = (remote: string): string | null => {
   let path: string;
@@ -144,6 +163,7 @@ export const githubRepository = (remote: string): string | null => {
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const processes = yield* ProcessRunner.ProcessRunner;
+  const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -262,35 +282,35 @@ export const make = Effect.gen(function* () {
     Effect.asVoid,
   );
 
-  const read = (cwd: string, args: ReadonlyArray<string>) =>
-    processes
-      .run({
-        command: "jj",
-        args: ["--no-pager", "--color=never", ...args],
-        cwd,
-        timeout: "10 seconds",
-      })
-      .pipe(
-        Effect.map((output) => (output.code === 0 ? output.stdout : null)),
-        Effect.orElseSucceed(() => null),
-      );
+  // The Jujutsu driver owns how a workspace is read; this service only follows SlipJay.
+  const jjDriver = registry.get("jj").pipe(Effect.option);
+  const workspaceRootOf = (cwd: string) =>
+    registry.detect({ cwd }).pipe(
+      Effect.map((handle) =>
+        handle?.repository.kind === "jj" ? handle.repository.rootPath : null,
+      ),
+      Effect.orElseSucceed(() => null),
+    );
 
   // The repository key a workspace's landings are filed under; remotes rarely change.
   const repositories = yield* Cache.makeWith(
     (workspaceRoot: string) =>
       Effect.gen(function* () {
-        const config = yield* fs
-          .readFileString(path.join(workspaceRoot, SLIPJAY_PROJECT_FILE_NAME))
-          .pipe(Effect.orElseSucceed(() => ""));
-        const remote = Option.getOrUndefined(decodePublicationRemote(config))?.remote ?? "origin";
+        const project = yield* findSlipJayProject(workspaceRoot).pipe(
+          Effect.provideService(FileSystem.FileSystem, fs),
+          Effect.provideService(Path.Path, path),
+        );
+        const driver = Option.getOrUndefined(yield* jjDriver);
         const remotes =
-          (yield* read(workspaceRoot, ["--ignore-working-copy", "git", "remote", "list"])) ?? "";
+          driver === undefined
+            ? []
+            : (yield* driver
+                .listRemotes(workspaceRoot)
+                .pipe(Effect.orElseSucceed(() => ({ remotes: [] })))).remotes;
         const listed = remotes
-          .split("\n")
-          .map((line) => line.trim().split(/\s+/))
-          .filter((parts) => parts.length >= 2)
-          .map(([name, url]) => ({ name, repository: githubRepository(url!) }))
+          .map(({ name, url }) => ({ name, repository: githubRepository(url) }))
           .filter((entry) => entry.repository !== null);
+        const remote = project?.remote ?? "origin";
         return (listed.find((entry) => entry.name === remote) ?? listed[0])?.repository ?? null;
       }),
     { capacity: 64, timeToLive: () => Duration.minutes(10) },
@@ -302,29 +322,19 @@ export const make = Effect.gen(function* () {
     yield* ensureWatching;
     const repository = yield* Cache.get(repositories, workspaceRoot);
     if (repository === null) return undefined;
-    // SlipJay lands the working copy, or its parent when the working copy is empty,
-    // and never submits a change already on the integration bookmark or its remote.
-    const bookmark = quoteRevsetString(integration);
-    const integrated = `::(present(${bookmark}) | remote_bookmarks(exact:${bookmark}))`;
-    const [changeId, isIntegrated] =
-      (yield* read(workspaceRoot, [
-        "--ignore-working-copy",
-        "log",
-        "--no-graph",
-        "-r",
-        "coalesce(@ ~ empty(), @-)",
-        "-T",
-        `change_id ++ " " ++ if(self.contained_in(${quoteRevsetString(integrated)}), "integrated") ++ "\\n"`,
-      ]))
-        ?.split("\n")[0]
-        ?.trim()
-        .split(" ") ?? [];
-    if (!changeId) return undefined;
+    const driver = Option.getOrUndefined(yield* jjDriver);
+    const candidate =
+      driver?.slipJayLandCandidate === undefined
+        ? null
+        : yield* driver
+            .slipJayLandCandidate({ cwd: workspaceRoot, integration })
+            .pipe(Effect.orElseSucceed(() => null));
+    if (candidate === null) return undefined;
     const current = yield* Ref.get(state);
     const resolved = resolveWorkspaceLanding(
       current,
       repository,
-      { changeId, integrated: isIntegrated === "integrated" },
+      candidate,
       (yield* Ref.get(submittedFrom)).get(workspaceRoot),
     );
     yield* Ref.update(submittedFrom, (roots) => {
@@ -394,7 +404,16 @@ export const make = Effect.gen(function* () {
               detail: "SlipJay could not be run to land this workspace.",
             }),
         ),
-        Effect.map((output) => parseLandOutput(output.stdout, output.stderr)),
+        Effect.flatMap((output) => {
+          const verdict = landResult(output, undefined);
+          // A landing that did not publish reports why from its runner outcome, the
+          // record the strip shows, rather than from the lines it printed.
+          return verdict.landed || verdict.operationId === null
+            ? Effect.succeed(verdict)
+            : readOutcome(verdict.operationId).pipe(
+                Effect.map((outcome) => landResult(output, outcome)),
+              );
+        }),
       );
 
   const lands = yield* Ref.make(
@@ -412,7 +431,7 @@ export const make = Effect.gen(function* () {
       });
     // One landing per workspace, however the caller names a path inside it. SlipJay
     // refuses, in its own words, a checkout it would not land.
-    const root = (yield* read(cwd, ["--ignore-working-copy", "workspace", "root"]))?.trim();
+    const root = yield* workspaceRootOf(cwd);
     if (!root) return yield* refuse("This is not a Jujutsu workspace.");
     // Registering and starting are one step, so an interrupted caller cannot leave a
     // registration that no landing will ever settle.
