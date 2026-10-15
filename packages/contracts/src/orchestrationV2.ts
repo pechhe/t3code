@@ -3304,6 +3304,17 @@ const OrchestrationV2InternalCommand = Schema.Union([
     reason: Schema.optional(Schema.String),
   }),
   /**
+   * Returns a starting run whose bound workspace no longer exists to workspace
+   * preparation, so it runs in a freshly prepared workspace instead.
+   */
+  Schema.Struct({
+    type: Schema.Literal("prepared-run.defer"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
+    workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
+  }),
+  /**
    * Records or updates a secret an agent asked the user for. Internal so no
    * client can mark a request saved without the value being stored.
    */

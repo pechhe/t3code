@@ -25,6 +25,7 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -193,6 +194,20 @@ export class ThreadLaunchService extends Context.Service<
       | ThreadManagement.ThreadManagementProviderInstanceDisabledError
     >;
     readonly prepareRun: (input: ThreadLaunchPreparationInput) => Effect.Effect<void>;
+    /**
+     * Sends a run that is about to start back to workspace preparation when
+     * SlipJay released its thread's workspace, as Land does, so it runs in a
+     * fresh workspace like a first message. Reports whether it did; a failure
+     * leaves the run starting, so the caller can retry.
+     */
+    readonly prepareReleasedWorkspace: (
+      input: ThreadLaunchPreparationInput,
+    ) => Effect.Effect<
+      boolean,
+      | Orchestrator.OrchestratorV2Error
+      | ThreadManagement.ThreadManagementProviderInstanceDisabledError
+      | ProjectService.ProjectOperationError
+    >;
   }
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
@@ -209,6 +224,7 @@ function failureDetail(error: unknown): string {
 
 const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
+  const fileSystem = yield* FileSystem.FileSystem;
   const setupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
   const cloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
   const terminals = yield* TerminalManager.TerminalManager;
@@ -1107,26 +1123,30 @@ const make = Effect.gen(function* () {
     return dispatched;
   });
 
-  const scheduleRunPreparation = (
+  const scheduleRunPreparation = Effect.fn("ThreadLaunchService.scheduleRunPreparation")(function* (
     input: ThreadLaunchPreparationInput,
     projection: OrchestrationV2ThreadProjection,
     run: OrchestrationV2ThreadProjection["runs"][number],
     workspacePreparation: ThreadLaunchWorkspaceStrategy,
-  ) => {
+  ) {
     const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
     // A worktree the failed attempt already created is reused, not created again.
+    // One SlipJay has released since is gone, so a fresh one is prepared instead.
+    const boundWorktreePath = projection.thread.worktreePath;
     const reuse =
-      workspacePreparation.type === "worktree" && projection.thread.worktreePath !== null
+      workspacePreparation.type === "worktree" &&
+      boundWorktreePath !== null &&
+      (yield* fileSystem.exists(boundWorktreePath).pipe(Effect.orElseSucceed(() => true)))
         ? {
             strategy: {
               type: "existing_worktree" as const,
-              worktreePath: projection.thread.worktreePath,
+              worktreePath: boundWorktreePath,
               ...(projection.thread.branch === null ? {} : { branch: projection.thread.branch }),
             },
             reusedWorktree: { baseRef: workspacePreparation.baseRef },
           }
         : null;
-    return schedulePreparation(
+    return yield* schedulePreparation(
       {
         commandId: input.commandId,
         projectId: projection.thread.projectId,
@@ -1148,9 +1168,67 @@ const make = Effect.gen(function* () {
       input.threadId,
       run.id,
     );
-  };
+  });
 
-  return ThreadLaunchService.of({ launch, checkWorktreeBase, retryPreparation, prepareRun });
+  const prepareReleasedWorkspace: ThreadLaunchService["Service"]["prepareReleasedWorkspace"] =
+    Effect.fn("ThreadLaunchService.prepareReleasedWorkspace")(function* (input) {
+      // Only a conversation's own SlipJay workspace is replaced. A git
+      // worktree has a branch to recreate it from, and a managed task's
+      // workspace belongs to the work that assigned it.
+      const thread = yield* threads.getThreadShell(input.threadId);
+      if (
+        thread === null ||
+        thread.worktreePath === null ||
+        thread.branch !== null ||
+        thread.agentTask !== undefined ||
+        (yield* fileSystem.exists(thread.worktreePath).pipe(Effect.orElseSucceed(() => true)))
+      ) {
+        return false;
+      }
+      const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
+      if (
+        project === undefined ||
+        (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay"
+      ) {
+        return false;
+      }
+      yield* threads.dispatch({
+        type: "prepared-run.defer",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        runId: input.runId,
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+      });
+      yield* prepareRun(input);
+      return true;
+    });
+
+  return ThreadLaunchService.of({
+    launch,
+    checkWorktreeBase,
+    retryPreparation,
+    prepareRun,
+    prepareReleasedWorkspace,
+  });
 });
 
 export const layer = Layer.effect(ThreadLaunchService, make);
+
+/**
+ * Lets the effect worker hand a run whose SlipJay workspace was released to
+ * workspace preparation before its provider starts. Without the production
+ * layer nothing is handed over, and turn start refuses the missing directory.
+ */
+export class ReleasedWorkspacePreparation extends Context.Reference<{
+  readonly prepare: ThreadLaunchService["Service"]["prepareReleasedWorkspace"];
+}>("t3/orchestration-v2/ReleasedWorkspacePreparation", {
+  defaultValue: () => ({ prepare: () => Effect.succeed(false) }),
+}) {}
+
+export const layerReleasedWorkspacePreparation = Layer.effect(
+  ReleasedWorkspacePreparation,
+  Effect.gen(function* () {
+    const launch = yield* ThreadLaunchService;
+    return { prepare: launch.prepareReleasedWorkspace };
+  }),
+);

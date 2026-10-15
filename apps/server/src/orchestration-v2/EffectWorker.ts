@@ -26,6 +26,7 @@ import * as ProviderTurnStartService from "./ProviderTurnStartService.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
 
@@ -103,6 +104,7 @@ export const layerExecutor: Layer.Layer<
     const threadTitleRegeneration =
       yield* ThreadTitleRegenerationService.ThreadTitleRegenerationService;
     const threads = yield* ThreadManagementService.ThreadManagementService;
+    const releasedWorkspaces = yield* ThreadLaunchService.ReleasedWorkspacePreparation;
     const settings = yield* ServerSettings.ServerSettingsService;
     return OrchestrationEffectExecutorV2.of({
       execute: (effect, options) => {
@@ -149,10 +151,22 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
-          case "provider-turn.start":
-            return providerTurnStart
-              .start({ threadId: effect.threadId, runId: effect.request.runId, willRetry })
+          case "provider-turn.start": {
+            const { runId } = effect.request;
+            // A run whose SlipJay workspace was released waits for a fresh one;
+            // releasing it from preparation starts it again.
+            return releasedWorkspaces
+              .prepare({
+                commandId: CommandId.make(`${effect.id}:released-workspace`),
+                threadId: effect.threadId,
+                runId,
+              })
               .pipe(
+                Effect.flatMap((deferred) =>
+                  deferred
+                    ? Effect.void
+                    : providerTurnStart.start({ threadId: effect.threadId, runId, willRetry }),
+                ),
                 Effect.mapError(
                   (cause) =>
                     new OrchestrationEffectExecutionError({
@@ -162,6 +176,7 @@ export const layerExecutor: Layer.Layer<
                     }),
                 ),
               );
+          }
           case "provider-turn.interrupt": {
             const request = effect.request;
             return providerTurnControl

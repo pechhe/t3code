@@ -172,7 +172,10 @@ function makeHarness(options: HarnessOptions = {}) {
   const generateThreadTitle = vi.fn(
     options.generateTitle ?? (() => Effect.succeed({ title: "Generated title" })),
   );
+  // Workspaces exist unless a test releases them.
+  const releasedPaths = new Set<string>();
   const layerExternalServices = Layer.mergeAll(
+    FileSystem.layerNoop({ exists: (path) => Effect.sync(() => !releasedPaths.has(path)) }),
     WorktreeSetupTracker.layer,
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(TerminalManager.TerminalManager)({ close: closeTerminal }),
@@ -278,6 +281,7 @@ function makeHarness(options: HarnessOptions = {}) {
     removeWorktree,
     allocateWorkspace,
     releaseWorkspace,
+    releasedPaths,
     renameBranch,
     generateBranchName,
     generateThreadTitle,
@@ -1375,6 +1379,128 @@ it.effect("reuses a branchless SlipJay allocation when setup is retried", () =>
       assert.equal(harness.allocateWorkspace.mock.calls.length, 1);
       assert.equal(harness.runSetup.mock.calls.length, 2);
       assert.isEmpty(harness.releaseWorkspace.mock.calls);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+const launchSlipJayRun = (thread: string) =>
+  Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({ command: `command:${thread}`, thread, message: "Start" }),
+    );
+    yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+      Stream.filter(
+        (stored) =>
+          stored.event.type === "run.updated" && stored.event.payload.status === "starting",
+      ),
+      Stream.runHead,
+    );
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    return {
+      commandId: CommandId.make(`command:${thread}:released`),
+      threadId: launched.threadId,
+      runId: projection.runs[0]!.id,
+    };
+  });
+
+const allocateInTurn = (...outcomes: ReadonlyArray<string | null>) => {
+  let calls = 0;
+  return () => {
+    const outcome = outcomes[calls++];
+    return outcome === null || outcome === undefined
+      ? Effect.fail(
+          new WorkspaceProvider.WorkspaceProviderError({
+            operation: "allocate",
+            projectRoot: project.workspaceRoot,
+          }),
+        )
+      : Effect.succeed(outcome);
+  };
+};
+
+it.effect("gives a run whose SlipJay workspace was released a fresh one before it starts", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: allocateInTurn("/slipjay/workspaces/landed", "/slipjay/workspaces/fresh"),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const run = yield* launchSlipJayRun("thread:launch:released-slipjay");
+      harness.releasedPaths.add("/slipjay/workspaces/landed");
+
+      assert.isTrue(yield* launches.prepareReleasedWorkspace(run));
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(run.threadId)
+          .pipe(
+            Effect.map(
+              (projection) =>
+                projection.thread.worktreePath === "/slipjay/workspaces/fresh" &&
+                projection.runs[0]?.status === "starting",
+            ),
+          ),
+      );
+      const projection = yield* threads.getThreadProjection(run.threadId);
+      assert.equal(harness.allocateWorkspace.mock.calls.length, 2);
+      // Earlier checkpoints are read through the thread's root scope, which now
+      // reads the shared store from the fresh workspace.
+      assert.equal(
+        projection.checkpointScopes.find((scope) => scope.kind === "root_run")?.cwd,
+        "/slipjay/workspaces/fresh",
+      );
+      assert.isTrue(
+        projection.turnItems.some(
+          (item) => item.type === "command_execution" && item.title === "Workspace ready",
+        ),
+      );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("leaves a run alone when SlipJay kept its workspace", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({ slipjay: true });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const run = yield* launchSlipJayRun("thread:launch:kept-slipjay");
+
+      assert.isFalse(yield* launches.prepareReleasedWorkspace(run));
+      const projection = yield* threads.getThreadProjection(run.threadId);
+      assert.equal(projection.runs[0]?.status, "starting");
+      assert.equal(harness.allocateWorkspace.mock.calls.length, 1);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("reports a failed allocation for a released workspace instead of starting", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: allocateInTurn("/slipjay/workspaces/landed", null),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const run = yield* launchSlipJayRun("thread:launch:released-slipjay-fails");
+      harness.releasedPaths.add("/slipjay/workspaces/landed");
+
+      assert.isTrue(yield* launches.prepareReleasedWorkspace(run));
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(run.threadId)
+          .pipe(Effect.map((projection) => projection.runs[0]?.status === "failed")),
+      );
+      const projection = yield* threads.getThreadProjection(run.threadId);
+      assert.isTrue(
+        projection.turnItems.some(
+          (item) => item.type === "error" && item.title === "Workspace preparation failed",
+        ),
+      );
     }).pipe(Effect.provide(harness.layer));
   }),
 );
@@ -2703,6 +2829,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
         checkWorktreeBase: launches.checkWorktreeBase,
         retryPreparation: launches.retryPreparation,
         prepareRun: launches.prepareRun,
+        prepareReleasedWorkspace: launches.prepareReleasedWorkspace,
       }),
       Effect.flip,
     );

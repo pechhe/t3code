@@ -93,7 +93,13 @@ it("does not commit running state when inherited background routing cannot be re
   );
   const startRootRun = vi.fn(() => Effect.void);
   const pruneWorktrees = vi.fn(() => Effect.void);
-  const createWorktree = vi.fn(() => Effect.succeed({} as never));
+  let recreated = false;
+  const createWorktree = vi.fn(() =>
+    Effect.sync(() => {
+      recreated = true;
+      return {} as never;
+    }),
+  );
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -101,7 +107,7 @@ it("does not commit running state when inherited background routing cannot be re
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
         Path.layer,
-        FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
+        FileSystem.layerNoop({ exists: () => Effect.sync(() => recreated) }),
         Layer.mock(GitWorkflow.GitWorkflowService)({ pruneWorktrees, createWorktree }),
         Layer.mock(ProjectService.ProjectService)({
           getById: () =>
@@ -166,6 +172,8 @@ it("does not commit running state when inherited background routing cannot be re
 function makeLocalCommandHarness(input: {
   readonly text: string;
   readonly worktreePath?: string;
+  /** Defaults to a git branch whenever a worktree is bound; null is a SlipJay workspace. */
+  readonly branch?: string | null;
   readonly fileSystem?: FileSystem.FileSystem;
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
@@ -249,7 +257,12 @@ function makeLocalCommandHarness(input: {
       id: threadId,
       activeProviderThreadId: providerThreadId,
       projectId: ProjectId.make("project-native-account-command"),
-      branch: input.worktreePath === undefined ? null : "feature/restore",
+      branch:
+        input.branch !== undefined
+          ? input.branch
+          : input.worktreePath === undefined
+            ? null
+            : "feature/restore",
       worktreePath: input.worktreePath ?? null,
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
@@ -1021,6 +1034,33 @@ effectIt.effect("persists a failed sign-out without starting a provider turn", (
         failure: {
           class: "permission_error",
           message: "Could not stop all sessions for this provider. Try again.",
+        },
+      },
+    ]);
+  }),
+);
+
+effectIt.effect("fails a run whose workspace is gone without starting a provider", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      worktreePath: "/tmp/released-slipjay-workspace",
+      branch: null,
+      fileSystem: FileSystem.makeNoop({ exists: () => Effect.succeed(false) }),
+    });
+
+    yield* harness.start;
+
+    expect(harness.open).not.toHaveBeenCalled();
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+    expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+    expect(harness.projection().turnItems).toMatchObject([
+      {
+        type: "error",
+        title: "Workspace missing",
+        failure: {
+          class: "validation_error",
+          message: "The thread's workspace /tmp/released-slipjay-workspace no longer exists.",
         },
       },
     ]);

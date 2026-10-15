@@ -483,6 +483,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "prepared-run.progress":
     case "prepared-run.fail":
     case "prepared-run.retry":
+    case "prepared-run.defer":
     case "subagent.stop":
     case "run.interrupt":
     case "queued-message.promote-to-steer":
@@ -8249,7 +8250,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     });
 
   const loadProjectionForCommand = <K extends ProjectionRecordField>(
-    command: OrchestrationV2Command,
+    command: OrchestrationV2ServerCommand,
     fields: ReadonlyArray<K>,
     filter?: ProjectionRecordFilter,
   ) =>
@@ -8623,6 +8624,83 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           payload: { ...run, queueHeld: false },
         });
       }
+    });
+
+  /**
+   * Returns a run that has not reached its provider to workspace preparation,
+   * because its bound workspace is gone. ThreadLaunchService prepares the
+   * recorded strategy once this commits, and releasing the run starts it again.
+   */
+  const dispatchPreparedRunDefer = (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "prepared-run.defer" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) =>
+    Effect.gen(function* () {
+      const projection = yield* loadProjectionForCommand(
+        command,
+        ["runs", "attempts", "nodes", "providerThreads", "turnItems"],
+        { turnItemTypes: ["command_execution"], turnItemRunId: command.runId },
+      );
+      const run = projection.runs.find((candidate) => candidate.id === command.runId);
+      const attempt = projection.attempts.find(
+        (candidate) => candidate.id === run?.activeAttemptId,
+      );
+      const rootNode = projection.nodes.find((candidate) => candidate.id === run?.rootNodeId);
+      const providerThread = projection.providerThreads.find(
+        (candidate) => candidate.id === run?.providerThreadId,
+      );
+      if (
+        run?.status !== "starting" ||
+        attempt?.status !== "pending" ||
+        attempt.providerTurnId !== null ||
+        rootNode === undefined ||
+        providerThread === undefined
+      ) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Run ${command.runId} is not waiting to start.`,
+        });
+      }
+      const now = yield* DateTime.now;
+      const emitEvent = emit(events, command);
+      const scope = {
+        threadId: command.threadId,
+        runId: run.id,
+        nodeId: rootNode.id,
+        providerInstanceId: run.providerInstanceId,
+        occurredAt: now,
+      };
+      yield* emitEvent({
+        ...scope,
+        type: "turn-item.updated",
+        payload: {
+          id: idAllocator.derive.turnItemFromProviderItem({
+            driver: providerThread.driver,
+            nativeItemId: `workspace-preparation:${run.id}`,
+          }),
+          threadId: command.threadId,
+          runId: run.id,
+          nodeId: rootNode.id,
+          providerThreadId: providerThread.id,
+          providerTurnId: null,
+          nativeItemRef: null,
+          parentItemId: null,
+          ordinal: yield* nextTurnItemOrdinal(projection),
+          status: "running",
+          title: WORKSPACE_PREPARATION_INPUT,
+          startedAt: now,
+          completedAt: null,
+          updatedAt: now,
+          type: "command_execution",
+          input: WORKSPACE_PREPARATION_INPUT,
+        },
+      });
+      yield* emitEvent({
+        ...scope,
+        type: "run.updated",
+        payload: { ...run, status: "preparing", workspacePreparation: command.workspaceStrategy },
+      });
     });
 
   /**
@@ -11311,6 +11389,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         break;
       case "prepared-run.retry":
         yield* dispatchPreparedRunRetry(command, events);
+        break;
+      case "prepared-run.defer":
+        yield* dispatchPreparedRunDefer(command, events);
         break;
       case "runtime-request.respond":
         yield* dispatchRuntimeRequestRespond(command, events, effects);

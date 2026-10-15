@@ -351,7 +351,14 @@ export const layer = Layer.mergeAll(
 );
 
 export const layerProduction = Layer.mergeAll(
-  layer.pipe(Layer.provide(layerProjectService)),
+  layer.pipe(
+    Layer.provide(layerProjectService),
+    Layer.provide(
+      ThreadLaunchService.layerReleasedWorkspacePreparation.pipe(
+        Layer.provide(layerThreadLaunchProvided),
+      ),
+    ),
+  ),
   layerProjectService,
   layerManagedProjectFoldersProvided,
   layerThreadLaunchProvided,

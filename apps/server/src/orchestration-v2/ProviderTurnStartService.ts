@@ -497,6 +497,30 @@ export const layer: Layer.Layer<
           }
         }
       }
+      // A provider never starts in a missing directory: it would run somewhere
+      // else or fail without saying why. The run fails with the reason instead.
+      if (
+        worktreePath !== null &&
+        !(yield* fileSystem.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)))
+      ) {
+        const now = yield* DateTime.now;
+        yield* settleRunBeforeStart({
+          signal: "workspace-missing",
+          status: "failed",
+          now,
+          providerInstanceId: run.providerInstanceId,
+          itemProviderThreadId: providerThread.id,
+          item: {
+            type: "error",
+            title: "Workspace missing",
+            failure: makeProviderFailure({
+              class: "validation_error",
+              message: `The thread's workspace ${worktreePath} no longer exists.`,
+            }),
+          },
+        });
+        return;
+      }
       const selectInheritedBackgroundItems = (
         current: ProjectionStore.ProjectionRuntimeRecoveryState,
       ): ReturnType<typeof RunExecutionService.selectInheritedBackgroundTurnItems> =>

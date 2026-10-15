@@ -30,6 +30,7 @@ import * as ProviderTurnStartService from "./ProviderTurnStartService.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadTitleRegenerationService from "./ThreadTitleRegenerationService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
 const threadId = ThreadId.make("thread:effect-worker-restart");
@@ -195,6 +196,33 @@ it("does not retry pure interrupt races where the turn is already gone", () => {
     ),
   );
 });
+
+it.effect.each([
+  { released: false, expected: ["start"] },
+  { released: true, expected: [] },
+])(
+  "starts a run's provider only when its workspace was not released: %o",
+  ({ released, expected }) =>
+    Effect.gen(function* () {
+      const now = yield* DateTime.now;
+      const events = yield* Ref.make<ReadonlyArray<string>>([]);
+      const layer = layerExecutorFor({ events }).pipe(
+        Layer.provide(
+          Layer.succeed(ThreadLaunchService.ReleasedWorkspacePreparation, {
+            prepare: () => Effect.succeed(released),
+          }),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+        yield* executor.execute({
+          ...restartEffect(now, { type: "detach" }),
+          request: { type: "provider-turn.start", runId },
+        });
+      }).pipe(Effect.provide(layer));
+      assert.deepEqual(yield* Ref.get(events), expected);
+    }),
+);
 
 it.effect("settles a stopped run when its adapter has already lost the native turn", () =>
   Effect.gen(function* () {
