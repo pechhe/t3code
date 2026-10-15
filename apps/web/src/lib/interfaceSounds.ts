@@ -15,8 +15,8 @@ import rotaryUrl from "../assets/sounds/rotary.mp3?url";
 
 const MASTER_VOLUME = 0.3;
 const IDLE_SUSPEND_MS = 2_000;
-/** A fast tap still sounds as a press and a release, never one smeared click. */
-const MIN_PRESS_GAP_MS = 90;
+/** The release waits for the press to finish, so a fast tap never smears into one click. */
+const FALLBACK_PRESS_MS = 260;
 /** A sweep across the sidebar ticks like a detent instead of buzzing. */
 const TICK_INTERVAL_MS = 30;
 const TICK_PITCH_SPREAD = 0.04;
@@ -53,11 +53,11 @@ function wake(): void {
   scheduleSuspend();
 }
 
-const SIDEBAR_ITEM =
-  '[data-sidebar="sidebar"] :is(button, a, [role="button"], [role="menuitem"], [role="treeitem"])';
+/** Thread rows only; the rest of the sidebar stays quiet. */
+const SIDEBAR_ITEM = '[data-sidebar="sidebar"] [data-thread-item]';
 let hoveredSidebarItem: Element | null = null;
 
-/** Ticks as the pointer moves onto another sidebar item; scrolling items under it ticks too. */
+/** Ticks as the pointer moves onto another thread; scrolling threads under it ticks too. */
 function onPointerOver(event: PointerEvent): void {
   if (event.pointerType === "touch" || !(event.target instanceof Element)) return;
   const item = event.target.closest(SIDEBAR_ITEM);
@@ -136,12 +136,14 @@ function renderTick(audio: AudioContext): AudioBuffer {
   return buffer;
 }
 
-/** Plays the press now and returns the release, spaced at least {@link MIN_PRESS_GAP_MS} after it. */
+/** Plays the press now and returns the release, which sounds only once the press has played out. */
 export function pressClick(): () => void {
-  play(recordings.get("pressDown"));
+  const press = recordings.get("pressDown");
+  play(press);
   const pressedAt = performance.now();
+  const pressMs = press ? press.duration * 1000 : FALLBACK_PRESS_MS;
   return () => {
-    const wait = MIN_PRESS_GAP_MS - (performance.now() - pressedAt);
+    const wait = pressMs - (performance.now() - pressedAt);
     if (wait <= 0) play(recordings.get("pressUp"));
     else setTimeout(() => play(recordings.get("pressUp")), wait);
   };

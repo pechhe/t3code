@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./components/chat/device/deviceComposer.css";
+@import "./components/sidebarDevice.css";
 
 @custom-variant dark (&:is(.dark, .dark *));
 @custom-variant light (&:not(.dark, .dark *));

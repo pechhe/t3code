@@ -1,0 +1,96 @@
+/*
+ * The machined sidebar: the composer's brushed metal (anodized black in dark
+ * mode) as the rail's body, with engraved ink and an amber lit selection.
+ * Ported from peach-pi. The chassis follows the same rule as the composer, so
+ * a composer finish (lib/composerFinish.ts) tints both. Desktop rail only; the
+ * mobile sheet keeps the stock look.
+ */
+[data-slot="sidebar-inner"] {
+  --rail-metal-a: oklch(0.79 0.003 250);
+  --rail-metal-b: oklch(0.85 0.003 250);
+  --rail-metal-c: oklch(0.92 0.002 250);
+  --rail-ink: oklch(0.2 0.005 250);
+  --rail-ink-muted: oklch(0.38 0.005 250);
+  --rail-lit: var(--engrave-active, oklch(0.74 0.185 52));
+  --engrave-lip: 0 2px 0 oklch(1 0.002 250 / 0.7);
+  --rail-catch: oklch(1 0.002 250 / 0.26);
+  --rail-grain: oklch(0.35 0.004 250 / 0.06);
+}
+
+:root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
+  [data-slot="sidebar-inner"] {
+  --rail-metal-a: oklch(0.135 0.004 265);
+  --rail-metal-b: oklch(0.185 0.004 265);
+  --rail-metal-c: oklch(0.235 0.004 265);
+  --rail-ink: oklch(0.84 0.004 265);
+  --rail-ink-muted: oklch(0.6 0.004 265);
+  --engrave-lip: 0 -2px 0 oklch(0 0 0 / 0.7);
+  --rail-catch: oklch(0.62 0.004 265 / 0.22);
+  --rail-grain: oklch(0.7 0.004 265 / 0.04);
+}
+
+[data-slot="sidebar-inner"][data-sidebar="sidebar"] {
+  /* Pigment from the composer finish, mixed into the metal. */
+  --rail-a: color-mix(
+    in srgb,
+    var(--rail-metal-a),
+    var(--metal-dye, var(--rail-metal-a)) var(--metal-tint-amount, 0%)
+  );
+  --rail-b: color-mix(
+    in srgb,
+    var(--rail-metal-b),
+    var(--metal-dye, var(--rail-metal-b)) var(--metal-tint-amount, 0%)
+  );
+  --rail-c: color-mix(
+    in srgb,
+    var(--rail-metal-c),
+    var(--metal-dye, var(--rail-metal-c)) var(--metal-tint-amount, 0%)
+  );
+  position: relative;
+  isolation: isolate;
+  color: var(--rail-ink);
+  background:
+    radial-gradient(ellipse 34% 55% at 86% 12%, var(--rail-catch), transparent 60%),
+    repeating-linear-gradient(90deg, var(--rail-grain) 0 1px, transparent 1px 3px),
+    linear-gradient(78deg, var(--rail-a) 0px, var(--rail-b) 170px, var(--rail-c) 340px);
+  background-blend-mode: normal, soft-light, normal;
+}
+
+/* Overhead light: a faint sheen across the top and a shade at the foot. */
+[data-slot="sidebar-inner"][data-sidebar="sidebar"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.22;
+  background: linear-gradient(
+    180deg,
+    oklch(1 0.002 250 / 0.22),
+    transparent 18%,
+    transparent 82%,
+    oklch(0 0 0 / 0.12)
+  );
+}
+
+/* Engraved ink: solid, with one crisp lip and no blur, so it reads as cut. */
+[data-slot="sidebar-inner"][data-sidebar="sidebar"] :is(span, a, button, h2, h3, p) {
+  text-shadow: var(--engrave-lip);
+}
+[data-slot="sidebar-inner"][data-sidebar="sidebar"] svg {
+  filter: drop-shadow(var(--engrave-lip));
+}
+
+/* The selected thread lights up in the composer's amber instead of filling a pill. */
+[data-slot="sidebar-inner"][data-sidebar="sidebar"]
+  [data-thread-item]
+  [aria-current]:not([aria-current="false"]),
+[data-slot="sidebar-inner"][data-sidebar="sidebar"]
+  [data-thread-item]
+  [aria-current]:not([aria-current="false"])
+  :is(span, svg) {
+  color: var(--rail-lit);
+  text-shadow:
+    var(--engrave-lip),
+    0 0 6px color-mix(in srgb, var(--rail-lit) 55%, transparent);
+}
