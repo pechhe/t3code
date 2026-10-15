@@ -59,7 +59,7 @@
 .image-annotator-image {
   display: block;
   max-width: calc(100vw - 32px);
-  max-height: calc(100dvh - 128px);
+  max-height: calc(100dvh - 170px);
   border-radius: 8px;
   box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
 }
