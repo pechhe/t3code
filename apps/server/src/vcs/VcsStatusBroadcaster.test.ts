@@ -1156,55 +1156,60 @@ describe("VcsStatusBroadcaster", () => {
     }).pipe(Effect.provide(layerTest));
   });
 
-  it.effect("a landing change refreshes only the SlipJay checkouts of its repository", () => {
-    const localReads: string[] = [];
-    let landingsArrived = false;
-    const refreshed = Deferred.makeUnsafe<void>();
-    const repositories: Record<string, string> = { "/a": "pechhe/a", "/b": "pechhe/b" };
-    const layerFor = (changes: Queue.Queue<LandingChange>) =>
-      VcsStatusBroadcaster.layer.pipe(
-        Layer.provide(
-          Layer.mock(SlipJayLandings.SlipJayLandings)({
-            changes: Stream.fromQueue(changes),
-            repositoryOf: (cwd) => Effect.succeed(repositories[cwd] ?? null),
-          }),
-        ),
-        Layer.provideMerge(NodeServices.layer),
-        Layer.provide(layerBackgroundPolicy(() => true)),
-        Layer.provide(
-          Layer.mock(GitWorkflowService.GitWorkflowService)({
-            localStatus: ({ cwd }) =>
-              Effect.sync(() => localReads.push(cwd)).pipe(
-                Effect.andThen(
-                  landingsArrived && cwd === "/b"
-                    ? Deferred.succeed(refreshed, undefined)
-                    : Effect.void,
+  it.effect(
+    "a landing change refreshes the SlipJay checkouts of its repository and removed ones",
+    () => {
+      const localReads: string[] = [];
+      let landingsArrived = false;
+      const refreshed = Deferred.makeUnsafe<void>();
+      const repositories: Record<string, string> = { "/a": "pechhe/a", "/b": "pechhe/b" };
+      const layerFor = (changes: Queue.Queue<LandingChange>) =>
+        VcsStatusBroadcaster.layer.pipe(
+          Layer.provide(
+            Layer.mock(SlipJayLandings.SlipJayLandings)({
+              changes: Stream.fromQueue(changes),
+              repositoryOf: (cwd) => Effect.succeed(repositories[cwd] ?? null),
+            }),
+          ),
+          Layer.provideMerge(NodeServices.layer),
+          Layer.provide(layerBackgroundPolicy(() => true)),
+          Layer.provide(
+            Layer.mock(GitWorkflowService.GitWorkflowService)({
+              localStatus: ({ cwd }) =>
+                Effect.sync(() => localReads.push(cwd)).pipe(
+                  Effect.andThen(() =>
+                    landingsArrived && localReads.filter((read) => read === "/gone").length === 2
+                      ? Deferred.succeed(refreshed, undefined)
+                      : Effect.void,
+                  ),
+                  Effect.as({ ...baseLocalStatus, slipJay: { integration: "t3peach" } }),
                 ),
-                Effect.as({ ...baseLocalStatus, slipJay: { integration: "t3peach" } }),
-              ),
-            remoteStatus: () => Effect.succeed(baseRemoteStatus),
-            invalidateLocalStatus: () => Effect.void,
-            invalidateRemoteStatus: () => Effect.void,
-            invalidateStatus: () => Effect.void,
-          }),
-        ),
-      );
+              remoteStatus: () => Effect.succeed(baseRemoteStatus),
+              invalidateLocalStatus: () => Effect.void,
+              invalidateRemoteStatus: () => Effect.void,
+              invalidateStatus: () => Effect.void,
+            }),
+          ),
+        );
 
-    return Effect.gen(function* () {
-      const changes = yield* Queue.unbounded<LandingChange>();
-      yield* Effect.gen(function* () {
-        const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
-        yield* broadcaster.getStatus({ cwd: "/a" });
-        yield* broadcaster.getStatus({ cwd: "/b" });
-        localReads.length = 0;
-        landingsArrived = true;
-        // Changes apply in order, so once /b has refreshed the other repository's change
-        // has been handled too.
-        yield* Queue.offer(changes, { repository: "pechhe/other", changeId: "x" });
-        yield* Queue.offer(changes, { repository: "pechhe/b", changeId: "y" });
-        yield* Deferred.await(refreshed);
-        assert.deepStrictEqual(localReads, ["/b"]);
-      }).pipe(Effect.provide(layerFor(changes)));
-    });
-  });
+      return Effect.gen(function* () {
+        const changes = yield* Queue.unbounded<LandingChange>();
+        yield* Effect.gen(function* () {
+          const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+          yield* broadcaster.getStatus({ cwd: "/a" });
+          yield* broadcaster.getStatus({ cwd: "/b" });
+          // A workspace SlipJay has since removed: no repository can be read for it.
+          yield* broadcaster.getStatus({ cwd: "/gone" });
+          localReads.length = 0;
+          landingsArrived = true;
+          // Changes apply in order, and checkouts refresh in the order they were cached, so
+          // /gone refreshing a second time means both changes have been handled.
+          yield* Queue.offer(changes, { repository: "pechhe/a", changeId: "x" });
+          yield* Queue.offer(changes, { repository: "pechhe/b", changeId: "y" });
+          yield* Deferred.await(refreshed);
+          assert.deepStrictEqual(localReads, ["/a", "/gone", "/b", "/gone"]);
+        }).pipe(Effect.provide(layerFor(changes)));
+      });
+    },
+  );
 });

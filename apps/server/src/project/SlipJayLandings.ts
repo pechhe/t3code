@@ -2,6 +2,7 @@ import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
+import * as Exit from "effect/Exit";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -105,6 +106,17 @@ export function landResult(
   };
 }
 
+const decodeLandedRecord = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.NullOr(
+      Schema.Struct({
+        artifactCommitId: Schema.NonEmptyString,
+        operationId: Schema.optional(Schema.NonEmptyString),
+      }),
+    ),
+  ),
+);
+
 const LAND_OUTPUT_MAX_BYTES = 1024 * 1024;
 const LANDING_LOG_MAX_BYTES = 2 * 1024 * 1024;
 const WATCH_RESTART_DELAY = Duration.seconds(5);
@@ -124,6 +136,13 @@ export class SlipJayLandings extends Context.Service<
     readonly landingFor: (
       workspaceRoot: string,
       integration: string,
+    ) => Effect.Effect<VcsStatusSlipJayLanding | undefined>;
+    /**
+     * What the SlipJay workspace that was at `cwd` landed, from SlipJay's own record, once
+     * SlipJay has removed it. Undefined while `cwd` exists or when SlipJay recorded none.
+     */
+    readonly removedWorkspaceLanding: (
+      cwd: string,
     ) => Effect.Effect<VcsStatusSlipJayLanding | undefined>;
     /** Emits each tracked landing that changes, or every landing when the watch connects or drops. */
     readonly changes: Stream.Stream<LandingChange>;
@@ -319,6 +338,54 @@ export const make = Effect.gen(function* () {
     { capacity: 64, timeToLive: () => Duration.minutes(10) },
   );
 
+  // `slipjay landed <path>` reads the record SlipJay keeps of each landing by its exact
+  // workspace path, so it survives the workspace and a server restart. A landing never
+  // changes, so it is kept; "none" is asked again shortly, as SlipJay records a landing
+  // while removing the workspace. Hosts without SlipJay, or an older one, report none.
+  const removedLandings = yield* Cache.makeWith(
+    (cwd: string) =>
+      processes
+        .run({
+          command: "slipjay",
+          args: ["landed", cwd],
+          timeout: "20 seconds",
+          maxOutputBytes: 64 * 1024,
+          outputMode: "truncate",
+        })
+        .pipe(
+          Effect.map((output) => {
+            const record =
+              output.code === 0
+                ? Option.getOrUndefined(decodeLandedRecord(output.stdout.trim()))
+                : undefined;
+            return record?.operationId === undefined
+              ? undefined
+              : ({
+                  operationId: record.operationId,
+                  status: "landed",
+                  stage: "landed",
+                  commitId: record.artifactCommitId,
+                  // SlipJay's record is settled, not a report the watch may still revise.
+                  live: true,
+                } satisfies VcsStatusSlipJayLanding);
+          }),
+          Effect.orElseSucceed(() => undefined),
+        ),
+    {
+      capacity: 256,
+      timeToLive: (exit) =>
+        Exit.isSuccess(exit) && exit.value !== undefined ? Duration.hours(24) : Duration.minutes(1),
+    },
+  );
+
+  const removedWorkspaceLanding: SlipJayLandings["Service"]["removedWorkspaceLanding"] = (cwd) =>
+    fs.exists(cwd).pipe(
+      Effect.orElseSucceed(() => true),
+      Effect.flatMap((exists) =>
+        exists ? Effect.succeed(undefined) : Cache.get(removedLandings, cwd),
+      ),
+    );
+
   const repositoryOf: SlipJayLandings["Service"]["repositoryOf"] = (cwd) =>
     workspaceRootOf(cwd).pipe(
       Effect.flatMap((root) =>
@@ -366,19 +433,22 @@ export const make = Effect.gen(function* () {
           detail,
           ...(exitCode === undefined ? {} : { exitCode }),
         });
-      // Only a landing this host tracks for the checkout's repository: the strip offers
-      // no other, and a client cannot read arbitrary runner operations through it.
-      const repository = yield* Cache.get(repositories, cwd);
-      if (
-        repository === null ||
-        landingForOperation(yield* Ref.get(state), repository, operationId) === undefined
-      )
-        return yield* failure("This landing is not tracked for this workspace.");
+      // Only the landing the strip shows: one this host tracks for the checkout's
+      // repository, or a removed workspace's own. A client cannot read arbitrary runner
+      // operations through it.
+      const removed = yield* removedWorkspaceLanding(cwd);
+      const repository = removed === undefined ? yield* Cache.get(repositories, cwd) : null;
+      const shown =
+        removed !== undefined
+          ? removed.operationId === operationId
+          : repository !== null &&
+            landingForOperation(yield* Ref.get(state), repository, operationId) !== undefined;
+      if (!shown) return yield* failure("This landing is not tracked for this workspace.");
       const output = yield* processes
         .run({
           command: "slipjay",
+          // The runner, not the checkout, holds the log; the workspace may be gone.
           args: ["runner", "log", operationId],
-          cwd,
           timeout: "30 seconds",
           maxOutputBytes: LANDING_LOG_MAX_BYTES,
           outputMode: "truncate",
@@ -475,6 +545,7 @@ export const make = Effect.gen(function* () {
   return SlipJayLandings.of({
     land,
     landingFor,
+    removedWorkspaceLanding,
     changes: Stream.fromPubSub(changed),
     repositoryOf,
     readLog,
@@ -488,6 +559,7 @@ export const layerNone = Layer.succeed(
   SlipJayLandings,
   SlipJayLandings.of({
     landingFor: () => Effect.succeed(undefined),
+    removedWorkspaceLanding: () => Effect.succeed(undefined),
     changes: Stream.empty,
     repositoryOf: () => Effect.succeed(null),
     land: ({ cwd }) =>

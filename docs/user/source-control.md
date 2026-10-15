@@ -265,7 +265,7 @@ To publish a thread's work, choose **Land** in the thread details card. T3 Code 
 - Land needs SlipJay on the machine running your T3 Code server, with a runner location:
   `SLIPJAY_RUNNER` in the server's environment, or `"runner"` in `~/.slipjay/config.json`.
 - A successful land removes the landed workspace unless another process still uses it. The
-  thread's next message gets a fresh workspace.
+  strip keeps showing the landed commit, and the thread's next message gets a fresh workspace.
 - Land is not offered in the project's main checkout, and reads **Landing…** while the
   thread's change is landing. Mobile shows the workspace, its base and the landing, but has no
   Land.

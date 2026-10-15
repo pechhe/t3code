@@ -278,9 +278,15 @@ export const VcsStatusSlipJayLanding = Schema.Struct({
 export type VcsStatusSlipJayLanding = typeof VcsStatusSlipJayLanding.Type;
 
 const VcsStatusSlipJay = Schema.Struct({
-  /** The integration bookmark named by slipjay.json; null when the file cannot be read. */
+  /**
+   * The integration bookmark named by slipjay.json; null when the file cannot be read,
+   * or when SlipJay has removed the workspace and only its landing is left to show.
+   */
   integration: Schema.NullOr(TrimmedNonEmptyStringSchema),
-  /** Which workspace this checkout is, from `slipjay status`; absent when SlipJay cannot say. */
+  /**
+   * Which workspace this checkout is, from `slipjay status`; absent when SlipJay cannot
+   * say or has removed it, so there is nothing to land.
+   */
   workspace: Schema.optional(
     Schema.Struct({
       name: TrimmedNonEmptyStringSchema,

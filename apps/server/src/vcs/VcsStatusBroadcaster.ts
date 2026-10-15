@@ -408,10 +408,10 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         for (const [cwd, cached] of yield* Ref.get(cacheRef)) {
           if (cached.local?.value.slipJay === undefined) continue;
-          if (
-            change.repository !== null &&
-            (yield* landings.repositoryOf(cwd)) !== change.repository
-          )
+          // A checkout SlipJay removed has no repository left to match. Refreshing it reads
+          // what it landed from SlipJay's record, so an open thread does not keep "Landing".
+          const repository = yield* landings.repositoryOf(cwd);
+          if (change.repository !== null && repository !== null && repository !== change.repository)
             continue;
           yield* refreshLocalStatusCore(cwd).pipe(Effect.ignore);
         }

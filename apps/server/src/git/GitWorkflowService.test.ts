@@ -5,6 +5,8 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
@@ -12,6 +14,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as FileSystem from "effect/FileSystem";
 
 import * as ServerConfig from "../config.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitManager from "./GitManager.ts";
 import * as GitWorkflowService from "./GitWorkflowService.ts";
@@ -237,6 +240,84 @@ describe("GitWorkflowService", () => {
       ),
     ),
   );
+
+  it.effect("still reports what landed from a SlipJay workspace after SlipJay removes it", () => {
+    const removed = "/nonexistent/.slipjay/workspaces/sl-spare-152cb3";
+    return Effect.gen(function* () {
+      const asked = yield* Ref.make<ReadonlyArray<string>>([]);
+      // SlipJay's record of each landing by its workspace's exact path.
+      const runner = Layer.mock(ProcessRunner.ProcessRunner)({
+        run: (input) =>
+          Ref.update(asked, (paths) => [...paths, input.args[1] ?? ""]).pipe(
+            Effect.as({
+              stdout:
+                input.command === "slipjay" &&
+                input.args[0] === "landed" &&
+                input.args[1] === removed
+                  ? JSON.stringify({
+                      workspaceName: "sl-50",
+                      workspacePath: removed,
+                      artifactCommitId: "abc1234def",
+                      operationId: "op_landed",
+                    })
+                  : "null",
+              stderr: "",
+              code: ChildProcessSpawner.ExitCode(0),
+              timedOut: false,
+              stdoutTruncated: false,
+              stderrTruncated: false,
+              stdoutInvalidUtf8: false,
+              stderrInvalidUtf8: false,
+            }),
+          ),
+      });
+      const registry = Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
+        detect: () => Effect.succeed(null),
+      });
+      const services = GitWorkflowService.layer.pipe(
+        Layer.provide(
+          Layer.effect(SlipJayLandings.SlipJayLandings, SlipJayLandings.make).pipe(
+            Layer.provide(runner),
+            Layer.provide(registry),
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+        Layer.provide(WorkspaceProvider.layerGitWorktree),
+        Layer.provide(registry),
+        Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+        Layer.provide(Layer.mock(GitManager.GitManager)({})),
+      );
+
+      yield* Effect.gen(function* () {
+        // A fresh server, so nothing was watched: the landing comes from SlipJay's record.
+        const workflow = yield* GitWorkflowService.GitWorkflowService;
+        const status = yield* workflow.localStatus({ cwd: removed });
+        expect(status).toMatchObject({ isRepo: false, otherVcsKind: "jj" });
+        // No workspace, so nothing offers to land it again.
+        expect(status.slipJay).toEqual({
+          integration: null,
+          landing: {
+            operationId: "op_landed",
+            status: "landed",
+            stage: "landed",
+            commitId: "abc1234def",
+            live: true,
+          },
+        });
+        expect((yield* workflow.status({ cwd: removed })).slipJay?.landing?.commitId).toBe(
+          "abc1234def",
+        );
+
+        // Another missing folder is a plain missing folder, whatever its name.
+        const elsewhere = yield* workflow.status({ cwd: "/nonexistent/other/sl-spare-152cb3" });
+        expect(elsewhere.slipJay).toBeUndefined();
+        expect(elsewhere.otherVcsKind).toBeUndefined();
+
+        // A landing does not change, so SlipJay is asked once per path.
+        expect(yield* Ref.get(asked)).toEqual([removed, "/nonexistent/other/sl-spare-152cb3"]);
+      }).pipe(Effect.provide(services));
+    });
+  });
 
   it.effect("does not call GitManager status methods when no VCS repository is detected", () => {
     const localStatus = vi.fn();

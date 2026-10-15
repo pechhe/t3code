@@ -251,3 +251,49 @@ describe("SlipJayLandings.land", () => {
     ),
   );
 });
+
+describe("SlipJayLandings.readLog", () => {
+  it.effect("reads a removed workspace's own landing log, and no other operation", () =>
+    Effect.gen(function* () {
+      const removed = "/nonexistent/.slipjay/workspaces/sl-spare-152cb3";
+      const logReads = yield* Ref.make<ReadonlyArray<string | undefined>>([]);
+      const runner = Layer.succeed(ProcessRunner.ProcessRunner, {
+        run: (input) => {
+          if (input.args[0] === "landed")
+            return Effect.succeed(
+              output({
+                stdout: JSON.stringify({ artifactCommitId: "abc1234", operationId: "op_landed" }),
+                stderr: "",
+                code: 0,
+              }),
+            );
+          if (input.args[0] === "runner" && input.args[1] === "log")
+            return Ref.update(logReads, (cwds) => [...cwds, input.cwd]).pipe(
+              Effect.as(output({ stdout: "gate passed\n", stderr: "", code: 0 })),
+            );
+          return Effect.die(`unexpected ${input.command} ${input.args.join(" ")}`);
+        },
+      });
+      const layer = Layer.effect(SlipJayLandings, make).pipe(
+        Layer.provide(runner),
+        Layer.provide(
+          Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({ detect: () => Effect.succeed(null) }),
+        ),
+        Layer.provide(NodeServices.layer),
+      );
+
+      const [log, other] = yield* Effect.gen(function* () {
+        const landings = yield* SlipJayLandings;
+        return [
+          yield* landings.readLog({ cwd: removed, operationId: "op_landed" }),
+          yield* landings.readLog({ cwd: removed, operationId: "op_other" }).pipe(Effect.flip),
+        ] as const;
+      }).pipe(Effect.provide(layer));
+
+      assert.deepStrictEqual(log, { log: "gate passed\n", truncated: false });
+      // The runner holds the log, so it is read without the missing checkout.
+      assert.deepStrictEqual(yield* Ref.get(logReads), [undefined]);
+      assert.strictEqual(other.detail, "This landing is not tracked for this workspace.");
+    }),
+  );
+});

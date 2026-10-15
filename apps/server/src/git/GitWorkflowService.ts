@@ -253,35 +253,53 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  // SlipJay removes a workspace once it lands. Its thread still shows what landed there,
+  // without a workspace to land again, until its next message gets a fresh workspace.
+  const missingCheckoutStatus = <Status extends VcsStatusLocalResult>(
+    cwd: string,
+    empty: (otherVcsKind?: VcsDriverKind) => Status,
+  ) =>
+    landings
+      .removedWorkspaceLanding(cwd)
+      .pipe(
+        Effect.map((landing): Status =>
+          landing === undefined
+            ? empty()
+            : { ...empty("jj"), slipJay: { integration: null, landing } },
+        ),
+      );
+
   const driverStatus = (handle: VcsDriverRegistry.VcsDriverHandle | null, input: VcsStatusInput) =>
-    handle?.driver.getStatus === undefined
-      ? Effect.succeed(nonRepositoryStatus(handle?.kind))
-      : handle.driver.getStatus(input).pipe(
-          Effect.mapError(
-            (cause) =>
-              new GitManagerError({
-                operation: "GitWorkflowService.driverStatus",
-                cwd: input.cwd,
-                detail: "Failed to read repository status through its VCS driver.",
-                cause,
-              }),
-          ),
-          // A SlipJay workspace also shows the landing of its change, if one is in view.
-          Effect.flatMap((status) => {
-            const slipJay = status.slipJay;
-            return slipJay === undefined || slipJay.integration === null
-              ? Effect.succeed(status)
-              : landings
-                  .landingFor(input.cwd, slipJay.integration)
-                  .pipe(
-                    Effect.map((landing) =>
-                      landing === undefined
-                        ? status
-                        : { ...status, slipJay: { ...slipJay, landing } },
-                    ),
-                  );
-          }),
-        );
+    handle === null
+      ? missingCheckoutStatus(input.cwd, nonRepositoryStatus)
+      : handle.driver.getStatus === undefined
+        ? Effect.succeed(nonRepositoryStatus(handle.kind))
+        : handle.driver.getStatus(input).pipe(
+            Effect.mapError(
+              (cause) =>
+                new GitManagerError({
+                  operation: "GitWorkflowService.driverStatus",
+                  cwd: input.cwd,
+                  detail: "Failed to read repository status through its VCS driver.",
+                  cause,
+                }),
+            ),
+            // A SlipJay workspace also shows the landing of its change, if one is in view.
+            Effect.flatMap((status) => {
+              const slipJay = status.slipJay;
+              return slipJay === undefined || slipJay.integration === null
+                ? Effect.succeed(status)
+                : landings
+                    .landingFor(input.cwd, slipJay.integration)
+                    .pipe(
+                      Effect.map((landing) =>
+                        landing === undefined
+                          ? status
+                          : { ...status, slipJay: { ...slipJay, landing } },
+                      ),
+                    );
+            }),
+          );
 
   const detectGitRepositoryForCommand = Effect.fn(
     "GitWorkflowService.detectGitRepositoryForCommand",
@@ -374,11 +392,13 @@ export const make = Effect.gen(function* () {
     localStatus: (input) =>
       detectRepositoryForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
         Effect.flatMap((handle) =>
-          handle?.kind === "git"
-            ? gitManager.localStatus(input)
-            : handle?.driver.getStatus === undefined
-              ? Effect.succeed(nonRepositoryLocalStatus(handle?.kind))
-              : driverStatus(handle, input),
+          handle === null
+            ? missingCheckoutStatus(input.cwd, nonRepositoryLocalStatus)
+            : handle.kind === "git"
+              ? gitManager.localStatus(input)
+              : handle.driver.getStatus === undefined
+                ? Effect.succeed(nonRepositoryLocalStatus(handle.kind))
+                : driverStatus(handle, input),
         ),
       ),
     remoteStatus: (input, options) =>
