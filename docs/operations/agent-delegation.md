@@ -24,6 +24,21 @@ no trial.
 
 ## Check a policy before pointing a server at it
 
+On web and desktop, **Settings → Agents · Delegation** edits the configured
+source policy. Settings permission is required; agents have no MCP tool to edit
+it. Choose allowed models and preferences, set each role's effort and narrower
+task-class lists, and preview the resolver's selection without starting a model.
+Briefs remain read-only. A reviewer can additionally require a different provider
+from the author's; when the author is unknown that requirement refuses the review.
+
+Save validates the choices against the policy rules and installed model catalog,
+advances the revision, and writes the policy file. Running tasks retain their
+recorded snapshot. A concurrent source edit refuses the save and reloads the
+current values. The page reports uncommitted source changes until you publish
+agent-config through its normal workflow; saving does not commit or land it.
+Unavailable accounts remain visible, and preview explains refusals. Removing a
+demanding effort makes that model ineligible for demanding tasks.
+
 ```sh
 node apps/server/scripts/validate-agent-policy.ts /path/to/agent-config
 ```

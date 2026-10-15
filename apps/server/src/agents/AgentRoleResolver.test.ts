@@ -33,6 +33,84 @@ const resolve = (value: Input) =>
 const refusal = (value: Input) => resolve(value).pipe(Effect.flip);
 
 it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
+  it.effect("preview reports the same decision and explains unavailable accounts", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const value = input({
+        providers: [codex, { ...claude, auth: { ...claude.auth, status: "unauthenticated" } }],
+      });
+      const preview = yield* resolver.preview(value);
+      expect(preview.selection).toEqual(yield* resolver.resolve(value));
+      expect(preview.candidates).toContainEqual(
+        expect.objectContaining({ alias: "sol", reason: "selected" }),
+      );
+      // Claude writers are refused before account availability is considered.
+      expect(preview.candidates).toContainEqual(
+        expect.objectContaining({ alias: "sonnet", reason: "claude-writer-boundary-unavailable" }),
+      );
+      const readOnly = yield* resolver.preview({ ...value, request: request({ readOnly: true }) });
+      expect(readOnly.candidates).toContainEqual(
+        expect.objectContaining({ alias: "sonnet", reason: "not-signed-in" }),
+      );
+    }),
+  );
+  it.effect("reviewer provider requirements fail closed while preferences remain soft", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const original = snapshot();
+      const policy = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          reviewer: { prefer: ["sol", "sonnet"], requireDifferentProvider: true },
+        },
+      };
+      const value = input({
+        snapshot: policy,
+        request: request({
+          role: "reviewer",
+          sourceRevision: "candidate",
+          review: changeReview,
+          authorModel: codexModel,
+        }),
+      });
+      expect((yield* resolver.resolve(value)).model).toBe(claudeModel);
+      const missing = yield* resolver.preview({ ...value, providers: [codex] });
+      expect(missing.refusal).toBe("no-eligible-model");
+      expect(missing.candidates).toContainEqual(
+        expect.objectContaining({ alias: "sol", reason: "reviewer-requires-different-provider" }),
+      );
+      expect(
+        (yield* resolver.preview({
+          ...value,
+          request: { ...value.request, authorModel: "unknown" },
+        })).refusal,
+      ).toBe("author-provider-required");
+      const custom = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          pools: {
+            ...original.manifest.pools,
+            workhorse: { ...original.manifest.pools.workhorse, crossProvider: false },
+          },
+          reviewer: { prefer: ["sonnet", "sol"], requireDifferentProvider: false },
+        },
+      };
+      expect(
+        (yield* resolver.resolve(
+          input({
+            snapshot: custom,
+            request: request({
+              role: "reviewer",
+              sourceRevision: "candidate",
+              review: changeReview,
+            }),
+          }),
+        )).model,
+      ).toBe(claudeModel);
+    }),
+  );
   it.effect("selects a workhorse with explicit medium and deliberate high effort", () =>
     Effect.gen(function* () {
       expect(yield* resolve(input())).toEqual({

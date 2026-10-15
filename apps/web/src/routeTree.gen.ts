@@ -29,6 +29,7 @@ import { Route as SettingsIntegrationsRouteImport } from './routes/settings.inte
 import { Route as SettingsGeneralRouteImport } from './routes/settings.general'
 import { Route as SettingsExperimentsRouteImport } from './routes/settings.experiments'
 import { Route as SettingsDiagnosticsRouteImport } from './routes/settings.diagnostics'
+import { Route as SettingsDelegationRouteImport } from './routes/settings.delegation'
 import { Route as SettingsConnectionsRouteImport } from './routes/settings.connections'
 import { Route as SettingsArchivedRouteImport } from './routes/settings.archived'
 import { Route as SettingsAppearanceRouteImport } from './routes/settings.appearance'
@@ -138,6 +139,11 @@ const SettingsDiagnosticsRoute = SettingsDiagnosticsRouteImport.update({
   path: '/diagnostics',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsDelegationRoute = SettingsDelegationRouteImport.update({
+  id: '/delegation',
+  path: '/delegation',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
   id: '/connections',
   path: '/connections',
@@ -194,6 +200,7 @@ export interface FileRoutesByFullPath {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/delegation': typeof SettingsDelegationRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/experiments': typeof SettingsExperimentsRoute
   '/settings/general': typeof SettingsGeneralRoute
@@ -222,6 +229,7 @@ export interface FileRoutesByTo {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/delegation': typeof SettingsDelegationRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/experiments': typeof SettingsExperimentsRoute
   '/settings/general': typeof SettingsGeneralRoute
@@ -253,6 +261,7 @@ export interface FileRoutesById {
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/archived': typeof SettingsArchivedRoute
   '/settings/connections': typeof SettingsConnectionsRoute
+  '/settings/delegation': typeof SettingsDelegationRoute
   '/settings/diagnostics': typeof SettingsDiagnosticsRoute
   '/settings/experiments': typeof SettingsExperimentsRoute
   '/settings/general': typeof SettingsGeneralRoute
@@ -285,6 +294,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
+    | '/settings/delegation'
     | '/settings/diagnostics'
     | '/settings/experiments'
     | '/settings/general'
@@ -313,6 +323,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
+    | '/settings/delegation'
     | '/settings/diagnostics'
     | '/settings/experiments'
     | '/settings/general'
@@ -343,6 +354,7 @@ export interface FileRouteTypes {
     | '/settings/appearance'
     | '/settings/archived'
     | '/settings/connections'
+    | '/settings/delegation'
     | '/settings/diagnostics'
     | '/settings/experiments'
     | '/settings/general'
@@ -513,6 +525,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsDiagnosticsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/delegation': {
+      id: '/settings/delegation'
+      path: '/delegation'
+      fullPath: '/settings/delegation'
+      preLoaderRoute: typeof SettingsDelegationRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/connections': {
       id: '/settings/connections'
       path: '/connections'
@@ -594,6 +613,7 @@ interface SettingsRouteChildren {
   SettingsAppearanceRoute: typeof SettingsAppearanceRoute
   SettingsArchivedRoute: typeof SettingsArchivedRoute
   SettingsConnectionsRoute: typeof SettingsConnectionsRoute
+  SettingsDelegationRoute: typeof SettingsDelegationRoute
   SettingsDiagnosticsRoute: typeof SettingsDiagnosticsRoute
   SettingsExperimentsRoute: typeof SettingsExperimentsRoute
   SettingsGeneralRoute: typeof SettingsGeneralRoute
@@ -612,6 +632,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsAppearanceRoute: SettingsAppearanceRoute,
   SettingsArchivedRoute: SettingsArchivedRoute,
   SettingsConnectionsRoute: SettingsConnectionsRoute,
+  SettingsDelegationRoute: SettingsDelegationRoute,
   SettingsDiagnosticsRoute: SettingsDiagnosticsRoute,
   SettingsExperimentsRoute: SettingsExperimentsRoute,
   SettingsGeneralRoute: SettingsGeneralRoute,

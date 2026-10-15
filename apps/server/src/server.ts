@@ -1,6 +1,7 @@
 import * as WorkspaceProvider from "./project/WorkspaceProvider.ts";
 import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
+import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import type { RelayManagedEndpointRuntimeConfig } from "@t3tools/contracts/relay";
@@ -627,6 +628,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   Layer.provideMerge(
     Layer.mergeAll(Keybindings.layer, EnvironmentTheme.layer, UsageLimitSources.layer),
   ),
+  Layer.provideMerge(AgentPolicySettings.layer),
   Layer.provideMerge(ProviderRegistry.layer),
   // The instance registry is the new routing keystone — text generation,
   // adapter lookup, and runtime ingestion all resolve `ProviderInstanceId`

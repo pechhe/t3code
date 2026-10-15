@@ -1304,6 +1304,20 @@ export function createServerEnvironmentAtoms<R, E>(
       label: "environment-data:experiments:list",
       tag: WS_METHODS.experimentsList,
     }),
+    agentPolicyRead: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:agent-policy:read",
+      tag: WS_METHODS.agentPolicyRead,
+    }),
+    agentPolicySave: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:agent-policy:save",
+      tag: WS_METHODS.agentPolicySave,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
+    agentPolicyPreview: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:agent-policy:preview",
+      tag: WS_METHODS.agentPolicyPreview,
+    }),
     experimentsAssignments: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:experiments:assignments",
       tag: WS_METHODS.experimentsAssignments,

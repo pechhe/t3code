@@ -36,6 +36,13 @@ import {
   ChatGptHandoffState,
 } from "./providerSetup.ts";
 import * as Schema from "effect/Schema";
+import {
+  AgentPolicySettings,
+  AgentPolicySaveInput,
+  AgentPolicyPreviewInput,
+  AgentPolicyPreview,
+  AgentPolicySettingsError,
+} from "./agentPolicySettings.ts";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
@@ -499,6 +506,9 @@ export const WS_METHODS = {
   serverRunStorageCleanup: "server.runStorageCleanup",
   serverGetStorageCleanupReport: "server.getStorageCleanupReport",
   serverGetSettings: "server.getSettings",
+  agentPolicyRead: "agentPolicy.read",
+  agentPolicySave: "agentPolicy.save",
+  agentPolicyPreview: "agentPolicy.preview",
   serverUpdateSettings: "server.updateSettings",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
@@ -787,6 +797,22 @@ const WsServerGetSettingsRpc = Rpc.make(WS_METHODS.serverGetSettings, {
   payload: Schema.Struct({}),
   success: ServerSettings,
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsAgentPolicyReadRpc = Rpc.make(WS_METHODS.agentPolicyRead, {
+  payload: Schema.Struct({}),
+  success: AgentPolicySettings,
+  error: Schema.Union([EnvironmentAuthorizationError, AgentPolicySettingsError]),
+});
+const WsAgentPolicySaveRpc = Rpc.make(WS_METHODS.agentPolicySave, {
+  payload: AgentPolicySaveInput,
+  success: AgentPolicySettings,
+  error: Schema.Union([EnvironmentAuthorizationError, AgentPolicySettingsError]),
+});
+const WsAgentPolicyPreviewRpc = Rpc.make(WS_METHODS.agentPolicyPreview, {
+  payload: AgentPolicyPreviewInput,
+  success: AgentPolicyPreview,
+  error: Schema.Union([EnvironmentAuthorizationError, AgentPolicySettingsError]),
 });
 
 const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
@@ -1970,6 +1996,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRunStorageCleanupRpc,
   WsServerGetStorageCleanupReportRpc,
   WsServerGetSettingsRpc,
+  WsAgentPolicyReadRpc,
+  WsAgentPolicySaveRpc,
+  WsAgentPolicyPreviewRpc,
   WsServerUpdateSettingsRpc,
   WsServerDiscoverSourceControlRpc,
   WsServerSearchAcpRegistryRpc,

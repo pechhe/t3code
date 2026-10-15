@@ -30,6 +30,7 @@ import {
   requiredScopeForDeviceList,
 } from "./RpcAuthorization.ts";
 import * as RpcAuthorization from "./RpcAuthorization.ts";
+import { snapshot as policySnapshot } from "../agents/agentPolicy.testkit.ts";
 
 describe("RPC authorization scopes", () => {
   it("declares exactly one scope for every RPC in the server group", () => {
@@ -40,6 +41,14 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(ORCHESTRATION_V2_WS_METHODS.stopWorkflow)).toBe(
       AuthOrchestrationOperateScope,
     );
+  });
+  it("restricts policy reads, saves and previews to settings owners", () => {
+    for (const method of [
+      WS_METHODS.agentPolicyRead,
+      WS_METHODS.agentPolicySave,
+      WS_METHODS.agentPolicyPreview,
+    ])
+      expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);
   });
 
   it("authorizes background policy reporting and observation deliberately", () => {
@@ -259,6 +268,79 @@ describe("RPC scope middleware", () => {
       });
       expect(handled).toEqual([]);
     }).pipe(Effect.scoped),
+  );
+});
+
+describe("owner delegation settings boundary", () => {
+  const tested = [
+    WS_METHODS.agentPolicyRead,
+    WS_METHODS.agentPolicySave,
+    WS_METHODS.agentPolicyPreview,
+  ] as const;
+  const group = WsRpcGroup.omit(
+    ...[...WsRpcGroup.requests.keys()].filter(
+      (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, (typeof tested)[number]> =>
+        !(tested as readonly string[]).includes(tag),
+    ),
+  );
+  it.effect("operate permission cannot read, change or preview owner policy", () =>
+    Effect.gen(function* () {
+      const handled: string[] = [];
+      const reject = (method: string) =>
+        Effect.sync(() => handled.push(method)).pipe(Effect.andThen(Effect.never));
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.agentPolicyRead, () => reject("read")),
+            group.toLayerHandler(WS_METHODS.agentPolicySave, () => reject("save")),
+            group.toLayerHandler(WS_METHODS.agentPolicyPreview, () => reject("preview")),
+            RpcAuthorization.layer([AuthOrchestrationReadScope, AuthOrchestrationOperateScope]),
+          ),
+        ),
+      );
+      const policy = policySnapshot();
+      for (const effect of [
+        client[WS_METHODS.agentPolicyRead]({}).pipe(Effect.asVoid),
+        client[WS_METHODS.agentPolicySave]({
+          expectedHash: policy.hash,
+          manifest: policy.manifest,
+        }).pipe(Effect.asVoid),
+        client[WS_METHODS.agentPolicyPreview]({
+          manifest: policy.manifest,
+          role: "advisor",
+          taskClass: "non-ui",
+        }).pipe(Effect.asVoid),
+      ]) {
+        expect(yield* effect.pipe(Effect.flip)).toMatchObject({
+          _tag: "EnvironmentAuthorizationError",
+          requiredPermission: AuthSettingsWriteScope,
+        });
+      }
+      expect(handled).toEqual([]);
+    }),
+  );
+  it.effect("an owner settings grant reaches the policy service", () =>
+    Effect.gen(function* () {
+      const response = {
+        snapshot: policySnapshot(),
+        sourceRoot: "/policy-fixture",
+        uncommitted: false,
+        providers: [],
+      };
+      const client = yield* RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.agentPolicyRead, () => Effect.succeed(response)),
+            group.toLayerHandler(WS_METHODS.agentPolicySave, () => Effect.succeed(response)),
+            group.toLayerHandler(WS_METHODS.agentPolicyPreview, () =>
+              Effect.succeed({ selection: null, refusal: "no-eligible-model", candidates: [] }),
+            ),
+            RpcAuthorization.layer([AuthSettingsWriteScope]),
+          ),
+        ),
+      );
+      expect(yield* client[WS_METHODS.agentPolicyRead]({})).toEqual(response);
+    }),
   );
 });
 

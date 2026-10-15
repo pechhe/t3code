@@ -78,11 +78,19 @@ const Manifest = Schema.Struct({
     }),
   ),
   roles: Schema.Record(AgentRole, RolePolicy),
+  reviewer: Schema.optional(
+    Schema.Struct({
+      prefer: Aliases,
+      requireDifferentProvider: Schema.Boolean,
+    }),
+  ),
 });
 
 /** Structural authority is fixed; model identities/preferences belong to the versioned policy. */
 function validManifest(manifest: typeof Manifest.Type): boolean {
   const { pools, models, roles } = manifest;
+  if (manifest.reviewer?.prefer.some((alias) => !pools.workhorse.allow.includes(alias)))
+    return false;
   for (const pool of Object.values(pools)) {
     if (pool.allow.some((alias) => models[alias] === undefined)) return false;
     if (pool.prefer.some((alias) => !pool.allow.includes(alias))) return false;

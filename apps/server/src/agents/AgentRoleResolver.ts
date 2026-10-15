@@ -5,7 +5,9 @@ import type {
   ProviderInstanceId,
   RuntimeMode,
   ServerProvider,
+  AgentPolicyPreview,
 } from "@t3tools/contracts";
+import { AgentPolicyCandidate } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -25,7 +27,9 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "source-pin-required",
     "review-scope-required",
     "review-scope-invalid",
+    "author-provider-required",
   ]),
+  candidates: Schema.optional(Schema.Array(AgentPolicyCandidate)),
 }) {
   override get message(): string {
     return `Managed agent request refused (${this.reason}).`;
@@ -56,10 +60,11 @@ export class AgentRoleResolver extends Context.Service<
   AgentRoleResolver,
   {
     readonly resolve: (input: ResolutionInput) => Effect.Effect<ModelSelection, AgentRoleError>;
+    readonly preview: (input: ResolutionInput) => Effect.Effect<AgentPolicyPreview>;
   }
 >()("t3/agents/AgentRoleResolver") {}
 
-const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: ResolutionInput) {
+const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: ResolutionInput) {
   const { request, snapshot } = input;
   const role = snapshot.manifest.roles[request.role];
   if (!role.taskClasses.includes(request.taskClass))
@@ -89,42 +94,112 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
   const pool = snapshot.manifest.pools[role.pool];
   const allowed = role.restrictions[request.taskClass] ?? pool.allow;
+  const diagnostics: Array<AgentPolicyCandidate> = [];
+  const record = (
+    alias: string,
+    model: string,
+    reason: string,
+    providerInstanceId?: ProviderInstanceId,
+  ) => {
+    const candidate = {
+      alias,
+      model,
+      reason,
+      ...(providerInstanceId === undefined ? {} : { providerInstanceId }),
+    };
+    diagnostics.push(candidate);
+    return candidate;
+  };
+  const authorDrivers = new Set(
+    Object.values(snapshot.manifest.models)
+      .filter((model) => model.model === request.authorModel)
+      .map((model) => model.driverKind),
+  );
+  const authorDriver = authorDrivers.size === 1 ? [...authorDrivers][0] : undefined;
+  if (
+    request.role === "reviewer" &&
+    snapshot.manifest.reviewer?.requireDifferentProvider &&
+    authorDriver === undefined
+  )
+    return yield* new AgentRoleError({ reason: "author-provider-required" });
   const eligible: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
     [];
-  for (const alias of allowed) {
-    const binding = snapshot.manifest.models[alias];
+  for (const [alias, binding] of Object.entries(snapshot.manifest.models)) {
     const effort = request.demanding ? role.effort[alias]?.demanding : role.effort[alias]?.default;
-    if (binding === undefined || effort === undefined) continue;
+    if (!pool.allow.includes(alias)) {
+      record(alias, binding.model, "outside-pool");
+      continue;
+    }
+    if (!allowed.includes(alias)) {
+      record(alias, binding.model, "task-restriction");
+      continue;
+    }
+    if (effort === undefined) {
+      record(alias, binding.model, "unsupported-effort");
+      continue;
+    }
     // Managed enforcement is implemented only in these adapters. Custom model aliases
     // must still resolve to the advertised literal model; no inherited-model fallback.
-    if (binding.driverKind !== "codex" && binding.driverKind !== "claudeAgent") continue;
+    if (binding.driverKind !== "codex" && binding.driverKind !== "claudeAgent") {
+      record(alias, binding.model, "unsupported-provider");
+      continue;
+    }
     if (
       request.taskClass !== "non-ui" &&
       (binding.driverKind === "codex" || /^(gpt-|o[134]-)/i.test(binding.model))
-    )
+    ) {
+      record(alias, binding.model, "ui-model-restriction");
       continue;
+    }
     // Claude's existing read-only tool whitelist is enforceable. Its workspaceWrite
     // policy currently maps to permission modes, not an isolated source-write boundary.
-    if (!readOnly && binding.driverKind === "claudeAgent") continue;
-    for (const provider of input.providers) {
-      if (
-        // A pool is reached through its members, ranked below.
-        provider.poolMembers !== undefined ||
-        provider.driver !== binding.driverKind ||
-        !provider.enabled ||
-        !provider.installed ||
-        provider.availability === "unavailable" ||
-        provider.status === "error" ||
-        provider.status === "disabled" ||
-        provider.auth.status !== "authenticated"
-      )
+    if (!readOnly && binding.driverKind === "claudeAgent") {
+      record(alias, binding.model, "claude-writer-boundary-unavailable");
+      continue;
+    }
+    const providers = input.providers.filter(
+      (provider) => provider.poolMembers === undefined && provider.driver === binding.driverKind,
+    );
+    if (providers.length === 0) record(alias, binding.model, "provider-not-installed");
+    for (const provider of providers) {
+      const skip = (reason: string) => record(alias, binding.model, reason, provider.instanceId);
+      if (!provider.enabled || provider.status === "disabled") {
+        skip("provider-disabled");
         continue;
+      }
+      if (!provider.installed) {
+        skip("provider-not-installed");
+        continue;
+      }
+      if (provider.availability === "unavailable" || provider.status === "error") {
+        skip("provider-unavailable");
+        continue;
+      }
+      if (provider.auth.status !== "authenticated") {
+        skip("not-signed-in");
+        continue;
+      }
+      if (
+        request.role === "reviewer" &&
+        snapshot.manifest.reviewer?.requireDifferentProvider &&
+        provider.driver === authorDriver
+      ) {
+        skip("reviewer-requires-different-provider");
+        continue;
+      }
       const model = provider.models.find((candidate) => candidate.slug === binding.model);
       const option = model?.capabilities?.optionDescriptors?.find(
         (candidate) => candidate.id === binding.effortOption,
       );
-      if (option?.type !== "select" || !option.options.some((choice) => choice.id === effort))
+      if (model === undefined) {
+        skip("model-unavailable");
         continue;
+      }
+      if (option?.type !== "select" || !option.options.some((choice) => choice.id === effort)) {
+        skip("unsupported-effort");
+        continue;
+      }
+      skip("eligible");
       eligible.push({
         alias,
         provider,
@@ -152,7 +227,7 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
         selection.model === request.authorModel &&
         eligible.some(({ selection: value }) => value.model !== request.authorModel))
     )
-      return yield* new AgentRoleError({ reason: "selection-denied" });
+      return yield* new AgentRoleError({ reason: "selection-denied", candidates: diagnostics });
     const options = selection.options;
     // A choice may name an eligible model, but cannot inherit hidden or unsupported
     // effort/options. Stated options must be the role's own; omitted ones are the role's.
@@ -168,12 +243,17 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
                 ),
               ),
           );
-    if (matching.length === 0) return yield* new AgentRoleError({ reason: "unsupported-options" });
+    if (matching.length === 0)
+      return yield* new AgentRoleError({ reason: "unsupported-options", candidates: diagnostics });
     candidates = matching;
   }
   const preference = (alias: string) => {
-    const index = pool.prefer.indexOf(alias);
-    return index < 0 ? pool.prefer.length : index;
+    const order =
+      request.role === "reviewer"
+        ? (snapshot.manifest.reviewer?.prefer ?? pool.prefer)
+        : pool.prefer;
+    const index = order.indexOf(alias);
+    return index < 0 ? order.length : index;
   };
   // A pool prefers a model from a different provider than the caller's, so work
   // is checked and advised across providers; its own account earns no preference.
@@ -203,8 +283,37 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
       byUsageReset(a.provider, b.provider),
   );
   const first = candidates[0];
-  if (first === undefined) return yield* new AgentRoleError({ reason: "no-eligible-model" });
-  return first.selection;
+  if (first === undefined)
+    return yield* new AgentRoleError({ reason: "no-eligible-model", candidates: diagnostics });
+  return {
+    selection: first.selection,
+    refusal: null,
+    candidates: diagnostics.map((candidate) =>
+      candidate.reason !== "eligible"
+        ? candidate
+        : {
+            ...candidate,
+            reason:
+              candidate.alias === first.alias &&
+              candidate.providerInstanceId === first.provider.instanceId
+                ? "selected"
+                : "lower-preference",
+          },
+    ),
+  };
 });
 
-export const layer = Layer.succeed(AgentRoleResolver, { resolve });
+export const layer = Layer.succeed(AgentRoleResolver, {
+  resolve: (input) => inspect(input).pipe(Effect.map((result) => result.selection)),
+  preview: (input) =>
+    inspect(input).pipe(
+      Effect.catchTags({
+        AgentRoleError: (error) =>
+          Effect.succeed({
+            selection: null,
+            refusal: error.reason,
+            candidates: error.candidates ?? [],
+          }),
+      }),
+    ),
+});

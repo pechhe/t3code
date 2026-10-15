@@ -1,4 +1,5 @@
 import * as ExperimentService from "./experiments/ExperimentService.ts";
+import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -1267,6 +1268,7 @@ const layerWsRpc = (
               Effect.orElseSucceed(() => null),
             );
       const experiments = yield* ExperimentService.ExperimentService;
+      const agentPolicySettings = yield* AgentPolicySettings.AgentPolicySettingsService;
       const usage = yield* UsageService.UsageService;
       const usageLimitSources = yield* UsageLimitSources.UsageLimitSources;
       const projectSetupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
@@ -2455,6 +2457,9 @@ const layerWsRpc = (
         [WS_METHODS.serverGetResourceTelemetryHistory]: (input) =>
           resourceTelemetry.readHistory(input),
         [WS_METHODS.experimentsCreate]: (input) => experiments.create(input),
+        [WS_METHODS.agentPolicyRead]: () => agentPolicySettings.read(),
+        [WS_METHODS.agentPolicySave]: (input) => agentPolicySettings.save(input),
+        [WS_METHODS.agentPolicyPreview]: (input) => agentPolicySettings.preview(input),
         [WS_METHODS.experimentsTransition]: (input) => experiments.transition(input),
         [WS_METHODS.experimentsList]: (_input) => experiments.list(),
         [WS_METHODS.experimentsAssignments]: (input) => experiments.assignments(input),

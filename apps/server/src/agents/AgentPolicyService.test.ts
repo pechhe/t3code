@@ -110,6 +110,212 @@ const source = Effect.gen(function* () {
 });
 
 it.layer(testLayer)("immutable policy snapshots", (it) => {
+  it.effect("saves a validated edit, advances its revision and preserves earlier snapshots", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      yield* fs.chmod(`${root}/roles/policy.json`, 0o640);
+      const first = yield* service.snapshot(root);
+      const edited = manifest();
+      edited.revision = "caller-cannot-set-revision";
+      edited.pools.workhorse!.prefer = [];
+      const saved = yield* service.save(root, { expectedHash: first.hash, manifest: edited });
+      expect(saved.sourceRevision).toBe("test-policy.1");
+      expect(saved.manifest.pools.workhorse.prefer).toEqual([]);
+      expect(saved.hash).not.toBe(first.hash);
+      expect((yield* service.snapshot(root)).hash).toBe(saved.hash);
+      expect((yield* fs.stat(`${root}/roles/policy.json`)).mode & 0o777).toBe(0o640);
+      expect(first.manifest.pools.workhorse.prefer).toEqual(["workhorse"]);
+      expect(Object.isFrozen(saved.manifest)).toBe(true);
+      const again = yield* service.save(root, { expectedHash: saved.hash, manifest: manifest() });
+      expect(again.sourceRevision).toBe("test-policy.2");
+      expect(yield* fs.readDirectory(`${root}/roles`)).not.toContainEqual(
+        expect.stringMatching(/^\.policy-edit-/),
+      );
+    }),
+  );
+  it.effect(
+    "refuses stale edits after a policy or brief changes and preserves the newer bytes",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* AgentPolicy.AgentPolicyService;
+        const fs = yield* FileSystem.FileSystem;
+        const root = yield* source;
+        const first = yield* service.snapshot(root);
+        const changed = manifest();
+        changed.revision = "external-change";
+        const newerBytes = JSON.stringify(changed);
+        yield* fs.writeFileString(`${root}/roles/policy.json`, newerBytes);
+        expect(
+          (yield* service
+            .save(root, {
+              expectedHash: first.hash,
+              manifest: manifest(),
+            })
+            .pipe(Effect.flip)).reason,
+        ).toBe("stale");
+        expect(yield* fs.readFileString(`${root}/roles/policy.json`)).toBe(newerBytes);
+        const second = yield* service.snapshot(root);
+        yield* fs.writeFileString(`${root}/roles/reviewer.md`, "External rubric change");
+        expect(
+          (yield* service
+            .save(root, {
+              expectedHash: second.hash,
+              manifest: manifest(),
+            })
+            .pipe(Effect.flip)).reason,
+        ).toBe("stale");
+        expect(yield* fs.readFileString(`${root}/roles/policy.json`)).toBe(newerBytes);
+      }),
+  );
+  it.effect("accepts only one of two concurrent saves from the same loaded policy", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const root = yield* source;
+      const first = yield* service.snapshot(root);
+      const edit = { expectedHash: first.hash, manifest: manifest() };
+      const results = yield* Effect.all(
+        [
+          service.save(root, edit).pipe(Effect.result),
+          service.save(root, edit).pipe(Effect.result),
+        ],
+        { concurrency: "unbounded" },
+      );
+      expect(results.filter((result) => result._tag === "Success")).toHaveLength(1);
+      expect(results.filter((result) => result._tag === "Failure")).toMatchObject([
+        { failure: { reason: "stale" } },
+      ]);
+    }),
+  );
+  it.effect("invalid, unknown and oversized edits leave the working policy untouched", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const first = yield* service.snapshot(root);
+      const original = yield* fs.readFileString(`${root}/roles/policy.json`);
+      const invalid = manifest();
+      invalid.pools.workhorse!.allow = [];
+      const oversized = manifest();
+      oversized.models.workhorse!.model = "x".repeat(65_537);
+      for (const [proposed, reason] of [
+        [invalid, "invalid"],
+        [{ ...manifest(), unknownSetting: true }, "invalid"],
+        [oversized, "too-large"],
+      ] as const) {
+        expect(
+          (yield* service
+            .save(root, {
+              expectedHash: first.hash,
+              manifest: proposed,
+            })
+            .pipe(Effect.flip)).reason,
+        ).toBe(reason);
+        expect(yield* fs.readFileString(`${root}/roles/policy.json`)).toBe(original);
+      }
+    }),
+  );
+  it.effect("a failed atomic publication leaves the old policy and removes staged files", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const first = yield* service.snapshot(root);
+      const original = yield* fs.readFileString(`${root}/roles/policy.json`);
+      const failure = yield* Effect.gen(function* () {
+        const writer = yield* AgentPolicy.AgentPolicyService;
+        return yield* writer.save(root, { expectedHash: first.hash, manifest: manifest() });
+      }).pipe(
+        Effect.provide(Layer.fresh(AgentPolicy.layer)),
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          rename: () => fs.rename(`${root}/missing-file`, `${root}/never-written`),
+        }),
+        Effect.flip,
+      );
+      expect(failure.reason).toBe("write");
+      expect(yield* fs.readFileString(`${root}/roles/policy.json`)).toBe(original);
+      expect(yield* fs.readDirectory(`${root}/roles`)).not.toContainEqual(
+        expect.stringMatching(/^\.policy-edit-/),
+      );
+      expect(
+        (yield* service.save(root, { expectedHash: first.hash, manifest: manifest() }))
+          .sourceRevision,
+      ).toBe("test-policy.1");
+    }),
+  );
+  it.effect("a separate service cannot overwrite a policy while another holds the file lock", () =>
+    Effect.gen(function* () {
+      const firstService = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const first = yield* firstService.snapshot(root);
+      let competingReason: string | undefined;
+      yield* Effect.gen(function* () {
+        const secondService = yield* AgentPolicy.AgentPolicyService;
+        yield* secondService.save(root, { expectedHash: first.hash, manifest: manifest() });
+      }).pipe(
+        Effect.provide(Layer.fresh(AgentPolicy.layer)),
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          writeFileString: (file, text, options) =>
+            fs.writeFileString(file, text, options).pipe(
+              Effect.andThen(
+                firstService.save(root, { expectedHash: first.hash, manifest: manifest() }).pipe(
+                  Effect.result,
+                  Effect.tap((result) =>
+                    Effect.sync(() => {
+                      if (result._tag === "Failure") competingReason = result.failure.reason;
+                    }),
+                  ),
+                  Effect.asVoid,
+                ),
+              ),
+            ),
+        }),
+      );
+      expect(competingReason).toBe("busy");
+      expect(
+        (yield* firstService
+          .save(root, { expectedHash: first.hash, manifest: manifest() })
+          .pipe(Effect.flip)).reason,
+      ).toBe("stale");
+      const latest = yield* firstService.snapshot(root);
+      expect(
+        (yield* firstService.save(root, { expectedHash: latest.hash, manifest: manifest() }))
+          .sourceRevision,
+      ).toBe("test-policy.2");
+    }),
+  );
+  it.effect("rechecks an external edit made while the replacement is being staged", () =>
+    Effect.gen(function* () {
+      const service = yield* AgentPolicy.AgentPolicyService;
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* source;
+      const first = yield* service.snapshot(root);
+      const external = JSON.stringify({ ...manifest(), revision: "external-during-save" });
+      const result = yield* Effect.gen(function* () {
+        const writer = yield* AgentPolicy.AgentPolicyService;
+        return yield* writer.save(root, { expectedHash: first.hash, manifest: manifest() });
+      }).pipe(
+        Effect.provide(Layer.fresh(AgentPolicy.layer)),
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          writeFileString: (file, text, options) =>
+            fs
+              .writeFileString(file, text, options)
+              .pipe(Effect.andThen(fs.writeFileString(`${root}/roles/policy.json`, external))),
+        }),
+        Effect.flip,
+      );
+      expect(result.reason).toBe("stale");
+      expect(yield* fs.readFileString(`${root}/roles/policy.json`)).toBe(external);
+      expect(yield* fs.readDirectory(`${root}/roles`)).not.toContainEqual(
+        expect.stringMatching(/^\.policy-edit-/),
+      );
+    }),
+  );
   it.effect("pins all briefs and changes identity when source changes", () =>
     Effect.gen(function* () {
       const service = yield* AgentPolicy.AgentPolicyService;
