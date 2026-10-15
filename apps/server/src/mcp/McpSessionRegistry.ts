@@ -1,3 +1,5 @@
+import * as PhiBrowser from "../preview/PhiBrowser.ts";
+import * as Option from "effect/Option";
 import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -21,6 +23,8 @@ export interface McpCredentialRequest {
    * token is honored (#7083). Defaults to full access.
    */
   readonly browserToolsAvailable?: boolean;
+  readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
+  readonly phiBrowserSkillDirectory?: string;
   readonly capabilities?: ReadonlySet<McpInvocationContext.McpCapability>;
 }
 
@@ -97,6 +101,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   options: McpSessionRegistryOptions = {},
 ) {
   const crypto = yield* Crypto.Crypto;
+  const phi = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
   const environment = yield* ServerEnvironment.ServerEnvironment;
   const environmentId = yield* environment.getEnvironmentId;
   const httpServer = yield* HttpServer.HttpServer;
@@ -121,9 +126,22 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     return next.size === records.size ? records : next;
   };
 
+  const expireDead = Effect.fn("McpSessionRegistry.expireDead")(function* (timestamp: number) {
+    const expired = yield* SynchronizedRef.modify(state, ({ records }) => {
+      const live = pruneDead(records, timestamp);
+      const sessions = Array.from(records)
+        .filter(([hash]) => !live.has(hash))
+        .map(([, record]) => record.scope.thread.providerSessionId);
+      return [sessions, { records: live }] as const;
+    });
+    if (Option.isSome(phi))
+      yield* Effect.forEach(expired, (id) => phi.value.releaseSession(id), { discard: true });
+  });
+
   const issue: McpSessionRegistryShape["issue"] = Effect.fn("McpSessionRegistry.issue")(
     function* (request) {
       const issuedAt = yield* currentTimeMillis;
+      yield* expireDead(issuedAt);
       const providerSessionId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
       const rawToken = yield* crypto.randomBytes(32).pipe(Effect.map(tokenFromBytes), Effect.orDie);
       const tokenHash = yield* hashToken(rawToken);
@@ -144,6 +162,12 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           ...(request.capabilities ?? (browserToolsAvailable ? (["preview"] as const) : [])),
         ]),
         issuedAt,
+        ...(request.browserBackends === undefined
+          ? {}
+          : { browserBackends: request.browserBackends }),
+        ...(request.phiBrowserSkillDirectory === undefined
+          ? {}
+          : { phiBrowserSkillDirectory: request.phiBrowserSkillDirectory }),
       };
       yield* SynchronizedRef.update(state, ({ records }) => {
         const next = new Map(pruneDead(records, issuedAt));
@@ -170,6 +194,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       if (rawToken.length === 0) return undefined;
       const tokenHash = yield* hashToken(rawToken);
       const timestamp = yield* currentTimeMillis;
+      yield* expireDead(timestamp);
       return yield* SynchronizedRef.modify(state, ({ records }) => {
         const current = pruneDead(records, timestamp);
         const record = current.get(tokenHash);
@@ -184,6 +209,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const touch: McpSessionRegistryShape["touch"] = Effect.fn("McpSessionRegistry.touch")(
     function* (threadId) {
       const timestamp = yield* currentTimeMillis;
+      yield* expireDead(timestamp);
       yield* SynchronizedRef.update(state, ({ records }) => {
         const current = pruneDead(records, timestamp);
         const next = new Map(current);
@@ -198,9 +224,19 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   );
 
   const revokeWhere = (predicate: (record: CredentialRecord) => boolean) =>
-    SynchronizedRef.update(state, ({ records }) => ({
-      records: new Map(Array.from(records).filter(([, record]) => !predicate(record))),
-    }));
+    Effect.gen(function* () {
+      const sessions = yield* SynchronizedRef.modify(state, ({ records }) => {
+        const removed = Array.from(records.values())
+          .filter(predicate)
+          .map((record) => record.scope.thread.providerSessionId);
+        return [
+          removed,
+          { records: new Map(Array.from(records).filter(([, record]) => !predicate(record))) },
+        ] as const;
+      });
+      if (Option.isSome(phi))
+        yield* Effect.forEach(sessions, (id) => phi.value.releaseSession(id), { discard: true });
+    });
 
   return McpSessionRegistry.of({
     issue,
@@ -214,7 +250,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     revokeThread: Effect.fn("McpSessionRegistry.revokeThread")(function* (threadId) {
       yield* revokeWhere((record) => record.scope.thread.threadId === threadId);
     }),
-    revokeAll: SynchronizedRef.set(state, { records: new Map() }),
+    revokeAll: revokeWhere(() => true),
   });
 });
 

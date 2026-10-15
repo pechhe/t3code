@@ -388,6 +388,8 @@ export const layerWithOptions = (
             const effective = resolveProjectSettings(settings, thread.projectId).settings;
             return {
               browser: effective.enableAgentBrowserAccess,
+              browserBackends: effective.agentBrowserBackends,
+              phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
               device: effective.enableAgentDeviceAccess,
             };
           }).pipe(
@@ -490,8 +492,15 @@ export const layerWithOptions = (
                 // the credential it started with, so a thread that detaches and
                 // re-attaches across a workspace handoff must come back to the
                 // same token or the process's tool calls fail auth.
+                const accessSettings = yield* agentAccessSettings(threadId);
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
-                  yield* agentAccessSettings(threadId);
+                  accessSettings;
+                const browserBackends =
+                  "browserBackends" in accessSettings ? accessSettings.browserBackends : undefined;
+                const phiBrowserSkillDirectory =
+                  "phiBrowserSkillDirectory" in accessSettings
+                    ? accessSettings.phiBrowserSkillDirectory
+                    : undefined;
                 const capabilities = new Set<
                   import("../mcp/McpInvocationContext.ts").McpCapability
                 >(["orchestration", "worktree", "pull-requests"]);
@@ -521,7 +530,14 @@ export const layerWithOptions = (
                     // A flipped browser-access setting must not survive through
                     // credential reuse: rotate so the new scope reflects it.
                     resolved.capabilities.has("preview") === browserToolsAvailable &&
-                    resolved.capabilities.has("device") === deviceToolsAvailable
+                    resolved.capabilities.has("device") === deviceToolsAvailable &&
+                    resolved.browserBackends?.default === browserBackends?.default &&
+                    resolved.browserBackends?.enabled.length === browserBackends?.enabled.length &&
+                    (resolved.browserBackends?.enabled.every((backend) =>
+                      browserBackends?.enabled.includes(backend),
+                    ) ??
+                      true) &&
+                    resolved.phiBrowserSkillDirectory === phiBrowserSkillDirectory
                   ) {
                     return { mcpCredentialId: existing.providerSessionId, issued: false };
                   }
@@ -533,6 +549,8 @@ export const layerWithOptions = (
                   providerInstanceId,
                   browserToolsAvailable,
                   capabilities,
+                  ...(browserBackends === undefined ? {} : { browserBackends }),
+                  ...(phiBrowserSkillDirectory === undefined ? {} : { phiBrowserSkillDirectory }),
                 });
                 yield* mcpSessions.set(credential.config);
                 reserveMcpCredential(threadId, credential.config.providerSessionId);

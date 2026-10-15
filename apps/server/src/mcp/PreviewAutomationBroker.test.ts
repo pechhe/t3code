@@ -1,3 +1,4 @@
+import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -1503,4 +1504,100 @@ it.effect("keeps the host connected when a background status read times out", ()
       });
     }),
   ),
+);
+
+it.effect(
+  "routes both browser backends by bound tab and never substitutes a disabled or missing Phi",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const phiTab = PreviewTabId.make("phi-fixture");
+        const integratedTab = PreviewTabId.make("integrated-fixture");
+        const phiCalls: Array<string> = [];
+        const integratedCalls: Array<string> = [];
+        const phi = PhiBrowser.PhiBrowser.of({
+          hasTab: (tabId) => Effect.succeed(tabId === phiTab),
+          invoke: (request) =>
+            Effect.sync(() => {
+              phiCalls.push(request.operation);
+              return { tabId: phiTab, backend: "phi" };
+            }),
+          list: () => Effect.succeed([]),
+          releaseSession: () => Effect.void,
+        });
+        const broker = yield* PreviewAutomationBroker.make.pipe(
+          Effect.provideService(PhiBrowser.PhiBrowser, phi),
+        );
+        const connected = yield* Deferred.make<void>();
+        const events = yield* broker.connect(makeHost());
+        const requests = requestsFrom(
+          events.pipe(
+            Stream.tap((event) =>
+              event.type === "connected" ? Deferred.succeed(connected, undefined) : Effect.void,
+            ),
+          ),
+        );
+        yield* Stream.runForEach(requests, (request) => {
+          integratedCalls.push(request.operation);
+          return broker.respond({
+            clientId: "client-1",
+            connectionId: request.connectionId,
+            requestId: request.requestId,
+            ok: true,
+            result: { tabId: integratedTab },
+          });
+        }).pipe(Effect.forkScoped);
+        yield* Deferred.await(connected);
+        const both = {
+          ...scope,
+          browserBackends: {
+            enabled: ["integrated", "phi"] as const,
+            default: "integrated" as const,
+          },
+        };
+        yield* broker.invoke({ scope: both, operation: "open", input: {} });
+        yield* broker.invoke({
+          scope: both,
+          operation: "open",
+          input: { backend: "phi", reuseExistingTab: false },
+        });
+        yield* broker.invoke({
+          scope: both,
+          operation: "snapshot",
+          input: {},
+          tabId: integratedTab,
+        });
+        yield* broker.invoke({
+          scope: { ...both, browserBackends: { ...both.browserBackends, default: "phi" } },
+          operation: "snapshot",
+          input: {},
+          tabId: phiTab,
+        });
+        expect(integratedCalls).toEqual(["open", "snapshot"]);
+        expect(phiCalls).toEqual(["open", "snapshot"]);
+        const conflict = yield* broker
+          .invoke({
+            scope: both,
+            operation: "open",
+            tabId: phiTab,
+            input: { backend: "integrated" },
+          })
+          .pipe(Effect.flip, Effect.orDie);
+        expect(conflict._tag).toBe("PreviewAutomationBackendError");
+        const disabled = yield* broker
+          .invoke({ scope, operation: "click", input: {}, tabId: phiTab })
+          .pipe(Effect.flip, Effect.orDie);
+        expect(disabled._tag).toBe("PreviewAutomationBackendError");
+        expect(integratedCalls).toHaveLength(2);
+        const noPhi = yield* PreviewAutomationBroker.make;
+        const missing = yield* noPhi
+          .invoke({
+            scope: both,
+            operation: "open",
+            input: { backend: "phi", reuseExistingTab: false },
+          })
+          .pipe(Effect.flip, Effect.orDie);
+        expect(missing._tag).toBe("PreviewAutomationBackendError");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
 );

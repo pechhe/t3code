@@ -68,3 +68,5 @@ export * from "./clientRpcPermissions.ts";
 export * from "./experiments.ts";
 export * from "./agentPolicy.ts";
 export * from "./agentPolicySettings.ts";
+
+export * from "./browserBackend.ts";

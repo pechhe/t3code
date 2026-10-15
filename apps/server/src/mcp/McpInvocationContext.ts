@@ -54,6 +54,8 @@ export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
   readonly capabilities: ReadonlySet<McpCapability>;
   readonly issuedAt: number;
+  readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
+  readonly phiBrowserSkillDirectory?: string;
   /** Namespaces idempotency keys so two callers reusing a clientRequestId cannot collide. */
   readonly requestNamespace: string;
   readonly thread: McpThreadCaller | undefined;

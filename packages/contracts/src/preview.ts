@@ -1,3 +1,4 @@
+import { BrowserBackend } from "./browserBackend.ts";
 /**
  * Preview - Schemas for the in-app browser preview surface.
  *
@@ -195,6 +196,7 @@ export type PreviewStreamHostSetup = typeof PreviewStreamHostSetup.Type;
 export const PREVIEW_STREAM_HOST_SETUP_CLOSE_CODE = 4503;
 
 export const PreviewSessionSnapshot = Schema.Struct({
+  backend: Schema.optional(BrowserBackend),
   threadId: TrimmedNonEmptyString,
   tabId: PreviewTabId,
   navStatus: PreviewNavStatus,

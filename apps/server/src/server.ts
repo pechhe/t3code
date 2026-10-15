@@ -1,3 +1,5 @@
+import * as PhiBrowser from "./preview/PhiBrowser.ts";
+import * as PhiBrowserRunner from "./preview/PhiBrowserRunner.ts";
 import * as AdvisorIdleCloseReactor from "./orchestration-v2/AdvisorIdleCloseReactor.ts";
 import * as WorkspaceProvider from "./project/WorkspaceProvider.ts";
 import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
@@ -1145,6 +1147,7 @@ const layerMakeServer = Layer.unwrap(
       Layer.provide(VcsProcess.layer),
       // Every agent and terminal spawn reads this, so it sits below everything.
       Layer.provideMerge(AgentScopeLive.layer),
+      Layer.provide(PhiBrowser.layer.pipe(Layer.provide(PhiBrowserRunner.layer))),
       Layer.provideMerge(layerPlatformServices),
     );
   }),

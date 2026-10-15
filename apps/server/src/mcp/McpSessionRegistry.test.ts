@@ -1,3 +1,4 @@
+import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
@@ -179,4 +180,39 @@ it.effect("does not keep credentials of other threads alive", () =>
 
     expect(yield* registry.resolve(token)).toBeUndefined();
   }),
+);
+
+it.effect(
+  "releases Phi resources when a credential expires and retains its session-start selection",
+  () =>
+    Effect.gen(function* () {
+      let timestamp = 1000;
+      const released: Array<string> = [];
+      const phi = PhiBrowser.PhiBrowser.of({
+        hasTab: () => Effect.succeed(false),
+        invoke: () => Effect.die("unused"),
+        list: () => Effect.succeed([]),
+        releaseSession: (id) =>
+          Effect.sync(() => {
+            released.push(id);
+          }),
+      });
+      const registry = yield* makeRegistry(() => timestamp).pipe(
+        Effect.provideService(PhiBrowser.PhiBrowser, phi),
+      );
+      const issued = yield* registry.issue({
+        threadId: ThreadId.make("phi-thread"),
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        browserBackends: { enabled: ["phi"], default: "phi" },
+        phiBrowserSkillDirectory: "/fixture/phi",
+        capabilities: new Set(["preview"]),
+      });
+      const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+      const caller = yield* registry.resolve(token);
+      expect(caller?.browserBackends).toEqual({ enabled: ["phi"], default: "phi" });
+      expect(caller?.phiBrowserSkillDirectory).toBe("/fixture/phi");
+      timestamp += 101;
+      expect(yield* registry.resolve(token)).toBeUndefined();
+      expect(released).toEqual([issued.config.providerSessionId]);
+    }),
 );

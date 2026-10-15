@@ -64,7 +64,7 @@ const readonlyBrowserTool = <T extends Tool.Any>(tool: T): T =>
 
 const PreviewStatusTool = Tool.make("preview_status", {
   description:
-    "Report whether a collaborative browser tab is automation-capable, including its control owner, pending dialog, URL, title, visibility, loading state, viewport mode, and measured CSS-pixel size. Pass tabId to inspect a specific tab; omit it to use this agent session's current tab, or the tab the user is viewing when you have none. Server hosts also list every tab in the thread (tabs) with its owner, including tabs the user opened, and the browser profiles preview_open accepts. You can read any listed tab; act only on your own tabs, or on an unclaimed tab while no human controls it.",
+    "Report browser backend identity, connectivity, supported operations and tab state. Phi status can also return humanMessages from its console; read and follow those user instructions before continuing. A disconnected backend is not permission to use another one. Integrated tabs include control owner, pending dialog, URL, title, visibility, loading state, viewport mode and measured CSS-pixel size. Pass tabId to inspect a specific tab; omit it to use this agent session's current tab, or the tab the user is viewing when you have none. Server hosts also list every tab in the thread (tabs) with its owner, including tabs the user opened, and the browser profiles preview_open accepts. You can read any listed tab; act only on your own tabs, or on an unclaimed tab while no human controls it.",
   parameters: PreviewAutomationTabTargetInput,
   success: PreviewAutomationStatus,
   failure: PreviewToolFailure,
@@ -78,7 +78,7 @@ const PreviewStatusTool = Tool.make("preview_status", {
 const PreviewOpenTool = browserTool(
   Tool.make("preview_open", {
     description:
-      "Initialize a collaborative browser tab and open its thread-bound inline preview by default. Set open=false for background-only automation. Pass tabId to reuse a specific existing tab, set reuseExistingTab=false to create another tab, or omit both to use this agent session's current tab. Parallel subagents sharing a provider session must each open with reuseExistingTab=false and pass their returned tabId on every call. Pass profileId (an id or name from preview_status profiles) to open under a browser profile and its saved logins; omit it for the user's default profile. Another agent session's tabs can be read but not operated.",
+      "Open a browser tab for this thread. Integrated tabs open their inline preview by default. Set backend=phi for Phi, or omit backend for the effective default. Phi opens outside the inline panel; phiLane=shadow creates an isolated incognito window, and phiLane=agents uses the shared sign-in Space with exclusive task custody. A tab keeps its backend/profile/lane; changing them requires a new tab. Set open=false for background-only automation. Pass tabId to reuse a specific existing tab, set reuseExistingTab=false to create another tab, or omit both to use this agent session's current tab. Parallel subagents sharing a provider session must each open with reuseExistingTab=false and pass their returned tabId on every call. Pass profileId (an id or name from preview_status profiles) to open under a browser profile and its saved logins; omit it for the user's default profile. Another agent session's tabs can be read but not operated.",
     parameters: PreviewAutomationOpenInput,
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
@@ -143,7 +143,7 @@ const PreviewSetAppearanceTool = safeBrowserTool(
 export const PreviewSnapshotTool = safeBrowserTool(
   Tool.make("preview_snapshot", {
     description:
-      "Inspect a page before interacting. Pass tabId to inspect a specific tab, including one the user opened (see preview_status tabs), even while they control it; omit it to use this agent session's current tab, or the tab the user is viewing when you have none. Returns page state, semantic elements, diagnostics, action history, and screenshot dimensions. Server snapshots include an accessibilityTree with refs; pass locator=aria-ref=<ref> to target one exact element, including inside frames. Refresh refs after navigation, another snapshot, or human takeover. The text is capped near 20 KB and lists what it omitted; use preview_evaluate to read more. Set includeImage=true only when you need to see the page; the image stays in tool history. Set save=true to write the PNG to disk and get back only the url and screenshotPath. Embed that path in your reply as ![alt](screenshotPath) so the user sees it. This is the only way to show the user a screenshot; the image in the tool result is not saved anywhere.",
+      "Inspect a page before interacting. Pass tabId to inspect a specific tab, including one the user opened (see preview_status tabs), even while they control it; omit it to use this agent session's current tab, or the tab the user is viewing when you have none. Returns page state, semantic elements, diagnostics, action history, and screenshot dimensions. Server snapshots include an accessibilityTree with refs; pass locator=aria-ref=<ref> to target one exact element, including inside frames. Refresh refs after navigation, another snapshot, or human takeover. The text is capped near 20 KB and lists what it omitted. Integrated browsing supports preview_evaluate for further inspection; Phi deliberately rejects page evaluation. Set includeImage=true only when you need to see the page; the image stays in tool history. Set save=true to write the PNG to disk and get back only the url and screenshotPath. Embed that path in your reply as ![alt](screenshotPath) so the user sees it. This is the only way to show the user a screenshot; the image in the tool result is not saved anywhere.",
     parameters: Schema.Struct({
       ...PreviewAutomationTabTargetInput.fields,
       includeImage: Schema.optional(
@@ -312,7 +312,33 @@ const PreviewRecordingStopTool = safeBrowserTool(
   }).annotate(Tool.Title, "Stop browser recording"),
 );
 
+const PreviewHandoffTool = browserTool(
+  Tool.make("preview_handoff", {
+    description:
+      "Hand a Phi Agents tab to the human for login or another manual step. Input stays blocked until the human hands back. Not supported in an incognito shadow window.",
+    parameters: Schema.Struct({
+      ...PreviewAutomationTabTargetInput.fields,
+      message: Schema.String.check(Schema.isMaxLength(500)),
+    }),
+    success: PreviewActionResult,
+    failure: PreviewToolFailure,
+    dependencies,
+  }),
+);
+const PreviewResumeTool = browserTool(
+  Tool.make("preview_resume", {
+    description:
+      "Resume a Phi Agents tab after the human has handed control back. Checks ownership and never takes control from the human. Supply the task tabId to recover a stopped session.",
+    parameters: PreviewAutomationTabTargetInput,
+    success: PreviewActionResult,
+    failure: PreviewToolFailure,
+    dependencies,
+  }),
+);
+
 export const PreviewToolkit = Toolkit.make(
+  PreviewHandoffTool,
+  PreviewResumeTool,
   PreviewDialogTool,
   PreviewStatusTool,
   PreviewOpenTool,
@@ -335,6 +361,8 @@ export const PreviewToolkit = Toolkit.make(
 );
 
 export const PreviewStandardToolkit = Toolkit.make(
+  PreviewHandoffTool,
+  PreviewResumeTool,
   PreviewDialogTool,
   PreviewStatusTool,
   PreviewOpenTool,

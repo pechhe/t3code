@@ -122,7 +122,15 @@ on each selected environment, and reset returns to the environment's shared list
 Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the
 built-in default. Leave a setting on **Inherit** to let the next tier decide.
-Browser access changes apply when an agent session next starts.
+Browser access changes apply when an agent session next starts. Backend choices can allow the
+integrated browser, Phi, or both, with one enabled browser as the default. Existing installations
+keep the integrated default. An open tab keeps its original browser and profile when defaults
+change.
+
+Phi opens pages outside T3 Code's browser panel. Private checks use isolated incognito windows;
+work needing your sign-in uses the shared Agents Space and waits when you take control. Hand
+control back before asking the agent to resume. If Phi is unavailable, the agent reports that
+failure rather than opening the page in another browser.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → General** (with the project

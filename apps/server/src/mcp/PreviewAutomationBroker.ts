@@ -1,5 +1,10 @@
+import * as PhiBrowser from "../preview/PhiBrowser.ts";
+import * as Ref from "effect/Ref";
 import {
   PREVIEW_AUTOMATION_V1_OPERATIONS,
+  DEFAULT_AGENT_BROWSER_BACKENDS,
+  PreviewAutomationBackendError,
+  type BrowserBackend,
   PreviewAutomationClientDisconnectedError,
   PreviewAutomationControlInterruptedError,
   PreviewAutomationControlReason,
@@ -350,6 +355,8 @@ const classifyResponseError = (
 
 export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
   const crypto = yield* Crypto.Crypto;
+  const phiBrowser = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
+  const currentBackends = yield* Ref.make<ReadonlyMap<string, BrowserBackend>>(new Map());
   const state = yield* SynchronizedRef.make<BrokerState>({
     clients: new Map(),
     assignments: new Map(),
@@ -705,7 +712,72 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     return result;
   });
 
-  return PreviewAutomationBroker.of({ connect, focusHost, respond, invoke });
+  const invokeBackend = Effect.fn("PreviewAutomationBroker.invokeBackend")(function* <A = unknown>(
+    input: PreviewAutomationInvokeInput,
+  ): Effect.fn.Return<A, PreviewAutomationError> {
+    const selection = input.scope.browserBackends ?? DEFAULT_AGENT_BROWSER_BACKENDS;
+    const openInput =
+      input.operation === "open" && typeof input.input === "object" && input.input !== null
+        ? input.input
+        : undefined;
+    const explicitBackend = openInput && "backend" in openInput ? openInput.backend : undefined;
+    const newTab =
+      openInput && "reuseExistingTab" in openInput && openInput.reuseExistingTab === false;
+    const phiTab =
+      input.tabId !== undefined && Option.isSome(phiBrowser)
+        ? yield* phiBrowser.value.hasTab(input.tabId)
+        : false;
+    const boundBackend =
+      input.tabId !== undefined
+        ? phiTab || PhiBrowser.isPhiTabId(input.tabId)
+          ? "phi"
+          : "integrated"
+        : undefined;
+    if (boundBackend && explicitBackend !== undefined && boundBackend !== explicitBackend) {
+      return yield* new PreviewAutomationBackendError({
+        backend: boundBackend,
+        reason: "conflicting-binding",
+      });
+    }
+    const previous = (yield* Ref.get(currentBackends)).get(hostAssignmentKey(input.scope));
+    const backend =
+      boundBackend ??
+      explicitBackend ??
+      (newTab ? selection.default : (previous ?? selection.default));
+    if ((backend !== "integrated" && backend !== "phi") || !selection.enabled.includes(backend)) {
+      return yield* new PreviewAutomationBackendError({
+        backend: backend === "phi" ? "phi" : "integrated",
+        reason: "disabled",
+      });
+    }
+    if (
+      openInput &&
+      explicitBackend !== undefined &&
+      !newTab &&
+      input.tabId === undefined &&
+      previous !== undefined &&
+      previous !== backend
+    ) {
+      return yield* new PreviewAutomationBackendError({ backend, reason: "conflicting-binding" });
+    }
+    let result: A;
+    if (backend === "phi") {
+      if (Option.isNone(phiBrowser))
+        return yield* new PreviewAutomationBackendError({ backend, reason: "unavailable" });
+      result = (yield* phiBrowser.value.invoke(input)) as A;
+    } else result = yield* invoke<A>(input);
+    if (input.updateCurrentTab !== false)
+      yield* Ref.update(currentBackends, (current) =>
+        new Map(current).set(hostAssignmentKey(input.scope), backend),
+      );
+    return result;
+  });
+  return PreviewAutomationBroker.of({
+    connect,
+    focusHost,
+    respond,
+    invoke: <A = unknown>(input: PreviewAutomationInvokeInput) => invokeBackend<A>(input),
+  });
 }).pipe(Effect.withSpan("PreviewAutomationBroker.make"));
 
 export const layer = Layer.effect(PreviewAutomationBroker, make);

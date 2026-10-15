@@ -1,0 +1,286 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { expect, it } from "@effect/vitest";
+import {
+  EnvironmentId,
+  ProviderInstanceId,
+  ThreadId,
+  type PreviewAutomationStatus,
+  type PreviewAutomationSnapshot,
+  type PreviewAutomationError,
+} from "@t3tools/contracts";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as Layer from "effect/Layer";
+import type * as Scope from "effect/Scope";
+import * as Schema from "effect/Schema";
+
+import * as ServerConfig from "../config.ts";
+import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
+import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
+import * as PhiBrowser from "./PhiBrowser.ts";
+import * as PhiBrowserRunner from "./PhiBrowserRunner.ts";
+
+const scope: McpThreadInvocationScope = {
+  environmentId: EnvironmentId.make("test-environment"),
+  requestNamespace: "test-session",
+  thread: {
+    threadId: ThreadId.make("test-thread"),
+    providerSessionId: "test-session",
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
+  issuedAt: 1,
+  capabilities: new Set(["preview"]),
+  browserBackends: { enabled: ["integrated", "phi"], default: "phi" },
+};
+const other: McpThreadInvocationScope = {
+  ...scope,
+  thread: {
+    ...scope.thread,
+    threadId: ThreadId.make("other-thread"),
+    providerSessionId: "other-session",
+  },
+};
+
+interface Fixture {
+  readonly browser: PhiBrowser.PhiBrowser["Service"];
+  readonly calls: Array<PhiBrowserRunner.PhiBrowserRound>;
+  readonly control: { human: boolean; blockOpen: boolean };
+  readonly started: Deferred.Deferred<void>;
+  readonly journal: Effect.Effect<string>;
+}
+
+const isRunnerError = Schema.is(PhiBrowserRunner.PhiBrowserRunnerError);
+
+const withFixture = (
+  use: (fixture: Fixture) => Effect.Effect<unknown, PreviewAutomationError, Scope.Scope>,
+) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const journal = fs
+        .readFileString(path.join(config.stateDir, "phi-browser-tabs.json"))
+        .pipe(Effect.orDie);
+      const calls: Array<PhiBrowserRunner.PhiBrowserRound> = [];
+      const control = { human: false, blockOpen: false };
+      const started = yield* Deferred.make<void>();
+      const never = yield* Deferred.make<void>();
+      const tabs = new Map<string, { targetId: string; windowId: number }>();
+      const runner = PhiBrowserRunner.PhiBrowserRunner.of({
+        run: (request) =>
+          Effect.gen(function* () {
+            calls.push(request);
+            if (request.action.operation === "open") {
+              // The real filesystem journal must precede the external allocation.
+              expect(yield* journal).toContain(scope.thread.providerSessionId);
+              yield* Deferred.succeed(started, undefined);
+              if (control.blockOpen) yield* Deferred.await(never);
+              const tab = { targetId: `phi-${calls.length}`, windowId: calls.length };
+              tabs.set(request.context.name, tab);
+              return { result: { targetId: tab.targetId }, context: { windowId: tab.windowId } };
+            }
+            const tab = tabs.get(request.context.name);
+            if (control.human && request.action.operation !== "status")
+              return yield* new PhiBrowserRunner.PhiBrowserRunnerError({
+                reason: "connection-failed",
+                cause: "human owns input",
+              });
+            if (request.action.operation === "close") {
+              tabs.delete(request.context.name);
+              return { result: {}, context: null };
+            }
+            if (request.action.operation === "handoff") control.human = true;
+            if (request.action.operation === "snapshot")
+              return {
+                result: {
+                  observed: {
+                    url: "https://example.com/",
+                    title: "Fixture",
+                    elements: [
+                      { ref: 12, role: "textbox", name: "Name" },
+                      { ref: 123, role: "button", name: "Save" },
+                    ],
+                  },
+                  text: "ref=12 Name ref=123 Save",
+                  screenshot: { mimeType: "image/png", data: "cG5n", width: 10, height: 10 },
+                },
+                context: { windowId: tab?.windowId ?? 0 },
+              };
+            if (request.action.operation === "status")
+              return {
+                result: {
+                  context: { windowId: tab?.windowId ?? 0 },
+                  tabs: tab ? [{ ...tab, url: "https://example.com/", title: "Fixture" }] : [],
+                  ...(request.context.kind === "agent"
+                    ? { space: { ownership: control.human ? "user" : "agent" } }
+                    : {}),
+                },
+                context: { windowId: tab?.windowId ?? 0 },
+              };
+            return { result: {}, context: { windowId: tab?.windowId ?? 0 } };
+          }).pipe(
+            Effect.mapError((cause) =>
+              isRunnerError(cause)
+                ? cause
+                : new PhiBrowserRunner.PhiBrowserRunnerError({ reason: "invalid-response", cause }),
+            ),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const browser = yield* PhiBrowser.PhiBrowser;
+        yield* use({ browser, calls, control, started, journal });
+      }).pipe(
+        Effect.provide(PhiBrowser.layer),
+        Effect.provideService(PhiBrowserRunner.PhiBrowserRunner, runner),
+      );
+    }),
+  ).pipe(
+    Effect.provide(
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-phi-owned-" }).pipe(
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+    Effect.provideService(HostProcess.Platform, "darwin"),
+  );
+
+it.effect("journals before allocation and refuses another task's tab", () =>
+  withFixture(({ browser, journal }) =>
+    Effect.gen(function* () {
+      const opened = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: { url: "https://example.com" },
+      })) as PreviewAutomationStatus;
+      expect(opened.backend).toBe("phi");
+      expect(opened.tabId).toBeTruthy();
+      const tabId = opened.tabId!;
+      expect(yield* journal).toContain(tabId);
+      const denied = yield* browser
+        .invoke({ scope: other, operation: "click", tabId, input: { selector: "button" } })
+        .pipe(Effect.flip, Effect.orDie);
+      expect(denied.reason).toBe("ownership");
+      expect(yield* browser.list(other)).toEqual([]);
+      yield* browser.invoke({ scope, operation: "close", tabId, input: {} });
+      expect(yield* browser.list(scope)).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("scopes refs to a tab and snapshot generation without prefix collisions", () =>
+  withFixture(({ browser }) =>
+    Effect.gen(function* () {
+      const opened = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: {},
+      })) as PreviewAutomationStatus;
+      const tabId = opened.tabId!;
+      const shot = (yield* browser.invoke({
+        scope,
+        operation: "snapshot",
+        tabId,
+        input: {},
+      })) as PreviewAutomationSnapshot;
+      const locator = shot.interactiveElements[0]!.selector;
+      expect(shot.visibleText).not.toContain("ref=12");
+      expect(shot.visibleText).toContain(shot.interactiveElements[1]!.selector);
+      yield* browser.invoke({ scope, operation: "click", tabId, input: { locator } });
+      yield* browser.invoke({ scope, operation: "snapshot", tabId, input: {} });
+      const stale = yield* browser
+        .invoke({ scope, operation: "click", tabId, input: { locator } })
+        .pipe(Effect.flip, Effect.orDie);
+      expect(stale.reason).toBe("stale-reference");
+    }),
+  ),
+);
+
+it.effect("cleans interrupted allocation by its pre-recorded shadow name", () =>
+  withFixture(({ browser, control, started, calls }) =>
+    Effect.gen(function* () {
+      control.blockOpen = true;
+      const opening = yield* browser
+        .invoke({ scope, operation: "open", input: {} })
+        .pipe(Effect.forkScoped);
+      yield* Deferred.await(started);
+      yield* Fiber.interrupt(opening);
+      expect(calls.map((call) => call.action.operation)).toEqual(["open", "close"]);
+      expect(calls[1]?.context.name).toBe(calls[0]?.context.name);
+      expect(yield* browser.list(scope)).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("holds exclusive Agents custody across human handoff and credential revocation", () =>
+  withFixture(({ browser, control }) =>
+    Effect.gen(function* () {
+      const opened = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: { phiLane: "agents" },
+      })) as PreviewAutomationStatus;
+      const tabId = opened.tabId!;
+      const blocked = yield* browser
+        .invoke({ scope: other, operation: "open", input: { phiLane: "agents" } })
+        .pipe(Effect.flip, Effect.orDie);
+      expect(blocked.reason).toBe("human-control");
+      yield* browser.invoke({ scope, operation: "handoff", tabId, input: { message: "Sign in" } });
+      yield* browser.releaseSession(scope.thread.providerSessionId);
+      expect(yield* browser.hasTab(tabId)).toBe(true);
+      const replacement: McpThreadInvocationScope = {
+        ...scope,
+        thread: { ...scope.thread, providerSessionId: "replacement-session" },
+      };
+      expect(
+        (yield* browser
+          .invoke({ scope: replacement, operation: "resume", tabId, input: {} })
+          .pipe(Effect.flip, Effect.orDie)).reason,
+      ).toBe("unavailable");
+      control.human = false;
+      yield* browser.invoke({ scope: replacement, operation: "resume", tabId, input: {} });
+      yield* browser.invoke({
+        scope: replacement,
+        operation: "type",
+        tabId,
+        input: { text: "safe" },
+      });
+      expect(
+        (yield* browser
+          .invoke({ scope, operation: "type", tabId, input: { text: "old caller" } })
+          .pipe(Effect.flip, Effect.orDie)).reason,
+      ).toBe("ownership");
+    }),
+  ),
+);
+
+it.effect("serves a Phi tab through the production broker boundary", () =>
+  withFixture(({ browser }) =>
+    Effect.gen(function* () {
+      const broker = yield* PreviewAutomationBroker.make.pipe(
+        Effect.provideService(PhiBrowser.PhiBrowser, browser),
+        Effect.provide(NodeServices.layer),
+      );
+      const opened = yield* broker.invoke<PreviewAutomationStatus>({
+        scope,
+        operation: "open",
+        input: { backend: "phi", url: "https://example.com" },
+      });
+      expect(opened.backend).toBe("phi");
+      const snapshot = yield* broker.invoke<PreviewAutomationSnapshot>({
+        scope,
+        operation: "snapshot",
+        input: {},
+        tabId: opened.tabId!,
+      });
+      expect(snapshot.title).toBe("Fixture");
+      expect(snapshot.screenshot.mimeType).toBe("image/png");
+      yield* broker.invoke({ scope, operation: "close", input: {}, tabId: opened.tabId! });
+      expect(yield* browser.list(scope)).toEqual([]);
+    }),
+  ),
+);

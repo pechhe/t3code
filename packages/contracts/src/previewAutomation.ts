@@ -1,3 +1,4 @@
+import { BrowserBackend, PhiBrowserLane } from "./browserBackend.ts";
 import { Schema } from "effect";
 
 import { EnvironmentId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
@@ -57,7 +58,11 @@ export const PREVIEW_AUTOMATION_SERVER_OPERATIONS = [
   "select",
   "drag",
 ] as const;
-export const PreviewAutomationOperation = Schema.Literals(PREVIEW_AUTOMATION_SERVER_OPERATIONS);
+export const PreviewAutomationOperation = Schema.Literals([
+  ...PREVIEW_AUTOMATION_SERVER_OPERATIONS,
+  "handoff",
+  "resume",
+]);
 export type PreviewAutomationOperation = typeof PreviewAutomationOperation.Type;
 
 const PreviewAutomationTabTargetFields = {
@@ -86,6 +91,12 @@ export const PreviewAutomationProfile = Schema.Struct({
 export type PreviewAutomationProfile = typeof PreviewAutomationProfile.Type;
 
 export const PreviewAutomationStatus = Schema.Struct({
+  backend: Schema.optional(BrowserBackend),
+  connected: Schema.optional(Schema.Boolean),
+  connectionMessage: Schema.optional(Schema.String),
+  humanMessages: Schema.optional(Schema.Array(Schema.String)),
+  supportedOperations: Schema.optional(Schema.Array(PreviewAutomationOperation)),
+  phiLane: Schema.optional(PhiBrowserLane),
   available: Schema.Boolean,
   visible: Schema.Boolean,
   tabId: Schema.NullOr(PreviewTabId),
@@ -165,6 +176,8 @@ export const PreviewAutomationDialogInput = Schema.Struct({
 export type PreviewAutomationDialogInput = typeof PreviewAutomationDialogInput.Type;
 
 export const PreviewAutomationOpenInput = Schema.Struct({
+  backend: Schema.optional(BrowserBackend),
+  phiLane: Schema.optional(PhiBrowserLane),
   ...PreviewAutomationTabTargetFields,
   url: Schema.optional(BoundedUrl).annotate({
     description: `Optional initial page URL. ${URL_GUIDANCE} Omit to open a blank tab.`,
@@ -1160,7 +1173,56 @@ export class PreviewAutomationRecordingDeadlineExpiredError extends Schema.Tagge
   }
 }
 
+export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAutomationBackendError>()(
+  "PreviewAutomationBackendError",
+  {
+    backend: BrowserBackend,
+    reason: Schema.Literals([
+      "disabled",
+      "unavailable",
+      "missing-skill",
+      "stale-reference",
+      "unavailable-route",
+      "ownership",
+      "conflicting-binding",
+      "unsupported",
+      "invalid-response",
+      "storage",
+      "human-control",
+    ]),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "missing-skill":
+        return "The configured phi-browser skill runner is missing. Check its directory; the default is ~/.agents/skills/phi-browser.";
+      case "stale-reference":
+        return "This Phi reference is stale or belongs to another tab. Take a new snapshot of the target tab.";
+      case "unavailable-route":
+        return "This URL needs a route on the Mac running Phi. Configure the supported Mac route and use the forwarded URL.";
+      case "disabled":
+        return `${this.backend} is disabled for this agent session.`;
+      case "unavailable":
+        return `${this.backend} is unavailable. Check the installed Phi skill directory and its connection route when using Phi; no other backend was substituted.`;
+      case "ownership":
+        return "This browser tab does not belong to the calling task. Open an owned tab and use its returned tabId.";
+      case "conflicting-binding":
+        return "An existing tab keeps its backend, profile and lane. Open a new tab to change them.";
+      case "unsupported":
+        return "This operation or option is unsupported by this browser backend. Read preview_status capabilities.";
+      case "invalid-response":
+        return "The browser backend returned an invalid response. Check the installed skill version.";
+      case "storage":
+        return "Browser ownership state could not be saved. Resolve storage before continuing.";
+      case "human-control":
+        return "The shared Agents Space is held by another task or a human. Wait for hand-back before resuming.";
+    }
+  }
+}
+
 export const PreviewAutomationError = Schema.Union([
+  PreviewAutomationBackendError,
   PreviewAutomationRecordingTransferError,
   PreviewAutomationRecordingDesktopUpdateRequiredError,
   PreviewAutomationRecordingTooLargeError,

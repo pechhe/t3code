@@ -190,6 +190,8 @@ export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(
 });
 
 const handlers = {
+  preview_handoff: McpToolAccess.actsAsCaller((input) => invokeTargeted<object>("handoff", input)),
+  preview_resume: McpToolAccess.actsAsCaller((input) => invokeTargeted<object>("resume", input)),
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("dialog", input),
   ),
