@@ -1,7 +1,13 @@
 import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
-import { type CSSProperties, Fragment, type ReactElement, type ReactNode, useMemo } from "react";
+import type { ClientSettings } from "@t3tools/contracts/settings";
+import { type CSSProperties, type ReactElement, type ReactNode, useMemo, useState } from "react";
 
-import { useEnvironmentModelPreferences } from "~/hooks/useSettings";
+import {
+  useClientSettings,
+  useEnvironmentModelPreferences,
+  useUpdateClientSettings,
+} from "~/hooks/useSettings";
+import { playRotary } from "~/lib/interfaceSounds";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { providerModelKey } from "../../../modelOrdering";
@@ -13,10 +19,15 @@ import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtil
 const FAVORITE_SLOTS = 4;
 const DETENTS = FAVORITE_SLOTS + 1;
 
+const selectModelSlotLabels = (settings: ClientSettings) => settings.modelSlotLabels;
+
 interface Slot {
+  readonly key: string;
   readonly instanceId: ProviderInstanceId;
   readonly model: string;
+  /** The user's name for the slot, else the model's own. */
   readonly label: string;
+  readonly modelName: string;
   readonly disabledReason: string | null;
 }
 
@@ -24,6 +35,7 @@ interface Slot {
  * The model slider: the first four favourite models as detents, and the
  * overflow detent opening the full picker. A model chosen from the picker that
  * is not a favourite parks the thumb on the overflow detent under its own name.
+ * Double-clicking a favourite's name renames it; an empty name restores the model's.
  */
 export function DeviceModelSlider(props: {
   environmentId: EnvironmentId | null;
@@ -40,6 +52,9 @@ export function DeviceModelSlider(props: {
   renderOverflow: (trigger: ReactElement) => ReactNode;
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
+  const slotLabels = useClientSettings(selectModelSlotLabels);
+  const updateClientSettings = useUpdateClientSettings();
+  const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const {
     activeInstanceId,
     instanceEntries,
@@ -64,10 +79,15 @@ export function DeviceModelSlider(props: {
           (entry.driverKind !== lockedProvider ||
             (lockedContinuationGroupKey !== null &&
               entry.continuationGroupKey !== lockedContinuationGroupKey));
+        const slug = option?.slug ?? model;
+        const key = providerModelKey(instanceId, slug);
+        const modelName = option ? getTriggerDisplayModelName(option) : model;
         return {
+          key,
           instanceId,
-          model: option?.slug ?? model,
-          label: option ? getTriggerDisplayModelName(option) : model,
+          model: slug,
+          label: slotLabels[key] ?? modelName,
+          modelName,
           disabledReason: locked
             ? "This thread can't switch to another provider"
             : getModelDisabledReason(instanceId, model),
@@ -79,6 +99,7 @@ export function DeviceModelSlider(props: {
       lockedContinuationGroupKey,
       lockedProvider,
       modelOptionsByInstance,
+      slotLabels,
     ],
   );
 
@@ -91,10 +112,17 @@ export function DeviceModelSlider(props: {
     [favorites, resolveSlot],
   );
   const active = resolveSlot(activeInstanceId, props.model);
-  const activeKey = active ? providerModelKey(active.instanceId, active.model) : null;
-  const activeIndex = slots.findIndex(
-    (slot) => providerModelKey(slot.instanceId, slot.model) === activeKey,
-  );
+  const activeIndex = slots.findIndex((slot) => slot.key === active?.key);
+
+  const rename = (slot: Slot, name: string) => {
+    setRenamingKey(null);
+    const label = name.trim();
+    const { [slot.key]: _previous, ...others } = slotLabels;
+    const next = label && label !== slot.modelName ? { ...others, [slot.key]: label } : others;
+    if (next[slot.key] !== slotLabels[slot.key]) {
+      void updateClientSettings({ modelSlotLabels: next });
+    }
+  };
   const position = activeIndex >= 0 ? activeIndex : FAVORITE_SLOTS;
   const overflowLabel = activeIndex < 0 && active ? active.label : null;
 
@@ -114,32 +142,56 @@ export function DeviceModelSlider(props: {
         <span className="device-slider__glow" />
       </span>
       <span className="device-slider__thumb" aria-hidden="true" />
-      {slots.map((slot, index) => {
-        const label = (
-          <button
-            type="button"
-            className="device-slider__label"
+      {slots.map((slot, index) =>
+        slot.key === renamingKey ? (
+          <input
+            key={slot.key}
+            className="device-slider__label device-slider__rename"
             style={{ "--slot": index } as CSSProperties}
-            disabled={props.disabled}
-            aria-disabled={slot.disabledReason !== null || undefined}
-            aria-pressed={index === activeIndex}
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={() => {
-              if (slot.disabledReason === null) props.onSelect(slot.instanceId, slot.model);
+            aria-label={`Name for ${slot.modelName}`}
+            placeholder={slot.modelName}
+            defaultValue={slot.label}
+            // oxlint-disable-next-line jsx-a11y/no-autofocus -- renaming starts from a double-click on this slot
+            autoFocus
+            onFocus={(event) => event.currentTarget.select()}
+            onBlur={(event) => rename(slot, event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+              if (event.key === "Escape") setRenamingKey(null);
             }}
-          >
-            {slot.label}
-          </button>
-        );
-        return slot.disabledReason === null ? (
-          <Fragment key={providerModelKey(slot.instanceId, slot.model)}>{label}</Fragment>
+          />
         ) : (
-          <Tooltip key={providerModelKey(slot.instanceId, slot.model)}>
-            <TooltipTrigger render={label} />
-            <TooltipPopup side="top">{slot.disabledReason}</TooltipPopup>
+          <Tooltip key={slot.key}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  className="device-slider__label"
+                  style={{ "--slot": index } as CSSProperties}
+                  disabled={props.disabled}
+                  aria-disabled={slot.disabledReason !== null || undefined}
+                  aria-pressed={index === activeIndex}
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    if (slot.disabledReason !== null || index === activeIndex) return;
+                    playRotary();
+                    props.onSelect(slot.instanceId, slot.model);
+                  }}
+                  onDoubleClick={() => setRenamingKey(slot.key)}
+                />
+              }
+            >
+              {slot.label}
+            </TooltipTrigger>
+            <TooltipPopup side="top">
+              {slot.disabledReason ??
+                (slot.label === slot.modelName
+                  ? "Double-click to rename"
+                  : `${slot.modelName} · Double-click to rename`)}
+            </TooltipPopup>
           </Tooltip>
-        );
-      })}
+        ),
+      )}
       {props.renderOverflow(
         <button
           type="button"
@@ -150,6 +202,7 @@ export function DeviceModelSlider(props: {
           style={{ "--slot": FAVORITE_SLOTS } as CSSProperties}
           disabled={props.disabled}
           aria-label={overflowLabel === null ? "All models" : `${overflowLabel}, all models`}
+          aria-pressed={overflowLabel !== null}
         >
           {overflowLabel ?? "•••"}
         </button>,

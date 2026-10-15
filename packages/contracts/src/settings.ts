@@ -506,6 +506,11 @@ export const ClientSettingsSchema = Schema.Struct({
   snapShotFlash: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   snapShotAnimations: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  interfaceSounds: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+  /** Names the composer's model slider shows for favourites, keyed by `instanceId:model`. */
+  modelSlotLabels: Schema.Record(Schema.String, TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
+  ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
 
@@ -1815,5 +1820,7 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotFlash: Schema.optionalKey(Schema.Boolean),
   snapShotAnimations: Schema.optionalKey(Schema.Boolean),
   wordWrap: Schema.optionalKey(Schema.Boolean),
+  interfaceSounds: Schema.optionalKey(Schema.Boolean),
+  modelSlotLabels: Schema.optionalKey(Schema.Record(Schema.String, TrimmedNonEmptyString)),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

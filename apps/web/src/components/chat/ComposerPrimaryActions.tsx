@@ -1,9 +1,16 @@
-import { memo, type MouseEventHandler, type PointerEventHandler } from "react";
+import {
+  memo,
+  type MouseEventHandler,
+  type PointerEvent as ReactPointerEvent,
+  type PointerEventHandler,
+  useRef,
+} from "react";
 import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, Minimize2Icon, PlayIcon } from "lucide-react";
 import { CornerUpRight, ListPlus } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
+import { pressClick } from "~/lib/interfaceSounds";
 import { cn } from "~/lib/utils";
 import { useShortcutModifierState } from "../../shortcutModifierState";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
@@ -119,9 +126,29 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   device = false,
   sendPressKey = 0,
 }: ComposerPrimaryActionsProps) {
-  const pointerFocusProps = preserveComposerFocusOnPointerDown
-    ? { onPointerDown: preventPointerFocus }
-    : undefined;
+  // The device dial clicks down on press and up on release, like peach-pi's.
+  const releaseDialRef = useRef<(() => void) | null>(null);
+  const releaseDial = () => {
+    releaseDialRef.current?.();
+    releaseDialRef.current = null;
+  };
+  const pointerFocusProps = device
+    ? {
+        onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+          if (preserveComposerFocusOnPointerDown) event.preventDefault();
+          if (event.button === 0 && !event.currentTarget.matches(":disabled")) {
+            releaseDialRef.current = pressClick();
+          }
+        },
+        onPointerUp: releaseDial,
+        onPointerLeave: releaseDial,
+        onPointerCancel: () => {
+          releaseDialRef.current = null;
+        },
+      }
+    : preserveComposerFocusOnPointerDown
+      ? { onPointerDown: preventPointerFocus }
+      : undefined;
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const shortcutModifiers = useShortcutModifierState();
   const isQueuing =

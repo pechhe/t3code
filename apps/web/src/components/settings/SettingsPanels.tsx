@@ -597,6 +597,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Snooze limited threads"]
         : []),
       ...(settings.wordWrap !== DEFAULT_UNIFIED_SETTINGS.wordWrap ? ["Word wrap"] : []),
+      ...(settings.interfaceSounds !== DEFAULT_UNIFIED_SETTINGS.interfaceSounds
+        ? ["Interface sounds"]
+        : []),
       ...(settings.persistComposerContextStrip !==
       DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
         ? ["Composer context"]
@@ -726,6 +729,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.notificationMode,
       settings.inAppNotificationsEnabled,
       settings.wordWrap,
+      settings.interfaceSounds,
       followSystem,
       theme,
       themeHalves,
@@ -802,6 +806,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
+      interfaceSounds: DEFAULT_UNIFIED_SETTINGS.interfaceSounds,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
@@ -1745,6 +1750,34 @@ function WordWrapRow() {
   );
 }
 
+function InterfaceSoundsRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...searchableSetting("interface-sounds")}
+      description="Play a click when you press the composer's controls and a tick as you pass sidebar items."
+      resetAction={
+        settings.interfaceSounds !== DEFAULT_UNIFIED_SETTINGS.interfaceSounds ? (
+          <SettingResetButton
+            label="interface sounds"
+            onClick={() =>
+              updateSettings({ interfaceSounds: DEFAULT_UNIFIED_SETTINGS.interfaceSounds })
+            }
+          />
+        ) : null
+      }
+      control={
+        <Switch
+          checked={settings.interfaceSounds}
+          onCheckedChange={(checked) => updateSettings({ interfaceSounds: Boolean(checked) })}
+          aria-label="Interface sounds"
+        />
+      }
+    />
+  );
+}
+
 function FontSettingsGroup() {
   return (
     <>
@@ -1843,6 +1876,7 @@ function TypographySection() {
     >
       {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
       <WordWrapRow />
+      <InterfaceSoundsRow />
     </SettingsSection>
   );
 }

@@ -337,6 +337,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["long lines code blocks tables diffs file previews"],
   },
   {
+    id: "interface-sounds",
+    title: "Interface sounds",
+    to: "/settings/appearance",
+    searchTerms: ["click tick audio sound effects hover composer sidebar mute"],
+  },
+  {
     id: "composer-context",
     title: "Composer context",
     to: "/settings/appearance",

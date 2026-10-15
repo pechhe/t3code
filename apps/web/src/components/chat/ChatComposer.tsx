@@ -289,6 +289,7 @@ import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { pressClick } from "~/lib/interfaceSounds";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { DeviceModelSlider } from "./device/DeviceModelSlider";
 import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
@@ -4492,7 +4493,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       setComposerSubmissionError(submission.validationMessage);
       if (!submission.didDispatch) return;
       // A click already pressed the dial; keyboard sends press it here.
-      if (!event) setSendPressKey((key) => key + 1);
+      if (!event && deviceComposer) {
+        setSendPressKey((key) => key + 1);
+        pressClick()();
+      }
       onTypingGuardSend();
       if (shouldBlurMobileComposerOnSubmit()) {
         blurMobileComposerAfterSend();
@@ -4502,6 +4506,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       activeThreadId,
       activePendingProgress,
       attachmentTargetKey,
+      deviceComposer,
       onTypingGuardSend,
       blurMobileComposerAfterSend,
       environmentId,

@@ -1,6 +1,7 @@
 import { forwardRef, useImperativeHandle, type CSSProperties } from "react";
 import type { ProviderOptionDescriptor } from "@t3tools/contracts";
 
+import { playRotary } from "~/lib/interfaceSounds";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { useTraitsControls } from "../TraitsPicker";
@@ -65,6 +66,7 @@ const ReasoningDial = forwardRef<
   const select = (index: number) => {
     const option = options[index];
     if (!descriptor || !option || disabled) return;
+    playRotary();
     controls.handleSelectChange(descriptor, option.id);
   };
 
