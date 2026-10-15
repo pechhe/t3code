@@ -8301,6 +8301,13 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      if (command === "composer.effortUp" || command === "composer.effortDown") {
+        event.preventDefault();
+        event.stopPropagation();
+        composerRef.current?.stepEffort(command === "composer.effortUp" ? 1 : -1);
+        return;
+      }
+
       if (command === "composer.cycleHost") {
         if (envLocked || !draftId || !hasMultipleEnvironments) return;
         event.preventDefault();

@@ -68,6 +68,7 @@ import { USAGE_LIMITS_COMMAND } from "@t3tools/shared/usageLimits";
 import {
   memo,
   type ComponentProps,
+  type ReactElement,
   type ReactNode,
   useCallback,
   useEffect,
@@ -288,6 +289,9 @@ import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
+import { DeviceContextBar } from "./device/DeviceContextBar";
+import { DeviceModelSlider } from "./device/DeviceModelSlider";
+import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
 import { ComposerPlanFollowUpBanner } from "./ComposerPlanFollowUpBanner";
@@ -1427,6 +1431,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   compactBeforeSendTokens: number | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
+  device: boolean;
+  sendPressKey: number;
 }) {
   return (
     <>
@@ -1469,6 +1475,8 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
         compactBeforeSendTokens={props.compactBeforeSendTokens}
         keepFullHistory={props.keepFullHistory}
         onToggleKeepFullHistory={props.onToggleKeepFullHistory}
+        device={props.device}
+        sendPressKey={props.sendPressKey}
       />
     </>
   );
@@ -1500,6 +1508,8 @@ export interface ChatComposerHandle {
   openModelPicker: () => void;
   toggleModelPicker: () => void;
   openControl: (command: KeybindingCommand) => void;
+  /** Turn the reasoning dial one stop up (`1`) or down (`-1`). */
+  stepEffort: (direction: 1 | -1) => void;
   isModelPickerOpen: () => boolean;
   /** True when a collapsed caret sits before everything in the draft, including when it is empty. */
   isCaretAtStart: () => boolean;
@@ -2506,6 +2516,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const [isComposerPrimaryActionsCompact, setIsComposerPrimaryActionsCompact] = useState(false);
   const [isComposerModelPickerOpen, setIsComposerModelPickerOpen] = useState(false);
   const isMobileViewport = useMediaQuery("max-sm");
+  // Desktop-width composers render as the machined device; phones keep the compact composer.
+  const deviceComposer = !isMobileViewport;
+  const reasoningDialRef = useRef<DeviceReasoningDialHandle>(null);
+  const [sendPressKey, setSendPressKey] = useState(0);
   const {
     isComposerFocused,
     setIsComposerFocused,
@@ -4477,6 +4491,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
       setComposerSubmissionError(submission.validationMessage);
       if (!submission.didDispatch) return;
+      // A click already pressed the dial; keyboard sends press it here.
+      if (!event) setSendPressKey((key) => key + 1);
       onTypingGuardSend();
       if (shouldBlurMobileComposerOnSubmit()) {
         blurMobileComposerAfterSend();
@@ -5424,14 +5440,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     composerSubmissionError !== null ||
     providerInputSubmissionError !== null ||
     hasImageAttachmentAttention;
-  const isComposerResting = shouldUseRestingComposerLayout({
-    isExistingThread: routeKind === "server" && activeThreadId !== null,
-    isMobileViewport,
-    isScrollCollapsed: isComposerScrollCollapsed,
-    hasExpandedChrome: composerHasExpandedChrome,
-    hasMultilinePrompt,
-    timelineOverflows,
-  });
+  const isComposerResting =
+    !deviceComposer &&
+    shouldUseRestingComposerLayout({
+      isExistingThread: routeKind === "server" && activeThreadId !== null,
+      isMobileViewport,
+      isScrollCollapsed: isComposerScrollCollapsed,
+      hasExpandedChrome: composerHasExpandedChrome,
+      hasMultilinePrompt,
+      timelineOverflows,
+    });
   const expandedComposerImages = isComposerResting
     ? standaloneComposerImages.filter((image) => pendingSnapShotIdSet.has(image.id))
     : standaloneComposerImages;
@@ -5697,6 +5715,99 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const hiddenRestingBlockIds = restingBlockDefs
     .slice(restingBlockDefs.length - restingHiddenBlockCount)
     .map((def) => def.id);
+  const renderProviderModelPicker = (trigger?: ReactElement) => (
+    <ProviderModelPicker
+      environmentId={environmentId}
+      compact={false}
+      isComposerOwned
+      disabled={providerCatalogPending || isSendBusy}
+      {...(routeKind === "draft" && supportsMultipleModels
+        ? {
+            ...(multipleModelSelections !== null
+              ? { selectedModels: multipleModelSelections }
+              : {}),
+            onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
+              const current = multipleModelSelections ?? [selectedModelSelection];
+              const matchesModel = (selection: ModelSelection) => {
+                if (selection.instanceId !== instanceId) return false;
+                const entry = providerInstanceEntries.find(
+                  (entry) => entry.instanceId === selection.instanceId,
+                );
+                const resolvedModel = resolveModelPickerSelectedModel({
+                  driverKind: entry?.driverKind,
+                  model: selection.model,
+                  options: modelOptionsByInstance.get(selection.instanceId) ?? [],
+                });
+                return (resolvedModel?.slug ?? selection.model) === model;
+              };
+              const exists = current.some(matchesModel);
+              const next = exists
+                ? current.filter((selection) => !matchesModel(selection))
+                : [...current, createModelSelection(instanceId, model)];
+              if (next.length > 1) {
+                setMultipleModelSelections(next);
+              } else {
+                setMultipleModelSelections(null);
+                const remaining = next[0] ?? selectedModelSelection;
+                onProviderModelSelect(remaining.instanceId, remaining.model, {
+                  focusComposer: false,
+                });
+              }
+            },
+          }
+        : {})}
+      activeInstanceId={
+        providerCatalogPending
+          ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
+          : selectedInstanceId
+      }
+      model={
+        providerCatalogPending
+          ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
+          : selectedModelForPickerWithCustomFallback
+      }
+      lockedProvider={lockedProvider}
+      lockedContinuationGroupKey={lockedContinuationGroupKey}
+      instanceEntries={providerInstanceEntries}
+      keybindings={keybindings}
+      modelOptionsByInstance={modelOptionsByInstance}
+      size={composerControlsCollapsed ? "xs" : "sm"}
+      triggerClassName={
+        composerControlsCollapsed
+          ? cn(
+              "min-w-13 shrink text-xs!",
+              !showInlineRestingControls &&
+                "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
+            )
+          : "-ms-2.5 min-w-13"
+      }
+      terminalOpen={terminalOpen}
+      open={isComposerModelPickerOpen}
+      instanceIndicatorBackground={
+        composerControlsCollapsed
+          ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
+          : "var(--contrast-input)"
+      }
+      {...(composerProviderState.modelPickerIconClassName || composerControlsCollapsed
+        ? {
+            activeProviderIconClassName: cn(
+              composerProviderState.modelPickerIconClassName,
+              composerControlsCollapsed &&
+                // Package glyphs get opaque fills and one opacity, so overlapping paths don't band.
+                "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
+            ),
+          }
+        : {})}
+      onOpenChange={setIsComposerModelPickerOpen}
+      getModelDisabledReason={getModelDisabledReason}
+      onInstanceModelChange={(instanceId, model) => {
+        setMultipleModelSelections(null);
+        onProviderModelSelect(instanceId, model);
+      }}
+      onOpenProviderSetup={onOpenProviderSetup}
+      {...(trigger ? { trigger } : {})}
+    />
+  );
   const composerControls = showProviderUnavailable ? (
     <ComposerControl
       type="button"
@@ -5712,6 +5823,26 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       <CircleAlertIcon className="size-4" />
       {providerSetupInstanceId ? "Open provider settings" : "No provider available"}
     </ComposerControl>
+  ) : deviceComposer ? (
+    <>
+      <DeviceModelSlider
+        environmentId={environmentId}
+        activeInstanceId={selectedInstanceId}
+        model={selectedModelForPickerWithCustomFallback}
+        instanceEntries={providerInstanceEntries}
+        modelOptionsByInstance={modelOptionsByInstance}
+        lockedProvider={lockedProvider}
+        lockedContinuationGroupKey={lockedContinuationGroupKey ?? null}
+        disabled={providerCatalogPending || isSendBusy}
+        getModelDisabledReason={getModelDisabledReason}
+        onSelect={(instanceId, model) => {
+          setMultipleModelSelections(null);
+          onProviderModelSelect(instanceId, model, { focusComposer: false });
+        }}
+        renderOverflow={renderProviderModelPicker}
+      />
+      <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
+    </>
   ) : (
     <>
       {composerControlsCollapsed &&
@@ -5723,96 +5854,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           data-resting-controls-separator="true"
         />
       ) : null}
-      <ProviderModelPicker
-        environmentId={environmentId}
-        compact={false}
-        isComposerOwned
-        disabled={providerCatalogPending || isSendBusy}
-        {...(routeKind === "draft" && supportsMultipleModels
-          ? {
-              ...(multipleModelSelections !== null
-                ? { selectedModels: multipleModelSelections }
-                : {}),
-              onToggleModel: (instanceId: ProviderInstanceId, model: string) => {
-                const current = multipleModelSelections ?? [selectedModelSelection];
-                const matchesModel = (selection: ModelSelection) => {
-                  if (selection.instanceId !== instanceId) return false;
-                  const entry = providerInstanceEntries.find(
-                    (entry) => entry.instanceId === selection.instanceId,
-                  );
-                  const resolvedModel = resolveModelPickerSelectedModel({
-                    driverKind: entry?.driverKind,
-                    model: selection.model,
-                    options: modelOptionsByInstance.get(selection.instanceId) ?? [],
-                  });
-                  return (resolvedModel?.slug ?? selection.model) === model;
-                };
-                const exists = current.some(matchesModel);
-                const next = exists
-                  ? current.filter((selection) => !matchesModel(selection))
-                  : [...current, createModelSelection(instanceId, model)];
-                if (next.length > 1) {
-                  setMultipleModelSelections(next);
-                } else {
-                  setMultipleModelSelections(null);
-                  const remaining = next[0] ?? selectedModelSelection;
-                  onProviderModelSelect(remaining.instanceId, remaining.model, {
-                    focusComposer: false,
-                  });
-                }
-              },
-            }
-          : {})}
-        activeInstanceId={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.instanceId ?? selectedInstanceId)
-            : selectedInstanceId
-        }
-        model={
-          providerCatalogPending
-            ? (activeThreadModelSelection?.model ?? selectedModelForPickerWithCustomFallback)
-            : selectedModelForPickerWithCustomFallback
-        }
-        lockedProvider={lockedProvider}
-        lockedContinuationGroupKey={lockedContinuationGroupKey}
-        instanceEntries={providerInstanceEntries}
-        keybindings={keybindings}
-        modelOptionsByInstance={modelOptionsByInstance}
-        size={composerControlsCollapsed ? "xs" : "sm"}
-        triggerClassName={
-          composerControlsCollapsed
-            ? cn(
-                "min-w-13 shrink text-xs!",
-                !showInlineRestingControls &&
-                  "@max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:w-0 @max-[640px]/composer-surface:[&_[data-chat-provider-model-picker-label]]:flex-none",
-              )
-            : "-ms-2.5 min-w-13"
-        }
-        terminalOpen={terminalOpen}
-        open={isComposerModelPickerOpen}
-        instanceIndicatorBackground={
-          composerControlsCollapsed
-            ? "color-mix(in srgb, var(--chat-composer-glass-surface) var(--glass-opacity), transparent)"
-            : "var(--contrast-input)"
-        }
-        {...(composerProviderState.modelPickerIconClassName || composerControlsCollapsed
-          ? {
-              activeProviderIconClassName: cn(
-                composerProviderState.modelPickerIconClassName,
-                composerControlsCollapsed &&
-                  // Package glyphs get opaque fills and one opacity, so overlapping paths don't band.
-                  "fill-muted-foreground/70! text-muted-foreground/70! [&_path]:fill-muted-foreground/70! [&_rect]:fill-muted-foreground/70! [&_[data-icon-detail]]:fill-transparent! [&[data-provider-package-icon]]:opacity-70 [&[data-provider-package-icon]_path:not([data-icon-detail])]:fill-muted-foreground!",
-              ),
-            }
-          : {})}
-        onOpenChange={setIsComposerModelPickerOpen}
-        getModelDisabledReason={getModelDisabledReason}
-        onInstanceModelChange={(instanceId, model) => {
-          setMultipleModelSelections(null);
-          onProviderModelSelect(instanceId, model);
-        }}
-        onOpenProviderSetup={onOpenProviderSetup}
-      />
+      {renderProviderModelPicker()}
 
       <>
         {restingBlockDefs.map((def, index) => {
@@ -6735,6 +6777,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           openModelPicker();
         }
       },
+      stepEffort: (direction) => reasoningDialRef.current?.step(direction),
       openControl: (command) => {
         if (composerBlurFrameRef.current !== null) {
           window.cancelAnimationFrame(composerBlurFrameRef.current);
@@ -7203,7 +7246,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           data-model-only-strip={
             restingControlsHost?.closest("[data-composer-model-strip]") ? "true" : undefined
           }
-          className={composerProviderState.composerFrameClassName}
+          className={cn(
+            deviceComposer && "composer-device",
+            composerProviderState.composerFrameClassName,
+          )}
         >
           <div
             ref={composerSurfaceRef}
@@ -7848,6 +7894,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   </div>
                 ) : null}
               </div>
+              {deviceComposer && !isComposerApprovalState ? (
+                <DeviceContextBar
+                  usage={settings.contextWindowMeterEnabled ? activeContextWindow : null}
+                  modelDisplayName={activeThreadModelDisplayName}
+                  compactDisabled={
+                    compactDisabled || noProviderAvailable || isSendBusy || isConnecting
+                  }
+                  compactDisabledReason={resolvedCompactDisabledReason}
+                  {...(compactCommandAvailable ? { onCompact: compactThreadContext } : {})}
+                />
+              ) : null}
             </div>
 
             <ComposerPromptLengthValidation
@@ -7892,7 +7949,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   className="flex shrink-0 flex-nowrap items-center justify-end gap-2"
                 >
-                  {showComposerAttachAction ? (
+                  {showComposerAttachAction && !deviceComposer ? (
                     <>
                       <input
                         ref={attachmentInputRef}
@@ -7933,10 +7990,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     compact={isComposerResting || isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
                     activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
+                      settings.contextWindowMeterEnabled && !deviceComposer
+                        ? activeContextWindow
+                        : null
                     }
+                    device={deviceComposer}
+                    sendPressKey={sendPressKey}
                     rolloverHold={props.activeThreadShell?.rolloverHold}
-                    reserveContextWindowMeter={reserveContextWindowMeter}
+                    reserveContextWindowMeter={reserveContextWindowMeter && !deviceComposer}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}

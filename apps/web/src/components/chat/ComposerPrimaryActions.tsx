@@ -56,6 +56,10 @@ interface ComposerPrimaryActionsProps {
   /** The Compact chip is turned off, so the next send keeps full history. */
   keepFullHistory?: boolean;
   onToggleKeepFullHistory?: () => void;
+  /** Render send and stop as the composer's machined dial. */
+  device?: boolean;
+  /** Changes on each keyboard send so the dial visibly presses in. */
+  sendPressKey?: number;
 }
 
 const formatPendingPrimaryActionLabel = (input: {
@@ -112,6 +116,8 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   compactBeforeSendTokens = null,
   keepFullHistory = false,
   onToggleKeepFullHistory,
+  device = false,
+  sendPressKey = 0,
 }: ComposerPrimaryActionsProps) {
   const pointerFocusProps = preserveComposerFocusOnPointerDown
     ? { onPointerDown: preventPointerFocus }
@@ -137,10 +143,14 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         render={
           <button
             type="button"
-            className={cn(
-              "flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-control-highlight transition-colors duration-150 hover:bg-destructive active:inset-shadow-control-pressed active:shadow-none [&_svg]:pointer-events-none",
-              insidePendingAction ? "size-8 sm:size-7" : "size-8 sm:h-8 sm:w-8",
-            )}
+            className={
+              device
+                ? "send-dial send-dial--stop"
+                : cn(
+                    "flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-control-highlight transition-colors duration-150 hover:bg-destructive active:inset-shadow-control-pressed active:shadow-none [&_svg]:pointer-events-none",
+                    insidePendingAction ? "size-8 sm:size-7" : "size-8 sm:h-8 sm:w-8",
+                  )
+            }
             {...pointerFocusProps}
             disabled={!canOperateThread}
             onClick={() => {
@@ -309,13 +319,19 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
 
   const sendButton = (
     <button
+      key={device ? sendPressKey : undefined}
       type={showResume ? "button" : "submit"}
-      className={cn(
-        "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-control-highlight hover:scale-105 active:inset-shadow-control-pressed active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
-        stageBackdropVariant
-          ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
-          : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
-      )}
+      data-has-input={device && (hasSendableContent || showResume || isRunning) ? "" : undefined}
+      className={
+        device
+          ? cn("send-dial", sendPressKey > 0 && "send-dial--pressed")
+          : cn(
+              "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-control-highlight hover:scale-105 active:inset-shadow-control-pressed active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
+              stageBackdropVariant
+                ? "bg-transparent text-white enabled:shadow-black/24 enabled:hover:brightness-110"
+                : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
+            )
+      }
       {...pointerFocusProps}
       onClick={showResume ? onResume : onSubmitMessage}
       disabled={
@@ -327,7 +343,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       }
       aria-label={submitStatus ?? submitLabel}
     >
-      {stageBackdropVariant ? (
+      {stageBackdropVariant && !device ? (
         <span className="pointer-events-none absolute inset-0 -z-10" aria-hidden="true">
           <StageBackdropButtonArt variant={stageBackdropVariant} />
         </span>

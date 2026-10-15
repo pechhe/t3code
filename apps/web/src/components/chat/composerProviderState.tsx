@@ -41,7 +41,7 @@ export type ComposerProviderState = {
   modelPickerIconClassName?: string;
 };
 
-type TraitsRenderInput = {
+export type TraitsRenderInput = {
   provider: ProviderDriverKind;
   instanceId?: ProviderInstanceId;
   threadRef?: ScopedThreadRef;
@@ -160,10 +160,8 @@ export function getComposerProviderState(input: ComposerProviderStateInput): Com
   };
 }
 
-function renderTraitsControl(
-  Component: typeof TraitsMenuContent | typeof TraitsPicker,
-  input: TraitsRenderInput,
-): ReactNode {
+/** Props for a traits control, or null when the selected model has no traits to show. */
+export function resolveTraitsControlProps(input: TraitsRenderInput) {
   const {
     provider,
     instanceId,
@@ -202,25 +200,31 @@ function renderTraitsControl(
   ) {
     return null;
   }
-  return (
-    <Component
-      provider={provider}
-      {...(instanceId ? { instanceId } : {})}
-      models={models}
-      {...(threadRef ? { threadRef } : {})}
-      {...(draftId ? { draftId } : {})}
-      model={model}
-      modelOptions={resolvedModelOptions}
-      reportedModelSelection={reportedModelSelection}
-      prompt={prompt}
-      onPromptChange={onPromptChange}
-      planModeEnabled={planModeEnabled}
-      {...(size !== undefined ? { size } : {})}
-      {...(hidden !== undefined ? { hidden } : {})}
-      {...(triggerClassName !== undefined ? { triggerClassName } : {})}
-      {...(isComposerOwned ? { isComposerOwned } : {})}
-    />
-  );
+  return {
+    provider,
+    ...(instanceId ? { instanceId } : {}),
+    models,
+    ...(threadRef ? { threadRef } : {}),
+    ...(draftId ? { draftId } : {}),
+    model,
+    modelOptions: resolvedModelOptions,
+    reportedModelSelection,
+    prompt,
+    onPromptChange,
+    planModeEnabled,
+    ...(size !== undefined ? { size } : {}),
+    ...(hidden !== undefined ? { hidden } : {}),
+    ...(triggerClassName !== undefined ? { triggerClassName } : {}),
+    ...(isComposerOwned ? { isComposerOwned } : {}),
+  };
+}
+
+function renderTraitsControl(
+  Component: typeof TraitsMenuContent | typeof TraitsPicker,
+  input: TraitsRenderInput,
+): ReactNode {
+  const props = resolveTraitsControlProps(input);
+  return props ? <Component {...props} /> : null;
 }
 
 export function renderProviderTraitsMenuContent(input: TraitsRenderInput): ReactNode {

@@ -283,7 +283,8 @@ export interface TraitsMenuContentProps {
   isComposerOwned?: boolean;
 }
 
-export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
+/** Current traits plus the one write path the traits menu and the reasoning dial share. */
+export function useTraitsControls({
   provider,
   instanceId,
   models,
@@ -317,16 +318,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     },
     [instanceId, model, persistence, provider, setProviderModelOptions],
   );
-  const {
-    descriptors,
-    selectDescriptors,
-    booleanDescriptors,
-    primarySelectDescriptor,
-    ultrathinkPromptControlled,
-    ultrathinkInBodyText,
-    hasAnyControls,
-    modelIsUnavailable,
-  } = getTraitsSectionVisibility({
+  const traits = getTraitsSectionVisibility({
     provider,
     models,
     model,
@@ -335,6 +327,8 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     allowPromptInjectedEffort,
     planModeEnabled,
   });
+  const { descriptors, primarySelectDescriptor, ultrathinkPromptControlled, ultrathinkInBodyText } =
+    traits;
   const updateDescriptors = (nextDescriptors: ReadonlyArray<ProviderOptionDescriptor>) => {
     updateModelOptions(buildProviderOptionSelectionsFromDescriptors(nextDescriptors));
   };
@@ -359,6 +353,36 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
     }
     updateDescriptors(replaceDescriptorCurrentValue(descriptors, descriptor.id, value));
   };
+  const primarySelectedValue = ultrathinkPromptControlled
+    ? "ultrathink"
+    : getDescriptorStringValue(primarySelectDescriptor, modelSelection, reportedModelSelection);
+
+  return {
+    ...traits,
+    modelSelection,
+    primarySelectedValue,
+    updateDescriptors,
+    handleSelectChange,
+  };
+}
+
+export const TraitsMenuContent = memo(function TraitsMenuContentImpl(
+  props: TraitsMenuContentProps & TraitsPersistence,
+) {
+  const { reportedModelSelection } = props;
+  const {
+    descriptors,
+    selectDescriptors,
+    booleanDescriptors,
+    primarySelectDescriptor,
+    ultrathinkPromptControlled,
+    ultrathinkInBodyText,
+    hasAnyControls,
+    modelIsUnavailable,
+    modelSelection,
+    updateDescriptors,
+    handleSelectChange,
+  } = useTraitsControls(props);
 
   if (!hasAnyControls) {
     return null;
