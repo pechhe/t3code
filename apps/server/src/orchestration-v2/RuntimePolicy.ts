@@ -181,6 +181,7 @@ export const layerFromProjectStore: Layer.Layer<
               providers: [yield* instance.snapshot.getSnapshot],
               ceiling: input.thread.runtimeMode,
               workspacePath: input.thread.worktreePath,
+              ...(input.thread.worktreePath === null ? { projectRoot: cwd } : {}),
             })
             .pipe(
               Effect.mapError(
