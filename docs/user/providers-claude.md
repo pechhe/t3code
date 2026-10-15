@@ -43,10 +43,13 @@ T3 Code uses the Claude configuration on the connected server.
 
 ## Pool several accounts
 
-A pool is one entry in the model picker that runs each new thread on whichever of
-its accounts has its weekly usage reset soonest, skipping accounts that have run
-out. Weekly allowance that would otherwise lapse unused at a reset is spent first. Delegated tasks that name the
-pool are routed the same way.
+A pool is one entry in the model picker that runs each new thread on the account
+whose usage would otherwise go to waste soonest, skipping accounts that have run
+out. An account that has used less of its weekly limit than the share of the week
+that has passed would reset with usage left, so it goes first, starting with
+whichever of its 5-hour or weekly limits resets sooner. Accounts on track to use
+their weekly limit come next, soonest weekly reset first. Delegated tasks that
+name the pool are routed the same way.
 
 Set up each account as its own Claude instance first, then add the pool to
 `providerInstances` in `settings.json`, listing the member instance ids:
@@ -60,9 +63,8 @@ Set up each account as its own Claude instance first, then add the pool to
 ```
 
 A thread keeps its account while that account has usage left. When it runs out,
-T3 Code continues the thread on the account with usage left whose weekly reset
-comes soonest,
-with the same model. If every account is at a limit, the thread waits for the
+T3 Code continues the thread on the next account in that order, with the same
+model. If every account is at a limit, the thread waits for the
 reset as usual. This applies to any thread running on one of the pool's accounts,
 including one you picked that account for directly. Turn it off with **Settings →
 General → Switch pooled account on limit**; pick the pool again in the model

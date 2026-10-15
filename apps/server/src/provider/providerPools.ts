@@ -2,9 +2,8 @@
  * Account pools: a configured instance whose turns run on one of its member
  * instances (for example several Claude subscriptions).
  *
- * A pooled turn goes to the member whose weekly allowance resets soonest
- * among those with allowance left, so allowance that would otherwise lapse at
- * a reset is spent first. A thread already on a member stays there while it has
+ * A pooled turn goes to the member whose allowance would otherwise lapse
+ * unused soonest, among those with allowance left. A thread already on a member stays there while it has
  * allowance, which avoids a provider switch and its context handoff.
  *
  * @module provider/providerPools
@@ -52,15 +51,36 @@ const soonestResetMs = (windows: ReadonlyArray<ServerProviderUsageWindow>, nowMs
 };
 
 /**
- * When this account's unused allowance is next lost: the soonest reset of a
- * weekly or longer window. A session window refills within hours and only
- * spends the weekly allowance faster, so it decides only for an account that
- * reports no longer window.
+ * Whether a weekly or longer window will reset with allowance unspent at the
+ * pace it has been used so far: less of it is used than of its duration has
+ * passed.
  */
-const allowanceLapseMs = (provider: ServerProvider, nowMs: number): number => {
+const isBehindPace = (window: ServerProviderUsageWindow, nowMs: number): boolean => {
+  if (window.resetsAt === undefined || !window.windowDurationMins) return false;
+  const leftMs = Date.parse(window.resetsAt) - nowMs;
+  return leftMs > 0 && window.usedPercent / 100 < 1 - leftMs / (window.windowDurationMins * 60_000);
+};
+
+/**
+ * How urgently an account's allowance should be spent. Tier 0: some of it
+ * will lapse unused, because a weekly window is behind pace (then its session
+ * allowance is lost at each session reset too) or the account reports only
+ * session windows; the deadline is the soonest reset that loses it. Tier 1:
+ * every weekly window is on or ahead of pace, so it runs out before its reset
+ * and nothing lapses; the soonest weekly reset only says which refills first.
+ */
+const spendUrgency = (
+  provider: ServerProvider,
+  nowMs: number,
+): { readonly tier: number; readonly deadlineMs: number } => {
   const windows = provider.usageLimits?.windows ?? [];
+  if (windows.length === 0) return { tier: 1, deadlineMs: Number.POSITIVE_INFINITY };
   const banked = windows.filter((window) => window.kind !== "session");
-  return soonestResetMs(banked.length > 0 ? banked : windows, nowMs);
+  if (banked.length === 0) return { tier: 0, deadlineMs: soonestResetMs(windows, nowMs) };
+  const behind = banked.filter((window) => isBehindPace(window, nowMs));
+  if (behind.length === 0) return { tier: 1, deadlineMs: soonestResetMs(banked, nowMs) };
+  const sessions = windows.filter((window) => window.kind === "session");
+  return { tier: 0, deadlineMs: soonestResetMs([...sessions, ...behind], nowMs) };
 };
 
 /** When an exhausted account can take a turn again: its last blocking window's reset. */
@@ -76,10 +96,9 @@ const usableAgainMs = (provider: ServerProvider, nowMs: number): number => {
 };
 
 /**
- * Order accounts for a pooled turn: those with allowance left first, by whose
- * unused weekly allowance lapses soonest, so allowance that a reset would
- * discard is spent first; then those at a limit, by which can take a turn
- * again soonest. Ties keep their input order.
+ * Order accounts for a pooled turn so the least allowance goes unused: those
+ * with allowance left first, by `spendUrgency`; then those at a limit, by
+ * which can take a turn again soonest. Ties keep their input order.
  */
 export const compareByUsageReset =
   (nowMs: number) =>
@@ -87,11 +106,11 @@ export const compareByUsageReset =
     const aExhausted = isProviderUsageExhausted(a, nowMs);
     const exhaustion = Number(aExhausted) - Number(isProviderUsageExhausted(b, nowMs));
     if (exhaustion !== 0) return exhaustion;
+    if (aExhausted) return usableAgainMs(a, nowMs) - usableAgainMs(b, nowMs) || 0;
+    const urgencyA = spendUrgency(a, nowMs);
+    const urgencyB = spendUrgency(b, nowMs);
     // Two accounts with no known reset subtract to NaN, which ties.
-    const order = aExhausted
-      ? usableAgainMs(a, nowMs) - usableAgainMs(b, nowMs)
-      : allowanceLapseMs(a, nowMs) - allowanceLapseMs(b, nowMs);
-    return order || 0;
+    return urgencyA.tier - urgencyB.tier || urgencyA.deadlineMs - urgencyB.deadlineMs || 0;
   };
 
 const routableMembers = (

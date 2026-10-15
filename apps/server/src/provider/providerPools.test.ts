@@ -22,7 +22,7 @@ const account = (
   id: string,
   windows: ReadonlyArray<
     Pick<ServerProviderUsageWindow, "usedPercent" | "resetsAt"> &
-      Partial<Pick<ServerProviderUsageWindow, "kind">>
+      Partial<Pick<ServerProviderUsageWindow, "kind" | "windowDurationMins">>
   >,
   overrides: Partial<ServerProvider> = {},
 ): ServerProvider => ({
@@ -82,6 +82,36 @@ describe("pickPoolMember", () => {
       account("b", [
         { kind: "session", usedPercent: 20, resetsAt: at(4) },
         { kind: "weekly", usedPercent: 60, resetsAt: at(6) },
+      ]),
+    ];
+    expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("b");
+  });
+
+  it("among accounts behind their weekly pace, spends the soonest session reset first", () => {
+    const week = 7 * 24 * 60;
+    const providers = [
+      account("a", [
+        { kind: "session", usedPercent: 10, resetsAt: at(4) },
+        { kind: "weekly", usedPercent: 10, resetsAt: at(12), windowDurationMins: week },
+      ]),
+      account("b", [
+        { kind: "session", usedPercent: 10, resetsAt: at(0.5) },
+        { kind: "weekly", usedPercent: 10, resetsAt: at(24), windowDurationMins: week },
+      ]),
+    ];
+    expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("b");
+  });
+
+  it("spends an account behind its weekly pace before one that will run out anyway", () => {
+    const week = 7 * 24 * 60;
+    const providers = [
+      account("a", [
+        { kind: "session", usedPercent: 10, resetsAt: at(0.5) },
+        { kind: "weekly", usedPercent: 95, resetsAt: at(12), windowDurationMins: week },
+      ]),
+      account("b", [
+        { kind: "session", usedPercent: 10, resetsAt: at(3) },
+        { kind: "weekly", usedPercent: 30, resetsAt: at(100), windowDurationMins: week },
       ]),
     ];
     expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("b");
