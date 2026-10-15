@@ -99,6 +99,8 @@ interface BranchToolbarProps {
   onComposerFocusRequest?: () => void;
   availableEnvironments?: readonly EnvironmentOption[];
   onEnvironmentChange?: (environmentId: EnvironmentId) => void;
+  /** The composer shows the machine itself (the device composer's switch). */
+  hideEnvironment?: boolean;
   composerControlsHostRef?: (element: HTMLDivElement | null) => void;
   contextStripVisible?: boolean;
 }
@@ -614,6 +616,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   onComposerFocusRequest,
   availableEnvironments,
   onEnvironmentChange,
+  hideEnvironment = false,
   composerControlsHostRef,
   contextStripVisible = true,
 }: BranchToolbarProps) {
@@ -695,14 +698,19 @@ export const BranchToolbar = memo(function BranchToolbar({
   );
 
   const showEnvironmentPicker = Boolean(
-    availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
+    !hideEnvironment &&
+    availableEnvironments &&
+    availableEnvironments.length > 1 &&
+    onEnvironmentChange,
   );
   const activeEnvironmentOption =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
-  const showEnvironmentIndicator = shouldShowEnvironmentIndicator({
-    activeEnvironment: activeEnvironmentOption,
-    canPickEnvironment: showEnvironmentPicker,
-  });
+  const showEnvironmentIndicator =
+    !hideEnvironment &&
+    shouldShowEnvironmentIndicator({
+      activeEnvironment: activeEnvironmentOption,
+      canPickEnvironment: showEnvironmentPicker,
+    });
   const [stripElement, setStripElement] = useState<HTMLDivElement | null>(null);
   const labelsOverflow = useLabelsOverflow(stripElement);
 

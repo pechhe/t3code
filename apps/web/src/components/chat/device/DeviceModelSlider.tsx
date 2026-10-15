@@ -151,7 +151,6 @@ export function DeviceModelSlider(props: {
             aria-label={`Name for ${slot.modelName}`}
             placeholder={slot.modelName}
             defaultValue={slot.label}
-            // oxlint-disable-next-line jsx-a11y/no-autofocus -- renaming starts from a double-click on this slot
             autoFocus
             onFocus={(event) => event.currentTarget.select()}
             onBlur={(event) => rename(slot, event.currentTarget.value)}

@@ -555,33 +555,41 @@
 }
 
 /* ---------------- Reasoning dial ---------------- */
+/*
+ * Each setting's lamp sits on a circle --dial-r from the knob's centre, its
+ * label pointing away from the knob so long names never run into it.
+ */
 .device-dial {
   --dial-size: 68px;
+  --dial-r: 50px;
+  --dial-cy: 58px;
   position: relative;
   flex: none;
-  width: calc(var(--dial-size) * 2.45);
-  height: calc(var(--dial-size) * 1.62);
+  width: 272px;
+  height: 104px;
   margin-left: auto;
 }
 
 .device-dial__setting {
   position: absolute;
-  left: var(--sx);
-  top: var(--sy);
+  left: calc(50% + var(--ux) * var(--dial-r));
+  top: calc(var(--dial-cy) + var(--uy) * var(--dial-r));
   z-index: 3;
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 6px 3px;
-  transform: translate(-50%, -50%);
+  gap: 4px;
+  padding: 5px 3px;
+  transform: translate(-100%, -50%);
   border: 0;
   background: transparent;
   font-size: 9px;
   line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 .device-dial__setting--right {
   flex-direction: row-reverse;
+  transform: translate(0, -50%);
 }
 /* Unselected settings and models sit a shade lighter than the chosen one. */
 .device-dial__setting:not(.device-dial__setting--active),
@@ -620,7 +628,7 @@
 .device-dial__knob {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: var(--dial-cy);
   z-index: 1;
   width: var(--dial-size);
   height: var(--dial-size);
@@ -674,6 +682,105 @@
 }
 .device-dial:has(.device-dial__knob[aria-disabled]) {
   opacity: 0.6;
+}
+
+/* ---------------- Machine switch ---------------- */
+/* A vertical lever: the upper machine's name, a ribbed slot, the lower one's. */
+.device-switch {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 64px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.device-switch[aria-disabled] {
+  cursor: default;
+}
+
+.device-switch__label {
+  max-width: 96px;
+  overflow: hidden;
+  color: var(--crt-ink-muted);
+  font-family: var(--crt-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-shadow: var(--engrave-shadow);
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color 120ms ease;
+}
+.device-switch:not(.device-switch--lower) .device-switch__label--upper {
+  color: oklch(0.72 0.22 145);
+  text-shadow:
+    0 0 3px oklch(0.72 0.22 145 / 0.4),
+    0 0 7px oklch(0.68 0.2 145 / 0.16);
+}
+.device-switch--lower .device-switch__label--lower {
+  color: oklch(0.68 0.22 305);
+  text-shadow:
+    0 0 3px oklch(0.68 0.22 305 / 0.4),
+    0 0 7px oklch(0.64 0.2 305 / 0.16);
+}
+
+.device-switch__track {
+  position: relative;
+  width: 28px;
+  height: 60px;
+  border-radius: 16px;
+  background:
+    repeating-linear-gradient(90deg, oklch(0.1 0.004 250) 0 1.5px, oklch(0.3 0.004 250) 1.5px 3px),
+    oklch(0.18 0.004 250);
+  box-shadow:
+    inset 0 2px 3px oklch(0 0 0 / 0.7),
+    inset 0 -1px 1px oklch(1 0.002 250 / 0.12),
+    0 0 0 0.5px oklch(0.9 0.002 250 / 0.5),
+    0 1px 0 0.5px oklch(0.46 0.004 250 / 0.42);
+}
+
+.device-switch__thumb {
+  position: absolute;
+  left: 50%;
+  top: 1px;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border-radius: 999px;
+  transform: translateX(-50%);
+  background: var(--knob-bg);
+  box-shadow: var(--knob-shadow);
+  transition: top 160ms cubic-bezier(0.2, 0.85, 0.2, 1);
+}
+/* Brushed grain, as on the reasoning knob. */
+.device-switch__thumb::before {
+  content: "";
+  position: absolute;
+  inset: 6%;
+  border-radius: inherit;
+  background: repeating-conic-gradient(
+    from 0deg,
+    oklch(1 0.002 250 / 0.055) 0 1.2deg,
+    oklch(0.3 0.004 250 / 0.05) 1.2deg 2.5deg
+  );
+}
+.device-switch--lower .device-switch__thumb {
+  top: 27px;
+}
+
+.device-switch:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.device-switch[aria-disabled] .device-switch__track {
+  opacity: 0.7;
 }
 
 /* ---------------- Send dial ---------------- */
@@ -769,7 +876,8 @@
   .device-slider__thumb,
   .device-slider__glow,
   .device-dial__knob::before,
-  .device-dial__knob::after {
+  .device-dial__knob::after,
+  .device-switch__thumb {
     transition: none;
   }
 }

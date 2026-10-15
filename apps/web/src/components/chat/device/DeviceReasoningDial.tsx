@@ -23,19 +23,19 @@ const SHORT_LABELS: Readonly<Record<string, string>> = {
   high: "HIGH",
   xhigh: "XHIGH",
   max: "MAX",
-  ultrathink: "ULTRA",
+  ultra: "ULTRA",
+  ultracode: "ULTRACODE",
+  ultrathink: "ULTRATHINK",
 };
-const RADIUS = 40;
 
 function shortLabel(option: EffortOption): string {
-  return SHORT_LABELS[option.id.toLowerCase()] ?? option.label.toUpperCase().slice(0, 6);
+  return SHORT_LABELS[option.id.toLowerCase()] ?? option.label.toUpperCase();
 }
 
-// The first setting sits at nine o'clock and the rest fan clockwise from 225° to 405°.
+// Settings fan clockwise, evenly spaced, from nine o'clock (180°) to half past four (405°).
 function clockAngle(index: number, count: number): number {
-  if (index === 0) return 180;
-  if (count <= 2) return 0;
-  return 225 + ((index - 1) * 180) / Math.max(1, count - 2);
+  if (count <= 1) return 180;
+  return 180 + (index * 225) / (count - 1);
 }
 
 /**
@@ -82,12 +82,7 @@ const ReasoningDial = forwardRef<
   const stops = options.map((option, index) => {
     const clock = clockAngle(index, options.length);
     const radians = (clock * Math.PI) / 180;
-    return {
-      option,
-      clock,
-      x: 50 + Math.cos(radians) * RADIUS,
-      y: 50 + Math.sin(radians) * RADIUS,
-    };
+    return { option, clock, ux: Math.cos(radians), uy: Math.sin(radians) };
   });
   const angle = (stops[activeIndex]?.clock ?? 180) - 270;
   const activeLabel = options[activeIndex]?.label ?? "";
@@ -110,10 +105,10 @@ const ReasoningDial = forwardRef<
           onClick={() => select(index)}
           className={cn(
             "device-dial__setting",
-            stop.x >= 50 && "device-dial__setting--right",
+            stop.ux > -0.01 && "device-dial__setting--right",
             index === activeIndex && "device-dial__setting--active",
           )}
-          style={{ "--sx": `${stop.x}%`, "--sy": `${stop.y}%` } as CSSProperties}
+          style={{ "--ux": stop.ux, "--uy": stop.uy } as CSSProperties}
         >
           <span>{shortLabel(stop.option)}</span>
           <span className="device-dial__light" aria-hidden="true" />

@@ -449,6 +449,7 @@ import {
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
+import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
@@ -11058,6 +11059,34 @@ export default function ChatView(props: ChatViewProps) {
   );
   const onComposerResume = useCallback(() => onResumeRef.current(), []);
   const onComposerCompactContext = useCallback(() => onCompactContextRef.current(), []);
+  // On the device composer two machines get a lever instead of the strip's
+  // "Run on" picker, unless auto balance needs the picker's third option.
+  const switchEnvironments = useMemo(() => {
+    if (isMobileViewport || logicalProjectEnvironments.length !== 2) return null;
+    if (canAutoBalanceEnvironments && loadBalancingSettings.loadBalancingEnabled) return null;
+    const [first, second] = logicalProjectEnvironments.toSorted(
+      (left, right) => Number(right.isPrimary) - Number(left.isPrimary),
+    );
+    return first && second ? ([first, second] as const) : null;
+  }, [
+    canAutoBalanceEnvironments,
+    isMobileViewport,
+    loadBalancingSettings.loadBalancingEnabled,
+    logicalProjectEnvironments,
+  ]);
+  const activeEnvironmentId = activeThread?.environmentId;
+  const deviceEnvironmentSwitch = useMemo(
+    () =>
+      switchEnvironments && activeEnvironmentId ? (
+        <DeviceEnvironmentSwitch
+          environments={switchEnvironments}
+          environmentId={activeEnvironmentId}
+          locked={envLocked || !draftId}
+          onChange={onEnvironmentChange}
+        />
+      ) : null,
+    [activeEnvironmentId, draftId, envLocked, onEnvironmentChange, switchEnvironments],
+  );
   const queuedRunsControl = useMemo(
     () =>
       isServerThread && activeThread ? (
@@ -11909,6 +11938,7 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                               queuedRunsControl={queuedRunsControl}
+                              deviceEnvironmentSwitch={deviceEnvironmentSwitch}
                               bannerItems={composerBannerItems}
                               resumeCompactionTokens={resumeCompactionTokens}
                               keepFullHistory={keepFullHistory}
@@ -12078,6 +12108,7 @@ export default function ChatView(props: ChatViewProps) {
                                     : undefined
                                 }
                                 availableEnvironments={logicalProjectEnvironments}
+                                hideEnvironment={switchEnvironments !== null}
                                 composerControlsHostRef={setRestingComposerControlsHost}
                                 contextStripVisible={showComposerContextStrip}
                               />
