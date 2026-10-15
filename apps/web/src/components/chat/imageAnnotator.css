@@ -68,8 +68,14 @@
   position: absolute;
   border: 2px solid var(--annotation-mark);
   border-radius: 4px;
-  background: rgb(20 206 76 / 0.08);
   box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.75);
+}
+
+/* Above the top-left corner, clear of what the box points at. */
+.image-annotator-box > .image-annotator-badge-anchor {
+  top: 0;
+  left: 0;
+  transform: translate(0, calc(-100% - 6px));
 }
 
 .image-annotator-box[data-preview] {

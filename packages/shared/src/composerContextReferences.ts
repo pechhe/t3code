@@ -194,8 +194,9 @@ function formatElementDetails(element: ElementContextDetails): string[] {
   return lines;
 }
 
+// Two places is finer than a model can place a point.
 function fraction(value: number): string {
-  return value.toFixed(3);
+  return value.toFixed(2);
 }
 
 function formatImageAnnotationMarkPosition(mark: ImageAnnotationMark): string {
@@ -209,15 +210,22 @@ function formatImageAnnotationMarkPosition(mark: ImageAnnotationMark): string {
   }
 }
 
-/** What the agent reads for an image annotation; also the legacy-send body. */
-export function formatImageAnnotationBody(record: ImageAnnotationContextRecord): string {
+/** The numbered notes, after a line telling the agent the marks are the user's. */
+export function formatImageAnnotationNotes(record: ImageAnnotationContextRecord): string {
   return [
-    `image: ${record.imageName} (ref=${record.imageContextId})`,
     "The numbered marks drawn on this image are the user's, not part of the UI. Positions are fractions of the image width and height.",
     ...record.marks.map(
       (mark, index) =>
         `${index + 1}. ${mark.note.trim()} [${formatImageAnnotationMarkPosition(mark)}]`,
     ),
+  ].join("\n");
+}
+
+/** What the agent reads for an image annotation. */
+export function formatImageAnnotationBody(record: ImageAnnotationContextRecord): string {
+  return [
+    `image: ${record.imageName} (ref=${record.imageContextId})`,
+    formatImageAnnotationNotes(record),
   ].join("\n");
 }
 

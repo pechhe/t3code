@@ -76,6 +76,8 @@ import {
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   composerFileNeedsReattach,
+  composerImageAwaitsMarks,
+  hydrateImagesFromPersisted,
   partializeComposerDraftStoreState,
   useComposerDraftStore,
   DraftId,
@@ -3565,5 +3567,27 @@ describe("composerDraftStore attachment references", () => {
     expect(merged.draftsByThreadKey[threadKeyFor(threadId, TEST_ENVIRONMENT_ID)]?.prompt).toBe(
       prompt,
     );
+  });
+});
+
+describe("restored image annotations", () => {
+  it("restores the clean original with editable marks, awaiting a redraw", () => {
+    const marks = [{ kind: "point" as const, note: "here", x: 0.5, y: 0.5 }];
+    const [image] = hydrateImagesFromPersisted([
+      {
+        id: "shot",
+        name: "shot.png",
+        mimeType: "image/png",
+        sizeBytes: 5,
+        dataUrl: "data:image/png;base64,Y2xlYW4=",
+        annotationMarks: marks,
+      },
+    ]);
+    expect(image?.annotation?.marks).toEqual(marks);
+    expect(image?.annotation?.original).toBe(image?.file);
+    expect(image && composerImageAwaitsMarks(image)).toBe(true);
+
+    const marked = new File(["marked"], "shot.png", { type: "image/png" });
+    expect(image && composerImageAwaitsMarks({ ...image, file: marked })).toBe(false);
   });
 });

@@ -386,6 +386,7 @@ import {
   markPromotedDraftThreadByRef,
   restoreFailedBackgroundDraftThread,
   composerDraftHasUserContent,
+  composerImageAwaitsMarks,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -9413,6 +9414,13 @@ export default function ChatView(props: ChatViewProps) {
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
     if (shouldCreateWorktree && !activeThreadBranch) {
       setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
+      return;
+    }
+    if (composerImages.some(composerImageAwaitsMarks)) {
+      setThreadError(
+        threadIdForSend,
+        "Image notes are still being restored. Send again in a moment.",
+      );
       return;
     }
 

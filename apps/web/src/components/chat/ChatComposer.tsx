@@ -123,6 +123,7 @@ import {
   composerFileDedupKey,
   composerFileMatchesReattachMarker,
   composerFileNeedsReattach,
+  composerImageAwaitsMarks,
   composerDraftHasUserContent,
   composerTargetKey,
   hydrateImagesFromPersisted,
@@ -164,7 +165,7 @@ import {
 } from "./ComposerBannerStack";
 import { compressImageForStash, prepareImageForAttachment } from "../../lib/imageCompression";
 import {
-  flattenAnnotatedImage,
+  markedImageFile,
   fromAnnotationMarks,
   toAnnotationMark,
   type ImageMark,
@@ -1768,13 +1769,12 @@ export interface ChatComposerProps {
 // Component
 // --------------------------------------------------------------------------
 
-/** Opens the annotator on the clean original when this page session still has it. */
+/** Opens the annotator on the clean original with the image's marks editable. */
 function imageAnnotatorSession(image: ComposerImageAttachment) {
-  const original = image.annotation?.original ?? null;
   return {
     image,
-    original: original ?? image.file,
-    marks: original ? fromAnnotationMarks(image.annotation?.marks ?? []) : [],
+    original: image.annotation?.original ?? image.file,
+    marks: fromAnnotationMarks(image.annotation?.marks ?? []),
   };
 }
 
@@ -2158,6 +2158,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (attachment.type === "file" && composerFileNeedsReattach(attachment)) {
         continue;
       }
+      // A restored image uploads once its marks are drawn back in (see below).
+      if (attachment.type === "image" && composerImageAwaitsMarks(attachment)) continue;
       startAttachmentUpload({
         environmentId,
         image: attachment,
@@ -2174,6 +2176,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     maxFileAttachmentBytes,
     supportsAttachmentUploads,
   ]);
+
+  // A restored draft keeps an annotated image's original and marks; draw the marks back in.
+  const redrawingImageIdsRef = useRef(new Set<string>());
+  useEffect(() => {
+    for (const image of composerImages) {
+      const annotation = image.annotation;
+      if (!annotation || !composerImageAwaitsMarks(image)) continue;
+      if (redrawingImageIdsRef.current.has(image.id)) continue;
+      redrawingImageIdsRef.current.add(image.id);
+      void markedImageFile(annotation.original, annotation.marks)
+        .then(
+          (file) => annotateComposerDraftImage(attachmentDraftTarget, image.id, file, annotation),
+          () => {
+            toastManager.add({
+              type: "error",
+              title: `Could not restore the notes on ${image.name}.`,
+            });
+            annotateComposerDraftImage(attachmentDraftTarget, image.id, annotation.original, null);
+          },
+        )
+        .finally(() => redrawingImageIdsRef.current.delete(image.id));
+    }
+  }, [annotateComposerDraftImage, attachmentDraftTarget, composerImages]);
 
   useEffect(() => {
     for (const file of composerFiles) {
@@ -3844,12 +3869,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         await Promise.all(
           composerImages.map(async (image) => {
             try {
-              const dataUrl = await readFileAsDataUrl(image.file);
+              // An annotated image saves its unmarked original; the marks are drawn again on restore.
+              const file = image.annotation?.original ?? image.file;
+              const dataUrl = await readFileAsDataUrl(file);
               stagedAttachmentById.set(image.id, {
                 id: image.id,
                 name: image.name,
-                mimeType: image.mimeType,
-                sizeBytes: image.sizeBytes,
+                mimeType: file.type || image.mimeType,
+                sizeBytes: file.size,
                 dataUrl,
                 ...(image.source ? { source: image.source } : {}),
                 ...(image.annotation ? { annotationMarks: [...image.annotation.marks] } : {}),
@@ -3919,6 +3946,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const removedAttachmentContextPayloadsRef = useRef<RetainedAttachmentContextPayloads>({
     files: new Map(),
     previewAnnotations: new Map(),
+    imageAnnotations: new Map(),
   });
 
   const onPromptChange = useCallback(
@@ -4044,6 +4072,25 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       if (attachmentChanges.filesToRestore.length > 0) {
         addComposerDraftFiles(attachmentDraftTarget, attachmentChanges.filesToRestore);
       }
+      // Deleting an image's notes chip takes its marks off the image; undo puts them back.
+      for (const removed of attachmentChanges.imageAnnotationsToRemove) {
+        releaseAttachmentUpload(removed.imageId);
+        annotateComposerDraftImage(
+          attachmentDraftTarget,
+          removed.imageId,
+          removed.annotation.original,
+          null,
+        );
+      }
+      for (const restored of attachmentChanges.imageAnnotationsToRestore) {
+        releaseAttachmentUpload(restored.imageId);
+        annotateComposerDraftImage(
+          attachmentDraftTarget,
+          restored.imageId,
+          restored.file,
+          restored.annotation,
+        );
+      }
       setComposerCursor(nextCursor);
       setComposerTrigger(
         cursorAdjacentToMention ? null : detectComposerTrigger(nextPrompt, expandedCursor),
@@ -4074,6 +4121,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       addComposerDraftPreviewAnnotation,
       addComposerDraftImages,
       addComposerDraftFiles,
+      annotateComposerDraftImage,
       attachmentDraftTarget,
     ],
   );
@@ -5350,7 +5398,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const oversizedImageNames: string[] = [];
       const unreadableImageNames: string[] = [];
       for (const image of images) {
-        const result = await compressImageForStash(image.file);
+        const result = await compressImageForStash(image.annotation?.original ?? image.file);
         if (!result.ok) {
           // "too large" and "could not be read" are distinct outcomes; the
           // menu and restore toast report them separately.
@@ -6307,12 +6355,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     let nextFile = original;
     if (marks.length > 0) {
       try {
-        const prepared = await prepareImageForAttachment(
-          await flattenAnnotatedImage(original, marks),
-          PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
-        );
-        if (!prepared.ok) throw new Error(prepared.reason);
-        nextFile = prepared.file;
+        nextFile = await markedImageFile(original, marks);
       } catch {
         toastManager.add({ type: "error", title: `Could not annotate ${image.name}.` });
         return;

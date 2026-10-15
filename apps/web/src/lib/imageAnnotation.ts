@@ -4,8 +4,9 @@
  * the user's note and its position as fractions (0–1) of the image width and height.
  */
 
-import type { ImageAnnotationMark } from "@t3tools/contracts";
+import { type ImageAnnotationMark, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES } from "@t3tools/contracts";
 
+import { prepareImageForAttachment } from "./imageCompression";
 import { randomUUID } from "./utils";
 
 export type ImageMark =
@@ -100,7 +101,7 @@ function clamp(value: number, min: number, max: number): number {
 /** Draws the marks at the image's natural size; mark sizes scale with the image width. */
 export function drawImageMarks(
   context: CanvasRenderingContext2D,
-  marks: ReadonlyArray<ImageMark>,
+  marks: ReadonlyArray<ImageAnnotationMark>,
   width: number,
   height: number,
 ): void {
@@ -122,15 +123,17 @@ export function drawImageMarks(
     if (mark.kind === "box") {
       const boxWidth = mark.width * width;
       const boxHeight = mark.height * height;
-      context.fillStyle = "rgba(20,206,76,0.10)";
-      context.fillRect(x, y, boxWidth, boxHeight);
+      // No fill, so the boxed pixels keep their true colour.
       context.lineWidth = stroke + Math.max(2, stroke * 0.6);
       context.strokeStyle = "rgba(255,255,255,0.9)";
       context.strokeRect(x, y, boxWidth, boxHeight);
       context.lineWidth = stroke;
       context.strokeStyle = ANNOTATION_MARK_COLOR;
       context.strokeRect(x, y, boxWidth, boxHeight);
-      placeBadge(x, y, label);
+      // The badge sits just above the top-left corner, or below the box when there is no room,
+      // so it never covers what the box points at.
+      const gap = badge + stroke;
+      placeBadge(x + badge, y - gap - badge >= 0 ? y - gap : y + boxHeight + gap, label);
       return;
     }
     if (mark.kind === "arrow") {
@@ -195,9 +198,9 @@ function loadImage(file: Blob): Promise<HTMLImageElement> {
 }
 
 /** Returns a PNG copy of `source` with the marks drawn on at full resolution. */
-export async function flattenAnnotatedImage(
+async function flattenAnnotatedImage(
   source: File,
-  marks: ReadonlyArray<ImageMark>,
+  marks: ReadonlyArray<ImageAnnotationMark>,
 ): Promise<File> {
   const image = await loadImage(source);
   const canvas = document.createElement("canvas");
@@ -211,4 +214,17 @@ export async function flattenAnnotatedImage(
   if (!blob) throw new Error("The annotated image could not be encoded.");
   const baseName = (source.name || "image").replace(/\.[^.]+$/, "");
   return new File([blob], `${baseName}-annotated.png`, { type: "image/png" });
+}
+
+/** The marked copy of `original` that is uploaded and sent, within the provider image limit. */
+export async function markedImageFile(
+  original: File,
+  marks: ReadonlyArray<ImageAnnotationMark>,
+): Promise<File> {
+  const prepared = await prepareImageForAttachment(
+    await flattenAnnotatedImage(original, marks),
+    PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+  );
+  if (!prepared.ok) throw new Error(prepared.reason);
+  return prepared.file;
 }

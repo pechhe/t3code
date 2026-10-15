@@ -154,19 +154,25 @@ export const PersistedComposerImageAttachment = Schema.Struct({
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
 
 /**
- * The user's numbered marks on an image, already drawn into its `file`. `original` is the
- * unmarked image, so re-editing never draws marks twice; it is not saved with the draft, so
- * after a reload the marks still send but annotating again starts over on the marked image.
+ * The user's numbered marks on an image and its unmarked `original`, so re-editing never
+ * draws marks twice. The image's `file` is the marked copy that is uploaded and sent. A saved
+ * draft keeps only the original and the marks; until the marks are drawn again after a
+ * reload, `file` is the original itself (see `composerImageAwaitsMarks`).
  */
 export interface ComposerImageAnnotation {
   marks: ReadonlyArray<ImageAnnotationMark>;
-  original: File | null;
+  original: File;
 }
 
 export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
   previewUrl: string;
   file: File;
   annotation?: ComposerImageAnnotation;
+}
+
+/** True while a restored image's marks are not yet drawn into its `file`. */
+export function composerImageAwaitsMarks(image: ComposerImageAttachment): boolean {
+  return image.annotation !== undefined && image.file === image.annotation.original;
 }
 
 export interface ComposerFileAttachment extends Omit<ChatFileAttachment, "previewUrl"> {
@@ -2545,7 +2551,7 @@ export function hydrateImagesFromPersisted(
         file,
         ...(attachment.source ? { source: attachment.source } : {}),
         ...(attachment.annotationMarks
-          ? { annotation: { marks: attachment.annotationMarks, original: null } }
+          ? { annotation: { marks: attachment.annotationMarks, original: file } }
           : {}),
       } satisfies ComposerImageAttachment,
     ];

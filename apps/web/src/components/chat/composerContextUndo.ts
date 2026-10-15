@@ -1,16 +1,32 @@
 import type { PreviewAnnotationPayload } from "@t3tools/contracts";
 
-import type { ComposerFileAttachment, ComposerImageAttachment } from "../../composerDraftStore";
-import { fileContextReference, previewAnnotationContextId } from "../../lib/composerContextRecords";
+import type {
+  ComposerFileAttachment,
+  ComposerImageAnnotation,
+  ComposerImageAttachment,
+} from "../../composerDraftStore";
+import {
+  fileContextReference,
+  imageAnnotationContextReference,
+  previewAnnotationContextId,
+} from "../../lib/composerContextRecords";
 
 interface RetainedPreviewAnnotation {
   annotation: PreviewAnnotationPayload;
   image: ComposerImageAttachment | undefined;
 }
 
+/** An image's notes with the marked file they were drawn into, kept so undo can put both back. */
+export interface RetainedImageAnnotation {
+  imageId: string;
+  file: File;
+  annotation: ComposerImageAnnotation;
+}
+
 export interface RetainedAttachmentContextPayloads {
   files: Map<string, ComposerFileAttachment>;
   previewAnnotations: Map<string, RetainedPreviewAnnotation>;
+  imageAnnotations: Map<string, RetainedImageAnnotation>;
 }
 
 export function reconcileAttachmentContextReferences(input: {
@@ -24,6 +40,9 @@ export function reconcileAttachmentContextReferences(input: {
   filesToRestore: ComposerFileAttachment[];
   annotationIdsToRemove: string[];
   annotationsToRestore: RetainedPreviewAnnotation[];
+  /** Images whose notes chip left the text; they go back to their unmarked original. */
+  imageAnnotationsToRemove: RetainedImageAnnotation[];
+  imageAnnotationsToRestore: RetainedImageAnnotation[];
 } {
   const liveFileContextIds = new Set<string>(
     input.files.map((file) => fileContextReference(file).contextId),
@@ -61,5 +80,30 @@ export function reconcileAttachmentContextReferences(input: {
     return retained ? [retained] : [];
   });
 
-  return { filesToRemove, filesToRestore, annotationIdsToRemove, annotationsToRestore };
+  const imageAnnotationsToRemove: RetainedImageAnnotation[] = [];
+  for (const image of input.images) {
+    if (!image.annotation) continue;
+    const contextId = imageAnnotationContextReference(image).contextId;
+    if (input.referencedContextIds.has(contextId)) continue;
+    const retained = { imageId: image.id, file: image.file, annotation: image.annotation };
+    input.retained.imageAnnotations.set(contextId, retained);
+    imageAnnotationsToRemove.push(retained);
+  }
+  // Only an image still in the draft and still unmarked takes its notes back.
+  const imageAnnotationsToRestore = input.images.flatMap((image) => {
+    if (image.annotation) return [];
+    const contextId = imageAnnotationContextReference(image).contextId;
+    if (!input.referencedContextIds.has(contextId)) return [];
+    const retained = input.retained.imageAnnotations.get(contextId);
+    return retained ? [retained] : [];
+  });
+
+  return {
+    filesToRemove,
+    filesToRestore,
+    annotationIdsToRemove,
+    annotationsToRestore,
+    imageAnnotationsToRemove,
+    imageAnnotationsToRestore,
+  };
 }

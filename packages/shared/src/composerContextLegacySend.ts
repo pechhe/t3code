@@ -2,7 +2,7 @@ import type { ComposerContextRecord, ElementContextDetails } from "@t3tools/cont
 
 import {
   collectComposerContextReferences,
-  formatImageAnnotationBody,
+  formatImageAnnotationNotes,
 } from "./composerContextReferences.ts";
 
 /**
@@ -45,19 +45,22 @@ export function serializeLegacyContextMessage(input: {
     ...input.records
       .filter((record) => record.kind === "preview-annotation")
       .map((record) => `<preview_annotation>\n${renderPreviewBody(record)}\n</preview_annotation>`),
-    ...input.records.flatMap((record) =>
-      "marks" in record
-        ? [`<image_annotation>\n${formatImageAnnotationBody(record)}\n</image_annotation>`]
-        : [],
-    ),
     ...input.records
       .filter((record) => record.kind === "review-comment" && !used.has(record.contextId))
       .map(renderReviewComment),
   ].filter((block) => block.length > 0);
 
+  // The legacy format has no image notes block, so the notes travel as plain message text. They
+  // go before the trailing blocks, which are only parsed back at the very end of the message.
+  const imageNotes = input.records.flatMap((record) =>
+    record.kind === "image-annotation" && "marks" in record
+      ? [`Notes on ${record.imageName}:\n${formatImageAnnotationNotes(record)}`]
+      : [],
+  );
+
   // Review comments already inlined their payload above; anything else unreferenced still ships
   // its block so no context is silently dropped.
-  return [text.trimEnd(), ...blocks].filter((part) => part.length > 0).join("\n\n");
+  return [text.trimEnd(), ...imageNotes, ...blocks].filter((part) => part.length > 0).join("\n\n");
 }
 
 function inlineLabel(record: ComposerContextRecord): string {

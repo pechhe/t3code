@@ -196,8 +196,8 @@ describe("provider projection", () => {
       records: [annotation],
     });
     expect(projected).toContain("image: shot.png (ref=image_shot)");
-    expect(projected).toContain("1. label is off-centre [box x=0.100 y=0.200 w=0.300 h=0.050]");
-    expect(projected).toContain("2. move here [arrow from x=0.500 y=0.500 to x=0.750 y=0.250]");
+    expect(projected).toContain("1. label is off-centre [box x=0.10 y=0.20 w=0.30 h=0.05]");
+    expect(projected).toContain("2. move here [arrow from x=0.50 y=0.50 to x=0.75 y=0.25]");
   });
 
   it("returns text unchanged when there are no references", () => {

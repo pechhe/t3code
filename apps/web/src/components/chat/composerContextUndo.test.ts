@@ -5,6 +5,7 @@ import type { ComposerFileAttachment, ComposerImageAttachment } from "../../comp
 import {
   buildMessageContext,
   fileContextReference,
+  imageAnnotationContextReference,
   previewAnnotationContextId,
 } from "../../lib/composerContextRecords";
 import {
@@ -49,7 +50,7 @@ const annotation = {
 } satisfies PreviewAnnotationPayload;
 
 function retention(): RetainedAttachmentContextPayloads {
-  return { files: new Map(), previewAnnotations: new Map() };
+  return { files: new Map(), previewAnnotations: new Map(), imageAnnotations: new Map() };
 }
 
 describe("reconcileAttachmentContextReferences", () => {
@@ -134,6 +135,54 @@ describe("reconcileAttachmentContextReferences", () => {
         contextId: "image_annotation-1",
         attachmentId: "uploaded-screenshot",
       }),
+    ]);
+  });
+
+  it("takes an image's notes off with their chip and puts them back on undo", () => {
+    const original = new File(["clean"], "shot.png", { type: "image/png" });
+    const marked = new File(["marked"], "shot.png", { type: "image/png" });
+    const marks = [{ kind: "point", note: "this", x: 0.5, y: 0.5 }] as const;
+    const annotated = {
+      ...image,
+      id: "shot",
+      name: "shot.png",
+      file: marked,
+      annotation: { marks, original },
+    } satisfies ComposerImageAttachment;
+    const contextId = imageAnnotationContextReference(annotated).contextId;
+    const retained = retention();
+
+    const kept = reconcileAttachmentContextReferences({
+      referencedContextIds: new Set([contextId]),
+      files: [],
+      images: [annotated],
+      previewAnnotations: [],
+      retained,
+    });
+    expect(kept.imageAnnotationsToRemove).toEqual([]);
+
+    const removed = reconcileAttachmentContextReferences({
+      referencedContextIds: new Set(),
+      files: [],
+      images: [annotated],
+      previewAnnotations: [],
+      retained,
+    });
+    expect(removed.imageAnnotationsToRemove).toEqual([
+      { imageId: "shot", file: marked, annotation: { marks, original } },
+    ]);
+
+    // After removal the image is its unmarked original; undo brings the chip back.
+    const { annotation: _annotation, ...unmarked } = annotated;
+    const restored = reconcileAttachmentContextReferences({
+      referencedContextIds: new Set([contextId]),
+      files: [],
+      images: [{ ...unmarked, file: original }],
+      previewAnnotations: [],
+      retained,
+    });
+    expect(restored.imageAnnotationsToRestore).toEqual([
+      { imageId: "shot", file: marked, annotation: { marks, original } },
     ]);
   });
 });
