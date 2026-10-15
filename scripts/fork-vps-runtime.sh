@@ -1,9 +1,15 @@
 #!/bin/bash
-# Installs the fork's server as the remote runtime for one release version, on
-# a Linux host the desktop app reaches over SSH. Run by scripts/fork-nightly.sh
-# from a clone of the fork on that host, checked out at the commit to build:
+# Builds and installs the fork's server as the remote runtime for one release
+# version, on a Linux host the desktop app reaches over SSH. Run by
+# scripts/fork-nightly.sh from a clone of the fork on that host, checked out at
+# the commit to build, in two steps so the build runs while the Mac builds the app:
 #
-#   scripts/fork-vps-runtime.sh <version>
+#   scripts/fork-vps-runtime.sh build <version> [--check]   # exit 3: a check failed
+#   scripts/fork-vps-runtime.sh install <version>
+#
+# `build` runs the fork's checks first when asked (an upstream merge has not been
+# through the landing gate), then builds and smoke-tests the archive and keeps it
+# beside the installed versions. `install` puts that archive in place.
 #
 # The desktop's SSH launcher runs ~/.t3/runtime/versions/<version>/t3 and
 # downloads the official archive only when that directory is not marked
@@ -17,21 +23,46 @@
 # it when the matching app connects.
 set -euo pipefail
 
-VERSION="$1"
+MODE="$1"
+VERSION="$2"
 CLONE="$(cd "$(dirname "$0")/.." && pwd)"
 VERSIONS="$HOME/.t3/runtime/versions"
 TARGET="$VERSIONS/$VERSION"
+PENDING="$VERSIONS/.fork-pending-$VERSION.tar.gz"
 RELEASES=https://github.com/pingdotgg/t3code/releases/download
 ARCHIVE="t3-$VERSION-linux-x64.tar.gz"
 # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
 SEA_NODE_VERSION=26.8.2
 
+cd "$CLONE"
+commit="$(git rev-parse --short HEAD)"
+
+if [ "$MODE" = install ]; then
+  [ -f "$PENDING" ] || { echo "no built fork runtime for $VERSION" >&2; exit 1; }
+  staging="$(mktemp -d "$VERSIONS/.staging-XXXXXX")"
+  tar -xzf "$PENDING" -C "$staging" --strip-components=1
+  printf '%s\n' "$VERSION" >"$staging/.install-complete"
+  # Only the newest official copy is worth keeping, as a one-move rollback.
+  rm -rf "$VERSIONS"/*.official
+  if [ -d "$TARGET" ]; then mv "$TARGET" "$TARGET.official"; fi
+  mv "$staging" "$TARGET"
+  rm -f "$PENDING"
+  echo "installed fork runtime $VERSION ($commit)"
+else
+  [ "$MODE" = build ] || { echo "usage: $0 build <version> [--check] | install <version>" >&2; exit 2; }
+
 work="$(mktemp -d)"
 trap 'rm -rf "$work"; git -C "$CLONE" checkout --quiet -- .' EXIT
 
-cd "$CLONE"
-commit="$(git rev-parse --short HEAD)"
 command vp i
+if [ "${3:-}" = --check ]; then
+  command vp run --filter t3 typecheck &&
+    command vp run --filter @t3tools/web typecheck &&
+    (cd apps/server && command vp test run \
+      src/orchestration-v2/ContextRollover.test.ts \
+      src/orchestration-v2/ContextRollover.integration.test.ts) ||
+    exit 3
+fi
 node scripts/update-release-package-versions.ts "$VERSION" >/dev/null
 command vp run --filter t3 build
 PATH="$HOME/.local/share/vite-plus/fallback-bin:$PATH" VP_NODE_VERSION="$SEA_NODE_VERSION" \
@@ -46,15 +77,11 @@ tar -xzf "$work/$ARCHIVE" -C "$work/official" --strip-components=1
 node scripts/build-cli-archive.ts --platform linux --arch x64 --version "$VERSION" \
   --resource-monitor-dir "$work/official/resource-monitor" --output-dir "$work/fork"
 node scripts/smoke-cli-archive.ts --archive "$work/fork/$ARCHIVE" --expect-version "$VERSION"
-
-staging="$(mktemp -d "$VERSIONS/.staging-XXXXXX")"
-tar -xzf "$work/fork/$ARCHIVE" -C "$staging" --strip-components=1
-printf '%s\n' "$VERSION" >"$staging/.install-complete"
-# Only the newest official copy is worth keeping, as a one-move rollback.
-rm -rf "$VERSIONS"/*.official
-if [ -d "$TARGET" ]; then mv "$TARGET" "$TARGET.official"; fi
-mv "$staging" "$TARGET"
-echo "installed fork runtime $VERSION ($commit)"
+mkdir -p "$VERSIONS"
+mv "$work/fork/$ARCHIVE" "$PENDING"
+echo "built fork runtime $VERSION ($commit)"
+exit 0
+fi
 
 for state in "$HOME"/.t3/ssh-launch/*/; do
   pid="$(cat "$state/pid" 2>/dev/null || true)"

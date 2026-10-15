@@ -17,6 +17,26 @@
         "apps/server/src/experiments/ExperimentService.test.ts",
         "apps/server/src/agents/AgentPolicyService.test.ts"
       ]
+    },
+    {
+      "executable": "pnpm",
+      "args": ["exec", "vp", "run", "--filter", "t3", "typecheck"]
+    },
+    {
+      "executable": "pnpm",
+      "args": ["exec", "vp", "run", "--filter", "@t3tools/web", "typecheck"]
+    },
+    {
+      "executable": "pnpm",
+      "args": [
+        "exec",
+        "vp",
+        "test",
+        "run",
+        "src/orchestration-v2/ContextRollover.test.ts",
+        "src/orchestration-v2/ContextRollover.integration.test.ts"
+      ],
+      "cwd": "apps/server"
     }
   ]
 }
