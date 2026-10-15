@@ -76,6 +76,13 @@ const invoke = Effect.fn("PreviewToolkit.invoke")(function* <A>(
     ...(tabId === undefined ? {} : { tabId }),
   });
   if (["status", "open", "navigate", "snapshot"].includes(operation)) return { result };
+  if (
+    typeof result === "object" &&
+    result !== null &&
+    "backend" in result &&
+    result.backend === "phi"
+  )
+    return { result };
   const statusTabId =
     (operation !== "evaluate" && typeof result === "object" && result !== null
       ? (result as { tabId?: PreviewTabId }).tabId

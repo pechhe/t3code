@@ -8,10 +8,12 @@ import {
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { writeFileStringAtomically } from "@t3tools/shared/atomicWrite";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
@@ -40,6 +42,7 @@ const Binding = Schema.Struct({
   profile: Schema.optional(Schema.String),
   windowId: Schema.optional(Schema.Number),
   targetId: Schema.optional(Schema.String),
+  allocationUrl: Schema.optional(Schema.String),
   url: Schema.String,
   title: Schema.String,
 });
@@ -90,12 +93,17 @@ const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknow
   if (isBackendError(cause)) return cause;
   if (
     isInputError(cause) &&
-    (cause.reason === "stale-reference" || cause.reason === "unavailable-route")
+    (cause.reason === "stale-reference" ||
+      cause.reason === "unavailable-route" ||
+      cause.reason === "unsupported-shortcut")
   )
     reason = cause.reason;
   if (
     isRunnerError(cause) &&
-    (cause.reason === "missing-skill" || cause.reason === "invalid-response")
+    (cause.reason === "missing-skill" ||
+      cause.reason === "invalid-response" ||
+      cause.reason === "human-control" ||
+      cause.reason === "login-required")
   )
     reason = cause.reason;
   return new PreviewAutomationBackendError({
@@ -104,6 +112,8 @@ const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknow
     ...(cause === undefined ? {} : { cause }),
   });
 };
+
+export type PhiAvailability = "available" | "skill-missing" | "unreachable";
 
 export const isPhiTabId = (tabId: PreviewTabId) => tabId.startsWith("phi-");
 
@@ -123,6 +133,14 @@ export class PhiBrowser extends Context.Service<
       scope: McpThreadInvocationScope,
     ) => Effect.Effect<ReadonlyArray<PreviewSessionSnapshot>>;
     readonly releaseSession: (sessionId: string) => Effect.Effect<void>;
+    /**
+     * Whether managed browser tasks can start. Discovery accepts an answer up to half a minute
+     * old; a task launch passes `probe` to ask Phi now. Nothing is allocated either way.
+     */
+    readonly availability: (input: {
+      readonly skillDirectory: string;
+      readonly probe: boolean;
+    }) => Effect.Effect<PhiAvailability>;
   }
 >()("t3/preview/PhiBrowser") {}
 
@@ -184,6 +202,7 @@ const make = Effect.gen(function* () {
         skillDirectory: binding.skillDirectory,
         ...(binding.windowId === undefined ? {} : { expectedWindow: binding.windowId }),
         ...(binding.targetId === undefined ? {} : { targetId: binding.targetId }),
+        ...(binding.allocationUrl === undefined ? {} : { allocationUrl: binding.allocationUrl }),
         action,
         timeoutMs,
         readHumanMessages,
@@ -210,6 +229,41 @@ const make = Effect.gen(function* () {
     loading: false,
     control: { owner: "agent", ownedByCaller: true, generation: 0 },
   });
+
+  // Discovery reads a recent answer rather than probing Phi on every call.
+  const REACHABILITY_TTL_MS = 30_000;
+  const reachability = yield* Ref.make<
+    ReadonlyMap<string, { readonly value: PhiAvailability; readonly at: number }>
+  >(new Map());
+  const availability = (input: { readonly skillDirectory: string; readonly probe: boolean }) =>
+    Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      const known = (yield* Ref.get(reachability)).get(input.skillDirectory);
+      if (!input.probe && known !== undefined && now - known.at < REACHABILITY_TTL_MS)
+        return known.value;
+      const value: PhiAvailability = yield* runner
+        .run({
+          probe: true,
+          skillDirectory: input.skillDirectory,
+          context: { kind: "shadow", name: "t3-probe", incognito: true },
+          action: { operation: "status" },
+          timeoutMs: input.probe ? 5_000 : 2_000,
+        })
+        .pipe(
+          Effect.as("available" as const),
+          Effect.catch((cause) =>
+            Effect.succeed(
+              cause.reason === "missing-skill"
+                ? ("skill-missing" as const)
+                : ("unreachable" as const),
+            ),
+          ),
+        );
+      yield* Ref.update(reachability, (values) =>
+        new Map(values).set(input.skillDirectory, { value, at: now }),
+      );
+      return value;
+    });
 
   const invoke = Effect.fn("PhiBrowser.invoke")((request: PreviewAutomationInvokeInput) =>
     lock.withPermits(1)(
@@ -248,11 +302,19 @@ const make = Effect.gen(function* () {
                 "Phi allocation did not finish. Close or recover the owned resource before continuing.",
             };
           }
-          if (request.operation === "open" && binding.lane === "shadow") {
+          if (
+            request.operation === "open" &&
+            (binding.lane === "shadow" || binding.allocationUrl !== undefined)
+          ) {
             yield* remove(binding);
             tabs = yield* Ref.get(state);
             binding = undefined;
-          } else if (!(request.operation === "close" && binding.lane === "shadow"))
+          } else if (
+            !(
+              request.operation === "close" &&
+              (binding.lane === "shadow" || binding.allocationUrl !== undefined)
+            )
+          )
             return yield* failure("unavailable");
         }
         if (request.operation === "open") {
@@ -290,6 +352,7 @@ const make = Effect.gen(function* () {
               sessionId: request.scope.thread.providerSessionId,
               lane,
               name: `t3-${tabId}`,
+              ...(lane === "agents" ? { allocationUrl: `about:blank#t3-${tabId}` } : {}),
               skillDirectory: request.scope.phiBrowserSkillDirectory ?? "",
               url: input.url ?? "",
               title: "",
@@ -321,11 +384,21 @@ const make = Effect.gen(function* () {
                   entry.tabId === allocated.tabId ? binding! : entry,
                 ),
               );
+              if (allocated.lane === "agents" && action.url !== "about:blank") {
+                yield* run(
+                  binding,
+                  { operation: "navigate", url: action.url, timeout: 15 },
+                  request.timeoutMs ?? 15_000,
+                );
+              }
             }).pipe(
               Effect.onError(() =>
-                allocated.lane === "shadow"
-                  ? remove(allocated).pipe(Effect.ignore({ log: true }))
-                  : Effect.void,
+                Ref.get(state).pipe(
+                  Effect.flatMap((tabs) =>
+                    remove(tabs.find((tab) => tab.tabId === allocated.tabId) ?? allocated),
+                  ),
+                  Effect.ignore({ log: true }),
+                ),
               ),
             );
           } else if (input.url !== undefined) {
@@ -365,11 +438,23 @@ const make = Effect.gen(function* () {
           };
         }
         if (!binding) {
-          if (request.operation === "status")
+          if (request.operation === "status") {
+            const connection = yield* availability({
+              skillDirectory: request.scope.phiBrowserSkillDirectory ?? "",
+              probe: false,
+            });
             return {
               backend: "phi",
-              connected: false,
-              available: false,
+              connected: connection === "available",
+              ...(connection === "available"
+                ? {}
+                : {
+                    connectionMessage:
+                      connection === "skill-missing"
+                        ? "Phi's installed skill runner is missing. Check its configured directory."
+                        : "Phi is unreachable through the configured skill and Mac route.",
+                  }),
+              available: connection === "available",
               supportedOperations: PHI_OPERATIONS,
               visible: false,
               loading: false,
@@ -377,6 +462,7 @@ const make = Effect.gen(function* () {
               url: null,
               title: null,
             };
+          }
           return yield* failure("ownership");
         }
         request.onTargetTab?.(binding.tabId);
@@ -487,12 +573,13 @@ const make = Effect.gen(function* () {
         setCurrent();
         return request.operation === "navigate"
           ? status({ ...binding, url: action.url ?? binding.url })
-          : { tabId: binding.tabId };
+          : { tabId: binding.tabId, backend: "phi" };
       }),
     ),
   );
 
   const service = PhiBrowser.of({
+    availability,
     invoke,
     hasTab: (tabId) =>
       Ref.get(state).pipe(Effect.map((tabs) => tabs.some((tab) => tab.tabId === tabId))),
@@ -533,9 +620,16 @@ const make = Effect.gen(function* () {
   });
   // Reconcile resources recorded by the previous process. A human-controlled
   // Agents tab refuses close and keeps its custody record for explicit resume.
-  for (const sessionId of retired) yield* service.releaseSession(sessionId);
+  const recovery = yield* Effect.forEach(
+    retired,
+    (sessionId) => service.releaseSession(sessionId),
+    {
+      discard: true,
+    },
+  ).pipe(Effect.forkScoped);
   yield* Effect.addFinalizer(() =>
     Effect.gen(function* () {
+      yield* Fiber.interrupt(recovery);
       const sessions = new Set((yield* Ref.get(state)).map((tab) => tab.sessionId));
       yield* Effect.forEach(sessions, (id) => service.releaseSession(id), { discard: true });
     }),

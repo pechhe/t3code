@@ -1,4 +1,5 @@
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
+import * as PreviewManager from "../preview/Manager.ts";
 import * as Ref from "effect/Ref";
 import {
   PREVIEW_AUTOMATION_V1_OPERATIONS,
@@ -26,6 +27,8 @@ import {
   PreviewAutomationUnsupportedClientError,
   PreviewTabId,
   type PreviewAutomationError,
+  type PreviewError,
+  type PreviewListResult,
   type PreviewAutomationOperation,
   type PreviewAutomationHost,
   type PreviewAutomationHostFocus,
@@ -84,6 +87,18 @@ export class PreviewAutomationBroker extends Context.Service<
     readonly invoke: <A = unknown>(
       request: PreviewAutomationInvokeInput,
     ) => Effect.Effect<A, PreviewAutomationError>;
+    readonly list: (input: {
+      readonly scope: McpInvocationContext.McpThreadInvocationScope;
+      readonly cursor?: number | undefined;
+      readonly limit?: number | undefined;
+    }) => Effect.Effect<
+      PreviewListResult & { readonly nextCursor: number | null },
+      PreviewAutomationError
+    >;
+    readonly close: (input: {
+      readonly scope: McpInvocationContext.McpThreadInvocationScope;
+      readonly tabId: PreviewTabId;
+    }) => Effect.Effect<void, PreviewAutomationError | PreviewError>;
   }
 >()("t3/mcp/PreviewAutomationBroker") {}
 
@@ -356,6 +371,7 @@ const classifyResponseError = (
 export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
   const crypto = yield* Crypto.Crypto;
   const phiBrowser = yield* Effect.serviceOption(PhiBrowser.PhiBrowser);
+  const previewManager = yield* Effect.serviceOption(PreviewManager.PreviewManager);
   const currentBackends = yield* Ref.make<ReadonlyMap<string, BrowserBackend>>(new Map());
   const state = yield* SynchronizedRef.make<BrokerState>({
     clients: new Map(),
@@ -765,7 +781,13 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
       if (Option.isNone(phiBrowser))
         return yield* new PreviewAutomationBackendError({ backend, reason: "unavailable" });
       result = (yield* phiBrowser.value.invoke(input)) as A;
-    } else result = yield* invoke<A>(input);
+    } else {
+      if (input.operation === "handoff" || input.operation === "resume")
+        return yield* new PreviewAutomationBackendError({ backend, reason: "unsupported" });
+      result = yield* invoke<A>(input);
+      if (input.operation === "status" && typeof result === "object" && result !== null)
+        result = { ...result, backend: "integrated", connected: true };
+    }
     if (input.updateCurrentTab !== false)
       yield* Ref.update(currentBackends, (current) =>
         new Map(current).set(hostAssignmentKey(input.scope), backend),
@@ -777,6 +799,37 @@ export const make = Effect.gen(function* PreviewAutomationBrokerMake() {
     focusHost,
     respond,
     invoke: <A = unknown>(input: PreviewAutomationInvokeInput) => invokeBackend<A>(input),
+    list: Effect.fn("PreviewAutomationBroker.list")(function* ({ scope, cursor = 0, limit = 20 }) {
+      if (Option.isNone(previewManager))
+        return yield* new PreviewAutomationBackendError({
+          backend: "integrated",
+          reason: "unavailable",
+        });
+      const result = yield* previewManager.value.list({ threadId: scope.thread.threadId });
+      const phiTabs = Option.isSome(phiBrowser) ? yield* phiBrowser.value.list(scope) : [];
+      const sessions = [...result.sessions, ...phiTabs];
+      const end = cursor + limit;
+      return {
+        ...result,
+        sessions: sessions.slice(cursor, end),
+        nextCursor: end < sessions.length ? end : null,
+      };
+    }),
+    close: Effect.fn("PreviewAutomationBroker.close")(function* ({ scope, tabId }) {
+      if (Option.isSome(phiBrowser) && (yield* phiBrowser.value.hasTab(tabId))) {
+        yield* invokeBackend({ scope, tabId, operation: "close", input: {} });
+        return;
+      }
+      if (Option.isNone(previewManager))
+        return yield* new PreviewAutomationBackendError({
+          backend: "integrated",
+          reason: "unavailable",
+        });
+      const { sessions } = yield* previewManager.value.list({ threadId: scope.thread.threadId });
+      if (sessions.some((session) => session.tabId === tabId && session.runtime === "server")) {
+        yield* invokeBackend({ scope, tabId, operation: "close", input: {} });
+      } else yield* previewManager.value.close({ threadId: scope.thread.threadId, tabId });
+    }),
   });
 }).pipe(Effect.withSpan("PreviewAutomationBroker.make"));
 

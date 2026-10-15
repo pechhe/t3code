@@ -13,7 +13,13 @@ import { PHI_RUNNER_PROGRAM, type PhiOperation } from "./PhiBrowserProtocol.ts";
 export class PhiBrowserRunnerError extends Schema.TaggedError<PhiBrowserRunnerError>()(
   "PhiBrowserRunnerError",
   {
-    reason: Schema.Literals(["missing-skill", "connection-failed", "invalid-response"]),
+    reason: Schema.Literals([
+      "missing-skill",
+      "connection-failed",
+      "invalid-response",
+      "human-control",
+      "login-required",
+    ]),
     cause: Schema.Defect(),
   },
 ) {
@@ -25,6 +31,10 @@ export class PhiBrowserRunnerError extends Schema.TaggedError<PhiBrowserRunnerEr
         return "Phi's runner could not complete the operation. Check Phi and the skill's Mac connection route; no other browser was substituted.";
       case "invalid-response":
         return "Phi's runner returned an invalid response. Check the installed phi-browser skill version.";
+      case "human-control":
+        return "The human controls the Phi Space. Wait for explicit hand-back before resuming.";
+      case "login-required":
+        return "The shadow page requires human sign-in through the Agents lane.";
     }
   }
 }
@@ -44,13 +54,21 @@ export interface PhiBrowserRound {
         readonly persistent: true;
       };
   readonly readHumanMessages?: boolean;
+  /** Reach Phi without allocating a browser resource. */
+  readonly probe?: true;
   readonly expectedWindow?: number;
   readonly targetId?: string;
+  /** A unique blank URL allocated before the owned tab's identifier is returned. */
+  readonly allocationUrl?: string;
   readonly action: PhiOperation;
   readonly timeoutMs: number;
 }
 
-const RunnerReply = Schema.Struct({ result: Schema.Unknown, context: Schema.Unknown });
+const RunnerReply = Schema.Struct({
+  result: Schema.Unknown,
+  context: Schema.Unknown,
+  failure: Schema.optional(Schema.Literals(["human-control", "login-required"])),
+});
 const decodeReply = Schema.decodeUnknownSync(RunnerReply);
 
 /** Only the fixed adapter program reaches the installed runner's Node surface. */
@@ -86,13 +104,24 @@ const make = Effect.gen(function* () {
     // JSON string decoding keeps even quotes, backticks and line separators in
     // user text as data. No shell parses the command or its stdin.
     const { skillDirectory: _skillDirectory, timeoutMs: _timeoutMs, ...data } = request;
-    const source = `const request = JSON.parse(${JSON.stringify(JSON.stringify(data))});\n${PHI_RUNNER_PROGRAM}`;
+    const source = `const request = JSON.parse(${JSON.stringify(JSON.stringify(data))});
+try {
+${PHI_RUNNER_PROGRAM}
+} catch (error) {
+  if (typeof error?.message === 'string' && error.message.startsWith('user is controlling')) {
+    cliLog(JSON.stringify({t3Phi: {result: null, context: null, failure: 'human-control'}}));
+  } else throw error;
+}`;
     const output = yield* processRunner
       .run({
         command: "node",
         args: [runner],
         stdin: source,
-        timeout: Math.min(request.timeoutMs, request.action.timeoutMs ?? request.timeoutMs),
+        // Connection/attachment precedes the helper's own deadline. Let that
+        // deadline report its outcome before the process watchdog expires.
+        timeout: request.probe
+          ? request.timeoutMs
+          : Math.max(request.timeoutMs, (request.action.timeout ?? 0) * 1000) + 10_000,
         maxOutputBytes: 16 * 1024 * 1024,
       })
       .pipe(
@@ -103,7 +132,7 @@ const make = Effect.gen(function* () {
     if (output.code !== 0 || output.timedOut) {
       return yield* new PhiBrowserRunnerError({ reason: "connection-failed", cause: output });
     }
-    return yield* Effect.try({
+    const reply = yield* Effect.try({
       try: () => {
         // cliLog emits one JSON object per line. Other skill narration is not
         // an adapter response; never treat it as instructions or code.
@@ -122,6 +151,9 @@ const make = Effect.gen(function* () {
       },
       catch: (cause) => new PhiBrowserRunnerError({ reason: "invalid-response", cause }),
     });
+    if (reply.failure !== undefined)
+      return yield* new PhiBrowserRunnerError({ reason: reply.failure, cause: undefined });
+    return reply;
   });
   return PhiBrowserRunner.of({ run });
 });

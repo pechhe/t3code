@@ -1186,6 +1186,8 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
       "ownership",
       "conflicting-binding",
       "unsupported",
+      "unsupported-shortcut",
+      "login-required",
       "invalid-response",
       "storage",
       "human-control",
@@ -1211,6 +1213,10 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
         return "An existing tab keeps its backend, profile and lane. Open a new tab to change them.";
       case "unsupported":
         return "This operation or option is unsupported by this browser backend. Read preview_status capabilities.";
+      case "unsupported-shortcut":
+        return "Phi does not support native Meta shortcuts. Use preview_type with clear=true to replace input, or a supported key without Meta.";
+      case "login-required":
+        return "This shadow page requires sign-in. Close or navigate away; explicitly open a new Agents-lane tab for human sign-in. Cookies and page state are not transferred.";
       case "invalid-response":
         return "The browser backend returned an invalid response. Check the installed skill version.";
       case "storage":

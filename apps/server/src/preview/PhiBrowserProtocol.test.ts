@@ -21,11 +21,13 @@ async function round(
     omitTarget?: boolean;
     createdWindow?: number;
     closeError?: unknown;
+    allocationUrl?: string;
+    tabs?: Array<{ targetId: string; url: string }>;
+    password?: boolean;
   } = {},
 ) {
   const calls: Array<unknown> = [];
   let value = options.initial ?? "existing";
-  let selected = false;
   const guard = () => {
     if (options.human) throw new Error("user is controlling");
   };
@@ -35,13 +37,18 @@ async function round(
       context: { kind: options.kind ?? "shadow", name: "owned-task" },
       expectedWindow: options.expectedWindow,
       targetId: options.omitTarget ? undefined : "owned-tab",
+      allocationUrl: options.allocationUrl,
     },
     enterContext: async () => {
       calls.push("enter");
       return { windowId: options.createdWindow ?? 1 };
     },
     currentContext: () => ({ kind: options.kind ?? "shadow", windowId: 1 }),
-    listTabs: async () => [{ targetId: "owned-tab" }],
+    listTabs: async () => options.tabs ?? [{ targetId: "owned-tab" }],
+    observe: async () => ({ elements: options.password ? [{ type: "password" }] : [] }),
+    listAgentSpaces: async () => [
+      { taskId: "owned-task", windowId: 1, ownership: options.human ? "user" : "agent" },
+    ],
     listShadowWindows: async () => options.windows ?? [{ windowId: 1 }],
     switchTab: async () => {
       guard();
@@ -51,19 +58,18 @@ async function round(
       guard();
       calls.push(["click", ...args]);
     },
-    fillInput: async (_target: string, text: string) => {
+    fillInput: async (target: string, text: string) => {
       guard();
+      calls.push(["fill", target, text]);
       value = text;
     },
     typeText: async (text: string) => {
       guard();
       value += text;
     },
-    pressKey: async (key: string) => {
+    pressKey: async (key: string, options: unknown) => {
       guard();
-      calls.push(["key", key]);
-      if (key === "a") selected = true;
-      if (key === "Backspace" && selected) value = "";
+      calls.push(["key", key, options]);
     },
     scroll: async (input: unknown) => {
       guard();
@@ -132,13 +138,25 @@ describe("Phi operation translation", () => {
     expect(
       translatePhiOperation(
         "press",
-        { key: "ArrowLeft", modifiers: ["Meta", "Shift", "Meta"] },
+        { key: "ArrowLeft", modifiers: ["Control", "Shift", "Control"] },
         refs,
       ),
-    ).toEqual({ operation: "press", key: "ArrowLeft", modifiers: 12 });
+    ).toEqual({ operation: "press", key: "ArrowLeft", modifiers: 10 });
+    expect(() => translatePhiOperation("press", { key: "a", modifiers: ["Meta"] }, refs)).toThrow(
+      "does not support native Meta shortcuts",
+    );
   });
 
   it("rejects unsupported operations, container scroll and unavailable remote loopback", () => {
+    for (const operation of ["click", "type"] as const) {
+      expect(() =>
+        translatePhiOperation(
+          operation,
+          { selector: "input", text: "value", timeoutMs: 250 },
+          refs,
+        ),
+      ).toThrow("does not support this locator or option");
+    }
     expect(() =>
       translatePhiOperation("evaluate", { expression: "document.cookie" }, refs),
     ).toThrow("does not support this operation");
@@ -171,6 +189,20 @@ describe("fixed Phi skill adapter", () => {
     expect(replace.value).toBe("replacement");
     const clear = await round(translatePhiOperation("type", { text: "", clear: true }, refs));
     expect(clear.value).toBe("");
+    expect(clear.calls).toContainEqual(["fill", "loc=css::focus", ""]);
+  });
+
+  it("passes supported modified keys to the skill without inventing editing commands", async () => {
+    const result = await round(
+      translatePhiOperation("press", { key: "ArrowLeft", modifiers: ["Shift"] }, refs),
+    );
+    expect(result.calls).toContainEqual(["key", "ArrowLeft", { modifiers: 8 }]);
+  });
+
+  it("stops shadow input at a visible sign-in form without migrating its state", async () => {
+    const result = await round({ operation: "type", text: "private" }, { password: true });
+    expect(result.value).toBe("existing");
+    expect(result.calls.at(-1)).toMatchObject({ t3Phi: { failure: "login-required" } });
   });
 
   it("preserves literal code-like text as input data", async () => {
@@ -238,6 +270,25 @@ describe("fixed Phi skill adapter", () => {
     await expect(
       round({ operation: "type", text: "bad" }, { kind: "agent", omitTarget: true }),
     ).rejects.toThrow("requires the task-owned tab identifier");
+  });
+
+  it("recovers a lost Agents allocation reply by closing only its unique blank marker", async () => {
+    const allocationUrl = "about:blank#t3-unique-allocation";
+    const options = {
+      kind: "agent" as const,
+      omitTarget: true,
+      allocationUrl,
+      tabs: [
+        { targetId: "unrelated", url: "https://example.com" },
+        { targetId: "lost-allocation", url: allocationUrl },
+      ],
+    };
+    const result = await round({ operation: "close" }, options);
+    expect(result.calls).toContainEqual(["close-tab", "lost-allocation"]);
+    expect(result.calls).not.toContainEqual(["close-tab", "unrelated"]);
+    await expect(round({ operation: "close" }, { ...options, human: true })).rejects.toThrow(
+      "user is controlling",
+    );
   });
 
   it("closes a replacement shadow created during the window-loss race", async () => {

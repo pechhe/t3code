@@ -40,6 +40,7 @@ export class PhiBrowserInputError extends Schema.TaggedError<PhiBrowserInputErro
       "stale-reference",
       "invalid-input",
       "unavailable-route",
+      "unsupported-shortcut",
     ]),
   },
 ) {
@@ -55,6 +56,8 @@ export class PhiBrowserInputError extends Schema.TaggedError<PhiBrowserInputErro
         return "This local URL needs a route on the Mac running Phi. Configure the supported Mac route before navigating.";
       case "invalid-input":
         return "Invalid Phi browser operation input.";
+      case "unsupported-shortcut":
+        return "Phi's installed key helper does not support native Meta shortcuts. Use preview_type with clear=true to replace input, or a supported key without Meta.";
     }
   }
 }
@@ -64,7 +67,6 @@ export interface PhiOperation {
   readonly target?: string | undefined;
   readonly url?: string | undefined;
   readonly timeout?: number | undefined;
-  readonly timeoutMs?: number | undefined;
   readonly text?: string | undefined;
   readonly message?: string | undefined;
   readonly clear?: boolean | undefined;
@@ -138,6 +140,8 @@ export function translatePhiOperation(
     }
     case "click": {
       const value = decodeClick(input);
+      if (value.timeoutMs !== undefined)
+        throw new PhiBrowserInputError({ reason: "unsupported-option" });
       return {
         operation,
         target: target(value, refs),
@@ -145,21 +149,26 @@ export function translatePhiOperation(
         y: value.y,
         button: value.button,
         clickCount: value.clickCount,
-        timeoutMs: value.timeoutMs,
       };
     }
     case "type": {
       const value = decodeType(input);
+      if (value.timeoutMs !== undefined)
+        throw new PhiBrowserInputError({ reason: "unsupported-option" });
       return {
         operation,
         target: target(value, refs),
         text: value.text,
         clear: value.clear ?? false,
-        timeoutMs: value.timeoutMs,
       };
     }
     case "press": {
       const value = decodePress(input);
+      // The public skill helper sends key events, without the native editing
+      // commands that macOS Meta shortcuts require. Refuse instead of claiming
+      // success after an event that does not perform the requested shortcut.
+      if (value.modifiers?.includes("Meta"))
+        throw new PhiBrowserInputError({ reason: "unsupported-shortcut" });
       const masks = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
       return {
         operation,
@@ -205,6 +214,27 @@ export function translatePhiOperation(
  * The runner itself selects the supported local/remote connection route.
  */
 export const PHI_RUNNER_PROGRAM = String.raw`
+if (request.probe) {
+  await listAgentSpaces();
+  cliLog(JSON.stringify({t3Phi: {result: {}, context: null}}));
+  return;
+}
+if (request.context.kind === 'agent' && request.action.operation === 'close' && (request.targetId || request.allocationUrl)) {
+  // Never create or replace the persistent Space while recovering an open.
+  const tasks = await listAgentSpaces();
+  const task = tasks.find(task => task.taskId === request.context.name);
+  if (task) {
+    await enterContext(request.context);
+    const tabs = await listTabs();
+    const owned = tabs.filter(tab => request.targetId ? tab.targetId === request.targetId : tab.url === request.allocationUrl);
+    if (owned.length && task.ownership === 'user') throw new Error('user is controlling this agent space');
+    for (const tab of owned) {
+      await closeTab(tab.targetId);
+    }
+  }
+  cliLog(JSON.stringify({t3Phi: {result: {}, context: null}}));
+  return;
+}
 if (request.context.kind === 'agent' &&
     !['open', 'status'].includes(request.action.operation) && !request.targetId) {
   throw new Error('An Agents operation requires the task-owned tab identifier');
@@ -246,6 +276,13 @@ if (request.targetId) {
   if (!tabs.some(tab => tab.targetId === request.targetId)) throw new Error('Phi tab was lost');
 }
 const op = request.action;
+if (request.context.kind === 'shadow' && ['click', 'type', 'press', 'scroll'].includes(op.operation)) {
+  const page = await observe();
+  if (page.elements?.some(element => element.type === 'password' && !element.hidden)) {
+    cliLog(JSON.stringify({t3Phi: {result: null, context: currentContext(), failure: 'login-required'}}));
+    return;
+  }
+}
 let result;
 if (op.operation === 'status') {
   result = { context: currentContext(), tabs: await listTabs(),
@@ -260,8 +297,9 @@ if (op.operation === 'status') {
   result = {};
 } else {
   if (request.targetId) await switchTab(request.targetId);
+  // Both lanes handle close above; this switch only operates on a live owned tab.
   switch (op.operation) {
-    case 'open': result = await openTab(op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
+    case 'open': result = await openTab(request.allocationUrl ?? op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
     case 'navigate': result = await goto(op.url, {timeout: op.timeout}); break;
     case 'snapshot': {
       const observed = await observe();
@@ -279,21 +317,14 @@ if (op.operation === 'status') {
       ? await click(op.target, {button: op.button, clickCount: op.clickCount})
       : await click(op.x, op.y, {button: op.button, clickCount: op.clickCount}); break;
     case 'type':
-      if (op.clear && op.target !== undefined) result = await fillInput(op.target, op.text);
+      if (op.clear) result = await fillInput(op.target ?? 'loc=css::focus', op.text);
       else {
         if (op.target !== undefined) await click(op.target);
-        if (op.clear) {
-          await pressKey('a', {modifiers: 4});
-          await pressKey('Backspace');
-        }
         result = await typeText(op.text);
       }
       break;
     case 'press': result = await pressKey(op.key, {modifiers: op.modifiers}); break;
     case 'scroll': result = await scroll({dx: op.dx, dy: op.dy}); break;
-    case 'close':
-      await closeTab(request.targetId);
-      result = {}; break;
     default: throw new Error('Unsupported Phi operation');
   }
 }

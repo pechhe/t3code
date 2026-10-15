@@ -634,7 +634,8 @@ function makeBrowserAccessProject(projectId: ProjectId): Project {
 
 function runBrowserAccessScenario(input: {
   readonly enableAgentBrowserAccess: boolean;
-  readonly projectOverride: boolean;
+  readonly projectOverride?: boolean;
+  readonly agentBrowserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly deviceOverride?: boolean;
   readonly createThread?: boolean;
   readonly projectExists?: boolean;
@@ -655,7 +656,7 @@ function runBrowserAccessScenario(input: {
         ),
     });
 
-    yield* Effect.gen(function* () {
+    const resolved = yield* Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;
       const idAllocator = yield* IdAllocator.IdAllocatorV2;
       const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
@@ -672,6 +673,11 @@ function runBrowserAccessScenario(input: {
       yield* manager
         .open({ threadId, providerSessionId, modelSelection, runtimePolicy })
         .pipe(Effect.ignore);
+      const captured = (yield* Ref.get(mcpConfigs))[0];
+      if (captured !== undefined) {
+        const registry = yield* McpSessionRegistry.McpSessionRegistry;
+        return yield* registry.resolve(captured.authorizationHeader.replace(/^Bearer\s+/, ""));
+      }
     }).pipe(
       Effect.provide(
         layerTest({
@@ -681,9 +687,14 @@ function runBrowserAccessScenario(input: {
           projectServiceLayer: layerProjectService,
           serverSettingsLayer: ServerSettings.layerTest({
             enableAgentBrowserAccess: input.enableAgentBrowserAccess,
+            ...(input.agentBrowserBackends === undefined
+              ? {}
+              : { agentBrowserBackends: input.agentBrowserBackends }),
             projectSettingsOverrides: {
               [projectId]: {
-                enableAgentBrowserAccess: input.projectOverride,
+                ...(input.projectOverride === undefined
+                  ? {}
+                  : { enableAgentBrowserAccess: input.projectOverride }),
                 ...(input.deviceOverride === undefined
                   ? {}
                   : { enableAgentDeviceAccess: input.deviceOverride }),
@@ -694,7 +705,10 @@ function runBrowserAccessScenario(input: {
       ),
     );
 
-    return (yield* Ref.get(mcpConfigs))[0];
+    const captured = (yield* Ref.get(mcpConfigs))[0];
+    return captured === undefined
+      ? undefined
+      : { ...captured, browserBackends: resolved?.browserBackends };
   });
 }
 
@@ -2024,6 +2038,22 @@ it.effect("ProviderSessionManagerV2 fails browser access closed for a missing th
   }),
 );
 
+it.effect(
+  "keeps Phi-only browser settings when only a device override has an unresolved project",
+  () =>
+    Effect.gen(function* () {
+      const captured = yield* runBrowserAccessScenario({
+        enableAgentBrowserAccess: true,
+        agentBrowserBackends: { enabled: ["phi"], default: "phi" },
+        deviceOverride: true,
+        projectExists: false,
+      });
+      assert.isTrue(captured?.browserToolsAvailable);
+      assert.deepEqual(captured?.browserBackends, { enabled: ["phi"], default: "phi" });
+      assert.isFalse(captured?.capabilities?.has("device"));
+    }),
+);
+
 it.effect("ProviderSessionManagerV2 revokes MCP credentials when release persistence fails", () =>
   Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
@@ -2451,10 +2481,13 @@ it.effect(
 );
 
 it.effect(
-  "ProviderSessionManagerV2 keeps a thread's MCP credential stable across detach and re-attach on a shared session",
+  "ProviderSessionManagerV2 keeps live credentials and browser bindings across settings changes and re-attach",
   () =>
     Effect.gen(function* () {
       const state = yield* Ref.make(emptyState);
+      const settingsLayer = ServerSettings.layerTest({
+        agentBrowserBackends: { enabled: ["phi", "integrated"], default: "phi" },
+      });
       const mcpConfigs = yield* Ref.make<
         ReadonlyArray<McpProviderSession.McpProviderSessionConfig | undefined>
       >([]);
@@ -2485,6 +2518,10 @@ it.effect(
         assert.isDefined(original);
         const originalToken = original?.authorizationHeader.replace(/^Bearer\s+/, "");
         assert.isDefined(originalToken);
+        const settings = yield* ServerSettings.ServerSettingsService;
+        yield* settings.updateSettings({
+          agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
+        });
 
         // Workspace-change handoff on a shared multi-thread session (codex):
         // the thread detaches while the provider process keeps running, and the
@@ -2511,6 +2548,7 @@ it.effect(
           "re-attach must reuse the existing credential, not rotate it",
         );
         assert.equal((yield* registry.resolve(originalToken!))?.thread.threadId, threadId);
+        assert.equal((yield* registry.resolve(originalToken!))?.browserBackends?.default, "phi");
 
         // Releasing the session (provider process gone) still revokes.
         yield* manager.close(providerSessionId);
@@ -2519,11 +2557,15 @@ it.effect(
 
       yield* effect.pipe(
         Effect.provide(
-          layerTest({
-            state,
-            idleTimeoutMs: 1_000,
-            mcpConfigs,
-          }),
+          Layer.mergeAll(
+            layerTest({
+              state,
+              idleTimeoutMs: 1_000,
+              mcpConfigs,
+              serverSettingsLayer: settingsLayer,
+            }),
+            settingsLayer,
+          ),
         ),
       );
     }),

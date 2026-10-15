@@ -189,6 +189,7 @@ it.effect(
       let timestamp = 1000;
       const released: Array<string> = [];
       const phi = PhiBrowser.PhiBrowser.of({
+        availability: () => Effect.succeed("available"),
         hasTab: () => Effect.succeed(false),
         invoke: () => Effect.die("unused"),
         list: () => Effect.succeed([]),

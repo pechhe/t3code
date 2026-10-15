@@ -2,11 +2,13 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
+  PreviewTabId,
   ProviderInstanceId,
   ThreadId,
   type PreviewAutomationStatus,
   type PreviewAutomationSnapshot,
   type PreviewAutomationError,
+  type PreviewError,
 } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
@@ -23,6 +25,7 @@ import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
 import type { McpThreadInvocationScope } from "../mcp/McpInvocationContext.ts";
 import * as PhiBrowser from "./PhiBrowser.ts";
 import * as PhiBrowserRunner from "./PhiBrowserRunner.ts";
+import * as PreviewManager from "./Manager.ts";
 
 const scope: McpThreadInvocationScope = {
   environmentId: EnvironmentId.make("test-environment"),
@@ -49,15 +52,24 @@ const other: McpThreadInvocationScope = {
 interface Fixture {
   readonly browser: PhiBrowser.PhiBrowser["Service"];
   readonly calls: Array<PhiBrowserRunner.PhiBrowserRound>;
-  readonly control: { human: boolean; blockOpen: boolean };
+  readonly control: {
+    human: boolean;
+    blockOpen: boolean;
+    probeError: "missing-skill" | "connection-failed" | undefined;
+  };
   readonly started: Deferred.Deferred<void>;
   readonly journal: Effect.Effect<string>;
+  readonly cleanupStarted: Deferred.Deferred<void>;
+  readonly finishCleanup: Deferred.Deferred<void>;
 }
 
 const isRunnerError = Schema.is(PhiBrowserRunner.PhiBrowserRunnerError);
 
 const withFixture = (
-  use: (fixture: Fixture) => Effect.Effect<unknown, PreviewAutomationError, Scope.Scope>,
+  use: (
+    fixture: Fixture,
+  ) => Effect.Effect<unknown, PreviewAutomationError | PreviewError, Scope.Scope>,
+  options: { readonly blockedRecovery?: boolean } = {},
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -68,17 +80,58 @@ const withFixture = (
         .readFileString(path.join(config.stateDir, "phi-browser-tabs.json"))
         .pipe(Effect.orDie);
       const calls: Array<PhiBrowserRunner.PhiBrowserRound> = [];
-      const control = { human: false, blockOpen: false };
+      const control = {
+        human: false,
+        blockOpen: false,
+        probeError: undefined as "missing-skill" | "connection-failed" | undefined,
+      };
       const started = yield* Deferred.make<void>();
       const never = yield* Deferred.make<void>();
+      const cleanupStarted = yield* Deferred.make<void>();
+      const finishCleanup = yield* Deferred.make<void>();
+      if (options.blockedRecovery) {
+        yield* fs.makeDirectory(config.stateDir, { recursive: true }).pipe(Effect.orDie);
+        yield* fs
+          .writeFileString(
+            path.join(config.stateDir, "phi-browser-tabs.json"),
+            JSON.stringify([
+              {
+                tabId: "phi-retired",
+                environmentId: scope.environmentId,
+                threadId: scope.thread.threadId,
+                sessionId: "retired-session",
+                lane: "shadow",
+                name: "retired-shadow",
+                skillDirectory: "",
+                targetId: "retired-target",
+                windowId: 1,
+                url: "about:blank",
+                title: "",
+              },
+            ]),
+          )
+          .pipe(Effect.orDie);
+      }
       const tabs = new Map<string, { targetId: string; windowId: number }>();
       const runner = PhiBrowserRunner.PhiBrowserRunner.of({
         run: (request) =>
           Effect.gen(function* () {
             calls.push(request);
+            if (request.probe) {
+              if (control.probeError)
+                return yield* new PhiBrowserRunner.PhiBrowserRunnerError({
+                  reason: control.probeError,
+                  cause: undefined,
+                });
+              return { result: {}, context: null };
+            }
             if (request.action.operation === "open") {
               // The real filesystem journal must precede the external allocation.
-              expect(yield* journal).toContain(scope.thread.providerSessionId);
+              expect(yield* journal).toContain(
+                request.context.kind === "agent"
+                  ? '"lane":"agents"'
+                  : scope.thread.providerSessionId,
+              );
               yield* Deferred.succeed(started, undefined);
               if (control.blockOpen) yield* Deferred.await(never);
               const tab = { targetId: `phi-${calls.length}`, windowId: calls.length };
@@ -92,6 +145,10 @@ const withFixture = (
                 cause: "human owns input",
               });
             if (request.action.operation === "close") {
+              if (options.blockedRecovery && request.context.name === "retired-shadow") {
+                yield* Deferred.succeed(cleanupStarted, undefined);
+                yield* Deferred.await(finishCleanup);
+              }
               tabs.delete(request.context.name);
               return { result: {}, context: null };
             }
@@ -134,7 +191,7 @@ const withFixture = (
       });
       yield* Effect.gen(function* () {
         const browser = yield* PhiBrowser.PhiBrowser;
-        yield* use({ browser, calls, control, started, journal });
+        yield* use({ browser, calls, control, started, journal, cleanupStarted, finishCleanup });
       }).pipe(
         Effect.provide(PhiBrowser.layer),
         Effect.provideService(PhiBrowserRunner.PhiBrowserRunner, runner),
@@ -148,6 +205,49 @@ const withFixture = (
     ),
     Effect.provideService(HostProcess.Platform, "darwin"),
   );
+
+it.effect("starts the service while old-resource recovery waits for Phi", () =>
+  withFixture(
+    ({ browser, cleanupStarted, finishCleanup }) =>
+      Effect.gen(function* () {
+        yield* Deferred.await(cleanupStarted);
+        expect(yield* browser.hasTab(PreviewTabId.make("phi-retired"))).toBe(true);
+        yield* Deferred.succeed(finishCleanup, undefined);
+      }),
+    { blockedRecovery: true },
+  ),
+);
+
+it.effect("reports reachable Phi without a tab, caches discovery and probes launches afresh", () =>
+  withFixture(({ browser, calls, control }) =>
+    Effect.gen(function* () {
+      const status = (yield* browser.invoke({
+        scope,
+        operation: "status",
+        input: {},
+      })) as PreviewAutomationStatus;
+      expect(status.connected).toBe(true);
+      expect(status.tabId).toBeNull();
+      expect(yield* browser.list(scope)).toEqual([]);
+      yield* browser.invoke({ scope, operation: "status", input: {} });
+      expect(calls).toHaveLength(1);
+      control.probeError = "missing-skill";
+      expect(yield* browser.availability({ skillDirectory: "", probe: true })).toBe(
+        "skill-missing",
+      );
+      const missing = (yield* browser.invoke({
+        scope,
+        operation: "status",
+        input: {},
+      })) as PreviewAutomationStatus;
+      expect(missing.connected).toBe(false);
+      expect(missing.connectionMessage).toContain("missing");
+      control.probeError = "connection-failed";
+      expect(yield* browser.availability({ skillDirectory: "", probe: true })).toBe("unreachable");
+      expect(calls.every((call) => call.probe)).toBe(true);
+    }),
+  ),
+);
 
 it.effect("journals before allocation and refuses another task's tab", () =>
   withFixture(({ browser, journal }) =>
@@ -216,6 +316,38 @@ it.effect("cleans interrupted allocation by its pre-recorded shadow name", () =>
   ),
 );
 
+it.effect(
+  "releases interrupted Agents allocation custody and records identity before navigation",
+  () =>
+    withFixture(({ browser, control, started, calls }) =>
+      Effect.gen(function* () {
+        control.blockOpen = true;
+        const opening = yield* browser
+          .invoke({
+            scope,
+            operation: "open",
+            input: { phiLane: "agents" },
+          })
+          .pipe(Effect.forkScoped);
+        yield* Deferred.await(started);
+        yield* Fiber.interrupt(opening);
+        expect(calls.map((call) => call.action.operation)).toEqual(["open", "close"]);
+        expect(calls[1]?.allocationUrl).toMatch(/^about:blank#t3-phi-/);
+        expect(yield* browser.list(scope)).toEqual([]);
+        control.blockOpen = false;
+        const opened = (yield* browser.invoke({
+          scope: other,
+          operation: "open",
+          input: { phiLane: "agents", url: "https://example.com" },
+        })) as PreviewAutomationStatus;
+        expect(opened.connected).toBe(true);
+        const navigation = calls.find((call) => call.action.operation === "navigate");
+        expect(navigation?.targetId).toBeTruthy();
+        expect(navigation?.action.url).toBe("https://example.com/");
+      }),
+    ),
+);
+
 it.effect("holds exclusive Agents custody across human handoff and credential revocation", () =>
   withFixture(({ browser, control }) =>
     Effect.gen(function* () {
@@ -263,7 +395,7 @@ it.effect("serves a Phi tab through the production broker boundary", () =>
     Effect.gen(function* () {
       const broker = yield* PreviewAutomationBroker.make.pipe(
         Effect.provideService(PhiBrowser.PhiBrowser, browser),
-        Effect.provide(NodeServices.layer),
+        Effect.provide(PreviewManager.layer.pipe(Layer.provideMerge(NodeServices.layer))),
       );
       const opened = yield* broker.invoke<PreviewAutomationStatus>({
         scope,
@@ -279,7 +411,10 @@ it.effect("serves a Phi tab through the production broker boundary", () =>
       });
       expect(snapshot.title).toBe("Fixture");
       expect(snapshot.screenshot.mimeType).toBe("image/png");
-      yield* broker.invoke({ scope, operation: "close", input: {}, tabId: opened.tabId! });
+      expect((yield* broker.list({ scope })).sessions.map((tab) => tab.tabId)).toContain(
+        opened.tabId,
+      );
+      yield* broker.close({ scope, tabId: opened.tabId! });
       expect(yield* browser.list(scope)).toEqual([]);
     }),
   ),

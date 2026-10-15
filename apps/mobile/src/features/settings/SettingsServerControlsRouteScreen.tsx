@@ -429,7 +429,11 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     <SettingsSwitchRow
                       icon="globe"
                       label="Agent browser access"
-                      subtitle="Allow agents to use the in-app preview browser."
+                      subtitle={
+                        uniform("enableAgentBrowserAccess") === false
+                          ? "Browser tools are disabled. Your browser choices apply when access is enabled."
+                          : "Allow agents to use the enabled browsers when their next session starts."
+                      }
                       value={uniform("enableAgentBrowserAccess")}
                       disabled={disabledFor("enableAgentBrowserAccess")}
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}

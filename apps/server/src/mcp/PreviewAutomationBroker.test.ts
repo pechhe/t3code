@@ -1516,6 +1516,7 @@ it.effect(
         const phiCalls: Array<string> = [];
         const integratedCalls: Array<string> = [];
         const phi = PhiBrowser.PhiBrowser.of({
+          availability: () => Effect.succeed("available"),
           hasTab: (tabId) => Effect.succeed(tabId === phiTab),
           invoke: (request) =>
             Effect.sync(() => {

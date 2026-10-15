@@ -30,6 +30,8 @@ const setup = (
             enterContext: async () => ({ windowId: 7 }),
             currentContext: () => ({ kind: "shadow", windowId: 7 }),
             listTabs: async () => [],
+            listAgentSpaces: async () => [],
+            observe: async () => ({ elements: [] }),
             typeText: async (text: string) => text,
             cliLog: (text: string) => lines.push(text),
           });
@@ -85,7 +87,7 @@ describe("PhiBrowserRunner", () => {
       expect(fixture.calls[0]).toMatchObject({
         command: "node",
         args: fixture.paths,
-        timeout: 1000,
+        timeout: 11000,
         maxOutputBytes: 16 * 1024 * 1024,
       });
     }),
@@ -114,6 +116,36 @@ describe("PhiBrowserRunner", () => {
       const error = yield* fixture.run().pipe(Effect.flip);
       expect(error.reason).toBe("missing-skill");
       expect(fixture.calls).toHaveLength(0);
+    }),
+  );
+
+  it.effect("preserves a human-control refusal as a control error", () =>
+    Effect.gen(function* () {
+      const fixture = setup({
+        stdout: '{"t3Phi":{"result":null,"context":null,"failure":"human-control"}}',
+      });
+      const error = yield* fixture.run().pipe(Effect.flip);
+      expect(error.reason).toBe("human-control");
+      expect(error.message).toContain("hand-back");
+    }),
+  );
+
+  it.effect("allows connection setup in addition to the helper's navigation deadline", () =>
+    Effect.gen(function* () {
+      const fixture = setup({ stdout: '{"t3Phi":{"result":{},"context":null}}' });
+      yield* fixture.run({
+        ...round,
+        action: { operation: "navigate", url: "https://example.com", timeout: 2 },
+      });
+      expect(fixture.calls[0]?.timeout).toBe(12000);
+    }),
+  );
+
+  it.effect("keeps reachability probes within their own watchdog budget", () =>
+    Effect.gen(function* () {
+      const fixture = setup({ execute: true });
+      yield* fixture.run({ ...round, probe: true, timeoutMs: 250 });
+      expect(fixture.calls[0]?.timeout).toBe(250);
     }),
   );
 
@@ -148,20 +180,6 @@ describe("PhiBrowserRunner", () => {
           expect(fixture.paths).toEqual([
             "/test-home/.agents/skills/phi-browser/scripts/runner.mjs",
           ]);
-        }
-      }),
-  );
-
-  it.effect(
-    "bounds click and type by the caller's deadline without extending the round budget",
-    () =>
-      Effect.gen(function* () {
-        for (const operation of ["click", "type"] as const) {
-          const fixture = setup({ stdout: '{"t3Phi":{"result":null,"context":null}}' });
-          yield* fixture.run({ ...round, action: { operation, timeoutMs: 250 } });
-          expect(fixture.calls[0]?.timeout).toBe(250);
-          yield* fixture.run({ ...round, action: { operation, timeoutMs: 2000 } });
-          expect(fixture.calls[1]?.timeout).toBe(1000);
         }
       }),
   );

@@ -137,6 +137,12 @@ work needing your sign-in uses the shared Agents Space and waits when you take c
 control back before asking the agent to resume. If Phi is unavailable, the agent reports that
 failure rather than opening the page in another browser.
 
+Phi's key helper supports ordinary keys and Shift selection, but native Meta shortcuts are
+unavailable. Agents replace text with `preview_type` and `clear=true` instead. Custom click and
+typing deadlines are also unavailable; navigation accepts a deadline.
+Servers with the skill installed elsewhere can set `phiBrowserSkillDirectory` in server settings;
+the default is `~/.agents/skills/phi-browser`. New sessions use the changed directory.
+
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → General** (with the project
 selected to override it there) to **Top level only** to stop at the ones the repository declares
