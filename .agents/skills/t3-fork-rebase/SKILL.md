@@ -1,6 +1,6 @@
 ---
 name: t3-fork-rebase
-description: Merge an upstream T3 Code nightly tag into the fork's `t3peach` branch when `scripts/fork-nightly.sh` could not, then build and stage the app. Run when the fork-nightly webhook starts a thread with a tag, or when asked to update the fork to a nightly.
+description: Merge an upstream T3 Code nightly tag into the fork's `t3peach` branch when `scripts/fork-nightly.sh` could not, then build and install the app. Run when the fork-nightly webhook starts a thread with a tag, or when asked to update the fork to a nightly.
 ---
 
 # Merge an upstream nightly into the fork
@@ -14,5 +14,5 @@ description: Merge an upstream T3 Code nightly tag into the fork's `t3peach` bra
    Stop and ask Henry in this thread, leaving the clone in place, when the sides want different product behaviour, or upstream removed or rewrote a subsystem a fork feature extends, so that keeping the feature means redesigning it.
 3. **Check.** `vp i`, then every command in `slipjay.json`'s `requiredLandingVerification`, then the test files beside every file you resolved. Fix a failure the merge caused, in the merge commit (`git commit --amend --no-edit`, before pushing). When a failure also happens on the bare tag (`git worktree add ../tag <tag>`, `vp i` there and rerun it), note it and leave it. Done when everything you ran passes or is recorded as failing upstream.
 4. **Push.** `git push origin HEAD:t3peach`. A rejected push means something landed meanwhile: `git pull --no-rebase origin t3peach`, rerun step 3 on what changed, and push again. Never force-push or push to any other branch.
-5. **Build.** `rm -f ~/.t3fork/failed-tag && bash ~/.t3fork/repo/scripts/fork-nightly.sh --build-now` in the background (a few minutes; it builds the pushed `t3peach` and also installs the VPS runtime). Done when `~/.t3fork/nightly.log` ends with `staged <version>` or `Installed fork build <version>`; if it logs `another run holds`, the hourly run is busy: rerun when its lock clears. On a failure there, diagnose from the log.
-6. **Report** in this thread: the tag, each conflict and how you resolved it, the checks and results, the pushed commit, and the staged version. If the build is staged, say T3 Code installs it when Henry quits the app. Delete the clone.
+5. **Build and install.** `rm -f ~/.t3fork/failed-tag`, then follow the `t3-fork-install` skill from its Build step: the merge is already on `t3peach`. Done when that skill's install-on-quit job is listed.
+6. **Report** in this thread: the tag, each conflict and how you resolved it, the checks and results, the pushed commit, and the staged version. Delete the clone.
