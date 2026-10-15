@@ -7905,7 +7905,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               </div>
               {deviceComposer && !isComposerApprovalState ? (
                 <DeviceContextBar
-                  usage={settings.contextWindowMeterEnabled ? activeContextWindow : null}
+                  usage={activeContextWindow}
                   modelDisplayName={activeThreadModelDisplayName}
                   compactDisabled={
                     compactDisabled || noProviderAvailable || isSendBusy || isConnecting

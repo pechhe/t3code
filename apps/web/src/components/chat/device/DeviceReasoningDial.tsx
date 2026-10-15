@@ -32,10 +32,16 @@ function shortLabel(option: EffortOption): string {
   return SHORT_LABELS[option.id.toLowerCase()] ?? option.label.toUpperCase();
 }
 
-// Settings fan clockwise, evenly spaced, from nine o'clock (180°) to half past four (405°).
+// Settings sit a detent apart, clockwise, on an arc centred at half past one; a
+// full set spans nine o'clock (180°) to half past four (405°).
+const DETENT_DEGREES = 37.5;
+const ARC_DEGREES = 225;
+const ARC_CENTRE = 180 + ARC_DEGREES / 2;
+
 function clockAngle(index: number, count: number): number {
-  if (count <= 1) return 180;
-  return 180 + (index * 225) / (count - 1);
+  if (count <= 1) return ARC_CENTRE;
+  const step = Math.min(DETENT_DEGREES, ARC_DEGREES / (count - 1));
+  return ARC_CENTRE - (step * (count - 1)) / 2 + index * step;
 }
 
 /**
