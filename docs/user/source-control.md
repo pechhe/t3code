@@ -242,6 +242,33 @@ server, but the host's own site will not show them, and the count reads **viewed
 On mobile, open a changed file and mark it viewed from its header. Viewed files collapse,
 and their marks follow the same rules as on web and desktop.
 
+## Jujutsu and SlipJay projects
+
+In a Jujutsu repository, including one colocated with Git, T3 Code shows the checkout's
+changed files and turn diffs but offers no Git actions such as commit, push, pull, or
+switching branches. Use `jj` for those.
+
+A Jujutsu repository with a `slipjay.json` at its root is a SlipJay project. Every new thread
+in it gets its own SlipJay workspace when you send the first message, so there is no branch or
+worktree to choose. With the project selected, **Settings → Source Control** shows
+**Workspaces: SlipJay workspaces**.
+
+The composer strip shows the thread's workspace and its Issue, then the integration bookmark it
+starts from, how many changes that bookmark has gained since, and how many files the thread
+changed. While the thread's change lands, the strip shows its landing stage instead; select it
+to open the landing log.
+
+To publish a thread's work, choose **Land** in the thread details card. T3 Code runs
+`slipjay land` in the thread's workspace and reports SlipJay's verdict when it finishes.
+
+- Land needs SlipJay on the machine running your T3 Code server, with a runner location:
+  `SLIPJAY_RUNNER` in the server's environment, or `"runner"` in `~/.slipjay/config.json`.
+- A successful land removes the landed workspace unless another process still uses it. The
+  thread's next message gets a fresh workspace.
+- Land is not offered in the project's main checkout, and reads **Landing…** while the
+  thread's change is landing. Mobile shows the workspace, its base and the landing, but has no
+  Land.
+
 ## Troubleshooting
 
 - **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,

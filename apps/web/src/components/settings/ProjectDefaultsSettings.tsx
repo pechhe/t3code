@@ -77,14 +77,19 @@ function WorkspaceProviderRow({
   );
   // No answer yet, or no answer at all, shows nothing.
   if (!status.data) return null;
+  const slipJay = status.data.slipJay !== undefined;
   return (
     <SettingsRow
       id="workspace-provider"
       title="Workspaces"
-      description={`How new worktree threads get their own checkout. A Jujutsu repository with a ${SLIPJAY_PROJECT_FILE_NAME} uses SlipJay.`}
+      description={
+        slipJay
+          ? `Every new thread gets its own SlipJay workspace, as this Jujutsu repository has a ${SLIPJAY_PROJECT_FILE_NAME}.`
+          : `New worktree threads get their own Git worktree. In a Jujutsu repository with a ${SLIPJAY_PROJECT_FILE_NAME}, every new thread gets a SlipJay workspace instead.`
+      }
       control={
         <span className="text-sm text-muted-foreground">
-          {status.data.slipJay !== undefined ? "SlipJay workspaces" : "Git worktrees"}
+          {slipJay ? "SlipJay workspaces" : "Git worktrees"}
         </span>
       }
     />
