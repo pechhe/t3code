@@ -58,6 +58,7 @@ import {
   SettingsSearchTarget,
   SettingsSection,
   useSettingsSearchTargetId,
+  useInSettingsSearchResults,
 } from "./settingsLayout";
 import { searchableSetting, sourceControlHostSettingsSearchId } from "./settingsSearch";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
@@ -272,7 +273,7 @@ function DiscoveryItemRow({
   const auth = isProviderDiscoveryItem(item) ? item.auth : null;
   const authStatus = auth ? authPresentation(auth) : null;
   const authAccount = auth ? optionLabel(auth.account) : null;
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(useInSettingsSearchResults());
   const hasDetails = children !== undefined;
   const searchTargetId = useSettingsSearchTargetId();
 

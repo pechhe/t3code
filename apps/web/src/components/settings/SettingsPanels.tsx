@@ -169,6 +169,7 @@ import {
   SettingsSection,
   useSettingsSearchTarget,
   useSettingsSearchTargetId,
+  useInSettingsSearchResults,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -2057,6 +2058,7 @@ function TypographySection() {
     false,
     Schema.Boolean,
   );
+  const inSearchResults = useInSettingsSearchResults();
   const searchTargetId = useSettingsSearchTargetId();
   // Flip Advanced on once per search jump so the hidden target can mount and
   // scroll; tracking the handled id lets the user turn it back off without
@@ -2083,7 +2085,8 @@ function TypographySection() {
         </label>
       }
     >
-      {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
+      {/* The search view needs the advanced rows mounted to show matches among them. */}
+      {advanced || inSearchResults ? <FontSettingsGroup /> : <SimpleFontRows />}
       <WordWrapRow />
       <InterfaceSoundsRow />
       <SendSoundRow />
@@ -2352,7 +2355,7 @@ const LEGACY_FEATURE_TARGET_IDS: ReadonlySet<string> = new Set([
 function LegacyFeaturesSection() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(useInSettingsSearchResults());
   const searchTargetId = useSettingsSearchTargetId();
   const targetRef = useSettingsSearchTarget<HTMLElement>("legacy-features");
   // Unfold once per search jump; tracking the handled id lets the user fold

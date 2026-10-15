@@ -18,7 +18,11 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
-import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope";
+import {
+  resolveSettingsScope,
+  type ResolvedSettingsScope,
+  type SettingsScopeSearch,
+} from "./settingsScope";
 import {
   ALL_ENVIRONMENTS_VALUE,
   ALL_PROJECTS_VALUE,
@@ -36,6 +40,24 @@ export const SETTINGS_DEVICE_ONLY_PATHS: ReadonlySet<string> = new Set([
   "/settings/connections",
 ]);
 
+/**
+ * Why a page cannot render for the selected scope, or null when it can.
+ * Device-local pages ignore the scope; the project page explains its own
+ * missing selection.
+ */
+export function settingsPageUnavailableMessage(
+  pathname: string,
+  scope: ResolvedSettingsScope,
+  connectedEnvironmentCount: number,
+): string | null {
+  if (SETTINGS_DEVICE_ONLY_PATHS.has(pathname) || pathname === "/settings/projects") return null;
+  if (scope.kind === "unavailable") return scope.message;
+  if (scope.kind === "environment" && connectedEnvironmentCount === 0) {
+    return `Reconnect ${scope.label} to change its settings.`;
+  }
+  return null;
+}
+
 interface SettingsScopeMenuProps {
   readonly value: SettingsScopeSearch;
   readonly groups: readonly SidebarProjectSnapshot[];
@@ -50,9 +72,10 @@ interface SettingsScopeMenuProps {
  * the same project on every environment, so the environment alone decides
  * where a project override is written.
  */
-export function SettingsScopeSentence() {
+export function SettingsScopeSentence({ pathname: pagePathname }: { pathname?: string } = {}) {
   const scope = useOptionalSettingsScope();
-  const pathname = useLocation({ select: (location) => location.pathname });
+  const locationPathname = useLocation({ select: (location) => location.pathname });
+  const pathname = pagePathname ?? locationPathname;
   const { environments } = useEnvironments();
   if (scope === null || SETTINGS_DEVICE_ONLY_PATHS.has(pathname)) return null;
   const props: SettingsScopeMenuProps = {

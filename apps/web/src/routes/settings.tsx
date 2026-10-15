@@ -1,5 +1,5 @@
 import { Outlet, createFileRoute, redirect, useLocation } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { RotateCcwIcon } from "lucide-react";
 import { Button } from "../components/ui/button";
 import { useSettingsRestore } from "../components/settings/SettingsPanels";
@@ -16,8 +16,10 @@ import {
 } from "../components/settings/SettingsScopeContext";
 import { useEnvironments } from "../state/environments";
 import { SettingsScopeNotice } from "../components/settings/SettingsScopeNotice";
-import { SETTINGS_DEVICE_ONLY_PATHS } from "../components/settings/SettingsScopeSentence";
+import { settingsPageUnavailableMessage } from "../components/settings/SettingsScopeSentence";
 import { SettingsPageContainer } from "../components/settings/settingsLayout";
+import { SettingsSearchResults } from "../components/settings/SettingsSearchResults";
+import { useSettingsSearchQuery } from "../components/settings/settingsSearchStore";
 import {
   retainSettingsScope,
   validateSettingsRouteSearch,
@@ -86,34 +88,33 @@ function SettingsScopeBoundary({ pathname, children }: { pathname: string; child
       </SettingsScopeNotice>
     );
   }
-  // Device-local pages ignore the scope entirely; the project page follows
-  // remembered members while a grouping change replaces its URL key.
-  if (SETTINGS_DEVICE_ONLY_PATHS.has(pathname) || pathname === "/settings/projects") {
-    return children;
-  }
-  // Keep the scope sentence on screen so the selection can be changed back.
-  if (scope.kind === "unavailable")
+  // The project page follows remembered members while a grouping change
+  // replaces its URL key; keep the scope sentence on screen elsewhere so the
+  // selection can be changed back.
+  const unavailableMessage = settingsPageUnavailableMessage(
+    pathname,
+    scope,
+    connectedEnvironments.length,
+  );
+  if (unavailableMessage !== null)
     return (
       <SettingsPageContainer>
-        <p className="text-sm text-muted-foreground">{scope.message}</p>
+        <p className="text-sm text-muted-foreground">{unavailableMessage}</p>
       </SettingsPageContainer>
     );
-  if (scope.kind === "environment" && connectedEnvironments.length === 0) {
-    return (
-      <SettingsPageContainer>
-        <p className="text-sm text-muted-foreground">
-          Reconnect {scope.label} to change its settings.
-        </p>
-      </SettingsPageContainer>
-    );
-  }
   return children;
 }
 
 function SettingsContentLayout() {
   const location = useLocation();
   const navigateToMainApp = useNavigateToMainApp();
-  useEscapeToGoBack(navigateToMainApp);
+  const searchQuery = useSettingsSearchQuery((state) => state.query);
+  const setSearchQuery = useSettingsSearchQuery((state) => state.setQuery);
+  const isSearching = searchQuery.trim().length > 0;
+  const clearSearch = useCallback(() => setSearchQuery(""), [setSearchQuery]);
+  useEscapeToGoBack(isSearching ? clearSearch : navigateToMainApp);
+  // A search left behind would greet the next visit to settings.
+  useEffect(() => clearSearch, [clearSearch]);
   const { search, environment } = useSettingsScope();
   const contentScopeKey =
     location.pathname === "/settings/diagnostics" || location.pathname === "/settings/providers"
@@ -138,9 +139,13 @@ function SettingsContentLayout() {
         </WorkspacePageHeader>
 
         <div key={`${contentScopeKey}:${restoreSignal}`} className="min-h-0 flex flex-1 flex-col">
-          <SettingsScopeBoundary pathname={location.pathname}>
-            <Outlet />
-          </SettingsScopeBoundary>
+          {isSearching ? (
+            <SettingsSearchResults query={searchQuery} />
+          ) : (
+            <SettingsScopeBoundary pathname={location.pathname}>
+              <Outlet />
+            </SettingsScopeBoundary>
+          )}
         </div>
       </div>
     </SidebarInset>
@@ -151,10 +156,12 @@ function SettingsRouteLayout() {
   const rawSearch = Route.useSearch();
   const navigate = Route.useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
+  // The search view stacks pages, so only Providers' own block narrows to one environment.
+  const isSearching = useSettingsSearchQuery((state) => state.query.trim().length > 0);
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers"}
+      singleEnvironment={pathname === "/settings/providers" && !isSearching}
       onChange={(next) => {
         // Send every axis so the retain middleware sees an explicit target
         // even when the choice is "all", which is the absence of a key.

@@ -108,6 +108,19 @@ function scrollAndFocusSettingsTarget(target: HTMLElement, highlight = true): vo
   });
 }
 
+const SettingsSearchResultsContext = createContext(false);
+
+/**
+ * Marks settings pages rendered inside the search view, which stacks every page
+ * with a match and hides what does not match. Collapsed groups start open there
+ * so the matches inside them can show.
+ */
+export const SettingsSearchResultsProvider = SettingsSearchResultsContext.Provider;
+
+export function useInSettingsSearchResults(): boolean {
+  return useContext(SettingsSearchResultsContext);
+}
+
 /** The row id a settings-search jump is currently trying to reach, if any. */
 export function useSettingsSearchTargetId(): string | null {
   return useContext(SettingsSearchTargetContext).targetId;
@@ -549,6 +562,7 @@ export function SettingsPageContainer({
   width?: WorkspacePageWidth;
 }) {
   const navigate = useNavigate();
+  const inSearchResults = useInSettingsSearchResults();
   const hash = useLocation({ select: (location) => location.hash });
   const highlightTarget = useLocation({
     select: (location) => location.state.settingsTargetHighlight !== false,
@@ -563,6 +577,15 @@ export function SettingsPageContainer({
       state: { settingsTargetHighlight: true },
     });
   }, [navigate]);
+
+  // The search view owns the scroll and the scope sentence for every page it stacks.
+  if (inSearchResults) {
+    return (
+      <div data-settings-search-filter="" className={cn("flex flex-col gap-8", className)}>
+        {children}
+      </div>
+    );
+  }
 
   return (
     <SettingsSearchTargetProvider

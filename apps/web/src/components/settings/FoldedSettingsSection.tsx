@@ -4,12 +4,17 @@ import { type ReactNode, useState } from "react";
 
 import { cn } from "~/lib/utils";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
-import { useSettingsSearchTarget, useSettingsSearchTargetId } from "./settingsLayout";
+import {
+  useInSettingsSearchResults,
+  useSettingsSearchTarget,
+  useSettingsSearchTargetId,
+} from "./settingsLayout";
 
 /**
  * A grouped settings section that starts closed. The header carries the title,
  * a one line summary of what is set inside, and an optional control such as
- * the section's own switch. A settings search that targets the section opens it.
+ * the section's own switch. A settings search that targets the section opens it,
+ * and the search view opens every fold so the matches inside can show.
  */
 export function FoldedSettingsSection({
   id,
@@ -26,7 +31,7 @@ export function FoldedSettingsSection({
   readonly headerPlacement?: "inside" | "outside";
   readonly children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(useInSettingsSearchResults());
   const searchTargetId = useSettingsSearchTargetId();
   const targetRef = useSettingsSearchTarget<HTMLElement>(id);
   // A search jump lands inside the fold, so open it before the scroll runs.
@@ -70,7 +75,12 @@ export function FoldedSettingsSection({
 
   return (
     <section id={id} ref={targetRef} tabIndex={-1} className="outline-none">
-      <Collapsible open={open} onOpenChange={setOpen} render={<SettingsGroup divided={false} />}>
+      {/* Not a search filter: the fold's header must stay beside a matching row. */}
+      <Collapsible
+        open={open}
+        onOpenChange={setOpen}
+        render={<SettingsGroup divided={false} searchFilter={false} />}
+      >
         <div className="flex items-center gap-4 px-3 sm:px-4">
           <CollapsibleTrigger className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring rounded-md">
             <ChevronRightIcon

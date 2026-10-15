@@ -48,6 +48,7 @@ import {
   type SettingsPath,
   type SettingsSearchItem,
 } from "./settingsSearch";
+import { useSettingsSearchQuery } from "./settingsSearchStore";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
 import { validateSettingsScopeSearch } from "./settingsScope";
 
@@ -120,7 +121,8 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   );
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [query, setQuery] = useState("");
+  const query = useSettingsSearchQuery((state) => state.query);
+  const setQuery = useSettingsSearchQuery((state) => state.setQuery);
   const [activeResultIndex, setActiveResultIndex] = useState(0);
   const searchableItems = useAvailableSettingsSearchItems(scopeSearch);
   const results = useMemo(() => searchSettings(query, searchableItems), [query, searchableItems]);
@@ -147,27 +149,38 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
         (event.metaKey || event.ctrlKey) &&
         !event.altKey &&
         !event.shiftKey;
-      const isSlashShortcut =
-        event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey;
-      if (!isFindShortcut && !isSlashShortcut) return;
+      const isPlainKey = !event.metaKey && !event.ctrlKey && !event.altKey;
+      const isSlashShortcut = event.key === "/" && isPlainKey;
+      // Any other printable key starts a search with that character, so typing
+      // on a settings page searches. Space stays with the focused control.
+      const isTypeToSearch = isPlainKey && event.key.length === 1 && event.key.trim() !== "";
+      if (!isFindShortcut && !isSlashShortcut && !isTypeToSearch) return;
+      if (event.defaultPrevented || event.isComposing) return;
 
       const target = event.target;
       if (
         target instanceof HTMLElement &&
-        ((isSlashShortcut &&
+        ((!isFindShortcut &&
           (target.tagName === "INPUT" ||
             target.tagName === "TEXTAREA" ||
+            target.tagName === "SELECT" ||
             target.isContentEditable)) ||
-          // Preserve dialog and popup focus traps, and let shortcut recorders
-          // capture the keypress without moving focus into the sidebar search.
+          // Preserve dialog and popup focus traps, list typeahead, and let
+          // shortcut recorders capture the keypress without moving focus into
+          // the sidebar search.
           target.closest(
-            '[role="dialog"], [aria-modal="true"], [data-slot$="popup"], [data-keybinding-capture]',
+            '[role="dialog"], [aria-modal="true"], [data-slot$="popup"], [role="listbox"], [role="menu"], [role="combobox"], [data-keybinding-capture]',
           ) !== null)
       ) {
         return;
       }
 
       event.preventDefault();
+      const typedKey = isFindShortcut || isSlashShortcut ? null : event.key;
+      if (typedKey !== null) {
+        setQuery(useSettingsSearchQuery.getState().query + typedKey);
+        setActiveResultIndex(0);
+      }
       if (isMobile) {
         setOpenMobile(true);
       } else if (!open) {
@@ -175,12 +188,13 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
       }
       requestAnimationFrame(() => {
         searchInputRef.current?.focus();
-        searchInputRef.current?.select();
+        // A typed character continues the query; the shortcuts select it for replacing.
+        if (typedKey === null) searchInputRef.current?.select();
       });
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isMobile, open, setOpen, setOpenMobile]);
+  }, [isMobile, open, setOpen, setOpenMobile, setQuery]);
 
   const handleSectionClick = useCallback(
     (to: SettingsPath) => {
@@ -199,7 +213,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const clearSearch = useCallback(() => {
     setQuery("");
     setActiveResultIndex(0);
-  }, []);
+  }, [setQuery]);
   const handleSearchResultClick = useCallback(
     (item: SettingsSearchItem) => {
       clearSearch();

@@ -1605,7 +1605,9 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
 
   // Controlled value/cursor from the store (history recall, chip insertion…).
   useLayoutEffect(() => {
-    if (!editor) return;
+    // A Suspense boundary hidden for a while destroys the editor before this
+    // re-runs on reveal; the replacement editor re-runs it with a live view.
+    if (!editor || editor.isDestroyed) return;
     const initialSelection = !hasAppliedControlledSelectionRef.current;
     hasAppliedControlledSelectionRef.current = true;
     const normalizedCursor = clampEditorCursor(value, cursor);

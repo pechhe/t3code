@@ -116,6 +116,7 @@ import {
   useRelativeTimeTick,
   useSettingsSearchTargetId,
 } from "./settingsLayout";
+import { useSettingsScope } from "./SettingsScopeContext";
 import {
   buildProviderEnvironmentOptions,
   buildProviderInstanceOverridePatch,
@@ -287,6 +288,38 @@ interface ProviderSettingsTarget {
    * scope. The enable toggle writes each one's override so they never diverge.
    */
   readonly projectIds?: readonly ProjectId[];
+}
+
+/**
+ * Providers are machine state, so the page shows one environment at a time:
+ * the chosen one from the settings scope selector.
+ * A project crumb narrows candidates to where that project is registered.
+ */
+export function ScopedProviderSettingsPanel(target: { readonly instanceId?: ProviderInstanceId }) {
+  const { environment, scope } = useSettingsScope();
+  if (!environment) {
+    return (
+      <p className="p-8 text-sm text-muted-foreground">
+        {scope.kind === "environment"
+          ? `Reconnect ${scope.label} to set up its providers.`
+          : "Connect an environment to set up its providers."}
+      </p>
+    );
+  }
+  return (
+    <ProviderSettingsPanel
+      environmentId={environment.environmentId}
+      {...(target.instanceId ? { instanceId: target.instanceId } : {})}
+      projectIds={
+        scope.kind === "project" || scope.kind === "checkout"
+          ? scope.members
+              .filter((member) => member.environmentId === environment.environmentId)
+              .map((member) => member.id)
+          : []
+      }
+      scoped
+    />
+  );
 }
 
 export function ProviderSettingsPanel(target: ProviderSettingsTarget) {
