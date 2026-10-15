@@ -86,3 +86,14 @@ its revision and the seven role names, or the reason the policy is refused.
   coverage. A new reviewer trial names the scopes it compares. A trial created
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.
+
+On **Settings → Agents → Delegation**, runtime behavior is stored in each T3
+server’s settings, separately from the agent-config policy. Children inherit the
+caller’s permission level by default. A configured default is capped at the
+caller’s level; explicit requests above that ceiling are still refused. A change
+applies to new delegations and leaves running children alone.
+
+Idle advisor closing is off by default. Set a period in minutes to close advisors
+whose final result has been delivered and which have no running or queued work.
+The server checks every minute, including after a restart. Closed advisors remain
+readable under Previous agents; start a new advisor for further work.

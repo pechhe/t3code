@@ -1,3 +1,4 @@
+import * as AdvisorIdleCloseReactor from "./orchestration-v2/AdvisorIdleCloseReactor.ts";
 import * as WorkspaceProvider from "./project/WorkspaceProvider.ts";
 import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
@@ -562,6 +563,11 @@ const layerProviderInstallationRefresh = Layer.effectDiscard(
 );
 
 const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* AdvisorIdleCloseReactor.AdvisorIdleCloseReactor).start();
+    }),
+  ).pipe(Layer.provide(AdvisorIdleCloseReactor.layer)),
   ExternalWork.layer.pipe(Layer.provide(ProcessRunner.layer)),
   AgentAwarenessRelay.layer,
   // Asks T3 Connect to deliver webhooks it held while this environment was offline.

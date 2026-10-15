@@ -1533,6 +1533,9 @@ export function threadShellFromProjection(
     ...(projection.thread.followupSourceRevision === undefined
       ? {}
       : { followupSourceRevision: projection.thread.followupSourceRevision }),
+    ...(projection.thread.advisorClosedAt === undefined
+      ? {}
+      : { advisorClosedAt: projection.thread.advisorClosedAt }),
     ...(projection.thread.agentTask === undefined
       ? {}
       : { agentTask: projection.thread.agentTask }),
@@ -1808,6 +1811,9 @@ function shellFromState(input: {
     ...(input.state.thread.followupSourceRevision === undefined
       ? {}
       : { followupSourceRevision: input.state.thread.followupSourceRevision }),
+    ...(input.state.thread.advisorClosedAt === undefined
+      ? {}
+      : { advisorClosedAt: input.state.thread.advisorClosedAt }),
     ...(input.state.thread.agentTask === undefined
       ? {}
       : { agentTask: input.state.thread.agentTask }),

@@ -309,7 +309,9 @@ export function ThreadRelationshipsPanel(props: {
   } = groupBy(relationshipRows, ({ edge, threadId }) => {
     if (edge.kind !== "subagent" || isParentThreadRelationship(edge, props.threadId))
       return "related";
-    if (graph.nodes.get(threadId)?.thread?.agentTask?.role === "advisor") return "advisors";
+    const child = graph.nodes.get(threadId)?.thread;
+    if (child?.advisorClosedAt !== undefined) return "previous";
+    if (child?.agentTask?.role === "advisor") return "advisors";
     return ["completed", "failed", "error", "cancelled", "interrupted", "idle"].includes(
       edge.status ?? "",
     )
@@ -535,9 +537,11 @@ export function ThreadRelationshipsPanel(props: {
                   {agent ? null : (
                     <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                   )}
-                  {agent &&
-                  !failed &&
-                  (deriveSubagentElapsedMs(agent, 0) !== null || canStopWorkflow) ? (
+                  {node?.thread?.advisorClosedAt !== undefined ? (
+                    <span className="shrink-0 text-2xs text-muted-foreground">Closed</span>
+                  ) : agent &&
+                    !failed &&
+                    (deriveSubagentElapsedMs(agent, 0) !== null || canStopWorkflow) ? (
                     <span
                       className={`shrink-0 text-2xs font-normal tabular-nums text-muted-foreground ${canStopWorkflow ? "min-w-6 text-end" : ""} ${trailingVisibilityClass}`}
                     >

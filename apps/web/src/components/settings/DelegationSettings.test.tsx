@@ -5,6 +5,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import * as Schema from "effect/Schema";
 import {
+  DEFAULT_SERVER_SETTINGS,
   AgentPolicyManifest,
   AgentPolicySettingsError,
   EnvironmentId,
@@ -16,13 +17,21 @@ const state = vi.hoisted(() => ({
   data: null as AgentPolicySettings | null,
   save: vi.fn(),
   preview: vi.fn(),
+  runtime: vi.fn(),
   refresh: vi.fn(),
   canEdit: true,
 }));
-vi.mock("@effect/atom-react", () => ({ useAtomValue: () => state.canEdit }));
+vi.mock("@effect/atom-react", () => ({
+  useAtomValue: (atom: { kind?: string }) =>
+    atom.kind === "settings"
+      ? { delegation: { defaultChildRuntimeMode: "inherit", advisorIdleCloseMinutes: null } }
+      : state.canEdit,
+}));
 vi.mock("../../state/server", () => ({
   serverEnvironment: {
     configValueAtom: () => ({}),
+    settingsValueAtom: () => ({ kind: "settings" }),
+    updateSettings: { kind: "runtime", permissionAtom: () => ({}) },
     agentPolicyRead: () => ({}),
     agentPolicySave: { kind: "save", permissionAtom: () => ({}) },
     agentPolicyPreview: { kind: "preview" },
@@ -38,7 +47,11 @@ vi.mock("../../state/query", () => ({
 }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: (command: { kind: string }) =>
-    command.kind === "save" ? state.save : state.preview,
+    command.kind === "save"
+      ? state.save
+      : command.kind === "runtime"
+        ? state.runtime
+        : state.preview,
 }));
 vi.mock("./SettingsScopeContext", () => ({
   useSettingsScope: () => ({
@@ -64,6 +77,9 @@ vi.mock("./settingsLayout", () => ({
       {children}
     </section>
   ),
+}));
+vi.mock("../ui/input", () => ({
+  Input: (props: React.ComponentProps<"input">) => <input {...props} />,
 }));
 vi.mock("../ui/select", () => ({
   Select: ({
@@ -183,6 +199,8 @@ beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.data = fixture();
   state.canEdit = true;
+  state.runtime.mockReset();
+  state.runtime.mockResolvedValue(AsyncResult.success(DEFAULT_SERVER_SETTINGS));
   state.save.mockReset();
   state.preview.mockReset();
   state.refresh.mockReset();
@@ -350,4 +368,31 @@ it("changing a model preserves default and demanding effort when the new model s
     }),
   );
   expect(state.data!.snapshot.manifest.models.sol!.model).toBe("gpt-test");
+});
+
+it("saves runtime behavior to server settings separately from the policy file", async () => {
+  const root = await mount();
+  const mode = root.findAllByType("select").find((node) => node.props.value === "inherit")!;
+  await act(() => mode.props.onChange({ target: { value: "approval-required" } }));
+  const duration = root.findAllByType("input").find((node) => node.props.placeholder === "Off")!;
+  await act(() => duration.props.onChange({ target: { value: "15" } }));
+  await act(() => button("Save runtime settings").props.onClick());
+  expect(state.runtime).toHaveBeenCalledWith({
+    environmentId: "test-env",
+    input: {
+      patch: {
+        delegation: { defaultChildRuntimeMode: "approval-required", advisorIdleCloseMinutes: 15 },
+      },
+    },
+  });
+  expect(state.save).not.toHaveBeenCalled();
+});
+it("rejects invalid timeout and discards runtime edits", async () => {
+  const root = await mount();
+  const duration = root.findAllByType("input").find((node) => node.props.placeholder === "Off")!;
+  await act(() => duration.props.onChange({ target: { value: "0.5" } }));
+  expect(button("Save runtime settings").props.disabled).toBe(true);
+  await act(() => button("Discard runtime changes").props.onClick());
+  expect(duration.props.value).toBe("");
+  expect(state.runtime).not.toHaveBeenCalled();
 });

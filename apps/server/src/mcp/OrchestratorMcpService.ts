@@ -1,3 +1,4 @@
+import { defaultChildMode } from "../agents/delegationRuntime.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertExternalWorkOwner, canReadExternalWork } from "./threadAccess.ts";
 import * as Hex from "effect/encoding/Hex";
@@ -605,7 +606,7 @@ function interactionModeRank(mode: ProviderInteractionMode): number {
 
 /**
  * The mode a new thread runs in: the requested mode, else the parent's, never
- * broader than the parent's. Pass `target` when the thread runs on a known
+ * broader than the parent's. A server default can lower the inherited mode. Pass `target` when the thread runs on a known
  * provider. A provider runs a mode it does not offer as Supervised, so an
  * explicit request for one is refused, and an inherited one steps down to the
  * broadest mode the provider offers.
@@ -614,9 +615,11 @@ export function resolveRuntimeMode(
   parentMode: RuntimeMode,
   requested: OrchestratorMcpRuntimeMode | undefined,
   target?: Pick<ResolvedTarget, "modelSelection" | "supportedRuntimeModes">,
+  defaultMode: OrchestratorMcpRuntimeMode = "inherit",
 ): Effect.Effect<RuntimeMode, OrchestratorMcpFailure> {
   const inherited = requested === undefined || requested === "inherit";
-  const resolved = inherited ? parentMode : requested;
+  const configured = defaultChildMode(parentMode, defaultMode);
+  const resolved = inherited ? configured : requested;
   if (runtimeModeRank(resolved) > runtimeModeRank(parentMode)) {
     return Effect.fail(
       failure(
@@ -2358,6 +2361,11 @@ const make = Effect.gen(function* () {
           const child = yield* threadManagement
             .getThreadRecords(current.childThreadId, ["runs", "messages"])
             .pipe(Effect.mapError(threadManagementFailure));
+          if (child.thread.advisorClosedAt !== undefined)
+            return yield* failure(
+              "invalid_request",
+              "This advisor is closed. Start a new advisor.",
+            );
           const binding = child.thread.agentTask;
           if (binding === undefined || !continuableRoles.has(binding.role))
             return yield* failure(
@@ -2441,7 +2449,7 @@ const make = Effect.gen(function* () {
             )
               return yield* failure(
                 "invalid_request",
-                "The agent is busy, awaiting result publication, or closed.",
+                "The agent is busy, awaiting result publication, or closed. If the advisor is closed, start a new advisor.",
               );
             const providers = yield* Effect.filter(yield* loadProviders, (provider) =>
               threadManagement.isProviderInstanceEnabledForProject({
@@ -2797,6 +2805,11 @@ const make = Effect.gen(function* () {
           parent.thread.runtimeMode,
           input.runtimeMode,
           target,
+          (yield* serverSettings.getSettings.pipe(
+            Effect.mapError(() =>
+              failure("orchestration_error", "Unable to read delegation settings."),
+            ),
+          )).delegation.defaultChildRuntimeMode,
         ).pipe(Effect.tapError((error) => recordExperimentFailure(error.message)));
         const interactionMode = yield* resolveInteractionMode(
           parent.thread.interactionMode,

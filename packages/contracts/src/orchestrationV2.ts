@@ -373,6 +373,8 @@ export const OrchestrationV2RolloverHold = Schema.Union([
 export type OrchestrationV2RolloverHold = typeof OrchestrationV2RolloverHold.Type;
 
 export const OrchestrationV2AppThread = Schema.Struct({
+  advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
+  advisorResultObserved: Schema.optional(Schema.Struct({ runId: RunId, at: Schema.DateTimeUtc })),
   followupSourceRevision: Schema.optional(TrimmedNonEmptyString),
   agentTask: Schema.optional(AgentTaskBinding),
   ...OrchestrationV2CreationFields,
@@ -1958,6 +1960,7 @@ export type OrchestrationV2LatestVisibleMessageSummary =
 
 export const OrchestrationV2ThreadShell = Schema.Struct({
   followupSourceRevision: Schema.optional(TrimmedNonEmptyString),
+  advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
   agentTask: Schema.optional(AgentTaskBinding),
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -2116,6 +2119,10 @@ export type OrchestrationV2StoredEvent = typeof OrchestrationV2StoredEvent.Type;
 
 export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((fields) => ({
   ...fields,
+  advisorClosedAt: Schema.optional(Schema.DateTimeUtcFromString),
+  advisorResultObserved: Schema.optional(
+    Schema.Struct({ runId: RunId, at: Schema.DateTimeUtcFromString }),
+  ),
   createdAt: Schema.DateTimeUtcFromString,
   updatedAt: Schema.DateTimeUtcFromString,
   archivedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
@@ -2536,6 +2543,7 @@ export type OrchestrationV2LatestVisibleMessageSummaryJson =
 
 export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFields((fields) => ({
   ...fields,
+  advisorClosedAt: Schema.optional(Schema.DateTimeUtcFromString),
   latestRunRequestedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   latestRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   latestRunCompletedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
@@ -3218,6 +3226,17 @@ export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
  * send them.
  */
 const OrchestrationV2InternalCommand = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literal("advisor.result.observe"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
+  }),
+  Schema.Struct({
+    type: Schema.Literal("advisor.idle.close"),
+    commandId: CommandId,
+    threadId: ThreadId,
+  }),
   /**
    * Records what a pull request watch saw, and wakes the agent in the same transaction when
    * `wake` is set. Rejected once the watch started at `startedAt` has ended, and a wake is

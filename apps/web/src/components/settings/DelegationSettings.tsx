@@ -10,6 +10,8 @@ import {
   type AgentPolicyPreview,
   type EnvironmentId,
   type ServerProvider,
+  type DelegationRuntimeSettings,
+  type RuntimeMode,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { serverEnvironment } from "../../state/server";
@@ -215,6 +217,7 @@ function EnvironmentDelegation({
       }
     >
       <div className="grid gap-4 p-4">
+        <RuntimeSettings environmentId={environmentId} connected={connected} />
         {!connected ? (
           <p>Reconnect this environment to edit its delegation policy.</p>
         ) : !canEdit ? (
@@ -246,6 +249,128 @@ function EnvironmentDelegation({
     </SettingsSection>
   );
 }
+function RuntimeSettings({
+  environmentId,
+  connected,
+}: {
+  environmentId: EnvironmentId;
+  connected: boolean;
+}) {
+  const settings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
+  const canEdit = useAtomValue(serverEnvironment.updateSettings.permissionAtom(environmentId));
+  if (!settings?.delegation) return null;
+  return (
+    <RuntimeSettingsEditor
+      key={`${environmentId}:${settings.delegation.defaultChildRuntimeMode}:${settings.delegation.advisorIdleCloseMinutes}`}
+      environmentId={environmentId}
+      value={settings.delegation}
+      disabled={!connected || !canEdit}
+    />
+  );
+}
+function RuntimeSettingsEditor({
+  environmentId,
+  value,
+  disabled,
+}: {
+  environmentId: EnvironmentId;
+  value: DelegationRuntimeSettings;
+  disabled: boolean;
+}) {
+  const [mode, setMode] = useState(value.defaultChildRuntimeMode);
+  const [minutes, setMinutes] = useState(value.advisorIdleCloseMinutes?.toString() ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const save = useAtomCommand(serverEnvironment.updateSettings);
+  const duration = minutes.trim() === "" ? null : Number(minutes);
+  const validDuration =
+    duration === null || (Number.isInteger(duration) && duration >= 1 && duration <= 10080);
+  const changed =
+    mode !== value.defaultChildRuntimeMode || duration !== value.advisorIdleCloseMinutes;
+  return (
+    <fieldset disabled={disabled || saving} className="grid gap-3">
+      <legend className="text-sm font-medium">Runtime behavior</legend>
+      <p className="text-xs text-muted-foreground">
+        Stored in this T3 server’s settings. Changes do not alter running children.
+      </p>
+      <Choice
+        label="Default child permissions"
+        value={mode}
+        values={[
+          { value: "inherit", label: "Use caller’s permissions" },
+          { value: "approval-required", label: "Supervised" },
+          { value: "auto-accept-edits", label: "Auto-accept edits" },
+          { value: "auto", label: "Auto" },
+          { value: "full-access", label: "Full access" },
+        ]}
+        onChange={(next) => setMode(next as RuntimeMode | "inherit")}
+      />
+      <p className="text-xs text-muted-foreground">
+        Always capped at the caller’s permissions. A caller can request a lower level; requests
+        above its own level are refused.
+      </p>
+      <label className="grid gap-1 text-sm">
+        Close idle advisors after (minutes)
+        <Input
+          type="number"
+          min={1}
+          max={10080}
+          value={minutes}
+          placeholder="Off"
+          onChange={(event) => setMinutes(event.target.value)}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Leave blank to keep advisors open. Only idle advisors whose result was delivered close,
+        within a minute of the deadline. Closed advisors remain readable in Previous agents; start a
+        new advisor to continue.
+      </p>
+      {!validDuration && (
+        <p role="alert">Enter a whole number from 1 to 10080, or leave blank for off.</p>
+      )}
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <Button
+          size="sm"
+          disabled={!changed || !validDuration}
+          onClick={async () => {
+            setSaving(true);
+            setError(null);
+            const result = await save({
+              environmentId,
+              input: {
+                patch: {
+                  delegation: { defaultChildRuntimeMode: mode, advisorIdleCloseMinutes: duration },
+                },
+              },
+            });
+            setSaving(false);
+            if (result._tag === "Failure") setError(String(squashAtomCommandFailure(result)));
+          }}
+        >
+          Save runtime settings
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost-muted"
+          disabled={!changed}
+          onClick={() => {
+            setMode(value.defaultChildRuntimeMode);
+            setMinutes(value.advisorIdleCloseMinutes?.toString() ?? "");
+            setError(null);
+          }}
+        >
+          Discard runtime changes
+        </Button>
+      </div>
+    </fieldset>
+  );
+}
+
 function PolicyEditor({
   environmentId,
   data,

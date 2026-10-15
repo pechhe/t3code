@@ -197,6 +197,7 @@ export function runOrchestratorV2ProviderReplayScenario<
     // as server startup does after a crash or restart.
     readonly recoverOnStartup?: boolean;
     readonly continueThreadsAfterServerUpdate?: boolean;
+    readonly advisorIdleCloseMinutes?: number | null;
   } = {},
 ): Effect.Effect<
   OrchestratorV2ScenarioResult,
@@ -239,6 +240,7 @@ export function layerProviderReplay<Transcript extends ProviderReplayTranscript,
     // as server startup does after a crash or restart.
     readonly recoverOnStartup?: boolean;
     readonly continueThreadsAfterServerUpdate?: boolean;
+    readonly advisorIdleCloseMinutes?: number | null;
     readonly replayGate?: ProviderReplayGate;
   } = {},
 ): Layer.Layer<
@@ -275,6 +277,7 @@ export function layerWithRegistry<Error>(
     // as server startup does after a crash or restart.
     readonly recoverOnStartup?: boolean;
     readonly continueThreadsAfterServerUpdate?: boolean;
+    readonly advisorIdleCloseMinutes?: number | null;
   } = {},
 ): Layer.Layer<
   | Orchestrator.OrchestratorV2
@@ -303,6 +306,7 @@ export function layerWithRegistry<Error>(
   );
   const layerServerSettings = ServerSettings.layerTest({
     responseStreamingMode: "turn",
+    delegation: { advisorIdleCloseMinutes: options.advisorIdleCloseMinutes ?? null },
     ...(options.continueThreadsAfterServerUpdate === undefined
       ? {}
       : { continueThreadsAfterServerUpdate: options.continueThreadsAfterServerUpdate }),

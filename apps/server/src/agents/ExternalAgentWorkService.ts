@@ -46,12 +46,15 @@ import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
 import { continuableRoles, followupBinding, followupPrompt } from "./followup.ts";
 import { repositoryStore, workspaceOccupants } from "./workspaceIdentity.ts";
+import * as ServerSettings from "../serverSettings.ts";
+import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { managedTaskTitle } from "./taskTitle.ts";
 
 export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWorkError>()(
   "ExternalAgentWorkError",
   {
     reason: Schema.Literals([
+      "advisor-closed",
       "authority",
       "environment",
       "session",
@@ -67,6 +70,7 @@ export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWork
   },
 ) {
   override get message(): string {
+    if (this.reason === "advisor-closed") return "This advisor is closed. Start a new advisor.";
     const refusal = `External agent work refused (${this.reason}).`;
     if (Schema.is(Managed.ManagedAgentError)(this.cause)) return `${refusal} ${this.cause.message}`;
     return this.reason === "source" ? `${refusal} ${Managed.sourceRevisionGuidance}` : refusal;
@@ -130,6 +134,7 @@ type WorkRow = {
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
   const crypto = yield* Crypto.Crypto;
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -293,6 +298,21 @@ const make = Effect.gen(function* () {
           assignment.unitKind === "work" &&
           assignment.unitId === work.binding.workUnitId),
     );
+    if (
+      work.binding.role === "advisor" &&
+      consultationTerminal !== undefined &&
+      !active &&
+      !pending
+    ) {
+      yield* storage(
+        threads.dispatch({
+          type: "advisor.result.observe",
+          commandId: CommandId.make(`advisor-observed:${threadId}:${consultationTerminal.id}`),
+          threadId,
+          runId: consultationTerminal.id,
+        }),
+      );
+    }
     return {
       agentTask: work.binding,
       ...(handoff === undefined ? {} : { handoff }),
@@ -501,6 +521,9 @@ const make = Effect.gen(function* () {
           );
           if (closed.length > 0 || original.row.state !== "accepted")
             return yield* new ExternalAgentWorkError({ reason: "conflict" });
+          const originalThread = yield* storage(threads.getThreadRecords(threadId, []));
+          if (originalThread.thread.advisorClosedAt !== undefined)
+            return yield* new ExternalAgentWorkError({ reason: "advisor-closed" });
           const binding = original.work.binding;
           const ceiling = clientRuntimeModeCeiling(client);
           if (ceiling !== session.ceiling)
@@ -631,9 +654,15 @@ const make = Effect.gen(function* () {
           ceiling !== session.ceiling ||
           (input.runtimeMode !== undefined &&
             input.runtimeMode !== "inherit" &&
-            input.runtimeMode !== ceiling)
+            exceedsCaller(input.runtimeMode, ceiling))
         )
           return yield* new ExternalAgentWorkError({ reason: "authority" });
+        const configuredMode = (yield* storage(serverSettings.getSettings)).delegation
+          .defaultChildRuntimeMode;
+        const runtimeMode =
+          input.runtimeMode === undefined || input.runtimeMode === "inherit"
+            ? defaultChildMode(ceiling, configuredMode)
+            : input.runtimeMode;
         // Request content is hashed below with its full typed wire schema; wait budgets
         // do not change a launch identity.
         const wire = yield* encodeSubmission({
@@ -819,7 +848,7 @@ const make = Effect.gen(function* () {
               projectId: session.projectId,
               title: work.title,
               modelSelection: effective,
-              runtimeMode: ceiling,
+              runtimeMode,
               interactionMode: "default",
               agentTask: binding,
               workspaceStrategy: {

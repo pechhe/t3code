@@ -2538,6 +2538,48 @@ describe("OrchestratorMcpService provider resolution", () => {
   });
 
   describe("resolveRuntimeMode", () => {
+    it.effect(
+      "applies the server default within the caller ceiling and preserves explicit refusals",
+      () =>
+        Effect.gen(function* () {
+          assert.equal(
+            yield* OrchestratorMcpService.resolveRuntimeMode(
+              "full-access",
+              undefined,
+              undefined,
+              "approval-required",
+            ),
+            "approval-required",
+          );
+          assert.equal(
+            yield* OrchestratorMcpService.resolveRuntimeMode(
+              "auto",
+              "inherit",
+              undefined,
+              "full-access",
+            ),
+            "auto",
+          );
+          assert.equal(
+            yield* OrchestratorMcpService.resolveRuntimeMode(
+              "full-access",
+              "auto-accept-edits",
+              undefined,
+              "auto",
+            ),
+            "auto-accept-edits",
+          );
+          assert.equal(
+            (yield* OrchestratorMcpService.resolveRuntimeMode(
+              "approval-required",
+              "full-access",
+              undefined,
+              "approval-required",
+            ).pipe(Effect.flip)).code,
+            "runtime_mode_escalation_denied",
+          );
+        }),
+    );
     // Muse offers only these two, and runs any other mode as Supervised.
     const muse = {
       modelSelection: { instanceId: ProviderInstanceId.make("muse"), model: "muse-model" },

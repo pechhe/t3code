@@ -33,6 +33,7 @@ import * as Launch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as SessionStore from "../auth/SessionStore.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as External from "./ExternalAgentWorkService.ts";
 import * as Managed from "./ManagedAgentService.ts";
 import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
@@ -56,6 +57,7 @@ interface LaunchState {
 }
 
 type FixtureEnvironment =
+  | ServerSettings.ServerSettingsService
   | AuthSessions.AuthSessionRepository
   | External.ExternalAgentWorkService
   | Experiments.ExperimentService
@@ -123,6 +125,10 @@ const makeTestLayer = (
           Ref.get(state),
           (current) =>
             ({
+              thread: {
+                advisorClosedAt: undefined,
+                agentTask: current.calls.find((call) => call.threadId === threadId)?.agentTask,
+              },
               runs: [
                 ...current.calls
                   .filter((call) => call.threadId === threadId)
@@ -158,6 +164,7 @@ const makeTestLayer = (
         ),
       dispatch: (command: Parameters<Threads.ThreadManagementService["Service"]["dispatch"]>[0]) =>
         Effect.gen(function* () {
+          if (command.type === "advisor.result.observe") return;
           const current = yield* Ref.get(state);
           if (current.rejectNextStop !== undefined) {
             yield* Ref.update(state, (value) => ({ ...value, rejectNextStop: undefined }));
@@ -227,6 +234,7 @@ const makeTestLayer = (
   const projectionPersistence = ProjectionStore.layer.pipe(Layer.provideMerge(persistence));
   const persistenceAndAuth = AuthSessions.layer.pipe(Layer.provideMerge(projectionPersistence));
   const dependencies = Layer.mergeAll(
+    ServerSettings.layerTest(),
     processRunner(state),
     persistenceAndAuth,
     sessionStore,
@@ -1361,4 +1369,31 @@ it.effect("refuses continuing an external reviewer", () =>
       ).toBe("authority");
     }),
   ),
+);
+
+it.effect(
+  "applies server child defaults without widening external callers or changing running children",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const client = yield* f.issueSession("client-default-child");
+        const session = yield* f.attach(client);
+        const settings = yield* ServerSettings.ServerSettingsService;
+        yield* settings.updateSettings({
+          delegation: {
+            defaultChildRuntimeMode: "approval-required",
+            advisorIdleCloseMinutes: null,
+          },
+        });
+        const first = yield* f.submit(client, f.submitInput(session));
+        expect((yield* Ref.get(f.state)).calls[0]?.runtimeMode).toBe("approval-required");
+        yield* settings.updateSettings({
+          delegation: { defaultChildRuntimeMode: "inherit", advisorIdleCloseMinutes: null },
+        });
+        expect((yield* Ref.get(f.state)).calls[0]?.runtimeMode).toBe("approval-required");
+        yield* f.submit(client, f.submitInput(session));
+        expect((yield* Ref.get(f.state)).calls).toHaveLength(1);
+        expect(first.childThreadId).toBe((yield* Ref.get(f.state)).calls[0]?.threadId);
+      }),
+    ),
 );

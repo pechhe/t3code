@@ -1150,7 +1150,20 @@ export const ContextRolloverSettings = Schema.Struct({
 });
 export type ContextRolloverSettings = typeof ContextRolloverSettings.Type;
 
+export const DelegationRuntimeSettings = Schema.Struct({
+  defaultChildRuntimeMode: Schema.Union([Schema.Literal("inherit"), RuntimeMode]).pipe(
+    Schema.withDecodingDefault(Effect.succeed("inherit" as const)),
+  ),
+  advisorIdleCloseMinutes: Schema.NullOr(
+    Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 10080 })),
+  ).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+});
+export type DelegationRuntimeSettings = typeof DelegationRuntimeSettings.Type;
+
 export const ServerSettings = Schema.Struct({
+  delegation: DelegationRuntimeSettings.pipe(
+    Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(DelegationRuntimeSettings)({}))),
+  ),
   // Null means no client has migrated this preference yet; an empty value is
   // authoritative so another device cannot resurrect cleared preferences.
   favorites: Schema.NullOr(ModelFavorites).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
@@ -1546,6 +1559,7 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
+  delegation: Schema.optionalKey(DelegationRuntimeSettings),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
   ),

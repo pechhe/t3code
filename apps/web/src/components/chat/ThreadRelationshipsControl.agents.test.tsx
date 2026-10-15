@@ -1328,4 +1328,21 @@ it("keeps managed advisor conversations in their own visible section through fol
   expect(state.navigate).toHaveBeenCalledWith(
     expect.objectContaining({ params: expect.objectContaining({ threadId: "advisor-chat" }) }),
   );
+  state.shells = [
+    {
+      environmentId: "test",
+      source: {
+        ...child,
+        status: "completed",
+        advisorClosedAt: DateTime.makeUnsafe("2026-09-16T13:00:00Z"),
+      },
+    },
+  ];
+  await act(async () => renderer.update(cloneElement(panel)));
+  expect(text()).toContain("Previous agents");
+  expect(text()).not.toContain("Advisors");
+  expect(text()).toContain("Closed");
+  expect(
+    renderer.root.findByProps({ "aria-label": "Open Architecture advice chat" }),
+  ).toBeDefined();
 });

@@ -2206,3 +2206,35 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 });
+
+it.effect("persists delegation runtime settings and preserves existing defaults", () =>
+  Effect.gen(function* () {
+    const service = yield* ServerSettingsModule.ServerSettingsService;
+    const config = yield* ServerConfig.ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    yield* service.start;
+    assert.deepEqual((yield* service.getSettings).delegation, {
+      defaultChildRuntimeMode: "inherit",
+      advisorIdleCloseMinutes: null,
+    });
+    const delegation = {
+      defaultChildRuntimeMode: "approval-required" as const,
+      advisorIdleCloseMinutes: 15,
+    };
+    yield* service.updateSettings({ delegation });
+    const persisted = yield* decodeServerSettingsJson(
+      yield* fs.readFileString(config.settingsPath),
+    );
+    assert.deepEqual(persisted.delegation, delegation);
+    const restored = yield* Effect.gen(function* () {
+      const restarted = yield* ServerSettingsModule.ServerSettingsService;
+      yield* restarted.start;
+      return yield* restarted.getSettings;
+    }).pipe(
+      Effect.provide(
+        Layer.fresh(ServerSettingsModule.layer).pipe(Layer.provide(ServerSecretStore.layer)),
+      ),
+    );
+    assert.deepEqual(restored.delegation, delegation);
+  }).pipe(Effect.provide(layerServerSettings().pipe(Layer.provideMerge(NodeServices.layer)))),
+);
