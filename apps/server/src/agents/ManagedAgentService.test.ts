@@ -7,6 +7,8 @@ import {
   type AgentTaskRequest,
   type ModelSelection,
   type OrchestrationV2AppThread,
+  RunId,
+  ThreadId,
 } from "@t3tools/contracts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ConfigProvider from "effect/ConfigProvider";
@@ -627,7 +629,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
-  it.effect("lets a root-bound lead send a pinned reader to its own SlipJay workspace", () =>
+  it.effect("lets a root-bound lead send pinned readers and isolated writers elsewhere", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
       const store = `${f.root}/repo-store`;
@@ -678,11 +680,41 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect(
         yield* refused({ request: reviewer(allocated), occupants: [{ ...writer, running: true }] }),
       ).toBe("workspace");
-      // An unpinned reader or a writer still needs the thread's own binding.
+      // An unpinned reader or a writer sharing the lead's checkout still needs a binding.
       expect(
         yield* refused({ request: request({ workspacePath: allocated, readOnly: true }) }),
       ).toBe("workspace");
       expect(yield* refused({ request: request({ workspacePath: allocated }) })).toBe("workspace");
+
+      // An isolated writer may use an allocated workspace, with the usual ownership checks.
+      const isolated = (path: string) =>
+        request({ workspacePath: path, workspaceAssignment: "isolated" });
+      const helper = yield* f.prepare({ ...rootBound, request: isolated(allocated) });
+      expect(helper.binding).toMatchObject({
+        workspacePath: allocated,
+        workspaceAssignment: "isolated",
+        sourceAccess: "scoped-write",
+      });
+      yield* f.service
+        .validate({
+          ...f.prepareInput,
+          ...rootBound,
+          binding: helper.binding,
+          selection: helper.binding.effective,
+        })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+      expect(yield* refused({ request: isolated(projectRoot) })).toBe("workspace");
+      expect(yield* refused({ request: isolated(foreign) })).toBe("workspace");
+      // A project registered in a subdirectory still owns the checkout containing it.
+      const subdirectory = `${projectRoot}/apps/web`;
+      yield* f.fs.makeDirectory(subdirectory, { recursive: true });
+      expect(yield* refused({ projectRoot: subdirectory, request: isolated(projectRoot) })).toBe(
+        "workspace",
+      );
+      yield* f.prepare({ ...rootBound, projectRoot: subdirectory, request: isolated(allocated) });
+      expect(
+        yield* refused({ request: isolated(allocated), occupants: [{ ...writer, running: true }] }),
+      ).toBe("workspace");
     }),
   );
 
@@ -763,13 +795,20 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           occupants: [{ ...writer, workId: "work-test" }],
         }),
       ).toBe("workspace");
-      // A workspace another lead holds is theirs, even while nothing runs in it.
+      // Another lead's live thread holds the workspace, reader or writer.
       expect(
         yield* refused({
           request: isolated(helper),
-          occupants: [{ ...writer, owner: "other-lead", running: false }],
+          occupants: [{ ...writer, owner: "other-lead", writes: false }],
         }),
       ).toBe("workspace");
+      // Its idle threads do not: SlipJay may have reassigned the workspace since.
+      yield* f.prepare({
+        workspacePath: lead,
+        owner: "lead-thread",
+        request: isolated(helper),
+        occupants: [{ ...writer, owner: "other-lead", running: false }],
+      });
       // This lead's own finished helper workspace can take its next task.
       yield* f.prepare({
         workspacePath: lead,
@@ -816,18 +855,37 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
-  it.effect("reports the handed-off source only for a finished isolated writer", () =>
+  it.effect("keeps the source a finished isolated writer handed back", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
       const lead = yield* f.prepare();
-      expect(yield* f.service.handoff(lead.binding)).toBeUndefined();
+      const run = (runId: string) => ({
+        threadId: ThreadId.make("helper-thread"),
+        runId: RunId.make(runId),
+      });
+      yield* f.service.recordHandoff(lead.binding, run("run-1"));
+      expect(yield* f.service.handoff(lead.binding, run("run-1"))).toBeUndefined();
       const isolated = { ...lead.binding, workspaceAssignment: "isolated" as const };
-      expect(yield* f.service.handoff(isolated)).toEqual({
+      const finished = {
         workspacePath: f.workspacePath,
         revision: sourceRevision,
         quiescent: true,
+      };
+      yield* f.service.recordHandoff(isolated, run("run-1"));
+      // Later work in the workspace, or a repeated finalisation, does not change the record.
+      workingCopy.output = "later-commit";
+      yield* f.service.recordHandoff(isolated, run("run-1"));
+      expect(yield* f.service.handoff(isolated, run("run-1"))).toEqual(finished);
+      // A run that recorded nothing has no revision; status never reads the live workspace.
+      expect(yield* f.service.handoff(isolated, run("run-0"))).toEqual({
+        workspacePath: f.workspacePath,
+        revision: null,
+        quiescent: false,
       });
-      expect(yield* f.service.handoff({ ...isolated, sourceAccess: "read-only" })).toBeUndefined();
+      workingCopy.output = sourceRevision;
+      expect(
+        yield* f.service.handoff({ ...isolated, sourceAccess: "read-only" }, run("run-1")),
+      ).toBeUndefined();
     }),
   );
 

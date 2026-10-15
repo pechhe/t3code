@@ -299,6 +299,21 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         issuedAt: 1,
       };
       const dispatched: Array<unknown> = [];
+      // Whether each dispatch ran inside the managed workspace lock.
+      const locked: Array<boolean> = [];
+      let holding = 0;
+      const managed = yield* Managed.ManagedAgentService;
+      const counted = Managed.ManagedAgentService.of({
+        ...managed,
+        exclusive: (effect) =>
+          managed.exclusive(
+            Effect.acquireUseRelease(
+              Effect.sync(() => holding++),
+              () => effect,
+              () => Effect.sync(() => holding--),
+            ),
+          ),
+      });
       const transport = Layer.mergeAll(
         Layer.mock(Threads.ThreadManagementService)({
           getThreadRecords: () => Effect.succeed(parent),
@@ -308,6 +323,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           dispatch: (command) =>
             Effect.suspend(() => {
               dispatched.push(command);
+              locked.push(holding > 0);
               // Stop after capture: launching the child is the orchestrator's concern.
               return Effect.fail(new Error("captured") as never);
             }),
@@ -341,6 +357,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
           ),
+          Effect.provideService(Managed.ManagedAgentService, counted),
           Effect.provideService(
             ConfigProvider.ConfigProvider,
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
@@ -368,7 +385,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
           ),
         );
-      return { lead, helper, foreign, base, policyRoot, delegate, roles, dispatched };
+      return { lead, helper, foreign, base, policyRoot, delegate, roles, dispatched, locked };
     });
 
   it.effect(
@@ -580,6 +597,16 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       const read = yield* harness(occupant("read-only"));
       yield* read.delegate(pinnedReview(read.helper));
       expect(read.dispatched).toHaveLength(1);
+      // Both launch under the lock that keeps the occupancy they checked true; work in the
+      // lead's own checkout needs no lock.
+      const free = yield* harness();
+      yield* free.delegate(isolatedTask(free.helper));
+      yield* free.delegate({
+        task: "Implement the exporter",
+        clientRequestId: "lead-exporter",
+        agentTask: request({ workspacePath: free.lead, workId: "exporter" }),
+      });
+      expect([...read.locked, ...free.locked]).toEqual([true, true, false]);
     }),
   );
 });

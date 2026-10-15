@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
@@ -28,13 +29,22 @@ export class RunFinalizationRefreshError extends Schema.TaggedError<RunFinalizat
 
 export class RunFinalizationObserver extends Context.Reference<{
   readonly refreshAfterTurn: (projectId: ProjectId) => Effect.Effect<void>;
+  /** Records what an isolated writer handed back before anything else changes its workspace. */
+  readonly recordHandoff: (input: {
+    readonly threadId: ThreadId;
+    readonly runId: RunId;
+  }) => Effect.Effect<void>;
   readonly refresh: (input: {
     readonly cwd: string;
     readonly threadId: ThreadId;
     readonly runId: RunId;
   }) => Effect.Effect<void, RunFinalizationRefreshError>;
 }>("t3/orchestration-v2/RunFinalizationObserver", {
-  defaultValue: () => ({ refresh: () => Effect.void, refreshAfterTurn: () => Effect.void }),
+  defaultValue: () => ({
+    refresh: () => Effect.void,
+    refreshAfterTurn: () => Effect.void,
+    recordHandoff: () => Effect.void,
+  }),
 }) {}
 
 export class RunFinalizationService extends Context.Service<
@@ -63,6 +73,7 @@ const make = Effect.gen(function* () {
           (cause) => new RunFinalizationError({ ...input, operation: "capture-checkpoint", cause }),
         ),
       );
+    yield* observer.recordHandoff(input);
     const projection = yield* projections
       .getCheckpointContext(input.threadId)
       .pipe(
@@ -94,8 +105,25 @@ export const layerObserver = Layer.effect(
     const vcsStatus = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const managed = yield* ManagedAgent.ManagedAgentService;
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
+      recordHandoff: ({ threadId, runId }) =>
+        Effect.gen(function* () {
+          const thread = yield* projections.getThreadShell(threadId);
+          if (!thread?.agentTask) return;
+          // A run that already gave way to another has nothing left to read.
+          if (thread.activeRunId !== null && thread.activeRunId !== runId) return;
+          yield* managed.recordHandoff(thread.agentTask, { threadId, runId });
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("failed to record a handoff revision after run completion", {
+              threadId,
+              runId,
+              detail: error.message,
+            }),
+          ),
+        ),
       refresh: ({ cwd, threadId, runId }) =>
         Effect.gen(function* () {
           const [, local] = yield* Effect.all(

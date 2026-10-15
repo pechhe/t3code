@@ -18,8 +18,10 @@ import {
   type AgentTaskHandoff,
   type ModelSelection,
   type ProjectId,
+  type RunId,
   type RuntimeMode,
   type ServerProvider,
+  type ThreadId,
   isConsultingRole,
   isReviewerRole,
   readOnlyToolProfile,
@@ -37,7 +39,12 @@ import * as Policy from "./AgentPolicyService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Resolver from "./AgentRoleResolver.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { handoffRevision, repositoryStore } from "./workspaceIdentity.ts";
+import {
+  checkoutRoot,
+  containingRepositoryStore,
+  handoffRevision,
+  repositoryStore,
+} from "./workspaceIdentity.ts";
 
 export const sourceRevisionGuidance =
   "The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: `jj log -r @ --no-graph -T commit_id` in a jj workspace, or `git rev-parse HEAD` in a clean git checkout.";
@@ -62,6 +69,10 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
     return this.reason === "source" ? `${refusal} ${sourceRevisionGuidance}` : refusal;
   }
 }
+/** Only an isolated writer hands back source for the lead to adopt. */
+const handsBack = (binding: AgentTaskBinding) =>
+  binding.workspaceAssignment === "isolated" && binding.sourceAccess === "scoped-write";
+
 /** A thread bound to some workspace; unmanaged threads count as writers. */
 export type WorkspaceOccupant = {
   readonly workspacePath: string;
@@ -121,11 +132,23 @@ export class ManagedAgentService extends Context.Service<
     ) => Effect.Effect<void, ManagedAgentError>;
     /** Whether this environment names a policy, readable or not. */
     readonly configured: () => Effect.Effect<boolean>;
-    /** Serialises isolated workspace checks with the launch they authorise, across routes. */
+    /** Serialises workspace occupancy checks with the launch they authorise, across routes. */
     readonly exclusive: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
-    /** The finished source of an isolated scoped-write task, or none for other tasks. */
+    /**
+     * Records the source an isolated scoped-write task's run hands back as the run ends.
+     * The first record stands, so a repeated finalisation cannot replace it.
+     */
+    readonly recordHandoff: (
+      binding: AgentTaskBinding,
+      run: { readonly threadId: ThreadId; readonly runId: RunId },
+    ) => Effect.Effect<void, ManagedAgentError>;
+    /**
+     * The source an isolated scoped-write task's run handed back, or none for other tasks.
+     * A run that recorded nothing, as one that failed before it started, has no revision.
+     */
     readonly handoff: (
       binding: AgentTaskBinding,
+      run: { readonly threadId: ThreadId; readonly runId: RunId },
     ) => Effect.Effect<AgentTaskHandoff | undefined, ManagedAgentError>;
   }
 >()("t3/agents/ManagedAgentService") {}
@@ -243,16 +266,21 @@ const make = Effect.gen(function* () {
     // source, so it may use any workspace of the lead's repository, including one a
     // root-bound lead allocated for itself. Writers and unpinned readers keep the binding.
     const pinnedReader = !writes && request.sourceRevision !== undefined;
-    // Root-bound conversations need no allocated checkout for read-only work.
+    // A root-bound lead works from the project's main checkout: read-only work may use it,
+    // and an isolated helper may use another workspace of its repository. Only a writer
+    // sharing the lead's own checkout needs a lead bound to an allocated workspace.
     const lead =
       authority.workspacePath ??
-      (!writes && (pinnedReader || assignment === "lead") ? authority.projectRoot : undefined);
+      (assignment === "isolated" || (!writes && (pinnedReader || assignment === "lead"))
+        ? authority.projectRoot
+        : undefined);
     const expected = request.workspacePath;
     if (lead === undefined || !path.isAbsolute(expected))
       return yield* new ManagedAgentError({ reason: "workspace" });
     const sameRepository = Effect.fn("ManagedAgentService.sameRepository")(function* () {
       const [leadStore, childStore] = yield* local(
-        Effect.all([repositoryStore(lead), repositoryStore(expected)]),
+        // The lead's own root may be a project registered in a repository subdirectory.
+        Effect.all([containingRepositoryStore(lead), repositoryStore(expected)]),
       ).pipe(Effect.mapError(workspaceError));
       if (leadStore !== childStore) return yield* new ManagedAgentError({ reason: "workspace" });
     });
@@ -273,16 +301,26 @@ const make = Effect.gen(function* () {
       // repository, or a workspace another thread is already writing in.
       if (expected === lead || expected === authority.projectRoot)
         return yield* new ManagedAgentError({ reason: "workspace" });
+      // A lead or project registered in a subdirectory still owns the checkout containing it.
+      // A root in no resolvable checkout contains none; the repository check below still holds.
+      const owned = yield* local(
+        Effect.forEach(
+          authority.projectRoot === undefined ? [lead] : [lead, authority.projectRoot],
+          (root) => checkoutRoot(root).pipe(Effect.orElseSucceed(() => undefined)),
+        ),
+      );
+      if (owned.includes(expected)) return yield* new ManagedAgentError({ reason: "workspace" });
       yield* sameRepository();
-      // A workspace bound to another lead is theirs even while idle. Under this lead, only
-      // the same attempt may continue beside a live writer; a new attempt waits for it.
+      // Only live work holds a workspace: SlipJay reassigns workspaces whose earlier threads
+      // stay unarchived. Another lead's live thread keeps it; under this lead, only the same
+      // attempt may continue beside a live writer, and a new attempt waits for it.
       if (
         (authority.occupants ?? []).some(
           (occupant) =>
             occupant.workspacePath === expected &&
+            occupant.running &&
             (occupant.owner !== authority.owner ||
-              (occupant.running &&
-                (writes || occupant.writes) &&
+              ((writes || occupant.writes) &&
                 (occupant.workId !== request.workId || occupant.attemptId !== request.attemptId))),
         )
       )
@@ -357,16 +395,31 @@ const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => false),
       ),
     exclusive: (effect) => isolatedLaunches.withPermit(effect),
-    handoff: (binding) =>
-      binding.workspaceAssignment !== "isolated" || binding.sourceAccess !== "scoped-write"
-        ? Effect.succeed(undefined)
-        : local(handoffRevision(binding.workspacePath)).pipe(
-            Effect.map((source) => ({ workspacePath: binding.workspacePath, ...source })),
-            Effect.tapError((cause) =>
-              Effect.logWarning("Unable to read an isolated task's handoff revision.", { cause }),
-            ),
-            Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
-          ),
+    recordHandoff: Effect.fn("ManagedAgentService.recordHandoff")(
+      function* (binding, run) {
+        if (!handsBack(binding)) return;
+        const source = yield* local(handoffRevision(binding.workspacePath));
+        yield* sql`INSERT INTO agent_task_handoffs (thread_id, run_id, revision, quiescent)
+          VALUES (${run.threadId}, ${run.runId}, ${source.revision}, ${source.quiescent ? 1 : 0})
+          ON CONFLICT DO NOTHING`;
+      },
+      Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
+    ),
+    handoff: Effect.fn("ManagedAgentService.handoff")(
+      function* (binding, run) {
+        if (!handsBack(binding)) return undefined;
+        const [row] = yield* sql<{
+          revision: string | null;
+          quiescent: number;
+        }>`SELECT revision, quiescent FROM agent_task_handoffs WHERE thread_id = ${run.threadId} AND run_id = ${run.runId}`;
+        return {
+          workspacePath: binding.workspacePath,
+          revision: row?.revision ?? null,
+          quiescent: row?.quiescent === 1,
+        };
+      },
+      Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
+    ),
     snapshot: () =>
       currentPolicy.pipe(
         Effect.tap((snapshot) =>

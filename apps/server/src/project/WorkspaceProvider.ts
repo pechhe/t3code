@@ -8,7 +8,7 @@ import * as Schema from "effect/Schema";
 import * as ProcessRunner from "../processRunner.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { type GitCommandError, type VcsRemoveWorktreeInput } from "@t3tools/contracts";
-import { repositoryStore } from "../agents/workspaceIdentity.ts";
+import { containingRepositoryStore, repositoryStore } from "../agents/workspaceIdentity.ts";
 import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
 
 /**
@@ -142,14 +142,15 @@ export const make = Effect.gen(function* () {
   const contains: WorkspaceProvider["Service"]["contains"] = Effect.fn(
     "WorkspaceProvider.contains",
   )(function* (projectRoot, workspacePath) {
-    const store = (root: string) =>
-      repositoryStore(root).pipe(
+    const store = (root: string, lookup = repositoryStore) =>
+      lookup(root).pipe(
         Effect.provideService(FileSystem.FileSystem, fs),
         Effect.provideService(Path.Path, path),
         Effect.provideService(ProcessRunner.ProcessRunner, processes),
         Effect.orElseSucceed((): string | null => null),
       );
-    const project = yield* store(projectRoot);
+    // A project may be registered in a subdirectory of its checkout.
+    const project = yield* store(projectRoot, containingRepositoryStore);
     if (project !== null && (yield* store(workspacePath)) === project) return true;
     // Colocated JJ projects also have linked Git worktrees with Git identity.
     const real = (root: string) => fs.realPath(root).pipe(Effect.orElseSucceed(() => root));

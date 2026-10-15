@@ -46,7 +46,11 @@ import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
 import { continuableRoles, followupBinding, followupPrompt } from "./followup.ts";
-import { repositoryStore, workspaceOccupants } from "./workspaceIdentity.ts";
+import {
+  containingRepositoryStore,
+  repositoryStore,
+  workspaceOccupants,
+} from "./workspaceIdentity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
 import { managedTaskTitle } from "./taskTitle.ts";
@@ -282,15 +286,21 @@ const make = Effect.gen(function* () {
             : row.state === "launch-unknown" || row.state === "refused"
               ? "failed"
               : "queued";
+    const handoffRun = consultationTerminal ?? terminal;
     const handoff =
-      active === undefined && !pending && terminalStatus !== null
-        ? yield* managed.handoff(work.binding).pipe(
-            Effect.orElseSucceed(() => ({
-              workspacePath: work.binding.workspacePath,
-              revision: null,
-              quiescent: false,
-            })),
-          )
+      active === undefined && !pending && handoffRun !== undefined
+        ? yield* managed
+            .handoff(work.binding, {
+              threadId,
+              runId: handoffRun.id,
+            })
+            .pipe(
+              Effect.orElseSucceed(() => ({
+                workspacePath: work.binding.workspacePath,
+                revision: null,
+                quiescent: false,
+              })),
+            )
         : undefined;
     const assignments = (yield* storage(experiments.assignments({}))).filter(
       (assignment) =>
@@ -440,7 +450,7 @@ const make = Effect.gen(function* () {
         if (!path.isAbsolute(input.workspacePath) || canonical !== input.workspacePath)
           return yield* new ExternalAgentWorkError({ reason: "workspace" });
         const stores = yield* Effect.all([
-          repositoryStore(project.value.workspaceRoot),
+          containingRepositoryStore(project.value.workspaceRoot),
           repositoryStore(canonical),
         ]).pipe(
           Effect.provideService(FileSystem.FileSystem, fs),
@@ -852,8 +862,8 @@ const make = Effect.gen(function* () {
               threadId,
             }),
           );
-        // Validation and launch hold the isolated-workspace lock together, so the occupancy
-        // they checked is still true when the child thread appears.
+        // Validation and launch hold the workspace lock together, so the occupancy they
+        // checked is still true when the child thread appears.
         const attempt = Effect.gen(function* () {
           const validated = yield* Effect.result(
             managed.validate({
@@ -893,9 +903,10 @@ const make = Effect.gen(function* () {
           );
           return { validated, launched };
         });
-        const { validated, launched } = yield* work.binding.workspaceAssignment === "isolated"
-          ? managed.exclusive(attempt)
-          : attempt;
+        const elsewhere =
+          work.binding.workspaceAssignment === "isolated" ||
+          work.binding.sourceRevision !== undefined;
+        const { validated, launched } = yield* elsewhere ? managed.exclusive(attempt) : attempt;
         if (validated._tag === "Failure") {
           // The refused child fails its own task assignment, not the work unit's.
           for (const assignment of taskAssignments)

@@ -42,6 +42,39 @@ export const repositoryStore = Effect.fn("workspaceIdentity.repositoryStore")(fu
 });
 
 /**
+ * The workspace root of the checkout containing `directory`, which may be a subdirectory
+ * of it, as a project's registered root can be.
+ */
+export const checkoutRoot = Effect.fn("workspaceIdentity.checkoutRoot")(function* (
+  directory: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const processes = yield* ProcessRunner.ProcessRunner;
+  const real = yield* fs.realPath(directory);
+  for (let root = real; ; root = path.dirname(root)) {
+    if (yield* fs.exists(path.join(root, ".jj"))) return root;
+    if (path.dirname(root) === root) break;
+  }
+  const top = yield* processes.run({
+    command: "git",
+    args: ["rev-parse", "--show-toplevel"],
+    cwd: real,
+    timeout: "10 seconds",
+    maxOutputBytes: 4096,
+  });
+  if (top.code !== 0) return yield* new WorkspaceIdentityError();
+  return yield* fs.realPath(top.stdout.trim());
+});
+
+/** The repository store of the checkout containing `directory`. */
+export const containingRepositoryStore = Effect.fn("workspaceIdentity.containingRepositoryStore")(
+  function* (directory: string) {
+    return yield* repositoryStore(yield* checkoutRoot(directory));
+  },
+);
+
+/**
  * The finished revision a writer hands back. jj reports the working-copy commit, or its
  * parent when the working copy is empty; git reports HEAD and whether the tree is clean.
  */

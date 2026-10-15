@@ -1588,16 +1588,22 @@ const make = Effect.gen(function* () {
         binding === undefined || !isTerminalTaskStatus(status) || workState !== "result_available"
           ? Option.none()
           : yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+      const handoffRun = taskResultRun ?? childRun;
       const handoff =
-        binding === undefined || Option.isNone(managed)
+        binding === undefined || Option.isNone(managed) || handoffRun === undefined
           ? undefined
-          : yield* managed.value.handoff(binding).pipe(
-              Effect.orElseSucceed(() => ({
-                workspacePath: binding.workspacePath,
-                revision: null,
-                quiescent: false,
-              })),
-            );
+          : yield* managed.value
+              .handoff(binding, {
+                threadId: task.childThreadId,
+                runId: handoffRun.id,
+              })
+              .pipe(
+                Effect.orElseSucceed(() => ({
+                  workspacePath: binding.workspacePath,
+                  revision: null,
+                  quiescent: false,
+                })),
+              );
       const response = {
         ...(binding === undefined ? {} : { agentTask: binding }),
         ...(handoff === undefined ? {} : { handoff }),
@@ -2976,7 +2982,9 @@ const make = Effect.gen(function* () {
               ),
             );
         });
-        const result = yield* isolated && managedService !== undefined
+        // Isolated writers and pinned readers elsewhere share one lock, so neither can launch
+        // into a workspace the other has just claimed.
+        const result = yield* elsewhere && managedService !== undefined
           ? managedService.exclusive(launch)
           : launch;
         if (workUnit !== undefined)

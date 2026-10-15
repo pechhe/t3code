@@ -251,6 +251,8 @@ const makeTestLayer = (
 
 const withFixture = <A, E>(
   use: (fixture: ReturnType<typeof buildFixture>) => Effect.Effect<A, E, FixtureEnvironment>,
+  /** Register the project at this subdirectory of its checkout instead of the checkout root. */
+  projectSubdirectory?: string,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -302,8 +304,11 @@ const withFixture = <A, E>(
         watcherStarted,
         stopped,
       });
+      const registeredRoot =
+        projectSubdirectory === undefined ? projectRoot : `${projectRoot}/${projectSubdirectory}`;
+      yield* fs.makeDirectory(registeredRoot, { recursive: true });
       return yield* use(fixture).pipe(
-        Effect.provide(makeTestLayer(state, projectRoot, invalidation, watcherStarted, stopped)),
+        Effect.provide(makeTestLayer(state, registeredRoot, invalidation, watcherStarted, stopped)),
         Effect.provideService(
           ConfigProvider.ConfigProvider,
           ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
@@ -499,6 +504,21 @@ function buildFixture(input: {
     startModelExperiment,
   };
 }
+
+it.effect("attaches for a project registered in a subdirectory of its repository", () =>
+  withFixture(
+    (f) =>
+      Effect.gen(function* () {
+        const client = yield* f.issueSession("client-subdirectory");
+        yield* f.attach(client);
+        const foreign = yield* f
+          .attach(client, f.attachInput(f.foreignWorkspace))
+          .pipe(Effect.flip);
+        expect(foreign.reason).toBe("workspace");
+      }),
+    "apps/web",
+  ),
+);
 
 it.effect("requires the explicit host/environment identity", () =>
   withFixture((f) =>
@@ -1212,11 +1232,21 @@ it.effect("runs an isolated helper under the same lead session and hands back it
         activeThreads: new Set<string>(),
         completedThreads: new Set([String(finished.childThreadId)]),
       }));
-      expect((yield* f.status(client, finished.taskId)).handoff).toEqual({
+      // The run records what it hands back as it settles, as run execution does.
+      const settled = yield* f.status(client, finished.taskId);
+      yield* (yield* Managed.ManagedAgentService).recordHandoff(settled.agentTask!, {
+        threadId: settled.childThreadId,
+        runId: settled.latestTerminalRunId!,
+      });
+      const handedBack = {
         workspacePath: second,
         revision: "fixture-source-revision",
         quiescent: true,
-      });
+      };
+      expect((yield* f.status(client, finished.taskId)).handoff).toEqual(handedBack);
+      // Later work in the workspace does not change what the finished helper handed back.
+      yield* Ref.update(f.state, (current) => ({ ...current, sourceRevision: "later-revision" }));
+      expect((yield* f.status(client, finished.taskId)).handoff).toEqual(handedBack);
     }),
   ),
 );

@@ -642,6 +642,12 @@ export const layer: Layer.Layer<
           }
           return;
         }
+        // Read what an isolated writer hands back while its workspace is still as the run left
+        // it, whatever the outcome; a failed run has no later finalisation to record it.
+        yield* finalizationObserver.recordHandoff({
+          threadId: input.run.threadId,
+          runId: input.run.id,
+        });
         const allocateEventId = () => idAllocator.allocate.event({ threadId: input.run.threadId });
         const open = input.openRunOwnedSubagents ?? emptyOpenRunOwnedSubagentProjection();
         const hasOpenSubagentProjection =
