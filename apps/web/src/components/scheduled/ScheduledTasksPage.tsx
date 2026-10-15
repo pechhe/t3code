@@ -45,6 +45,8 @@ import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
 import { useRelativeTimeTick } from "../settings/settingsLayout";
+import { ProjectChip } from "../ProjectChip";
+import { cn } from "~/lib/utils";
 import {
   WebhookDeliveriesDialog,
   WebhookEndpointField,
@@ -118,24 +120,35 @@ const modelLabel = (selection: ModelSelection) => {
   return `${formatModelSlugName(selection.model)}${typeof effort === "string" ? ` · ${effort}` : ""}`;
 };
 
-/** Projects across connected machines, one entry per repository. */
-function useProjectChoices(): ReadonlyArray<ProjectChoice> {
+/** Projects across connected machines, one entry per repository, with a record for its chip. */
+function useProjectChoices(): ReadonlyArray<
+  ProjectChoice & { readonly project: ReturnType<typeof useProjects>[number] }
+> {
   const projects = useProjects();
   const grouping = useClientSettings(selectProjectGroupingSettings);
   return useMemo(() => {
     const byKey = new Map<
       string,
-      { title: string; ids: Map<EnvironmentId, (typeof projects)[number]["id"]> }
+      {
+        title: string;
+        project: (typeof projects)[number];
+        ids: Map<EnvironmentId, (typeof projects)[number]["id"]>;
+      }
     >();
     for (const project of projects) {
       if (project.isScratch) continue;
       const key = deriveLogicalProjectKeyFromSettings(project, grouping);
-      const entry = byKey.get(key) ?? { title: project.title, ids: new Map() };
+      const entry = byKey.get(key) ?? { title: project.title, project, ids: new Map() };
       entry.ids.set(project.environmentId, project.id);
       byKey.set(key, entry);
     }
     return [...byKey.entries()]
-      .map(([key, entry]) => ({ key, title: entry.title, projectIdByEnvironment: entry.ids }))
+      .map(([key, entry]) => ({
+        key,
+        title: entry.title,
+        project: entry.project,
+        projectIdByEnvironment: entry.ids,
+      }))
       .toSorted((a, b) => a.title.localeCompare(b.title));
   }, [projects, grouping]);
 }
@@ -631,24 +644,32 @@ function TaskDetail(props: {
         ))}
       </ChipRow>
       <ChipRow label="In">
-        {projectChoices.map((choice) => (
-          <Toggle
-            key={choice.key}
-            size="sm"
-            variant="outline"
-            disabled={bound}
-            pressed={draft.projectKeys.includes(choice.key)}
-            onPressedChange={(pressed) =>
-              update({
-                projectKeys: pressed
-                  ? [...draft.projectKeys, choice.key]
-                  : draft.projectKeys.filter((key) => key !== choice.key),
-              })
-            }
-          >
-            {choice.title}
-          </Toggle>
-        ))}
+        {projectChoices.map((choice) => {
+          const pressed = draft.projectKeys.includes(choice.key);
+          return (
+            <ProjectChip
+              key={choice.key}
+              project={choice.project}
+              label={choice.title}
+              selected={pressed}
+              className={cn("h-7 px-2 text-xs", !pressed && "opacity-55")}
+              render={
+                <button
+                  type="button"
+                  aria-pressed={pressed}
+                  disabled={bound}
+                  onClick={() =>
+                    update({
+                      projectKeys: pressed
+                        ? draft.projectKeys.filter((key) => key !== choice.key)
+                        : [...draft.projectKeys, choice.key],
+                    })
+                  }
+                />
+              }
+            />
+          );
+        })}
       </ChipRow>
       {plan.skipped.length > 0 ? (
         <p className="text-muted-foreground text-xs">
@@ -757,12 +778,13 @@ function TaskDetail(props: {
               className="flex flex-wrap items-center gap-2 text-xs"
             >
               <span className="font-medium">{machineLabel(member.environmentId)}</span>
-              <span className="text-muted-foreground">
-                {projectLabel(
-                  projectKeyOf(member.environmentId, member.task.projectId) ??
-                    member.task.projectId,
+              <RunProjectLabel
+                choice={projectChoices.find(
+                  (choice) =>
+                    choice.key === projectKeyOf(member.environmentId, member.task.projectId),
                 )}
-              </span>
+                fallback={member.task.projectId}
+              />
               <span className="text-muted-foreground">
                 {modelLabel(member.task.modelSelection)}
               </span>
@@ -833,6 +855,17 @@ function TaskDetail(props: {
             ))
         : null}
     </fieldset>
+  );
+}
+
+function RunProjectLabel(props: {
+  readonly choice: ReturnType<typeof useProjectChoices>[number] | undefined;
+  readonly fallback: string;
+}) {
+  return props.choice ? (
+    <ProjectChip project={props.choice.project} label={props.choice.title} />
+  ) : (
+    <span className="text-muted-foreground">{props.fallback}</span>
   );
 }
 

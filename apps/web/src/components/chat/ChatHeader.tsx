@@ -29,7 +29,7 @@ import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
-import { ProjectFavicon } from "../ProjectFavicon";
+import { ProjectChip } from "../ProjectChip";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -319,19 +319,20 @@ export const ChatHeader = memo(function ChatHeader({
               <Tooltip>
                 <TooltipTrigger
                   render={
-                    <button
-                      type="button"
-                      aria-label={`New thread in ${activeProjectName}`}
-                      onClick={onNewThreadInProject}
-                      className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    <ProjectChip
+                      project={activeProject}
+                      label={activeProjectName}
+                      className="max-w-48"
+                      render={
+                        <button
+                          type="button"
+                          aria-label={`New thread in ${activeProjectName}`}
+                          onClick={onNewThreadInProject}
+                        />
+                      }
                     />
                   }
-                >
-                  <ProjectFavicon project={activeProject} className="size-3.5" />
-                  <WorkspaceBreadcrumbText className="max-w-40">
-                    {activeProjectName}
-                  </WorkspaceBreadcrumbText>
-                </TooltipTrigger>
+                />
                 <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
               </Tooltip>
             </WorkspaceBreadcrumbItem>

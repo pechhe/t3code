@@ -216,7 +216,6 @@ import {
   resolveSidebarThreadStatus,
   resolveThreadLastVisitedAt,
   searchSidebarThreads,
-  shouldCreateNewThreadInCurrentProject,
   shouldNavigateAfterThreadPark,
   shouldRecedeSidebarThread,
   resolveWorkingStartedAt,
@@ -257,6 +256,7 @@ import {
   ThreadSearchPullRequestNumber,
 } from "./ThreadStatusIndicators";
 import { resolveSnoozePresets, snoozeWakeLabel, type SnoozePreset } from "./Sidebar.snooze";
+import { ProjectChip } from "./ProjectChip";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -486,8 +486,11 @@ function SidebarThreadTooltip({
       >
         {projectDisplayName ? (
           <div className="flex min-w-0 items-center gap-2">
-            {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
-            <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
+            {project ? (
+              <ProjectChip project={project} label={projectDisplayName} />
+            ) : (
+              <div className="min-w-0 truncate text-foreground/75">{projectDisplayName}</div>
+            )}
           </div>
         ) : null}
         {environmentLabel ? (
@@ -927,11 +930,13 @@ const SidebarDraftRow = memo(function SidebarDraftRow(props: {
           <div className="flex h-5 min-w-0 items-center gap-1.5">
             <SquarePenIcon aria-hidden className={draftPenClassName} />
             {props.project ? (
-              <ProjectFavicon project={props.project} className="size-4 shrink-0" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-secondary-label">
-              {props.projectDisplayName}
-            </span>
+              <ProjectChip project={props.project} label={props.projectDisplayName ?? undefined} />
+            ) : (
+              <span className="min-w-0 truncate text-xs font-medium text-secondary-label">
+                {props.projectDisplayName}
+              </span>
+            )}
+            <span className="flex-1" />
             <span className="ml-auto flex h-5 min-w-5 shrink-0 items-center justify-end">
               <Tooltip>
                 <TooltipTrigger
@@ -1992,21 +1997,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
           <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
-              {props.project ? (
-                <ProjectFavicon project={props.project} className="size-4 shrink-0" />
-              ) : null}
-              {props.projectDisplayName ? (
-                <span
-                  className={cn(
-                    "min-w-0 flex-1 truncate text-secondary-label text-xs",
-                    shouldRecede ? "font-normal" : "font-medium",
-                  )}
-                >
+              {props.project && props.projectDisplayName ? (
+                <ProjectChip
+                  project={props.project}
+                  label={props.projectDisplayName}
+                  className={cn(shouldRecede && "opacity-70")}
+                />
+              ) : props.projectDisplayName ? (
+                <span className="min-w-0 truncate text-secondary-label text-xs">
                   {props.projectDisplayName}
                 </span>
-              ) : (
-                <span className="flex-1" />
-              )}
+              ) : null}
+              <span className="flex-1" />
               {pinIndicator}
               {/* The visible state owns this slot's width: status at rest,
                   actions on hover/keyboard focus or while the popover is open. Keeping
@@ -4943,43 +4945,21 @@ export default function Sidebar() {
     updateThreadJumpHintsVisibility(shouldShowJumpHintsNow);
   }, [shouldShowJumpHintsNow, updateThreadJumpHintsVisibility]);
 
-  // New thread defaults to the project you're in (active thread's project,
-  // falling back to the top project) — same resolution the command palette
-  // uses. The command palette already offers a "New thread in..." submenu
-  // for multi-project setups.
-  const handleNewThreadClick = useCallback(
-    (event?: ReactMouseEvent) => {
-      // One project: nothing to pick, create immediately. Shift+click creates
-      // directly in the current project even with several projects, skipping
-      // the palette picker.
-      if (shouldCreateNewThreadInCurrentProject(event?.shiftKey ?? false, projectGroups.length)) {
-        if (isMobile) setOpenMobile(false);
-        void startNewThreadFromContext({
-          activeDraftThread: newThreadContext.activeDraftThread,
-          activeThread: newThreadContext.activeThread ?? undefined,
-          defaultProjectRef: newThreadContext.defaultProjectRef,
-          handleNewThread: newThreadContext.handleNewThread,
-        });
-        return;
-      }
-      if (isMobile) setOpenMobile(false);
-      openCommandPalette({ open: "new-thread-in" });
-    },
-    [isMobile, newThreadContext, projectGroups.length, setOpenMobile],
-  );
+  // New thread opens the new-thread screen in the project you're in (the active
+  // thread's project, else the top one); its project chips switch from there.
+  const handleNewThreadClick = useCallback(() => {
+    if (isMobile) setOpenMobile(false);
+    void startNewThreadFromContext({
+      activeDraftThread: newThreadContext.activeDraftThread,
+      activeThread: newThreadContext.activeThread ?? undefined,
+      defaultProjectRef: newThreadContext.defaultProjectRef,
+      handleNewThread: newThreadContext.handleNewThread,
+    });
+  }, [isMobile, newThreadContext, setOpenMobile]);
 
-  // The button mirrors chat.new: in multi-project setups both route through
-  // the command palette's "New thread in..." picker, and in single-project
-  // setups both create immediately. In multi-project setups the label is only
-  // the picker's shortcut: falling back to chat.newLocal would advertise the
-  // same shortcut for both the picker and direct create. In single-project
-  // setups both commands create directly, so chat.newLocal is a valid
-  // fallback. The second tooltip line (multi-project only) advertises
-  // shift+click and its keyboard twin chat.newLocal for direct create.
   const newThreadShortcutLabel =
     shortcutLabelForCommand(keybindings, "chat.new") ??
-    (projectGroups.length <= 1 ? shortcutLabelForCommand(keybindings, "chat.newLocal") : undefined);
-  const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
+    shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <>
       <ThreadContextDragGhost />
@@ -5129,8 +5109,6 @@ export default function Sidebar() {
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
-              newThreadInProjectShortcutLabel={newThreadInProjectShortcutLabel}
-              showNewThreadInProjectHint={projectGroups.length > 1}
               searchInputRef={threadSearchInputRef}
               searchQuery={threadSearchQuery}
               onSearchQueryChange={(value) => {

@@ -10,18 +10,19 @@ and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
 an existing worktree, use **New thread in this worktree** from the branch toolbar.
 
+Every way to start a thread, including the sidebar button and `mod+n`, opens the
+new-thread screen in your current project. Pick another project from the chips
+under the question. With a chip focused, type a project's name to jump to it.
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start without a project
 
-A thread does not need a project. To start one without a project, click **or
-start without a project** under a new thread's heading, pick **No project** from
-the project menu in that heading or from **New thread in...** in the command
-palette, or press `mod+alt+n`. On mobile, pick **No project** from the project
+A thread does not need a project. To start one without a project, pick the
+**No project** chip on the new-thread screen, or press `mod+alt+n`. On mobile, pick **No project** from the project
 list. It starts on your current machine; before sending, pick another machine
-from the machine menu to move it there. To move a draft into a project, pick the
-project in the heading.
+from the machine menu to move it there. To move a draft into a project, pick its
+chip.
 
 Each thread without a project works in its own folder under `~/.t3/scratch` (the
 `scratch` folder of your T3 data directory), named after its date, the first words
