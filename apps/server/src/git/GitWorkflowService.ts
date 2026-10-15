@@ -31,6 +31,7 @@ import {
 import * as GitManager from "./GitManager.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 
 export class GitWorkflowService extends Context.Service<
   GitWorkflowService,
@@ -168,6 +169,7 @@ export const make = Effect.gen(function* () {
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
   const git = yield* GitVcsDriver.GitVcsDriver;
   const gitManager = yield* GitManager.GitManager;
+  const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
 
   const ensureGit = Effect.fn("GitWorkflowService.ensureGit")(function* (
     operation: string,
@@ -398,8 +400,18 @@ export const make = Effect.gen(function* () {
         Effect.andThen(git.resolveRemoteTrackingCommit(input)),
       ),
     removeWorktree: (input) =>
-      ensureGitCommand("GitWorkflowService.removeWorktree", input.cwd).pipe(
-        Effect.andThen(git.removeWorktree(input)),
+      workspaces.remove(input).pipe(
+        Effect.mapError((cause) =>
+          cause._tag === "GitCommandError"
+            ? cause
+            : new GitCommandError({
+                operation: "GitWorkflowService.removeWorktree",
+                command: "workspace-remove",
+                cwd: input.cwd,
+                detail: "Failed to remove workspace.",
+                cause,
+              }),
+        ),
       ),
     pruneWorktrees: (input) =>
       ensureGitCommand("GitWorkflowService.pruneWorktrees", input.cwd).pipe(

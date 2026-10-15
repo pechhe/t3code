@@ -1,3 +1,4 @@
+import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -91,13 +92,19 @@ it.effect("attributes a launched thread's first message to the calling thread", 
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
         McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
           Layer.provide(layerDependencies),
         ),
       ),
     );
     const result = yield* toolkit
       .handle("t3_thread_launch", { title: "Audit", message: "Review the change" })
-      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(layerDependencies));
+      .pipe(
+        Stream.unwrap,
+        Stream.runCollect,
+        Effect.provide(WorkspaceProvider.layer),
+        Effect.provide(layerDependencies),
+      );
     expect(result.at(-1)?.result).toMatchObject({ projectId, modelSelection });
     expect(launchedSender).toBe(sourceThreadId);
   }),
@@ -167,6 +174,7 @@ it.effect("launches a scratch thread into the Scratch project", () =>
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
         McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
           Layer.provide(layerDependencies),
         ),
       ),
@@ -174,7 +182,12 @@ it.effect("launches a scratch thread into the Scratch project", () =>
     const handle = (params: Parameters<typeof toolkit.handle<"t3_thread_launch">>[1]) =>
       toolkit
         .handle("t3_thread_launch", params)
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(layerDependencies));
+        .pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.provide(WorkspaceProvider.layer),
+          Effect.provide(layerDependencies),
+        );
 
     const result = yield* handle({ title: "Notes", scratch: true, message: "Draft a list" });
     expect(result.at(-1)?.result).toMatchObject({ projectId: scratchProjectId });
@@ -272,6 +285,7 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
         McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
           Layer.provide(layerDependencies),
         ),
       ),
@@ -279,7 +293,12 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
     const handle = (params: Parameters<typeof toolkit.handle<"t3_project_create">>[1]) =>
       toolkit
         .handle("t3_project_create", params)
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(layerDependencies));
+        .pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.provide(WorkspaceProvider.layer),
+          Effect.provide(layerDependencies),
+        );
 
     const result = yield* handle({ title: "Pinball Stats" });
     expect(result.at(-1)?.result).toMatchObject({
@@ -390,13 +409,21 @@ it.effect("a client launches at its ceiling with the project's default model", (
     });
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
+          Layer.provide(dependencies),
+        ),
       ),
     );
     const handle = (params: Parameters<typeof toolkit.handle<"t3_thread_launch">>[1]) =>
       toolkit
         .handle("t3_thread_launch", params)
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        .pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.provide(WorkspaceProvider.layer),
+          Effect.provide(dependencies),
+        );
 
     const result = yield* handle({ title: "Fix", projectId, message: "Fix the bug" });
     expect(result.at(-1)?.result).toMatchObject({ projectId, modelSelection });
@@ -429,7 +456,10 @@ it.effect("a launch binds only an existing checkout that is one of the project's
       launched,
       workspaceRoot: repo,
     });
-    const git = yield* GitVcsDriver.GitVcsDriver.pipe(Effect.provide(dependencies));
+    const git = yield* GitVcsDriver.GitVcsDriver.pipe(
+      Effect.provide(WorkspaceProvider.layer),
+      Effect.provide(dependencies),
+    );
     for (const args of [
       ["init", "-b", "main"],
       ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-m", "init"],
@@ -439,7 +469,10 @@ it.effect("a launch binds only an existing checkout that is one of the project's
     }
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
+          Layer.provide(dependencies),
+        ),
       ),
     );
     const launchInto = (worktreePath: string) =>
@@ -449,7 +482,12 @@ it.effect("a launch binds only an existing checkout that is one of the project's
           projectId,
           workspaceStrategy: { type: "existing_worktree", worktreePath },
         })
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        .pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.provide(WorkspaceProvider.layer),
+          Effect.provide(dependencies),
+        );
 
     expect((yield* launchInto(worktree)).at(-1)?.result).toMatchObject({ projectId });
     expect((yield* launchInto(repo)).at(-1)?.result).toMatchObject({ projectId });
@@ -489,7 +527,10 @@ it.effect("a colocated jj project binds its jj workspaces and its git worktrees"
       launched,
       workspaceRoot: repo,
     });
-    const processes = yield* ProcessRunner.ProcessRunner.pipe(Effect.provide(dependencies));
+    const processes = yield* ProcessRunner.ProcessRunner.pipe(
+      Effect.provide(WorkspaceProvider.layer),
+      Effect.provide(dependencies),
+    );
     for (const [command, args] of [
       ["git", ["init", "-b", "main"]],
       [
@@ -505,7 +546,10 @@ it.effect("a colocated jj project binds its jj workspaces and its git worktrees"
     }
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
+          Layer.provide(dependencies),
+        ),
       ),
     );
     const launchInto = (worktreePath: string) =>
@@ -515,7 +559,12 @@ it.effect("a colocated jj project binds its jj workspaces and its git worktrees"
           projectId,
           workspaceStrategy: { type: "existing_worktree", worktreePath },
         })
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        .pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.provide(WorkspaceProvider.layer),
+          Effect.provide(dependencies),
+        );
 
     expect((yield* launchInto(jjWorkspace)).at(-1)?.result).toMatchObject({ projectId });
     expect((yield* launchInto(gitWorktree)).at(-1)?.result).toMatchObject({ projectId });
@@ -543,7 +592,10 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
     });
     const toolkit = yield* ProjectToolkit.pipe(
       Effect.provide(
-        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(Layer.provide(dependencies)),
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
+          Layer.provide(dependencies),
+        ),
       ),
     );
     const launchFrom = (baseRef: string) =>
@@ -553,7 +605,12 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
           projectId,
           workspaceStrategy: { type: "worktree", baseRef, startFromOrigin: false },
         })
-        .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+        .pipe(
+          Stream.unwrap,
+          Stream.runCollect,
+          Effect.provide(WorkspaceProvider.layer),
+          Effect.provide(dependencies),
+        );
 
     const refused = (yield* launchFrom("t3/renamed")).at(-1)?.result;
     expect(refused).toMatchObject({ code: "invalid_request" });

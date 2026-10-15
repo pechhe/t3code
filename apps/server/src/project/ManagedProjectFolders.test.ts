@@ -1,3 +1,4 @@
+import * as WorkspaceProvider from "./WorkspaceProvider.ts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -38,6 +39,7 @@ import * as ManagedProjectFolders from "./ManagedProjectFolders.ts";
 // since the service only asks whether the data dir is inside a checkout.
 const layerGitWorkflow = (vcsProcess?: Layer.Layer<VcsProcess.VcsProcess>) =>
   GitWorkflow.layer.pipe(
+    Layer.provide(WorkspaceProvider.layerGitWorktree),
     Layer.provide(VcsDriverRegistry.layer.pipe(Layer.provide(vcsProcess ?? VcsProcess.layer))),
     Layer.provide(Layer.mock(GitManager.GitManager)({})),
   );

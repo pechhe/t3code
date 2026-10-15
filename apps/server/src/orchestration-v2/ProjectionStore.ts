@@ -7,6 +7,7 @@ import type {
   OrchestrationV2SearchThreadResult,
   OrchestrationV2ThreadHistoryPage,
 } from "@t3tools/contracts";
+import { normalizeFollowupSourceRevision } from "../persistence/legacyAdvisorSourceRevision.ts";
 import {
   latestRootProviderFailure,
   latestUnheldRun,
@@ -1135,9 +1136,12 @@ const encodeContextTransferPayload = Schema.encodeEffect(
   Schema.fromJsonString(OrchestrationV2ContextTransferJsonSchema),
 );
 
-const decodeThreadPayload = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(OrchestrationV2AppThreadJsonSchema),
-);
+const decodeThreadJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
+const decodeThread = Schema.decodeUnknownEffect(OrchestrationV2AppThreadJsonSchema);
+const decodeThreadPayload = (payload: unknown) =>
+  decodeThreadJson(payload).pipe(
+    Effect.flatMap((value) => decodeThread(normalizeFollowupSourceRevision(value))),
+  );
 const decodeRunPayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2RunJsonSchema),
 );

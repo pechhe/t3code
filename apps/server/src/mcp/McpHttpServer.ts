@@ -1,6 +1,5 @@
 import { ExperimentsToolkit } from "./toolkits/experiments/tools.ts";
 import * as ExperimentsHandlers from "./toolkits/experiments/handlers.ts";
-import * as ProcessRunner from "../processRunner.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -848,7 +847,7 @@ export const layerEnvironmentToolkit = toolkitRegistration(
 
 // Binding an existing checkout reads its repository identity through jj or git.
 const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHandlers.layer).pipe(
-  Layer.provide(ProcessRunner.layer),
+  Layer.provide(WorkspaceProvider.layer),
 );
 
 export const layerAttachmentToolkit = toolkitRegistration(

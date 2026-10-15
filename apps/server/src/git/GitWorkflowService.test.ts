@@ -1,3 +1,4 @@
+import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { assert, describe, expect, it, vi } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -20,6 +21,7 @@ function layer(input: {
   readonly detect: VcsDriverRegistry.VcsDriverRegistry["Service"]["detect"];
 }) {
   return GitWorkflowService.layer.pipe(
+    Layer.provide(WorkspaceProvider.layerGitWorktree),
     Layer.provide(
       Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
         detect: input.detect,
@@ -31,6 +33,36 @@ function layer(input: {
 }
 
 describe("GitWorkflowService", () => {
+  it.effect(
+    "routes normal workspace removal through the workspace provider before Git-only checks",
+    () => {
+      const removed: string[] = [];
+      return Effect.gen(function* () {
+        const workflow = yield* GitWorkflowService.GitWorkflowService;
+        yield* workflow.removeWorktree({ cwd: "/jj-project", path: "/jj-child", force: true });
+        expect(removed).toEqual(["/jj-child"]);
+      }).pipe(
+        Effect.provide(
+          GitWorkflowService.layer.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.mock(WorkspaceProvider.WorkspaceProvider)({
+                  remove: (input) =>
+                    Effect.sync(() => {
+                      removed.push(input.path);
+                    }),
+                }),
+                Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({}),
+                Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+                Layer.mock(GitManager.GitManager)({}),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+
   it.effect("reports a non-Git VCS repository as not a Git repository", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;
@@ -123,6 +155,7 @@ describe("GitWorkflowService", () => {
     const status = vi.fn();
 
     const layerTest = GitWorkflowService.layer.pipe(
+      Layer.provide(WorkspaceProvider.layerGitWorktree),
       Layer.provide(
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
           detect: () => Effect.succeed(null),
@@ -250,6 +283,7 @@ describe("GitWorkflowService", () => {
       Effect.scoped,
       Effect.provide(
         GitWorkflowService.layer.pipe(
+          Layer.provide(WorkspaceProvider.layerGitWorktree),
           Layer.provide(
             Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
               resolve: () => Effect.succeed({ kind: "git" } as VcsDriverRegistry.VcsDriverHandle),

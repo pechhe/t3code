@@ -844,7 +844,7 @@ const make = Effect.gen(function* () {
     const unit = yield* getWork(input.workUnitId);
     if (ownerKey(unit.owner) !== ownerKey(input.owner))
       return yield* fail("dispatch", unit.id, "not-found");
-    // Advice and follow-ups refine work in progress; an outcome already recorded closes it.
+    // Verified completion and cancellation close work; failures may still need correction.
     if (input.role === "advisor" || input.followup === true) {
       for (const assignmentId of unit.assignmentIds) {
         const rows = yield* persist(

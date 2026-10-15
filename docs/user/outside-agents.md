@@ -157,11 +157,13 @@ To continue an `advisor` or a worker in its existing conversation, submit
 correction in `task`; omit `agentTask` and target or runtime overrides. Use it for
 repeated advice on one piece of work, and to send a worker its corrections instead
 of starting a fresh one. The same conversation, model, workspace and permissions
-are reused, with a separate task ID and result for each follow-up; an advisor's
-conversation is pinned to the stated revision, a worker's is not, since it moves as
-the worker writes. Finish one task before starting the next. Cancel any of its task
+are reused, with a separate task ID and result for each follow-up. Advisors and
+workers originally started with a source revision are checked against the
+follow-up's revision. Workers started without a pin stay unpinned as they write.
+Finish one task before starting the next. Cancel any of its task
 IDs when the work ends; this closes the whole conversation and prevents further
-reuse. A recorded experimental work outcome also prevents further follow-ups.
+reuse. A verified-completion or cancellation outcome for experimental work also
+prevents further follow-ups; reported failures can still be corrected.
 Reviewers and UI verifiers always start fresh.
 Conversation reuse reduces repeated briefing, but prompt caching and its savings
 depend on the provider and timing.

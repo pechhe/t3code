@@ -418,12 +418,16 @@ const make = Effect.gen(function* () {
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         const task =
           requestedBranch ?? initialMessage?.text.trim().split("\n")[0]?.slice(0, 80) ?? "";
-        worktreePath = yield* workspaces
-          .allocate({ projectRoot: project.workspaceRoot, task: task || "T3 thread" })
-          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-        branch = null;
-        createdWorktreePath = worktreePath;
-        createdBySlipJay = true;
+        // SlipJay reports the path after dependency preparation. Keep acquisition
+        // and rollback registration atomic, so cancellation cannot lose that path.
+        yield* Effect.gen(function* () {
+          worktreePath = yield* workspaces
+            .allocate({ projectRoot: project.workspaceRoot, task: task || "T3 thread" })
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+          branch = null;
+          createdWorktreePath = worktreePath;
+          createdBySlipJay = true;
+        }).pipe(Effect.uninterruptible);
         yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
       } else if (input.workspaceStrategy.type === "worktree") {
@@ -842,6 +846,16 @@ const make = Effect.gen(function* () {
           input,
           "update-thread",
         )("Reusing an existing thread requires a thread id.");
+      }
+
+      if (
+        input.workspaceStrategy.type === "existing_worktree" &&
+        !(yield* workspaces.contains(project.workspaceRoot, input.workspaceStrategy.worktreePath))
+      ) {
+        return yield* mapError(
+          input,
+          "provision-worktree",
+        )("The workspace is not a checkout of the project's repository.");
       }
 
       const launchReceipt = yield* readReceipt(input, input.commandId);

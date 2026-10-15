@@ -10,6 +10,7 @@
  *
  * @module OrchestrationEventStore
  */
+import { normalizeFollowupSourceRevision } from "./legacyAdvisorSourceRevision.ts";
 import {
   ApplicationEventMetadata,
   ApplicationProjectEvent,
@@ -239,7 +240,10 @@ const rowToV2StoredEvent = Effect.fn("OrchestrationEventStore.rowToV2StoredEvent
     threadId: row.stream_id,
     type: row.event_type,
     occurredAt: row.occurred_at,
-    payload,
+    payload:
+      row.event_type === "thread.created" || row.event_type === "thread.metadata-updated"
+        ? normalizeFollowupSourceRevision(payload)
+        : payload,
     ...(values.runId === undefined ? {} : { runId: values.runId }),
     ...(values.nodeId === undefined ? {} : { nodeId: values.nodeId }),
     ...(values.driver === undefined ? {} : { driver: values.driver }),

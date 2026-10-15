@@ -7,9 +7,7 @@ import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
-import * as FileSystem from "effect/FileSystem";
-import { repositoryStore } from "../../../agents/workspaceIdentity.ts";
-import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
+import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
@@ -24,36 +22,6 @@ function projectFailure(error: Project.ProjectServiceError) {
         : "The project is not empty; force=true is required to delete it.";
   return new OrchestratorMcpFailure({ code: "invalid_request", message });
 }
-
-/**
- * An existing checkout a launch may bind: a workspace root of the project's own
- * repository, whether a git worktree or a jj workspace. Without this check a
- * launch could point an agent at any directory on the machine.
- */
-const assertProjectWorktree = Effect.fn("mcp.assertProjectWorktree")(function* (
-  workspaceRoot: string,
-  worktreePath: string,
-) {
-  const store = (root: string) =>
-    repositoryStore(root).pipe(Effect.orElseSucceed((): string | null => null));
-  const project = yield* store(workspaceRoot);
-  if (project !== null && (yield* store(worktreePath)) === project) return;
-  // A colocated jj project's identity is its jj store, while its linked git
-  // worktrees report git's common directory, so git's own list decides those.
-  const git = yield* GitVcsDriver.GitVcsDriver;
-  const fileSystem = yield* FileSystem.FileSystem;
-  const real = (path: string) => fileSystem.realPath(path).pipe(Effect.orElseSucceed(() => path));
-  const worktrees = yield* git.listWorktreePaths(workspaceRoot).pipe(
-    Effect.flatMap((paths) => Effect.forEach(paths, real)),
-    Effect.orElseSucceed((): ReadonlyArray<string> => []),
-  );
-  if (!worktrees.includes(yield* real(worktreePath)))
-    return yield* new OrchestratorMcpFailure({
-      code: "invalid_request",
-      message:
-        "worktreePath must be a git worktree or jj workspace of the project's repository. t3_worktree_list shows git worktrees.",
-    });
-});
 
 const access = Effect.gen(function* () {
   yield* readCaller();
@@ -109,7 +77,18 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
               code: "invalid_request",
               message: "The project was not found.",
             });
-          yield* assertProjectWorktree(project.workspaceRoot, input.workspaceStrategy.worktreePath);
+          const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
+          if (
+            !(yield* workspaces.contains(
+              project.workspaceRoot,
+              input.workspaceStrategy.worktreePath,
+            ))
+          )
+            return yield* new OrchestratorMcpFailure({
+              code: "invalid_request",
+              message:
+                "worktreePath must be a git worktree or jj workspace of the project's repository.",
+            });
         }
         // A launch is accepted before its worktree is provisioned, so a base
         // ref that cannot resolve is refused while the agent can still act on it.

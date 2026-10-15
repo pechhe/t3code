@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import {
   CommandId,
+  EnvironmentId,
   MessageId,
   NodeId,
   type OrchestrationV2Command,
@@ -577,7 +578,7 @@ it.effect("blocks agent messages to external work backing threads before dispatc
   const externalThreadId = ThreadId.make("thread:thread-management:external-owner");
   const ordinaryThreadId = ThreadId.make("thread:thread-management:ordinary");
   const instanceId = ProviderInstanceId.make("codex");
-  const environmentId = "environment:thread-management:external-owner";
+  const environmentId = EnvironmentId.make("environment:thread-management:external-owner");
   const externalOwner = {
     environmentId,
     clientSessionId: "external-client",
@@ -588,7 +589,7 @@ it.effect("blocks agent messages to external work backing threads before dispatc
   const dispatched: Array<
     Extract<OrchestrationV2ServerCommand, { readonly type: "message.dispatch" }>
   > = [];
-  const projection = {
+  let projection = {
     thread: {
       id: externalThreadId,
       projectId,
@@ -618,6 +619,19 @@ it.effect("blocks agent messages to external work backing threads before dispatc
         dispatch: (command) =>
           Effect.sync(() => {
             if (command.type === "message.dispatch") dispatched.push(command);
+            if (
+              command.type === "message.dispatch" &&
+              command.followupSourceRevision !== undefined
+            ) {
+              const runId = RunId.make("run:owned-external-followup");
+              projection = {
+                ...projection,
+                messages: [
+                  { id: command.messageId, runId } as (typeof projection.messages)[number],
+                ],
+                runs: [{ id: runId, status: "queued" } as (typeof projection.runs)[number]],
+              };
+            }
             return { sequence: dispatched.length, storedEvents: [] } as never;
           }),
       }),
@@ -664,6 +678,31 @@ it.effect("blocks agent messages to external work backing threads before dispatc
     );
     expect(directError).toMatchObject({ _tag: "OrchestratorCommandRejectedError" });
     expect(dispatched).toEqual([]);
+
+    const followup = {
+      projectId,
+      threadId: externalThreadId,
+      commandId: CommandId.make("command:owned-external-followup"),
+      messageId: MessageId.make("message:owned-external-followup"),
+      text: "Continue the owned task",
+      attachments: [],
+      mode: "queue" as const,
+      createdBy: "agent" as const,
+      creationSource: "mcp" as const,
+      followupSourceRevision: "current-source",
+      externalWorkOwner: externalOwner,
+    };
+    const foreign = yield* threads
+      .sendToThread({
+        ...followup,
+        externalWorkOwner: { ...externalOwner, externalSessionKey: "foreign-owner" },
+      })
+      .pipe(Effect.flip);
+    expect(foreign).toMatchObject({ _tag: "OrchestratorCommandRejectedError" });
+    expect(dispatched).toEqual([]);
+    expect((yield* threads.sendToThread(followup)).delivery).toBe("queued");
+    expect(dispatched).toHaveLength(1);
+    dispatched.length = 0;
 
     yield* threads.dispatch(message(externalThreadId, "user", "human"));
     yield* threads.dispatch(message(ordinaryThreadId, "agent", "ordinary-agent"));

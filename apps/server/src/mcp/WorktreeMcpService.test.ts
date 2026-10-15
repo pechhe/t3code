@@ -350,6 +350,8 @@ const makeHarness = (options: HarnessOptions = {}) => {
           resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
           allocate: allocateWorkspace,
           release: releaseWorkspace,
+          contains: () => Effect.succeed(true),
+          remove: removeWorktree,
         }),
         NodeServices.layer,
       ),

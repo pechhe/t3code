@@ -30,6 +30,9 @@ import * as Resolver from "./AgentRoleResolver.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { handoffRevision, repositoryStore } from "./workspaceIdentity.ts";
 
+export const sourceRevisionGuidance =
+  "The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: `jj log -r @ --no-graph -T commit_id` in a jj workspace, or `git rev-parse HEAD` in a clean git checkout.";
+
 export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   "ManagedAgentError",
   {
@@ -39,9 +42,7 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
 ) {
   override get message(): string {
     const refusal = `Managed agent dispatch refused (${this.reason}).`;
-    return this.reason === "source"
-      ? `${refusal} The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: \`jj log -r @ --no-graph -T commit_id\` in a jj workspace, or \`git rev-parse HEAD\` in a clean git checkout.`
-      : refusal;
+    return this.reason === "source" ? `${refusal} ${sourceRevisionGuidance}` : refusal;
   }
 }
 /** A thread bound to some workspace; unmanaged threads count as writers. */

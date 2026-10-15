@@ -1231,6 +1231,17 @@ it.effect(
           completedThreads: new Set([initial.childThreadId]),
           sourceRevision: "fixture-source-revision-two",
         }));
+        const badPin = yield* fixture
+          .submit(client, {
+            ...followup,
+            clientRequestId: "advisor-bad-source-pin",
+            followup: { ...followup.followup, sourceRevision: "wrong-source" },
+          })
+          .pipe(Effect.flip);
+        expect(badPin.reason).toBe("source");
+        expect(badPin.message).toContain("jj log -r @ --no-graph -T commit_id");
+        expect(badPin.message).toContain("git rev-parse HEAD");
+        expect(badPin.message).not.toContain("wrong-source");
         const second = yield* fixture.submit(client, followup);
         expect(second.taskId).not.toBe(initial.taskId);
         expect(second.childThreadId).toBe(initial.childThreadId);
@@ -1239,6 +1250,9 @@ it.effect(
         const retry = yield* fixture.submit(client, followup);
         expect(retry.taskId).toBe(second.taskId);
         expect((yield* Ref.get(fixture.state)).sends).toHaveLength(1);
+        expect((yield* Ref.get(fixture.state)).sends?.[0]?.externalWorkOwner).toEqual(
+          initial.agentTask?.externalOwner,
+        );
         expect((yield* fixture.status(client, initial.taskId)).status).toBe("completed");
         expect(
           (yield* fixture

@@ -8,6 +8,7 @@ import type {
   ProjectionRecords,
 } from "./ProjectionStore.ts";
 import {
+  type AgentTaskBinding,
   type ChatAttachment,
   CommandId,
   MessageId,
@@ -127,6 +128,8 @@ export interface ThreadManagementSendInput {
   readonly messageId: MessageId;
   readonly scheduledTaskId?: ScheduledTaskId;
   readonly followupSourceRevision?: string;
+  /** Authenticated by ExternalAgentWorkService; never accepted by raw message transports. */
+  readonly externalWorkOwner?: NonNullable<AgentTaskBinding["externalOwner"]>;
   readonly senderThreadId?: ThreadId;
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
@@ -771,18 +774,31 @@ const make = Effect.gen(function* () {
     }
   };
 
-  const dispatch: ThreadManagementServiceShape["dispatch"] = (input) =>
+  const dispatchOwned = (
+    input: OrchestrationV2ServerCommand,
+    externalWorkOwner?: NonNullable<AgentTaskBinding["externalOwner"]>,
+  ) =>
     Effect.gen(function* () {
       const command = yield* routePoolCommand(input);
-      // `defer_start` is the launch protocol's own first message; an external work thread
-      // accepts that and no other agent message.
+      // Raw agent messages cannot bypass external work ownership. The owning
+      // service may continue a validated task with its authenticated principal.
       if (
         command.type === "message.dispatch" &&
         command.createdBy === "agent" &&
         command.dispatchMode.type !== "defer_start"
       ) {
         const shell = yield* orchestrator.getThreadShell(command.threadId);
-        if (shell?.agentTask?.externalOwner !== undefined)
+        const owner = shell?.agentTask?.externalOwner;
+        if (
+          owner !== undefined &&
+          (externalWorkOwner === undefined ||
+            command.followupSourceRevision === undefined ||
+            owner.environmentId !== externalWorkOwner.environmentId ||
+            owner.clientSessionId !== externalWorkOwner.clientSessionId ||
+            owner.externalSessionKey !== externalWorkOwner.externalSessionKey ||
+            owner.projectId !== externalWorkOwner.projectId ||
+            owner.ceiling !== externalWorkOwner.ceiling)
+        )
           return yield* new Orchestrator.OrchestratorCommandRejectedError({
             commandId: command.commandId,
             commandType: command.type,
@@ -793,6 +809,8 @@ const make = Effect.gen(function* () {
       yield* assertDispatchTargetEnabled(command);
       return yield* orchestrator.dispatch(command);
     });
+
+  const dispatch: ThreadManagementServiceShape["dispatch"] = (input) => dispatchOwned(input);
 
   const getProjectThread: ThreadManagementServiceShape["getProjectThread"] = (input) =>
     getThreadProjection(input.threadId).pipe(
@@ -899,23 +917,28 @@ const make = Effect.gen(function* () {
         };
       }
 
-      const dispatched = yield* dispatch({
-        type: "message.dispatch",
-        commandId: input.commandId,
-        threadId: input.threadId,
-        messageId: input.messageId,
-        ...(input.scheduledTaskId === undefined ? {} : { scheduledTaskId: input.scheduledTaskId }),
-        ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
-        text: input.text,
-        ...(input.followupSourceRevision === undefined
-          ? {}
-          : { followupSourceRevision: input.followupSourceRevision }),
-        attachments: input.attachments,
-        ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
-        dispatchMode,
-        createdBy: input.createdBy,
-        creationSource: input.creationSource,
-      });
+      const dispatched = yield* dispatchOwned(
+        {
+          type: "message.dispatch",
+          commandId: input.commandId,
+          threadId: input.threadId,
+          messageId: input.messageId,
+          ...(input.scheduledTaskId === undefined
+            ? {}
+            : { scheduledTaskId: input.scheduledTaskId }),
+          ...(input.senderThreadId === undefined ? {} : { senderThreadId: input.senderThreadId }),
+          text: input.text,
+          ...(input.followupSourceRevision === undefined
+            ? {}
+            : { followupSourceRevision: input.followupSourceRevision }),
+          attachments: input.attachments,
+          ...(input.modelSelection === undefined ? {} : { modelSelection: input.modelSelection }),
+          dispatchMode,
+          createdBy: input.createdBy,
+          creationSource: input.creationSource,
+        },
+        input.externalWorkOwner,
+      );
       const projection = yield* getProjectThreadRecords(input, ["runs", "messages", "turnItems"], {
         messageIds: [input.messageId],
         turnItemTypes: ["user_message"],

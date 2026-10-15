@@ -57,6 +57,7 @@ export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWork
       "workspace",
       "conflict",
       "policy",
+      "source",
       "storage",
       "launch",
       "task",
@@ -65,7 +66,8 @@ export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWork
   },
 ) {
   override get message(): string {
-    return `External agent work refused (${this.reason}).`;
+    const refusal = `External agent work refused (${this.reason}).`;
+    return this.reason === "source" ? `${refusal} ${Managed.sourceRevisionGuidance}` : refusal;
   }
 }
 export class ExternalAgentWorkService extends Context.Service<
@@ -541,7 +543,13 @@ const make = Effect.gen(function* () {
                 ...(yield* workspaceAuthority(session.projectId, binding, session.key)),
               })
               .pipe(
-                Effect.mapError((cause) => new ExternalAgentWorkError({ reason: "policy", cause })),
+                Effect.mapError(
+                  (cause) =>
+                    new ExternalAgentWorkError({
+                      reason: cause.reason === "source" ? "source" : "policy",
+                      cause,
+                    }),
+                ),
               );
             yield* threads
               .sendToThread({
@@ -549,6 +557,13 @@ const make = Effect.gen(function* () {
                 threadId,
                 messageId,
                 followupSourceRevision: followup.sourceRevision,
+                externalWorkOwner: {
+                  environmentId: session.environmentId,
+                  projectId: session.projectId,
+                  externalSessionKey: session.key,
+                  clientSessionId: client.sessionId,
+                  ceiling,
+                },
                 commandId: CommandId.make(`command:followup:${identity}`),
                 text: prompt,
                 attachments: [],
@@ -698,7 +713,13 @@ const make = Effect.gen(function* () {
                   }),
             })
             .pipe(
-              Effect.mapError((cause) => new ExternalAgentWorkError({ reason: "policy", cause })),
+              Effect.mapError(
+                (cause) =>
+                  new ExternalAgentWorkError({
+                    reason: cause.reason === "source" ? "source" : "policy",
+                    cause,
+                  }),
+              ),
             );
           const binding = {
             ...prepared.binding,

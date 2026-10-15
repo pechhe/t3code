@@ -4,6 +4,7 @@ import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as FileSystem from "effect/FileSystem";
+import * as Fiber from "effect/Fiber";
 import * as ServerConfig from "../config.ts";
 import { createPendingAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ThreadMessageIntake from "./ThreadMessageIntake.ts";
@@ -119,6 +120,7 @@ interface HarnessOptions {
   readonly git?: Partial<GitWorkflow.GitWorkflowService["Service"]>;
   /** The project allocates its workspaces through SlipJay. */
   readonly slipjay?: boolean;
+  readonly allocateWorkspace?: WorkspaceProvider.WorkspaceProvider["Service"]["allocate"];
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -156,8 +158,9 @@ function makeHarness(options: HarnessOptions = {}) {
   );
   const closeTerminal = vi.fn(options.closeTerminal ?? (() => Effect.void));
   const allocateWorkspace = vi.fn(
-    (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["allocate"]>[0]) =>
-      Effect.succeed("/slipjay/workspaces/build-the-feature"),
+    options.allocateWorkspace ??
+      ((_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["allocate"]>[0]) =>
+        Effect.succeed("/slipjay/workspaces/build-the-feature")),
   );
   const releaseWorkspace = vi.fn(
     (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["release"]>[0]) =>
@@ -216,6 +219,8 @@ function makeHarness(options: HarnessOptions = {}) {
       resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
       allocate: allocateWorkspace,
       release: releaseWorkspace,
+      contains: () => Effect.succeed(true),
+      remove: removeWorktree,
     }),
     options.managedFolders ??
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
@@ -1253,6 +1258,48 @@ it.effect("releases a SlipJay workspace when its setup is cancelled", () =>
       assert.isNull((yield* threads.getThreadProjection(launched.threadId)).thread.worktreePath);
     }).pipe(Effect.provide(harness.layer));
   }),
+);
+
+it.effect(
+  "returns an allocation receipt before rolling back cancellation during SlipJay preparation",
+  () =>
+    Effect.gen(function* () {
+      const entered = yield* Deferred.make<Fiber.Fiber<unknown, unknown>>();
+      const allowReceipt = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        slipjay: true,
+        allocateWorkspace: () =>
+          Effect.gen(function* () {
+            yield* Deferred.succeed(entered, yield* Effect.fiber);
+            yield* Deferred.await(allowReceipt);
+            return "/slipjay/workspaces/build-the-feature";
+          }),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const launched = yield* launches.launch(
+          launchInput({
+            command: "command:cancel-slipjay-during-allocation",
+            thread: "thread:cancel-slipjay-during-allocation",
+            message: "Start",
+            workspace: { type: "worktree", baseRef: "main" },
+          }),
+        );
+        const preparing = yield* Deferred.await(entered);
+        yield* Effect.sync(() => preparing.interruptUnsafe());
+        yield* Deferred.succeed(allowReceipt, undefined);
+        yield* Fiber.await(preparing);
+        assert.equal((yield* tracker.get(launched.threadId))?.phase, "cancelled");
+        assert.isNull((yield* threads.getThreadProjection(launched.threadId)).thread.worktreePath);
+        assert.deepEqual(
+          harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
+          ["/slipjay/workspaces/build-the-feature"],
+        );
+        assert.isEmpty(harness.createWorktree.mock.calls);
+      }).pipe(Effect.provide(harness.layer));
+    }),
 );
 
 it.effect("renames a temporary t3/<hash> branch off the provisioning critical path", () =>

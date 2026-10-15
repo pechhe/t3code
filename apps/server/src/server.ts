@@ -1,3 +1,4 @@
+import * as WorkspaceProvider from "./project/WorkspaceProvider.ts";
 import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
@@ -365,6 +366,7 @@ const layerGit = Layer.empty.pipe(
 );
 
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
+  Layer.provide(WorkspaceProvider.layer),
   Layer.provideMerge(layerVcsDriverRegistry),
   Layer.provideMerge(layerGit),
 );
