@@ -19,7 +19,6 @@
   --rail-catch: oklch(1 0.002 250 / 0.26);
   --rail-grain: oklch(0.35 0.004 250 / 0.06);
   --card-shadow: oklch(0.22 0.01 250 / 0.3);
-  --card-edge: oklch(0.2 0.005 250 / 0.08);
 }
 
 :root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
@@ -33,7 +32,6 @@
   --rail-catch: oklch(0.62 0.004 265 / 0.22);
   --rail-grain: oklch(0.7 0.004 265 / 0.04);
   --card-shadow: oklch(0 0 0 / 0.55);
-  --card-edge: oklch(1 0 0 / 0.06);
 }
 
 :is([data-slot="sidebar-wrapper"], [data-slot="sidebar-inner"][data-sidebar="sidebar"]) {
@@ -59,19 +57,20 @@
    metal fades to the theme's pale greys. */
 [data-slot="sidebar-inner"][data-sidebar="sidebar"] {
   color: var(--rail-ink);
-  --color-foreground: var(--rail-ink);
-  --color-sidebar-foreground: var(--rail-ink);
-  --color-sidebar-muted-foreground: var(--rail-ink-muted);
-  --color-muted-foreground: var(--rail-ink-muted);
-  --color-secondary-label: var(--rail-ink-muted);
-  --color-icon-muted: var(--rail-ink-muted);
+  /* Tailwind inlines these colours (@theme inline), so the contrast tokens are
+     what the utilities actually read. */
+  --contrast-foreground: var(--rail-ink);
+  --contrast-sidebar-foreground: var(--rail-ink);
+  --contrast-sidebar-muted-foreground: var(--rail-ink-muted);
+  --contrast-muted-foreground: var(--rail-ink-muted);
+  --contrast-secondary-label: var(--rail-ink-muted);
+  --contrast-icon-muted: var(--rail-ink-muted);
   --sidebar-icon-color: var(--rail-ink-muted);
 }
 
 /* Faded row details (the branch line) stay legible on metal: muted ink, not a
    translucent wash of it. */
 [data-slot="sidebar-inner"][data-sidebar="sidebar"]
-  [data-thread-item]
   :is([class*="text-muted-foreground/"], [class*="text-secondary-label/"]) {
   color: var(--rail-ink-muted);
 }
@@ -130,11 +129,11 @@
     height: calc(100dvh - 16px);
     margin: 8px 8px 8px 0;
     border-radius: 14px;
+    /* No outline ring: the edge is only where the shadow begins, as in peach-pi. */
     box-shadow:
-      0 0 0 1px var(--card-edge),
-      0 1px 2px color-mix(in srgb, var(--card-shadow) 40%, transparent),
-      0 6px 16px -4px color-mix(in srgb, var(--card-shadow) 70%, transparent),
-      0 18px 40px -12px var(--card-shadow);
+      0 1px 3px color-mix(in srgb, var(--card-shadow) 55%, transparent),
+      0 4px 14px color-mix(in srgb, var(--card-shadow) 45%, transparent),
+      0 14px 34px -10px color-mix(in srgb, var(--card-shadow) 60%, transparent);
   }
 
   [data-slot="sidebar"][data-state="collapsed"] ~ [data-slot="sidebar-inset"] {
