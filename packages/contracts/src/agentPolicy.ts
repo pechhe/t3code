@@ -188,8 +188,21 @@ export const AgentReviewRequest = Schema.Struct({
 });
 export type AgentReviewRequest = typeof AgentReviewRequest.Type;
 
+export const AgentExecutionRequirement = Schema.Literals([
+  "sandbox-required",
+  "trusted-host-allowed",
+]);
+export type AgentExecutionRequirement = typeof AgentExecutionRequirement.Type;
+export const AgentExecutionBoundary = Schema.Literals([
+  "read-only",
+  "workspace-sandbox",
+  "trusted-host-access",
+]);
+export type AgentExecutionBoundary = typeof AgentExecutionBoundary.Type;
+
 /** A coherent work identity survives new launch attempts and transport retries. */
 export const AgentTaskRequest = Schema.Struct({
+  executionRequirement: Schema.optional(AgentExecutionRequirement),
   workUnitId: Schema.optional(TrimmedNonEmptyString),
   role: AgentRole,
   taskClass: AgentTaskClass,
@@ -209,6 +222,7 @@ export type AgentTaskRequest = typeof AgentTaskRequest.Type;
 
 export const AgentTaskBinding = Schema.Struct({
   ...AgentTaskRequest.fields,
+  executionBoundary: Schema.optional(AgentExecutionBoundary),
   requestFingerprint: Sha256,
   policyHash: Sha256,
   policyRevision: TrimmedNonEmptyString,
@@ -246,6 +260,8 @@ export const AgentExternalSession = Schema.Struct({
 export type AgentExternalSession = typeof AgentExternalSession.Type;
 
 export const AgentRolesInput = Schema.Struct({
+  executionRequirement: Schema.optional(AgentExecutionRequirement),
+  runtimeMode: Schema.optional(RuntimeMode),
   externalSessionKey: Schema.optional(Sha256),
   taskClass: AgentTaskClass,
   reviewScope: Schema.optional(AgentReviewScope),
@@ -269,6 +285,8 @@ export const AgentRolesResult = Schema.Struct({
       sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
       toolProfile: Schema.Literals(["source-reader", "implementation", "phi"]),
       briefHash: Sha256,
+      executionRequirement: Schema.optional(AgentExecutionRequirement),
+      executionBoundary: Schema.optional(AgentExecutionBoundary),
       selection: Schema.NullOr(ModelSelection),
       refusal: Schema.NullOr(TrimmedNonEmptyString),
     }),

@@ -2216,12 +2216,16 @@ it.effect("persists delegation runtime settings and preserves existing defaults"
     assert.deepEqual((yield* service.getSettings).delegation, {
       defaultChildRuntimeMode: "inherit",
       advisorIdleCloseMinutes: null,
+      allowTrustedClaudeWriters: false,
     });
     const delegation = {
       defaultChildRuntimeMode: "approval-required" as const,
       advisorIdleCloseMinutes: 15,
+      allowTrustedClaudeWriters: true,
     };
     yield* service.updateSettings({ delegation });
+    // An old client editing its known fields cannot reset the owner's explicit opt-in.
+    yield* service.updateSettings({ delegation: { advisorIdleCloseMinutes: 15 } });
     const persisted = yield* decodeServerSettingsJson(
       yield* fs.readFileString(config.settingsPath),
     );

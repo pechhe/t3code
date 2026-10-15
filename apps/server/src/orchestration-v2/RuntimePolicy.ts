@@ -181,6 +181,7 @@ export const layerFromProjectStore: Layer.Layer<
               selection: input.modelSelection,
               providers: [yield* instance.snapshot.getSnapshot],
               ceiling: input.thread.runtimeMode,
+              runtimeMode: input.thread.runtimeMode,
               workspacePath: input.thread.worktreePath,
               ...(input.thread.worktreePath === null ? { projectRoot: cwd } : {}),
             })
@@ -203,13 +204,15 @@ export const layerFromProjectStore: Layer.Layer<
             sandboxPolicy:
               input.thread.agentTask.sourceAccess === "read-only"
                 ? { type: "readOnly", networkAccess: false }
-                : {
-                    type: "workspaceWrite",
-                    writableRoots: [cwd],
-                    networkAccess: false,
-                    excludeTmpdirEnvVar: true,
-                    excludeSlashTmp: true,
-                  },
+                : input.thread.agentTask.executionBoundary === "trusted-host-access"
+                  ? { type: "dangerFullAccess" }
+                  : {
+                      type: "workspaceWrite",
+                      writableRoots: [cwd],
+                      networkAccess: false,
+                      excludeTmpdirEnvVar: true,
+                      excludeSlashTmp: true,
+                    },
           });
         }
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({

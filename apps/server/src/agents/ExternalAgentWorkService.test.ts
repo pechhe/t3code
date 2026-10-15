@@ -919,6 +919,23 @@ it.effect(
         expect(retry.taskId).not.toBe(first.taskId);
         expect(retry.agentTask!.policyHash).toBe(pinned.policyHash);
         expect(retry.agentTask!.briefHash).toBe(pinned.briefHash);
+        expect(retry.agentTask!.executionRequirement).toBe(pinned.executionRequirement);
+        expect(retry.agentTask!.executionBoundary).toBe(pinned.executionBoundary);
+        yield* f.cancel(owner, retry.taskId);
+        const widening = yield* f
+          .submit(
+            owner,
+            f.submitInput(session, {
+              clientRequestId: "attempt-widening",
+              agentTask: request({
+                workspacePath: f.workspacePath,
+                attemptId: "attempt-widening",
+                executionRequirement: "trusted-host-allowed",
+              }),
+            }),
+          )
+          .pipe(Effect.flip);
+        expect(widening.reason).toBe("conflict");
         expect(retry.assignmentIds).toEqual(first.assignmentIds);
       }),
     ),

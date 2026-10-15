@@ -14,6 +14,7 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import { agentExecutionBoundaryLabel } from "@t3tools/client-runtime/state/subagent-display";
 import { serverEnvironment } from "../../state/server";
 import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -261,7 +262,7 @@ function RuntimeSettings({
   if (!settings?.delegation) return null;
   return (
     <RuntimeSettingsEditor
-      key={`${environmentId}:${settings.delegation.defaultChildRuntimeMode}:${settings.delegation.advisorIdleCloseMinutes}`}
+      key={`${environmentId}:${settings.delegation.defaultChildRuntimeMode}:${settings.delegation.advisorIdleCloseMinutes}:${settings.delegation.allowTrustedClaudeWriters}`}
       environmentId={environmentId}
       value={settings.delegation}
       disabled={!connected || !canEdit}
@@ -278,6 +279,7 @@ function RuntimeSettingsEditor({
   disabled: boolean;
 }) {
   const [mode, setMode] = useState(value.defaultChildRuntimeMode);
+  const [trusted, setTrusted] = useState(value.allowTrustedClaudeWriters);
   const [minutes, setMinutes] = useState(value.advisorIdleCloseMinutes?.toString() ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -286,7 +288,9 @@ function RuntimeSettingsEditor({
   const validDuration =
     duration === null || (Number.isInteger(duration) && duration >= 1 && duration <= 10080);
   const changed =
-    mode !== value.defaultChildRuntimeMode || duration !== value.advisorIdleCloseMinutes;
+    mode !== value.defaultChildRuntimeMode ||
+    duration !== value.advisorIdleCloseMinutes ||
+    trusted !== value.allowTrustedClaudeWriters;
   return (
     <fieldset disabled={disabled || saving} className="grid gap-3">
       <legend className="text-sm font-medium">Runtime behavior</legend>
@@ -308,6 +312,16 @@ function RuntimeSettingsEditor({
       <p className="text-xs text-muted-foreground">
         Always capped at the caller’s permissions. A caller can request a lower level; requests
         above its own level are refused.
+      </p>
+      <Check checked={trusted} onChange={setTrusted}>
+        Allow trusted Claude writers
+      </Check>
+      <p className="text-xs text-muted-foreground">
+        Lets a delegated Claude writer edit files, run shell commands and check its own work when
+        the child has Full access. It runs with this server’s host access: it can use the network
+        and reach paths outside its assigned workspace, which stays its assignment, not a sandbox.
+        Codex writers keep their workspace sandbox, and read-only agents stay read-only. Turning
+        this off refuses new trusted starts and continuations; running turns continue.
       </p>
       <label className="grid gap-1 text-sm">
         Close idle advisors after (minutes)
@@ -344,7 +358,11 @@ function RuntimeSettingsEditor({
               environmentId,
               input: {
                 patch: {
-                  delegation: { defaultChildRuntimeMode: mode, advisorIdleCloseMinutes: duration },
+                  delegation: {
+                    defaultChildRuntimeMode: mode,
+                    advisorIdleCloseMinutes: duration,
+                    allowTrustedClaudeWriters: trusted,
+                  },
                 },
               },
             });
@@ -360,6 +378,7 @@ function RuntimeSettingsEditor({
           disabled={!changed}
           onClick={() => {
             setMode(value.defaultChildRuntimeMode);
+            setTrusted(value.allowTrustedClaudeWriters);
             setMinutes(value.advisorIdleCloseMinutes?.toString() ?? "");
             setError(null);
           }}
@@ -839,8 +858,8 @@ function PolicyEditor({
       <section className="grid gap-3">
         <h3 className="text-sm font-medium">Resolution preview</h3>
         <p className="text-xs text-muted-foreground">
-          Uses these unsaved choices and the real resolver. Previewing starts no model and changes
-          no policy.
+          Uses these unsaved choices, the saved runtime behavior and the real resolver. Previewing
+          starts no model and changes no policy.
         </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Choice
@@ -915,6 +934,9 @@ function PolicyEditor({
                 ? `Selected ${preview.selection.model} (${preview.selection.instanceId})`
                 : `Refused: ${preview.refusal}`}
             </p>
+            {preview.selection && preview.executionBoundary ? (
+              <p>Execution: {agentExecutionBoundaryLabel(preview.executionBoundary)}</p>
+            ) : null}
             {preview.candidates.map((candidate) => (
               <p
                 key={`${candidate.alias}:${candidate.providerInstanceId ?? "unavailable"}`}

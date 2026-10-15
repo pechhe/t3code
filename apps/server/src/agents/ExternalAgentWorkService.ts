@@ -566,6 +566,7 @@ const make = Effect.gen(function* () {
             yield* managed
               .validate({
                 binding: followupTarget,
+                runtimeMode: originalThread.thread.runtimeMode,
                 followupWithoutRevision: followup.sourceRevision === undefined,
                 selection: binding.effective,
                 providers: eligible,
@@ -708,7 +709,10 @@ const make = Effect.gen(function* () {
               original.workspacePath !== input.agentTask.workspacePath ||
               original.workspaceAssignment !== input.agentTask.workspaceAssignment ||
               original.readOnly !== input.agentTask.readOnly ||
-              original.demanding !== input.agentTask.demanding)
+              original.demanding !== input.agentTask.demanding ||
+              (input.agentTask.executionRequirement !== undefined &&
+                input.agentTask.executionRequirement !==
+                  (original.executionRequirement ?? "sandbox-required")))
           )
             return yield* new ExternalAgentWorkError({ reason: "conflict" });
           const catalog = yield* providers.getProviders;
@@ -726,7 +730,17 @@ const make = Effect.gen(function* () {
           );
           const prepared = yield* managed
             .prepare({
-              request: input.agentTask,
+              request:
+                original === undefined
+                  ? input.agentTask
+                  : {
+                      ...input.agentTask,
+                      executionRequirement:
+                        original.executionBoundary === undefined
+                          ? "sandbox-required"
+                          : (original.executionRequirement ?? "sandbox-required"),
+                    },
+              runtimeMode,
               requestFingerprint: fingerprint,
               workspacePath: session.workspacePath,
               ...(yield* workspaceAuthority(session.projectId, input.agentTask, session.key)),
@@ -758,6 +772,11 @@ const make = Effect.gen(function* () {
                   }),
               ),
             );
+          if (
+            original?.executionBoundary !== undefined &&
+            original.executionBoundary !== prepared.binding.executionBoundary
+          )
+            return yield* new ExternalAgentWorkError({ reason: "conflict" });
           const binding = {
             ...prepared.binding,
             externalOwner: {
@@ -833,6 +852,7 @@ const make = Effect.gen(function* () {
           const validated = yield* Effect.result(
             managed.validate({
               binding: work.binding,
+              runtimeMode,
               selection: effective,
               providers: eligible,
               ceiling,

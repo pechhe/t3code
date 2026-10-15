@@ -99,6 +99,174 @@ const fixture = Effect.gen(function* () {
 
 it.layer(testLayer)("ManagedAgentService", (it) => {
   it.effect(
+    "admits trusted Claude only with destination opt-in and full caller and child access",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const settings = yield* Settings.ServerSettingsService;
+        const writer = request({
+          workspacePath: f.workspacePath,
+          role: "ui-worker",
+          taskClass: "ui",
+        });
+        const prepare = (overrides: Partial<Parameters<typeof f.prepare>[0]> = {}) =>
+          f.prepare({ request: writer, ...overrides });
+        expect((yield* prepare().pipe(Effect.flip)).message).toContain("trusted-claude-disabled");
+        yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: true } });
+        const accepted = yield* prepare();
+        expect(accepted.binding).toMatchObject({
+          executionRequirement: "trusted-host-allowed",
+          executionBoundary: "trusted-host-access",
+        });
+        yield* f.validate(accepted.binding);
+        // Exercise the real launch guard and emitted adapter policy, not only resolution.
+        const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
+          Layer.provide(
+            Layer.mergeAll(
+              Layer.mock(Projects.ProjectStoreV2)({
+                get: () => Effect.succeed(Option.some({ workspaceRoot: f.workspacePath } as never)),
+              }),
+              Layer.mock(Providers.ProviderInstanceRegistry)({
+                getInstance: () =>
+                  Effect.succeed({
+                    snapshot: { getSnapshot: Effect.succeed(claude) },
+                  } as ProviderInstance),
+              }),
+            ),
+          ),
+        );
+        yield* Effect.gen(function* () {
+          const runtime = yield* RuntimePolicy.RuntimePolicyV2;
+          const projectId = ProjectId.make("trusted-writer-runtime");
+          yield* settings.updateSettings({
+            projectSettingsOverrides: {
+              [projectId]: { providerInstances: { [claude.instanceId]: { enabled: true } } },
+            },
+          });
+          const resolved = yield* runtime.resolve({
+            thread: {
+              projectId,
+              worktreePath: f.workspacePath,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              agentTask: accepted.binding,
+            } as OrchestrationV2AppThread,
+            modelSelection: accepted.binding.effective,
+          });
+          expect(resolved.managedAgent).toBe(true);
+          expect(resolved.sandboxPolicy).toEqual({ type: "dangerFullAccess" });
+          expect(resolved.cwd).toBe(f.workspacePath);
+          // Queued starts and resumes after a restart pass this guard with the recorded
+          // binding; revoking the owner opt-in refuses the next one.
+          yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: false } });
+          const revoked = yield* runtime
+            .resolve({
+              thread: {
+                projectId,
+                worktreePath: f.workspacePath,
+                runtimeMode: "full-access",
+                interactionMode: "default",
+                agentTask: accepted.binding,
+              } as OrchestrationV2AppThread,
+              modelSelection: accepted.binding.effective,
+            })
+            .pipe(Effect.flip);
+          expect(revoked.cause).toMatchObject({ _tag: "ManagedAgentError", reason: "selection" });
+          yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: true } });
+        }).pipe(
+          Effect.provide(runtimeLayer),
+          Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+        );
+        for (const overrides of [
+          { ceiling: "auto" as const },
+          { runtimeMode: "auto-accept-edits" as const },
+          { request: { ...writer, executionRequirement: "sandbox-required" as const } },
+        ])
+          expect((yield* prepare(overrides).pipe(Effect.flip)).reason).toBe("selection");
+        yield* settings.updateSettings({
+          delegation: { defaultChildRuntimeMode: "approval-required" },
+        });
+        expect((yield* prepare().pipe(Effect.flip)).reason).toBe("selection");
+        // An explicit authorized override uses the existing child mode, not another permission system.
+        yield* prepare({ runtimeMode: "full-access" });
+        yield* settings.updateSettings({ delegation: { defaultChildRuntimeMode: "inherit" } });
+        const {
+          executionRequirement: _requirement,
+          executionBoundary: _boundary,
+          ...legacy
+        } = accepted.binding;
+        expect((yield* f.validate(legacy).pipe(Effect.flip)).reason).toBe("selection");
+        expect(
+          (yield* f
+            .validate({ ...accepted.binding, executionBoundary: undefined })
+            .pipe(Effect.flip)).reason,
+        ).toBe("selection");
+        expect(
+          (yield* f
+            .validate({ ...accepted.binding, executionBoundary: "workspace-sandbox" })
+            .pipe(Effect.flip)).reason,
+        ).toBe("selection");
+        yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: false } });
+        expect((yield* f.validate(accepted.binding).pipe(Effect.flip)).reason).toBe("selection");
+        expect(
+          (yield* prepare({ recordedBinding: accepted.binding }).pipe(Effect.flip)).reason,
+        ).toBe("selection");
+      }).pipe(Effect.provide(Settings.layerTest())),
+  );
+
+  it.effect(
+    "keeps discovery, preparation and preview treatment consistent without widening readers or Codex",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const settings = yield* Settings.ServerSettingsService;
+        const roles = yield* f.service
+          .roles({ ...f.prepareInput, request: { taskClass: "ui" } })
+          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        const ui = roles.roles.find((role) => role.role === "ui-worker")!;
+        expect(ui.executionBoundary).toBe("trusted-host-access");
+        expect(ui.executionRequirement).toBe("trusted-host-allowed");
+        const writer = yield* f.prepare({
+          selection: { instanceId: codex.instanceId, model: codexModel },
+        });
+        expect(writer.binding.executionBoundary).toBe("workspace-sandbox");
+        yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: false } });
+        yield* f.validate(writer.binding);
+        const fallback = yield* f
+          .validate(writer.binding, {
+            instanceId: claude.instanceId,
+            model: claudeModel,
+            options: [{ id: "effort", value: "medium" }],
+          })
+          .pipe(Effect.flip);
+        expect(fallback.reason).toBe("selection");
+        const reader = yield* f.prepare({
+          request: request({ workspacePath: f.workspacePath, readOnly: true }),
+        });
+        expect(reader.binding.executionRequirement).toBe("sandbox-required");
+        expect(reader.binding.executionBoundary).toBe("read-only");
+      }).pipe(
+        Effect.provide(Settings.layerTest({ delegation: { allowTrustedClaudeWriters: true } })),
+      ),
+  );
+
+  it.effect(
+    "checks regular hard links on admission and each protected start, while readers can inspect them",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const accepted = yield* f.prepare();
+        yield* f.fs.writeFileString(`${f.root}/outside`, "preserve");
+        const alias = `${f.workspacePath}/alias`;
+        yield* f.fs.link(`${f.root}/outside`, alias);
+        const error = yield* f.prepare().pipe(Effect.flip);
+        expect(error.reason).toBe("hard-link");
+        expect(error.message).toContain(alias);
+        expect((yield* f.validate(accepted.binding).pipe(Effect.flip)).reason).toBe("hard-link");
+        yield* f.prepare({ request: request({ workspacePath: f.workspacePath, readOnly: true }) });
+      }),
+  );
+  it.effect(
     "enforces read-only runtime authority for an explicit author-model reviewer at the project root",
     () =>
       Effect.gen(function* () {

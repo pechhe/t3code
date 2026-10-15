@@ -7,6 +7,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { AgentPolicyManifest } from "@t3tools/contracts";
 import * as Settings from "./AgentPolicySettingsService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import { snapshot, provider } from "./agentPolicy.testkit.ts";
 
@@ -37,7 +38,7 @@ const fixture = Effect.gen(function* () {
     root,
     manifest,
     catalog,
-    run: <A, E>(effect: Effect.Effect<A, E, Settings.AgentPolicySettingsService>) =>
+    run: <A, E, R>(effect: Effect.Effect<A, E, Settings.AgentPolicySettingsService | R>) =>
       effect.pipe(
         Effect.provide(Layer.fresh(layer)),
         Effect.provideService(
@@ -49,6 +50,39 @@ const fixture = Effect.gen(function* () {
 });
 
 it.layer(NodeServices.layer)("policy settings", (it) => {
+  it.effect(
+    "previews trusted writer, restricted child, sandbox requirement and reader boundaries",
+    () =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        yield* f.run(
+          Effect.gen(function* () {
+            const settings = yield* ServerSettings.ServerSettingsService;
+            const policy = yield* Settings.AgentPolicySettingsService;
+            const preview = (overrides: Partial<Parameters<typeof policy.preview>[0]> = {}) =>
+              policy.preview({
+                manifest: f.manifest,
+                role: "ui-worker",
+                taskClass: "ui",
+                ...overrides,
+              });
+            expect((yield* preview()).refusal).toBe("no-eligible-model");
+            yield* settings.updateSettings({ delegation: { allowTrustedClaudeWriters: true } });
+            const writer = yield* preview();
+            expect(writer.executionRequirement).toBe("trusted-host-allowed");
+            expect(writer.executionBoundary).toBe("trusted-host-access");
+            expect((yield* preview({ executionRequirement: "sandbox-required" })).refusal).toBe(
+              "no-eligible-model",
+            );
+            expect((yield* preview({ runtimeMode: "auto" })).refusal).toBe("no-eligible-model");
+            const reader = yield* preview({ role: "advisor", taskClass: "non-ui" });
+            expect(reader.executionRequirement).toBe("sandbox-required");
+            expect(reader.executionBoundary).toBe("read-only");
+          }),
+        );
+      }).pipe(Effect.provide(ServerSettings.layerTest())),
+  );
+
   it.effect("reads source status and previews the real selection without changing policy", () =>
     Effect.gen(function* () {
       const f = yield* fixture;

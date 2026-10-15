@@ -52,6 +52,8 @@ type ResolutionInput = {
   /** Already intersected with the project's enabled and caller-authorized accounts. */
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly ceiling: RuntimeMode;
+  readonly runtimeMode?: RuntimeMode;
+  readonly allowTrustedClaudeWriters?: boolean;
   readonly currentInstanceId?: ProviderInstanceId;
   readonly selection?: RequestedModel;
 };
@@ -151,11 +153,18 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       record(alias, binding.model, "ui-model-restriction");
       continue;
     }
-    // Claude's existing read-only tool whitelist is enforceable. Its workspaceWrite
-    // policy currently maps to permission modes, not an isolated source-write boundary.
     if (!readOnly && binding.driverKind === "claudeAgent") {
-      record(alias, binding.model, "claude-writer-boundary-unavailable");
-      continue;
+      const refusal = !input.allowTrustedClaudeWriters
+        ? "trusted-claude-disabled"
+        : (input.runtimeMode ?? input.ceiling) !== "full-access"
+          ? "trusted-claude-requires-full-access"
+          : request.executionRequirement !== "trusted-host-allowed"
+            ? "sandbox-required"
+            : undefined;
+      if (refusal !== undefined) {
+        record(alias, binding.model, refusal);
+        continue;
+      }
     }
     const providers = input.providers.filter(
       (provider) => provider.poolMembers === undefined && provider.driver === binding.driverKind,
@@ -282,6 +291,14 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     return yield* new AgentRoleError({ reason: "no-eligible-model", candidates: diagnostics });
   return {
     selection: first.selection,
+    executionRequirement: readOnly
+      ? "sandbox-required"
+      : (request.executionRequirement ?? "sandbox-required"),
+    executionBoundary: readOnly
+      ? ("read-only" as const)
+      : first.provider.driver === "claudeAgent"
+        ? ("trusted-host-access" as const)
+        : ("workspace-sandbox" as const),
     refusal: null,
     candidates: diagnostics.map((candidate) =>
       candidate.reason !== "eligible"

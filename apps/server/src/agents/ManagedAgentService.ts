@@ -1,3 +1,6 @@
+import * as Settings from "../serverSettings.ts";
+import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
+import { checkWriterWorkspace } from "./writerWorkspacePreflight.ts";
 import * as AuthSessions from "../persistence/AuthSessions.ts";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Option from "effect/Option";
@@ -33,15 +36,22 @@ import { handoffRevision, repositoryStore } from "./workspaceIdentity.ts";
 export const sourceRevisionGuidance =
   "The workspace is not at the stated sourceRevision, or its git tree is not clean. Pass the full commit id of the checkout: `jj log -r @ --no-graph -T commit_id` in a jj workspace, or `git rev-parse HEAD` in a clean git checkout.";
 
+const isAgentRoleError = Schema.is(Resolver.AgentRoleError);
+
 export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   "ManagedAgentError",
   {
-    reason: Schema.Literals(["policy", "workspace", "source", "selection", "revoked"]),
+    reason: Schema.Literals(["policy", "workspace", "source", "selection", "revoked", "hard-link"]),
+    path: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
-    const detail = Schema.is(Resolver.AgentRoleError)(this.cause) ? `: ${this.cause.reason}` : "";
+    if (this.reason === "hard-link")
+      return `Managed writer refused: regular file has multiple hard links: ${this.path}.`;
+    const detail = isAgentRoleError(this.cause)
+      ? `: ${this.cause.reason}${this.cause.candidates === undefined ? "" : ` (${[...new Set(this.cause.candidates.map((candidate) => candidate.reason))].join(", ")})`}`
+      : "";
     const refusal = `Managed agent dispatch refused (${this.reason}${detail}).`;
     return this.reason === "source" ? `${refusal} ${sourceRevisionGuidance}` : refusal;
   }
@@ -59,6 +69,7 @@ export type WorkspaceOccupant = {
 type Authority = {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly ceiling: RuntimeMode;
+  readonly runtimeMode?: RuntimeMode;
   /** The accountable lead's own workspace. */
   readonly workspacePath: string | null;
   /** The project's main checkout, which an isolated helper never uses. */
@@ -128,6 +139,41 @@ const make = Effect.gen(function* () {
       .snapshot(root)
       .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
   });
+  const execution = Effect.fn(function* (
+    input: { ceiling: RuntimeMode; runtimeMode?: RuntimeMode },
+    request: AgentTaskRequest,
+    legacy = false,
+    readOnly = request.readOnly === true,
+  ) {
+    const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
+    const configured = Option.isSome(settings)
+      ? yield* settings.value.getSettings.pipe(
+          Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })),
+        )
+      : undefined;
+    const mode =
+      input.runtimeMode ??
+      defaultChildMode(input.ceiling, configured?.delegation.defaultChildRuntimeMode ?? "inherit");
+    if (exceedsCaller(mode, input.ceiling))
+      return yield* new ManagedAgentError({ reason: "policy" });
+    const trustedEnabled = configured?.delegation.allowTrustedClaudeWriters === true;
+    // Boundary-less historical bindings never carry consent to the broader route.
+    const requirement = readOnly
+      ? "sandbox-required"
+      : ((legacy && (!("executionBoundary" in request) || request.executionBoundary === undefined)
+          ? undefined
+          : request.executionRequirement) ??
+        (!legacy && trustedEnabled && mode === "full-access"
+          ? "trusted-host-allowed"
+          : "sandbox-required"));
+
+    return {
+      ceiling: input.ceiling,
+      runtimeMode: mode,
+      allowTrustedClaudeWriters: trustedEnabled,
+      request: { ...request, executionRequirement: requirement },
+    };
+  });
   const workspaceError = (cause: unknown) => new ManagedAgentError({ reason: "workspace", cause });
   const local = <A, E>(
     effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner>,
@@ -184,6 +230,17 @@ const make = Effect.gen(function* () {
       .stat(actual)
       .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "workspace", cause })));
     if (stat.type !== "Directory") return yield* new ManagedAgentError({ reason: "workspace" });
+    if (writes)
+      yield* local(checkWriterWorkspace(actual)).pipe(
+        Effect.mapError(
+          (cause) =>
+            new ManagedAgentError({
+              reason: cause.reason === "hard-link" ? "hard-link" : "workspace",
+              path: cause.path,
+              cause,
+            }),
+        ),
+      );
     if (request.sourceRevision !== undefined) {
       const jj = yield* fs
         .exists(path.join(actual, ".jj"))
@@ -247,21 +304,34 @@ const make = Effect.gen(function* () {
         ([name, policy]) =>
           Effect.gen(function* () {
             const role = name as AgentTaskRequest["role"];
+            const context = yield* execution(
+              {
+                ...input,
+                ...(input.request.runtimeMode === undefined
+                  ? {}
+                  : { runtimeMode: input.request.runtimeMode }),
+              },
+              {
+                ...input.request,
+                role,
+                workId: "capability-discovery",
+                attemptId: "capability-discovery",
+                workspacePath: "/capability-discovery",
+              },
+              false,
+              policy.sourceAccess === "read-only" || input.request.readOnly === true,
+            );
             const result = yield* Effect.result(
               resolver.resolve({
+                ...context,
                 snapshot,
                 providers: input.providers,
-                ceiling: input.ceiling,
                 ...(input.selection === undefined ? {} : { selection: input.selection }),
                 ...(input.currentInstanceId === undefined
                   ? {}
                   : { currentInstanceId: input.currentInstanceId }),
                 request: {
-                  ...input.request,
-                  role,
-                  workId: "capability-discovery",
-                  attemptId: "capability-discovery",
-                  workspacePath: "/capability-discovery",
+                  ...context.request,
                   ...(role !== "reviewer"
                     ? {}
                     : {
@@ -284,6 +354,18 @@ const make = Effect.gen(function* () {
                 input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess,
               toolProfile:
                 input.request.readOnly === true ? ("source-reader" as const) : policy.toolProfile,
+              executionRequirement: context.request.executionRequirement,
+              ...(result._tag === "Success"
+                ? {
+                    executionBoundary:
+                      input.request.readOnly === true || policy.sourceAccess === "read-only"
+                        ? ("read-only" as const)
+                        : input.providers.find((p) => p.instanceId === result.success.instanceId)
+                              ?.driver === "claudeAgent"
+                          ? ("trusted-host-access" as const)
+                          : ("workspace-sandbox" as const),
+                  }
+                : {}),
               selection: result._tag === "Success" ? result.success : null,
               refusal: result._tag === "Failure" ? result.failure.reason : null,
             };
@@ -309,9 +391,16 @@ const make = Effect.gen(function* () {
         input,
         input.request.readOnly !== true && role.sourceAccess === "scoped-write",
       );
+      const context = yield* execution(
+        input,
+        input.recordedBinding ?? input.request,
+        input.recordedBinding !== undefined,
+        role.sourceAccess === "read-only" || input.request.readOnly === true,
+      );
       const selection = yield* resolver
         .resolve({
           ...input,
+          ...context,
           snapshot,
           ...(input.recordedBinding === undefined
             ? {}
@@ -323,7 +412,14 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
       return {
         binding: input.recordedBinding ?? {
-          ...input.request,
+          ...context.request,
+          executionBoundary:
+            context.request.readOnly === true || role.sourceAccess === "read-only"
+              ? "read-only"
+              : input.providers.find((p) => p.instanceId === selection.instanceId)?.driver ===
+                  "claudeAgent"
+                ? "trusted-host-access"
+                : "workspace-sandbox",
           requestFingerprint: input.requestFingerprint,
           policyHash: snapshot.hash,
           policyRevision: snapshot.sourceRevision,
@@ -378,7 +474,7 @@ const make = Effect.gen(function* () {
           registered.projectId !== owner.projectId ||
           registered.ceiling !== owner.ceiling ||
           registered.workspacePath !== input.workspacePath ||
-          input.ceiling !== owner.ceiling
+          exceedsCaller(input.ceiling, owner.ceiling)
         )
           return yield* new ManagedAgentError({ reason: "revoked" });
       }
@@ -395,8 +491,26 @@ const make = Effect.gen(function* () {
         return yield* new ManagedAgentError({ reason: "policy" });
       if (snapshot.briefs[input.binding.role].hash !== input.binding.briefHash)
         return yield* new ManagedAgentError({ reason: "policy" });
+      const context = yield* execution(
+        input,
+        input.binding,
+        true,
+        input.binding.sourceAccess === "read-only",
+      );
+      const provider = input.providers.find((p) => p.instanceId === input.selection.instanceId);
+      const boundary =
+        input.binding.sourceAccess === "read-only"
+          ? "read-only"
+          : provider?.driver === "claudeAgent"
+            ? "trusted-host-access"
+            : "workspace-sandbox";
+      if (
+        input.binding.executionBoundary !== undefined &&
+        input.binding.executionBoundary !== boundary
+      )
+        return yield* new ManagedAgentError({ reason: "selection" });
       yield* resolver
-        .resolve({ ...input, request: input.binding, snapshot })
+        .resolve({ ...input, ...context, snapshot })
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "selection", cause })));
       // Preserve the original effort and brief; current policy can revoke authority,
       // but a preference edit cannot rewrite the treatment of an accepted task.
@@ -404,7 +518,6 @@ const make = Effect.gen(function* () {
       const role = current.manifest.roles[input.binding.role];
       const allowed =
         role.restrictions[input.binding.taskClass] ?? current.manifest.pools[role.pool].allow;
-      const provider = input.providers.find((p) => p.instanceId === input.selection.instanceId);
       if (
         !role.taskClasses.includes(input.binding.taskClass) ||
         (input.binding.sourceAccess === "scoped-write" && role.sourceAccess === "read-only") ||

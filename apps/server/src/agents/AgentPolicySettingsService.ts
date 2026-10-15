@@ -1,3 +1,6 @@
+import * as Settings from "../serverSettings.ts";
+import * as Option from "effect/Option";
+import { defaultChildMode } from "./delegationRuntime.ts";
 import {
   AgentPolicySettingsError,
   type AgentPolicySettings,
@@ -135,10 +138,27 @@ const make = Effect.gen(function* () {
     }),
     preview: Effect.fn("AgentPolicySettingsService.preview")(function* (input) {
       const current = yield* load();
+      const service = yield* Effect.serviceOption(Settings.ServerSettingsService);
+      const settings = Option.isSome(service)
+        ? yield* service.value.getSettings.pipe(
+            Effect.mapError((cause) => new AgentPolicySettingsError({ reason: "read", cause })),
+          )
+        : undefined;
+      const mode =
+        input.runtimeMode ??
+        defaultChildMode("full-access", settings?.delegation.defaultChildRuntimeMode ?? "inherit");
+      const trustedEnabled = settings?.delegation.allowTrustedClaudeWriters === true;
+      const trusted = mode === "full-access" && trustedEnabled;
       return yield* resolver.preview({
+        allowTrustedClaudeWriters: trustedEnabled,
         snapshot: { ...current, manifest: input.manifest },
         request: {
           role: input.role,
+          executionRequirement:
+            input.manifest.roles[input.role].sourceAccess === "read-only"
+              ? "sandbox-required"
+              : (input.executionRequirement ??
+                (trusted ? "trusted-host-allowed" : "sandbox-required")),
           taskClass: input.taskClass,
           workId: "settings-preview",
           attemptId: "preview",
@@ -159,6 +179,7 @@ const make = Effect.gen(function* () {
         },
         providers: yield* providers.getProviders,
         ceiling: "full-access",
+        runtimeMode: mode,
         ...(input.callerProviderInstanceId === undefined
           ? {}
           : { currentInstanceId: input.callerProviderInstanceId }),

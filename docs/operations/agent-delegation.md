@@ -52,10 +52,11 @@ its revision and the seven role names, or the reason the policy is refused.
 - Each task records the policy hash, brief hash and requested, assigned and
   effective selections when it is accepted. Editing the policy later does not
   change accepted work; it can only revoke authority at launch or resume.
-- Claude models run read-only roles (advisor, reviewer, read-only
-  investigation) with no T3 tools. Managed Claude source writes and the Phi-based
-  `browser` and `ui-verifier` roles are refused with an explanation, and
-  `ui-worker` is unavailable while Claude is the only permitted UI model.
+- Claude reader roles use a restricted native tool list with no shell or T3
+  tools. Claude writers require the destination owner's trusted-writer opt-in
+  and a Full access child within the caller's permission ceiling. Codex writers
+  keep their workspace sandbox with network access disabled. The Phi-based
+  `browser` and `ui-verifier` roles remain unavailable.
 - While a readable policy is configured, a delegation or reviewer trial is
   refused at creation, and again when it is started, if one of its arms uses a
   model no pool allows. Without a readable policy the check is skipped; dispatch
@@ -105,3 +106,34 @@ Idle advisor closing is off by default. Set a period in minutes to close advisor
 whose final result has been delivered and which have no running or queued work.
 The server checks every minute, including after a restart. Closed advisors remain
 readable under Previous agents; start a new advisor for further work.
+
+## Trusted Claude writers
+
+On the destination server's **Settings → Agents → Delegation**, an owner can
+allow trusted Claude writers. It is off on existing and new installations until
+explicitly enabled. The effective child mode must also be **Full access**;
+lower configured child defaults still apply. Eligible policy roles and accounts
+remain required. The setting grants no publication authority.
+
+Trusted host access lets Claude edit files and run shell commands with the
+session's host permissions, including networking and access outside the assigned
+checkout. The assigned workspace still limits the task's authorised work; T3
+does not claim to confine that process to it. Managed native tools exclude
+child-agent launch, inherited plugins, hooks, settings and MCP authority. This
+controls the supported tools, not arbitrary commands a trusted shell could run.
+
+Each task records its execution requirement and actual boundary. Set
+`executionRequirement: "sandbox-required"` in a task request when host access
+would be unacceptable. It cannot be satisfied by the trusted Claude route.
+Legacy tasks retain restrictive semantics; a retry or reconnect cannot widen
+them. Start newly authorised work to use the broader route. Disabling the owner
+setting refuses subsequent trusted starts and continuations; running turns keep
+their original treatment and can be cancelled explicitly.
+
+All managed writers are checked for regular files with multiple hard links
+before admission and protected starts. A refusal identifies the linked file.
+This is a point-in-time guard against accidental alias corruption, not proof of
+containment: external processes can change the filesystem after the scan.
+The scan skips `.git`, `.jj` and `node_modules` at any depth: version control and
+package managers hard-link those stores by design (pnpm does on Linux), and a
+writer that edits inside them is not protected by this guard.

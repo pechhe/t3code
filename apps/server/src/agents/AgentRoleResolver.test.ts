@@ -46,7 +46,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       );
       // Claude writers are refused before account availability is considered.
       expect(preview.candidates).toContainEqual(
-        expect.objectContaining({ alias: "sonnet", reason: "claude-writer-boundary-unavailable" }),
+        expect.objectContaining({ alias: "sonnet", reason: "trusted-claude-disabled" }),
       );
       const readOnly = yield* resolver.preview({ ...value, request: request({ readOnly: true }) });
       expect(readOnly.candidates).toContainEqual(
@@ -407,6 +407,40 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         )).model,
       ).toBe(claudeModel);
     }),
+  );
+
+  it.effect(
+    "admits trusted Claude writers only with opt-in, full access and an explicit requirement",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* Resolver.AgentRoleResolver;
+        const trusted = input({
+          providers: [claude],
+          allowTrustedClaudeWriters: true,
+          request: request({ executionRequirement: "trusted-host-allowed" }),
+        });
+        const admitted = yield* resolver.preview(trusted);
+        expect(admitted.selection?.model).toBe(claudeModel);
+        expect(admitted.executionRequirement).toBe("trusted-host-allowed");
+        expect(admitted.executionBoundary).toBe("trusted-host-access");
+        for (const denied of [
+          { ...trusted, allowTrustedClaudeWriters: false },
+          { ...trusted, ceiling: "auto" as const },
+          { ...trusted, ceiling: "auto-accept-edits" as const },
+          { ...trusted, ceiling: "approval-required" as const },
+          { ...trusted, request: request({ executionRequirement: "sandbox-required" }) },
+          { ...trusted, request: request() },
+        ]) {
+          expect((yield* resolver.preview(denied)).selection).toBeNull();
+        }
+        const codexWriter = yield* resolver.preview({ ...trusted, providers: [codex] });
+        expect(codexWriter.executionBoundary).toBe("workspace-sandbox");
+        const reader = yield* resolver.preview({
+          ...trusted,
+          request: request({ readOnly: true, executionRequirement: "sandbox-required" }),
+        });
+        expect(reader.executionBoundary).toBe("read-only");
+      }),
   );
 
   it.effect("fails closed for browser and UI-verifier without an enforceable Phi route", () =>

@@ -24,7 +24,13 @@ const state = vi.hoisted(() => ({
 vi.mock("@effect/atom-react", () => ({
   useAtomValue: (atom: { kind?: string }) =>
     atom.kind === "settings"
-      ? { delegation: { defaultChildRuntimeMode: "inherit", advisorIdleCloseMinutes: null } }
+      ? {
+          delegation: {
+            allowTrustedClaudeWriters: false,
+            defaultChildRuntimeMode: "inherit",
+            advisorIdleCloseMinutes: null,
+          },
+        }
       : state.canEdit,
 }));
 vi.mock("../../state/server", () => ({
@@ -381,7 +387,11 @@ it("saves runtime behavior to server settings separately from the policy file", 
     environmentId: "test-env",
     input: {
       patch: {
-        delegation: { defaultChildRuntimeMode: "approval-required", advisorIdleCloseMinutes: 15 },
+        delegation: {
+          allowTrustedClaudeWriters: false,
+          defaultChildRuntimeMode: "approval-required",
+          advisorIdleCloseMinutes: 15,
+        },
       },
     },
   });
@@ -395,4 +405,47 @@ it("rejects invalid timeout and discards runtime edits", async () => {
   await act(() => button("Discard runtime changes").props.onClick());
   expect(duration.props.value).toBe("");
   expect(state.runtime).not.toHaveBeenCalled();
+});
+it("enables trusted Claude writers only through the owner's saved runtime settings, and discard restores it", async () => {
+  await mount();
+  const trusted = checkbox("Allow trusted Claude writers");
+  expect(trusted.props.checked).toBe(false);
+  await act(() => trusted.props.onChange({ target: { checked: true } }));
+  await act(() => button("Discard runtime changes").props.onClick());
+  expect(checkbox("Allow trusted Claude writers").props.checked).toBe(false);
+  await act(() =>
+    checkbox("Allow trusted Claude writers").props.onChange({ target: { checked: true } }),
+  );
+  await act(() => button("Save runtime settings").props.onClick());
+  expect(state.runtime).toHaveBeenCalledWith({
+    environmentId: "test-env",
+    input: {
+      patch: {
+        delegation: {
+          allowTrustedClaudeWriters: true,
+          defaultChildRuntimeMode: "inherit",
+          advisorIdleCloseMinutes: null,
+        },
+      },
+    },
+  });
+  expect(state.save).not.toHaveBeenCalled();
+});
+it("reports the execution boundary a previewed selection would run under", async () => {
+  state.preview.mockResolvedValue(
+    AsyncResult.success({
+      executionRequirement: "trusted-host-allowed",
+      executionBoundary: "trusted-host-access",
+      selection: { instanceId: "claudeAgent", model: "claude-test" },
+      refusal: null,
+      candidates: [],
+    }),
+  );
+  await mount();
+  await act(() => button("Preview selection").props.onClick());
+  expect(
+    renderer!.root
+      .findAllByType("p")
+      .some((node) => node.children.join("") === "Execution: Trusted host access"),
+  ).toBe(true);
 });

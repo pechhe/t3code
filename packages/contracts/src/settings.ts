@@ -1153,13 +1153,23 @@ export const ContextRolloverSettings = Schema.Struct({
 });
 export type ContextRolloverSettings = typeof ContextRolloverSettings.Type;
 
+const DefaultChildRuntimeMode = Schema.Union([Schema.Literal("inherit"), RuntimeMode]);
+const AdvisorIdleCloseMinutes = Schema.NullOr(
+  Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 10080 })),
+);
 export const DelegationRuntimeSettings = Schema.Struct({
-  defaultChildRuntimeMode: Schema.Union([Schema.Literal("inherit"), RuntimeMode]).pipe(
+  allowTrustedClaudeWriters: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  defaultChildRuntimeMode: DefaultChildRuntimeMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("inherit" as const)),
   ),
-  advisorIdleCloseMinutes: Schema.NullOr(
-    Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 10080 })),
-  ).pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  advisorIdleCloseMinutes: AdvisorIdleCloseMinutes.pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
+});
+const DelegationRuntimeSettingsPatch = Schema.Struct({
+  allowTrustedClaudeWriters: Schema.optionalKey(Schema.Boolean),
+  defaultChildRuntimeMode: Schema.optionalKey(DefaultChildRuntimeMode),
+  advisorIdleCloseMinutes: Schema.optionalKey(AdvisorIdleCloseMinutes),
 });
 export type DelegationRuntimeSettings = typeof DelegationRuntimeSettings.Type;
 
@@ -1566,7 +1576,7 @@ const ModelSelectionPatch = Schema.Struct({
 });
 
 export const ServerSettingsPatch = Schema.Struct({
-  delegation: Schema.optionalKey(DelegationRuntimeSettings),
+  delegation: Schema.optionalKey(DelegationRuntimeSettingsPatch),
   setModelFavorites: Schema.optionalKey(
     Schema.Array(Schema.Struct({ ...ModelFavorite.fields, favorite: Schema.Boolean })),
   ),

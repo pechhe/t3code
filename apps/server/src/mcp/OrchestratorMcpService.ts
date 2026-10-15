@@ -2460,6 +2460,7 @@ const make = Effect.gen(function* () {
             yield* managed.value
               .validate({
                 binding: followupTarget,
+                runtimeMode: child.thread.runtimeMode,
                 followupWithoutRevision: followup.sourceRevision === undefined,
                 selection: binding.effective,
                 providers,
@@ -2678,6 +2679,16 @@ const make = Effect.gen(function* () {
             ? undefined
             : yield* managedService
                 .prepare({
+                  runtimeMode: yield* resolveRuntimeMode(
+                    parent.thread.runtimeMode,
+                    input.runtimeMode,
+                    undefined,
+                    (yield* serverSettings.getSettings.pipe(
+                      Effect.mapError(() =>
+                        failure("orchestration_error", "Unable to read delegation settings."),
+                      ),
+                    )).delegation.defaultChildRuntimeMode,
+                  ),
                   request: input.agentTask,
                   requestFingerprint,
                   ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
@@ -2858,6 +2869,7 @@ const make = Effect.gen(function* () {
             yield* managedService
               .validate({
                 binding: prepared.binding,
+                runtimeMode,
                 selection: target.modelSelection,
                 providers: eligibleProviders,
                 ceiling: parent.thread.runtimeMode,

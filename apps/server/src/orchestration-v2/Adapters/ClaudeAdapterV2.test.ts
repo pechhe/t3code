@@ -725,6 +725,71 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
 });
 
 describe("ClaudeAdapterV2 native protocol logging", () => {
+  it("gives admitted trusted writers native edit and shell tools but no native delegation or inherited configuration", () => {
+    const policy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy({
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: "/managed-workspace",
+      managedAgent: true,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "dangerFullAccess" },
+    });
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "trusted-session",
+      resume: true,
+      cwd: "/managed-workspace",
+      managedAgent: true,
+      ...policy,
+      settings: {
+        ...DEFAULT_CLAUDE_SETTINGS,
+        launchArgs:
+          "--permission-mode plan --mcp-config /inherited/config --settings /inherited/settings",
+      },
+      mcpServers: {},
+      sdkSettings: {
+        hooks: { SessionStart: [{ hooks: [{ type: "command", command: "unsafe" }] }] },
+      } as never,
+    });
+    assert.deepEqual(options.tools, ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]);
+    assert.notProperty(options.settings, "hooks");
+    assert.equal(options.permissionMode, "bypassPermissions");
+    assert.isTrue(options.allowDangerouslySkipPermissions);
+    assert.equal(options.resume, "trusted-session");
+    assert.deepEqual(options.settingSources, []);
+    assert.deepEqual(options.plugins, []);
+    assert.deepEqual(options.skills, []);
+    assert.deepEqual(options.mcpServers, {});
+    assert.isTrue(options.strictMcpConfig);
+    assert.include(options.settings, { disableAllHooks: true });
+    assert.isUndefined(options.extraArgs?.settings);
+    assert.isUndefined(options.extraArgs?.["mcp-config"]);
+  });
+
+  it("refuses managed workspace-write and mismatched trusted modes before an SDK process opens", () => {
+    for (const [runtimeMode, sandboxPolicy] of [
+      [
+        "full-access",
+        { type: "workspaceWrite", writableRoots: ["/managed-workspace"], networkAccess: false },
+      ],
+      ["auto", { type: "dangerFullAccess" }],
+      ["full-access", { type: "externalSandbox" }],
+    ] as const) {
+      assert.throws(
+        () =>
+          ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy({
+            runtimeMode,
+            interactionMode: "default",
+            cwd: "/managed-workspace",
+            managedAgent: true,
+            approvalPolicy: "never",
+            sandboxPolicy,
+          }),
+        /Managed Claude requires/,
+      );
+    }
+  });
+
   it("keeps managed readonly SDK options isolated from conflicting launch permissions", () => {
     const policy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy({
       runtimeMode: "full-access",
@@ -812,7 +877,6 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
     };
     assert.equal(systemPrompt.type, "preset");
     assert.equal(systemPrompt.preset, "claude_code");
-    assert.include(systemPrompt.append ?? "", "Use `delegate_task`");
     const logged = ClaudeAdapterV2.loggedClaudeQueryOptions(options);
     assert.equal(logged.hasMcpServers, true);
     assert.notInclude(JSON.stringify(logged), "secret-claude-token");

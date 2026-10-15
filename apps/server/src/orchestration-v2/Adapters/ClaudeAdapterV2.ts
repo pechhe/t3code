@@ -1104,12 +1104,18 @@ export function makeClaudeQueryOptions(input: {
     Object.keys(compiledSelection.settings).length === 0
       ? undefined
       : (compiledSelection.settings as ClaudeSdkSettings);
+  const managedSettings =
+    input.managedAgent === true
+      ? ({ ...selectionSettings, disableAllHooks: true } as ClaudeSdkSettings)
+      : selectionSettings;
   const querySettings =
-    selectionSettings === undefined
-      ? input.sdkSettings
-      : typeof input.sdkSettings === "object" && input.sdkSettings !== null
-        ? ({ ...input.sdkSettings, ...selectionSettings } as ClaudeSdkSettings)
-        : selectionSettings;
+    input.managedAgent === true
+      ? managedSettings
+      : managedSettings === undefined
+        ? input.sdkSettings
+        : typeof input.sdkSettings === "object" && input.sdkSettings !== null
+          ? ({ ...input.sdkSettings, ...managedSettings } as ClaudeSdkSettings)
+          : managedSettings;
   const effectiveQuerySettings =
     input.settings?.autoCompactWindow === undefined || input.settings.autoCompactWindow.length === 0
       ? querySettings
@@ -1208,7 +1214,6 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
   "mcp__t3-code__t3_queue_read",
   "mcp__t3-code__html_preview",
   "mcp__t3-code__html_render",
-  "mcp__t3-code__t3_write_rollover_note",
 ];
 
 // Claude Code aborts an HTTP MCP call after 60 s ("The operation timed out.")
@@ -1840,11 +1845,29 @@ export interface ClaudeRuntimeQueryPolicy {
 export function claudeRuntimeQueryPolicyForRuntimePolicy(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
 ): ClaudeRuntimeQueryPolicy {
+  // Managed Claude has no supported workspace-write sandbox. Only an attested
+  // read-only profile or the explicitly admitted trusted route may reach its SDK.
+  if (
+    runtimePolicy.managedAgent === true &&
+    !(
+      sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly" ||
+      (sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "dangerFullAccess" &&
+        runtimePolicy.runtimeMode === "full-access" &&
+        runtimePolicy.approvalPolicy === "never")
+    )
+  ) {
+    throw new Error("Managed Claude requires read-only execution or admitted trusted host access.");
+  }
   const permissionMode = permissionModeForClaudeRuntimePolicy(runtimePolicy);
   const readOnlyTools =
     sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly"
       ? CLAUDE_READ_ONLY_ALLOWED_TOOLS
       : undefined;
+  const tools =
+    readOnlyTools ??
+    (runtimePolicy.managedAgent === true
+      ? ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]
+      : undefined);
   const allowedTools =
     readOnlyTools !== undefined && readOnlyPolicyAllowsGlobalReads(runtimePolicy)
       ? readOnlyTools
@@ -1860,7 +1883,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
   if (permissionMode === "plan") {
     return {
       permissionMode,
-      ...(readOnlyTools === undefined ? {} : { tools: readOnlyTools }),
+      ...(tools === undefined ? {} : { tools }),
       ...(allowedTools === undefined ? {} : { allowedTools }),
       installPermissionCallback,
     };
@@ -1868,7 +1891,7 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
 
   return {
     permissionMode,
-    ...(readOnlyTools === undefined ? {} : { tools: readOnlyTools }),
+    ...(tools === undefined ? {} : { tools }),
     ...(allowedTools === undefined ? {} : { allowedTools }),
     ...(permissionMode === "bypassPermissions" ? { allowDangerouslySkipPermissions: true } : {}),
     installPermissionCallback,
@@ -8447,7 +8470,11 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
           nativeThreadId: string,
         ) {
-          const queryPolicy = claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy);
+          const queryPolicy = yield* Effect.try({
+            try: () => claudeRuntimeQueryPolicyForRuntimePolicy(turnInput.runtimePolicy),
+            catch: (cause) =>
+              new ClaudeAgentSdkQueryRunnerError({ method: "runtime-policy", cause }),
+          });
           const mcpOverrides = claudeMcpQueryOverrides({
             mcpSession: yield* mcpSessions.read(turnInput.threadId),
             managedAgent: turnInput.runtimePolicy.managedAgent === true,

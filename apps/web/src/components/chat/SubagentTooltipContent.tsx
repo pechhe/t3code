@@ -8,6 +8,7 @@ import type {
   OrchestrationV2Subagent,
 } from "@t3tools/contracts";
 import {
+  agentExecutionBoundaryLabel,
   resolveSubagentMetadata,
   subagentDetailPreview,
 } from "@t3tools/client-runtime/state/subagent-display";
@@ -21,6 +22,8 @@ import {
   CircleXIcon,
   FolderIcon,
   GitBranchIcon,
+  ShieldAlertIcon,
+  ShieldIcon,
   TerminalIcon,
 } from "lucide-react";
 import { ThreadHoverCard } from "../ThreadHoverCard";
@@ -43,7 +46,7 @@ export function SubagentTooltipContent(props: {
   elapsed?: ReactNode;
   parentThread?: Pick<OrchestrationV2ThreadShell, "projectId" | "worktreePath"> | undefined;
   childThread?:
-    | Pick<OrchestrationV2ThreadShell, "branch" | "worktreePath" | "modelSelection">
+    | Pick<OrchestrationV2ThreadShell, "branch" | "worktreePath" | "modelSelection" | "agentTask">
     | undefined;
   parentProject?: Pick<OrchestrationProjectShell, "workspaceRoot"> | undefined;
   childProject?: Pick<OrchestrationProjectShell, "id" | "title" | "workspaceRoot"> | undefined;
@@ -106,6 +109,8 @@ export function SubagentTooltipContent(props: {
         })
         .find(Boolean)
     : undefined;
+  const boundary = props.childThread?.agentTask?.executionBoundary;
+  const BoundaryIcon = boundary === "trusted-host-access" ? ShieldAlertIcon : ShieldIcon;
   const driver = props.provider?.driver ?? props.driver;
   const entries = deriveProviderInstanceEntries(props.providers ?? []);
   const entry = entries.find((candidate) => candidate.instanceId === props.provider?.instanceId);
@@ -180,6 +185,13 @@ export function SubagentTooltipContent(props: {
           </div>
         );
       })}
+      {boundary ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <BoundaryIcon aria-hidden className="size-3 shrink-0" />
+          <span className="sr-only">Execution</span>
+          <span className="min-w-0 truncate">{agentExecutionBoundaryLabel(boundary)}</span>
+        </div>
+      ) : null}
       {preview ? (
         <div className="flex min-w-0 items-center gap-2">
           <TerminalIcon aria-hidden className="size-3 shrink-0" />

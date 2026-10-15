@@ -118,9 +118,14 @@ uses SlipJay. T3 rejects paths on the wrong host or from another repository.
 The returned session key goes in subsequent role and task requests. A task carries
 a canonical role, task class, work ID, attempt ID and transport request ID;
 review tasks also pin the source revision. Role discovery explains unavailable
-models and unsupported execution boundaries before you submit. Some roles are
-refused today and say why: a Claude model can only take read-only roles, and the
-browser and visual-check roles cannot be started through this route.
+models and unsupported execution boundaries before you submit. Claude writers
+require the destination owner's trusted-writer opt-in (**Settings → Delegation →
+Allow trusted Claude writers**) and an effective Full access child. This allows shell networking and host filesystem access beyond
+the assigned checkout; the task's authorised scope remains its assigned work.
+Use `"executionRequirement": "sandbox-required"` when that access is unacceptable.
+Browser and visual-check roles remain unavailable through this route. See
+[trusted Claude writers](../operations/agent-delegation.md#trusted-claude-writers)
+for enablement and migration semantics.
 
 The session's workspace is the lead's own. To run a helper at the same time as
 the lead, allocate it a separate workspace of the same repository (with SlipJay,

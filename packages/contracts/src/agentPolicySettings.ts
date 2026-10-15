@@ -1,5 +1,7 @@
 import * as Schema from "effect/Schema";
 import {
+  AgentExecutionRequirement,
+  AgentExecutionBoundary,
   AgentPolicyManifest,
   AgentPolicySnapshot,
   AgentRole,
@@ -8,6 +10,7 @@ import {
 } from "./agentPolicy.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { RuntimeMode } from "./providerPolicy.ts";
 import { ServerProvider } from "./server.ts";
 
 export const AgentPolicyCandidate = Schema.Struct({
@@ -18,6 +21,8 @@ export const AgentPolicyCandidate = Schema.Struct({
 });
 export type AgentPolicyCandidate = typeof AgentPolicyCandidate.Type;
 export const AgentPolicyPreview = Schema.Struct({
+  executionRequirement: Schema.optional(AgentExecutionRequirement),
+  executionBoundary: Schema.optional(AgentExecutionBoundary),
   selection: Schema.NullOr(ModelSelection),
   refusal: Schema.NullOr(Schema.String),
   candidates: Schema.Array(AgentPolicyCandidate),
@@ -36,6 +41,8 @@ export const AgentPolicySaveInput = Schema.Struct({
 });
 export type AgentPolicySaveInput = typeof AgentPolicySaveInput.Type;
 export const AgentPolicyPreviewInput = Schema.Struct({
+  runtimeMode: Schema.optional(RuntimeMode),
+  executionRequirement: Schema.optional(AgentExecutionRequirement),
   manifest: AgentPolicyManifest,
   role: AgentRole,
   taskClass: AgentTaskClass,
