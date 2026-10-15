@@ -5,6 +5,7 @@ import {
   type AgentRole,
   type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   type ProjectId,
+  type ProviderDriverKind,
   type ScheduledTask,
   type ScheduledTaskUpsertInput,
   type ScheduledTaskUpsertSchedule,
@@ -125,12 +126,16 @@ export function markGroupFailuresSeen(group: ScheduledTaskGroup, seen: SeenFailu
 export function roleModelSummary(
   manifest: AgentPolicyManifest,
   role: AgentRole,
-): { readonly model: string; readonly effort: string | null } | null {
+): {
+  readonly driverKind: ProviderDriverKind;
+  readonly model: string;
+  readonly effort: string | null;
+} | null {
   const first = manifest.lists[manifest.roles[role].list]?.[0];
   if (first === undefined) return null;
   const binding = manifest.models[first.model];
   if (binding === undefined) return null;
-  return { model: binding.model, effort: first.effort };
+  return { driverKind: binding.driverKind, model: binding.model, effort: first.effort };
 }
 
 export type WorkspaceChoice = "fresh" | "checkout";
@@ -189,6 +194,8 @@ export interface GroupDraftFields {
   readonly projectKeys: ReadonlyArray<string>;
   readonly workspace: WorkspaceChoice;
   readonly agentRole: AgentRole | null;
+  /** Keeps posting into the thread a task was bound to; false starts a new thread each run. */
+  readonly keepThread: boolean;
 }
 
 /**
@@ -230,7 +237,7 @@ export function planGroupSave(input: {
           enabled: draft.enabled,
           schedule: draft.schedule,
           projectId,
-          threadId: previous?.threadId ?? null,
+          threadId: draft.keepThread ? (previous?.threadId ?? null) : null,
           workspaceStrategy: workspaceStrategyFor(
             draft.workspace,
             previous?.workspaceStrategy ?? null,

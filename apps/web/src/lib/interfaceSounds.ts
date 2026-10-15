@@ -23,6 +23,8 @@ const FALLBACK_PRESS_MS = 260;
 /** A sweep across the sidebar ticks like a detent instead of buzzing. */
 const TICK_INTERVAL_MS = 30;
 const TICK_PITCH_SPREAD = 0.04;
+/** How far into the release click a dispatch cue starts. */
+const RELEASE_LEAD_S = 0.07;
 
 const RECORDINGS = { pressDown: pressDownUrl, pressUp: pressUpUrl, rotary: rotaryUrl };
 type Recording = keyof typeof RECORDINGS;
@@ -31,6 +33,8 @@ let context: AudioContext | null = null;
 let master: GainNode | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let lastTickAt = Number.NEGATIVE_INFINITY;
+/** When the dial's latest release click starts, so a dispatch cue can follow instead of masking it. */
+let releaseAt = Number.NEGATIVE_INFINITY;
 let tickBuffer: AudioBuffer | null = null;
 const recordings = new Map<Recording, AudioBuffer>();
 
@@ -153,28 +157,31 @@ function tone(
 type Cue = (audio: AudioContext, output: AudioNode, at: number) => void;
 
 /** What follows the dial's press once a message goes to the agent; `press` adds nothing. */
+// Laptop speakers drop most of what sits below ~200 Hz and filtered noise loses most of
+// its energy, so the cues keep their partials high and their noise loud to stay audible.
 const SEND_CUES: Record<SendSound, Cue | null> = {
   press: null,
-  air: (audio, output, at) => sweep(audio, output, at, 0.2, [700, 3200], 0.55, 1.4),
+  air: (audio, output, at) => sweep(audio, output, at, 0.28, [900, 4200], 1.6, 0.8),
   tube: (audio, output, at) => {
-    tone(audio, output, at, 0.08, [140, 60], 0.8);
-    sweep(audio, output, at + 0.03, 0.26, [400, 2400], 0.5, 0.9, "lowpass");
+    tone(audio, output, at, 0.1, [320, 180], 0.7);
+    sweep(audio, output, at + 0.04, 0.32, [600, 3600], 1.4, 0.7, "lowpass");
   },
   bell: (audio, output, at) => {
-    tone(audio, output, at, 0.32, [1320, 1316], 0.35);
-    tone(audio, output, at, 0.22, [1980, 1975], 0.18);
+    tone(audio, output, at, 0.45, [1320, 1316], 0.6);
+    tone(audio, output, at, 0.3, [1980, 1975], 0.3);
   },
 };
 
 /** What follows the press when the message waits in the queue instead. */
 const QUEUE_CUES: Record<QueueSound, Cue> = {
   latch: (audio, output, at) => {
-    playAt(audio, output, recordings.get("pressUp"), at, 0.78, 0.9);
-    tone(audio, output, at + 0.04, 0.1, [660, 440], 0.3);
+    playAt(audio, output, recordings.get("pressDown"), at, 1.35, 0.9);
+    tone(audio, output, at + 0.05, 0.12, [880, 660], 0.55);
+    tone(audio, output, at + 0.14, 0.14, [660, 495], 0.45);
   },
   drop: (audio, output, at) => {
-    sweep(audio, output, at, 0.14, [2600, 700], 0.45, 1.6);
-    tone(audio, output, at + 0.13, 0.09, [110, 70], 0.7);
+    sweep(audio, output, at, 0.16, [3200, 800], 1.4, 1);
+    tone(audio, output, at + 0.15, 0.12, [360, 180], 0.7, "triangle");
   },
 };
 
@@ -262,8 +269,9 @@ export function pressClick(): () => void {
   const pressedAt = performance.now();
   const pressMs = press ? press.duration * 1000 : FALLBACK_PRESS_MS;
   return () => {
-    const wait = pressMs - (performance.now() - pressedAt);
-    if (wait <= 0) play(recordings.get("pressUp"));
+    const wait = Math.max(0, pressMs - (performance.now() - pressedAt));
+    releaseAt = performance.now() + wait;
+    if (wait === 0) play(recordings.get("pressUp"));
     else setTimeout(() => play(recordings.get("pressUp")), wait);
   };
 }
@@ -287,12 +295,18 @@ export function playHoverTick(): void {
 export function playDispatchCue(queued: boolean): void {
   const settings = getClientSettings();
   const cue = queued ? QUEUE_CUES[settings.queueSound] : SEND_CUES[settings.sendSound];
-  if (cue) synth(cue);
+  if (cue) synthAfterRelease(cue);
+}
+
+/** Starts `cue` just after the release click lands, so the two never sound as one. */
+function synthAfterRelease(cue: Cue): void {
+  const delay = Math.max(0, releaseAt - performance.now()) / 1000 + RELEASE_LEAD_S;
+  synth((audio, output, at) => cue(audio, output, at + delay));
 }
 
 function previewCue(cue: Cue | null): void {
   pressClick()();
-  if (cue) synth((audio, output, at) => cue(audio, output, at + 0.06));
+  if (cue) synthAfterRelease(cue);
 }
 
 /** A whole dial press followed by a send sound, for choosing one in Settings. */

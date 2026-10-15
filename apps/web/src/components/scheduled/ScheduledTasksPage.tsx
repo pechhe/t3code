@@ -14,7 +14,6 @@ import {
   type ScheduledTaskUpsertSchedule,
   resolveEnvironmentMachineKind,
 } from "@t3tools/contracts";
-import { formatModelSlugName } from "@t3tools/shared/model";
 import { useNavigate } from "@tanstack/react-router";
 import { CalendarClockIcon, InboxIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -45,8 +44,10 @@ import { Textarea } from "../ui/textarea";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Toggle } from "../ui/toggle";
 import { useRelativeTimeTick } from "../settings/settingsLayout";
+import { AgentRoleChip } from "../AgentRoleChip";
+import { ModelLabel } from "../ModelLabel";
 import { ProjectChip } from "../ProjectChip";
-import { cn } from "~/lib/utils";
+import { ROLE_DESCRIPTIONS } from "../settings/DelegationSettings.logic";
 import {
   WebhookDeliveriesDialog,
   WebhookEndpointField,
@@ -92,9 +93,11 @@ interface EditorDraft extends ScheduleDraft {
   readonly prompt: string;
   readonly enabled: boolean;
   readonly machines: ReadonlyArray<EnvironmentId>;
-  readonly projectKeys: ReadonlyArray<string>;
+  /** Null until edited: the task's own projects, read once the project list has loaded. */
+  readonly projectKeys: ReadonlyArray<string> | null;
   readonly workspace: WorkspaceChoice;
   readonly agentRole: AgentRole | null;
+  readonly keepThread: boolean;
   readonly signatureEnabled: boolean;
   readonly signatureHeader: string;
   readonly signatureEncoding: "hex" | "base64";
@@ -113,12 +116,27 @@ const reportFailure = (title: string, error: unknown) =>
     }),
   );
 
-const modelLabel = (selection: ModelSelection) => {
+const effortOf = (selection: ModelSelection) => {
   const effort = selection.options?.find(
     (option) => option.id === "effort" || option.id === "reasoningEffort",
   )?.value;
-  return `${formatModelSlugName(selection.model)}${typeof effort === "string" ? ` · ${effort}` : ""}`;
+  return typeof effort === "string" ? effort : null;
 };
+
+/** A task's fixed model as the model picker names it. */
+function FixedModelLabel(props: {
+  readonly environmentId: EnvironmentId | null;
+  readonly selection: ModelSelection;
+}) {
+  return (
+    <ModelLabel
+      environmentId={props.environmentId}
+      instanceId={props.selection.instanceId}
+      model={props.selection.model}
+      effort={effortOf(props.selection)}
+    />
+  );
+}
 
 /** Projects across connected machines, one entry per repository, with a record for its chip. */
 function useProjectChoices(): ReadonlyArray<
@@ -284,7 +302,6 @@ function TaskListItem(props: {
 
 function draftOf(
   group: ScheduledTaskGroup | null,
-  projectKeyOf: (environmentId: EnvironmentId, projectId: string) => string | null,
   defaultMachine: EnvironmentId | null,
 ): EditorDraft {
   const lead = group?.lead ?? null;
@@ -302,17 +319,10 @@ function draftOf(
       : defaultMachine === null
         ? []
         : [defaultMachine],
-    projectKeys: group
-      ? [
-          ...new Set(
-            group.members.flatMap(
-              (member) => projectKeyOf(member.environmentId, member.task.projectId) ?? [],
-            ),
-          ),
-        ]
-      : [],
+    projectKeys: group ? null : [],
     workspace: lead ? workspaceChoiceOf(lead.workspaceStrategy) : "fresh",
     agentRole: lead ? (lead.agentRole ?? null) : DEFAULT_ROLE,
+    keepThread: lead?.threadId != null,
     signatureEnabled: signature != null,
     signatureHeader: signature?.header ?? "x-hub-signature-256",
     signatureEncoding: signature?.encoding ?? "hex",
@@ -341,8 +351,19 @@ function TaskDetail(props: {
     projectChoices.find((choice) => choice.projectIdByEnvironment.get(environmentId) === projectId)
       ?.key ?? null;
   const [draft, setDraft] = useState<EditorDraft>(() =>
-    draftOf(group, projectKeyOf, machines[0]?.environmentId ?? null),
+    draftOf(group, machines[0]?.environmentId ?? null),
   );
+  const projectKeys =
+    draft.projectKeys ??
+    (group === null
+      ? []
+      : [
+          ...new Set(
+            group.members.flatMap(
+              (member) => projectKeyOf(member.environmentId, member.task.projectId) ?? [],
+            ),
+          ),
+        ]);
   const [saving, setSaving] = useState(false);
   const [deliveriesFor, setDeliveriesFor] = useState<EnvironmentId | null>(null);
   const upsert = useAtomCommand(serverEnvironment.upsertScheduledTask, {
@@ -368,7 +389,13 @@ function TaskDetail(props: {
     serverEnvironment.upsertScheduledTask.permissionAtom(policyMachine),
   );
   const update = (patch: Partial<EditorDraft>) => setDraft((current) => ({ ...current, ...patch }));
-  const bound = group?.lead.threadId != null;
+  const leadEnvironmentId =
+    group?.members.find((member) => member.task === group.lead)?.environmentId ??
+    group?.members[0]?.environmentId ??
+    null;
+  const boundThreadId = group?.lead.threadId ?? null;
+  // A task bound to a thread posts there, so where it runs is that thread's.
+  const bound = boundThreadId !== null && draft.keepThread;
   const isWebhook = draft.kind === "webhook";
   const plan = planGroupSave({
     draft: {
@@ -377,9 +404,10 @@ function TaskDetail(props: {
       enabled: draft.enabled,
       schedule: { type: "interval", everyMs: 60_000 },
       machines: draft.machines,
-      projectKeys: draft.projectKeys,
+      projectKeys,
       workspace: draft.workspace,
       agentRole: draft.agentRole,
+      keepThread: draft.keepThread,
     },
     groupId: "",
     existing: group?.members ?? [],
@@ -431,7 +459,7 @@ function TaskDetail(props: {
     }
     const groupId = group?.lead.groupId ?? group?.key ?? randomUUID();
     const final = planGroupSave({
-      draft: { ...draft, schedule },
+      draft: { ...draft, projectKeys, schedule },
       groupId,
       existing: group?.members ?? [],
       projects: projectChoices,
@@ -645,14 +673,14 @@ function TaskDetail(props: {
       </ChipRow>
       <ChipRow label="In">
         {projectChoices.map((choice) => {
-          const pressed = draft.projectKeys.includes(choice.key);
+          const pressed = projectKeys.includes(choice.key);
           return (
             <ProjectChip
               key={choice.key}
               project={choice.project}
               label={choice.title}
               selected={pressed}
-              className={cn("h-7 px-2 text-xs", !pressed && "opacity-55")}
+              className="h-7 px-2 text-xs"
               render={
                 <button
                   type="button"
@@ -661,8 +689,8 @@ function TaskDetail(props: {
                   onClick={() =>
                     update({
                       projectKeys: pressed
-                        ? draft.projectKeys.filter((key) => key !== choice.key)
-                        : [...draft.projectKeys, choice.key],
+                        ? projectKeys.filter((key) => key !== choice.key)
+                        : [...projectKeys, choice.key],
                     })
                   }
                 />
@@ -683,10 +711,35 @@ function TaskDetail(props: {
           .
         </p>
       ) : null}
-      {bound ? (
-        <p className="text-muted-foreground text-xs">
-          An agent set this task to post into its own thread.
-        </p>
+      {boundThreadId !== null ? (
+        <div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+          <span>
+            {draft.keepThread
+              ? "An agent set this task to post into its own thread, so it runs where that thread does."
+              : "Each run starts a new thread once you save."}
+          </span>
+          <Button
+            size="xs"
+            variant="ghost-muted"
+            onClick={() => update({ keepThread: !draft.keepThread })}
+          >
+            {draft.keepThread ? "Start a new thread each run" : "Keep posting into its thread"}
+          </Button>
+          {draft.keepThread && leadEnvironmentId !== null ? (
+            <Button
+              size="xs"
+              variant="ghost-muted"
+              onClick={() =>
+                void navigate({
+                  to: "/$environmentId/$threadId",
+                  params: { environmentId: leadEnvironmentId, threadId: boundThreadId },
+                })
+              }
+            >
+              Open thread
+            </Button>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
@@ -717,25 +770,43 @@ function TaskDetail(props: {
         >
           <SelectTrigger size="xs" variant="ghost" aria-label="Subagent role">
             <SelectValue>
-              {draft.agentRole ??
-                `a fixed model (${group ? modelLabel(group.lead.modelSelection) : "none"})`}
+              {draft.agentRole !== null ? (
+                <AgentRoleChip role={draft.agentRole} />
+              ) : group ? (
+                <FixedModelLabel environmentId={leadEnvironmentId} selection={group.lead.modelSelection} />
+              ) : (
+                "a fixed model"
+              )}
             </SelectValue>
           </SelectTrigger>
           <SelectPopup>
             {ROLE_OPTIONS.map((role) => (
               <SelectItem key={role} value={role}>
-                {role}
+                <span className="flex items-center gap-2">
+                  <AgentRoleChip role={role} />
+                  <span className="text-muted-foreground text-xs">{ROLE_DESCRIPTIONS[role]}</span>
+                </span>
               </SelectItem>
             ))}
             {group && group.lead.agentRole == null ? (
-              <SelectItem value="fixed">{`its fixed model (${modelLabel(group.lead.modelSelection)})`}</SelectItem>
+              <SelectItem value="fixed">
+                <span className="flex items-center gap-2">
+                  <span className="text-muted-foreground text-xs">its fixed model</span>
+                  <FixedModelLabel environmentId={leadEnvironmentId} selection={group.lead.modelSelection} />
+                </span>
+              </SelectItem>
             ) : null}
           </SelectPopup>
         </Select>
         {roleSummary ? (
-          <span className="text-muted-foreground text-xs">
-            uses {formatModelSlugName(roleSummary.model)}
-            {roleSummary.effort ? ` · ${roleSummary.effort}` : ""}
+          <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+            uses
+            <ModelLabel
+              environmentId={policyMachine}
+              driverKind={roleSummary.driverKind}
+              model={roleSummary.model}
+              effort={roleSummary.effort}
+            />
           </span>
         ) : draft.agentRole !== null && policy.error ? (
           <span className="text-muted-foreground text-xs">
@@ -785,9 +856,10 @@ function TaskDetail(props: {
                 )}
                 fallback={member.task.projectId}
               />
-              <span className="text-muted-foreground">
-                {modelLabel(member.task.modelSelection)}
-              </span>
+              <FixedModelLabel
+                environmentId={member.environmentId}
+                selection={member.task.modelSelection}
+              />
               {member.task.lastRunStatus === "never" ? (
                 <span className="text-muted-foreground">not run yet</span>
               ) : (

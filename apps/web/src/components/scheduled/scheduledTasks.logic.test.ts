@@ -69,6 +69,7 @@ const draft = (overrides: Partial<GroupDraftFields> = {}): GroupDraftFields => (
   projectKeys: [t3peach.key],
   workspace: "fresh",
   agentRole: "chore-worker",
+  keepThread: true,
   ...overrides,
 });
 
@@ -177,15 +178,17 @@ describe("planGroupSave", () => {
     ]);
   });
 
-  it("keeps an agent's thread binding", () => {
+  it("keeps an agent's thread binding until the editor lets it go", () => {
     const bound = task({ id: "bound", threadId: ThreadId.make("thread-1") });
-    const plan = planGroupSave({
-      draft: draft(),
-      groupId: "g",
-      existing: [{ environmentId: mac, task: bound }],
-      projects: [t3peach],
-    });
-    expect(plan.upserts[0]?.input.threadId).toBe("thread-1");
+    const plan = (keepThread: boolean) =>
+      planGroupSave({
+        draft: draft({ keepThread }),
+        groupId: "g",
+        existing: [{ environmentId: mac, task: bound }],
+        projects: [t3peach],
+      });
+    expect(plan(true).upserts[0]?.input.threadId).toBe("thread-1");
+    expect(plan(false).upserts[0]?.input.threadId).toBeNull();
   });
 });
 

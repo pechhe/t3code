@@ -12,6 +12,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
 } from "react";
 
 import { openCommandPalette } from "~/commandPaletteBus";
@@ -34,7 +35,7 @@ import { useProjects, useThreadShells } from "~/state/entities";
 import { useEnvironments, usePrimaryEnvironmentId } from "~/state/environments";
 import { ProjectEnvironmentBadge } from "../ProjectEnvironmentBadge";
 import { ProjectChip } from "../ProjectChip";
-import { sortLogicalProjectsForSidebar } from "../Sidebar.logic";
+import { sortLogicalProjectsByRecentUse } from "../Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -55,7 +56,6 @@ export function DraftHeroHeadline({
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
-  const projectSortOrder = useClientSettings((settings) => settings.sidebarProjectSortOrder);
   const setLogicalProjectDraftThreadId = useComposerDraftStore(
     (store) => store.setLogicalProjectDraftThreadId,
   );
@@ -74,9 +74,11 @@ export function DraftHeroHeadline({
       ),
     [environments],
   );
+  // The 30-day window is measured from when the screen opened, so the order holds still.
+  const [openedAt] = useState(() => Date.now());
   const projectGroups = useMemo(
     () =>
-      sortLogicalProjectsForSidebar(
+      sortLogicalProjectsByRecentUse(
         buildSidebarProjectSnapshots({
           projects,
           settings: projectGroupingSettings,
@@ -85,16 +87,9 @@ export function DraftHeroHeadline({
             environmentLabelById.get(environmentId) ?? null,
         }),
         threads,
-        projectSortOrder,
+        openedAt,
       ),
-    [
-      environmentLabelById,
-      primaryEnvironmentId,
-      projectGroupingSettings,
-      projectSortOrder,
-      projects,
-      threads,
-    ],
+    [environmentLabelById, openedAt, primaryEnvironmentId, projectGroupingSettings, projects, threads],
   );
   // Same-named projects on two machines are only told apart by where they
   // live, so rows on another machine carry its icon once the catalog spans
@@ -138,15 +133,20 @@ export function DraftHeroHeadline({
   const hasResolvedProject = activeProjectTitle !== null;
   const canChooseProject = projectPickerEntries.length > 0;
   // The project that hosts threads without a project is not a chip of its own:
-  // the "No project" chip is the way into it.
-  const menuEntries = useMemo(
-    () =>
-      projectPickerEntries.filter(
+  // the "No project" chip is the way into it. Chips keep the usage order rather
+  // than the picker's chosen-first order, so choosing one never moves the row.
+  const menuEntries = useMemo(() => {
+    const position = new Map(projectGroups.map((group, index) => [group.projectKey, index]));
+    return projectPickerEntries
+      .filter(
         ({ targetProject }) =>
           !isScratchProject(targetProject, scratchWorkspaceRootFor(targetProject.environmentId)),
-      ),
-    [projectPickerEntries, scratchWorkspaceRootFor],
-  );
+      )
+      .toSorted(
+        (left, right) =>
+          (position.get(left.group.projectKey) ?? 0) - (position.get(right.group.projectKey) ?? 0),
+      );
+  }, [projectGroups, projectPickerEntries, scratchWorkspaceRootFor]);
   const activeProject =
     activeProjectRef === null
       ? null
@@ -280,9 +280,8 @@ export function DraftHeroHeadline({
                   aria-pressed={isScratchDraft}
                   onClick={() => void startScratch()}
                   className={cn(
-                    "inline-flex h-6 items-center gap-1 rounded-md border border-dashed border-border px-2 font-semibold text-muted-foreground text-xs hover:border-foreground/30 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
-                    isScratchDraft &&
-                      "border-solid text-foreground ring-2 ring-inset ring-foreground/75",
+                    "inline-flex h-6 items-center gap-1 rounded-md border border-dashed border-border px-2 font-semibold text-muted-foreground text-xs transition-[background-color,border-color,color] hover:border-foreground/30 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none",
+                    isScratchDraft && "border-solid border-foreground/60 bg-foreground/8 text-foreground",
                   )}
                 />
               }

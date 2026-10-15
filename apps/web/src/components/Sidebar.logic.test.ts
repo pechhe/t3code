@@ -46,6 +46,7 @@ import {
   shouldShowSidebarV2Duration,
   shouldRecedeSidebarThread,
   sortLogicalProjectsForSidebar,
+  sortLogicalProjectsByRecentUse,
   sortInboxThreadsByReturn,
   resolveSidebarDropTarget,
   planSidebarThreadDrop,
@@ -1877,6 +1878,43 @@ describe("sortLogicalProjectsForSidebar", () => {
         (project) => project.projectKey,
       ),
     ).toEqual(["logical-newer", "logical-older"]);
+  });
+});
+
+describe("sortLogicalProjectsByRecentUse", () => {
+  it("puts the projects with the most threads started in the last 30 days first", () => {
+    const quietProjectId = ProjectId.make("project-quiet");
+    const busyProjectId = ProjectId.make("project-busy");
+    const projects = [quietProjectId, busyProjectId].map((id) => ({
+      ...makeProject({ id, title: id === quietProjectId ? "A quiet" : "B busy" }),
+      projectKey: id,
+      memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: id }],
+    }));
+    const now = Date.parse("2026-03-31T00:00:00.000Z");
+    const thread = (id: string, projectId: ProjectId, createdAt: string, subagent = false) => {
+      const base = makeThread({ id: ThreadId.make(id), projectId, createdAt });
+      return subagent
+        ? { ...base, lineage: { ...base.lineage, relationshipToParent: "subagent" as const } }
+        : base;
+    };
+    const threads = [
+      thread("busy-1", busyProjectId, "2026-03-20T00:00:00.000Z"),
+      thread("busy-2", busyProjectId, "2026-03-21T00:00:00.000Z"),
+      // Older than the window and subagents do not count.
+      thread("quiet-old-1", quietProjectId, "2026-01-01T00:00:00.000Z"),
+      thread("quiet-old-2", quietProjectId, "2026-01-02T00:00:00.000Z"),
+      thread("quiet-old-3", quietProjectId, "2026-01-03T00:00:00.000Z"),
+      thread("quiet-sub-1", quietProjectId, "2026-03-25T00:00:00.000Z", true),
+      thread("quiet-sub-2", quietProjectId, "2026-03-25T00:00:00.000Z", true),
+      thread("quiet-sub-3", quietProjectId, "2026-03-25T00:00:00.000Z", true),
+    ];
+
+    expect(
+      sortLogicalProjectsByRecentUse(projects, threads, now).map((project) => project.projectKey),
+    ).toEqual([busyProjectId, quietProjectId]);
+    expect(
+      sortLogicalProjectsByRecentUse(projects, [], now).map((project) => project.projectKey),
+    ).toEqual([quietProjectId, busyProjectId]);
   });
 });
 

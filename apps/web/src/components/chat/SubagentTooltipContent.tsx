@@ -26,6 +26,7 @@ import {
   ShieldIcon,
   TerminalIcon,
 } from "lucide-react";
+import { AgentRoleChip } from "../AgentRoleChip";
 import { ThreadHoverCard } from "../ThreadHoverCard";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -110,6 +111,7 @@ export function SubagentTooltipContent(props: {
         .find(Boolean)
     : undefined;
   const boundary = props.childThread?.agentTask?.executionBoundary;
+  const role = props.childThread?.agentTask?.role;
   const BoundaryIcon = boundary === "trusted-host-access" ? ShieldAlertIcon : ShieldIcon;
   const driver = props.provider?.driver ?? props.driver;
   const entries = deriveProviderInstanceEntries(props.providers ?? []);
@@ -173,6 +175,7 @@ export function SubagentTooltipContent(props: {
           <StatusIcon aria-hidden className="size-3 shrink-0" />
           {props.status.replaceAll("_", " ")}
         </span>
+        {role ? <AgentRoleChip role={role} className="ms-auto" /> : null}
         {props.elapsed}
       </div>
       {metadata.map(({ label, value }) => {

@@ -1,0 +1,65 @@
+import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
+import { formatModelSlugName } from "@t3tools/shared/model";
+import { useMemo } from "react";
+
+import { cn } from "~/lib/utils";
+import { deriveProviderInstanceEntries } from "~/providerInstances";
+import { useEnvironments } from "~/state/environments";
+import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
+import { getDisplayModelName, getProviderRowLabel } from "./chat/providerIconUtils";
+
+/**
+ * A model named the way the composer's model picker names it: the model, then the
+ * provider's icon and name in a quieter tone. Use it wherever a model is shown outside
+ * that picker. A policy binding names only the provider kind, so `instanceId` is optional
+ * and the kind's default instance stands in.
+ */
+export function ModelLabel(props: {
+  environmentId: EnvironmentId | null;
+  model: string;
+  instanceId?: ProviderInstanceId | undefined;
+  driverKind?: ProviderDriverKind | undefined;
+  effort?: string | null | undefined;
+  className?: string | undefined;
+}) {
+  const { environments } = useEnvironments();
+  const providers =
+    environments.find((environment) => environment.environmentId === props.environmentId)
+      ?.serverConfig?.providers ?? null;
+  const entry = useMemo(() => {
+    const entries = deriveProviderInstanceEntries(providers ?? []);
+    return (
+      entries.find((candidate) => candidate.instanceId === props.instanceId) ??
+      entries.find((candidate) => candidate.driverKind === props.driverKind && candidate.isDefault) ??
+      entries.find((candidate) => candidate.driverKind === props.driverKind)
+    );
+  }, [props.driverKind, props.instanceId, providers]);
+  const model = entry?.models.find((candidate) => candidate.slug === props.model);
+  const name = model ? getDisplayModelName(model) : formatModelSlugName(props.model);
+  const driverKind = entry?.driverKind ?? props.driverKind;
+  return (
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", props.className)}>
+      <span className="min-w-0 truncate font-medium text-foreground">{name}</span>
+      {props.effort ? <span className="shrink-0 text-muted-foreground">{props.effort}</span> : null}
+      {entry || driverKind ? (
+        <span className="inline-flex min-w-0 items-center gap-1 text-muted-foreground/70">
+          {driverKind ? (
+            <ProviderInstanceIcon
+              driverKind={driverKind}
+              displayName={entry?.displayName ?? driverKind}
+              acpRegistryAgentId={entry?.acpRegistryAgentId}
+              acpRegistryIconUrl={entry?.acpRegistryIconUrl}
+              className="size-3"
+              iconClassName="size-3"
+            />
+          ) : null}
+          {entry ? (
+            <span className="min-w-0 truncate">
+              {getProviderRowLabel(entry.displayName, model?.subProvider)}
+            </span>
+          ) : null}
+        </span>
+      ) : null}
+    </span>
+  );
+}

@@ -1394,6 +1394,42 @@ export function sortLogicalProjectsForSidebar<
   );
 }
 
+const RECENT_USE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Orders projects by how many threads were started in each over the last 30 days, most
+ * first, then by title. Subagents and drafts never count, so choosing a project does not
+ * move it.
+ */
+export function sortLogicalProjectsByRecentUse<
+  TProject extends LogicalSidebarProject,
+  TThread extends Pick<ScopedSidebarThread, "environmentId" | "projectId" | "createdAt"> &
+    Pick<SidebarThreadSummary, "lineage">,
+>(projects: readonly TProject[], threads: readonly TThread[], now: number): TProject[] {
+  const groupKeyByProjectRef = new Map(
+    projects.flatMap((project) =>
+      project.memberProjectRefs.map(
+        (projectRef) =>
+          [`${projectRef.environmentId}\0${projectRef.projectId}`, project.projectKey] as const,
+      ),
+    ),
+  );
+  const uses = new Map<string, number>();
+  for (const thread of threads) {
+    if (isSidebarSubagentThread(thread)) continue;
+    const startedAt = toSortableTimestamp(thread.createdAt);
+    if (startedAt === null || now - startedAt > RECENT_USE_WINDOW_MS) continue;
+    const projectKey = groupKeyByProjectRef.get(`${thread.environmentId}\0${thread.projectId}`);
+    if (projectKey) uses.set(projectKey, (uses.get(projectKey) ?? 0) + 1);
+  }
+  return projects.toSorted(
+    (left, right) =>
+      (uses.get(right.projectKey) ?? 0) - (uses.get(left.projectKey) ?? 0) ||
+      left.title.localeCompare(right.title) ||
+      left.projectKey.localeCompare(right.projectKey),
+  );
+}
+
 export function sortSidebarV2ProjectGroups<
   TProject extends LogicalSidebarProject,
   TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "lineage">,

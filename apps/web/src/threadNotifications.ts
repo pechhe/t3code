@@ -77,8 +77,11 @@ export async function playNotificationSound(
   kind: "completion" | "input",
   shouldPlay: () => boolean,
 ) {
-  if (!audioContext || audioContext.state !== "running") return;
+  if (!audioContext) return;
   const context = audioContext;
+  // Sleep or an audio device change suspends the context; a gesture already unlocked it, so resume.
+  if (context.state !== "running") await context.resume().catch(() => undefined);
+  if (context.state !== "running") return;
   const url = kind === "completion" ? completionUrl : inputUrl;
   try {
     let buffer = buffers.get(url);

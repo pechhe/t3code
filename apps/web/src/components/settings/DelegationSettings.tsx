@@ -44,6 +44,7 @@ import {
   type CatalogModel,
   type RoleGroup,
 } from "./DelegationSettings.logic";
+import { AgentRoleChip } from "../AgentRoleChip";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useSettingsScope } from "./SettingsScopeContext";
@@ -338,11 +339,10 @@ function JobRow({
       <Collapsible>
         <CollapsibleTrigger className="group/job flex w-full items-center gap-3 px-3 py-2.5 text-left sm:px-4">
           <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-1.5 font-mono text-xs font-medium">
-              {group.roles.map((role, index) => (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs font-medium">
+              {group.roles.map((role) => (
                 <span key={role} className="flex items-center gap-1.5">
-                  {index > 0 ? <span className="text-muted-foreground">·</span> : null}
-                  {role}
+                  <AgentRoleChip role={role} />
                   {UNAVAILABLE_ROLES.has(role) ? (
                     <Badge variant="outline" size="sm">
                       not available yet
