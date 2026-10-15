@@ -2262,6 +2262,16 @@ const make = Effect.gen(function* () {
             providers: eligible,
             ceiling: limits.runtimeMode,
             request: input,
+            ...(input.model === undefined
+              ? {}
+              : {
+                  selection: {
+                    model: input.model,
+                    ...(input.providerInstanceId === undefined
+                      ? {}
+                      : { instanceId: input.providerInstanceId }),
+                  },
+                }),
             ...(parent === undefined
               ? {}
               : { currentInstanceId: parent.thread.modelSelection.instanceId }),
@@ -2679,11 +2689,13 @@ const make = Effect.gen(function* () {
                     ? {}
                     : {
                         selection: {
-                          instanceId:
-                            input.target.providerInstanceId ??
-                            parent.thread.modelSelection.instanceId,
+                          ...(input.target.providerInstanceId === undefined
+                            ? {}
+                            : { instanceId: input.target.providerInstanceId }),
                           model: input.target.model,
-                          options: input.target.options ?? [],
+                          ...(input.target.options === undefined
+                            ? {}
+                            : { options: input.target.options }),
                         },
                       }),
                 })

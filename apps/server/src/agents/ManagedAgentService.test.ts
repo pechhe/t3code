@@ -4,6 +4,7 @@ import {
   ProjectId,
   type AgentPolicyManifest,
   type AgentTaskBinding,
+  type AgentTaskRequest,
   type ModelSelection,
   type OrchestrationV2AppThread,
 } from "@t3tools/contracts";
@@ -23,7 +24,15 @@ import * as RuntimePolicy from "../orchestration-v2/RuntimePolicy.ts";
 import * as Projects from "../orchestration-v2/ProjectStore.ts";
 import * as Providers from "../provider/ProviderInstanceRegistry.ts";
 import * as Settings from "../serverSettings.ts";
-import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.testkit.ts";
+import {
+  snapshot,
+  request,
+  codex,
+  claude,
+  codexModel,
+  claudeModel,
+  changeReview,
+} from "./agentPolicy.testkit.ts";
 
 const sourceRevision = "fixture-source-commit";
 const processes = Layer.succeed(ProcessRunner.ProcessRunner, {
@@ -548,6 +557,39 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           );
       expect((yield* reviewer()).refusal).toBeNull();
       expect((yield* reviewer("spec")).refusal).toBeNull();
+    }),
+  );
+
+  it.effect("discovers each role under a requested model, as a launch would resolve it", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const roles = (model: string, role: AgentTaskRequest["role"] = "advisor") =>
+        f.service
+          .roles({
+            providers: [codex, claude],
+            ceiling: "full-access",
+            request: {
+              taskClass: "non-ui",
+              readOnly: true,
+              sourceRevision: "reviewed-commit",
+              authorModel: codexModel,
+            },
+            selection: { model },
+          })
+          .pipe(
+            Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+            Effect.map((result) => result.roles.find((entry) => entry.role === role)!),
+          );
+      expect((yield* roles("gpt-astra-test")).selection?.model).toBe("gpt-astra-test");
+      const outside = yield* roles(claudeModel);
+      expect(outside.selection).toBeNull();
+      expect(outside.refusal).toBe("selection-denied");
+      // Discovery applies a reviewer's independence from its author, as a launch does.
+      expect((yield* roles(codexModel, "reviewer")).refusal).toBe("selection-denied");
+      expect((yield* roles(claudeModel, "reviewer")).selection?.model).toBe(claudeModel);
+      // A launch names why the choice was refused.
+      const refused = yield* f.prepare({ selection: { model: claudeModel } }).pipe(Effect.flip);
+      expect(refused.message).toContain("selection-denied");
     }),
   );
 

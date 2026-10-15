@@ -166,7 +166,6 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         })).reason,
       ).toBe("selection-denied");
       for (const options of [
-        undefined,
         [{ id: "reasoning", value: "high" }],
         [
           { id: "reasoning", value: "medium" },
@@ -179,7 +178,7 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
             selection: {
               instanceId: codex.instanceId,
               model: codexModel,
-              ...(options === undefined ? {} : { options }),
+              options,
             },
           })).reason,
         ).toBe("unsupported-options");
@@ -356,6 +355,66 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       // A Claude caller is advised by Codex, ahead of the pool's own preference.
       expect((yield* advisor(claude.instanceId)).instanceId).toBe(codex.instanceId);
       expect((yield* advisor(codex.instanceId)).instanceId).toBe(claude.instanceId);
+    }),
+  );
+
+  it.effect("honours a caller's model within the role, over the default order", () =>
+    Effect.gen(function* () {
+      const advisor = (selection?: Input["selection"], extra: Partial<Input> = {}) =>
+        input({
+          request: request({ role: "advisor" }),
+          ...(selection === undefined ? {} : { selection }),
+          ...extra,
+        });
+      // The pool prefers fable; a named model replaces that order, with the role's own effort.
+      expect(yield* resolve(advisor())).toMatchObject({ model: "claude-fable-test" });
+      expect(yield* resolve(advisor({ model: "gpt-astra-test" }))).toEqual({
+        instanceId: codex.instanceId,
+        model: "gpt-astra-test",
+        options: [{ id: "reasoning", value: "medium" }],
+      });
+      // The named account is honoured when it offers the model.
+      expect(
+        (yield* resolve(advisor({ model: "claude-fable-test", instanceId: claude.instanceId })))
+          .instanceId,
+      ).toBe(claude.instanceId);
+      // A model outside the role's pool, or on an account that lacks it, is refused.
+      expect((yield* refusal(advisor({ model: claudeModel }))).reason).toBe("selection-denied");
+      expect(
+        (yield* refusal(advisor({ model: "gpt-astra-test", instanceId: claude.instanceId })))
+          .reason,
+      ).toBe("selection-denied");
+      // Effort stated by the caller must still be the role's own.
+      expect(
+        (yield* refusal(
+          advisor({
+            model: "gpt-astra-test",
+            options: [{ id: "reasoning", value: "high" }],
+          }),
+        )).reason,
+      ).toBe("unsupported-options");
+    }),
+  );
+
+  it.effect("never lets a choice give a review its author's own model", () =>
+    Effect.gen(function* () {
+      const review = request({
+        role: "reviewer",
+        sourceRevision: "reviewed-commit",
+        review: changeReview,
+        authorModel: codexModel,
+      });
+      expect(
+        (yield* refusal(input({ request: review, selection: { model: codexModel } }))).reason,
+      ).toBe("selection-denied");
+      expect(
+        (yield* resolve(input({ request: review, selection: { model: claudeModel } }))).model,
+      ).toBe(claudeModel);
+      // With nothing else eligible, the author's model serves, and that resolution revalidates.
+      const authorOnly = input({ request: review, providers: [codex] });
+      const automatic = yield* resolve(authorOnly);
+      expect(automatic.model).toBe(codexModel);
+      expect(yield* resolve({ ...authorOnly, selection: automatic })).toEqual(automatic);
     }),
   );
 

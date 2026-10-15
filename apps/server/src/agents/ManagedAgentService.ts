@@ -41,7 +41,8 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   },
 ) {
   override get message(): string {
-    const refusal = `Managed agent dispatch refused (${this.reason}).`;
+    const detail = Schema.is(Resolver.AgentRoleError)(this.cause) ? `: ${this.cause.reason}` : "";
+    const refusal = `Managed agent dispatch refused (${this.reason}${detail}).`;
     return this.reason === "source" ? `${refusal} ${sourceRevisionGuidance}` : refusal;
   }
 }
@@ -78,6 +79,7 @@ export class ManagedAgentService extends Context.Service<
       input: Omit<Authority, "workspacePath"> & {
         readonly request: AgentRolesInput;
         readonly currentInstanceId?: ProviderInstanceId;
+        readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
     readonly prepare: (
@@ -87,7 +89,7 @@ export class ManagedAgentService extends Context.Service<
         readonly recordedBinding?: AgentTaskBinding;
         readonly policyHash?: string;
         readonly currentInstanceId?: ProviderInstanceId;
-        readonly selection?: ModelSelection;
+        readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<{ binding: AgentTaskBinding; brief: string }, ManagedAgentError>;
     readonly validate: (
@@ -250,6 +252,7 @@ const make = Effect.gen(function* () {
                 snapshot,
                 providers: input.providers,
                 ceiling: input.ceiling,
+                ...(input.selection === undefined ? {} : { selection: input.selection }),
                 ...(input.currentInstanceId === undefined
                   ? {}
                   : { currentInstanceId: input.currentInstanceId }),

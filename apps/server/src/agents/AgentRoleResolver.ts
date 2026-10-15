@@ -32,6 +32,16 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
   }
 }
 
+/**
+ * A model a caller or experiment asks for within a role. Without an instance, any eligible
+ * account offering the model may serve it; without options, the role's own effort applies.
+ */
+export type RequestedModel = {
+  readonly instanceId?: ProviderInstanceId;
+  readonly model: string;
+  readonly options?: ModelSelection["options"];
+};
+
 type ResolutionInput = {
   readonly snapshot: AgentPolicySnapshot;
   readonly request: AgentTaskRequest;
@@ -39,7 +49,7 @@ type ResolutionInput = {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly ceiling: RuntimeMode;
   readonly currentInstanceId?: ProviderInstanceId;
-  readonly selection?: ModelSelection;
+  readonly selection?: RequestedModel;
 };
 
 export class AgentRoleResolver extends Context.Service<
@@ -79,7 +89,7 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
     return yield* new AgentRoleError({ reason: "unsupported-permissions" });
   const pool = snapshot.manifest.pools[role.pool];
   const allowed = role.restrictions[request.taskClass] ?? pool.allow;
-  const candidates: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
+  const eligible: Array<{ selection: ModelSelection; alias: string; provider: ServerProvider }> =
     [];
   for (const alias of allowed) {
     const binding = snapshot.manifest.models[alias];
@@ -115,7 +125,7 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
       );
       if (option?.type !== "select" || !option.options.some((choice) => choice.id === effort))
         continue;
-      candidates.push({
+      eligible.push({
         alias,
         provider,
         selection: {
@@ -126,27 +136,40 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
       });
     }
   }
+  let candidates = eligible;
   if (input.selection !== undefined) {
     const selection = input.selection;
-    const candidate = candidates.find(
+    const requested = eligible.filter(
       ({ selection: value }) =>
-        value.instanceId === selection.instanceId && value.model === selection.model,
+        value.model === selection.model &&
+        (selection.instanceId === undefined || value.instanceId === selection.instanceId),
     );
-    if (candidate === undefined) return yield* new AgentRoleError({ reason: "selection-denied" });
-    const options = selection.options ?? [];
-    // An experiment may choose an eligible model, but cannot inherit hidden or
-    // unsupported effort/options. Deliberate high effort is part of the work request.
+    // A review stays independent of its author: as in the default order below, the
+    // author's model serves only when nothing else is eligible.
     if (
-      options.length !== candidate.selection.options?.length ||
-      options.some(
-        (option) =>
-          !candidate.selection.options?.some(
-            (expected) => expected.id === option.id && expected.value === option.value,
-          ),
-      )
+      requested.length === 0 ||
+      (request.role === "reviewer" &&
+        selection.model === request.authorModel &&
+        eligible.some(({ selection: value }) => value.model !== request.authorModel))
     )
-      return yield* new AgentRoleError({ reason: "unsupported-options" });
-    return candidate.selection;
+      return yield* new AgentRoleError({ reason: "selection-denied" });
+    const options = selection.options;
+    // A choice may name an eligible model, but cannot inherit hidden or unsupported
+    // effort/options. Stated options must be the role's own; omitted ones are the role's.
+    const matching =
+      options === undefined
+        ? requested
+        : requested.filter(
+            ({ selection: value }) =>
+              options.length === value.options?.length &&
+              options.every((option) =>
+                value.options?.some(
+                  (expected) => expected.id === option.id && expected.value === option.value,
+                ),
+              ),
+          );
+    if (matching.length === 0) return yield* new AgentRoleError({ reason: "unsupported-options" });
+    candidates = matching;
   }
   const preference = (alias: string) => {
     const index = pool.prefer.indexOf(alias);

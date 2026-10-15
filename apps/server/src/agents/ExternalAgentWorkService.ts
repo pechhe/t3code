@@ -68,6 +68,7 @@ export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWork
 ) {
   override get message(): string {
     const refusal = `External agent work refused (${this.reason}).`;
+    if (Schema.is(Managed.ManagedAgentError)(this.cause)) return `${refusal} ${this.cause.message}`;
     return this.reason === "source" ? `${refusal} ${Managed.sourceRevisionGuidance}` : refusal;
   }
 }
@@ -694,12 +695,6 @@ const make = Effect.gen(function* () {
                 p.instanceId === input.target.providerInstanceId) &&
               (input.target?.driverKind === undefined || p.driver === input.target.driverKind),
           );
-          const explicit =
-            input.target?.model === undefined
-              ? undefined
-              : requestedProviders.find((p) =>
-                  p.models.some((m) => m.slug === input.target?.model),
-                );
           const prepared = yield* managed
             .prepare({
               request: input.agentTask,
@@ -715,9 +710,13 @@ const make = Effect.gen(function* () {
                 ? {}
                 : {
                     selection: {
-                      instanceId: explicit?.instanceId ?? ProviderInstanceId.make("unavailable"),
+                      ...(input.target.providerInstanceId === undefined
+                        ? {}
+                        : { instanceId: input.target.providerInstanceId }),
                       model: input.target.model,
-                      options: input.target.options ?? [],
+                      ...(input.target.options === undefined
+                        ? {}
+                        : { options: input.target.options }),
                     },
                   }),
             })

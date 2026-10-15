@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema";
 import { EnvironmentId, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
-import { ProviderDriverKind } from "./providerInstance.ts";
+import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import { ModelSelection } from "./modelSelection.ts";
 
 export const AgentRole = Schema.Literals([
@@ -244,6 +244,11 @@ export const AgentRolesInput = Schema.Struct({
   demanding: Schema.optional(Schema.Boolean),
   readOnly: Schema.optional(Schema.Boolean),
   sourceRevision: Schema.optional(TrimmedNonEmptyString),
+  /** Check a model within each role, as a delegation's target would choose it. */
+  providerInstanceId: Schema.optional(ProviderInstanceId),
+  model: Schema.optional(TrimmedNonEmptyString),
+  /** The model that wrote the work a reviewer would check, as a review delegation states it. */
+  authorModel: Schema.optional(TrimmedNonEmptyString),
 });
 export type AgentRolesInput = typeof AgentRolesInput.Type;
 export const AgentRolesResult = Schema.Struct({
