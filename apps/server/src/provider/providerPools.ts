@@ -58,6 +58,20 @@ export const compareByUsageReset =
     nextUsageResetMs(a, nowMs) - nextUsageResetMs(b, nowMs) ||
     0;
 
+const routableMembers = (
+  pool: Pick<ProviderPool, "driver" | "members">,
+  providers: ReadonlyArray<ServerProvider>,
+): ReadonlyArray<ServerProvider> =>
+  pool.members.flatMap((member) => {
+    const provider = providers.find((candidate) => candidate.instanceId === member);
+    return provider !== undefined &&
+      provider.driver === pool.driver &&
+      provider.poolMembers === undefined &&
+      isProviderRoutable(provider)
+      ? [provider]
+      : [];
+  });
+
 /**
  * The member a pooled turn should run on, or `undefined` when no member can
  * take a turn. When every member is at a limit, the one resetting soonest is
@@ -70,21 +84,32 @@ export const pickPoolMember = (input: {
   /** The member the thread is already on, kept while it has allowance. */
   readonly current?: ProviderInstanceId | undefined;
 }): ProviderInstanceId | undefined => {
-  const candidates = input.pool.members.flatMap((member) => {
-    const provider = input.providers.find((candidate) => candidate.instanceId === member);
-    return provider !== undefined &&
-      provider.driver === input.pool.driver &&
-      provider.poolMembers === undefined &&
-      isProviderRoutable(provider)
-      ? [provider]
-      : [];
-  });
+  const candidates = routableMembers(input.pool, input.providers);
   const current = candidates.find((provider) => provider.instanceId === input.current);
   if (current !== undefined && !isProviderUsageExhausted(current, input.nowMs)) {
     return current.instanceId;
   }
   return candidates.toSorted(compareByUsageReset(input.nowMs))[0]?.instanceId;
 };
+
+/**
+ * The member a thread should move to after `limited` hit its usage limit:
+ * another member with allowance left and the soonest reset, or `undefined`
+ * when every other member is at a limit too. Unlike `pickPoolMember` it never
+ * returns an exhausted member, so a failover cannot cycle between limits.
+ */
+export const pickPoolFailoverMember = (input: {
+  readonly pool: Pick<ProviderPool, "driver" | "members">;
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly nowMs: number;
+  readonly limited: ProviderInstanceId;
+}): ProviderInstanceId | undefined =>
+  routableMembers(input.pool, input.providers)
+    .filter(
+      (provider) =>
+        provider.instanceId !== input.limited && !isProviderUsageExhausted(provider, input.nowMs),
+    )
+    .toSorted(compareByUsageReset(input.nowMs))[0]?.instanceId;
 
 /**
  * Append one snapshot per pool, presented as the member a turn would use now

@@ -360,6 +360,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["usage quota rate limit reset wake recover continue"],
   },
   {
+    id: "switch-pooled-account-on-limit",
+    title: "Switch pooled account on limit",
+    to: "/settings/general",
+    searchTerms: ["usage quota rate limit pool account claude failover next continue"],
+  },
+  {
     id: "auto-resume-limited-threads",
     title: "Auto-resume limited threads",
     to: "/settings/general",
