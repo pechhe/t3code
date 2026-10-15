@@ -103,14 +103,14 @@ export function ImageAnnotator(props: {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Meta" || event.key === "Control") setArrowHeld(true);
+      // Esc leaves without the marks; Enter adds them, even from inside a note.
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
-        if (activeId) dismissActiveNote();
-        else close();
+        close();
         return;
       }
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         event.stopImmediatePropagation();
         void done();
@@ -199,11 +199,6 @@ export function ImageAnnotator(props: {
   };
 
   const onNoteKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>, id: string) => {
-    if (event.key === "Enter" && !event.metaKey && !event.ctrlKey) {
-      event.preventDefault();
-      dismissActiveNote();
-      return;
-    }
     if ((event.key === "Backspace" || event.key === "Delete") && !event.currentTarget.value) {
       event.preventDefault();
       removeMark(id);
@@ -363,7 +358,7 @@ export function ImageAnnotator(props: {
       <p className="image-annotator-hint">
         {arrowHeld
           ? "Arrow mode: drag to show direction."
-          : "Enter closes a note · Backspace on an empty note deletes the mark · Esc leaves"}
+          : "Enter adds your notes · Esc leaves without them · Backspace on an empty note deletes the mark"}
       </p>
       <div className="image-annotator-actions">
         {marks.length > 0 ? (

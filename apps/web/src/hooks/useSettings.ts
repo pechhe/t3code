@@ -404,12 +404,14 @@ export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMod
   );
   const activeTheme = resolveThemeHalf(theme, themeHalves, resolvedTheme);
   const activeThemeDefinition = getThemeDefinition(activeTheme);
-  return resolveEnvironmentIdentificationMode({
+  const resolved = resolveEnvironmentIdentificationMode({
     mode,
     settingsHydrated,
     paletteThemeActive: previewSidebarArtwork !== null || activeThemeDefinition !== null,
     paletteThemeAllowsArtwork: previewSidebarArtwork ?? themeAllowsSidebarArtwork(activeTheme),
   });
+  // The fork's machined rail replaces the stage artwork; a saved "artwork" shows the pill.
+  return resolved === "artwork" ? "pill" : resolved;
 }
 
 /**

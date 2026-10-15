@@ -174,7 +174,7 @@ import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { COMPOSER_FINISHES, resolveComposerFinish } from "~/lib/composerFinish";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
-  artwork: "Artwork",
+  artwork: "Version pill",
   pill: "Version pill",
   none: "None",
 };
@@ -1358,9 +1358,10 @@ export function AppearanceSettingsPanel() {
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {Object.entries(ENVIRONMENT_IDENTIFICATION_LABELS).map(([value, label]) => (
+                  {/* No artwork option: the machined rail replaces it (useEnvironmentIdentificationMode). */}
+                  {(["pill", "none"] as const).map((value) => (
                     <SelectItem hideIndicator key={value} value={value}>
-                      {label}
+                      {ENVIRONMENT_IDENTIFICATION_LABELS[value]}
                     </SelectItem>
                   ))}
                 </SelectPopup>
