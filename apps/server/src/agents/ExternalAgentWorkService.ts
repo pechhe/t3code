@@ -44,6 +44,7 @@ import * as Managed from "./ManagedAgentService.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
+import { continuableRoles, followupPrompt } from "./followup.ts";
 import { repositoryStore, workspaceOccupants } from "./workspaceIdentity.ts";
 
 export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWorkError>()(
@@ -449,7 +450,8 @@ const make = Effect.gen(function* () {
     permit.withPermit(
       Effect.gen(function* () {
         const client = yield* activeClient(scope, true);
-        if (input.advisorFollowup !== undefined) {
+        if (input.followup !== undefined) {
+          const followup = input.followup;
           if (
             input.externalSessionKey === undefined ||
             input.clientRequestId === undefined ||
@@ -464,16 +466,15 @@ const make = Effect.gen(function* () {
           )
             return yield* new ExternalAgentWorkError({ reason: "conflict" });
           const session = yield* readSession(scope, input.externalSessionKey);
-          const original = yield* readWork(scope, input.advisorFollowup.taskId);
+          const original = yield* readWork(scope, followup.taskId);
           if (
             original.row.session_key !== session.key ||
-            original.work.binding.role !== "advisor" ||
-            original.work.binding.sourceAccess !== "read-only"
+            !continuableRoles.has(original.work.binding.role)
           )
             return yield* new ExternalAgentWorkError({ reason: "authority" });
           const identity = yield* hash(`${session.key}\n${input.clientRequestId}`);
-          const taskId = NodeId.make(`node:advisor-followup:${identity}`);
-          const messageId = MessageId.make(`message:advisor-followup:${identity}`);
+          const taskId = NodeId.make(`node:followup:${identity}`);
+          const messageId = MessageId.make(`message:followup:${identity}`);
           const threadId = ThreadId.make(original.row.thread_id);
           const fingerprint = yield* hash(
             yield* encodeSubmission({ ...input, mode: undefined, timeoutMs: undefined }).pipe(
@@ -502,7 +503,8 @@ const make = Effect.gen(function* () {
             yield* experimentalWork(
               experiments.workDispatchPolicy({
                 workUnitId: binding.workUnitId,
-                role: "advisor",
+                role: binding.role,
+                followup: true,
                 owner: {
                   environmentId: session.environmentId,
                   projectId: session.projectId,
@@ -513,9 +515,9 @@ const make = Effect.gen(function* () {
                 },
               }),
             );
-          const prompt = `Source revision: ${input.advisorFollowup.sourceRevision}\nChanges since the previous consultation: ${input.advisorFollowup.changes}\n\n${input.task}`;
+          const prompt = followupPrompt(followup, input.task);
           if (row === undefined) {
-            const current = yield* status(scope, input.advisorFollowup.taskId);
+            const current = yield* status(scope, followup.taskId);
             if (current.hasPendingChildRuns || current.workState !== "result_available")
               return yield* new ExternalAgentWorkError({ reason: "conflict" });
             yield* storage(sql`INSERT INTO external_agent_work (task_id, session_key, work_id, attempt_id, request_id, thread_id, fingerprint, payload_json, state)
@@ -531,7 +533,7 @@ const make = Effect.gen(function* () {
             );
             yield* managed
               .validate({
-                binding: { ...binding, sourceRevision: input.advisorFollowup!.sourceRevision },
+                binding: { ...binding, sourceRevision: followup.sourceRevision },
                 selection: binding.effective,
                 providers: eligible,
                 ceiling,
@@ -546,8 +548,8 @@ const make = Effect.gen(function* () {
                 projectId: session.projectId,
                 threadId,
                 messageId,
-                advisorSourceRevision: input.advisorFollowup!.sourceRevision,
-                commandId: CommandId.make(`command:advisor-followup:${identity}`),
+                followupSourceRevision: followup.sourceRevision,
+                commandId: CommandId.make(`command:followup:${identity}`),
                 text: prompt,
                 attachments: [],
                 mode: "queue",

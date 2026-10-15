@@ -137,6 +137,7 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
+import { continuableRoles } from "../agents/followup.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -4593,10 +4594,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   ) =>
     Effect.gen(function* () {
       let projection = yield* getProjectionWithPendingEvents(command.threadId, events);
-      if (command.advisorSourceRevision !== undefined)
+      if (command.followupSourceRevision !== undefined)
         projection = {
           ...projection,
-          thread: { ...projection.thread, advisorSourceRevision: command.advisorSourceRevision },
+          thread: { ...projection.thread, followupSourceRevision: command.followupSourceRevision },
         };
       if (command.manualContinuationOfRunId !== undefined) {
         const source = projection.runs.find((run) => run.id === command.manualContinuationOfRunId);
@@ -11067,14 +11068,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             threadId: command.threadId,
           });
         }
-        if (command.advisorSourceRevision !== undefined && thread.agentTask?.role !== "advisor")
+        if (
+          command.followupSourceRevision !== undefined &&
+          (thread.agentTask === undefined || !continuableRoles.has(thread.agentTask.role))
+        )
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: "Only advisor conversations accept a consultation source revision.",
+            cause: "Only a continuable managed conversation accepts a follow-up source revision.",
           });
         yield* dispatchMessage(command, events, effects);
-        if (command.advisorSourceRevision !== undefined) {
+        if (command.followupSourceRevision !== undefined) {
           const pending = yield* Ref.get(events);
           const updated =
             pending
@@ -11091,7 +11095,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             type: "thread.metadata-updated",
             threadId: thread.id,
             occurredAt: updated.updatedAt,
-            payload: { ...updated, advisorSourceRevision: command.advisorSourceRevision },
+            payload: { ...updated, followupSourceRevision: command.followupSourceRevision },
           });
         }
         yield* recordSubagentFollowup(command, events).pipe(mapDispatchError(command));

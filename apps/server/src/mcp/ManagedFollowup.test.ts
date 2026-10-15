@@ -31,7 +31,7 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 
 it.effect(
-  "continues only an owned idle advisor and preserves each task and immutable binding",
+  "continues only an owned idle advisor or worker and preserves each task and immutable binding",
   () =>
     Effect.gen(function* () {
       const parentId = ThreadId.make("advisor-parent");
@@ -90,6 +90,7 @@ it.effect(
         ],
       };
       let sends = 0;
+      let lastSend: Parameters<Threads.ThreadManagementService["Service"]["sendToThread"]>[0];
       let validations = 0;
       let revoked = false;
       const lock = yield* Semaphore.make(1);
@@ -127,6 +128,7 @@ it.effect(
           sendToThread: (input) =>
             Effect.sync(() => {
               sends++;
+              lastSend = input;
               const taskId = derive.delegatedTaskNode({ commandId: input.commandId });
               const runId = RunId.make(`consultation-${sends}`);
               parent = {
@@ -181,7 +183,7 @@ it.effect(
         const input = {
           clientRequestId: "question-two",
           task: "Is the new approach sound?",
-          advisorFollowup: {
+          followup: {
             taskId: originalId,
             sourceRevision: "revision-two",
             changes: "Changed the algorithm.",
@@ -209,6 +211,7 @@ it.effect(
         expect(retry.taskId).toBe(result.taskId);
         expect(sends).toBe(1);
         expect(validations).toBe(1);
+        expect(lastSend!.followupSourceRevision).toBe("revision-two");
         expect(
           (yield* service
             .delegateTask(scope, { ...input, task: "A different question" })
@@ -232,7 +235,7 @@ it.effect(
         const another = yield* service.delegateTask(scope, {
           ...input,
           clientRequestId: "question-three",
-          advisorFollowup: { ...input.advisorFollowup, taskId: result.taskId },
+          followup: { ...input.followup, taskId: result.taskId },
         });
         expect(another.childThreadId).toBe(childId);
         expect(sends).toBe(2);
@@ -253,6 +256,37 @@ it.effect(
             .pipe(Effect.flip)).code,
         ).toBe("capability_denied");
         revoked = false;
+        // A worker continues with its corrections in the same conversation.
+        child = {
+          ...child,
+          thread: {
+            ...child.thread,
+            agentTask: {
+              ...binding,
+              role: "implementation-worker",
+              sourceAccess: "scoped-write",
+              toolProfile: "implementation",
+            },
+          },
+        };
+        const correction = yield* service.delegateTask(scope, {
+          ...input,
+          clientRequestId: "worker-correction",
+          task: "Rename the helper as discussed.",
+        });
+        expect(correction.childThreadId).toBe(childId);
+        expect(sends).toBe(3);
+        expect(lastSend!.followupSourceRevision).toBe("revision-two");
+        child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "completed" })) };
+        parent = {
+          ...parent,
+          subagents: parent.subagents.map((task) => ({
+            ...task,
+            status: "completed",
+            result: "Done",
+            completionDelivery: { state: "acknowledged", observedByRunId: null },
+          })),
+        };
         child = {
           ...child,
           thread: { ...child.thread, agentTask: { ...binding, role: "reviewer" } },
@@ -279,7 +313,7 @@ it.effect(
           (yield* service
             .delegateTask(scope, {
               ...input,
-              advisorFollowup: { ...input.advisorFollowup, taskId: NodeId.make("foreign") },
+              followup: { ...input.followup, taskId: NodeId.make("foreign") },
             })
             .pipe(Effect.flip)).code,
         ).toBe("task_not_found");

@@ -110,6 +110,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
+import { continuableRoles, followupPrompt } from "../agents/followup.ts";
 import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -2263,7 +2264,7 @@ const make = Effect.gen(function* () {
     delegateTask: (callerScope, input) =>
       Effect.gen(function* () {
         if (
-          input.advisorFollowup !== undefined &&
+          input.followup !== undefined &&
           (input.agentTask !== undefined ||
             input.target !== undefined ||
             input.isolation !== undefined ||
@@ -2276,7 +2277,7 @@ const make = Effect.gen(function* () {
         )
           return yield* failure(
             "invalid_request",
-            "Advisor follow-ups require a stable clientRequestId and retain their original role, model, workspace and modes.",
+            "Follow-ups require a stable clientRequestId and retain their original role, model, workspace and modes.",
           );
         // Managed work binds and validates its checkout before launch, so it names one
         // through workspaceAssignment rather than a worktree T3 creates afterwards.
@@ -2333,30 +2334,30 @@ const make = Effect.gen(function* () {
             "Delegated tasks require an active run owned by this MCP provider session.",
           );
         }
-        if (input.advisorFollowup !== undefined) {
-          const followup = input.advisorFollowup;
+        if (input.followup !== undefined) {
+          const followup = input.followup;
           const current = yield* readTask(scope, followup.taskId);
           const child = yield* threadManagement
             .getThreadRecords(current.childThreadId, ["runs", "messages"])
             .pipe(Effect.mapError(threadManagementFailure));
           const binding = child.thread.agentTask;
-          if (binding?.role !== "advisor" || binding.sourceAccess !== "read-only")
+          if (binding === undefined || !continuableRoles.has(binding.role))
             return yield* failure(
               "invalid_request",
-              "Only a managed advisor can reuse a conversation; reviewers remain fresh.",
+              "Only a managed advisor or worker can continue its conversation; reviewers and UI verifiers start fresh.",
             );
           const key = yield* requestKey(input.clientRequestId);
           const commandId = stableCommandId({
             scope,
             requestKey: key,
-            operation: "advisor-followup",
+            operation: "followup",
           });
           const messageId = stableOperationMessageId({
             scope,
             requestKey: key,
-            operation: "advisor-followup",
+            operation: "followup",
           });
-          const text = `Source revision: ${followup.sourceRevision}\nChanges since the previous consultation: ${followup.changes}\n\n${input.task}`;
+          const text = followupPrompt(followup, input.task);
           const priorTask = parent.subagents.find(
             (task) => task.id === deriveIds.delegatedTaskNode({ commandId }),
           );
@@ -2366,7 +2367,7 @@ const make = Effect.gen(function* () {
           )
             return yield* failure(
               "invalid_request",
-              "This follow-up identity already belongs to different advice.",
+              "This follow-up identity already belongs to a different task.",
             );
           const prior = child.messages.find((message) => message.id === messageId);
           if (prior !== undefined) {
@@ -2394,11 +2395,11 @@ const make = Effect.gen(function* () {
           )
             return yield* failure(
               "invalid_request",
-              "The advisor is busy, awaiting result publication, or closed. Retry after publication; open a fresh advisor for new work.",
+              "The agent is busy, awaiting result publication, or closed. Retry after publication; delegate a fresh task for new work.",
             );
           const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           if (Option.isNone(managed))
-            return yield* failure("capability_denied", "Managed advisor policy is unavailable.");
+            return yield* failure("capability_denied", "Managed agent policy is unavailable.");
           const consultation = Effect.gen(function* () {
             const refreshed = yield* readTask(scope, followup.taskId);
             const owned = yield* loadProjection(parent.thread.id);
@@ -2416,7 +2417,7 @@ const make = Effect.gen(function* () {
             )
               return yield* failure(
                 "invalid_request",
-                "The advisor is busy, awaiting result publication, or closed.",
+                "The agent is busy, awaiting result publication, or closed.",
               );
             const providers = yield* Effect.filter(yield* loadProviders, (provider) =>
               threadManagement.isProviderInstanceEnabledForProject({
@@ -2448,7 +2449,8 @@ const make = Effect.gen(function* () {
                 .workDispatchPolicy({
                   workUnitId: binding.workUnitId,
                   owner: yield* internalWorkOwner(scope, parent),
-                  role: "advisor",
+                  role: binding.role,
+                  followup: true,
                 })
                 .pipe(Effect.mapError(workError));
             yield* resolveRuntimeMode(parent.thread.runtimeMode, child.thread.runtimeMode);
@@ -2463,7 +2465,7 @@ const make = Effect.gen(function* () {
                 commandId,
                 messageId,
                 senderThreadId: parent.thread.id,
-                advisorSourceRevision: followup.sourceRevision,
+                followupSourceRevision: followup.sourceRevision,
                 text,
                 attachments: [],
                 mode: "queue",
@@ -2474,7 +2476,7 @@ const make = Effect.gen(function* () {
                 Effect.mapError((error) =>
                   isThreadManagementError(error)
                     ? threadManagementFailure(error)
-                    : failure("orchestration_error", "Unable to continue advisor."),
+                    : failure("orchestration_error", "Unable to continue the agent."),
                 ),
                 Effect.provideService(DispatchModeLimit, {
                   runtimeMode: parent.thread.runtimeMode,
@@ -3491,7 +3493,7 @@ const make = Effect.gen(function* () {
         if (target.thread.agentTask !== undefined)
           return yield* failure(
             "invalid_request",
-            "Use delegate_task with advisorFollowup for advice, or a fresh managed task for other roles.",
+            "Use delegate_task with followup to continue a managed advisor or worker, or a fresh managed task for reviewers.",
           );
         yield* assertLiveCallerForOtherThread(scope, parent, target);
         yield* resolveRuntimeMode(limits.runtimeMode, target.thread.runtimeMode);

@@ -782,7 +782,7 @@ it.effect("restores persisted ownership and the invalidation watcher after servi
             externalSessionKey: attached.key,
             clientRequestId: "durable-advice",
             task: "Next question",
-            advisorFollowup: {
+            followup: {
               taskId: submitted.taskId,
               sourceRevision: "revision-two",
               changes: "Updated source",
@@ -1218,7 +1218,7 @@ it.effect(
           externalSessionKey: attached.key,
           clientRequestId: "advisor-question-2",
           task: "Does this fix the defect?",
-          advisorFollowup: {
+          followup: {
             taskId: initial.taskId,
             sourceRevision: "fixture-source-revision-two",
             changes: "Replaced the faulty calculation.",
@@ -1254,8 +1254,8 @@ it.effect(
         const third = yield* fixture.submit(client, {
           ...followup,
           clientRequestId: "advisor-question-3",
-          advisorFollowup: {
-            ...followup.advisorFollowup,
+          followup: {
+            ...followup.followup,
             taskId: second.taskId,
             sourceRevision: "fixture-source-revision-two",
           },
@@ -1272,6 +1272,47 @@ it.effect(
         ).toBe("conflict");
       }),
     ),
+);
+
+it.effect("continues an external worker with a correction in its conversation", () =>
+  withFixture((fixture) =>
+    Effect.gen(function* () {
+      const client = yield* fixture.issueSession("worker-owner");
+      const attached = yield* fixture.attach(client);
+      const initial = yield* fixture.submit(client, {
+        externalSessionKey: attached.key,
+        clientRequestId: "worker-open",
+        task: "Implement the change",
+        agentTask: request({
+          role: "implementation-worker",
+          workId: "worker-work",
+          workspacePath: fixture.workspacePath,
+        }),
+      });
+      yield* Ref.update(fixture.state, (state) => ({
+        ...state,
+        activeThreads: new Set<string>(),
+        completedThreads: new Set([initial.childThreadId]),
+      }));
+      const correction = yield* fixture.submit(client, {
+        externalSessionKey: attached.key,
+        clientRequestId: "worker-correction",
+        task: "Rename the helper as discussed.",
+        followup: {
+          taskId: initial.taskId,
+          sourceRevision: "fixture-source-revision",
+          changes: "Reviewed the first pass.",
+        },
+      });
+      expect(correction.taskId).not.toBe(initial.taskId);
+      expect(correction.childThreadId).toBe(initial.childThreadId);
+      expect(correction.agentTask).toEqual(initial.agentTask);
+      const sent = (yield* Ref.get(fixture.state)).sends ?? [];
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.followupSourceRevision).toBe("fixture-source-revision");
+      expect(sent[0]!.text).toContain("Rename the helper as discussed.");
+    }),
+  ),
 );
 
 it.effect("refuses continuing an external reviewer", () =>
@@ -1296,7 +1337,7 @@ it.effect("refuses continuing an external reviewer", () =>
             externalSessionKey: attached.key,
             clientRequestId: "review-reuse",
             task: "Again",
-            advisorFollowup: {
+            followup: {
               taskId: initial.taskId,
               sourceRevision: "new-revision",
               changes: "Updated",

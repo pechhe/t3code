@@ -283,7 +283,7 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
                 runtimeMode: "full-access",
               }),
               agentTask: initial,
-              advisorSourceRevision: "next-source",
+              followupSourceRevision: "next-source",
             },
             modelSelection,
           })
@@ -304,6 +304,54 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
         assert.equal(initial.sourceRevision, "pinned-source");
         assert.deepEqual(validated?.effective, initial.effective);
         assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: false });
+      }),
+  );
+
+  it.effect(
+    "continues a pinned worker at its follow-up revision and leaves an unpinned worker unpinned",
+    () =>
+      Effect.gen(function* () {
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const now = yield* DateTime.now;
+        const worker = {
+          ...managedBinding,
+          role: "implementation-worker" as const,
+          sourceAccess: "scoped-write" as const,
+          toolProfile: "implementation" as const,
+        };
+        const { sourceRevision: _pinned, ...unpinned } = worker;
+        const validatedFor = (agentTask: AgentTaskBinding) => {
+          let validated: AgentTaskBinding | undefined;
+          return policy
+            .resolve({
+              thread: {
+                ...makeThread({
+                  now,
+                  worktreePath: agentTask.workspacePath,
+                  runtimeMode: "full-access",
+                }),
+                agentTask,
+                followupSourceRevision: "corrected-source",
+              },
+              modelSelection,
+            })
+            .pipe(
+              Effect.provide(
+                Layer.mergeAll(
+                  ServerSettings.layerTest(),
+                  Layer.mock(ManagedAgent.ManagedAgentService)({
+                    validate: (input) =>
+                      Effect.sync(() => {
+                        validated = input.binding;
+                      }),
+                  }),
+                ),
+              ),
+              Effect.map(() => validated),
+            );
+        };
+        assert.equal((yield* validatedFor(worker))?.sourceRevision, "corrected-source");
+        assert.isUndefined((yield* validatedFor(unpinned))?.sourceRevision);
       }),
   );
 

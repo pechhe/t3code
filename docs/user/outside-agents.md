@@ -150,15 +150,19 @@ that task ID. Waiting is bounded and does not cancel work when its timeout expir
 disconnecting the terminal also leaves accepted work running. `outcome` records
 the owning caller's claim against a returned assignment ID as self-report.
 
-For repeated advice on one piece of work, open an `advisor`, then submit each new
-question with `advisorFollowup` containing its `taskId`, the current `sourceRevision`
-and `changes` since the previous consultation. Keep `externalSessionKey`, supply a
-new stable `clientRequestId`, and put the question in `task`; omit `agentTask` and
-target or runtime overrides. The same conversation and model are reused, with a
-separate task ID and result for each question. Finish one consultation before
-starting the next. Cancel any of its task IDs when the work ends; this closes the
-whole advisor conversation and prevents further reuse. A recorded experimental
-work outcome also prevents further consultations. Reviewers always start fresh.
+To continue an `advisor` or a worker in its existing conversation, submit
+`followup` containing one of its task IDs as `taskId`, the workspace's current
+`sourceRevision` and the `changes` since its previous task. Keep
+`externalSessionKey`, supply a new stable `clientRequestId`, and put the question or
+correction in `task`; omit `agentTask` and target or runtime overrides. Use it for
+repeated advice on one piece of work, and to send a worker its corrections instead
+of starting a fresh one. The same conversation, model, workspace and permissions
+are reused, with a separate task ID and result for each follow-up; an advisor's
+conversation is pinned to the stated revision, a worker's is not, since it moves as
+the worker writes. Finish one task before starting the next. Cancel any of its task
+IDs when the work ends; this closes the whole conversation and prevents further
+reuse. A recorded experimental work outcome also prevents further follow-ups.
+Reviewers and UI verifiers always start fresh.
 Conversation reuse reduces repeated briefing, but prompt caching and its savings
 depend on the provider and timing.
 

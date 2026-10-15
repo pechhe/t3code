@@ -388,7 +388,7 @@ describe("OrchestratorMcpService", () => {
       assert.equal(outcomes[0], "task_not_found");
       assert.equal(outcomes[1], "task_not_found");
       assert.equal(outcomes[2], "invalid_request");
-      assert.include(outcomes[3], "advisorFollowup");
+      assert.include(outcomes[3], "followup");
       assert.isFalse(yield* Ref.get(sent));
     }),
   );

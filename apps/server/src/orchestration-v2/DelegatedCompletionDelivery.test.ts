@@ -1058,19 +1058,19 @@ it.layer(Layer.merge(layerTest, ProviderContinuationRequests.layer))(
             threadId: child.childThreadId,
             senderThreadId: parentThreadId,
             messageId,
-            ...(outcome === "completed" ? { advisorSourceRevision: "revision-two" } : {}),
+            ...(outcome === "completed" ? { followupSourceRevision: "revision-two" } : {}),
             text: "Check the same work again.",
             attachments: [],
             dispatchMode: { type: "start_immediately" },
           });
           const childProjection = yield* orchestrator.getThreadProjection(child.childThreadId);
           if (outcome === "completed") {
-            assert.equal(childProjection.thread.advisorSourceRevision, "revision-two");
+            assert.equal(childProjection.thread.followupSourceRevision, "revision-two");
             assert.equal(childProjection.thread.agentTask?.sourceRevision, "revision-one");
             assert.equal(
               (yield* orchestrator.getShellSnapshot()).threads.find(
                 (thread) => thread.id === child.childThreadId,
-              )?.advisorSourceRevision,
+              )?.followupSourceRevision,
               "revision-two",
             );
           }

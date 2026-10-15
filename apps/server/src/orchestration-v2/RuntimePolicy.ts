@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectStore from "./ProjectStore.ts";
+import { pinsFollowupRevision } from "../agents/followup.ts";
 
 /**
  * ERRORS
@@ -170,11 +171,11 @@ export const layerFromProjectStore: Layer.Layer<
           yield* managed.value
             .validate({
               binding:
-                input.thread.agentTask.role === "advisor" &&
-                input.thread.advisorSourceRevision !== undefined
+                input.thread.followupSourceRevision !== undefined &&
+                pinsFollowupRevision(input.thread.agentTask)
                   ? {
                       ...input.thread.agentTask,
-                      sourceRevision: input.thread.advisorSourceRevision,
+                      sourceRevision: input.thread.followupSourceRevision,
                     }
                   : input.thread.agentTask,
               selection: input.modelSelection,

@@ -99,6 +99,8 @@ export class ExperimentService extends Context.Service<
       readonly workUnitId: string;
       readonly owner: ExperimentWorkOwner;
       readonly role?: AgentTaskBinding["role"];
+      /** Continues an earlier task's conversation rather than starting one. */
+      readonly followup?: boolean;
     }) => Effect.Effect<ExperimentWorkUnit, ExperimentError>;
     readonly recordWorkTaskLaunch: (input: {
       readonly taskId: string;
@@ -837,11 +839,13 @@ const make = Effect.gen(function* () {
     workUnitId: string;
     owner: ExperimentWorkOwner;
     role?: AgentTaskBinding["role"];
+    followup?: boolean;
   }) {
     const unit = yield* getWork(input.workUnitId);
     if (ownerKey(unit.owner) !== ownerKey(input.owner))
       return yield* fail("dispatch", unit.id, "not-found");
-    if (input.role === "advisor") {
+    // Advice and follow-ups refine work in progress; an outcome already recorded closes it.
+    if (input.role === "advisor" || input.followup === true) {
       for (const assignmentId of unit.assignmentIds) {
         const rows = yield* persist(
           "dispatch",
