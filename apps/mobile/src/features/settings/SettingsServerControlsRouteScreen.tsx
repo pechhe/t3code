@@ -26,6 +26,10 @@ import {
   SettingsEnvironmentFilterHeader,
 } from "./components/SettingsEnvironmentFilterHeader";
 import { BranchNamingSettings } from "./components/BranchNamingSettings";
+import {
+  AGENT_BROWSER_BACKEND_CHOICES,
+  agentBrowserBackendChoiceId,
+} from "@t3tools/shared/browserBackend";
 import { SettingsChoiceRow } from "./components/SettingsChoiceRow";
 import { SettingsSection } from "./components/SettingsSection";
 import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
@@ -58,7 +62,7 @@ const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettin
     "branchNamePrefix",
     "branchNameInstructions",
   ],
-  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess"],
+  "agent-behavior": ["responseStreamingMode", "enableAgentBrowserAccess", "agentBrowserBackends"],
   maintenance: ["continueThreadsAfterServerUpdate"],
 };
 
@@ -166,6 +170,14 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   const isMixed = (key: keyof ServerSettings) =>
     reference === null ||
     displayTargets.some((entry) => entry.settings[key] !== reference.settings[key]);
+  // The pair is an object, so targets are compared by the choice it maps to.
+  const browserBackendChoice = reference
+    ? agentBrowserBackendChoiceId(reference.settings.agentBrowserBackends)
+    : null;
+  const browserBackendsMixed = displayTargets.some(
+    (entry) =>
+      agentBrowserBackendChoiceId(entry.settings.agentBrowserBackends) !== browserBackendChoice,
+  );
   const updateSettings = useAtomCommand(serverEnvironment.updateSettings, {
     label: "environment settings update",
     reportFailure: true,
@@ -422,6 +434,17 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                       disabled={disabledFor("enableAgentBrowserAccess")}
                       onValueChange={(value) => write({ enableAgentBrowserAccess: value })}
                     />
+                    {AGENT_BROWSER_BACKEND_CHOICES.map((choice) => (
+                      <SettingsChoiceRow
+                        key={choice.id}
+                        label={choice.label}
+                        description={choice.description}
+                        selected={!browserBackendsMixed && browserBackendChoice === choice.id}
+                        separated
+                        disabled={disabledFor("agentBrowserBackends")}
+                        onPress={() => write({ agentBrowserBackends: choice.value })}
+                      />
+                    ))}
                   </SettingsSection>
                 </>
               ) : null}

@@ -151,6 +151,10 @@
       "types": "./src/projectScripts.ts",
       "import": "./src/projectScripts.ts"
     },
+    "./browserBackend": {
+      "types": "./src/browserBackend.ts",
+      "import": "./src/browserBackend.ts"
+    },
     "./projectSettings": {
       "types": "./src/projectSettings.ts",
       "import": "./src/projectSettings.ts"

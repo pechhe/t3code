@@ -761,6 +761,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["allow disable enable open drive preview tools sessions project override"],
   },
   {
+    id: "agent-browser-backends",
+    title: "Agent browser",
+    to: "/settings/integrations",
+    scope: "project-defaults",
+    searchTerms: ["phi t3 integrated backend default preview tools project override"],
+  },
+  {
     id: "device-hosts",
     title: "Device hosts",
     to: "/settings/integrations",

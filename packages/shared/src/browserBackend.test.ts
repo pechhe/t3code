@@ -8,6 +8,7 @@ import {
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
+import { AGENT_BROWSER_BACKEND_CHOICES, agentBrowserBackendChoiceId } from "./browserBackend.ts";
 import { resolveProjectSettings } from "./projectSettings.ts";
 import { applyServerSettingsPatch } from "./serverSettings.ts";
 
@@ -68,5 +69,14 @@ describe("agent browser backend settings", () => {
     expect(resolveProjectSettings(settings, projectId).settings.enableAgentBrowserAccess).toBe(
       false,
     );
+  });
+});
+
+describe("agent browser backend choices", () => {
+  it("round-trips every choice through the contract schema", () => {
+    for (const choice of AGENT_BROWSER_BACKEND_CHOICES) {
+      expect(isBackends(choice.value)).toBe(true);
+      expect(agentBrowserBackendChoiceId(choice.value)).toBe(choice.id);
+    }
   });
 });
