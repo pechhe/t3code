@@ -27,12 +27,14 @@ import {
   resolveLatestMergeBackRun,
 } from "@t3tools/client-runtime/state/thread-workflows";
 import {
+  agentTaskTopic,
   NodeId,
   type EnvironmentId,
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadShell,
   type ThreadId,
 } from "@t3tools/contracts";
+import { AgentRoleChip } from "../AgentRoleChip";
 import { deriveSubagentElapsedMs } from "@t3tools/shared/orchestrationTiming";
 import { groupBy } from "effect/Array";
 import * as DateTime from "effect/DateTime";
@@ -480,6 +482,9 @@ export function ThreadRelationshipsPanel(props: {
                   threadId,
                 isSubagent,
               });
+              // A managed task names its role in its title; the row shows it as the role chip.
+              const role = isSubagent && !isParent ? node?.thread?.agentTask?.role : undefined;
+              const rowTopic = role ? agentTaskTopic(threadTitle, role) : threadTitle;
               const provider = providers?.find(
                 (entry) =>
                   entry.instanceId ===
@@ -529,10 +534,13 @@ export function ThreadRelationshipsPanel(props: {
                     fallbackIcon={RelationshipIcon}
                     status={rowStatus}
                   />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-left text-sm font-medium leading-4 text-foreground/85">
-                      {threadTitle}
-                    </span>
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                    {role ? <AgentRoleChip role={role} className="shrink-0" /> : null}
+                    {rowTopic ? (
+                      <span className="block min-w-0 truncate text-left text-sm font-medium leading-4 text-foreground/85">
+                        {rowTopic}
+                      </span>
+                    ) : null}
                   </span>
                   {agent ? null : (
                     <ArrowRightIcon className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
