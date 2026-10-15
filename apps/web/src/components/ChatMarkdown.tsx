@@ -1326,6 +1326,24 @@ const CHAT_MARKDOWN_WORKSPACE_IMAGE_CLASS_NAME = cn(
 );
 const MarkdownLinkContext = React.createContext(false);
 
+/**
+ * Gives a copied chip a small press bounce. An inline box can't be scaled, so a chip
+ * that fits on one line is made inline-block (see `data-copy-bounce` in index.css)
+ * only while the animation runs; a chip wrapped across lines skips the bounce.
+ */
+function bounceCopiedInlineCode(element: HTMLElement) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (element.getClientRects().length !== 1) return;
+  for (const animation of element.getAnimations()) animation.cancel();
+  element.dataset.copyBounce = "";
+  element.animate([{ scale: 1 }, { scale: 0.93, offset: 0.35 }, { scale: 1.02 }, { scale: 1 }], {
+    duration: 260,
+    easing: "ease-out",
+  }).onfinish = () => {
+    delete element.dataset.copyBounce;
+  };
+}
+
 /** Inline code copies its text on click; a text selection is left alone. */
 function CopyableInlineCode({
   text,
@@ -1337,10 +1355,11 @@ function CopyableInlineCode({
     <code
       {...props}
       title={isCopied ? "Copied" : "Click to copy"}
-      className={cn(props.className, "cursor-pointer", isCopied && "opacity-60")}
-      onClick={() => {
+      className={cn(props.className, "cursor-pointer")}
+      onClick={(event) => {
         if (window.getSelection()?.toString()) return;
         copyToClipboard(text);
+        bounceCopiedInlineCode(event.currentTarget);
       }}
     >
       {children}

@@ -1969,6 +1969,13 @@ code {
   font-size: 0.75rem;
 }
 
+/* Inline-block so the copy bounce can scale it; the negative margins cancel the
+   padding and border so the line height doesn't change mid-animation. */
+.chat-markdown :not(pre) > code[data-copy-bounce] {
+  display: inline-block;
+  margin-block: calc(-0.1rem - 1px);
+}
+
 .chat-markdown pre {
   max-width: 100%;
   overflow-x: auto;
