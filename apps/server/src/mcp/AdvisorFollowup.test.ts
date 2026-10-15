@@ -186,6 +186,20 @@ it.effect(
             changes: "Changed the algorithm.",
           },
         };
+        // The child can finish before terminal-event handling publishes its result.
+        // A follow-up must not start during that interval, even though status can
+        // derive the initial advice from the terminal child run.
+        const publishedParent = parent;
+        parent = {
+          ...parent,
+          subagents: parent.subagents.map((task) => ({ ...task, result: null })),
+        };
+        expect((yield* service.taskStatus(scope, originalId)).workState).toBe("result_available");
+        expect((yield* service.delegateTask(scope, input).pipe(Effect.flip)).code).toBe(
+          "invalid_request",
+        );
+        expect(sends).toBe(0);
+        parent = publishedParent;
         const result = yield* service.delegateTask(scope, input);
         expect(result.childThreadId).toBe(childId);
         expect(result.taskId).not.toBe(originalId);
