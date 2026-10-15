@@ -306,28 +306,10 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const rollOver = Effect.fn("ContextRolloverReactor.rollOver")(function* (
+  const finishRollover = Effect.fn("ContextRolloverReactor.finishRollover")(function* (
     threadId: ThreadId,
     run: OrchestrationV2Run,
-    note: string,
   ) {
-    // A queued message can start before the rollover does; a rollover cannot queue
-    // behind it. Drop the note, settle a delegated result held for the rollover, and
-    // let the run now going be asked for a fresh note past the threshold.
-    const giveUp = (reason: string) =>
-      Effect.gen(function* () {
-        notes.delete(threadId);
-        yield* engine.recoverDelegatedTask(threadId, run.id);
-        const state = threads.get(threadId);
-        if (state !== undefined) {
-          state.phase = "idle";
-        }
-        yield* Effect.logInfo("context rollover deferred to a new note", { threadId, reason });
-      });
-    const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
-    if (runs.some((other) => other.id !== run.id && !isTerminalRunStatus(other.status))) {
-      return yield* giveUp("another run started first");
-    }
     const policy = yield* thresholdsFor(threadId, run);
     const before = threads.get(threadId);
     const startedAt = yield* Clock.currentTimeMillis;
@@ -343,6 +325,58 @@ export const make = Effect.gen(function* () {
         evidence: [`rollover-of-run:${run.id}`],
       });
     }
+    notes.delete(threadId);
+    compactions.delete(threadId);
+    threads.set(threadId, {
+      phase: "idle",
+      used: 0,
+      providerThreadId: null,
+      maxTokens: null,
+      usageUpdatedAt: null,
+      floor: "pending",
+      floorWarned: false,
+      ...(policy?.assignment === undefined || before === undefined
+        ? {}
+        : {
+            rollover: {
+              assignmentId: policy.assignment.id,
+              fromRunId: run.id,
+              usedTokens: before.used,
+              startedAt,
+            },
+          }),
+    });
+  });
+
+  const rollOver = Effect.fn("ContextRolloverReactor.rollOver")(function* (
+    threadId: ThreadId,
+    run: OrchestrationV2Run,
+    note: string,
+  ) {
+    // A separately started turn may supersede this note. Queued delivery below
+    // instead carries it into the new turn without adding a bookkeeping run.
+    const giveUp = (reason: string) =>
+      Effect.gen(function* () {
+        notes.delete(threadId);
+        yield* engine.recoverDelegatedTask(threadId, run.id);
+        const state = threads.get(threadId);
+        if (state !== undefined) {
+          state.phase = "idle";
+        }
+        yield* Effect.logInfo("context rollover deferred to a new note", { threadId, reason });
+      });
+    const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
+    // Queue delivery consumes the saved note in its own fresh session. It can
+    // commit before this asynchronous reactor observes the source run ending.
+    if (runs.some((other) => other.rolloverOfRunId === run.id)) {
+      return yield* finishRollover(threadId, run);
+    }
+    if (runs.some((other) => other.status === "queued")) return;
+    if (runs.some((other) => other.id !== run.id && !isTerminalRunStatus(other.status))) {
+      return yield* giveUp("another run started first");
+    }
+    const policy = yield* thresholdsFor(threadId, run);
+    const before = threads.get(threadId);
     const dispatched = yield* engine
       .dispatch({
         type: "message.dispatch",
@@ -386,27 +420,7 @@ export const make = Effect.gen(function* () {
         ),
       );
     if (!dispatched) return;
-    notes.delete(threadId);
-    compactions.delete(threadId);
-    threads.set(threadId, {
-      phase: "idle",
-      used: 0,
-      providerThreadId: null,
-      maxTokens: null,
-      usageUpdatedAt: null,
-      floor: "pending",
-      floorWarned: false,
-      ...(policy?.assignment === undefined || before === undefined
-        ? {}
-        : {
-            rollover: {
-              assignmentId: policy.assignment.id,
-              fromRunId: run.id,
-              usedTokens: before.used,
-              startedAt,
-            },
-          }),
-    });
+    yield* finishRollover(threadId, run);
   });
 
   const onRunEnd = Effect.fn("ContextRolloverReactor.onRunEnd")(function* (
@@ -428,8 +442,20 @@ export const make = Effect.gen(function* () {
         });
     }
     const pending = notes.get(threadId);
-    // A note belongs to the run that wrote it; another run ending leaves it waiting.
-    if (pending !== undefined && pending.runId !== run.id) return;
+    // A held queue can be cancelled after its completed source saved a note.
+    // Release the source result when no queued delivery remains to consume it;
+    // cancellation must not create an unsolicited continuation turn.
+    if (pending !== undefined && pending.runId !== run.id) {
+      const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
+      if (runs.some((candidate) => !isTerminalRunStatus(candidate.status))) return;
+      const source = runs.find((candidate) => candidate.id === pending.runId);
+      if (source?.status !== "completed") return;
+      notes.delete(threadId);
+      const state = threads.get(threadId);
+      if (state !== undefined) state.phase = "idle";
+      yield* engine.recoverDelegatedTask(threadId, source.id);
+      return;
+    }
     if (pending !== undefined) {
       // The user stopped the run, or it failed: no resumption they did not ask for.
       // The next usage report asks again.
@@ -514,6 +540,17 @@ export const make = Effect.gen(function* () {
     if (event.type === "provider-turn.updated") return onUsage(event);
     if (event.type === "turn-item.updated") return onCompaction(event);
     if (isTerminalRunStatus(event.payload.status)) return onRunEnd(event.threadId, event.payload);
+    if (
+      event.payload.rolloverOfRunId !== undefined &&
+      notes.get(event.threadId)?.runId === event.payload.rolloverOfRunId
+    ) {
+      return projections.getThreadRecords(event.threadId, ["runs"]).pipe(
+        Effect.flatMap(({ runs }) => {
+          const source = runs.find((run) => run.id === event.payload.rolloverOfRunId);
+          return source === undefined ? Effect.void : finishRollover(event.threadId, source);
+        }),
+      );
+    }
     return event.payload.status === "running" || event.payload.status === "waiting"
       ? thresholdsFor(event.threadId, event.payload).pipe(Effect.asVoid)
       : Effect.void;

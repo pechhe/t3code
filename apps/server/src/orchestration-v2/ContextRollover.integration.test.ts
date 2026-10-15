@@ -597,6 +597,7 @@ const runHeldTurnScenario = (
       if (options.duringRollover !== undefined) {
         const rolloverTurn = yield* Queue.take(held.running);
         yield* options.duringRollover(rolloverTurn, held.steered);
+        yield* reactor.drain;
         yield* rolloverTurn.complete;
       }
       yield* Fiber.join(bothDone);
@@ -697,23 +698,53 @@ it.live("uses the provider context boundary when configured thresholds are too h
   ),
 );
 
-it.live("drops the note and lets a queued message run on when it starts before the rollover", () =>
+it.live("starts queued user work on a fresh session seeded with the saved rollover note", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const { after, noteLeft, captured } = yield* runHeldTurnScenario(
+      const { after, noteLeft, captured, observations } = yield* runHeldTurnScenario(
         "context-rollover-reactor-queued",
-        "## Goal\nNever delivered.",
-        { queueMessage: true },
+        "## Goal\nFinish the existing task and incorporate the queued request.",
+        { queueMessage: true, assignment: testAssignment, duringRollover: () => Effect.void },
       );
 
-      // The queued message runs on the same native session; no rollover follows.
+      // Preserve the queued run/message identity while making its session fresh.
       assert.lengthOf(after.runs, 2);
       assert.isUndefined(noteLeft);
       const queued = captured.started[1]!;
-      assert.isTrue(queued.nativeThreadHasTurns);
+      assert.isFalse(queued.nativeThreadHasTurns);
       assert.include(JSON.stringify(queued.message), "queued");
-      assert.notInclude(JSON.stringify(queued.message), "Never delivered.");
-      assert.isFalse(after.contextHandoffs.some((entry) => entry.strategy === "manual_context"));
+      assert.include(JSON.stringify(queued.message), "Finish the existing task");
+      assert.equal(after.runs[1]!.rolloverOfRunId, after.runs[0]!.id);
+      assert.lengthOf(
+        observations.filter((entry) => entry.kind === "rollover"),
+        1,
+      );
+      assert.lengthOf(
+        observations.filter((entry) => entry.kind === "fresh-context"),
+        1,
+      );
+      assert.lengthOf(
+        observations.filter((entry) => entry.kind === "continuation-ended"),
+        1,
+      );
+      assert.isTrue(after.contextHandoffs.some((entry) => entry.strategy === "manual_context"));
+    }),
+  ),
+);
+
+it.live("keeps queued work on the current session when no rollover note was saved", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { after, captured } = yield* runHeldTurnScenario(
+        "context-rollover-queued-without-note",
+        null,
+        { queueMessage: true },
+      );
+      assert.lengthOf(after.runs, 2);
+      assert.isUndefined(after.runs[1]!.rolloverOfRunId);
+      assert.isTrue(captured.started[1]!.nativeThreadHasTurns);
+      assert.include(JSON.stringify(captured.started[1]!.message), "queued");
+      assert.isEmpty(after.contextHandoffs);
     }),
   ),
 );

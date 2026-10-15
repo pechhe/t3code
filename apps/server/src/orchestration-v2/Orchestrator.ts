@@ -1432,6 +1432,13 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
       const commandId = CommandId.make(`command:system:start-queued:${queuedRun.id}`);
       const now = yield* DateTime.now;
+      const pendingRollover = rolloverNotes.get(threadId);
+      const rolloverSource =
+        pendingRollover === undefined ? undefined : latestExecutedRun(projection.runs);
+      const rolloverNote =
+        rolloverSource?.status === "completed" && rolloverSource.id === pendingRollover?.runId
+          ? pendingRollover
+          : undefined;
       const selectionChanged = !modelSelectionsEqual(
         projection.thread.modelSelection,
         queuedRun.modelSelection,
@@ -1454,6 +1461,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         (candidate) => candidate.id === projection.thread.activeProviderThreadId,
       );
       const canResumeAcrossInstances =
+        rolloverNote === undefined &&
         switchPlan?.instanceChanged === true &&
         switchPlan.transition.type === "restart_and_resume" &&
         activeProviderThread !== undefined &&
@@ -1494,6 +1502,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         queuedProviderThread.id,
       );
       const coveredRuns =
+        rolloverNote !== undefined ||
         canResumeAcrossInstances ||
         latestHandoffRun === undefined ||
         latestHandoffRun.providerInstanceId === queuedRun.providerInstanceId
@@ -1607,7 +1616,40 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 ),
               )
           : null;
-      const activeHandoff = handoff ?? legacyImportRecoveryHandoff;
+      const rolloverHandoff =
+        rolloverNote === undefined || rolloverSource == null
+          ? null
+          : yield* contextHandoffService
+              .prepare({
+                threadId,
+                targetRunId: queuedRun.id,
+                fromProviderThreadIds:
+                  rolloverSource.providerThreadId === null ? [] : [rolloverSource.providerThreadId],
+                toProviderThreadId: queuedProviderThread.id,
+                toProviderInstanceId: queuedRun.providerInstanceId,
+                summaryText: rolloverNote.note,
+                createdAt: now,
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new OrchestratorDispatchError({
+                      commandId,
+                      commandType: "message.dispatch",
+                      cause,
+                    }),
+                ),
+              );
+      if (rolloverHandoff !== null) {
+        yield* commandPolicy.ensureContextHandoff({
+          commandId,
+          threadId,
+          providerInstanceId: queuedRun.providerInstanceId,
+          capabilities: targetCapabilities,
+          strategy: "full_thread_summary",
+        });
+      }
+      const activeHandoff = rolloverHandoff ?? handoff ?? legacyImportRecoveryHandoff;
       const checkpointScope =
         storedCheckpointScope ??
         (yield* runtimePolicy
@@ -1657,13 +1699,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         ));
       const providerThread: OrchestrationV2ProviderThread = {
         ...deliveryProviderThread,
+        ...(rolloverHandoff === null
+          ? {}
+          : { nativeThreadRef: null, nativeConversationHeadRef: null }),
         providerSessionId,
         status: "not_loaded",
         firstRunOrdinal: queuedProviderThread.firstRunOrdinal ?? queuedRun.ordinal,
         lastRunOrdinal: queuedRun.ordinal,
         handoffIds: appendContextHandoffId(
           appendContextHandoffId(queuedProviderThread.handoffIds, handoff?.id ?? null),
-          legacyImportRecoveryHandoff?.id ?? null,
+          rolloverHandoff?.id ?? legacyImportRecoveryHandoff?.id ?? null,
         ),
         updatedAt: now,
       };
@@ -1673,6 +1718,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         queuePosition: null,
         startedAt: null,
         contextHandoffId: activeHandoff?.id ?? null,
+        ...(rolloverNote === undefined
+          ? {}
+          : {
+              rolloverOfRunId: rolloverNote.runId,
+              ...(rolloverSource?.delegatedTaskId === undefined
+                ? {}
+                : { delegatedTaskId: rolloverSource.delegatedTaskId }),
+            }),
         ...wakeWorkStartedAt(projection.runs, {
           notification: queuedMessage.notification,
           delegatedCompletion: queuedMessage.delegatedCompletion,
@@ -1711,6 +1764,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         completedAt: now,
         updatedAt: now,
       };
+      const handoffSourceRuns =
+        rolloverHandoff !== null && rolloverSource != null ? [rolloverSource] : coveredRuns;
       const handoffTurnItem: OrchestrationV2TurnItem | null =
         activeHandoff === null
           ? null
@@ -1728,7 +1783,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               parentItemId: null,
               ordinal: queuedRun.ordinal * 100 - 1,
               status: "completed",
-              title: handoff === null ? "Imported context" : "Provider handoff",
+              title:
+                rolloverHandoff !== null
+                  ? "Context rollover"
+                  : handoff === null
+                    ? "Imported context"
+                    : "Provider handoff",
               startedAt: now,
               completedAt: now,
               updatedAt: now,
@@ -1737,12 +1797,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               fromProviderThreadIds: activeHandoff.fromProviderThreadIds,
               toProviderThreadId: activeHandoff.toProviderThreadId,
               fromProviderInstanceIds: Array.from(
-                new Set(coveredRuns.map((run) => run.providerInstanceId)),
+                new Set(handoffSourceRuns.map((run) => run.providerInstanceId)),
               ),
               toProviderInstanceId: queuedRun.providerInstanceId,
               fromModelSelections: Array.from(
                 new Map(
-                  coveredRuns.map((run) => [
+                  handoffSourceRuns.map((run) => [
                     `${run.modelSelection.instanceId}\0${run.modelSelection.model}`,
                     run.modelSelection,
                   ]),
@@ -1845,6 +1905,18 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   providerInstanceId: queuedRun.providerInstanceId,
                   occurredAt: now,
                   payload: handoff,
+                },
+              ]),
+          ...(rolloverHandoff === null
+            ? []
+            : [
+                {
+                  type: "context-handoff.updated" as const,
+                  threadId,
+                  runId: queuedRun.id,
+                  providerInstanceId: queuedRun.providerInstanceId,
+                  occurredAt: now,
+                  payload: rolloverHandoff,
                 },
               ]),
           ...(legacyImportRecoveryHandoff === null
