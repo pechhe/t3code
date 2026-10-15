@@ -5,7 +5,6 @@ import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts"
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import { McpServer } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
 import * as ServerConfig from "../config.ts";
@@ -115,20 +114,26 @@ it("lists exactly the managed browser tools the adapters pre-approve", () => {
 it.effect("serves a managed browser task only the narrow endpoint, and only its own token", () =>
   Effect.scoped(
     Effect.gen(function* () {
-      const narrow = McpHttpServer.layerManagedBrowserToolkit.pipe(
+      // Composed as the server composes them: the endpoints must not share one tool registry.
+      const both = Layer.mergeAll(
+        McpHttpServer.layerManagedBrowserToolkit,
+        McpHttpServer.layerPreviewToolkit,
+      ).pipe(
+        Layer.provideMerge(McpHttpServer.layerMcpTransport),
         Layer.provide(registry),
         Layer.provide(services),
-        Layer.provide(McpServer.McpServer.layer),
       );
-      const general = McpHttpServer.layerMcpTransport.pipe(Layer.provide(registry));
-      yield* HttpRouter.serve(Layer.mergeAll(narrow, general), {
-        disableListenLog: true,
-        disableLogger: true,
-      }).pipe(Layer.build);
+      yield* HttpRouter.serve(both, { disableListenLog: true, disableLogger: true }).pipe(
+        Layer.build,
+      );
 
       const mine = yield* listTools("/mcp/browser", tokens.managed);
       expect(mine.status).toBe(200);
       expect([...mine.names].sort()).toEqual([...MANAGED_BROWSER_TOOL_NAMES].sort());
+
+      const general = yield* listTools("/mcp", tokens.general);
+      expect(general.status).toBe(200);
+      expect(general.names).toContain("preview_evaluate");
 
       // A general credential cannot reach the managed endpoint, nor a managed one the general.
       expect((yield* listTools("/mcp/browser", tokens.general)).status).toBe(401);
