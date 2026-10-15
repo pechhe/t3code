@@ -54,8 +54,11 @@ its revision and the seven role names, or the reason the policy is refused.
   checkout, and is refused while another thread is writing there. Its child
   thread launches, resumes and checkpoints in that workspace, and a finished
   writer reports the revision it hands back.
+- A thread without an explicit workspace binding can delegate read-only work
+  in its project's canonical root. Pass that exact root as `workspacePath`;
+  other paths and isolated helpers still require an assigned workspace.
+  Source-writing tasks require the lead's explicit workspace binding.
 - A reviewer task must declare a `change` or `spec` review scope and its
   coverage. A new reviewer trial names the scopes it compares. A trial created
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.
-

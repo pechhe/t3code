@@ -2620,10 +2620,12 @@ const make = Effect.gen(function* () {
         const isolated = input.agentTask?.workspaceAssignment === "isolated";
         // Read again inside the launch lock, so two helpers cannot both claim one workspace.
         const readWorkspaceAuthority = Effect.gen(function* () {
-          if (!isolated) return {};
+          if (!isolated && parent.thread.worktreePath !== null) return {};
+          const projectRoot = (yield* requireProject(parent.thread.projectId)).workspaceRoot;
+          if (!isolated) return { projectRoot };
           return {
             owner: threadOwner(parent.thread),
-            projectRoot: (yield* requireProject(parent.thread.projectId)).workspaceRoot,
+            projectRoot,
             occupants: workspaceOccupants(
               yield* threadManagement
                 .listProjectThreads({ projectId: parent.thread.projectId, includeSubagents: true })

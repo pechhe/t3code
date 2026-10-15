@@ -221,6 +221,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
   /** A codex lead in a jj workspace, with a captured dispatch and configurable occupants. */
   const harness = (
     occupantsFor: (helper: string) => ReadonlyArray<OrchestrationV2ThreadShell> = () => [],
+    bound = true,
   ) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -250,7 +251,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           title: "Lead",
           runtimeMode: "full-access",
           interactionMode: "default",
-          worktreePath: lead,
+          worktreePath: bound ? lead : null,
           modelSelection: { instanceId: codex.instanceId, model: codex.models[0]!.slug },
         },
         runs: [
@@ -299,7 +300,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           list: () => Effect.succeed([codex.instanceId, claude.instanceId]),
         }),
         Layer.mock(Projects.ProjectService)({
-          getById: () => Effect.succeed(Option.some({ workspaceRoot: `${base}/main` } as never)),
+          getById: () => Effect.succeed(Option.some({ workspaceRoot: lead } as never)),
         }),
         Layer.mock(Secrets.SecretRequests)({}),
         Layer.mock(Scheduled.ScheduledTaskService)({}),
@@ -322,6 +323,35 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         );
       return { lead, helper, base, policyRoot, delegate, dispatched };
     });
+
+  it.effect(
+    "dispatches read-only work from an unbound thread at its project root but refuses writers",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], false);
+        expect(
+          (yield* h.delegate({
+            task: "Read package metadata",
+            clientRequestId: "root-reader",
+            agentTask: request({ workspacePath: h.lead, readOnly: true }),
+          })).code,
+        ).toBe("orchestration_error");
+        expect(h.dispatched).toHaveLength(1);
+        const command = h.dispatched[0] as {
+          agentTask: { workspacePath: string; sourceAccess: string };
+        };
+        expect(command.agentTask.workspacePath).toBe(h.lead);
+        expect(command.agentTask.sourceAccess).toBe("read-only");
+        expect(
+          (yield* h.delegate({
+            task: "Change package metadata",
+            clientRequestId: "root-writer",
+            agentTask: request({ workspacePath: h.lead }),
+          })).code,
+        ).toBe("capability_denied");
+        expect(h.dispatched).toHaveLength(1);
+      }),
+  );
 
   it.effect("delegates by role where a policy is configured, with an explicit escape", () =>
     Effect.gen(function* () {

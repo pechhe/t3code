@@ -77,6 +77,50 @@ const fixture = Effect.gen(function* () {
 });
 
 it.layer(testLayer)("ManagedAgentService", (it) => {
+  it.effect("allows only read-only lead work at an unbound thread's canonical project root", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const authority = { workspacePath: null, projectRoot: f.workspacePath };
+      const input = request({ workspacePath: f.workspacePath, readOnly: true });
+      const accepted = yield* f.prepare({ ...authority, request: input });
+      expect(accepted.binding.sourceAccess).toBe("read-only");
+      expect(accepted.binding.workspacePath).toBe(f.workspacePath);
+      yield* f.service
+        .validate({
+          ...f.prepareInput,
+          ...authority,
+          binding: accepted.binding,
+          selection: accepted.binding.effective,
+        })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+      for (const invalid of [
+        request({ workspacePath: f.workspacePath }),
+        request({
+          workspacePath: f.workspacePath,
+          readOnly: true,
+          workspaceAssignment: "isolated",
+        }),
+        request({ workspacePath: f.root, readOnly: true }),
+        request({ workspacePath: `${f.workspacePath}/../workspace`, readOnly: true }),
+      ]) {
+        expect(
+          (yield* f.prepare({ ...authority, request: invalid }).pipe(Effect.flip)).reason,
+        ).toBe("workspace");
+      }
+      const alias = `${f.root}/root-alias`;
+      yield* f.fs.symlink(f.workspacePath, alias);
+      expect(
+        (yield* f
+          .prepare({
+            workspacePath: null,
+            projectRoot: alias,
+            request: request({ workspacePath: alias, readOnly: true }),
+          })
+          .pipe(Effect.flip)).reason,
+      ).toBe("workspace");
+    }),
+  );
+
   it.effect("requires an exact existing canonical workspace", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
