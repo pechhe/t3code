@@ -192,6 +192,8 @@ it.effect("launches a scratch thread into the Scratch project", () =>
     expect(launched.map((input) => [input.projectId, input.workspaceStrategy])).toEqual([
       [scratchProjectId, { type: "root" }],
     ]);
+    // No strategy was given, so the project's default checkout applies.
+    expect(launched[0]?.rootIsDefault).toBe(true);
 
     const rejected = yield* handle({
       title: "Notes",

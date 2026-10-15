@@ -89,6 +89,12 @@ export interface ThreadLaunchInput {
   readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode;
   readonly workspaceStrategy: ThreadLaunchWorkspaceStrategy;
+  /**
+   * Set when `root` only means no checkout was chosen, as for a client draft or
+   * an MCP launch without a strategy: a SlipJay project then gives the thread its
+   * own workspace. Without it, `root` runs on the project root.
+   */
+  readonly rootIsDefault?: boolean;
   readonly initialMessage?: ThreadLaunchInitialMessage;
   readonly importedNativeThread?: {
     readonly ref: {
@@ -937,10 +943,12 @@ const make = Effect.gen(function* () {
                 },
               )
             : input.workspaceStrategy;
-        // A normal SlipJay conversation owns one checkout from its launch, so a
-        // later first message never runs in the integration checkout. Client
-        // drafts launch only when sent. Managed readers keep their parent's binding.
+        // A SlipJay conversation that chose no checkout owns one from its launch,
+        // so a later first message never runs in the integration checkout. Client
+        // drafts launch only when sent. Managed readers keep their parent's binding,
+        // and an explicit root, such as a scheduled task's, stays on the root.
         if (
+          input.rootIsDefault === true &&
           workspaceStrategy.type === "root" &&
           input.agentTask === undefined &&
           input.importedNativeThread === undefined &&

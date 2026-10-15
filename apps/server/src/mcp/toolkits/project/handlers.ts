@@ -130,6 +130,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           runtimeMode,
           interactionMode,
           workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
+          rootIsDefault: input.workspaceStrategy === undefined,
           ...(input.message === undefined && attachments.length === 0
             ? {}
             : {

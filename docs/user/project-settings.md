@@ -72,8 +72,8 @@ projects to run the same task in each: every machine runs its own copy, in each
 chosen project it has. A project a machine lacks is skipped, and the editor says so.
 
 - **A fresh workspace** gives each run its own checkout: a SlipJay workspace in a
-  project with `slipjay.json`, a Git worktree elsewhere. SlipJay projects always
-  get one.
+  project with `slipjay.json`, a Git worktree elsewhere. **The project checkout**
+  runs in the project folder itself, in a SlipJay project too.
 - **The role** (such as implementation-worker) picks the model and effort from your
   delegation policy on each machine at every run, so a policy change reaches the
   task without editing it. The editor shows the model the role prefers.

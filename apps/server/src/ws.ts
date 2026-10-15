@@ -107,6 +107,7 @@ import {
   WsPeersRpcGroup,
   WsPullRequestRpcGroup,
   WsRpcGroup,
+  type OrchestrationV2ThreadLaunchInput,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
 import {
@@ -626,6 +627,44 @@ export function hasCompatibleOrchestrationProtocol(url: URL): boolean {
     url.searchParams.get(ORCHESTRATION_PROTOCOL_QUERY_PARAM) ===
     String(ORCHESTRATION_PROTOCOL_VERSION)
   );
+}
+
+/** A client's launch request as the launch service reads it. */
+export function clientThreadLaunchInput(
+  input: OrchestrationV2ThreadLaunchInput,
+): ThreadLaunchService.ThreadLaunchInput {
+  return {
+    commandId: input.commandId,
+    ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+    ...(input.reuseExistingThread === undefined
+      ? {}
+      : { reuseExistingThread: input.reuseExistingThread }),
+    projectId: input.projectId,
+    title: input.title,
+    ...(input.generateTitle === undefined ? {} : { generateTitle: input.generateTitle }),
+    modelSelection: input.modelSelection,
+    runtimeMode: input.runtimeMode,
+    interactionMode: input.interactionMode,
+    workspaceStrategy: input.workspaceStrategy,
+    // Clients offer no checkout choice in a SlipJay project.
+    rootIsDefault: true,
+    ...(input.initialMessage === undefined
+      ? {}
+      : {
+          initialMessage: {
+            ...(input.initialMessage.messageId === undefined
+              ? {}
+              : { messageId: input.initialMessage.messageId }),
+            text: input.initialMessage.text,
+            attachments: input.initialMessage.attachments,
+            ...(input.initialMessage.context === undefined
+              ? {}
+              : { context: input.initialMessage.context }),
+          },
+        }),
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+  };
 }
 
 export function shouldUseBoundedThreadSnapshot(input: {
@@ -1983,38 +2022,9 @@ const layerWsRpc = (
             Effect.andThen(
               startup
                 .enqueueCommand(
-                  ThreadMessageIntake.launchThread({
-                    commandId: input.commandId,
-                    ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-                    ...(input.reuseExistingThread === undefined
-                      ? {}
-                      : { reuseExistingThread: input.reuseExistingThread }),
-                    projectId: input.projectId,
-                    title: input.title,
-                    ...(input.generateTitle === undefined
-                      ? {}
-                      : { generateTitle: input.generateTitle }),
-                    modelSelection: input.modelSelection,
-                    runtimeMode: input.runtimeMode,
-                    interactionMode: input.interactionMode,
-                    workspaceStrategy: input.workspaceStrategy,
-                    ...(input.initialMessage === undefined
-                      ? {}
-                      : {
-                          initialMessage: {
-                            ...(input.initialMessage.messageId === undefined
-                              ? {}
-                              : { messageId: input.initialMessage.messageId }),
-                            text: input.initialMessage.text,
-                            attachments: input.initialMessage.attachments,
-                            ...(input.initialMessage.context === undefined
-                              ? {}
-                              : { context: input.initialMessage.context }),
-                          },
-                        }),
-                    createdBy: "user",
-                    creationSource: input.creationSource ?? "web",
-                  }).pipe(Effect.provide(intakeContext)),
+                  ThreadMessageIntake.launchThread(clientThreadLaunchInput(input)).pipe(
+                    Effect.provide(intakeContext),
+                  ),
                 )
                 .pipe(
                   Effect.tap(() =>

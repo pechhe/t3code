@@ -305,7 +305,9 @@ function launchInput(input: {
     modelSelection,
     runtimeMode: "full-access" as const,
     interactionMode: "default" as const,
+    // A client draft's root only means no checkout was chosen.
     workspaceStrategy: input.workspace ?? { type: "root" as const },
+    rootIsDefault: input.workspace === undefined,
     ...(input.message === undefined
       ? {}
       : {
@@ -423,6 +425,45 @@ it.effect.each(
     }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
   },
 );
+
+it.effect("runs a scheduled root task on a SlipJay project's root without a workspace", () => {
+  const harness = makeHarness({ slipjay: true });
+  const layerScheduledTasks = ScheduledTasks.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        harness.layer,
+        NodeCrypto.layer,
+        Scheduler.layer,
+        Layer.mock(SecretRequests.SecretRequests)({}),
+      ),
+    ),
+  );
+  return Effect.gen(function* () {
+    const tasks = yield* ScheduledTasks.ScheduledTaskService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const { task } = yield* tasks.upsert({
+      id: ScheduledTaskId.make("scheduled-task:slipjay-root"),
+      title: "Hourly audit",
+      prompt: "Audit the main checkout.",
+      enabled: false,
+      schedule: { type: "interval", everyMs: 60_000 },
+      projectId,
+      threadId: null,
+      workspaceStrategy: { type: "root" },
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const result = yield* tasks.runNow({ id: task.id });
+    assert.equal(result.task.lastRunStatus, "succeeded");
+    const [thread] = yield* threads.listProjectThreads({ projectId, includeSubagents: false });
+    assert.isDefined(thread);
+    assert.isNull((yield* threads.getThreadProjection(thread!.id)).thread.worktreePath);
+    assert.isEmpty(harness.allocateWorkspace.mock.calls);
+  }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
+});
 
 it.effect("retains automation and sender attribution while a message waits in the queue", () => {
   const harness = makeHarness({ runSetup: () => Effect.never });
@@ -1290,6 +1331,34 @@ it.effect("allocates a SlipJay workspace when an empty conversation is launched"
           ),
       );
       assert.equal(harness.allocateWorkspace.mock.calls.length, 1);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("keeps an explicit root launch on a SlipJay project's root", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({ slipjay: true });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:explicit-root-slipjay",
+          thread: "thread:launch:explicit-root-slipjay",
+          message: "Work on the main checkout",
+          workspace: { type: "root" },
+        }),
+      );
+      yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+        Stream.filter(
+          (stored) =>
+            stored.event.type === "run.updated" && stored.event.payload.status === "starting",
+        ),
+        Stream.runHead,
+      );
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.isNull(projection.thread.worktreePath);
+      assert.isEmpty(harness.allocateWorkspace.mock.calls);
     }).pipe(Effect.provide(harness.layer));
   }),
 );

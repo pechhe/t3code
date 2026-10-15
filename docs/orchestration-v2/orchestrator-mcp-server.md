@@ -340,9 +340,10 @@ without a prompt remain idle.
 Launches one ordinary top-level thread through the app's launch service. Use an
 explicit `workspaceStrategy` to create a new worktree (`worktree` with `baseRef`),
 attach an existing checkout (`existing_worktree` with `worktreePath`), or use the
-project root (`root`, also the default). The thread is bound to that workspace
-before the agent starts. Creating a worktree in the task prompt does not update
-this binding.
+project root (`root`). Without one, a project with `slipjay.json` allocates a
+fresh SlipJay workspace and any other project uses the root. The thread is bound
+to that workspace before the agent starts. Creating a worktree in the task prompt
+does not update this binding.
 
 Pass the task in `message`. Project, model, and modes inherit when omitted;
 workspace does not. `scratch: true` launches without a project, in a folder of

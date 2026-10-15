@@ -138,8 +138,8 @@ export type WorkspaceChoice = "fresh" | "checkout";
 /**
  * Where a run works. "fresh" gives each run its own checkout: a SlipJay workspace from
  * the integration branch in a SlipJay project, a Git worktree from the checkout's
- * current commit otherwise. "checkout" runs in the project folder itself, which a
- * SlipJay project never does.
+ * current commit otherwise. "checkout" runs in the project folder itself, in a
+ * SlipJay project too.
  */
 export function workspaceStrategyFor(
   choice: WorkspaceChoice,

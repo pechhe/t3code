@@ -745,7 +745,7 @@ function TaskDetail(props: {
       </div>
       <p className="-mt-3 text-muted-foreground text-xs">
         A fresh workspace is a SlipJay workspace in a SlipJay project, and a new worktree elsewhere.
-        A SlipJay project always gets one.
+        The project checkout runs in the project folder itself.
       </p>
 
       <div className="flex flex-col gap-1.5">

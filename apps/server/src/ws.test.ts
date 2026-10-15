@@ -1,7 +1,9 @@
 import { assert, it } from "@effect/vitest";
 import {
+  CommandId,
   ORCHESTRATION_PROTOCOL_VERSION,
   ProjectId,
+  ProviderInstanceId,
   ThreadId,
   type OrchestrationV2StoredEvent,
   type OrchestrationProjectShell,
@@ -32,6 +34,7 @@ import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ProjectEnrichment from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
 import {
+  clientThreadLaunchInput,
   hasCompatibleOrchestrationProtocol,
   resolveAvailableEditorsForConfig,
   shouldUseBoundedThreadSnapshot,
@@ -52,6 +55,22 @@ it("accepts only the current orchestration protocol before websocket RPC setup",
       new URL(`https://host.test/ws?orchestrationProtocol=${ORCHESTRATION_PROTOCOL_VERSION - 1}`),
     ),
   );
+});
+
+it("treats a client draft's root as the project's default checkout", () => {
+  // A draft carries the checkout's branch, but chose no checkout: a SlipJay
+  // project must still give it a workspace.
+  const launch = clientThreadLaunchInput({
+    commandId: CommandId.make("command:client-draft"),
+    projectId: ProjectId.make("project:client-draft"),
+    title: "Draft",
+    modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+    runtimeMode: "full-access",
+    interactionMode: "default",
+    workspaceStrategy: { type: "root", branch: "main" },
+  });
+  assert.deepEqual(launch.workspaceStrategy, { type: "root", branch: "main" });
+  assert.isTrue(launch.rootIsDefault);
 });
 
 it("keeps full thread snapshot fallback unless the client opts into bounded history", () => {
