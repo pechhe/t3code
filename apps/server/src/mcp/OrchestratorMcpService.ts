@@ -111,6 +111,7 @@ import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { continuableRoles, followupBinding, followupPrompt } from "../agents/followup.ts";
+import { managedTaskTitle } from "../agents/taskTitle.ts";
 import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -2879,7 +2880,11 @@ const make = Effect.gen(function* () {
                 prepared === undefined
                   ? taskPrompt(input)
                   : `${prepared.brief}\n\n${taskPrompt(input)}`,
-              ...(input.title === undefined ? {} : { title: input.title }),
+              ...(prepared === undefined
+                ? input.title === undefined
+                  ? {}
+                  : { title: input.title }
+                : { title: managedTaskTitle(prepared.binding.role, input.task, input.title) }),
               modelSelection: target.modelSelection,
               runtimeMode,
               interactionMode,

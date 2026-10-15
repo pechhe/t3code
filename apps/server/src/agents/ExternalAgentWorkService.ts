@@ -46,6 +46,7 @@ import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
 import { continuableRoles, followupBinding, followupPrompt } from "./followup.ts";
 import { repositoryStore, workspaceOccupants } from "./workspaceIdentity.ts";
+import { managedTaskTitle } from "./taskTitle.ts";
 
 export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWorkError>()(
   "ExternalAgentWorkError",
@@ -740,7 +741,7 @@ const make = Effect.gen(function* () {
           const work = {
             binding,
             prompt: `${prepared.brief}\n\n${input.task}`,
-            title: input.title ?? input.agentTask.role,
+            title: managedTaskTitle(input.agentTask.role, input.task, input.title),
             messageId: MessageId.make(`message:external-work:${identity}`),
           };
           yield* storage(sql`INSERT INTO external_agent_work (task_id, session_key, work_id, attempt_id, request_id, thread_id, fingerprint, payload_json, state)
