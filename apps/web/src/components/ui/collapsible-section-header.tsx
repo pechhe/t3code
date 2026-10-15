@@ -50,3 +50,20 @@ export function SectionHeaderStatus({ children }: { children: ReactNode }) {
     <span className="shrink-0 text-3xs leading-none text-destructive-foreground">{children}</span>
   );
 }
+
+/** A section whose contents stay visible. */
+export function SectionHeader({
+  children,
+  accessory,
+}: {
+  children: ReactNode;
+  accessory?: ReactNode;
+}) {
+  return (
+    <div className="flex h-8 w-full items-center gap-2 ps-2 pe-2.5 text-xs font-medium text-sidebar-muted-foreground/60">
+      <span className="shrink-0">{children}</span>
+      <span aria-hidden className="h-px min-w-2 flex-1 bg-sidebar-border/60" />
+      {accessory}
+    </div>
+  );
+}

@@ -470,9 +470,6 @@ it("groups and counts a workflow by its run status instead of its coordinator ch
   expect(renderer.root.findByType("h3").children).toEqual(["Lineage"]);
   expect(text()).toContain("Previous agents");
   expect(renderer.root.findAllByProps({ "aria-label": "Open Checker chat" })).toHaveLength(0);
-  await act(async () =>
-    renderer.root.findByProps({ type: "button", "aria-expanded": false }).props.onClick(),
-  );
   expect(renderer.root.findByProps({ "aria-label": "Expand Checkout review" })).toBeDefined();
   expect(text()).toContain("Workflow checks complete");
   expect(text()).toContain("10m");
@@ -680,11 +677,7 @@ it("shows the matching child agent details and refreshes them when the agent set
   };
   await act(async () => renderer.update(cloneElement(panel)));
   expect(renderer.root.findByType("h3").children).toEqual(["Lineage"]);
-  expect(text()).toContain("Previous agents (1)");
-  expect(text()).not.toContain("Checker");
-  await act(async () =>
-    renderer.root.findByProps({ type: "button", "aria-expanded": false }).props.onClick(),
-  );
+  expect(text()).toContain("Previous agents");
   expect(text()).toContain("Checker");
   // A started agent's row shows only its compact time; the icon carries the status.
   expect(text()).toContain("Checker 2m");
@@ -692,15 +685,7 @@ it("shows the matching child agent details and refreshes them when the agent set
   expect(text()).not.toContain("Done");
   expect(text()).not.toContain("running");
   expect(text()).not.toContain("Worker");
-  await act(async () =>
-    renderer.root.findByProps({ type: "button", "aria-expanded": true }).props.onClick(),
-  );
-  expect(text()).not.toContain("Checker");
-  expect(text()).toContain("Previous agents (1)");
-  await act(async () =>
-    renderer.root.findByProps({ type: "button", "aria-expanded": false }).props.onClick(),
-  );
-  expect(text()).toContain("Checker");
+  expect(renderer.root.findAllByProps({ type: "button", "aria-expanded": false })).toHaveLength(0);
 
   state.projection = {
     ...projection,
@@ -1045,17 +1030,9 @@ it("shows readable models and only differing workspace details in agent tooltips
       ],
     };
     await act(async () => renderer.update(cloneElement(panel)));
-    if (status === "completed") {
-      await act(async () =>
-        renderer.root.findByProps({ type: "button", "aria-expanded": false }).props.onClick(),
-      );
-    }
     expect(text()).toContain("My GPT · Work account · Ultrafast mode onlow");
     expect(text()).not.toContain(" · high");
   }
-  await act(async () =>
-    renderer.root.findByProps({ type: "button", "aria-expanded": true }).props.onClick(),
-  );
   state.projection = projection;
   state.configs.set("test", speedConfig);
   child.modelSelection.options = [{ id: "reasoningEffort", value: "high" }];
@@ -1102,9 +1079,6 @@ it("shows readable models and only differing workspace details in agent tooltips
     ],
   };
   await act(async () => renderer.update(cloneElement(panel)));
-  await act(async () =>
-    renderer.root.findByProps({ type: "button", "aria-expanded": false }).props.onClick(),
-  );
   expect(text()).toContain("Final checks passed.");
   expect(text()).not.toContain("Stale progress");
   expect(text()).not.toContain("Hidden tail");
@@ -1272,3 +1246,86 @@ it.each(["source", "target"])(
     }
   },
 );
+
+it("keeps managed advisor conversations in their own visible section through follow-ups and completion", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const child = {
+    id: "advisor-chat",
+    title: "Architecture advice",
+    lineage: { parentThreadId: "parent", relationshipToParent: "subagent" },
+    agentTask: { role: "advisor" },
+    status: "running",
+  };
+  state.shells = [{ environmentId: "test", source: child }];
+  const agent = {
+    id: "advice-1",
+    childThreadId: "advisor-chat",
+    origin: "app_owned",
+    driver: "codex",
+    providerInstanceId: "codex",
+    title: "Architecture advice",
+    prompt: "Which boundary owns validation?",
+    model: "gpt-6-astra",
+    status: "running",
+    progress: null,
+    result: null,
+    startedAt: DateTime.makeUnsafe("2026-09-16T12:00:00Z"),
+    completedAt: null,
+    updatedAt: DateTime.makeUnsafe("2026-09-16T12:00:00Z"),
+  };
+  const projection = {
+    thread: { id: "parent", lineage: { relationshipToParent: null } },
+    runs: [],
+    providerThreads: [],
+    providerSessions: [],
+    contextTransfers: [],
+    subagents: [agent],
+  };
+  state.projection = projection;
+  const panel = (
+    <ThreadRelationshipsPanel
+      environmentId={EnvironmentId.make("test")}
+      threadId={ThreadId.make("parent")}
+    />
+  );
+  await act(async () => {
+    renderer = create(panel);
+  });
+  const text = () =>
+    renderer.root
+      .findAll((node) => typeof node.type === "string")
+      .flatMap((node) => node.children.filter((child) => typeof child === "string"))
+      .join(" ");
+  expect(text()).toContain("Advisors");
+  expect(text()).toContain("Lineage · 1 running");
+  for (const status of ["idle", "running", "completed", "cancelled"]) {
+    state.projection = {
+      ...projection,
+      subagents: [
+        { ...agent, status: "completed" },
+        { ...agent, id: "advice-2", status },
+      ],
+    };
+    state.shells = [{ environmentId: "test", source: { ...child, status } }];
+    await act(async () => renderer.update(cloneElement(panel)));
+    expect(text()).toContain("Advisors");
+    expect(text()).not.toContain("Previous agents");
+    expect(
+      renderer.root.findAll(
+        (node) =>
+          node.type === "button" && node.props["aria-label"] === "Open Architecture advice chat",
+      ),
+    ).toHaveLength(1);
+  }
+  await act(async () =>
+    renderer.root
+      .find(
+        (node) =>
+          node.type === "button" && node.props["aria-label"] === "Open Architecture advice chat",
+      )
+      .props.onClick(),
+  );
+  expect(state.navigate).toHaveBeenCalledWith(
+    expect.objectContaining({ params: expect.objectContaining({ threadId: "advisor-chat" }) }),
+  );
+});
