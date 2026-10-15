@@ -236,17 +236,34 @@ const make = Effect.gen(function* () {
     authority: Authority,
     writes: boolean,
   ) {
+    const assignment = request.workspaceAssignment ?? "lead";
+    // A pinned reader cannot change a checkout and is proven below to see exactly the pinned
+    // source, so it may use any workspace of the lead's repository, including one a
+    // root-bound lead allocated for itself. Writers and unpinned readers keep the binding.
+    const pinnedReader = !writes && request.sourceRevision !== undefined;
     // Root-bound conversations need no allocated checkout for read-only work.
-    // Writers and isolated helpers still require the lead's explicit binding.
     const lead =
       authority.workspacePath ??
-      (!writes && (request.workspaceAssignment ?? "lead") === "lead"
-        ? authority.projectRoot
-        : undefined);
+      (!writes && (pinnedReader || assignment === "lead") ? authority.projectRoot : undefined);
     const expected = request.workspacePath;
     if (lead === undefined || !path.isAbsolute(expected))
       return yield* new ManagedAgentError({ reason: "workspace" });
-    if ((request.workspaceAssignment ?? "lead") === "lead") {
+    const sameRepository = Effect.fn("ManagedAgentService.sameRepository")(function* () {
+      const [leadStore, childStore] = yield* local(
+        Effect.all([repositoryStore(lead), repositoryStore(expected)]),
+      ).pipe(Effect.mapError(workspaceError));
+      if (leadStore !== childStore) return yield* new ManagedAgentError({ reason: "workspace" });
+    });
+    if (pinnedReader) {
+      if (expected !== lead) yield* sameRepository();
+      // A live writer would change the files under the reader after the pin was checked.
+      if (
+        (authority.occupants ?? []).some(
+          (occupant) => occupant.workspacePath === expected && occupant.running && occupant.writes,
+        )
+      )
+        return yield* new ManagedAgentError({ reason: "workspace" });
+    } else if (assignment === "lead") {
       if (expected !== lead) return yield* new ManagedAgentError({ reason: "workspace" });
     } else {
       // An isolated helper gets its own registered workspace of the lead's repository on
@@ -254,10 +271,7 @@ const make = Effect.gen(function* () {
       // repository, or a workspace another thread is already writing in.
       if (expected === lead || expected === authority.projectRoot)
         return yield* new ManagedAgentError({ reason: "workspace" });
-      const [leadStore, childStore] = yield* local(
-        Effect.all([repositoryStore(lead), repositoryStore(expected)]),
-      ).pipe(Effect.mapError(workspaceError));
-      if (leadStore !== childStore) return yield* new ManagedAgentError({ reason: "workspace" });
+      yield* sameRepository();
       // A workspace bound to another lead is theirs even while idle. Under this lead, only
       // the same attempt may continue beside a live writer; a new attempt waits for it.
       if (
@@ -296,14 +310,28 @@ const make = Effect.gen(function* () {
       const output = yield* processes
         .run({
           command: jj ? "jj" : "git",
-          args: jj ? ["log", "-r", "@", "--no-graph", "-T", "commit_id"] : ["rev-parse", "HEAD"],
+          // jj also names the parent of an empty working copy, the state `jj commit` leaves.
+          args: jj
+            ? [
+                "log",
+                "-r",
+                "@",
+                "--no-graph",
+                "-T",
+                'commit_id ++ if(empty, " " ++ parents.map(|c| c.commit_id()).join(" "))',
+              ]
+            : ["rev-parse", "HEAD"],
           cwd: actual,
           timeout: "10 seconds",
           maxOutputBytes: 4096,
         })
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
-      if (output.code !== 0 || output.stdout.trim() !== request.sourceRevision)
-        return yield* new ManagedAgentError({ reason: "source" });
+      // The working copy itself, or the single parent of an empty one, must be the pin.
+      const [current, ...parents] = output.stdout.trim().split(" ");
+      const pinned =
+        current === request.sourceRevision ||
+        (parents.length === 1 && parents[0] === request.sourceRevision);
+      if (output.code !== 0 || !pinned) return yield* new ManagedAgentError({ reason: "source" });
       if (!jj) {
         const dirty = yield* processes
           .run({

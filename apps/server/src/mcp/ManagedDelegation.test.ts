@@ -252,6 +252,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       yield* fs.makeDirectory(`${lead}/.jj/repo`, { recursive: true });
       yield* fs.makeDirectory(`${helper}/.jj`, { recursive: true });
       yield* fs.writeFileString(`${helper}/.jj/repo`, `${lead}/.jj/repo`);
+      // A workspace of a different repository, which no helper of this lead may use.
+      const foreign = `${base}/foreign`;
+      yield* fs.makeDirectory(`${foreign}/.jj/repo`, { recursive: true });
       const policy = snapshot();
       yield* fs.writeFileString(
         `${policyRoot}/roles/policy.json`,
@@ -365,7 +368,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
           ),
         );
-      return { lead, helper, base, policyRoot, delegate, roles, dispatched };
+      return { lead, helper, foreign, base, policyRoot, delegate, roles, dispatched };
     });
 
   it.effect(
@@ -432,7 +435,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           { target: { model: "gpt-astra-test" } },
           { agentTask: { ...review, taskClass: "mixed" as const } },
           { agentTask: { ...review, sourceRevision: "wrong-pin" } },
-          { agentTask: { ...review, workspacePath: h.helper } },
+          { agentTask: { ...review, workspacePath: h.foreign } },
           { target: { model: codexModel, options: [{ id: "reasoning", value: "high" }] } },
         ].entries()) {
           expect(
@@ -557,6 +560,26 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }),
       });
       expect(reading.dispatched).toHaveLength(1);
+      // A pinned reviewer sent to another workspace without the isolated assignment is
+      // checked against the writers there too.
+      const pinnedReview = (helper: string) => ({
+        ...isolatedTask(helper, "pinned-review"),
+        agentTask: request({
+          role: "ticket-reviewer",
+          workId: "pinned-review",
+          workspacePath: helper,
+          sourceRevision: "source-pin",
+          review: changeReview,
+        }),
+      });
+      const written = yield* harness(occupant("scoped-write"));
+      expect((yield* written.delegate(pinnedReview(written.helper))).code).toBe(
+        "capability_denied",
+      );
+      expect(written.dispatched).toHaveLength(0);
+      const read = yield* harness(occupant("read-only"));
+      yield* read.delegate(pinnedReview(read.helper));
+      expect(read.dispatched).toHaveLength(1);
     }),
   );
 });

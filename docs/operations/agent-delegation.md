@@ -75,10 +75,15 @@ its revision and the role names, or the reason the policy is refused.
   checkout, and is refused while another thread is writing there. Its child
   thread launches, resumes and checkpoints in that workspace, and a finished
   writer reports the revision it hands back.
-- A thread without an explicit workspace binding can delegate read-only work
-  in its project's canonical root. Pass that exact root as `workspacePath`;
-  other paths and isolated helpers still require an assigned workspace.
-  Source-writing tasks require the lead's explicit workspace binding.
+- A read-only task pinned to a `sourceRevision`, such as a review or a pinned
+  advisor, may run in any workspace of the lead's repository on this computer,
+  even when the lead's thread has no workspace binding (for example a lead that
+  allocated its SlipJay workspace from the shell). It is refused while a writer
+  is running there. An unpinned read-only task from an unbound thread runs only
+  in the project's canonical root. Source-writing tasks require the lead's
+  explicit workspace binding.
+- The pin matches the workspace's working copy, or, in jj, the single parent of
+  an empty working copy such as the one `jj commit` leaves.
 - A role uses the first available model in its list. A large (`demanding`) task
   starts with the role's `large` model, and a caller whose model has a `callers`
   entry starts with that model instead; the rest of the list follows. A caller

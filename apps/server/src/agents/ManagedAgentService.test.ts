@@ -36,10 +36,12 @@ import {
 } from "./agentPolicy.testkit.ts";
 
 const sourceRevision = "fixture-source-commit";
+// What `jj log -r @` / `git rev-parse HEAD` reports; a test may stand in another working copy.
+const workingCopy = { output: sourceRevision };
 const processes = Layer.succeed(ProcessRunner.ProcessRunner, {
   run: (input) =>
     Effect.succeed({
-      stdout: input.args[0] === "status" ? "" : sourceRevision + "\n",
+      stdout: input.args[0] === "status" ? "" : workingCopy.output + "\n",
       stderr: "",
       code: ChildProcessSpawner.ExitCode(0),
       timedOut: false,
@@ -566,6 +568,92 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           .validate({ ...accepted.binding, toolProfile: "implementation" })
           .pipe(Effect.flip)).reason,
       ).toBe("policy");
+    }),
+  );
+
+  it.effect("accepts the empty working copy `jj commit` leaves on top of the pin", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const reviewer = request({
+        workspacePath: f.workspacePath,
+        role: "ticket-reviewer",
+        sourceRevision,
+        review: changeReview,
+      });
+      const reason = Effect.flip(f.prepare({ request: reviewer })).pipe(
+        Effect.map((error) => error.reason),
+      );
+      try {
+        workingCopy.output = `empty-working-copy ${sourceRevision}`;
+        yield* f.prepare({ request: reviewer });
+        // An empty merge has no single parent to stand for the pin.
+        workingCopy.output = `empty-working-copy ${sourceRevision} other-parent`;
+        expect(yield* reason).toBe("source");
+        // A working copy with its own edits is not the pinned source.
+        workingCopy.output = "edited-working-copy";
+        expect(yield* reason).toBe("source");
+      } finally {
+        workingCopy.output = sourceRevision;
+      }
+    }),
+  );
+
+  it.effect("lets a root-bound lead send a pinned reader to its own SlipJay workspace", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const store = `${f.root}/repo-store`;
+      const otherStore = `${f.root}/other-store`;
+      yield* f.fs.makeDirectory(store);
+      yield* f.fs.makeDirectory(otherStore);
+      const workspace = (name: string, target: string) =>
+        Effect.gen(function* () {
+          const path = `${f.root}/${name}`;
+          yield* f.fs.makeDirectory(`${path}/.jj`, { recursive: true });
+          yield* f.fs.writeFileString(`${path}/.jj/repo`, target);
+          return path;
+        });
+      const projectRoot = yield* workspace("main", store);
+      const allocated = yield* workspace("allocated", store);
+      const foreign = yield* workspace("foreign", otherStore);
+      // An unbound thread: no worktree of its own, only the project's main checkout.
+      const rootBound = { workspacePath: null, projectRoot, owner: "lead-thread" };
+      const reviewer = (path: string) =>
+        request({
+          workspacePath: path,
+          role: "ticket-reviewer",
+          sourceRevision,
+          review: changeReview,
+        });
+      const refused = (input: Partial<Parameters<typeof f.service.prepare>[0]>) =>
+        f.prepare({ ...rootBound, ...input }).pipe(
+          Effect.flip,
+          Effect.map((error) => error.reason),
+        );
+
+      const accepted = yield* f.prepare({ ...rootBound, request: reviewer(allocated) });
+      expect(accepted.binding).toMatchObject({
+        workspacePath: allocated,
+        sourceAccess: "read-only",
+      });
+      expect(yield* refused({ request: reviewer(foreign) })).toBe("workspace");
+      // Another lead's idle workspace is readable; a live writer's is not.
+      const writer = {
+        workspacePath: allocated,
+        owner: "other-lead",
+        workId: "other-work",
+        attemptId: "attempt-test",
+        writes: true,
+        running: false,
+      };
+      yield* f.prepare({ ...rootBound, request: reviewer(allocated), occupants: [writer] });
+      expect(
+        yield* refused({ request: reviewer(allocated), occupants: [{ ...writer, running: true }] }),
+      ).toBe("workspace");
+      // An unpinned reader or a writer still needs the thread's own binding.
+      expect(
+        yield* refused({ request: request({ workspacePath: allocated, readOnly: true }) }),
+      ).toBe("workspace");
+      expect(yield* refused({ request: request({ workspacePath: allocated }) })).toBe("workspace");
     }),
   );
 

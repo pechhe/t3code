@@ -2659,20 +2659,27 @@ const make = Effect.gen(function* () {
             (t) => t.taskId === deriveIds.delegatedTaskNode({ commandId }),
           )?.binding;
         const isolated = input.agentTask?.workspaceAssignment === "isolated";
+        // A pinned reader may use another workspace of the repository, so it is checked
+        // against the writers there just as an isolated helper is.
+        const elsewhere =
+          isolated ||
+          (input.agentTask?.sourceRevision !== undefined &&
+            input.agentTask.workspacePath !== parent.thread.worktreePath);
         // Read again inside the launch lock, so two helpers cannot both claim one workspace.
         const readWorkspaceAuthority = Effect.gen(function* () {
-          if (!isolated && parent.thread.worktreePath !== null) return {};
+          const bound = parent.thread.worktreePath !== null;
+          if (!elsewhere && bound) return {};
+          const occupants = () =>
+            threadManagement
+              .listProjectThreads({ projectId: parent.thread.projectId, includeSubagents: true })
+              .pipe(Effect.map(workspaceOccupants), Effect.mapError(threadManagementFailure));
+          // A bound lead's own binding is its workspace; only isolated helpers and unbound
+          // leads compare against the project's main checkout.
+          if (bound && !isolated)
+            return { owner: threadOwner(parent.thread), occupants: yield* occupants() };
           const projectRoot = (yield* requireProject(parent.thread.projectId)).workspaceRoot;
-          if (!isolated) return { projectRoot };
-          return {
-            owner: threadOwner(parent.thread),
-            projectRoot,
-            occupants: workspaceOccupants(
-              yield* threadManagement
-                .listProjectThreads({ projectId: parent.thread.projectId, includeSubagents: true })
-                .pipe(Effect.mapError(threadManagementFailure)),
-            ),
-          };
+          if (!elsewhere) return { projectRoot };
+          return { owner: threadOwner(parent.thread), projectRoot, occupants: yield* occupants() };
         });
         const workspaceAuthority = yield* readWorkspaceAuthority;
         const prepared =

@@ -409,7 +409,10 @@ const make = Effect.gen(function* () {
   for (const row of restored) yield* watch(row.client_session_id);
   const workspaceAuthority = (projectId: ProjectId, request: AgentTaskRequest, owner: string) =>
     Effect.gen(function* () {
-      if (request.workspaceAssignment !== "isolated") return {};
+      // Isolated helpers and pinned readers may use another workspace of the repository,
+      // so both are checked against the writers there.
+      if (request.workspaceAssignment !== "isolated" && request.sourceRevision === undefined)
+        return {};
       const project = yield* storage(projects.getById(projectId));
       const shells = yield* storage(
         threads.listProjectThreads({ projectId, includeSubagents: true }),
