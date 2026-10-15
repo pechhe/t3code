@@ -636,6 +636,8 @@ interface ProviderInstanceCardProps {
   readonly environmentId?: EnvironmentId | undefined;
   /** Omit this prop entirely for environment-wide editing. */
   readonly projectOverride?: ProjectOverrideControl | undefined;
+  /** Display names of a pool's member accounts, in pool order. */
+  readonly poolMemberLabels?: ReadonlyArray<string> | undefined;
   readonly acpProjects?:
     | ReadonlyArray<{
         readonly id: ProjectId;
@@ -698,6 +700,7 @@ export function ProviderInstanceCard({
   environmentId,
   acpProjects = EMPTY_ACP_PROJECTS,
   projectOverride,
+  poolMemberLabels,
 }: ProviderInstanceCardProps) {
   const enabled = projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance);
   const compatibility = enabled ? liveProvider?.compatibilityAdvisory : undefined;
@@ -1245,105 +1248,123 @@ export function ProviderInstanceCard({
         />
       </SettingsSection>
 
-      {setup || environmentFields.length > 0 ? (
-        <SettingsSection title="Setup">
-          {setup}
-          <div
+      {instance.pool !== undefined ? (
+        <SettingsSection title="Accounts">
+          <SettingsRow
+            title="Pooled accounts"
+            description="New threads and delegated tasks use the account whose usage resets soonest, skipping any that have run out. A thread keeps its account while that account has usage left."
+            status={
+              <ul className="grid gap-0.5 pt-1 text-xs text-foreground">
+                {(poolMemberLabels ?? instance.pool.map(String)).map((label, index) => (
+                  <li key={`${index}:${label}`}>{label}</li>
+                ))}
+              </ul>
+            }
+          />
+        </SettingsSection>
+      ) : (
+        <>
+          {setup || environmentFields.length > 0 ? (
+            <SettingsSection title="Setup">
+              {setup}
+              <div
+                inert={readOnly}
+                aria-disabled={readOnly || undefined}
+                className={readOnly ? "opacity-50 select-none" : undefined}
+              >
+                {environmentFields.length > 0 ? (
+                  <>
+                    {environmentFields.map((field) => (
+                      <ProviderEnvironmentFieldRow
+                        key={field.name}
+                        field={field}
+                        variable={readProviderEnvironmentVariable(instance.environment, field.name)}
+                        idPrefix={`provider-instance-${instanceId}`}
+                        onCommit={updateEnvironmentField}
+                        onRemove={removeEnvironmentField}
+                      />
+                    ))}
+                  </>
+                ) : null}
+              </div>
+            </SettingsSection>
+          ) : null}
+
+          {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
+            <div
+              inert={readOnly}
+              aria-disabled={readOnly || undefined}
+              className={readOnly ? "opacity-50 select-none" : undefined}
+            >
+              <FoldedSettingsSection
+                key={instanceId}
+                id={`provider-instance-${instanceId}-runtime`}
+                title="Runtime"
+                headerPlacement="outside"
+              >
+                {runtime ?? runtimeFields}
+              </FoldedSettingsSection>
+            </div>
+          ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (
+            <SettingsSection
+              title="Runtime"
+              inert={readOnly}
+              aria-disabled={readOnly || undefined}
+              className={readOnly ? "opacity-50 select-none" : undefined}
+            >
+              {runtimeFields}
+            </SettingsSection>
+          ) : null}
+
+          <SettingsSection
+            title="Environment"
             inert={readOnly}
             aria-disabled={readOnly || undefined}
             className={readOnly ? "opacity-50 select-none" : undefined}
           >
-            {environmentFields.length > 0 ? (
-              <>
-                {environmentFields.map((field) => (
-                  <ProviderEnvironmentFieldRow
-                    key={field.name}
-                    field={field}
-                    variable={readProviderEnvironmentVariable(instance.environment, field.name)}
-                    idPrefix={`provider-instance-${instanceId}`}
-                    onCommit={updateEnvironmentField}
-                    onRemove={removeEnvironmentField}
-                  />
-                ))}
-              </>
-            ) : null}
-          </div>
-        </SettingsSection>
-      ) : null}
-
-      {instance.driver === "codex" && readCodexSetupMode(instance.config) === "managed" ? (
-        <div
-          inert={readOnly}
-          aria-disabled={readOnly || undefined}
-          className={readOnly ? "opacity-50 select-none" : undefined}
-        >
-          <FoldedSettingsSection
-            key={instanceId}
-            id={`provider-instance-${instanceId}-runtime`}
-            title="Runtime"
-            headerPlacement="outside"
-          >
-            {runtime ?? runtimeFields}
-          </FoldedSettingsSection>
-        </div>
-      ) : !driverOption || deriveProviderSettingsFields(driverOption).length > 0 ? (
-        <SettingsSection
-          title="Runtime"
-          inert={readOnly}
-          aria-disabled={readOnly || undefined}
-          className={readOnly ? "opacity-50 select-none" : undefined}
-        >
-          {runtimeFields}
-        </SettingsSection>
-      ) : null}
-
-      <SettingsSection
-        title="Environment"
-        inert={readOnly}
-        aria-disabled={readOnly || undefined}
-        className={readOnly ? "opacity-50 select-none" : undefined}
-      >
-        <ProviderEnvironmentSection
-          environment={genericEnvironment}
-          onChange={updateGenericEnvironment}
-        />
-      </SettingsSection>
-      {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
-        <AcpSessionManagementSection
-          environmentId={environmentId}
-          instanceId={instanceId}
-          provider={liveProvider}
-          projects={acpProjects}
-          readOnly={readOnly}
-        />
-      ) : null}
-
-      {driverOption !== undefined ? (
-        <SettingsSection title="Models">
-          <div className="px-3 py-3 sm:px-4">
-            <p className="mb-3 text-xs text-muted-foreground">
-              Model preferences and custom models are saved on the selected environment and shared
-              across connected devices.
-            </p>
-            <ProviderModelsSection
-              canManageCustomModels={!readOnly}
-              canWritePreferences={canWriteSettings}
-              instanceId={instanceId}
-              driverKind={driverKind}
-              models={modelsForDisplay}
-              customModels={customModels}
-              hiddenModels={hiddenModels}
-              favoriteModels={favoriteModels}
-              modelOrder={modelOrder}
-              onChange={updateCustomModels}
-              onHiddenModelsChange={onHiddenModelsChange}
-              onFavoriteModelsChange={onFavoriteModelsChange}
-              onToggleFavorite={onToggleFavorite}
-              onModelOrderChange={onModelOrderChange}
+            <ProviderEnvironmentSection
+              environment={genericEnvironment}
+              onChange={updateGenericEnvironment}
             />
-          </div>
-        </SettingsSection>
-      ) : null}
+          </SettingsSection>
+          {environmentId !== undefined && liveProvider?.driver === "acpRegistry" ? (
+            <AcpSessionManagementSection
+              environmentId={environmentId}
+              instanceId={instanceId}
+              provider={liveProvider}
+              projects={acpProjects}
+              readOnly={readOnly}
+            />
+          ) : null}
+
+          {driverOption !== undefined ? (
+            <SettingsSection title="Models">
+              <div className="px-3 py-3 sm:px-4">
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Model preferences and custom models are saved on the selected environment and
+                  shared across connected devices.
+                </p>
+                <ProviderModelsSection
+                  canManageCustomModels={!readOnly}
+                  canWritePreferences={canWriteSettings}
+                  instanceId={instanceId}
+                  driverKind={driverKind}
+                  models={modelsForDisplay}
+                  customModels={customModels}
+                  hiddenModels={hiddenModels}
+                  favoriteModels={favoriteModels}
+                  modelOrder={modelOrder}
+                  onChange={updateCustomModels}
+                  onHiddenModelsChange={onHiddenModelsChange}
+                  onFavoriteModelsChange={onFavoriteModelsChange}
+                  onToggleFavorite={onToggleFavorite}
+                  onModelOrderChange={onModelOrderChange}
+                />
+              </div>
+            </SettingsSection>
+          ) : null}
+        </>
+      )}
     </>
   );
 }

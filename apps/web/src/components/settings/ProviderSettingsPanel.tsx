@@ -967,6 +967,10 @@ export function EnvironmentProviderSettings({
         }
         instanceId={row.instanceId}
         instance={row.instance}
+        poolMemberLabels={row.instance.pool?.map(
+          (memberId) =>
+            settings.providerInstances?.[memberId]?.displayName?.trim() || String(memberId),
+        )}
         driverOption={driverOption}
         liveProvider={liveProvider}
         mode={mode}
