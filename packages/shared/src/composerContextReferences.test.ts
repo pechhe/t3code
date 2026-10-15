@@ -178,6 +178,28 @@ describe("provider projection", () => {
     expect(projected).toContain("- font-size: 12px → 20px");
   });
 
+  it("numbers image notes with their positions and points at the image", () => {
+    const annotation: ComposerContextRecord = {
+      version: 1,
+      contextId: "ctx_n" as ComposerContextId,
+      kind: "image-annotation",
+      label: "shot.png · 2 notes",
+      imageContextId: "image_shot" as ComposerContextId,
+      imageName: "shot.png",
+      marks: [
+        { kind: "box", note: "label is off-centre", x: 0.1, y: 0.2, width: 0.3, height: 0.05 },
+        { kind: "arrow", note: "move here", x: 0.5, y: 0.5, toX: 0.75, toY: 0.25 },
+      ],
+    };
+    const projected = projectComposerContextForProvider({
+      text: "Fix [shot.png · 2 notes](t3-context://v1/image-annotation/ctx_n)",
+      records: [annotation],
+    });
+    expect(projected).toContain("image: shot.png (ref=image_shot)");
+    expect(projected).toContain("1. label is off-centre [box x=0.100 y=0.200 w=0.300 h=0.050]");
+    expect(projected).toContain("2. move here [arrow from x=0.500 y=0.500 to x=0.750 y=0.250]");
+  });
+
   it("returns text unchanged when there are no references", () => {
     expect(projectComposerContextForProvider({ text: "plain", records: [terminal] })).toBe("plain");
   });

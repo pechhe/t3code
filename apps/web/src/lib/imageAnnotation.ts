@@ -1,8 +1,12 @@
 /**
  * Screenshot annotation for composer images. The model receives one image with numbered
- * marks drawn on it, and a brief in the prompt that pairs each number with the user's note
- * and its position as fractions (0–1) of the image width and height.
+ * marks drawn on it, and an `image-annotation` context record that pairs each number with
+ * the user's note and its position as fractions (0–1) of the image width and height.
  */
+
+import type { ImageAnnotationMark } from "@t3tools/contracts";
+
+import { randomUUID } from "./utils";
 
 export type ImageMark =
   | { readonly id: string; readonly kind: "point"; x: number; y: number; note: string }
@@ -27,57 +31,45 @@ export type ImageMark =
 
 export const ANNOTATION_MARK_COLOR = "#14ce4c";
 
-const BRIEF_INTRO =
-  "annotations. The numbered marks drawn on this image are mine, not part of the UI; positions are fractions of the image width and height.";
-
-function fixed(value: number): string {
-  return value.toFixed(3);
-}
-
-function markPosition(mark: ImageMark): string {
-  switch (mark.kind) {
-    case "point":
-      return `point x=${fixed(mark.x)} y=${fixed(mark.y)}`;
-    case "box":
-      return `box x=${fixed(mark.x)} y=${fixed(mark.y)} w=${fixed(mark.width)} h=${fixed(mark.height)}`;
-    case "arrow":
-      return `arrow from x=${fixed(mark.x)} y=${fixed(mark.y)} to x=${fixed(mark.toX)} y=${fixed(mark.toY)}`;
-  }
-}
-
 /** Marks a user left without a note are dropped rather than sent as bare numbers. */
 export function notedMarks(marks: ReadonlyArray<ImageMark>): ImageMark[] {
   return marks.filter((mark) => mark.note.trim().length > 0);
 }
 
-/**
- * The prompt text that explains one annotated image. `imageReference` is the inline chip
- * that names the image, so the brief stays tied to it when other images are attached.
- */
-export function buildAnnotationBrief(
-  imageReference: string,
-  marks: ReadonlyArray<ImageMark>,
-): string | null {
-  if (marks.length === 0) return null;
-  const lines = marks.map(
-    (mark, index) => `${String(index + 1)}. ${mark.note.trim()} [${markPosition(mark)}]`,
-  );
-  return [`${imageReference} ${BRIEF_INTRO}`, ...lines].join("\n");
+function fraction(value: number): number {
+  return Math.min(1, Math.max(0, value));
 }
 
-/** Replaces the previous brief for an image in place, or appends it on its own paragraph. */
-export function replaceAnnotationBrief(
-  prompt: string,
-  previous: string | null,
-  next: string | null,
-): string {
-  if (previous && prompt.includes(previous)) {
-    const replaced = prompt.replace(previous, next ?? "");
-    return next ? replaced : replaced.replace(/\n{3,}/g, "\n\n").trim();
+/** The wire form of a mark: no editor id, a trimmed note, positions held inside the image. */
+export function toAnnotationMark(mark: ImageMark): ImageAnnotationMark {
+  const note = mark.note.trim();
+  switch (mark.kind) {
+    case "point":
+      return { kind: "point", note, x: fraction(mark.x), y: fraction(mark.y) };
+    case "box":
+      return {
+        kind: "box",
+        note,
+        x: fraction(mark.x),
+        y: fraction(mark.y),
+        width: fraction(mark.width),
+        height: fraction(mark.height),
+      };
+    case "arrow":
+      return {
+        kind: "arrow",
+        note,
+        x: fraction(mark.x),
+        y: fraction(mark.y),
+        toX: fraction(mark.toX),
+        toY: fraction(mark.toY),
+      };
   }
-  if (!next) return prompt;
-  const trimmed = prompt.trimEnd();
-  return trimmed.length > 0 ? `${trimmed}\n\n${next}` : next;
+}
+
+/** Editable marks from stored ones, with fresh editor ids. */
+export function fromAnnotationMarks(marks: ReadonlyArray<ImageAnnotationMark>): ImageMark[] {
+  return marks.map((mark) => ({ ...mark, id: randomUUID() }));
 }
 
 function drawBadge(

@@ -1,4 +1,8 @@
-import type { EnvironmentId, PullRequestContextMetadata } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  ImageAnnotationMark,
+  PullRequestContextMetadata,
+} from "@t3tools/contracts";
 import { CircleDashedIcon, FilmIcon, ImageIcon } from "lucide-react";
 import {
   useState,
@@ -14,6 +18,7 @@ import { PierreEntryIcon } from "./chat/PierreEntryIcon";
 import { middleTruncateAttachmentName } from "./composerInlineChip";
 import { PullRequestContextDetails } from "./PullRequestContextDetails";
 import { ContextChip, ContextChipLabel, type ContextChipKind } from "./ContextChip";
+import { Button } from "./ui/button";
 import { Popover, PopoverPopup, PopoverTitle, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { PullRequestLinkPreview } from "./pullRequest/PullRequestLinkPreview";
@@ -300,5 +305,41 @@ export function UnresolvedChip(props: { label: string; tooltip: string; copyMark
       data-markdown-copy={props.copyMarkdown}
       tooltip={props.tooltip}
     />
+  );
+}
+
+/** The marked image and its numbered notes; shared by the composer and sent messages. */
+export function ImageAnnotationDetails(props: {
+  imageUrl: string | null;
+  imageName: string;
+  marks: ReadonlyArray<ImageAnnotationMark>;
+  onEdit?: (() => void) | undefined;
+}) {
+  return (
+    <div className="overflow-hidden rounded-lg border border-border/70 bg-background/70">
+      {props.imageUrl ? (
+        <img
+          src={props.imageUrl}
+          alt={`${props.imageName} with numbered marks`}
+          className="max-h-64 w-full border-border/70 border-b bg-muted object-contain"
+        />
+      ) : null}
+      <ol className="space-y-1 px-3 py-2.5 text-sm text-foreground">
+        {props.marks.map((mark, index) => (
+          // oxlint-disable-next-line react/no-array-index-key -- marks have no id; order is their number.
+          <li key={index} className="flex gap-2">
+            <span className="shrink-0 font-medium tabular-nums">{index + 1}.</span>
+            <span className="whitespace-pre-wrap wrap-break-word">{mark.note}</span>
+          </li>
+        ))}
+      </ol>
+      {props.onEdit ? (
+        <div className="border-border/70 border-t px-3 py-2">
+          <Button size="xs" variant="outline" onClick={props.onEdit}>
+            Edit marks
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

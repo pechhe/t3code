@@ -4,6 +4,8 @@ import {
   type ComposerContextKind,
   type ComposerContextRecord,
   type ElementContextDetails,
+  type ImageAnnotationContextRecord,
+  type ImageAnnotationMark,
   type KnownComposerContextRecord,
 } from "@t3tools/contracts";
 
@@ -192,6 +194,33 @@ function formatElementDetails(element: ElementContextDetails): string[] {
   return lines;
 }
 
+function fraction(value: number): string {
+  return value.toFixed(3);
+}
+
+function formatImageAnnotationMarkPosition(mark: ImageAnnotationMark): string {
+  switch (mark.kind) {
+    case "point":
+      return `point x=${fraction(mark.x)} y=${fraction(mark.y)}`;
+    case "box":
+      return `box x=${fraction(mark.x)} y=${fraction(mark.y)} w=${fraction(mark.width)} h=${fraction(mark.height)}`;
+    case "arrow":
+      return `arrow from x=${fraction(mark.x)} y=${fraction(mark.y)} to x=${fraction(mark.toX)} y=${fraction(mark.toY)}`;
+  }
+}
+
+/** What the agent reads for an image annotation; also the legacy-send body. */
+export function formatImageAnnotationBody(record: ImageAnnotationContextRecord): string {
+  return [
+    `image: ${record.imageName} (ref=${record.imageContextId})`,
+    "The numbered marks drawn on this image are the user's, not part of the UI. Positions are fractions of the image width and height.",
+    ...record.marks.map(
+      (mark, index) =>
+        `${index + 1}. ${mark.note.trim()} [${formatImageAnnotationMarkPosition(mark)}]`,
+    ),
+  ].join("\n");
+}
+
 /** Body lines for one payload, including authoritative paths and names behind display labels. */
 function formatComposerContextProviderPayload(record: KnownComposerContextRecord): string {
   switch (record.kind) {
@@ -231,6 +260,8 @@ function formatComposerContextProviderPayload(record: KnownComposerContextRecord
       }
       return lines.join("\n");
     }
+    case "image-annotation":
+      return formatImageAnnotationBody(record);
     case "review-comment": {
       const lines = [
         `file: ${record.filePath}`,

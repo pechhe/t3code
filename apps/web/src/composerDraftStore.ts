@@ -14,6 +14,7 @@ import {
   ProviderOptionSelection,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderOptionSelections,
+  ImageAnnotationMark,
   PreviewAnnotationPayloadSchema,
   PastedTextAttachmentSource,
   type PreviewAnnotationPayload,
@@ -56,6 +57,7 @@ import {
 } from "./lib/terminalContext";
 import {
   appendInlineContextReference,
+  collectInlineContextIds,
   type ComposerContextReference,
   ensureInlineContextReferences,
   formatInlineContextReference,
@@ -65,6 +67,7 @@ import {
 } from "./lib/composerContextReferences";
 import {
   fileContextReference,
+  imageAnnotationContextReference,
   previewAnnotationContextId,
   previewAnnotationContextReference,
   reviewCommentContextId,
@@ -85,6 +88,8 @@ const isProviderDriverKind = Schema.is(ProviderDriverKind);
 const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 const isThreadContextRecord = Schema.is(ThreadContextRecord);
 const isSnapShotSource = Schema.is(SnapShotSource);
+const ImageAnnotationMarks = Schema.mutable(Schema.Array(ImageAnnotationMark));
+const isImageAnnotationMarks = Schema.is(ImageAnnotationMarks);
 const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
@@ -144,12 +149,24 @@ export const PersistedComposerImageAttachment = Schema.Struct({
   sizeBytes: Schema.Number,
   source: Schema.optional(SnapShotSource),
   dataUrl: Schema.String,
+  annotationMarks: Schema.optional(ImageAnnotationMarks),
 });
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
+
+/**
+ * The user's numbered marks on an image, already drawn into its `file`. `original` is the
+ * unmarked image, so re-editing never draws marks twice; it is not saved with the draft, so
+ * after a reload the marks still send but annotating again starts over on the marked image.
+ */
+export interface ComposerImageAnnotation {
+  marks: ReadonlyArray<ImageAnnotationMark>;
+  original: File | null;
+}
 
 export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
   previewUrl: string;
   file: File;
+  annotation?: ComposerImageAnnotation;
 }
 
 export interface ComposerFileAttachment extends Omit<ChatFileAttachment, "previewUrl"> {
@@ -641,8 +658,16 @@ interface ComposerDraftStoreState {
     options?: { allowDuplicates?: boolean },
   ) => string[];
   removeImage: (threadRef: ComposerThreadTarget, imageId: string) => void;
-  /** Swaps an image's file in place, keeping its id so prompt references still point at it. */
-  replaceImageFile: (threadRef: ComposerThreadTarget, imageId: string, file: File) => void;
+  /**
+   * Swaps in an image's marked file and its marks, keeping its id so prompt references still
+   * point at it. No annotation restores the image to an unmarked file.
+   */
+  annotateImage: (
+    threadRef: ComposerThreadTarget,
+    imageId: string,
+    file: File,
+    annotation: ComposerImageAnnotation | null,
+  ) => void;
   /** Returns the ids of files appended; a re-pick that replaces a marker is not listed. */
   addFiles: (
     threadRef: ComposerThreadTarget,
@@ -1386,6 +1411,9 @@ function normalizePersistedAttachment(value: unknown): PersistedComposerImageAtt
     sizeBytes,
     dataUrl,
     ...(isSnapShotSource(candidate.source) ? { source: candidate.source } : {}),
+    ...(isImageAnnotationMarks(candidate.annotationMarks) && candidate.annotationMarks.length > 0
+      ? { annotationMarks: candidate.annotationMarks }
+      : {}),
   };
 }
 
@@ -2516,6 +2544,9 @@ export function hydrateImagesFromPersisted(
         previewUrl: attachment.dataUrl,
         file,
         ...(attachment.source ? { source: attachment.source } : {}),
+        ...(attachment.annotationMarks
+          ? { annotation: { marks: attachment.annotationMarks, original: null } }
+          : {}),
       } satisfies ComposerImageAttachment,
     ];
   });
@@ -3512,7 +3543,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const nextDraft: ComposerThreadDraftState = {
               ...current,
               prompt: removeInlineContextReference(
-                current.prompt,
+                removeInlineContextReference(
+                  current.prompt,
+                  toKindScopedComposerContextId("image-annotation", imageId),
+                ).prompt,
                 toKindScopedComposerContextId("image", imageId),
               ).prompt,
               images: current.images.filter((image) => image.id !== imageId),
@@ -3530,7 +3564,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             return { draftsByThreadKey: nextDraftsByThreadKey };
           });
         },
-        replaceImageFile: (threadRef, imageId, file) => {
+        annotateImage: (threadRef, imageId, file, annotation) => {
           const threadKey = resolveComposerDraftKey(get(), threadRef) ?? "";
           if (threadKey.length === 0) return;
           const previous = get().draftsByThreadKey[threadKey]?.images.find(
@@ -3542,18 +3576,36 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             const current = state.draftsByThreadKey[threadKey];
             if (!current) return state;
             // The name stays, so chips that label this image in the prompt stay accurate.
+            const { annotation: _previousAnnotation, ...unannotated } = previous;
             const nextImage: ComposerImageAttachment = {
-              ...previous,
+              ...unannotated,
               mimeType: file.type,
               sizeBytes: file.size,
               previewUrl: URL.createObjectURL(file),
               file,
+              ...(annotation ? { annotation } : {}),
             };
+            // The notes chip follows the marks: relabelled in place, appended when new, and
+            // removed with the last mark.
+            const reference = imageAnnotationContextReference(nextImage);
+            const referenced = collectInlineContextIds(current.prompt).includes(
+              reference.contextId,
+            );
+            const prompt = !annotation
+              ? removeInlineContextReference(current.prompt, reference.contextId).prompt
+              : referenced
+                ? replaceComposerContextReferences(current.prompt, (occurrence) =>
+                    occurrence.contextId === reference.contextId
+                      ? formatInlineContextReference(reference)
+                      : occurrence.source,
+                  )
+                : appendInlineContextReference(current.prompt, reference);
             return {
               draftsByThreadKey: {
                 ...state.draftsByThreadKey,
                 [threadKey]: {
                   ...current,
+                  prompt,
                   images: current.images.map((image) => (image.id === imageId ? nextImage : image)),
                 },
               },

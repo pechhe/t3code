@@ -33,6 +33,10 @@ const DEFINITIONS = [
     capabilities: { details: "popover", expanded: "modal", defaultDraftView: "compact" },
   },
   {
+    kind: "image-annotation",
+    capabilities: { details: "popover", expanded: "none", defaultDraftView: "compact" },
+  },
+  {
     kind: "review-comment",
     capabilities: { details: "popover", expanded: "none", defaultDraftView: "compact" },
   },

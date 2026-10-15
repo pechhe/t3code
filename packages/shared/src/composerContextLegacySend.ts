@@ -1,6 +1,9 @@
 import type { ComposerContextRecord, ElementContextDetails } from "@t3tools/contracts";
 
-import { collectComposerContextReferences } from "./composerContextReferences.ts";
+import {
+  collectComposerContextReferences,
+  formatImageAnnotationBody,
+} from "./composerContextReferences.ts";
 
 /**
  * Serializes a canonical message (inline reference links plus records) into the pre-inline-context
@@ -42,6 +45,11 @@ export function serializeLegacyContextMessage(input: {
     ...input.records
       .filter((record) => record.kind === "preview-annotation")
       .map((record) => `<preview_annotation>\n${renderPreviewBody(record)}\n</preview_annotation>`),
+    ...input.records.flatMap((record) =>
+      "marks" in record
+        ? [`<image_annotation>\n${formatImageAnnotationBody(record)}\n</image_annotation>`]
+        : [],
+    ),
     ...input.records
       .filter((record) => record.kind === "review-comment" && !used.has(record.contextId))
       .map(renderReviewComment),

@@ -7,6 +7,7 @@ import type {
   ComposerContextRecord,
   EnvironmentId,
   FileContextRecord,
+  ImageAnnotationContextRecord,
   ImageContextRecord,
   KnownComposerContextRecord,
   MessageId,
@@ -271,6 +272,38 @@ export function imageContextReference(image: ComposerImageAttachment): ComposerC
   };
 }
 
+/** Marks are numbered from one, so "1 note" reads naturally for a single mark. */
+export function imageAnnotationContextLabel(imageName: string, markCount: number): string {
+  return `${imageName} · ${markCount} ${markCount === 1 ? "note" : "notes"}`;
+}
+
+export function imageAnnotationContextReference(
+  image: ComposerImageAttachment,
+): ComposerContextReference {
+  return {
+    kind: "image-annotation",
+    contextId: toKindScopedComposerContextId("image-annotation", image.id),
+    label: imageAnnotationContextLabel(image.name, image.annotation?.marks.length ?? 0),
+  };
+}
+
+function imageAnnotationContextRecord(
+  image: ComposerImageAttachment,
+): ImageAnnotationContextRecord | null {
+  const marks = image.annotation?.marks ?? [];
+  if (marks.length === 0) return null;
+  const reference = imageAnnotationContextReference(image);
+  return {
+    version: 1,
+    kind: "image-annotation",
+    contextId: reference.contextId as ComposerContextId,
+    label: sanitizeComposerContextLabel(reference.label, "image-annotation"),
+    imageContextId: imageContextReference(image).contextId as ComposerContextId,
+    imageName: image.name,
+    marks: [...marks],
+  };
+}
+
 export function fileContextReference(file: ComposerFileAttachment): ComposerContextReference {
   return {
     kind: "file",
@@ -338,6 +371,10 @@ export function buildMessageContext(input: {
       }),
     ),
     ...(input.attachments ?? []).map(attachmentContextRecord),
+    ...(input.attachments ?? []).flatMap(({ attachment }) => {
+      const record = attachment.type === "image" ? imageAnnotationContextRecord(attachment) : null;
+      return record ? [record] : [];
+    }),
   ];
   return records.length === 0 ? undefined : { version: 1, records };
 }

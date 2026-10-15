@@ -136,6 +136,7 @@ import {
   type LucideIcon,
   MessageCircleIcon,
   MousePointerClickIcon,
+  PencilLineIcon,
   PaintbrushIcon,
   MinusIcon,
   Redo2Icon,
@@ -243,6 +244,7 @@ import {
   ContextChipPopover as UserMessageContextPopover,
   ContextChipShell,
   FileChip,
+  ImageAnnotationDetails,
   ImageChipButton,
   PULL_REQUEST_CHIP_KINDS,
   PullRequestChip,
@@ -2397,9 +2399,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               annotationRecordIds,
             })
           : null;
+      // An image annotation shows the marked image it points at.
+      const imageRecord =
+        record?.kind === "image-annotation"
+          ? asKnownContextRecord(resolvedContext.recordsById.get(record.imageContextId))
+          : record;
       const attachment =
-        record?.kind === "image"
-          ? (userImages.find((image) => image.id === record.attachmentId) ?? null)
+        imageRecord?.kind === "image"
+          ? (userImages.find((image) => image.id === imageRecord.attachmentId) ?? null)
           : record?.kind === "file"
             ? (userFiles.find((file) => file.id === record.attachmentId) ?? null)
             : null;
@@ -4752,6 +4759,28 @@ const userMessageContextPresentationRegistry = createContextPresentationRegistry
           </UserMessageContextPopover>
         );
       },
+    },
+    {
+      kind: "image-annotation",
+      canRender: (record) => record.kind === "image-annotation",
+      render: (record, context) =>
+        record.kind === "image-annotation" ? (
+          <UserMessageContextPopover
+            copyMarkdown={context.copyMarkdown}
+            accessibleLabel={`Image notes, ${record.label}`}
+            kind="image-annotation"
+            icon={<PencilLineIcon />}
+            label={record.label}
+          >
+            <ImageAnnotationDetails
+              imageUrl={context.attachment?.previewUrl ?? null}
+              imageName={record.imageName}
+              marks={record.marks}
+            />
+          </UserMessageContextPopover>
+        ) : (
+          <UnavailableUserMessageContextChip {...context} />
+        ),
     },
     {
       kind: "preview-annotation",

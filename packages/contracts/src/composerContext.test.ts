@@ -40,6 +40,17 @@ const knownRecords: Record<(typeof COMPOSER_CONTEXT_KINDS)[number], Record<strin
     mimeType: "text/plain",
     sizeBytes: 12,
   },
+  "image-annotation": {
+    ...base,
+    kind: "image-annotation",
+    label: "checkout-error.png · 2 notes",
+    imageContextId: "image_ctx_1",
+    imageName: "checkout-error.png",
+    marks: [
+      { kind: "point", note: "misaligned", x: 0.25, y: 0.5 },
+      { kind: "box", note: "too tight", x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
+    ],
+  },
   terminal: {
     ...base,
     kind: "terminal",

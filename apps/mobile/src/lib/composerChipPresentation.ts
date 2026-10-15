@@ -14,6 +14,7 @@ const CONTEXT_CHIP_PRESENTATIONS = {
   terminal: { accent: "#009f6e", symbol: "terminal" },
   element: { accent: "#b87501", symbol: "cursorarrow.click" },
   "preview-annotation": { accent: "#b87501", symbol: "cursorarrow.click" },
+  "image-annotation": { accent: "#3a9d4a", symbol: "pencil" },
   "review-comment": { accent: "#8a70dd", symbol: "text.bubble" },
   "pull-request": { accent: "#7079e4", symbol: "git-pull-request" },
   skill: { accent: "#b261be", symbol: "cube" },

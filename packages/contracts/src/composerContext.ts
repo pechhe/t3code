@@ -24,6 +24,7 @@ export const COMPOSER_CONTEXT_KINDS = [
   "terminal",
   "element",
   "preview-annotation",
+  "image-annotation",
   "review-comment",
   "mention",
   "skill",
@@ -191,6 +192,51 @@ export const PreviewAnnotationContextRecord = Schema.Struct({
 });
 export type PreviewAnnotationContextRecord = typeof PreviewAnnotationContextRecord.Type;
 
+/** A position as a fraction of the image's width or height. */
+const ImageFraction = Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
+const ImageAnnotationNote = BoundedString(COMPOSER_CONTEXT_PREVIEW_COMMENT_MAX_CHARS);
+
+/** One numbered mark the user drew on an image, with their note about it. */
+export const ImageAnnotationMark = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("point"),
+    note: ImageAnnotationNote,
+    x: ImageFraction,
+    y: ImageFraction,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("box"),
+    note: ImageAnnotationNote,
+    x: ImageFraction,
+    y: ImageFraction,
+    width: ImageFraction,
+    height: ImageFraction,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("arrow"),
+    note: ImageAnnotationNote,
+    x: ImageFraction,
+    y: ImageFraction,
+    toX: ImageFraction,
+    toY: ImageFraction,
+  }),
+]);
+export type ImageAnnotationMark = typeof ImageAnnotationMark.Type;
+
+/**
+ * Notes on an attached image. The marks are drawn into the image itself, numbered in this
+ * order; the record pairs each number with its note and position.
+ */
+export const ImageAnnotationContextRecord = Schema.Struct({
+  ...recordBase,
+  kind: Schema.Literal("image-annotation"),
+  /** The annotated image's own record. */
+  imageContextId: ComposerContextId,
+  imageName: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  marks: Schema.Array(ImageAnnotationMark).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
+});
+export type ImageAnnotationContextRecord = typeof ImageAnnotationContextRecord.Type;
+
 export const ReviewCommentContextRecord = Schema.Struct({
   ...recordBase,
   kind: Schema.Literal("review-comment"),
@@ -267,6 +313,7 @@ export const KnownComposerContextRecord = Schema.Union([
   TerminalContextRecord,
   ElementContextRecord,
   PreviewAnnotationContextRecord,
+  ImageAnnotationContextRecord,
   ReviewCommentContextRecord,
   MentionContextRecord,
   SkillContextRecord,

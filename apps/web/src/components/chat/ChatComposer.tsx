@@ -164,9 +164,9 @@ import {
 } from "./ComposerBannerStack";
 import { compressImageForStash, prepareImageForAttachment } from "../../lib/imageCompression";
 import {
-  buildAnnotationBrief,
   flattenAnnotatedImage,
-  replaceAnnotationBrief,
+  fromAnnotationMarks,
+  toAnnotationMark,
   type ImageMark,
 } from "../../lib/imageAnnotation";
 import { ImageAnnotator } from "./ImageAnnotator";
@@ -1768,6 +1768,16 @@ export interface ChatComposerProps {
 // Component
 // --------------------------------------------------------------------------
 
+/** Opens the annotator on the clean original when this page session still has it. */
+function imageAnnotatorSession(image: ComposerImageAttachment) {
+  const original = image.annotation?.original ?? null;
+  return {
+    image,
+    original: original ?? image.file,
+    marks: original ? fromAnnotationMarks(image.annotation?.marks ?? []) : [],
+  };
+}
+
 export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps) {
   const {
     composerDraftTarget,
@@ -1979,18 +1989,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const openPrLink = useOpenPrLink(routeThreadRef);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const previewFile = composerFiles.find((file) => file.id === previewFileId);
-  const [annotating, setAnnotating] = useState<{
-    image: ComposerImageAttachment;
-    original: File;
-    marks: ImageMark[];
-  } | null>(null);
-  /**
-   * Per image, the unmarked original, its marks and the brief written into the prompt, so
-   * reopening the annotator edits the marks instead of drawing over the baked-in ones.
-   * Lives for the page session; after a reload the marked image is annotated afresh.
-   */
-  const imageAnnotationsRef = useRef(
-    new Map<string, { original: File; marks: ImageMark[]; brief: string | null }>(),
+  const [annotating, setAnnotating] = useState<ReturnType<typeof imageAnnotatorSession> | null>(
+    null,
   );
   const composerContextActions = useMemo(
     () => ({
@@ -1999,6 +1999,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       expandImage: (imageId: string) => {
         const preview = buildExpandedImagePreview(composerImages, imageId);
         if (preview) onExpandImage(preview);
+      },
+      annotateImage: (imageId: string) => {
+        const image = composerImages.find((candidate) => candidate.id === imageId);
+        if (image) setAnnotating(imageAnnotatorSession(image));
       },
       openFile: setPreviewFileId,
       openMention: (path: string) => useRightPanelStore.getState().openFile(routeThreadRef, path),
@@ -2090,7 +2094,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const setComposerDraftPrompt = useComposerDraftStore((store) => store.setPrompt);
   const addComposerDraftImages = useComposerDraftStore((store) => store.addImages);
   const removeComposerDraftImage = useComposerDraftStore((store) => store.removeImage);
-  const replaceComposerDraftImageFile = useComposerDraftStore((store) => store.replaceImageFile);
+  const annotateComposerDraftImage = useComposerDraftStore((store) => store.annotateImage);
   const addComposerDraftFiles = useComposerDraftStore((store) => store.addFiles);
   const removeComposerDraftFile = useComposerDraftStore((store) => store.removeFile);
   const setComposerDraftFileUpload = useComposerDraftStore((store) => store.setFileUpload);
@@ -3848,6 +3852,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 sizeBytes: image.sizeBytes,
                 dataUrl,
                 ...(image.source ? { source: image.source } : {}),
+                ...(image.annotation ? { annotationMarks: [...image.annotation.marks] } : {}),
               });
             } catch {
               const existingPersisted = existingPersistedById.get(image.id);
@@ -5363,6 +5368,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           ...(image.source
             ? { source: resizeSnapShotSource(image.source, result.image.imageSize) }
             : {}),
+          ...(image.annotation ? { annotationMarks: [...image.annotation.marks] } : {}),
         });
       }
       const { kept, droppedNames } = partitionStashAttachments(candidateAttachments);
@@ -6295,10 +6301,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return true;
   };
 
-  /** Bakes the marks into the image and keeps its brief in the prompt in step with them. */
+  /** Bakes the marks into the image; the draft store keeps the notes chip in step. */
   const applyImageAnnotation = async (image: ComposerImageAttachment, marks: ImageMark[]) => {
-    const previous = imageAnnotationsRef.current.get(image.id);
-    const original = previous?.original ?? image.file;
+    const original = image.annotation?.original ?? image.file;
     let nextFile = original;
     if (marks.length > 0) {
       try {
@@ -6314,18 +6319,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       }
     }
     setAnnotating(null);
-    if (!previous && marks.length === 0) return;
+    if (!image.annotation && marks.length === 0) return;
     // The image may have been removed from the draft while the annotator was open.
     if (!composerImagesRef.current.some((candidate) => candidate.id === image.id)) return;
-    const brief = buildAnnotationBrief(
-      formatInlineContextReference(imageContextReference(image)),
-      marks,
-    );
     releaseAttachmentUpload(image.id);
-    replaceComposerDraftImageFile(attachmentDraftTarget, image.id, nextFile);
-    setPrompt(replaceAnnotationBrief(promptRef.current, previous?.brief ?? null, brief));
-    if (marks.length > 0) imageAnnotationsRef.current.set(image.id, { original, marks, brief });
-    else imageAnnotationsRef.current.delete(image.id);
+    annotateComposerDraftImage(
+      attachmentDraftTarget,
+      image.id,
+      nextFile,
+      marks.length > 0 ? { marks: marks.map(toAnnotationMark), original } : null,
+    );
   };
 
   const removeComposerImage = (imageId: string) => {
@@ -7539,14 +7542,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                                 type="button"
                                 className="h-full w-full cursor-crosshair"
                                 aria-label={`Annotate ${image.name}`}
-                                onClick={() => {
-                                  const session = imageAnnotationsRef.current.get(image.id);
-                                  setAnnotating({
-                                    image,
-                                    original: session?.original ?? image.file,
-                                    marks: session?.marks ?? [],
-                                  });
-                                }}
+                                onClick={() => setAnnotating(imageAnnotatorSession(image))}
                               >
                                 <ComposerImageThumbnail
                                   file={image.file}

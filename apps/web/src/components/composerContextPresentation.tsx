@@ -3,7 +3,7 @@ import { ReadOnlySourcePreview } from "./files/AttachmentFilePreview";
 import type { PreviewAnnotationPayload, ThreadContextRecord } from "@t3tools/contracts";
 import { formatAttachmentSize } from "@t3tools/client-runtime/state/attachments";
 import { videoMimeType } from "@t3tools/shared/video";
-import { MessageCircleIcon, MousePointerClickIcon } from "lucide-react";
+import { MessageCircleIcon, MousePointerClickIcon, PencilLineIcon } from "lucide-react";
 import { createContext, type MouseEvent, type ReactElement, type ReactNode, use } from "react";
 import type { EnvironmentId } from "@t3tools/contracts";
 
@@ -17,6 +17,8 @@ import {
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
 import {
   fileContextReference,
+  imageAnnotationContextLabel,
+  imageAnnotationContextReference,
   imageContextReference,
   isPullRequestSummaryContext,
   pullRequestContextDisplayState,
@@ -42,6 +44,7 @@ import {
   ContextChipPopover,
   ContextChipShell,
   FileChip,
+  ImageAnnotationDetails,
   ImageChipButton,
   PULL_REQUEST_CHIP_KINDS,
   PullRequestChip,
@@ -62,6 +65,8 @@ export type ComposerDraftContextRecord =
       screenshot?: ComposerImageAttachment | undefined;
     }
   | { kind: "image"; record: ComposerImageAttachment; upload?: AttachmentUploadState | undefined }
+  /** The marks live on the image they annotate. */
+  | { kind: "image-annotation"; record: ComposerImageAttachment }
   | { kind: "file"; record: ComposerFileAttachment; upload?: AttachmentUploadState | undefined }
   | { kind: "thread"; record: ThreadContextRecord };
 
@@ -70,6 +75,7 @@ export interface ComposerContextActions {
   environmentId: EnvironmentId | null;
   cwd?: string | undefined;
   expandImage: (imageId: string) => void;
+  annotateImage: (imageId: string) => void;
   expandVideo: (fileId: string) => void;
   openFile: (fileId: string) => void;
   openMention: (path: string) => void;
@@ -79,6 +85,7 @@ export interface ComposerContextActions {
 export const ComposerContextActionsContext = createContext<ComposerContextActions>({
   environmentId: null,
   expandImage: () => {},
+  annotateImage: () => {},
   expandVideo: () => {},
   openFile: () => {},
   openMention: () => {},
@@ -114,6 +121,12 @@ export function composerContextRecordsFromDraft(input: {
       record,
       upload: input.uploadsByImageId?.[record.id],
     });
+    if (record.annotation) {
+      records.set(imageAnnotationContextReference(record).contextId, {
+        kind: "image-annotation",
+        record,
+      });
+    }
   }
   for (const record of input.files ?? []) {
     records.set(fileContextReference(record).contextId, {
@@ -330,6 +343,31 @@ function ComposerPreviewAnnotationDetails({
   );
 }
 
+function ImageAnnotationContextChip(props: {
+  record: ComposerImageAttachment;
+  detailsMode: ContextPresentationCapability["details"];
+}) {
+  const actions = use(ComposerContextActionsContext);
+  const marks = props.record.annotation?.marks ?? [];
+  return (
+    <ContextChip
+      icon={<PencilLineIcon />}
+      label={imageAnnotationContextLabel(props.record.name, marks.length)}
+      kindLabel="Image notes"
+      details={
+        <ImageAnnotationDetails
+          imageUrl={props.record.previewUrl}
+          imageName={props.record.name}
+          marks={marks}
+          onEdit={() => actions.annotateImage(props.record.id)}
+        />
+      }
+      detailsMode={props.detailsMode}
+      kind="image-annotation"
+    />
+  );
+}
+
 function UnresolvedContextChip(props: { label: string }) {
   return (
     <UnresolvedChip
@@ -348,7 +386,15 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
   ComposerContextRenderContext,
   ReactElement
 >({
-  requiredKinds: ["image", "file", "terminal", "review-comment", "preview-annotation", "thread"],
+  requiredKinds: [
+    "image",
+    "image-annotation",
+    "file",
+    "terminal",
+    "review-comment",
+    "preview-annotation",
+    "thread",
+  ],
   handlers: [
     {
       kind: "terminal",
@@ -369,6 +415,19 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
       render: (entry, context) =>
         entry.kind === "image" ? (
           <ImageContextChip record={entry.record} upload={entry.upload} />
+        ) : (
+          <UnresolvedContextChip label={context.label} />
+        ),
+    },
+    {
+      kind: "image-annotation",
+      canRender: (entry) => entry.kind === "image-annotation",
+      render: (entry, context, definition) =>
+        entry.kind === "image-annotation" ? (
+          <ImageAnnotationContextChip
+            record={entry.record}
+            detailsMode={definition.capabilities.details}
+          />
         ) : (
           <UnresolvedContextChip label={context.label} />
         ),
