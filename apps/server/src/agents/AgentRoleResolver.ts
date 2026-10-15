@@ -219,14 +219,9 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         value.model === selection.model &&
         (selection.instanceId === undefined || value.instanceId === selection.instanceId),
     );
-    // A review stays independent of its author: as in the default order below, the
-    // author's model serves only when nothing else is eligible.
-    if (
-      requested.length === 0 ||
-      (request.role === "reviewer" &&
-        selection.model === request.authorModel &&
-        eligible.some(({ selection: value }) => value.model !== request.authorModel))
-    )
+    // Explicit choices override preferences, including a reviewer's different-model
+    // preference. Role eligibility and authority still apply to every candidate.
+    if (requested.length === 0)
       return yield* new AgentRoleError({ reason: "selection-denied", candidates: diagnostics });
     const options = selection.options;
     // A choice may name an eligible model, but cannot inherit hidden or unsupported

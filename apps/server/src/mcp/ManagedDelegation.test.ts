@@ -9,6 +9,8 @@ import {
   NodeId,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadShell,
+  type AgentTaskBinding,
+  type ModelSelection,
 } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
@@ -18,7 +20,15 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import * as Managed from "../agents/ManagedAgentService.ts";
-import { snapshot, request, codex, claude, changeReview } from "../agents/agentPolicy.testkit.ts";
+import {
+  snapshot,
+  request,
+  codex,
+  claude,
+  codexModel,
+  claudeModel,
+  changeReview,
+} from "../agents/agentPolicy.testkit.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -209,6 +219,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             .pipe(Effect.exit);
           const after = yield* experiments.report({ experimentId: "forbidden-reviewer" });
           expect(after.assignments).toHaveLength(1);
+          yield* experiments.transition({ experimentId: "forbidden-reviewer", status: "stopped" });
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
@@ -332,8 +343,112 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
           ),
         );
-      return { lead, helper, base, policyRoot, delegate, dispatched };
+      const roles = (model?: string) =>
+        Effect.gen(function* () {
+          const mcp = yield* Mcp.OrchestratorMcpService;
+          return yield* mcp.agentRoles(scope, {
+            taskClass: "non-ui",
+            readOnly: true,
+            sourceRevision: "source-pin",
+            reviewScope: "change",
+            authorModel: codexModel,
+            ...(model === undefined ? {} : { model }),
+          });
+        }).pipe(
+          Effect.provide(
+            Mcp.layer.pipe(
+              Layer.provide(transport),
+              Layer.provide(WorkspaceProvider.layerGitWorktree),
+            ),
+          ),
+          Effect.provideService(
+            ConfigProvider.ConfigProvider,
+            ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
+          ),
+        );
+      return { lead, helper, base, policyRoot, delegate, roles, dispatched };
     });
+
+  it.effect(
+    "discovers and dispatches a fresh explicit author-model review with truthful evidence",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness();
+        const reviewer = (result: Effect.Success<ReturnType<typeof h.roles>>) =>
+          result.roles.find((entry) => entry.role === "reviewer")!;
+        expect(reviewer(yield* h.roles()).selection?.model).toBe(claudeModel);
+        const explicit = reviewer(yield* h.roles(codexModel));
+        expect(explicit.refusal).toBeNull();
+        expect(explicit.selection?.model).toBe(codexModel);
+        const review = request({
+          role: "reviewer",
+          workspacePath: h.lead,
+          readOnly: true,
+          sourceRevision: "source-pin",
+          review: changeReview,
+          authorModel: codexModel,
+        });
+        // A failed first dispatch does not change the author's identity or grant
+        // a wider pool for the next, independently requested review.
+        yield* h.delegate({
+          task: "Review the pinned candidate",
+          clientRequestId: "review-sonnet",
+          agentTask: review,
+          target: { model: claudeModel },
+        });
+        yield* h.delegate({
+          task: "Review the pinned candidate",
+          clientRequestId: "review-sol",
+          agentTask: { ...review, attemptId: "same-model-attempt" },
+          target: { model: codexModel },
+        });
+        expect(h.dispatched).toHaveLength(2);
+        const commands = h.dispatched as Array<{
+          type: string;
+          commandId: string;
+          agentTask: AgentTaskBinding;
+          modelSelection: ModelSelection;
+          task: string;
+        }>;
+        expect(commands[0]!.commandId).not.toBe(commands[1]!.commandId);
+        expect(commands[1]).toMatchObject({
+          type: "delegated_task.request",
+          modelSelection: explicit.selection,
+          agentTask: {
+            role: "reviewer",
+            authorModel: codexModel,
+            sourceRevision: "source-pin",
+            sourceAccess: "read-only",
+            toolProfile: "source-reader",
+            requested: explicit.selection,
+            assigned: null,
+            effective: explicit.selection,
+          },
+        });
+        expect(commands[1]!.task.trim().split(/\n+/)).toEqual([
+          "Role brief",
+          "Review the pinned candidate",
+        ]);
+        for (const [index, invalid] of [
+          { target: { model: "gpt-astra-test" } },
+          { agentTask: { ...review, taskClass: "mixed" as const } },
+          { agentTask: { ...review, sourceRevision: "wrong-pin" } },
+          { agentTask: { ...review, workspacePath: h.helper } },
+          { target: { model: codexModel, options: [{ id: "reasoning", value: "high" }] } },
+        ].entries()) {
+          expect(
+            (yield* h.delegate({
+              task: "Review the pinned candidate",
+              clientRequestId: `refused-${index}`,
+              agentTask: review,
+              target: { model: codexModel },
+              ...invalid,
+            })).code,
+          ).toBe("capability_denied");
+        }
+        expect(h.dispatched).toHaveLength(2);
+      }),
+  );
 
   it.effect(
     "dispatches read-only work from an unbound thread at its project root but refuses writers",

@@ -99,14 +99,22 @@ const fixture = Effect.gen(function* () {
 
 it.layer(testLayer)("ManagedAgentService", (it) => {
   it.effect(
-    "starts a root reader through the real runtime guard and still refuses an unbound writer",
+    "enforces read-only runtime authority for an explicit author-model reviewer at the project root",
     () =>
       Effect.gen(function* () {
         const f = yield* fixture;
         const accepted = yield* f.prepare({
           workspacePath: null,
           projectRoot: f.workspacePath,
-          request: request({ workspacePath: f.workspacePath, readOnly: true }),
+          request: request({
+            role: "reviewer",
+            workspacePath: f.workspacePath,
+            readOnly: true,
+            sourceRevision,
+            review: changeReview,
+            authorModel: codexModel,
+          }),
+          selection: { model: codexModel },
         });
         const provider = [codex, claude].find(
           (p) => p.instanceId === accepted.binding.effective.instanceId,
@@ -584,8 +592,37 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       const outside = yield* roles(claudeModel);
       expect(outside.selection).toBeNull();
       expect(outside.refusal).toBe("selection-denied");
-      // Discovery applies a reviewer's independence from its author, as a launch does.
-      expect((yield* roles(codexModel, "reviewer")).refusal).toBe("selection-denied");
+      // Model identity is a preference; an explicit eligible author-model choice is allowed.
+      const reviewer = yield* roles(codexModel, "reviewer");
+      expect(reviewer.refusal).toBeNull();
+      const accepted = yield* f.prepare({
+        request: request({
+          role: "reviewer",
+          workspacePath: f.workspacePath,
+          sourceRevision,
+          review: changeReview,
+          authorModel: codexModel,
+          readOnly: true,
+        }),
+        selection: { model: codexModel },
+      });
+      expect(accepted.binding).toMatchObject({
+        authorModel: codexModel,
+        sourceAccess: "read-only",
+        toolProfile: "source-reader",
+        requested: reviewer.selection,
+        assigned: null,
+        effective: reviewer.selection,
+      });
+      yield* f.validate(accepted.binding);
+      expect(
+        (yield* f.validate({ ...accepted.binding, sourceRevision: "wrong-pin" }).pipe(Effect.flip))
+          .reason,
+      ).toBe("source");
+      expect(
+        (yield* f.validate({ ...accepted.binding, workspacePath: f.root }).pipe(Effect.flip))
+          .reason,
+      ).toBe("workspace");
       expect((yield* roles(claudeModel, "reviewer")).selection?.model).toBe(claudeModel);
       // A launch names why the choice was refused.
       const refused = yield* f.prepare({ selection: { model: claudeModel } }).pipe(Effect.flip);

@@ -86,6 +86,14 @@ its revision and the seven role names, or the reason the policy is refused.
   coverage. A new reviewer trial names the scopes it compares. A trial created
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.
+- Reviews always use fresh independent context and enforced read-only source
+  access. Keep `authorModel` truthful: the default prefers a different eligible
+  model, but an explicit `target.model` may select the author's model when the
+  reviewer pool, task classification, tools, source binding and caller permissions
+  allow it. Check the choice with `agent_roles` using `model` and `authorModel`.
+  After a runtime quota failure, a caller may start a fresh managed review with
+  another allowed choice, including the author's model; quota failure does not
+  widen the pool or automatically choose a fallback.
 
 On **Settings → Agents → Delegation**, runtime behavior is stored in each T3
 server’s settings, separately from the agent-config policy. Children inherit the

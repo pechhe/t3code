@@ -79,7 +79,7 @@ const AgentSessionAttachTool = Tool.make("agent_session_attach", {
   .annotate(Tool.Idempotent, true);
 const AgentRolesTool = Tool.make("agent_roles", {
   description:
-    "The first step of delegation: list the canonical roles this caller can delegate to, the model and effort each resolves to under the configured policy, current catalog and caller permissions, and each refusal, without assigning an experiment or starting a model. Pass reviewScope to check a reviewer. Pass model (and providerInstanceId) to see what each role resolves to when that model is requested; a role whose pool does not allow it is refused, and so is a reviewer given its authorModel while another model is eligible. External callers supply their attached externalSessionKey. Refused routes remain refused; discovery does not authorise a launch.",
+    "The first step of delegation: list the canonical roles this caller can delegate to, the model and effort each resolves to under the configured policy, current catalog and caller permissions, and each refusal, without assigning an experiment or starting a model. Pass reviewScope to check a reviewer and keep authorModel truthful. Pass model (and providerInstanceId) to see what each role resolves to when that model is requested; the choice must be eligible for the role. Reviewers prefer a different author model by default, but an explicit eligible choice may match authorModel; every review still requires fresh context and enforced read-only authority. External callers supply their attached externalSessionKey. Refused routes remain refused; discovery does not authorise a launch.",
   parameters: AgentRolesInput,
   success: AgentRolesResult,
   failure: OrchestratorMcpFailure,

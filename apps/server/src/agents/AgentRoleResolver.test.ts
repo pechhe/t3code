@@ -474,26 +474,36 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("never lets a choice give a review its author's own model", () =>
-    Effect.gen(function* () {
-      const review = request({
-        role: "reviewer",
-        sourceRevision: "reviewed-commit",
-        review: changeReview,
-        authorModel: codexModel,
-      });
-      expect(
-        (yield* refusal(input({ request: review, selection: { model: codexModel } }))).reason,
-      ).toBe("selection-denied");
-      expect(
-        (yield* resolve(input({ request: review, selection: { model: claudeModel } }))).model,
-      ).toBe(claudeModel);
-      // With nothing else eligible, the author's model serves, and that resolution revalidates.
-      const authorOnly = input({ request: review, providers: [codex] });
-      const automatic = yield* resolve(authorOnly);
-      expect(automatic.model).toBe(codexModel);
-      expect(yield* resolve({ ...authorOnly, selection: automatic })).toEqual(automatic);
-    }),
+  it.effect(
+    "honours an explicit author-model review while preferring another model by default",
+    () =>
+      Effect.gen(function* () {
+        const resolver = yield* Resolver.AgentRoleResolver;
+        const review = request({
+          role: "reviewer",
+          sourceRevision: "reviewed-commit",
+          review: changeReview,
+          authorModel: codexModel,
+        });
+        const explicit = input({ request: review, selection: { model: codexModel } });
+        const preview = yield* resolver.preview(explicit);
+        expect(preview.refusal).toBeNull();
+        expect(preview.selection).toEqual(yield* resolve(explicit));
+        expect(preview.selection).toEqual({
+          instanceId: codex.instanceId,
+          model: codexModel,
+          options: [{ id: "reasoning", value: "medium" }],
+        });
+        expect((yield* resolve(input({ request: review }))).model).toBe(claudeModel);
+        expect(
+          (yield* resolve(input({ request: review, selection: { model: claudeModel } }))).model,
+        ).toBe(claudeModel);
+        // With nothing else eligible, the author's model serves, and that resolution revalidates.
+        const authorOnly = input({ request: review, providers: [codex] });
+        const automatic = yield* resolve(authorOnly);
+        expect(automatic.model).toBe(codexModel);
+        expect(yield* resolve({ ...authorOnly, selection: automatic })).toEqual(automatic);
+      }),
   );
 
   it.effect("ignores the caller's provider when the pool's switch is off", () =>
