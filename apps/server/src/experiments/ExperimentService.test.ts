@@ -102,7 +102,7 @@ const externalBinding = (owner = externalOwner(), attemptId = "attempt:1"): Agen
     requestFingerprint: "c".repeat(64),
     policyHash: policy.hash,
     policyRevision: policy.sourceRevision,
-    briefHash: policy.briefs[task.role].hash,
+    briefHash: policy.briefs[task.role]!.hash,
     sourceAccess: "scoped-write",
     toolProfile: "implementation",
     requested: modelSelection,

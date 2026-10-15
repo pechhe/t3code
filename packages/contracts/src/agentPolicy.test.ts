@@ -123,6 +123,40 @@ describe("AgentPolicyManifest", () => {
     expect(edit({ preferOtherAuthorProvider: true })._tag).toBe("Failure");
   });
 
+  it("reads a policy without the optional researcher and keeps a researcher read-only", () => {
+    const manifest = encodeManifest(decodeManifest(legacy));
+    expect(decodeManifest(manifest).roles.researcher).toBeUndefined();
+    const researcher = (edit: object) =>
+      decodeManifestExit({
+        ...manifest,
+        lists: { ...manifest.lists, researcher: [{ model: "haiku", effort: "high" }] },
+        roles: {
+          ...manifest.roles,
+          researcher: {
+            list: "researcher",
+            brief: "roles/researcher.md",
+            sourceAccess: "read-only",
+            toolProfile: "web-research",
+            taskClasses: ["non-ui", "ui", "mixed"],
+            ...edit,
+          },
+        },
+      });
+    expect(researcher({})._tag).toBe("Success");
+    expect(researcher({ toolProfile: "source-reader" })._tag).toBe("Failure");
+    expect(researcher({ sourceAccess: "scoped-write" })._tag).toBe("Failure");
+    // Web access never comes with source writes, whichever role asks for it.
+    expect(
+      decodeManifestExit({
+        ...manifest,
+        roles: {
+          ...manifest.roles,
+          "ui-worker": { ...manifest.roles["ui-worker"], toolProfile: "web-research" },
+        },
+      })._tag,
+    ).toBe("Failure");
+  });
+
   it("reads a stored version 1 snapshot with its reviewer brief for both reviewers", () => {
     const brief = { hash: "b".repeat(64), text: "Brief\n" };
     const snapshot = decodeSnapshot({

@@ -131,7 +131,9 @@ export function roleModelSummary(
   readonly model: string;
   readonly effort: string | null;
 } | null {
-  const first = manifest.lists[manifest.roles[role].list]?.[0];
+  const policy = manifest.roles[role];
+  if (policy === undefined) return null;
+  const first = manifest.lists[policy.list]?.[0];
   if (first === undefined) return null;
   const binding = manifest.models[first.model];
   if (binding === undefined) return null;

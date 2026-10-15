@@ -7,6 +7,14 @@ import {
 
 type Manifest = AgentPolicyManifest;
 type Binding = Manifest["models"][string];
+export type RolePolicy = NonNullable<Manifest["roles"][AgentRole]>;
+
+/** A role the page lists; only roles the policy configures are listed. */
+export function rolePolicy(manifest: Manifest, role: AgentRole): RolePolicy {
+  const policy = manifest.roles[role];
+  if (policy === undefined) throw new Error(`The policy does not configure ${role}.`);
+  return policy;
+}
 
 /** The jobs in the order the page lists them; roles sharing a list appear together. */
 export const ROLE_ORDER: ReadonlyArray<AgentRole> = [
@@ -18,6 +26,7 @@ export const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "chore-worker",
   "browser",
   "ui-verifier",
+  "researcher",
 ];
 
 export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
@@ -29,6 +38,7 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   "chore-worker": "Mechanical edits",
   browser: "Drives web pages",
   "ui-verifier": "Checks the running app",
+  researcher: "Researches docs and the web",
 };
 
 /** Roles the server refuses until T3 has an enforceable Phi tool route. */
@@ -42,7 +52,8 @@ export interface RoleGroup {
 export function roleGroups(manifest: Manifest): RoleGroup[] {
   const groups: Array<{ list: string; roles: AgentRole[] }> = [];
   for (const role of ROLE_ORDER) {
-    const list = manifest.roles[role].list;
+    const list = manifest.roles[role]?.list;
+    if (list === undefined) continue;
     const group = groups.find((candidate) => candidate.list === list);
     if (group) group.roles.push(role);
     else groups.push({ list, roles: [role] });
@@ -52,7 +63,7 @@ export function roleGroups(manifest: Manifest): RoleGroup[] {
 
 /** True when no role in the row takes non-UI work, so the server's UI model rule applies. */
 export function isUiOnly(manifest: Manifest, roles: ReadonlyArray<AgentRole>): boolean {
-  return roles.every((role) => !manifest.roles[role].taskClasses.includes("non-ui"));
+  return roles.every((role) => !rolePolicy(manifest, role).taskClasses.includes("non-ui"));
 }
 
 /**
@@ -180,8 +191,11 @@ const withList = (manifest: Manifest, list: string, entries: ReadonlyArray<Agent
 const withRole = (
   manifest: Manifest,
   role: AgentRole,
-  edit: (policy: Manifest["roles"][AgentRole]) => Manifest["roles"][AgentRole],
-): Manifest => ({ ...manifest, roles: { ...manifest.roles, [role]: edit(manifest.roles[role]) } });
+  edit: (policy: RolePolicy) => RolePolicy,
+): Manifest => ({
+  ...manifest,
+  roles: { ...manifest.roles, [role]: edit(rolePolicy(manifest, role)) },
+});
 
 export function moveEntry(manifest: Manifest, list: string, index: number, delta: -1 | 1) {
   const entries = [...(manifest.lists[list] ?? [])];
@@ -213,7 +227,7 @@ export function removeEntry(manifest: Manifest, list: string, model: string): Ma
     (manifest.lists[list] ?? []).filter((entry) => entry.model !== model),
   );
   for (const role of AgentRole.literals) {
-    if (next.roles[role].list !== list) continue;
+    if (next.roles[role]?.list !== list) continue;
     next = withRole(next, role, ({ large, callers, ...policy }) => {
       const kept = Object.entries(callers ?? {}).filter(([, first]) => first !== model);
       return {
@@ -259,15 +273,20 @@ export function replaceEntry(
     entries.map((entry) => (entry.model === from ? { model: alias, effort } : entry)),
   );
   for (const role of AgentRole.literals) {
-    if (next.roles[role].list !== list) continue;
+    if (next.roles[role]?.list !== list) continue;
     next = withRole(next, role, ({ large, callers, ...policy }) => ({
       ...policy,
-      ...(large === undefined ? {} : { large: large.model === from ? { ...large, model: alias } : large }),
+      ...(large === undefined
+        ? {}
+        : { large: large.model === from ? { ...large, model: alias } : large }),
       ...(callers === undefined
         ? {}
         : {
             callers: Object.fromEntries(
-              Object.entries(callers).map(([caller, first]) => [caller, first === from ? alias : first]),
+              Object.entries(callers).map(([caller, first]) => [
+                caller,
+                first === from ? alias : first,
+              ]),
             ),
           }),
     }));
@@ -308,7 +327,7 @@ export function splitGroup(manifest: Manifest, group: RoleGroup): Manifest {
     next = withRole(withList(next, list, entries), role, (policy) => ({ ...policy, list }));
   }
   const { [group.list]: _shared, ...lists } = next.lists;
-  return group.roles.some((role) => next.roles[role].list === group.list)
+  return group.roles.some((role) => next.roles[role]?.list === group.list)
     ? next
     : { ...next, lists };
 }

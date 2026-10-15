@@ -46,6 +46,8 @@ import type {
 
 export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   managedAgent: Schema.optional(Schema.Boolean),
+  /** A managed read-only agent that may also search and fetch the web. */
+  webResearch: Schema.optional(Schema.Boolean),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   cwd: Schema.NullOr(Schema.String),

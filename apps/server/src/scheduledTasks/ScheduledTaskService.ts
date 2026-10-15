@@ -420,7 +420,7 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         if (Option.isNone(managedAgents) || Option.isNone(providerRegistry)) return null;
         const snapshot = yield* managedAgents.value.snapshot();
-        const taskClass = snapshot.manifest.roles[role].taskClasses[0];
+        const taskClass = snapshot.manifest.roles[role]?.taskClasses[0];
         if (taskClass === undefined) return null;
         const providers = yield* Effect.filter(
           yield* providerRegistry.value.getProviders,
@@ -1163,7 +1163,9 @@ export const layer = Layer.effect(
           input.agentRole === undefined ? (existingTask?.agentRole ?? null) : input.agentRole;
         // A role picks its model from this machine's policy, so each machine checks it.
         const roleModel =
-          agentRole === null ? null : yield* resolveRoleModel(agentRole, input.runtimeMode, input.projectId);
+          agentRole === null
+            ? null
+            : yield* resolveRoleModel(agentRole, input.runtimeMode, input.projectId);
         const modelSelection = roleModel ?? input.modelSelection ?? existingTask?.modelSelection;
         if (modelSelection === undefined) {
           return yield* taskError(

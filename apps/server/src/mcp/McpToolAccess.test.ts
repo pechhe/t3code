@@ -40,7 +40,7 @@ const externalTaskBinding = (): AgentTaskBinding => {
     requestFingerprint: "c".repeat(64),
     policyHash: policy.hash,
     policyRevision: policy.sourceRevision,
-    briefHash: policy.briefs[task.role].hash,
+    briefHash: policy.briefs[task.role]!.hash,
     sourceAccess: "scoped-write",
     toolProfile: "implementation",
     requested: selection,

@@ -487,7 +487,7 @@ it.effect(
           ...request,
           policyHash: agentPolicySnapshot().hash,
           policyRevision: agentPolicySnapshot().sourceRevision,
-          briefHash: agentPolicySnapshot().briefs[request.role].hash,
+          briefHash: agentPolicySnapshot().briefs[request.role]!.hash,
           requestFingerprint: "a".repeat(64),
           sourceAccess: "scoped-write",
           toolProfile: "implementation",

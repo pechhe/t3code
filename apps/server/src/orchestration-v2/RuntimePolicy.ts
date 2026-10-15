@@ -201,6 +201,7 @@ export const layerFromProjectStore: Layer.Layer<
             interactionMode: "default",
             cwd,
             managedAgent: true,
+            ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
             approvalPolicy: "never",
             sandboxPolicy:
               input.thread.agentTask.sourceAccess === "read-only"

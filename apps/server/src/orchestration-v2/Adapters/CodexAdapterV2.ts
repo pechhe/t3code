@@ -1377,7 +1377,7 @@ export function codexThreadRuntimeParams(input: {
             "features.plugins": false,
             "features.browser_use": false,
             "features.computer_use": false,
-            web_search: "disabled",
+            web_search: input.runtimePolicy?.webResearch === true ? "live" : "disabled",
           }),
       ...(mcpServers === undefined ? {} : { mcp_servers: mcpServers }),
     },

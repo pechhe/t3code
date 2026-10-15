@@ -8,6 +8,7 @@ import {
   type LucideIcon,
   PaletteIcon,
   ScanEyeIcon,
+  SearchIcon,
   TicketCheckIcon,
 } from "lucide-react";
 
@@ -26,6 +27,7 @@ export const AGENT_ROLE_PRESENTATION: Record<
   advisor: { label: "Advisor", icon: LightbulbIcon, tint: "amber" },
   "ticket-reviewer": { label: "Ticket reviewer", icon: TicketCheckIcon, tint: "emerald" },
   "spec-reviewer": { label: "Spec reviewer", icon: FileCheckIcon, tint: "teal" },
+  researcher: { label: "Researcher", icon: SearchIcon, tint: "orange" },
 };
 
 /** A subagent role as a chip with its icon and colour. */

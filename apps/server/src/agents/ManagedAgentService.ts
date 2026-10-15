@@ -21,6 +21,7 @@ import {
   type RuntimeMode,
   type ServerProvider,
   isReviewerRole,
+  readOnlyToolProfile,
   REVIEWER_SCOPE,
 } from "@t3tools/contracts";
 import * as Config from "effect/Config";
@@ -375,77 +376,82 @@ const make = Effect.gen(function* () {
       ),
     roles: Effect.fn("ManagedAgentService.roles")(function* (input) {
       const snapshot = yield* currentPolicy;
-      const roles = yield* Effect.forEach(
-        Object.entries(snapshot.manifest.roles),
-        ([name, policy]) =>
-          Effect.gen(function* () {
-            const role = name as AgentTaskRequest["role"];
-            const context = yield* execution(
-              {
-                ...input,
-                ...(input.request.runtimeMode === undefined
-                  ? {}
-                  : { runtimeMode: input.request.runtimeMode }),
-              },
-              {
-                ...input.request,
-                role,
-                workId: "capability-discovery",
-                attemptId: "capability-discovery",
-                workspacePath: "/capability-discovery",
-              },
-              false,
-              policy.sourceAccess === "read-only" || input.request.readOnly === true,
-            );
-            const browser = yield* browserRoute(policy.toolProfile, input.projectId, "discovery");
-            const result = yield* Effect.result(
-              resolver.resolve({
-                ...context,
-                snapshot,
-                ...(browser === undefined ? {} : { browser }),
-                providers: input.providers,
-                ...(input.selection === undefined ? {} : { selection: input.selection }),
-                ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
-                request: {
-                  ...context.request,
-                  ...(!isReviewerRole(role)
-                    ? {}
-                    : {
-                        review: {
-                          scope: REVIEWER_SCOPE[role],
-                          baseRevision: "capability-discovery",
-                          includedChanges: ["capability-discovery"],
-                          specRef: "capability-discovery",
-                          specRevision: "capability-discovery",
-                          coverage: "complete" as const,
-                        },
-                      }),
-                },
-              }),
-            );
-            return {
+      // Only the roles this policy configures; an optional role it leaves out is not offered.
+      const configured = Object.entries(snapshot.manifest.roles).flatMap(([name, policy]) => {
+        const role = name as AgentTaskRequest["role"];
+        const brief = snapshot.briefs[role];
+        return policy === undefined || brief === undefined ? [] : [{ role, policy, brief }];
+      });
+      const roles = yield* Effect.forEach(configured, ({ role, policy, brief }) =>
+        Effect.gen(function* () {
+          const context = yield* execution(
+            {
+              ...input,
+              ...(input.request.runtimeMode === undefined
+                ? {}
+                : { runtimeMode: input.request.runtimeMode }),
+            },
+            {
+              ...input.request,
               role,
-              briefHash: snapshot.briefs[role].hash,
-              sourceAccess:
-                input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess,
-              toolProfile:
-                input.request.readOnly === true ? ("source-reader" as const) : policy.toolProfile,
-              executionRequirement: context.request.executionRequirement,
-              ...(result._tag === "Success"
-                ? {
-                    executionBoundary:
-                      input.request.readOnly === true || policy.sourceAccess === "read-only"
-                        ? ("read-only" as const)
-                        : input.providers.find((p) => p.instanceId === result.success.instanceId)
-                              ?.driver === "claudeAgent"
-                          ? ("trusted-host-access" as const)
-                          : ("workspace-sandbox" as const),
-                  }
-                : {}),
-              selection: result._tag === "Success" ? result.success : null,
-              refusal: result._tag === "Failure" ? result.failure.reason : null,
-            };
-          }),
+              workId: "capability-discovery",
+              attemptId: "capability-discovery",
+              workspacePath: "/capability-discovery",
+            },
+            false,
+            policy.sourceAccess === "read-only" || input.request.readOnly === true,
+          );
+          const browser = yield* browserRoute(policy.toolProfile, input.projectId, "discovery");
+          const result = yield* Effect.result(
+            resolver.resolve({
+              ...context,
+              snapshot,
+              ...(browser === undefined ? {} : { browser }),
+              providers: input.providers,
+              ...(input.selection === undefined ? {} : { selection: input.selection }),
+              ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
+              request: {
+                ...context.request,
+                ...(!isReviewerRole(role)
+                  ? {}
+                  : {
+                      review: {
+                        scope: REVIEWER_SCOPE[role],
+                        baseRevision: "capability-discovery",
+                        includedChanges: ["capability-discovery"],
+                        specRef: "capability-discovery",
+                        specRevision: "capability-discovery",
+                        coverage: "complete" as const,
+                      },
+                    }),
+              },
+            }),
+          );
+          return {
+            role,
+            briefHash: brief.hash,
+            sourceAccess:
+              input.request.readOnly === true ? ("read-only" as const) : policy.sourceAccess,
+            toolProfile:
+              input.request.readOnly === true
+                ? readOnlyToolProfile(policy.toolProfile)
+                : policy.toolProfile,
+            executionRequirement: context.request.executionRequirement,
+            ...(result._tag === "Success"
+              ? {
+                  executionBoundary:
+                    input.request.readOnly === true || policy.sourceAccess === "read-only"
+                      ? ("read-only" as const)
+                      : input.providers.find((p) => p.instanceId === result.success.instanceId)
+                            ?.driver === "claudeAgent"
+                        ? ("trusted-host-access" as const)
+                        : ("workspace-sandbox" as const),
+                }
+              : {}),
+            selection: result._tag === "Success" ? result.success : null,
+            refusal: result._tag === "Failure" ? result.failure.reason : null,
+          };
+        }),
       );
       return { policyHash: snapshot.hash, policyRevision: snapshot.sourceRevision, roles };
     }),
@@ -462,6 +468,12 @@ const make = Effect.gen(function* () {
               .get(input.recordedBinding?.policyHash ?? input.policyHash!)
               .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
       const role = snapshot.manifest.roles[input.request.role];
+      const brief = snapshot.briefs[input.request.role];
+      if (role === undefined || brief === undefined)
+        return yield* new ManagedAgentError({
+          reason: "selection",
+          cause: new Resolver.AgentRoleError({ reason: "role-not-configured" }),
+        });
       yield* workspace(
         input.request,
         input,
@@ -505,14 +517,17 @@ const make = Effect.gen(function* () {
           requestFingerprint: input.requestFingerprint,
           policyHash: snapshot.hash,
           policyRevision: snapshot.sourceRevision,
-          briefHash: snapshot.briefs[input.request.role].hash,
+          briefHash: brief.hash,
           sourceAccess: input.request.readOnly === true ? "read-only" : role.sourceAccess,
-          toolProfile: input.request.readOnly === true ? "source-reader" : role.toolProfile,
+          toolProfile:
+            input.request.readOnly === true
+              ? readOnlyToolProfile(role.toolProfile)
+              : role.toolProfile,
           requested: selection,
           assigned: null,
           effective: selection,
         },
-        brief: snapshot.briefs[input.request.role].text,
+        brief: brief.text,
       };
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
@@ -565,13 +580,16 @@ const make = Effect.gen(function* () {
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "policy", cause })));
       const recordedRole = snapshot.manifest.roles[input.binding.role];
       if (
+        recordedRole === undefined ||
         input.binding.sourceAccess !==
           (input.binding.readOnly === true ? "read-only" : recordedRole.sourceAccess) ||
         input.binding.toolProfile !==
-          (input.binding.readOnly === true ? "source-reader" : recordedRole.toolProfile)
+          (input.binding.readOnly === true
+            ? readOnlyToolProfile(recordedRole.toolProfile)
+            : recordedRole.toolProfile)
       )
         return yield* new ManagedAgentError({ reason: "policy" });
-      if (snapshot.briefs[input.binding.role].hash !== input.binding.briefHash)
+      if (snapshot.briefs[input.binding.role]?.hash !== input.binding.briefHash)
         return yield* new ManagedAgentError({ reason: "policy" });
       const context = yield* execution(
         input,
@@ -599,6 +617,7 @@ const make = Effect.gen(function* () {
       // but a preference edit cannot rewrite the treatment of an accepted task.
       const current = yield* currentPolicy;
       const role = current.manifest.roles[input.binding.role];
+      if (role === undefined) return yield* new ManagedAgentError({ reason: "revoked" });
       const allowed = (current.manifest.lists[role.list] ?? []).map((entry) => entry.model);
       if (
         !role.taskClasses.includes(input.binding.taskClass) ||

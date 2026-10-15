@@ -377,6 +377,27 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     });
   });
 
+  it("lets a managed web-research agent search and fetch without approval", () => {
+    const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
+      ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        managedAgent: true,
+        webResearch: true,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/workspace",
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      }),
+    );
+
+    assert.deepEqual(queryPolicy, {
+      permissionMode: "dontAsk",
+      tools: [...ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS, "WebSearch", "WebFetch"],
+      allowedTools: ["WebSearch", "WebFetch"],
+      installPermissionCallback: false,
+    });
+  });
+
   it("maps canonical read-only on-request policy to Claude default with callbacks", () => {
     const queryPolicy = ClaudeAdapterV2.claudeRuntimeQueryPolicyForRuntimePolicy(
       ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({

@@ -375,6 +375,7 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
+export const CLAUDE_WEB_RESEARCH_TOOLS = ["WebSearch", "WebFetch"] as const;
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,
@@ -1897,19 +1898,21 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
     throw new Error("Managed Claude requires read-only execution or admitted trusted host access.");
   }
   const permissionMode = permissionModeForClaudeRuntimePolicy(runtimePolicy);
-  const readOnlyTools =
-    sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly"
-      ? CLAUDE_READ_ONLY_ALLOWED_TOOLS
-      : undefined;
+  const readOnly = sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly";
+  const webTools = readOnly && runtimePolicy.webResearch === true ? CLAUDE_WEB_RESEARCH_TOOLS : [];
+  const readOnlyTools = readOnly ? CLAUDE_READ_ONLY_ALLOWED_TOOLS : undefined;
   const tools =
-    readOnlyTools ??
+    (readOnlyTools && [...readOnlyTools, ...webTools]) ??
     (runtimePolicy.managedAgent === true
       ? ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]
       : undefined);
+  // Web tools need permission, so a web-research agent must pre-approve them.
   const allowedTools =
     readOnlyTools !== undefined && readOnlyPolicyAllowsGlobalReads(runtimePolicy)
-      ? readOnlyTools
-      : undefined;
+      ? [...readOnlyTools, ...webTools]
+      : webTools.length > 0
+        ? [...webTools]
+        : undefined;
   // acceptEdits approves edits before the callback runs; everything else it
   // leaves to the callback, which must ask rather than allow.
   const installPermissionCallback =

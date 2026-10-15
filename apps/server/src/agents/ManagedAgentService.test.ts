@@ -571,6 +571,35 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
+  it.effect("keeps a researcher's web access when the task asks for read-only", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const brief = "roles/researcher.md";
+      yield* f.fs.writeFileString(`${f.policyRoot}/${brief}`, "Researcher\n");
+      yield* f.writeManifest({
+        ...f.manifest,
+        roles: {
+          ...f.manifest.roles,
+          researcher: {
+            list: "fast",
+            brief,
+            sourceAccess: "read-only",
+            toolProfile: "web-research",
+            taskClasses: ["non-ui"],
+          },
+        },
+      });
+      const accepted = yield* f.prepare({
+        request: request({ workspacePath: f.workspacePath, role: "researcher", readOnly: true }),
+      });
+      expect(accepted.binding).toMatchObject({
+        sourceAccess: "read-only",
+        toolProfile: "web-research",
+      });
+      yield* f.validate(accepted.binding);
+    }),
+  );
+
   it.effect("accepts the empty working copy `jj commit` leaves on top of the pin", () =>
     Effect.gen(function* () {
       const f = yield* fixture;

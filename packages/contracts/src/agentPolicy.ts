@@ -14,6 +14,7 @@ export const AgentRole = Schema.Literals([
   "advisor",
   "ticket-reviewer",
   "spec-reviewer",
+  "researcher",
 ]);
 export type AgentRole = typeof AgentRole.Type;
 /** How a managed task's thread title names its role: `<label> · <topic>`. */
@@ -26,6 +27,7 @@ export const AGENT_ROLE_TITLE_LABEL = {
   advisor: "Advisor",
   "ticket-reviewer": "Ticket reviewer",
   "spec-reviewer": "Spec reviewer",
+  researcher: "Researcher",
 } as const satisfies Record<AgentRole, string>;
 /**
  * A managed task's title without its role prefix, for places that already show the role as
@@ -57,6 +59,7 @@ export const AGENT_ROLE_COARSE_KIND = {
   advisor: "research",
   "ticket-reviewer": "review",
   "spec-reviewer": "review",
+  researcher: "research",
 } as const satisfies Record<AgentRole, string>;
 
 export const AgentTaskClass = Schema.Literals(["non-ui", "ui", "mixed"]);
@@ -68,7 +71,17 @@ const Aliases = Schema.Array(Alias).check(
 );
 const BriefPath = TrimmedNonEmptyString.check(Schema.isPattern(/^roles\/[a-z][a-z0-9-]*\.md$/));
 const SourceAccess = Schema.Literals(["read-only", "scoped-write"]);
-const ToolProfile = Schema.Literals(["source-reader", "implementation", "phi"]);
+/** `web-research` reads source like `source-reader` and may also search and fetch the web. */
+export const AgentToolProfile = Schema.Literals([
+  "source-reader",
+  "implementation",
+  "phi",
+  "web-research",
+]);
+export type AgentToolProfile = typeof AgentToolProfile.Type;
+/** The profile a role runs with when a task narrows it to read-only; web research already is. */
+export const readOnlyToolProfile = (profile: AgentToolProfile) =>
+  profile === "web-research" ? profile : "source-reader";
 const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
@@ -83,7 +96,7 @@ const RolePolicy = Schema.Struct({
   list: Alias,
   brief: BriefPath,
   sourceAccess: SourceAccess,
-  toolProfile: ToolProfile,
+  toolProfile: AgentToolProfile,
   taskClasses: Schema.Array(AgentTaskClass).check(Schema.isMinLength(1)),
   /** A large (`demanding`) task starts with this model, at this effort. */
   large: Schema.optional(AgentListEntry),
@@ -93,13 +106,30 @@ const RolePolicy = Schema.Struct({
   preferOtherAuthorProvider: Schema.optional(Schema.Boolean),
 });
 
+/**
+ * One entry per role. `researcher` was added after policies and task snapshots were saved,
+ * so a policy may leave it out; the role is then unavailable.
+ */
+const rolesRecord = <S extends Schema.Top>(entry: S) =>
+  Schema.Struct({
+    "chore-worker": entry,
+    "implementation-worker": entry,
+    "ui-worker": entry,
+    browser: entry,
+    "ui-verifier": entry,
+    advisor: entry,
+    "ticket-reviewer": entry,
+    "spec-reviewer": entry,
+    researcher: Schema.optionalKey(entry),
+  });
+
 const Manifest = Schema.Struct({
   version: Schema.Literal(2),
   revision: TrimmedNonEmptyString,
   models: Schema.Record(Alias, ModelBinding),
   /** Each list orders the models a role may use; the first available one is the default. */
   lists: Schema.Record(Alias, Schema.Array(AgentListEntry).check(Schema.isMinLength(1))),
-  roles: Schema.Record(AgentRole, RolePolicy),
+  roles: rolesRecord(RolePolicy),
 });
 
 /** Structural authority is fixed; model identities and order belong to the versioned policy. */
@@ -111,6 +141,8 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
     if (aliases.some((alias) => models[alias] === undefined)) return false;
   }
   for (const [name, role] of Object.entries(roles)) {
+    if (role === undefined) continue;
+    if (role.toolProfile === "web-research" && role.sourceAccess !== "read-only") return false;
     const list = lists[role.list]?.map((entry) => entry.model);
     if (list === undefined || role.brief !== `roles/${name}.md`) return false;
     if (role.large !== undefined && !list.includes(role.large.model)) return false;
@@ -120,8 +152,9 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
       return false;
   }
   const readOnly = (role: (typeof roles)[AgentRole], toolProfile: string) =>
-    role.sourceAccess === "read-only" && role.toolProfile === toolProfile;
+    role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
   return (
+    (roles.researcher === undefined || readOnly(roles.researcher, "web-research")) &&
     readOnly(roles.browser, "phi") &&
     readOnly(roles["ui-verifier"], "phi") &&
     [roles["ticket-reviewer"], roles["spec-reviewer"], roles.advisor].every((role) =>
@@ -170,7 +203,7 @@ const LegacyManifest = Schema.Struct({
       pool: LegacyPool,
       brief: BriefPath,
       sourceAccess: SourceAccess,
-      toolProfile: ToolProfile,
+      toolProfile: AgentToolProfile,
       taskClasses: Schema.Array(AgentTaskClass),
       restrictions: Schema.Struct({
         "non-ui": Schema.optional(Aliases),
@@ -252,7 +285,7 @@ const Snapshot = Schema.Struct({
   hash: Sha256,
   sourceRevision: TrimmedNonEmptyString,
   manifest: AgentPolicyManifest,
-  briefs: Schema.Record(AgentRole, Brief),
+  briefs: rolesRecord(Brief),
 });
 export const AgentPolicySnapshot = Schema.Union([
   Snapshot,
@@ -366,7 +399,7 @@ const agentTaskBindingFields = {
   policyRevision: TrimmedNonEmptyString,
   briefHash: Sha256,
   sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
-  toolProfile: Schema.Literals(["source-reader", "implementation", "phi"]),
+  toolProfile: AgentToolProfile,
   requested: ModelSelection,
   assigned: Schema.NullOr(ModelSelection),
   effective: ModelSelection,
@@ -431,7 +464,7 @@ export const AgentRolesResult = Schema.Struct({
     Schema.Struct({
       role: AgentRole,
       sourceAccess: Schema.Literals(["read-only", "scoped-write"]),
-      toolProfile: Schema.Literals(["source-reader", "implementation", "phi"]),
+      toolProfile: AgentToolProfile,
       briefHash: Sha256,
       executionRequirement: Schema.optional(AgentExecutionRequirement),
       executionBoundary: Schema.optional(AgentExecutionBoundary),

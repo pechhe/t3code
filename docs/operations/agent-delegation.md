@@ -62,6 +62,11 @@ its revision and the role names, or the reason the policy is refused.
   and a Full access child within the caller's permission ceiling. Codex writers
   keep their workspace sandbox with network access disabled. The Phi-based
   `browser` and `ui-verifier` roles remain unavailable.
+- The `web-research` tool profile, which only a read-only role may use, adds web
+  search and page fetching to a reader: Claude's `WebSearch` and `WebFetch`, and
+  Codex's live web search. Neither gains a shell or network access for commands.
+  `researcher` is the one optional role: a policy that leaves it out does not
+  offer it, so older policies and recorded snapshots stay valid.
 - While a readable policy is configured, a delegation or reviewer trial is
   refused at creation, and again when it is started, if one of its arms uses a
   model no list allows. Without a readable policy the check is skipped; dispatch

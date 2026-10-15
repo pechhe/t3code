@@ -39,6 +39,8 @@ import {
   setPreferOtherAuthorProvider,
   splitGroup,
   isUiOnly,
+  rolePolicy,
+  type RolePolicy,
   unavailableReason,
   UNAVAILABLE_ROLES,
   type CatalogModel,
@@ -312,7 +314,7 @@ function JobRow({
   const firstAvailable = entries.find((entry) => reasons.get(entry.model) === null);
   const single = group.roles.length === 1 ? group.roles[0] : undefined;
   const exceptions = group.roles.flatMap((role) => {
-    const policy = manifest.roles[role];
+    const policy = rolePolicy(manifest, role);
     return [
       ...(policy.large ? [{ role, kind: "large" as const }] : []),
       ...Object.keys(policy.callers ?? {}).map((caller) => ({ role, kind: caller })),
@@ -321,7 +323,7 @@ function JobRow({
   const largeChoices = [
     ...new Map(
       group.roles.flatMap((role) => {
-        const large = manifest.roles[role].large;
+        const large = rolePolicy(manifest, role).large;
         return large ? [[`${large.model}:${large.effort}`, large] as const] : [];
       }),
     ).values(),
@@ -476,7 +478,7 @@ function JobRow({
                 environmentId={environmentId}
                 role={group.roles.length > 1 ? role : undefined}
                 kind={kind}
-                policy={manifest.roles[role]}
+                policy={rolePolicy(manifest, role)}
                 catalog={catalog}
                 manifest={manifest}
                 disabled={disabled}
@@ -498,7 +500,7 @@ function JobRow({
                 }
                 onPick={add}
               />
-              {single && !manifest.roles[single].large && entries.length > 0 ? (
+              {single && !rolePolicy(manifest, single).large && entries.length > 0 ? (
                 <Button
                   size="xs"
                   variant="ghost-muted"
@@ -516,7 +518,8 @@ function JobRow({
                   disabled={disabled}
                   pickDisabledReason={(model) => {
                     const alias = aliasOf(manifest, model);
-                    return alias !== undefined && manifest.roles[single].callers?.[alias] !== undefined
+                    return alias !== undefined &&
+                      rolePolicy(manifest, single).callers?.[alias] !== undefined
                       ? "Already has its own choice"
                       : null;
                   }}
@@ -585,7 +588,7 @@ function ExceptionLine({
   environmentId: EnvironmentId;
   role: AgentRole | undefined;
   kind: "large" | string;
-  policy: Manifest["roles"][AgentRole];
+  policy: RolePolicy;
   catalog: ReadonlyArray<CatalogModel>;
   manifest: Manifest;
   disabled: boolean;

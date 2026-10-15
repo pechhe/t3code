@@ -679,6 +679,24 @@ describe("CodexAdapterV2 process spawning", () => {
     });
   });
 
+  it("turns on live web search only for a managed web-research agent", () => {
+    const params = CodexAdapterV2.codexThreadRuntimeParams({
+      mcpSession: undefined,
+      modelSelection: { model: "gpt-5.4" },
+      runtimePolicy: {
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: "/managed-workspace",
+        managedAgent: true,
+        webResearch: true,
+        approvalPolicy: "never",
+        sandboxPolicy: { type: "readOnly", networkAccess: false },
+      },
+    });
+    assert.equal(params.config["web_search"], "live");
+    assert.equal(params.config["features.browser_use"], false);
+  });
+
   it("keeps every other MCP server disabled while a managed browser task gets its own narrow endpoint", () => {
     const params = CodexAdapterV2.codexThreadRuntimeParams({
       mcpSession: {

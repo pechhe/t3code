@@ -31,6 +31,7 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "source-pin-required",
     "review-scope-required",
     "review-scope-invalid",
+    "role-not-configured",
   ]),
   candidates: Schema.optional(Schema.Array(AgentPolicyCandidate)),
 }) {
@@ -84,6 +85,7 @@ export class AgentRoleResolver extends Context.Service<
 const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: ResolutionInput) {
   const { request, snapshot } = input;
   const role = snapshot.manifest.roles[request.role];
+  if (role === undefined) return yield* new AgentRoleError({ reason: "role-not-configured" });
   if (!role.taskClasses.includes(request.taskClass))
     return yield* new AgentRoleError({ reason: "classification" });
   const reviewer = isReviewerRole(request.role);

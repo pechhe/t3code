@@ -10,6 +10,7 @@ export const continuableRoles: ReadonlySet<AgentRole> = new Set([
   "implementation-worker",
   "ui-worker",
   "browser",
+  "researcher",
 ]);
 
 /** The message a follow-up adds to the agent's existing conversation. */

@@ -124,6 +124,14 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
+  it.effect("refuses a role the policy does not configure", () =>
+    Effect.gen(function* () {
+      expect((yield* refusal(input({ request: request({ role: "researcher" }) }))).reason).toBe(
+        "role-not-configured",
+      );
+    }),
+  );
+
   it.effect("prefers an independent reviewer model over the author's current account", () =>
     Effect.gen(function* () {
       const value = yield* resolve(
