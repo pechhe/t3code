@@ -884,7 +884,7 @@
 }
 .device-switch[aria-disabled]:not(.device-switch--lower) .device-switch__label--lower,
 .device-switch--lower[aria-disabled] .device-switch__label--upper {
-  opacity: 0.35;
+  opacity: 0.6;
 }
 
 /* ---------------- Send dial ---------------- */
@@ -1055,11 +1055,53 @@
   border-radius: 0 0 12px 12px;
 }
 
-/* Their text reads as engraving on the plate. */
+/* Their text reads as engraving on the plate, in the same lettering as the slider and
+   dial labels, over each control's own muted or faded colour. */
 [data-slot="composer-shell"]:has(.composer-device)
   :is([data-composer-banner-surface="attached"], [data-slot="composer-context-strip"]) {
   color: var(--crt-ink);
   text-shadow: var(--engrave-shadow);
+}
+[data-slot="composer-shell"]:has(.composer-device) [data-slot="composer-context-strip"],
+[data-slot="composer-shell"]:has(.composer-device)
+  [data-slot="composer-context-strip"]
+  :is(button, a, span, [role="button"]) {
+  color: var(--crt-ink-muted);
+  font-family: var(--crt-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 1;
+}
+[data-slot="composer-shell"]:has(.composer-device)
+  [data-slot="composer-context-strip"]
+  :is(button, a, [role="button"]):hover {
+  color: var(--crt-ink);
+}
+
+/*
+ * On the new-thread screen the composer sits centred, so a strip in the flow would push
+ * it up when it appears (choosing another machine, or a project's Git status arriving).
+ * There it hangs below the chassis and slides out from behind it instead.
+ */
+[data-draft-hero] [data-slot="composer-shell"]:has(.composer-device) [data-slot="composer-context-strip"] {
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  animation: composer-strip-emerge 280ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes composer-strip-emerge {
+  from {
+    transform: translateY(-100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-draft-hero]
+    [data-slot="composer-shell"]:has(.composer-device)
+    [data-slot="composer-context-strip"] {
+    animation: none;
+  }
 }
 
 /* Renaming a favourite: the engraved label becomes a field in place. */
