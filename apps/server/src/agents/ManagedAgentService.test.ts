@@ -988,30 +988,41 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
-  it.effect("lets an advisor follow-up omit its revision only outside a repository", () =>
-    Effect.gen(function* () {
-      const f = yield* fixture;
-      const advisor = (yield* f.prepare({
-        request: request({ role: "advisor", workspacePath: f.workspacePath, readOnly: true }),
-      })).binding;
-      const followup = (revisionStated: boolean) =>
-        f.service
-          .validate({
-            workspacePath: f.workspacePath,
-            providers: [codex, claude],
-            ceiling: "full-access",
-            binding: revisionStated ? { ...advisor, sourceRevision } : advisor,
-            selection: advisor.effective,
-            followupWithoutRevision: !revisionStated,
-          })
-          .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
-      // A scratch folder has no revision to state.
-      yield* followup(false);
-      // In a repository the advisor reads a stated revision, which must match.
-      yield* f.fs.makeDirectory(`${f.workspacePath}/.jj/repo`, { recursive: true });
-      expect((yield* followup(false).pipe(Effect.flip)).reason).toBe("source");
-      yield* followup(true);
-    }),
+  it.effect.each(["advisor", "scout"] as const)(
+    "lets a %s follow-up omit its revision only outside a repository",
+    (role) =>
+      Effect.gen(function* () {
+        const f = yield* fixture;
+        const brief = "roles/scout.md";
+        yield* f.fs.writeFileString(`${f.policyRoot}/${brief}`, "Scout\n");
+        yield* f.writeManifest({
+          ...f.manifest,
+          roles: {
+            ...f.manifest.roles,
+            scout: { ...f.manifest.roles.advisor!, brief },
+          },
+        });
+        const consultant = (yield* f.prepare({
+          request: request({ role, workspacePath: f.workspacePath, readOnly: true }),
+        })).binding;
+        const followup = (revisionStated: boolean) =>
+          f.service
+            .validate({
+              workspacePath: f.workspacePath,
+              providers: [codex, claude],
+              ceiling: "full-access",
+              binding: revisionStated ? { ...consultant, sourceRevision } : consultant,
+              selection: consultant.effective,
+              followupWithoutRevision: !revisionStated,
+            })
+            .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+        // A scratch folder has no revision to state.
+        yield* followup(false);
+        // In a repository a consulting role reads a stated revision, which must match.
+        yield* f.fs.makeDirectory(`${f.workspacePath}/.jj/repo`, { recursive: true });
+        expect((yield* followup(false).pipe(Effect.flip)).reason).toBe("source");
+        yield* followup(true);
+      }),
   );
 
   it.effect("discovers the model a launch for the same caller would use", () =>

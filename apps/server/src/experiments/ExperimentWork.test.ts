@@ -1125,9 +1125,11 @@ it.effect.each(["verified-completion", "cancellation"] as const)(
         },
         ownerReader(owner),
       );
-      expect(
-        (yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role: "advisor" })).id,
-      ).toBe(unit.id);
+      // Consulting roles answer the lead, so inline work may still use them.
+      for (const role of ["advisor", "scout", "researcher"] as const)
+        expect((yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role })).id).toBe(
+          unit.id,
+        );
       yield* service.recordOutcome({
         id: `close:${kind}`,
         assignmentId: unit.assignmentIds[0]!,
@@ -1139,13 +1141,15 @@ it.effect.each(["verified-completion", "cancellation"] as const)(
         actualModelSelection: selection,
         fallbackReason: null,
       });
+      for (const role of ["advisor", "scout", "researcher"] as const)
+        expect(
+          (yield* service
+            .workDispatchPolicy({ workUnitId: unit.id, owner, role })
+            .pipe(Effect.flip)).reason,
+        ).toBe("invalid-evidence");
       expect(
-        (yield* service
-          .workDispatchPolicy({ workUnitId: unit.id, owner, role: "advisor" })
-          .pipe(Effect.flip)).reason,
-      ).toBe("invalid-evidence");
-      expect(
-        (yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role: "ticket-reviewer" })).id,
+        (yield* service.workDispatchPolicy({ workUnitId: unit.id, owner, role: "ticket-reviewer" }))
+          .id,
       ).toBe(unit.id);
     }).pipe(Effect.provide(layer)),
 );

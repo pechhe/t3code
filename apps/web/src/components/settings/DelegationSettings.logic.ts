@@ -27,6 +27,7 @@ export const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "browser",
   "ui-verifier",
   "researcher",
+  "scout",
 ];
 
 export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
@@ -39,6 +40,7 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   browser: "Drives web pages",
   "ui-verifier": "Checks the running app",
   researcher: "Researches docs and the web",
+  scout: "Maps the codebase",
 };
 
 /** Roles the server refuses until T3 has an enforceable Phi tool route. */

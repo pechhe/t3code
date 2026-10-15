@@ -35,6 +35,7 @@ import {
   type ExperimentTurnEvidence,
   ThreadId,
   type OrchestrationV2Run,
+  isConsultingRole,
   isReviewerRole,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -846,7 +847,7 @@ const make = Effect.gen(function* () {
     if (ownerKey(unit.owner) !== ownerKey(input.owner))
       return yield* fail("dispatch", unit.id, "not-found");
     // Verified completion and cancellation close work; failures may still need correction.
-    if (input.role === "advisor" || input.followup === true) {
+    if ((input.role !== undefined && isConsultingRole(input.role)) || input.followup === true) {
       for (const assignmentId of unit.assignmentIds) {
         const rows = yield* persist(
           "dispatch",
@@ -875,8 +876,9 @@ const make = Effect.gen(function* () {
         ? null
         : yield* persist("dispatch", unit.id, decodeAllocation(rows[0].payload_json));
     if (
-      input.role !== "advisor" &&
-      (allocation === null || (!(input.role !== undefined && isReviewerRole(input.role)) &&
+      !(input.role !== undefined && isConsultingRole(input.role)) &&
+      (allocation === null ||
+        (!(input.role !== undefined && isReviewerRole(input.role)) &&
           allocation.allocation !== "delegated"))
     )
       return yield* fail("dispatch", unit.id, "invalid-evidence");
@@ -1219,12 +1221,11 @@ const make = Effect.gen(function* () {
           childIntervals.push(interval);
           supportingIntervals.push({
             ...interval,
-            phase:
-              binding.role === "advisor"
-                ? "advice"
-                : isReviewerRole(binding.role)
-                  ? "verification"
-                  : "execution",
+            phase: isConsultingRole(binding.role)
+              ? "advice"
+              : isReviewerRole(binding.role)
+                ? "verification"
+                : "execution",
           });
         }
         childTurns.push({
@@ -1290,8 +1291,9 @@ const make = Effect.gen(function* () {
     const childUsage = aggregateUsage(childTurns);
     const implementationTasks = tasks.filter(
       (task, index) =>
-        !(taskBindings[index]!.role === "advisor" || isReviewerRole(taskBindings[index]!.role)) &&
-        task.launch_state !== "refused",
+        !(
+          isConsultingRole(taskBindings[index]!.role) || isReviewerRole(taskBindings[index]!.role)
+        ) && task.launch_state !== "refused",
     );
     const actualAllocation =
       implementationTasks.length > 0
@@ -1387,7 +1389,7 @@ const make = Effect.gen(function* () {
                   ? unionDuration(supportingIntervals.filter((i) => i.phase === "execution"))
                   : null,
             advice:
-              taskBindings.some((b) => b.role === "advisor") && childTimingComplete
+              taskBindings.some((b) => isConsultingRole(b.role)) && childTimingComplete
                 ? observedRolePhase("advice")
                 : reportedPhaseMs.advice,
             verification:

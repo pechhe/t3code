@@ -20,6 +20,7 @@ import {
   type ProjectId,
   type RuntimeMode,
   type ServerProvider,
+  isConsultingRole,
   isReviewerRole,
   readOnlyToolProfile,
   REVIEWER_SCOPE,
@@ -532,8 +533,8 @@ const make = Effect.gen(function* () {
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
       yield* workspace(input.binding, input, input.binding.sourceAccess === "scoped-write");
-      // An advisor reads a stated revision of a repository; only outside one may it go without.
-      if (input.followupWithoutRevision === true && input.binding.role === "advisor") {
+      // A consulting role reads a stated revision of a repository; only outside one may it go without.
+      if (input.followupWithoutRevision === true && isConsultingRole(input.binding.role)) {
         const repository = yield* local(repositoryStore(input.binding.workspacePath)).pipe(
           Effect.as(true),
           Effect.orElseSucceed(() => false),

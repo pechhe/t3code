@@ -123,6 +123,29 @@ describe("AgentPolicyManifest", () => {
     expect(edit({ preferOtherAuthorProvider: true })._tag).toBe("Failure");
   });
 
+  it("reads a policy without the optional scout and keeps a scout a source reader", () => {
+    const manifest = encodeManifest(decodeManifest(legacy));
+    expect(decodeManifest(manifest).roles.scout).toBeUndefined();
+    const scout = (edit: object) =>
+      decodeManifestExit({
+        ...manifest,
+        roles: {
+          ...manifest.roles,
+          scout: {
+            list: "advisor",
+            brief: "roles/scout.md",
+            sourceAccess: "read-only",
+            toolProfile: "source-reader",
+            taskClasses: ["non-ui", "ui", "mixed"],
+            ...edit,
+          },
+        },
+      });
+    expect(scout({})._tag).toBe("Success");
+    expect(scout({ sourceAccess: "scoped-write" })._tag).toBe("Failure");
+    expect(scout({ toolProfile: "web-research" })._tag).toBe("Failure");
+  });
+
   it("reads a policy without the optional researcher and keeps a researcher read-only", () => {
     const manifest = encodeManifest(decodeManifest(legacy));
     expect(decodeManifest(manifest).roles.researcher).toBeUndefined();

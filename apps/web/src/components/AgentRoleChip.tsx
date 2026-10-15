@@ -6,6 +6,7 @@ import {
   HammerIcon,
   LightbulbIcon,
   type LucideIcon,
+  MapIcon,
   PaletteIcon,
   ScanEyeIcon,
   SearchIcon,
@@ -28,6 +29,7 @@ export const AGENT_ROLE_PRESENTATION: Record<
   "ticket-reviewer": { label: "Ticket reviewer", icon: TicketCheckIcon, tint: "emerald" },
   "spec-reviewer": { label: "Spec reviewer", icon: FileCheckIcon, tint: "teal" },
   researcher: { label: "Researcher", icon: SearchIcon, tint: "orange" },
+  scout: { label: "Scout", icon: MapIcon, tint: "lime" },
 };
 
 /** A subagent role as a chip with its icon and colour. */

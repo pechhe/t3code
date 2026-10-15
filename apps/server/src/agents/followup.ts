@@ -1,4 +1,4 @@
-import type { AgentRole, AgentTaskBinding } from "@t3tools/contracts";
+import { type AgentRole, type AgentTaskBinding, isConsultingRole } from "@t3tools/contracts";
 
 /**
  * Roles whose conversation a follow-up may continue. Reviewers and UI verifiers
@@ -11,6 +11,7 @@ export const continuableRoles: ReadonlySet<AgentRole> = new Set([
   "ui-worker",
   "browser",
   "researcher",
+  "scout",
 ]);
 
 /** The message a follow-up adds to the agent's existing conversation. */
@@ -37,9 +38,9 @@ export const followupBinding = (
 
 /**
  * Whether a follow-up's stated revision replaces the task's pinned source when
- * its runs start. An advisor reads a stated revision, so it is always pinned; a
- * worker launched without a revision stays unpinned, since its revision moves
- * as it writes.
+ * its runs start. A consulting role reads a stated revision, so it is always
+ * pinned; a worker launched without a revision stays unpinned, since its
+ * revision moves as it writes.
  */
 export const pinsFollowupRevision = (binding: AgentTaskBinding) =>
-  binding.role === "advisor" || binding.sourceRevision !== undefined;
+  isConsultingRole(binding.role) || binding.sourceRevision !== undefined;

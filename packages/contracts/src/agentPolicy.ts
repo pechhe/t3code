@@ -15,6 +15,7 @@ export const AgentRole = Schema.Literals([
   "ticket-reviewer",
   "spec-reviewer",
   "researcher",
+  "scout",
 ]);
 export type AgentRole = typeof AgentRole.Type;
 /** How a managed task's thread title names its role: `<label> · <topic>`. */
@@ -28,6 +29,7 @@ export const AGENT_ROLE_TITLE_LABEL = {
   "ticket-reviewer": "Ticket reviewer",
   "spec-reviewer": "Spec reviewer",
   researcher: "Researcher",
+  scout: "Scout",
 } as const satisfies Record<AgentRole, string>;
 /**
  * A managed task's title without its role prefix, for places that already show the role as
@@ -41,6 +43,9 @@ export const agentTaskTopic = (title: string, role: AgentRole): string => {
 /** The roles that judge pinned work: fresh-context, read-only and scoped by `review`. */
 export const isReviewerRole = (role: AgentRole) =>
   role === "ticket-reviewer" || role === "spec-reviewer";
+/** The read-only roles that answer the lead's questions rather than produce work. */
+export const isConsultingRole = (role: AgentRole) =>
+  role === "advisor" || role === "researcher" || role === "scout";
 /** The review scope each reviewer role judges. */
 export const REVIEWER_SCOPE = {
   "ticket-reviewer": "change",
@@ -60,6 +65,7 @@ export const AGENT_ROLE_COARSE_KIND = {
   "ticket-reviewer": "review",
   "spec-reviewer": "review",
   researcher: "research",
+  scout: "research",
 } as const satisfies Record<AgentRole, string>;
 
 export const AgentTaskClass = Schema.Literals(["non-ui", "ui", "mixed"]);
@@ -107,8 +113,8 @@ const RolePolicy = Schema.Struct({
 });
 
 /**
- * One entry per role. `researcher` was added after policies and task snapshots were saved,
- * so a policy may leave it out; the role is then unavailable.
+ * One entry per role. `researcher` and `scout` were added after policies and task snapshots
+ * were saved, so a policy may leave them out; such a role is then unavailable.
  */
 const rolesRecord = <S extends Schema.Top>(entry: S) =>
   Schema.Struct({
@@ -121,6 +127,7 @@ const rolesRecord = <S extends Schema.Top>(entry: S) =>
     "ticket-reviewer": entry,
     "spec-reviewer": entry,
     researcher: Schema.optionalKey(entry),
+    scout: Schema.optionalKey(entry),
   });
 
 const Manifest = Schema.Struct({
@@ -155,6 +162,7 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
     role?.sourceAccess === "read-only" && role.toolProfile === toolProfile;
   return (
     (roles.researcher === undefined || readOnly(roles.researcher, "web-research")) &&
+    (roles.scout === undefined || readOnly(roles.scout, "source-reader")) &&
     readOnly(roles.browser, "phi") &&
     readOnly(roles["ui-verifier"], "phi") &&
     [roles["ticket-reviewer"], roles["spec-reviewer"], roles.advisor].every((role) =>
