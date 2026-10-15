@@ -147,6 +147,8 @@ import {
   VcsInitInput,
   VcsListRefsInput,
   VcsListRefsResult,
+  VcsSlipJayLandInput,
+  VcsSlipJayLandResult,
   VcsSlipJayLandingLogInput,
   VcsSlipJayLandingLogResult,
   GitManagerServiceError,
@@ -452,6 +454,7 @@ export const WS_METHODS = {
   vcsSwitchRef: "vcs.switchRef",
   vcsInit: "vcs.init",
   vcsSlipJayLandingLog: "vcs.slipJayLandingLog",
+  vcsSlipJayLand: "vcs.slipJayLand",
 
   // Git workflow methods
   gitRunStackedAction: "git.runStackedAction",
@@ -1481,6 +1484,12 @@ const WsVcsListRefsRpc = Rpc.make(WS_METHODS.vcsListRefs, {
   error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVcsSlipJayLandRpc = Rpc.make(WS_METHODS.vcsSlipJayLand, {
+  payload: VcsSlipJayLandInput,
+  success: VcsSlipJayLandResult,
+  error: Schema.Union([GitCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsVcsSlipJayLandingLogRpc = Rpc.make(WS_METHODS.vcsSlipJayLandingLog, {
   payload: VcsSlipJayLandingLogInput,
   success: VcsSlipJayLandingLogResult,
@@ -2121,6 +2130,7 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsGitPreparePullRequestThreadRpc,
   WsVcsListRefsRpc,
   WsVcsSlipJayLandingLogRpc,
+  WsVcsSlipJayLandRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,
   WsVcsCreateRefRpc,

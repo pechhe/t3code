@@ -23,6 +23,9 @@ import {
   resolvePreviousWorktreeSeed,
   resolveSlipJayBaseLabel,
   resolveSlipJayCheckoutStatus,
+  isSlipJayLandRefusal,
+  resolveSlipJayLandAvailability,
+  resolveSlipJayLandToast,
   resolveSlipJayLandingLabel,
   resolveSlipJayWorkspaceLabel,
   sanitizeNewRefName,
@@ -157,6 +160,89 @@ describe("SlipJay composer strip", () => {
       resolveSlipJayLandingLabel(landing({ status: "failed", stage: "gate", reason: "tests" })),
     ).toBe("Land failed: gate");
     expect(resolveSlipJayLandingLabel(landing({ status: "unknown" }))).toBe("Land outcome unknown");
+  });
+
+  it("offers Land only in a started thread's own workspace, and not mid-landing", () => {
+    const workspaceStatus = (landing?: VcsStatusSlipJayLanding) =>
+      resolveSlipJayCheckoutStatus(
+        checkoutStatus({
+          slipJay: {
+            integration: "develop",
+            workspace: { name: "t3-24", isIntegration: false },
+            ...(landing === undefined ? {} : { landing }),
+          },
+        }),
+        CWD,
+      )!;
+    const root = resolveSlipJayCheckoutStatus(
+      checkoutStatus({
+        slipJay: { integration: "develop", workspace: { name: "default", isIntegration: true } },
+      }),
+      CWD,
+    )!;
+    expect(resolveSlipJayLandAvailability(workspaceStatus(), false)).toBe("available");
+    expect(resolveSlipJayLandAvailability(workspaceStatus(), true)).toBeNull();
+    expect(resolveSlipJayLandAvailability(root, false)).toBeNull();
+    expect(
+      resolveSlipJayLandAvailability(
+        workspaceStatus({ operationId: "op_a", status: "active", stage: "verifying", live: true }),
+        false,
+      ),
+    ).toBe("landing");
+    expect(
+      resolveSlipJayLandAvailability(
+        workspaceStatus({ operationId: "op_a", status: "failed", stage: "gate", live: true }),
+        false,
+      ),
+    ).toBe("available");
+  });
+
+  it("tells a refused land from a lost connection to a running one", () => {
+    expect(isSlipJayLandRefusal({ _tag: "GitCommandError", detail: "not a workspace" })).toBe(true);
+    expect(isSlipJayLandRefusal({ _tag: "EnvironmentAuthorizationError" })).toBe(true);
+    expect(isSlipJayLandRefusal({ _tag: "EnvironmentRpcUnavailableError" })).toBe(false);
+    expect(isSlipJayLandRefusal(new Error("socket closed"))).toBe(false);
+  });
+
+  it("reports a land in SlipJay's own words", () => {
+    expect(
+      resolveSlipJayLandToast({
+        landed: false,
+        verdict: "failed",
+        operationId: "op_a",
+        commitId: null,
+        messages: ["[runner r] failed at verifying: tests failed"],
+      }),
+    ).toEqual({
+      type: "error",
+      title: "Land failed",
+      description: "[runner r] failed at verifying: tests failed",
+    });
+    // Following an older commit reports that commit as landed, not this workspace's change.
+    expect(
+      resolveSlipJayLandToast({
+        landed: false,
+        verdict: "landed",
+        operationId: "op_a",
+        commitId: "abc1234def",
+        messages: [
+          "[runner r] followed an older commit (abc); land again to publish your current commit",
+        ],
+      }),
+    ).toMatchObject({ type: "error", title: "Not landed" });
+    expect(
+      resolveSlipJayLandToast({
+        landed: true,
+        verdict: "landed",
+        operationId: "op_a",
+        commitId: "abc1234def",
+        messages: ["Kept landed workspace t3-24: in use by a live process: pid 1 (node)"],
+      }),
+    ).toEqual({
+      type: "success",
+      title: "Landed abc1234",
+      description: "Kept landed workspace t3-24: in use by a live process: pid 1 (node)",
+    });
   });
 
   it("carries the workspace's landing from its status", () => {

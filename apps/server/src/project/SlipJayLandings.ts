@@ -1,5 +1,6 @@
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -16,6 +17,8 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import {
   GitCommandError,
   SLIPJAY_PROJECT_FILE_NAME,
+  type VcsSlipJayLandInput,
+  type VcsSlipJayLandResult,
   type VcsSlipJayLandingLogInput,
   type VcsSlipJayLandingLogResult,
   type VcsStatusSlipJayLanding,
@@ -35,6 +38,49 @@ import {
 /** A jj revset or template string literal. */
 const quoteRevsetString = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
+const decodeLandVerdict = Schema.decodeUnknownOption(
+  Schema.fromJsonString(
+    Schema.Struct({
+      ok: Schema.Boolean,
+      verdict: Schema.String,
+      outcome: Schema.optional(
+        Schema.Struct({
+          operationId: Schema.String,
+          publication: Schema.optional(Schema.Struct({ commitId: Schema.optional(Schema.String) })),
+        }),
+      ),
+    }),
+  ),
+);
+
+// `slipjay land` interleaves stages and gate output on stderr. These are the lines that
+// state its verdict or a change it made to the workspace.
+const LAND_VERDICT_LINE =
+  /^\[runner [^\]]+\] (?:failed at |declined|cancelled|followed an older commit)/;
+const LAND_WORKSPACE_LINE =
+  /^(?:Could not |Abandon it |Kept landed workspace |Removed workspace: )/;
+
+/** `slipjay land`'s outcome from its stdout verdict and stderr lines. */
+export function parseLandOutput(stdout: string, stderr: string): VcsSlipJayLandResult {
+  const verdict = Option.getOrUndefined(decodeLandVerdict(stdout.trim().split("\n").at(-1) ?? ""));
+  const lines = stderr
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  const messages = lines.filter(
+    (line) => LAND_VERDICT_LINE.test(line) || LAND_WORKSPACE_LINE.test(line),
+  );
+  return {
+    landed: verdict?.ok === true && verdict.verdict === "landed",
+    verdict: verdict?.verdict ?? null,
+    operationId: verdict?.outcome?.operationId ?? null,
+    commitId: verdict?.outcome?.publication?.commitId ?? null,
+    // Without a verdict SlipJay refused before submitting, and its last line says why.
+    messages: verdict === undefined && messages.length === 0 ? lines.slice(-1) : messages,
+  };
+}
+
+const LAND_OUTPUT_MAX_BYTES = 1024 * 1024;
 const LANDING_LOG_MAX_BYTES = 2 * 1024 * 1024;
 const WATCH_RESTART_DELAY = Duration.seconds(5);
 
@@ -60,6 +106,14 @@ export class SlipJayLandings extends Context.Service<
     readonly readLog: (
       input: VcsSlipJayLandingLogInput,
     ) => Effect.Effect<VcsSlipJayLandingLogResult, GitCommandError>;
+    /**
+     * Runs `slipjay land` in a workspace, as an agent would, and resolves with its
+     * verdict. The landing outlives the request: an interrupted caller stops waiting,
+     * not landing, and a second request for the workspace joins the running one.
+     */
+    readonly land: (
+      input: VcsSlipJayLandInput,
+    ) => Effect.Effect<VcsSlipJayLandResult, GitCommandError>;
   }
 >()("t3/project/SlipJayLandings") {}
 
@@ -319,7 +373,78 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const runLand = (cwd: string) =>
+    processes
+      .run({
+        command: "slipjay",
+        args: ["land"],
+        cwd,
+        // Queueing and the gate take minutes; the runner, not this wait, bounds them.
+        timeout: "3 hours",
+        maxOutputBytes: LAND_OUTPUT_MAX_BYTES,
+        outputMode: "truncate",
+      })
+      .pipe(
+        Effect.mapError(
+          () =>
+            new GitCommandError({
+              operation: "SlipJayLandings.land",
+              command: "slipjay land",
+              cwd,
+              detail: "SlipJay could not be run to land this workspace.",
+            }),
+        ),
+        Effect.map((output) => parseLandOutput(output.stdout, output.stderr)),
+      );
+
+  const lands = yield* Ref.make(
+    new Map<string, Deferred.Deferred<VcsSlipJayLandResult, GitCommandError>>(),
+  );
+  const land: SlipJayLandings["Service"]["land"] = Effect.fn("SlipJayLandings.land")(function* ({
+    cwd,
+  }) {
+    const refuse = (detail: string) =>
+      new GitCommandError({
+        operation: "SlipJayLandings.land",
+        command: "slipjay land",
+        cwd,
+        detail,
+      });
+    // One landing per workspace, however the caller names a path inside it. SlipJay
+    // refuses, in its own words, a checkout it would not land.
+    const root = (yield* read(cwd, ["--ignore-working-copy", "workspace", "root"]))?.trim();
+    if (!root) return yield* refuse("This is not a Jujutsu workspace.");
+    // Registering and starting are one step, so an interrupted caller cannot leave a
+    // registration that no landing will ever settle.
+    const landing = yield* Effect.uninterruptible(
+      Effect.gen(function* () {
+        const started = yield* Deferred.make<VcsSlipJayLandResult, GitCommandError>();
+        const running = yield* Ref.modify(lands, (current) => {
+          const existing = current.get(root);
+          return existing === undefined
+            ? [undefined, new Map(current).set(root, started)]
+            : [existing, current];
+        });
+        if (running !== undefined) return running;
+        yield* runLand(root).pipe(
+          Effect.onExit((exit) => Deferred.done(started, exit)),
+          Effect.ensuring(
+            Ref.update(lands, (current) => {
+              const next = new Map(current);
+              next.delete(root);
+              return next;
+            }),
+          ),
+          Effect.forkIn(scope),
+        );
+        return started;
+      }),
+    );
+    return yield* Deferred.await(landing);
+  });
+
   return SlipJayLandings.of({
+    land,
     landingFor,
     changes: Stream.fromPubSub(changed),
     readLog,
@@ -334,6 +459,15 @@ export const layerNone = Layer.succeed(
   SlipJayLandings.of({
     landingFor: () => Effect.succeed(undefined),
     changes: Stream.empty,
+    land: ({ cwd }) =>
+      Effect.fail(
+        new GitCommandError({
+          operation: "SlipJayLandings.land",
+          command: "slipjay land",
+          cwd,
+          detail: "SlipJay is not available on this host.",
+        }),
+      ),
     readLog: ({ cwd }) =>
       Effect.fail(
         new GitCommandError({

@@ -211,6 +211,12 @@ export const VcsSlipJayLandingLogInput = Schema.Struct({
 });
 export type VcsSlipJayLandingLogInput = typeof VcsSlipJayLandingLogInput.Type;
 
+/** A SlipJay workspace to send to the runner with `slipjay land`. */
+export const VcsSlipJayLandInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsSlipJayLandInput = typeof VcsSlipJayLandInput.Type;
+
 // RPC Results
 
 export const VcsSlipJayLandingLogResult = Schema.Struct({
@@ -219,6 +225,22 @@ export const VcsSlipJayLandingLogResult = Schema.Struct({
   truncated: Schema.Boolean,
 });
 export type VcsSlipJayLandingLogResult = typeof VcsSlipJayLandingLogResult.Type;
+
+export const VcsSlipJayLandResult = Schema.Struct({
+  /** This workspace's current change was published. */
+  landed: Schema.Boolean,
+  /** The followed operation's final status as SlipJay reports it; null when nothing reached the runner. */
+  verdict: Schema.NullOr(Schema.String),
+  operationId: Schema.NullOr(Schema.String),
+  /** The published commit of a landed change. */
+  commitId: Schema.NullOr(Schema.String),
+  /**
+   * SlipJay's own words on the outcome: its failure or refusal, and any change it made to
+   * the workspace, such as moving the working copy or keeping the workspace.
+   */
+  messages: Schema.Array(Schema.String),
+});
+export type VcsSlipJayLandResult = typeof VcsSlipJayLandResult.Type;
 
 const VcsStatusChangeRequest = Schema.Struct({
   number: PositiveInt,

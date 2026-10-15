@@ -12,6 +12,8 @@ import {
   type VcsCreateWorktreeInput,
   type VcsCreateWorktreeResult,
   type VcsListRefsInput,
+  type VcsSlipJayLandInput,
+  type VcsSlipJayLandResult,
   type VcsSlipJayLandingLogInput,
   type VcsSlipJayLandingLogResult,
   type VcsListRefsResult,
@@ -79,6 +81,9 @@ export class GitWorkflowService extends Context.Service<
       input: GitPreparePullRequestThreadInput,
     ) => Effect.Effect<GitPreparePullRequestThreadResult, GitManagerServiceError>;
     /** A SlipJay landing's runner log, for the operation a workspace's status names. */
+    readonly landSlipJay: (
+      input: VcsSlipJayLandInput,
+    ) => Effect.Effect<VcsSlipJayLandResult, GitCommandError>;
     readonly readSlipJayLandingLog: (
       input: VcsSlipJayLandingLogInput,
     ) => Effect.Effect<VcsSlipJayLandingLogResult, GitCommandError>;
@@ -412,6 +417,7 @@ export const make = Effect.gen(function* () {
       "GitWorkflowService.preparePullRequestThread",
       gitManager.preparePullRequestThread,
     ),
+    landSlipJay: (input) => landings.land(input),
     readSlipJayLandingLog: (input) => landings.readLog(input),
     listRefs: (input) =>
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(

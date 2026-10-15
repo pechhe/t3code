@@ -106,6 +106,30 @@ describe("command permissions", () => {
     ),
   );
 
+  it.effect("requires the destination source control grant to land a SlipJay workspace", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const land = createCommandPermissions(runtime, WS_METHODS.vcsSlipJayLand);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(land.permissionAtom(env))).toBe(false);
+        expect((yield* land.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthSourceControlWriteScope],
+            permissions: [AuthSourceControlWriteScope],
+          }),
+        );
+        expect(registry.get(land.permissionAtom(env))).toBe(true);
+        yield* land.authorize(registry, env);
+      }),
+    ),
+  );
+
   it.effect("uses the target grant for both availability and execution", () =>
     Effect.scoped(
       Effect.gen(function* () {

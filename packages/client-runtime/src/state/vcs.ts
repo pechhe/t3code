@@ -302,6 +302,12 @@ export function createVcsEnvironmentAtoms<R, E>(
       concurrency: vcsCommandConcurrency,
       onSettled: invalidateRefs,
     }),
+    // `slipjay land` from a SlipJay workspace; its progress shows in the landing state.
+    slipJayLand: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-land",
+      tag: WS_METHODS.vcsSlipJayLand,
+      onSettled: invalidateRefs,
+    }),
     refreshStatus: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:refresh-status",
       tag: WS_METHODS.vcsRefreshStatus,

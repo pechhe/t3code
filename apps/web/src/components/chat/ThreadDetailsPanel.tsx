@@ -15,6 +15,7 @@ import {
 } from "../BranchToolbar.logic";
 import { BranchToolbar } from "../BranchToolbar";
 import BaseGitActionsControl from "../GitActionsControl";
+import { SlipJayLandControl } from "../SlipJayLandControl";
 import ProjectScriptsControl, {
   type NewProjectScriptInput,
   type ProjectScriptActionResult,
@@ -163,6 +164,14 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               <div className="flex flex-col">
                 {props.isGitRepo || props.slipJayStatus ? (
                   <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
+                ) : null}
+                {props.slipJayStatus ? (
+                  <SlipJayLandControl
+                    environmentId={props.environmentId}
+                    threadRef={activeThreadRef}
+                    status={props.slipJayStatus}
+                    isDraft={props.draftId !== undefined}
+                  />
                 ) : null}
                 {props.activeProjectName ? (
                   <GitActionsControl

@@ -177,6 +177,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.gitPreparePullRequestThread]: "git",
   [WS_METHODS.vcsListRefs]: "vcs",
   [WS_METHODS.vcsSlipJayLandingLog]: "vcs",
+  [WS_METHODS.vcsSlipJayLand]: "vcs",
   [WS_METHODS.vcsCreateWorktree]: "vcs",
   [WS_METHODS.vcsRemoveWorktree]: "vcs",
   [WS_METHODS.vcsCreateRef]: "vcs",

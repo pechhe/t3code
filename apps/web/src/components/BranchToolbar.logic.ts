@@ -4,6 +4,7 @@ import type {
   VcsRef,
   VcsStatusResult,
   VcsStatusSlipJayLanding,
+  VcsSlipJayLandResult,
   ProjectId,
   WorktreeSubmodules,
 } from "@t3tools/contracts";
@@ -147,6 +148,50 @@ export function resolveSlipJayCheckoutStatus(
     changedFileCount: status.workingTree.files.length,
     landing: status.slipJay.landing ?? null,
   };
+}
+
+/**
+ * Land applies to a started thread in its own SlipJay workspace, not the integration
+ * checkout, and not while a landing of its change is still running.
+ */
+export function resolveSlipJayLandAvailability(
+  status: SlipJayCheckoutStatus,
+  isDraft: boolean,
+): "available" | "landing" | null {
+  if (isDraft || status.workspace === undefined || status.workspace.isIntegration) return null;
+  return status.landing?.status === "active" ? "landing" : "available";
+}
+
+/**
+ * SlipJay or authorization refused a land request. Any other failure lost the connection
+ * to a landing that continues on the runner, which must not read as a failed landing.
+ */
+export function isSlipJayLandRefusal(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "_tag" in error &&
+    (error._tag === "GitCommandError" || error._tag === "EnvironmentAuthorizationError")
+  );
+}
+
+/** How a finished `slipjay land` is reported, in SlipJay's own words. */
+export function resolveSlipJayLandToast(result: VcsSlipJayLandResult): {
+  type: "success" | "error";
+  title: string;
+  description: string | undefined;
+} {
+  const description = result.messages.length === 0 ? undefined : result.messages.join("\n");
+  if (result.landed)
+    return {
+      type: "success",
+      title: result.commitId === null ? "Landed" : `Landed ${result.commitId.slice(0, 7)}`,
+      description,
+    };
+  // A run that followed an older commit reports that commit's verdict, not this one's.
+  const ended =
+    result.verdict === "failed" || result.verdict === "cancelled" || result.verdict === "declined";
+  return { type: "error", title: ended ? `Land ${result.verdict}` : "Not landed", description };
 }
 
 /** The strip's label for a landing, in SlipJay's own stage names. */
