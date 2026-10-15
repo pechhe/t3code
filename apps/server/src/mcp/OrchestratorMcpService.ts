@@ -110,7 +110,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
-import { continuableRoles, followupPrompt } from "../agents/followup.ts";
+import { continuableRoles, followupBinding, followupPrompt } from "../agents/followup.ts";
 import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -2257,7 +2257,14 @@ const make = Effect.gen(function* () {
           }),
         );
         const result = yield* managed.value
-          .roles({ providers: eligible, ceiling: limits.runtimeMode, request: input })
+          .roles({
+            providers: eligible,
+            ceiling: limits.runtimeMode,
+            request: input,
+            ...(parent === undefined
+              ? {}
+              : { currentInstanceId: parent.thread.modelSelection.instanceId }),
+          })
           .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
         return { ...result, environmentId: scope.environmentId };
       }),
@@ -2346,6 +2353,12 @@ const make = Effect.gen(function* () {
               "invalid_request",
               "Only a managed advisor or worker can continue its conversation; reviewers and UI verifiers start fresh.",
             );
+          const followupTarget = followupBinding(binding, followup);
+          if (followupTarget === undefined)
+            return yield* failure(
+              "invalid_request",
+              "This agent was launched on a source revision: state the revision its workspace is at now.",
+            );
           const key = yield* requestKey(input.clientRequestId);
           const commandId = stableCommandId({
             scope,
@@ -2427,7 +2440,8 @@ const make = Effect.gen(function* () {
             );
             yield* managed.value
               .validate({
-                binding: { ...binding, sourceRevision: followup.sourceRevision },
+                binding: followupTarget,
+                followupWithoutRevision: followup.sourceRevision === undefined,
                 selection: binding.effective,
                 providers,
                 ceiling: parent.thread.runtimeMode,
@@ -2465,7 +2479,9 @@ const make = Effect.gen(function* () {
                 commandId,
                 messageId,
                 senderThreadId: parent.thread.id,
-                followupSourceRevision: followup.sourceRevision,
+                ...(followup.sourceRevision === undefined
+                  ? {}
+                  : { followupSourceRevision: followup.sourceRevision }),
                 text,
                 attachments: [],
                 mode: "queue",

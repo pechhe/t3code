@@ -792,7 +792,6 @@ const make = Effect.gen(function* () {
         if (
           owner !== undefined &&
           (externalWorkOwner === undefined ||
-            command.followupSourceRevision === undefined ||
             owner.environmentId !== externalWorkOwner.environmentId ||
             owner.clientSessionId !== externalWorkOwner.clientSessionId ||
             owner.externalSessionKey !== externalWorkOwner.externalSessionKey ||

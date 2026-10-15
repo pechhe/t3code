@@ -342,7 +342,61 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
-  it.effect("delegates within the caller's pool to the member whose usage resets soonest", () =>
+  it.effect("prefers a model from a different provider than the caller's", () =>
+    Effect.gen(function* () {
+      const advisor = (currentInstanceId?: typeof codex.instanceId) =>
+        resolve(
+          input({
+            request: request({ role: "advisor" }),
+            ...(currentInstanceId === undefined ? {} : { currentInstanceId }),
+          }),
+        );
+      // The pool prefers Claude's fable, so without a caller that is the choice.
+      expect((yield* advisor()).instanceId).toBe(claude.instanceId);
+      // A Claude caller is advised by Codex, ahead of the pool's own preference.
+      expect((yield* advisor(claude.instanceId)).instanceId).toBe(codex.instanceId);
+      expect((yield* advisor(codex.instanceId)).instanceId).toBe(claude.instanceId);
+    }),
+  );
+
+  it.effect("ignores the caller's provider when the pool's switch is off", () =>
+    Effect.gen(function* () {
+      const base = snapshot();
+      const off = {
+        ...base,
+        manifest: {
+          ...base.manifest,
+          pools: {
+            ...base.manifest.pools,
+            advisor: { ...base.manifest.pools.advisor, crossProvider: false },
+          },
+        },
+      };
+      const value = yield* resolve(
+        input({
+          snapshot: off,
+          request: request({ role: "advisor" }),
+          currentInstanceId: claude.instanceId,
+        }),
+      );
+      expect(value.instanceId).toBe(claude.instanceId);
+    }),
+  );
+
+  it.effect("keeps the caller's provider when no other provider is eligible", () =>
+    Effect.gen(function* () {
+      const value = yield* resolve(
+        input({
+          request: request({ role: "advisor" }),
+          providers: [claude],
+          currentInstanceId: claude.instanceId,
+        }),
+      );
+      expect(value.instanceId).toBe(claude.instanceId);
+    }),
+  );
+
+  it.effect("delegates to the member whose usage resets soonest", () =>
     Effect.gen(function* () {
       const usage = (usedPercent: number, resetsAt: string) => ({
         checkedAt: "2026-10-15T00:00:00.000Z",

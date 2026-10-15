@@ -14,10 +14,25 @@ export const continuableRoles: ReadonlySet<AgentRole> = new Set([
 
 /** The message a follow-up adds to the agent's existing conversation. */
 export const followupPrompt = (
-  followup: { readonly sourceRevision: string; readonly changes: string },
+  followup: { readonly sourceRevision?: string | undefined; readonly changes: string },
   task: string,
 ) =>
-  `Source revision: ${followup.sourceRevision}\nChanges since your previous task: ${followup.changes}\n\n${task}`;
+  `${followup.sourceRevision === undefined ? "" : `Source revision: ${followup.sourceRevision}\n`}Changes since your previous task: ${followup.changes}\n\n${task}`;
+
+/**
+ * The binding a follow-up is validated against. A task launched with a source
+ * revision needs a newly stated one; a task launched without one, as outside a
+ * repository, stays without one. Undefined when a pinned task states none.
+ */
+export const followupBinding = (
+  binding: AgentTaskBinding,
+  followup: { readonly sourceRevision?: string | undefined },
+) =>
+  followup.sourceRevision !== undefined
+    ? { ...binding, sourceRevision: followup.sourceRevision }
+    : binding.sourceRevision === undefined
+      ? binding
+      : undefined;
 
 /**
  * Whether a follow-up's stated revision replaces the task's pinned source when

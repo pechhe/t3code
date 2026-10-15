@@ -44,7 +44,7 @@ import * as Managed from "./ManagedAgentService.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
-import { continuableRoles, followupPrompt } from "./followup.ts";
+import { continuableRoles, followupBinding, followupPrompt } from "./followup.ts";
 import { repositoryStore, workspaceOccupants } from "./workspaceIdentity.ts";
 
 export class ExternalAgentWorkError extends Schema.TaggedError<ExternalAgentWorkError>()(
@@ -517,6 +517,9 @@ const make = Effect.gen(function* () {
                 },
               }),
             );
+          const followupTarget = followupBinding(binding, followup);
+          if (followupTarget === undefined)
+            return yield* new ExternalAgentWorkError({ reason: "source" });
           const prompt = followupPrompt(followup, input.task);
           if (row === undefined) {
             const current = yield* status(scope, followup.taskId);
@@ -535,7 +538,8 @@ const make = Effect.gen(function* () {
             );
             yield* managed
               .validate({
-                binding: { ...binding, sourceRevision: followup.sourceRevision },
+                binding: followupTarget,
+                followupWithoutRevision: followup.sourceRevision === undefined,
                 selection: binding.effective,
                 providers: eligible,
                 ceiling,
@@ -556,7 +560,9 @@ const make = Effect.gen(function* () {
                 projectId: session.projectId,
                 threadId,
                 messageId,
-                followupSourceRevision: followup.sourceRevision,
+                ...(followup.sourceRevision === undefined
+                  ? {}
+                  : { followupSourceRevision: followup.sourceRevision }),
                 externalWorkOwner: {
                   environmentId: session.environmentId,
                   projectId: session.projectId,

@@ -73,6 +73,8 @@ const Manifest = Schema.Struct({
     Schema.Struct({
       allow: Aliases.check(Schema.isMinLength(1)),
       prefer: Aliases,
+      /** Prefer a model from a different provider than the caller's. On unless set to false. */
+      crossProvider: Schema.optional(Schema.Boolean),
     }),
   ),
   roles: Schema.Record(AgentRole, RolePolicy),

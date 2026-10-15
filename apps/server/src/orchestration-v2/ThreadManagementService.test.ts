@@ -621,7 +621,8 @@ it.effect("blocks agent messages to external work backing threads before dispatc
             if (command.type === "message.dispatch") dispatched.push(command);
             if (
               command.type === "message.dispatch" &&
-              command.followupSourceRevision !== undefined
+              command.threadId === externalThreadId &&
+              command.createdBy === "agent"
             ) {
               const runId = RunId.make("run:owned-external-followup");
               projection = {
@@ -701,6 +702,29 @@ it.effect("blocks agent messages to external work backing threads before dispatc
     expect(foreign).toMatchObject({ _tag: "OrchestratorCommandRejectedError" });
     expect(dispatched).toEqual([]);
     expect((yield* threads.sendToThread(followup)).delivery).toBe("queued");
+    expect(dispatched).toHaveLength(1);
+    dispatched.length = 0;
+
+    // A task launched without a source revision continues without one, still as its owner.
+    const { followupSourceRevision: _stated, ...unpinned } = followup;
+    const foreignUnpinned = yield* threads
+      .sendToThread({
+        ...unpinned,
+        commandId: CommandId.make("command:owned-external-unpinned-foreign"),
+        externalWorkOwner: { ...externalOwner, externalSessionKey: "foreign-owner" },
+      })
+      .pipe(Effect.flip);
+    expect(foreignUnpinned).toMatchObject({ _tag: "OrchestratorCommandRejectedError" });
+    expect(dispatched).toEqual([]);
+    expect(
+      (
+        yield* threads.sendToThread({
+          ...unpinned,
+          commandId: CommandId.make("command:owned-external-unpinned"),
+          messageId: MessageId.make("message:owned-external-unpinned"),
+        })
+      ).delivery,
+    ).toBe("queued");
     expect(dispatched).toHaveLength(1);
     dispatched.length = 0;
 

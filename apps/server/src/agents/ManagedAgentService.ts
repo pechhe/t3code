@@ -75,7 +75,10 @@ export class ManagedAgentService extends Context.Service<
   {
     readonly snapshot: () => Effect.Effect<AgentPolicySnapshot, ManagedAgentError>;
     readonly roles: (
-      input: Omit<Authority, "workspacePath"> & { readonly request: AgentRolesInput },
+      input: Omit<Authority, "workspacePath"> & {
+        readonly request: AgentRolesInput;
+        readonly currentInstanceId?: ProviderInstanceId;
+      },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
     readonly prepare: (
       input: Authority & {
@@ -91,6 +94,8 @@ export class ManagedAgentService extends Context.Service<
       input: Authority & {
         readonly binding: AgentTaskBinding;
         readonly selection: ModelSelection;
+        /** A follow-up that stated no source revision; an advisor's workspace must then not be a repository. */
+        readonly followupWithoutRevision?: boolean;
       },
     ) => Effect.Effect<void, ManagedAgentError>;
     /** Whether this environment names a policy, readable or not. */
@@ -245,6 +250,9 @@ const make = Effect.gen(function* () {
                 snapshot,
                 providers: input.providers,
                 ceiling: input.ceiling,
+                ...(input.currentInstanceId === undefined
+                  ? {}
+                  : { currentInstanceId: input.currentInstanceId }),
                 request: {
                   ...input.request,
                   role,
@@ -328,6 +336,14 @@ const make = Effect.gen(function* () {
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
       yield* workspace(input.binding, input, input.binding.sourceAccess === "scoped-write");
+      // An advisor reads a stated revision of a repository; only outside one may it go without.
+      if (input.followupWithoutRevision === true && input.binding.role === "advisor") {
+        const repository = yield* local(repositoryStore(input.binding.workspacePath)).pipe(
+          Effect.as(true),
+          Effect.orElseSucceed(() => false),
+        );
+        if (repository) return yield* new ManagedAgentError({ reason: "source" });
+      }
       const owner = input.binding.externalOwner;
       if (owner !== undefined) {
         const auth = yield* Effect.serviceOption(AuthSessions.AuthSessionRepository);

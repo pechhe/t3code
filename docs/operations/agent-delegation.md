@@ -58,6 +58,15 @@ its revision and the seven role names, or the reason the policy is refused.
   in its project's canonical root. Pass that exact root as `workspacePath`;
   other paths and isolated helpers still require an assigned workspace.
   Source-writing tasks require the lead's explicit workspace binding.
+- A pool prefers a model from a different provider than the caller's (Codex for
+  a Claude caller and the reverse), ahead of its own preference order; the
+  caller's own account earns no preference. Set `"crossProvider": false` on a
+  pool to use its preference order alone. `agent_roles` resolves for the same
+  caller, so it shows the model a launch will use. If only one provider is
+  eligible it is used.
+- A follow-up to a task launched on a source revision must state the revision
+  its workspace is at now. A task launched without one, as outside a
+  repository, continues without one.
 - A reviewer task must declare a `change` or `spec` review scope and its
   coverage. A new reviewer trial names the scopes it compares. A trial created
   before scopes existed admits only reviews that declare none, so the two kinds

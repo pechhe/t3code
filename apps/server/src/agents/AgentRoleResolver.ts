@@ -152,13 +152,22 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
     const index = pool.prefer.indexOf(alias);
     return index < 0 ? pool.prefer.length : index;
   };
-  // Accounts in one pool count as one account, so a caller on any member
-  // stays within its pool and gets the member whose usage resets soonest.
-  const account = (instanceId: ProviderInstanceId) =>
-    input.providers.find((provider) => provider.poolMembers?.includes(instanceId))?.instanceId ??
-    instanceId;
-  const currentAccount =
-    input.currentInstanceId === undefined ? undefined : account(input.currentInstanceId);
+  // A pool prefers a model from a different provider than the caller's, so work
+  // is checked and advised across providers; its own account earns no preference.
+  const callerDriver =
+    input.currentInstanceId === undefined
+      ? undefined
+      : input.providers.find(
+          (provider) =>
+            provider.instanceId === input.currentInstanceId ||
+            provider.poolMembers?.includes(input.currentInstanceId!),
+        )?.driver;
+  const otherProvider = (candidate: { readonly provider: ServerProvider }) =>
+    pool.crossProvider !== false &&
+    callerDriver !== undefined &&
+    candidate.provider.driver !== callerDriver
+      ? 1
+      : 0;
   const byUsageReset = compareByUsageReset(DateTime.toEpochMillis(yield* DateTime.now));
   candidates.sort(
     (a, b) =>
@@ -166,8 +175,7 @@ const resolve = Effect.fn("AgentRoleResolver.resolve")(function* (input: Resolut
         ? Number(a.selection.model === request.authorModel) -
           Number(b.selection.model === request.authorModel)
         : 0) ||
-      Number(account(b.selection.instanceId) === currentAccount) -
-        Number(account(a.selection.instanceId) === currentAccount) ||
+      otherProvider(b) - otherProvider(a) ||
       preference(a.alias) - preference(b.alias) ||
       byUsageReset(a.provider, b.provider),
   );
