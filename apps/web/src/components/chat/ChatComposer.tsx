@@ -2191,7 +2191,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       redrawingImageIdsRef.current.add(image.id);
       void markedImageFile(annotation.original, annotation.marks)
         .then(
-          (file) => annotateComposerDraftImage(attachmentDraftTarget, image.id, file, annotation),
+          ({ file, size }) =>
+            annotateComposerDraftImage(attachmentDraftTarget, image.id, file, {
+              ...annotation,
+              size,
+            }),
           () => {
             toastManager.add({
               type: "error",
@@ -6116,10 +6120,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   /** Bakes the marks into the image; the draft store keeps the notes chip in step. */
   const applyImageAnnotation = async (image: ComposerImageAttachment, marks: ImageMark[]) => {
     const original = image.annotation?.original ?? image.file;
-    let nextFile = original;
+    let marked: Awaited<ReturnType<typeof markedImageFile>> | null = null;
     if (marks.length > 0) {
       try {
-        nextFile = await markedImageFile(original, marks);
+        marked = await markedImageFile(original, marks);
       } catch {
         toastManager.add({ type: "error", title: `Could not annotate ${image.name}.` });
         return;
@@ -6133,8 +6137,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     annotateComposerDraftImage(
       attachmentDraftTarget,
       image.id,
-      nextFile,
-      marks.length > 0 ? { marks: marks.map(toAnnotationMark), original } : null,
+      marked?.file ?? original,
+      marked ? { marks: marks.map(toAnnotationMark), original, size: marked.size } : null,
     );
   };
 

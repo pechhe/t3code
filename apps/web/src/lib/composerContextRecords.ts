@@ -300,6 +300,7 @@ function imageAnnotationContextRecord(
     label: sanitizeComposerContextLabel(reference.label, "image-annotation"),
     imageContextId: imageContextReference(image).contextId as ComposerContextId,
     imageName: image.name,
+    ...(image.annotation?.size ? { imageSize: image.annotation.size } : {}),
     marks: [...marks],
   };
 }

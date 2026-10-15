@@ -200,6 +200,25 @@ describe("provider projection", () => {
     expect(projected).toContain("2. move here [arrow from x=0.50 y=0.50 to x=0.75 y=0.25]");
   });
 
+  it("gives the sent image's pixel size when it is known", () => {
+    const projected = projectComposerContextForProvider({
+      text: "Fix [shot.png · 1 note](t3-context://v1/image-annotation/ctx_n)",
+      records: [
+        {
+          version: 1,
+          contextId: "ctx_n" as ComposerContextId,
+          kind: "image-annotation",
+          label: "shot.png · 1 note",
+          imageContextId: "image_shot" as ComposerContextId,
+          imageName: "shot.png",
+          imageSize: { width: 1440, height: 900 },
+          marks: [{ kind: "point", note: "here", x: 0.5, y: 0.5 }],
+        },
+      ],
+    });
+    expect(projected).toContain("image: shot.png (ref=image_shot, 1440x900px)");
+  });
+
   it("returns text unchanged when there are no references", () => {
     expect(projectComposerContextForProvider({ text: "plain", records: [terminal] })).toBe("plain");
   });

@@ -15,6 +15,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
   ProviderOptionSelections,
   ImageAnnotationMark,
+  type ImageAnnotationSize,
   PreviewAnnotationPayloadSchema,
   PastedTextAttachmentSource,
   type PreviewAnnotationPayload,
@@ -162,6 +163,8 @@ export type PersistedComposerImageAttachment = typeof PersistedComposerImageAtta
 export interface ComposerImageAnnotation {
   marks: ReadonlyArray<ImageAnnotationMark>;
   original: File;
+  /** The marked `file`'s pixel size; absent until the marks are drawn. */
+  size?: ImageAnnotationSize;
 }
 
 export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {

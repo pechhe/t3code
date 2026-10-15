@@ -4,7 +4,11 @@
  * the user's note and its position as fractions (0–1) of the image width and height.
  */
 
-import { type ImageAnnotationMark, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES } from "@t3tools/contracts";
+import {
+  type ImageAnnotationMark,
+  type ImageAnnotationSize,
+  PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+} from "@t3tools/contracts";
 
 import { prepareImageForAttachment } from "./imageCompression";
 import { randomUUID } from "./utils";
@@ -227,15 +231,21 @@ async function flattenAnnotatedImage(
   return new File([blob], `${baseName}-annotated.png`, { type: "image/png" });
 }
 
-/** The marked copy of `original` that is uploaded and sent, within the provider image limit. */
+/**
+ * The marked copy of `original` that is uploaded and sent, within the provider image limit,
+ * with its pixel size after any downscaling: the size the agent's positions refer to.
+ */
 export async function markedImageFile(
   original: File,
   marks: ReadonlyArray<ImageAnnotationMark>,
-): Promise<File> {
+): Promise<{ file: File; size: ImageAnnotationSize }> {
   const prepared = await prepareImageForAttachment(
     await flattenAnnotatedImage(original, marks),
     PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
   );
   if (!prepared.ok) throw new Error(prepared.reason);
-  return prepared.file;
+  const bitmap = await createImageBitmap(prepared.file);
+  const size = { width: bitmap.width, height: bitmap.height };
+  bitmap.close();
+  return { file: prepared.file, size };
 }

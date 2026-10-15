@@ -223,6 +223,10 @@ export const ImageAnnotationMark = Schema.Union([
 ]);
 export type ImageAnnotationMark = typeof ImageAnnotationMark.Type;
 
+/** An image's width and height in pixels. */
+export const ImageAnnotationSize = Schema.Struct({ width: PositiveInt, height: PositiveInt });
+export type ImageAnnotationSize = typeof ImageAnnotationSize.Type;
+
 /**
  * Notes on an attached image. The marks are drawn into the image itself, numbered in this
  * order; the record pairs each number with its note and position.
@@ -233,6 +237,8 @@ export const ImageAnnotationContextRecord = Schema.Struct({
   /** The annotated image's own record. */
   imageContextId: ComposerContextId,
   imageName: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  /** The sent image's pixel size, so the agent can turn positions into pixels. */
+  imageSize: Schema.optional(ImageAnnotationSize),
   marks: Schema.Array(ImageAnnotationMark).check(Schema.isMinLength(1), Schema.isMaxLength(100)),
 });
 export type ImageAnnotationContextRecord = typeof ImageAnnotationContextRecord.Type;
