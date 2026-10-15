@@ -1,6 +1,6 @@
 /* Full-screen image annotator. The marks match what `drawImageMarks` bakes into the image. */
 .image-annotator {
-  --annotation-mark: #14ce4c;
+  --annotation-mark: #f0249b;
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -29,6 +29,10 @@
 
 .image-annotator-hint {
   margin: 0;
+}
+
+.image-annotator-hint[data-warning] {
+  color: rgb(255 170 214);
 }
 
 .image-annotator-stage {
@@ -64,11 +68,12 @@
   box-shadow: 0 24px 60px rgb(0 0 0 / 0.5);
 }
 
+/* Outline and halo sit outside the box's edge, as in the baked image. */
 .image-annotator-box {
   position: absolute;
-  border: 2px solid var(--annotation-mark);
   border-radius: 4px;
-  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.75);
+  outline: 2px solid var(--annotation-mark);
+  box-shadow: 0 0 0 3.5px rgb(255 255 255 / 0.75);
 }
 
 /* Above the top-left corner, clear of what the box points at. */
@@ -79,12 +84,12 @@
 }
 
 .image-annotator-box[data-preview] {
-  border-style: dashed;
+  outline-style: dashed;
   pointer-events: none;
 }
 
 .image-annotator-box[data-active] {
-  background: rgb(20 206 76 / 0.24);
+  background: rgb(240 36 155 / 0.16);
 }
 
 .image-annotator-line {
@@ -117,12 +122,13 @@
 
 .image-annotator-point i {
   position: absolute;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
+  border: 3px solid var(--annotation-mark);
   border-radius: 999px;
-  background: var(--annotation-mark);
   box-shadow:
-    0 0 0 2px rgb(255 255 255 / 0.95),
+    0 0 0 1.5px rgb(255 255 255 / 0.95),
+    inset 0 0 0 1.5px rgb(255 255 255 / 0.95),
     0 2px 8px rgb(0 0 0 / 0.35);
   transform: translate(-50%, -50%);
 }
@@ -154,7 +160,7 @@
 }
 
 .image-annotator-badge[data-active] {
-  outline: 3px solid rgb(71 232 117 / 0.42);
+  outline: 3px solid rgb(255 112 196 / 0.45);
 }
 
 .image-annotator-note {

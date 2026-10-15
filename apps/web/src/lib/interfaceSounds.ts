@@ -1,12 +1,15 @@
 /**
  * Interface sounds: the composer's machined press and rotary clicks (peach-pi's
- * recordings) and the sidebar's hover tick (YardSmith's synthesised detent).
+ * recordings), the synthesised cue that follows a send or queue, and the sidebar's
+ * hover tick (YardSmith's synthesised detent).
  *
  * Browsers keep audio silent until the page sees a gesture, so the context starts
  * on the first pointer or key press and anything earlier is skipped. Between
  * bursts it suspends, so an idle window holds no audio output open. Everything is
  * quiet while the `interfaceSounds` client setting is off.
  */
+import type { QueueSound, SendSound } from "@t3tools/contracts/settings";
+
 import { getClientSettings } from "~/hooks/useSettings";
 
 import pressDownUrl from "../assets/sounds/press-down.mp3?url";
@@ -76,6 +79,122 @@ export function installInterfaceSounds(): void {
 function scheduleSuspend(): void {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => void context?.suspend().catch(() => undefined), IDLE_SUSPEND_MS);
+}
+
+/** Runs `build` against a running context, scheduled from its current time. */
+function synth(build: (audio: AudioContext, output: AudioNode, at: number) => void): void {
+  if (!context || !master || !enabled()) return;
+  const output = master;
+  const audio = context;
+  const start = () => build(audio, output, audio.currentTime);
+  if (audio.state === "running") start();
+  else void audio.resume().then(start, () => undefined);
+  scheduleSuspend();
+}
+
+function noise(audio: AudioContext, seconds: number): AudioBuffer {
+  const buffer = audio.createBuffer(1, Math.ceil(seconds * audio.sampleRate), audio.sampleRate);
+  const samples = buffer.getChannelData(0);
+  for (let index = 0; index < samples.length; index += 1) samples[index] = Math.random() * 2 - 1;
+  return buffer;
+}
+
+/** A breath of filtered noise whose band sweeps from `from` to `to` hertz. */
+function sweep(
+  audio: AudioContext,
+  output: AudioNode,
+  at: number,
+  seconds: number,
+  [from, to]: [number, number],
+  volume: number,
+  q: number,
+  type: BiquadFilterType = "bandpass",
+): void {
+  const source = audio.createBufferSource();
+  source.buffer = noise(audio, seconds);
+  const filter = audio.createBiquadFilter();
+  filter.type = type;
+  filter.Q.value = q;
+  filter.frequency.setValueAtTime(from, at);
+  filter.frequency.exponentialRampToValueAtTime(to, at + seconds);
+  const gain = audio.createGain();
+  gain.gain.setValueAtTime(0, at);
+  gain.gain.linearRampToValueAtTime(volume, at + seconds * 0.25);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+  source.connect(filter).connect(gain).connect(output);
+  source.addEventListener("ended", () => gain.disconnect());
+  source.start(at);
+  source.stop(at + seconds);
+}
+
+/** A decaying partial gliding from `from` to `to` hertz. */
+function tone(
+  audio: AudioContext,
+  output: AudioNode,
+  at: number,
+  seconds: number,
+  [from, to]: [number, number],
+  volume: number,
+  type: OscillatorType = "sine",
+): void {
+  const oscillator = audio.createOscillator();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(from, at);
+  oscillator.frequency.exponentialRampToValueAtTime(to, at + seconds);
+  const gain = audio.createGain();
+  gain.gain.setValueAtTime(volume, at);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + seconds);
+  oscillator.connect(gain).connect(output);
+  oscillator.addEventListener("ended", () => gain.disconnect());
+  oscillator.start(at);
+  oscillator.stop(at + seconds);
+}
+
+type Cue = (audio: AudioContext, output: AudioNode, at: number) => void;
+
+/** What follows the dial's press once a message goes to the agent; `press` adds nothing. */
+const SEND_CUES: Record<SendSound, Cue | null> = {
+  press: null,
+  air: (audio, output, at) => sweep(audio, output, at, 0.2, [700, 3200], 0.55, 1.4),
+  tube: (audio, output, at) => {
+    tone(audio, output, at, 0.08, [140, 60], 0.8);
+    sweep(audio, output, at + 0.03, 0.26, [400, 2400], 0.5, 0.9, "lowpass");
+  },
+  bell: (audio, output, at) => {
+    tone(audio, output, at, 0.32, [1320, 1316], 0.35);
+    tone(audio, output, at, 0.22, [1980, 1975], 0.18);
+  },
+};
+
+/** What follows the press when the message waits in the queue instead. */
+const QUEUE_CUES: Record<QueueSound, Cue> = {
+  latch: (audio, output, at) => {
+    playAt(audio, output, recordings.get("pressUp"), at, 0.78, 0.9);
+    tone(audio, output, at + 0.04, 0.1, [660, 440], 0.3);
+  },
+  drop: (audio, output, at) => {
+    sweep(audio, output, at, 0.14, [2600, 700], 0.45, 1.6);
+    tone(audio, output, at + 0.13, 0.09, [110, 70], 0.7);
+  },
+};
+
+function playAt(
+  audio: AudioContext,
+  output: AudioNode,
+  buffer: AudioBuffer | undefined,
+  at: number,
+  rate: number,
+  volume: number,
+): void {
+  if (!buffer) return;
+  const source = audio.createBufferSource();
+  source.buffer = buffer;
+  source.playbackRate.value = rate;
+  const gain = audio.createGain();
+  gain.gain.value = volume;
+  source.connect(gain).connect(output);
+  source.addEventListener("ended", () => gain.disconnect());
+  source.start(at);
 }
 
 function play(buffer: AudioBuffer | null | undefined, rate = 1, volume = 1): void {
@@ -162,4 +281,26 @@ export function playHoverTick(): void {
   tickBuffer ??= renderTick(context);
   // The tick is rendered at full scale; YardSmith plays it at 0.12 of its own master.
   play(tickBuffer, 1 + (Math.random() - 0.5) * TICK_PITCH_SPREAD * 2, 0.12 / MASTER_VOLUME);
+}
+
+/** The cue after the dial's press: the chosen send sound, or the queue sound when it waits. */
+export function playDispatchCue(queued: boolean): void {
+  const settings = getClientSettings();
+  const cue = queued ? QUEUE_CUES[settings.queueSound] : SEND_CUES[settings.sendSound];
+  if (cue) synth(cue);
+}
+
+function previewCue(cue: Cue | null): void {
+  pressClick()();
+  if (cue) synth((audio, output, at) => cue(audio, output, at + 0.06));
+}
+
+/** A whole dial press followed by a send sound, for choosing one in Settings. */
+export function previewSendSound(sound: SendSound): void {
+  previewCue(SEND_CUES[sound]);
+}
+
+/** A whole dial press followed by a queue sound, for choosing one in Settings. */
+export function previewQueueSound(sound: QueueSound): void {
+  previewCue(QUEUE_CUES[sound]);
 }

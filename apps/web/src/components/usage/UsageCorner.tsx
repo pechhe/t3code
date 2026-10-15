@@ -3,12 +3,14 @@ import {
   collectLimitAccounts,
   collectLimitPools,
   formatDuration,
+  type LimitAccount,
   type LimitPool,
   type LimitPoolWindow,
+  planCapacity,
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
-import { useLayoutEffect, useState } from "react";
+import { Fragment, useLayoutEffect, useState } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { observeResize } from "../../lib/observeResize";
@@ -35,6 +37,16 @@ function cornerWindows(pool: LimitPool): LimitPoolWindow[] {
     const first = accountWide.find((window) => window.kind === kind);
     return first ? [first] : [];
   });
+}
+
+/**
+ * A short name telling accounts apart: the instance's display name, else its instance id
+ * (`claude_ys` → `ys`). Emails stay off the card, as on the Usage page.
+ */
+function accountName(account: LimitAccount): string {
+  if (account.displayName) return account.displayName;
+  const id = account.key.slice(account.key.indexOf(":") + 1).replace(/\.json$/i, "");
+  return id.replace(/^(claude|codex)[_-]/i, "") || id;
 }
 
 function windowLabel(window: LimitPoolWindow): string {
@@ -94,15 +106,29 @@ export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null 
         <span>Usage left</span>
         <span aria-hidden>→</span>
       </button>
-      {rows.map(({ pool, window }) => (
-        <UsageCornerRow
-          key={`${pool.driver}:${window.kind}:${window.id}`}
-          pool={pool}
-          window={window}
-          now={now}
-        />
+      {rows.map(({ pool, window }, index) => (
+        <Fragment key={`${pool.driver}:${window.kind}:${window.id}`}>
+          <UsageCornerRow pool={pool} window={window} now={now} />
+          {pool.accounts.length > 1 && rows[index + 1]?.pool !== pool ? (
+            <PoolLegend pool={pool} />
+          ) : null}
+        </Fragment>
       ))}
     </section>
+  );
+}
+
+/** The pool's accounts in segment order, each with the plan multiplier its segment is sized by. */
+function PoolLegend({ pool }: { readonly pool: LimitPool }) {
+  return (
+    <div className="flex flex-wrap gap-x-2 ps-20 text-2xs text-muted-foreground tabular-nums">
+      {pool.accounts.map((account) => (
+        <span key={account.key}>
+          {accountName(account)}{" "}
+          <span className="text-foreground/70">{planCapacity(account.plan)}×</span>
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -146,7 +172,7 @@ function UsageCornerRow({
               </TooltipTrigger>
               <TooltipPopup>
                 {[
-                  column.account.displayName ?? provider,
+                  accountName(column.account),
                   column.account.plan,
                   `${remainingPercent(column.window)}% left`,
                   column.window.resetsAt

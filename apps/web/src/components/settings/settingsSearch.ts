@@ -24,7 +24,6 @@ export type SettingsPath =
   | "/settings/integrations"
   | "/settings/experiments"
   | "/settings/delegation"
-  | "/settings/scheduled-tasks"
   | "/settings/source-control"
   | "/settings/storage"
   | "/settings/connections"
@@ -105,7 +104,6 @@ export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/integrations": "Integrations",
   "/settings/experiments": "Experiments",
   "/settings/delegation": "Agents · Delegation",
-  "/settings/scheduled-tasks": "Scheduled Tasks",
   "/settings/source-control": "Source Control",
   "/settings/storage": "Storage",
   "/settings/connections": "Connections",
@@ -349,6 +347,24 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Interface sounds",
     to: "/settings/appearance",
     searchTerms: ["click tick audio sound effects hover composer sidebar mute"],
+  },
+  {
+    id: "send-sound",
+    title: "Send sound",
+    to: "/settings/appearance",
+    searchTerms: ["sound audio send message air release pneumatic tube bell click dial"],
+  },
+  {
+    id: "queue-sound",
+    title: "Queue sound",
+    to: "/settings/appearance",
+    searchTerms: ["sound audio queue queued message latch drop slot click dial"],
+  },
+  {
+    id: "send-motion",
+    title: "Send motion",
+    to: "/settings/appearance",
+    searchTerms: ["animation send message lift vacuum fly transition motion"],
   },
   {
     id: "composer-finish",
@@ -1099,7 +1115,6 @@ const SETTINGS_CATEGORY_SCOPES: Readonly<Record<SettingsPath, SettingsSearchScop
   "/settings/connections": "connections",
   "/settings/experiments": null,
   "/settings/delegation": null,
-  "/settings/scheduled-tasks": null,
   "/settings/archived": "project-defaults",
 };
 

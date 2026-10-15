@@ -83,6 +83,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { playSendArrival } from "~/lib/sendMotion";
 import {
   LegendList,
   type LegendListRef,
@@ -2273,6 +2274,11 @@ function MessageAuthorHeading({ children }: { children: string }) {
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
+  // A message the composer just sent arrives from where its text sat.
+  useLayoutEffect(() => {
+    if (bubbleRef.current) playSendArrival(bubbleRef.current);
+  }, []);
   const { onImageExpand, onFileOpen } = ctx;
   const senderThreadId = row.message.senderThreadId;
   const resources = useMemo(
@@ -2451,7 +2457,7 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
         >
           {userMessage.scheduledTaskId ? (
             <Link
-              to="/settings/scheduled-tasks"
+              to="/scheduled"
               search={{
                 environmentId: ctx.activeThreadEnvironmentId,
                 taskId: userMessage.scheduledTaskId,
@@ -2489,7 +2495,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       {row.message.inputIntent && row.message.inputIntent !== "turn_start" ? (
         <UserMessageIntentMarker intent={row.message.inputIntent} />
       ) : null}
-      <div className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground">
+      <div
+        ref={bubbleRef}
+        className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
+      >
         <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">

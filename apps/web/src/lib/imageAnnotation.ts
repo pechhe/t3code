@@ -30,7 +30,8 @@ export type ImageMark =
       note: string;
     };
 
-export const ANNOTATION_MARK_COLOR = "#14ce4c";
+/** Magenta reads against almost any screenshot, where green vanishes into success states. */
+export const ANNOTATION_MARK_COLOR = "#f0249b";
 
 /** Marks a user left without a note are dropped rather than sent as bare numbers. */
 export function notedMarks(marks: ReadonlyArray<ImageMark>): ImageMark[] {
@@ -123,16 +124,23 @@ export function drawImageMarks(
     if (mark.kind === "box") {
       const boxWidth = mark.width * width;
       const boxHeight = mark.height * height;
-      // No fill, so the boxed pixels keep their true colour.
-      context.lineWidth = stroke + Math.max(2, stroke * 0.6);
+      // No fill, and the strokes sit outside the edge, so the boxed pixels stay untouched.
+      const halo = Math.max(2, stroke * 0.6);
+      const ring = stroke / 2;
+      context.lineWidth = stroke + halo;
       context.strokeStyle = "rgba(255,255,255,0.9)";
-      context.strokeRect(x, y, boxWidth, boxHeight);
+      context.strokeRect(
+        x - ring - halo / 2,
+        y - ring - halo / 2,
+        boxWidth + stroke + halo,
+        boxHeight + stroke + halo,
+      );
       context.lineWidth = stroke;
       context.strokeStyle = ANNOTATION_MARK_COLOR;
-      context.strokeRect(x, y, boxWidth, boxHeight);
+      context.strokeRect(x - ring, y - ring, boxWidth + stroke, boxHeight + stroke);
       // The badge sits just above the top-left corner, or below the box when there is no room,
       // so it never covers what the box points at.
-      const gap = badge + stroke;
+      const gap = badge + stroke + halo;
       placeBadge(x + badge, y - gap - badge >= 0 ? y - gap : y + boxHeight + gap, label);
       return;
     }
@@ -170,15 +178,18 @@ export function drawImageMarks(
       placeBadge(x, y, label);
       return;
     }
-    const radius = Math.max(6, Math.round(badge * 0.5));
-    context.beginPath();
-    context.arc(x, y, radius + Math.max(1.5, stroke * 0.35), 0, Math.PI * 2);
-    context.fillStyle = "rgba(255,255,255,0.92)";
-    context.fill();
+    // A hollow ring, so the pixel being pointed at stays visible in its middle.
+    const radius = Math.max(7, Math.round(badge * 0.6));
+    context.lineWidth = stroke + Math.max(2, stroke * 0.6);
+    context.strokeStyle = "rgba(255,255,255,0.92)";
     context.beginPath();
     context.arc(x, y, radius, 0, Math.PI * 2);
-    context.fillStyle = ANNOTATION_MARK_COLOR;
-    context.fill();
+    context.stroke();
+    context.lineWidth = stroke;
+    context.strokeStyle = ANNOTATION_MARK_COLOR;
+    context.beginPath();
+    context.arc(x, y, radius, 0, Math.PI * 2);
+    context.stroke();
     // The badge sits up and to the right of the dot, or flips inward near an edge.
     const offset = (radius + badge + stroke) * Math.SQRT1_2;
     placeBadge(x + (mark.x > 0.9 ? -offset : offset), y + (mark.y < 0.1 ? offset : -offset), label);

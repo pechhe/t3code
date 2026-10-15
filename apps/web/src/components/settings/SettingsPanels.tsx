@@ -47,6 +47,8 @@ import {
   type ResponseStreamingMode,
   MIN_TERMINAL_FONT_SIZE,
   type QuitConfirmationMode,
+  QueueSound,
+  SendSound,
   SidebarProjectSortOrder,
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -172,6 +174,7 @@ import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { COMPOSER_FINISHES, resolveComposerFinish } from "~/lib/composerFinish";
+import { previewQueueSound, previewSendSound } from "~/lib/interfaceSounds";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Version pill",
@@ -601,6 +604,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.interfaceSounds !== DEFAULT_UNIFIED_SETTINGS.interfaceSounds
         ? ["Interface sounds"]
         : []),
+      ...(settings.sendMotion !== DEFAULT_UNIFIED_SETTINGS.sendMotion ? ["Send motion"] : []),
+      ...(settings.sendSound !== DEFAULT_UNIFIED_SETTINGS.sendSound ? ["Send sound"] : []),
+      ...(settings.queueSound !== DEFAULT_UNIFIED_SETTINGS.queueSound ? ["Queue sound"] : []),
       ...(settings.composerFinish !== DEFAULT_UNIFIED_SETTINGS.composerFinish
         ? ["Composer finish"]
         : []),
@@ -734,6 +740,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.inAppNotificationsEnabled,
       settings.wordWrap,
       settings.interfaceSounds,
+      settings.sendMotion,
+      settings.sendSound,
+      settings.queueSound,
       settings.composerFinish,
       followSystem,
       theme,
@@ -812,6 +821,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
       wordWrap: DEFAULT_UNIFIED_SETTINGS.wordWrap,
       interfaceSounds: DEFAULT_UNIFIED_SETTINGS.interfaceSounds,
+      sendMotion: DEFAULT_UNIFIED_SETTINGS.sendMotion,
+      sendSound: DEFAULT_UNIFIED_SETTINGS.sendSound,
+      queueSound: DEFAULT_UNIFIED_SETTINGS.queueSound,
       composerFinish: DEFAULT_UNIFIED_SETTINGS.composerFinish,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -1785,6 +1797,147 @@ function InterfaceSoundsRow() {
   );
 }
 
+const SEND_SOUNDS = SendSound.literals;
+const QUEUE_SOUNDS = QueueSound.literals;
+
+const SEND_SOUND_LABELS = {
+  press: "Press",
+  air: "Air release",
+  tube: "Pneumatic tube",
+  bell: "Struck bell",
+} as const satisfies Record<SendSound, string>;
+
+function SendSoundRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  if (!settings.interfaceSounds) return null;
+  return (
+    <SettingsRow
+      {...searchableSetting("send-sound")}
+      description="What the send dial plays after its press when a message goes straight to the agent."
+      resetAction={
+        settings.sendSound !== DEFAULT_UNIFIED_SETTINGS.sendSound ? (
+          <SettingResetButton
+            label="send sound"
+            onClick={() => updateSettings({ sendSound: DEFAULT_UNIFIED_SETTINGS.sendSound })}
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={settings.sendSound}
+          onValueChange={(value) => {
+            const sound = SEND_SOUNDS.find((candidate) => candidate === value);
+            if (!sound) return;
+            updateSettings({ sendSound: sound });
+            previewSendSound(sound);
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Send sound">
+            <SelectValue>{SEND_SOUND_LABELS[settings.sendSound]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {SEND_SOUNDS.map((sound) => (
+              <SelectItem key={sound} hideIndicator value={sound}>
+                {SEND_SOUND_LABELS[sound]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
+const QUEUE_SOUND_LABELS = {
+  latch: "Latch",
+  drop: "Drop in slot",
+} as const satisfies Record<QueueSound, string>;
+
+function QueueSoundRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  if (!settings.interfaceSounds) return null;
+  return (
+    <SettingsRow
+      {...searchableSetting("queue-sound")}
+      description="What the send dial plays instead when the agent is busy and your message waits in the queue."
+      resetAction={
+        settings.queueSound !== DEFAULT_UNIFIED_SETTINGS.queueSound ? (
+          <SettingResetButton
+            label="queue sound"
+            onClick={() => updateSettings({ queueSound: DEFAULT_UNIFIED_SETTINGS.queueSound })}
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={settings.queueSound}
+          onValueChange={(value) => {
+            const sound = QUEUE_SOUNDS.find((candidate) => candidate === value);
+            if (!sound) return;
+            updateSettings({ queueSound: sound });
+            previewQueueSound(sound);
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Queue sound">
+            <SelectValue>{QUEUE_SOUND_LABELS[settings.queueSound]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {QUEUE_SOUNDS.map((sound) => (
+              <SelectItem key={sound} hideIndicator value={sound}>
+                {QUEUE_SOUND_LABELS[sound]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
+const SEND_MOTION_LABELS = { lift: "Lift", vacuum: "Vacuum", off: "Off" } as const;
+
+function SendMotionRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  return (
+    <SettingsRow
+      {...searchableSetting("send-motion")}
+      description="Lift flies your message from the composer into the thread; Vacuum pulls it out of the composer. Off when your system asks for reduced motion."
+      resetAction={
+        settings.sendMotion !== DEFAULT_UNIFIED_SETTINGS.sendMotion ? (
+          <SettingResetButton
+            label="send motion"
+            onClick={() => updateSettings({ sendMotion: DEFAULT_UNIFIED_SETTINGS.sendMotion })}
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={settings.sendMotion}
+          onValueChange={(value) => {
+            if (value === "lift" || value === "vacuum" || value === "off") {
+              updateSettings({ sendMotion: value });
+            }
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Send motion">
+            <SelectValue>{SEND_MOTION_LABELS[settings.sendMotion]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {(["lift", "vacuum", "off"] as const).map((motion) => (
+              <SelectItem key={motion} hideIndicator value={motion}>
+                {SEND_MOTION_LABELS[motion]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
 function ComposerFinishRow() {
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
@@ -1925,6 +2078,9 @@ function TypographySection() {
       {advanced ? <FontSettingsGroup /> : <SimpleFontRows />}
       <WordWrapRow />
       <InterfaceSoundsRow />
+      <SendSoundRow />
+      <QueueSoundRow />
+      <SendMotionRow />
       <ComposerFinishRow />
     </SettingsSection>
   );

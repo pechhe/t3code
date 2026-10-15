@@ -297,9 +297,10 @@ import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
-import { pressClick } from "~/lib/interfaceSounds";
+import { playDispatchCue, pressClick } from "~/lib/interfaceSounds";
+import { recordSendOrigin } from "~/lib/sendMotion";
 import { DeviceContextBar } from "./device/DeviceContextBar";
-import { DeviceModelSlider } from "./device/DeviceModelSlider";
+import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -1519,6 +1520,8 @@ export interface ChatComposerHandle {
   openControl: (command: KeybindingCommand) => void;
   /** Turn the reasoning dial one stop up (`1`) or down (`-1`). */
   stepEffort: (direction: 1 | -1) => void;
+  /** Pick the model in slider slot `index` (0-based). */
+  selectModelSlot: (index: number) => void;
   isModelPickerOpen: () => boolean;
   /** True when a collapsed caret sits before everything in the draft, including when it is empty. */
   isCaretAtStart: () => boolean;
@@ -2584,6 +2587,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       : null,
   ).data;
   const reasoningDialRef = useRef<DeviceReasoningDialHandle>(null);
+  const modelSliderRef = useRef<DeviceModelSliderHandle>(null);
   const [sendPressKey, setSendPressKey] = useState(0);
   const {
     isComposerFocused,
@@ -4557,6 +4561,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         });
         return;
       }
+      const resolvedDispatchMode =
+        dispatchMode ??
+        resolveComposerDispatchMode({
+          running: phase === "running",
+          alternateModifier: false,
+          activeTurnDefault: settings.followUpBehavior,
+        });
       const submission = submitComposerDraft({
         prompt: promptRef.current,
         submissionTarget: activePendingProgress ? "pending-user-input" : "provider-turn",
@@ -4565,25 +4576,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           // ChatView reports its final composed-input preflight through the
           // composer handle before its first asynchronous send step.
           providerInputRejectedRef.current = false;
-          onSend(
-            sendEvent,
-            dispatchMode ??
-              resolveComposerDispatchMode({
-                running: phase === "running",
-                alternateModifier: false,
-                activeTurnDefault: settings.followUpBehavior,
-              }),
-            submissionIntent,
+          recordSendOrigin(
+            composerSurfaceRef.current?.querySelector<HTMLElement>(
+              '[data-testid="composer-editor"]',
+            ) ?? null,
           );
+          onSend(sendEvent, resolvedDispatchMode, submissionIntent);
           return !providerInputRejectedRef.current;
         },
       });
       setComposerSubmissionError(submission.validationMessage);
       if (!submission.didDispatch) return;
       // A click already pressed the dial; keyboard sends press it here.
-      if (!event && deviceComposer) {
-        setSendPressKey((key) => key + 1);
-        pressClick()();
+      if (deviceComposer) {
+        if (!event) {
+          setSendPressKey((key) => key + 1);
+          pressClick()();
+        }
+        playDispatchCue(resolvedDispatchMode === "queue" && !activePendingProgress);
       }
       onTypingGuardSend();
       if (shouldBlurMobileComposerOnSubmit()) {
@@ -5921,6 +5931,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     <>
       {props.deviceEnvironmentSwitch}
       <DeviceModelSlider
+        ref={modelSliderRef}
         environmentId={environmentId}
         activeInstanceId={selectedInstanceId}
         model={selectedModelForPickerWithCustomFallback}
@@ -6898,6 +6909,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         }
       },
       stepEffort: (direction) => reasoningDialRef.current?.step(direction),
+      selectModelSlot: (index) => modelSliderRef.current?.selectSlot(index),
       openControl: (command) => {
         if (composerBlurFrameRef.current !== null) {
           window.cancelAnimationFrame(composerBlurFrameRef.current);

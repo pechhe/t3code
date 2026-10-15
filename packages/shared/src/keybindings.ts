@@ -177,6 +177,16 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+h", command: "composer.host", when: "!terminalFocus" },
   { key: "mod+shift+e", command: "composer.effort", when: "!terminalFocus" },
   { key: "mod+arrowup", command: "composer.effortUp", when: "!terminalFocus" },
+  ...(["1", "2", "3", "4"] as const).map((slot) => ({
+    key: `mod+${slot}`,
+    command: `composer.modelSlot.${slot}` as const,
+    when: "!modelPickerOpen && !terminalFocus && isDesktop",
+  })),
+  {
+    key: "mod+5",
+    command: "modelPicker.toggle",
+    when: "!modelPickerOpen && !terminalFocus && isDesktop",
+  },
   { key: "mod+arrowdown", command: "composer.effortDown", when: "!terminalFocus" },
   { key: "mod+shift+a", command: "composer.mode", when: "!terminalFocus" },
   { key: "mod+shift+x", command: "composer.workspace", when: "!terminalFocus" },
@@ -192,8 +202,9 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
   { key: "mod+shift+s", command: "thread.settle", when: "!terminalFocus" },
   { key: "mod+shift+p", command: "thread.pin", when: "!terminalFocus" },
   { key: "mod+z", command: "thread.undo", when: "!terminalFocus && !editableFocus" },
+  // ⌘⌥1–9 jumps threads, leaving ⌘1–4 for the composer's model slots and ⌘5 for the picker.
   ...THREAD_JUMP_KEYBINDING_COMMANDS.map((command, index) => ({
-    key: `mod+${index + 1}`,
+    key: `mod+alt+${index + 1}`,
     command,
     when: "!modelPickerOpen && isDesktop",
   })),

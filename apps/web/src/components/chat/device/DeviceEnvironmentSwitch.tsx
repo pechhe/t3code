@@ -1,8 +1,10 @@
 import type { EnvironmentId } from "@t3tools/contracts";
+import { LockIcon } from "lucide-react";
 
 import { playRotary } from "~/lib/interfaceSounds";
 import { cn } from "~/lib/utils";
 import type { EnvironmentOption } from "../../BranchToolbar.logic";
+import { EnvironmentMachineIcon } from "../../EnvironmentMachineIcon";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 
 interface DeviceEnvironmentSwitchProps {
@@ -14,8 +16,21 @@ interface DeviceEnvironmentSwitchProps {
   onChange: (environmentId: EnvironmentId) => void;
 }
 
-function switchLabel(environment: EnvironmentOption): string {
-  return environment.isPrimary ? "Local" : environment.label;
+function SwitchLabel({
+  environment,
+  position,
+}: {
+  environment: EnvironmentOption;
+  position: "upper" | "lower";
+}) {
+  return (
+    <span className={`device-switch__label device-switch__label--${position}`}>
+      <EnvironmentMachineIcon kind={environment.machine} className="device-switch__icon" />
+      <span className="device-switch__name">
+        {environment.isPrimary ? "Local" : environment.label}
+      </span>
+    </span>
+  );
 }
 
 /**
@@ -53,15 +68,13 @@ export function DeviceEnvironmentSwitch({
             }}
             className={cn("device-switch", atLower && "device-switch--lower")}
           >
-            <span className="device-switch__label device-switch__label--upper">
-              {switchLabel(upper)}
-            </span>
+            <SwitchLabel environment={upper} position="upper" />
             <span className="device-switch__track" aria-hidden="true">
-              <span className="device-switch__thumb" />
+              <span className="device-switch__thumb">
+                {locked ? <LockIcon className="device-switch__lock" /> : null}
+              </span>
             </span>
-            <span className="device-switch__label device-switch__label--lower">
-              {switchLabel(lower)}
-            </span>
+            <SwitchLabel environment={lower} position="lower" />
           </button>
         }
       />

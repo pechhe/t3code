@@ -608,7 +608,7 @@ describe("thread navigation helpers", () => {
   });
 
   it("keeps default thread jumps off the web so the browser can switch tabs", () => {
-    const input = event({ key: "1", metaKey: true });
+    const input = event({ key: "1", code: "Digit1", metaKey: true, altKey: true });
     assert.isNull(
       resolveShortcutCommand(input, DEFAULT_RESOLVED_KEYBINDINGS, {
         platform: "MacIntel",
@@ -624,7 +624,7 @@ describe("thread navigation helpers", () => {
     );
     assert.isFalse(
       shouldShowThreadJumpHintsForModifiers(
-        event({ metaKey: true }),
+        event({ metaKey: true, altKey: true }),
         DEFAULT_RESOLVED_KEYBINDINGS,
         {
           platform: "MacIntel",
@@ -634,13 +634,47 @@ describe("thread navigation helpers", () => {
     );
     assert.isTrue(
       shouldShowThreadJumpHintsForModifiers(
-        event({ metaKey: true }),
+        event({ metaKey: true, altKey: true }),
         DEFAULT_RESOLVED_KEYBINDINGS,
         {
           platform: "MacIntel",
           context: { isDesktop: true },
         },
       ),
+    );
+  });
+
+  it("gives ⌘1–4 to the composer's model slots and ⌘5 to the picker on desktop only", () => {
+    const desktop = { platform: "MacIntel", context: { isDesktop: true } };
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "1", metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        desktop,
+      ),
+      "composer.modelSlot.1",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "4", metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        desktop,
+      ),
+      "composer.modelSlot.4",
+    );
+    assert.strictEqual(
+      resolveShortcutCommand(
+        event({ key: "5", metaKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        desktop,
+      ),
+      "modelPicker.toggle",
+    );
+    assert.isNull(
+      resolveShortcutCommand(event({ key: "1", metaKey: true }), DEFAULT_RESOLVED_KEYBINDINGS, {
+        platform: "MacIntel",
+        context: { isDesktop: false },
+      }),
     );
   });
 });
@@ -675,7 +709,7 @@ describe("model picker navigation helpers", () => {
         platform: "MacIntel",
         context: { isDesktop: true, modelPickerOpen: false },
       }),
-      "thread.jump.3",
+      "composer.modelSlot.3",
     );
   });
 });
@@ -1655,6 +1689,8 @@ describe("Usage shortcuts", () => {
     (platform) => {
       const shortcut = event({
         key: "2",
+        code: "Digit2",
+        altKey: true,
         ctrlKey: platform === "Linux",
         metaKey: platform === "MacIntel",
       });

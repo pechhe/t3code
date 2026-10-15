@@ -1,6 +1,14 @@
 import type { EnvironmentId, ProviderDriverKind, ProviderInstanceId } from "@t3tools/contracts";
 import type { ClientSettings } from "@t3tools/contracts/settings";
-import { type CSSProperties, type ReactElement, type ReactNode, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+  type Ref,
+  useImperativeHandle,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   useClientSettings,
@@ -20,6 +28,11 @@ const FAVORITE_SLOTS = 4;
 const DETENTS = FAVORITE_SLOTS + 1;
 
 const selectModelSlotLabels = (settings: ClientSettings) => settings.modelSlotLabels;
+
+export interface DeviceModelSliderHandle {
+  /** Picks the favourite in slot `index` (0-based), as clicking its label would. */
+  selectSlot: (index: number) => void;
+}
 
 interface Slot {
   readonly key: string;
@@ -50,6 +63,7 @@ export function DeviceModelSlider(props: {
   onSelect: (instanceId: ProviderInstanceId, model: string) => void;
   /** Wraps the overflow trigger in the full model picker. */
   renderOverflow: (trigger: ReactElement) => ReactNode;
+  ref?: Ref<DeviceModelSliderHandle>;
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
   const slotLabels = useClientSettings(selectModelSlotLabels);
@@ -114,6 +128,14 @@ export function DeviceModelSlider(props: {
   const active = resolveSlot(activeInstanceId, props.model);
   const activeIndex = slots.findIndex((slot) => slot.key === active?.key);
 
+  const selectSlot = (index: number) => {
+    const slot = slots[index];
+    if (!slot || props.disabled || slot.disabledReason !== null || index === activeIndex) return;
+    playRotary();
+    props.onSelect(slot.instanceId, slot.model);
+  };
+  useImperativeHandle(props.ref, () => ({ selectSlot }));
+
   const rename = (slot: Slot, name: string) => {
     setRenamingKey(null);
     const label = name.trim();
@@ -171,11 +193,7 @@ export function DeviceModelSlider(props: {
                   aria-disabled={slot.disabledReason !== null || undefined}
                   aria-pressed={index === activeIndex}
                   onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    if (slot.disabledReason !== null || index === activeIndex) return;
-                    playRotary();
-                    props.onSelect(slot.instanceId, slot.model);
-                  }}
+                  onClick={() => selectSlot(index)}
                   onDoubleClick={() => setRenamingKey(slot.key)}
                 />
               }

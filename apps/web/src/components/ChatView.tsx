@@ -519,6 +519,7 @@ import {
 } from "../lib/contextWindow";
 import {
   DRAFT_HERO_TRANSITION_ANIMATION_ID,
+  DRAFT_HERO_TRANSITION_DURATION_MS,
   DRAFT_HERO_TRANSITION_EASING,
   MOBILE_COMPOSER_VIEW_TRANSITION_NAME,
   MOBILE_DRAFT_HEADLINE_VIEW_TRANSITION_NAME,
@@ -2771,18 +2772,24 @@ export default function ChatView(props: ChatViewProps) {
       activeProject,
       environmentById.get(activeProject.environmentId)?.serverConfig?.scratchWorkspaceRoot ?? null,
     );
-  const logicalProjectEnvironments = useMemo(() => {
-    if (!activeProject) return [];
-    const envs: EnvironmentOption[] = [];
-    const pushEnvironment = (environmentId: EnvironmentId, projectId: ProjectId | null) => {
+  const environmentOption = useCallback(
+    (environmentId: EnvironmentId, projectId: ProjectId | null): EnvironmentOption => {
       const environment = environmentById.get(environmentId) ?? null;
-      envs.push({
+      return {
         environmentId,
         projectId,
         label: environment?.label ?? environmentId,
         isPrimary: environmentId === primaryEnvironmentId,
         machine: resolveEnvironmentMachineKind(environment?.serverConfig ?? null),
-      });
+      };
+    },
+    [environmentById, primaryEnvironmentId],
+  );
+  const logicalProjectEnvironments = useMemo(() => {
+    if (!activeProject) return [];
+    const envs: EnvironmentOption[] = [];
+    const pushEnvironment = (environmentId: EnvironmentId, projectId: ProjectId | null) => {
+      envs.push(environmentOption(environmentId, projectId));
     };
     if (activeProjectIsScratch && draftId) {
       // Each machine keeps its own "No project" folder at its own path, so they
@@ -2828,8 +2835,7 @@ export default function ChatView(props: ChatViewProps) {
     draftId,
     environments,
     projectGroupingSettings,
-    primaryEnvironmentId,
-    environmentById,
+    environmentOption,
     scratchWorkspaceRootFor,
   ]);
   const hasMultipleEnvironments = logicalProjectEnvironments.length > 1;
@@ -4116,10 +4122,14 @@ export default function ChatView(props: ChatViewProps) {
     backgroundSubmissionPending,
     hasWorktreeSetupCard: worktreeSetup !== null,
   });
+  // The glide is part of the send motion: the first message lifts out as the composer docks.
+  const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const sendMotionActive =
+    useClientSettings((settings) => settings.sendMotion) !== "off" && !prefersReducedMotion;
   const draftHeroTransition = useDraftHeroLayoutTransition(
     isDraftHeroState,
-    panelAnimationsActive,
-    panelAnimationDurationMs,
+    sendMotionActive,
+    DRAFT_HERO_TRANSITION_DURATION_MS,
   );
   const captureDraftHeroComposerRect = draftHeroTransition.captureComposerRect;
   const { turnDiffSummaries } = useTurnDiffSummaries(serverProjection);
@@ -8304,6 +8314,14 @@ export default function ChatView(props: ChatViewProps) {
         return;
       }
 
+      const modelSlot = command?.match(/^composer\.modelSlot\.(\d)$/)?.[1];
+      if (modelSlot) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!event.repeat) composerRef.current?.selectModelSlot(Number(modelSlot) - 1);
+        return;
+      }
+
       if (command === "composer.effortUp" || command === "composer.effortDown") {
         event.preventDefault();
         event.stopPropagation();
@@ -11069,19 +11087,31 @@ export default function ChatView(props: ChatViewProps) {
   const onComposerResume = useCallback(() => onResumeRef.current(), []);
   const onComposerCompactContext = useCallback(() => onCompactContextRef.current(), []);
   // On the device composer two machines get a lever instead of the strip's
-  // "Run on" picker, unless auto balance needs the picker's third option.
+  // "Run on" picker, unless auto balance needs the picker's third option. Once a
+  // thread has started the lever stays as a locked readout of where it runs, even
+  // when its project lives on one of the two machines only.
+  const switchLocked = envLocked || !draftId;
   const switchEnvironments = useMemo(() => {
-    if (isMobileViewport || logicalProjectEnvironments.length !== 2) return null;
-    if (canAutoBalanceEnvironments && loadBalancingSettings.loadBalancingEnabled) return null;
-    const [first, second] = logicalProjectEnvironments.toSorted(
+    if (isMobileViewport) return null;
+    if (!switchLocked && canAutoBalanceEnvironments && loadBalancingSettings.loadBalancingEnabled)
+      return null;
+    const candidates =
+      logicalProjectEnvironments.length === 2 || !switchLocked
+        ? logicalProjectEnvironments
+        : environments.map((environment) => environmentOption(environment.environmentId, null));
+    if (candidates.length !== 2) return null;
+    const [first, second] = candidates.toSorted(
       (left, right) => Number(right.isPrimary) - Number(left.isPrimary),
     );
     return first && second ? ([first, second] as const) : null;
   }, [
     canAutoBalanceEnvironments,
+    environmentOption,
+    environments,
     isMobileViewport,
     loadBalancingSettings.loadBalancingEnabled,
     logicalProjectEnvironments,
+    switchLocked,
   ]);
   const activeEnvironmentId = activeThread?.environmentId;
   const deviceEnvironmentSwitch = useMemo(
@@ -11090,11 +11120,11 @@ export default function ChatView(props: ChatViewProps) {
         <DeviceEnvironmentSwitch
           environments={switchEnvironments}
           environmentId={activeEnvironmentId}
-          locked={envLocked || !draftId}
+          locked={switchLocked}
           onChange={onEnvironmentChange}
         />
       ) : null,
-    [activeEnvironmentId, draftId, envLocked, onEnvironmentChange, switchEnvironments],
+    [activeEnvironmentId, onEnvironmentChange, switchEnvironments, switchLocked],
   );
   const queuedRunsControl = useMemo(
     () =>
@@ -11816,6 +11846,7 @@ export default function ChatView(props: ChatViewProps) {
               ref={setComposerOverlayElement}
               inert={isRevertingCheckpoint}
               data-chat-composer-overlay="true"
+              data-draft-hero={isDraftHeroState || undefined}
               className={
                 isDraftHeroState
                   ? "pointer-events-none absolute inset-0 z-20 flex items-center"

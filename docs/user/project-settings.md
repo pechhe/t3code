@@ -60,6 +60,11 @@ to override its environment defaults. Worktree directories keep their original n
 If generation fails, or a custom name is invalid or already taken, the temporary
 branch name remains.
 
+## Scheduled tasks
+
+On web and desktop, open **Scheduled** from the sidebar's bottom row, next to Usage,
+to create and manage scheduled tasks across your connected environments.
+
 ## Scheduled tasks on mobile
 
 Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
@@ -75,8 +80,8 @@ Leaving an edited form asks before discarding unsaved changes.
 
 ## Webhook automations
 
-In **Settings → Scheduled tasks**, choose **On webhook**
-as a task's schedule to run it whenever another service calls its URL, such as
+In **Scheduled** in the sidebar (on mobile, **Settings → Scheduled tasks**), choose
+**On webhook** as a task's schedule to run it whenever another service calls its URL, such as
 GitHub on a new pull request or a CI job that failed. A public URL needs a
 [T3 Connect](remote-access.md) managed tunnel; after you save the task, copy
 its URL from the editor. Without one, the editor shows only the URL's path.

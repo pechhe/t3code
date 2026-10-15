@@ -12,7 +12,7 @@ import { createPortal } from "react-dom";
 
 import { observeResize } from "~/lib/observeResize";
 import { randomUUID } from "~/lib/utils";
-import { notedMarks, type ImageMark } from "~/lib/imageAnnotation";
+import { notedMarks, toAnnotationMark, type ImageMark } from "~/lib/imageAnnotation";
 
 type Point = { x: number; y: number };
 
@@ -33,10 +33,17 @@ function noteStyle(x: number, y: number): CSSProperties {
   };
 }
 
+function sameMarks(left: ReadonlyArray<ImageMark>, right: ReadonlyArray<ImageMark>): boolean {
+  const wire = (marks: ReadonlyArray<ImageMark>) =>
+    JSON.stringify(notedMarks(marks).map(toAnnotationMark));
+  return wire(left) === wire(right);
+}
+
 /**
  * Full-screen editor for marking up one composer image. Click drops a point, drag draws a
  * box, ⌘/Ctrl-drag draws an arrow; each mark gets a note. Marks left without a note are
- * dropped when the editor closes.
+ * dropped when the editor closes. Enter finishes a note, ⌘/Ctrl-Enter adds the marks, and
+ * leaving with unsaved marks asks first.
  */
 export function ImageAnnotator(props: {
   file: File;
@@ -54,6 +61,8 @@ export function ImageAnnotator(props: {
   const [frameSize, setFrameSize] = useState({ width: 1, height: 1 });
   const [arrowHeld, setArrowHeld] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Set by the first Esc or Cancel while there are unsaved marks; the second one leaves.
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const noteInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -87,7 +96,14 @@ export function ImageAnnotator(props: {
     setActiveId(null);
   };
 
-  const close = () => onClose();
+  /** Leaves without the marks, asking once first when that would lose any. */
+  const close = () => {
+    if (confirmingDiscard || sameMarks(marks, props.initialMarks)) {
+      onClose();
+      return;
+    }
+    setConfirmingDiscard(true);
+  };
 
   const done = async () => {
     if (saving) return;
@@ -103,17 +119,20 @@ export function ImageAnnotator(props: {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Meta" || event.key === "Control") setArrowHeld(true);
-      // Esc leaves without the marks; Enter adds them, even from inside a note.
+      // Esc closes the open note, then leaves; Enter finishes a note, then adds the marks;
+      // ⌘/Ctrl-Enter adds them from anywhere.
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopImmediatePropagation();
-        close();
+        if (activeId) dismissActiveNote();
+        else close();
         return;
       }
       if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         event.stopImmediatePropagation();
-        void done();
+        if (activeId && !event.metaKey && !event.ctrlKey) dismissActiveNote();
+        else void done();
       }
     };
     const onKeyUp = (event: KeyboardEvent) => {
@@ -140,6 +159,7 @@ export function ImageAnnotator(props: {
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
+    setConfirmingDiscard(false);
     dismissActiveNote();
     const point = pointFromEvent(event);
     setDrag({ start: point, current: point, arrow: event.metaKey || event.ctrlKey });
@@ -355,10 +375,12 @@ export function ImageAnnotator(props: {
           ))}
         </div>
       </div>
-      <p className="image-annotator-hint">
-        {arrowHeld
-          ? "Arrow mode: drag to show direction."
-          : "Enter adds your notes · Esc leaves without them · Backspace on an empty note deletes the mark"}
+      <p className="image-annotator-hint" data-warning={confirmingDiscard || undefined}>
+        {confirmingDiscard
+          ? "Your marks will be lost. Press Esc or Cancel again to leave, or ⌘↩ to add them."
+          : arrowHeld
+            ? "Arrow mode: drag to show direction."
+            : "Enter finishes a note · ⌘↩ adds your marks · Esc leaves · Backspace on an empty note deletes the mark"}
       </p>
       <div className="image-annotator-actions">
         {marks.length > 0 ? (
@@ -375,7 +397,7 @@ export function ImageAnnotator(props: {
           </button>
         ) : null}
         <button type="button" className="image-annotator-action" onClick={close}>
-          Cancel
+          {confirmingDiscard ? "Discard marks" : "Cancel"}
         </button>
         <button
           type="button"
