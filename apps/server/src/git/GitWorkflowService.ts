@@ -223,23 +223,37 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  const detectRepositoryKindForStatus = Effect.fn(
-    "GitWorkflowService.detectRepositoryKindForStatus",
-  )(function* (operation: string, cwd: string) {
-    const handle = yield* registry.detect({ cwd }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new GitManagerError({
-            operation,
-            cwd,
-            detail: "Failed to detect a VCS repository for this Git workflow.",
-            cause,
-          }),
-      ),
-    );
-    // Another kind of repository has no Git status, and says which kind it is.
-    return handle?.kind ?? null;
-  });
+  const detectRepositoryForStatus = Effect.fn("GitWorkflowService.detectRepositoryForStatus")(
+    function* (operation: string, cwd: string) {
+      const handle = yield* registry.detect({ cwd }).pipe(
+        Effect.mapError(
+          (cause) =>
+            new GitManagerError({
+              operation,
+              cwd,
+              detail: "Failed to detect a VCS repository for this Git workflow.",
+              cause,
+            }),
+        ),
+      );
+      return handle;
+    },
+  );
+
+  const driverStatus = (handle: VcsDriverRegistry.VcsDriverHandle | null, input: VcsStatusInput) =>
+    handle?.driver.getStatus === undefined
+      ? Effect.succeed(nonRepositoryStatus(handle?.kind))
+      : handle.driver.getStatus(input).pipe(
+          Effect.mapError(
+            (cause) =>
+              new GitManagerError({
+                operation: "GitWorkflowService.driverStatus",
+                cwd: input.cwd,
+                detail: "Failed to read repository status through its VCS driver.",
+                cause,
+              }),
+          ),
+        );
 
   const detectGitRepositoryForCommand = Effect.fn(
     "GitWorkflowService.detectGitRepositoryForCommand",
@@ -324,25 +338,36 @@ export const make = Effect.gen(function* () {
             Effect.map((result) => result.stdout.trim().length > 0),
           ),
     status: (input) =>
-      detectRepositoryKindForStatus("GitWorkflowService.status", input.cwd).pipe(
-        Effect.flatMap((kind) =>
-          kind === "git"
-            ? gitManager.status(input)
-            : Effect.succeed(nonRepositoryStatus(kind ?? undefined)),
+      detectRepositoryForStatus("GitWorkflowService.status", input.cwd).pipe(
+        Effect.flatMap((handle) =>
+          handle?.kind === "git" ? gitManager.status(input) : driverStatus(handle, input),
         ),
       ),
     localStatus: (input) =>
-      detectRepositoryKindForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
-        Effect.flatMap((kind) =>
-          kind === "git"
+      detectRepositoryForStatus("GitWorkflowService.localStatus", input.cwd).pipe(
+        Effect.flatMap((handle) =>
+          handle?.kind === "git"
             ? gitManager.localStatus(input)
-            : Effect.succeed(nonRepositoryLocalStatus(kind ?? undefined)),
+            : handle?.driver.getStatus === undefined
+              ? Effect.succeed(nonRepositoryLocalStatus(handle?.kind))
+              : driverStatus(handle, input),
         ),
       ),
     remoteStatus: (input, options) =>
-      detectRepositoryKindForStatus("GitWorkflowService.remoteStatus", input.cwd).pipe(
-        Effect.flatMap((kind) =>
-          kind === "git" ? gitManager.remoteStatus(input, options) : Effect.succeed(null),
+      detectRepositoryForStatus("GitWorkflowService.remoteStatus", input.cwd).pipe(
+        Effect.flatMap((handle) =>
+          handle?.kind === "git"
+            ? gitManager.remoteStatus(input, options)
+            : handle?.driver.getStatus === undefined
+              ? Effect.succeed(null)
+              : driverStatus(handle, input).pipe(
+                  Effect.map((status) => ({
+                    hasUpstream: status.hasUpstream,
+                    aheadCount: status.aheadCount,
+                    behindCount: status.behindCount,
+                    pr: status.pr,
+                  })),
+                ),
         ),
       ),
     invalidateLocalStatus: gitManager.invalidateLocalStatus,

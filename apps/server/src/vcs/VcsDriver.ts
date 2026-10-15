@@ -12,6 +12,8 @@ import type {
   ReviewDiffPreviewInput,
   ReviewDiffPreviewResult,
   VcsRepositoryIdentity,
+  VcsStatusInput,
+  VcsStatusResult,
 } from "@t3tools/contracts";
 import { CheckpointRef } from "@t3tools/contracts";
 import * as VcsProcess from "./VcsProcess.ts";
@@ -74,6 +76,7 @@ export class VcsDriver extends Context.Service<
       input: Omit<VcsProcess.VcsProcessInput, "command">,
     ) => Effect.Effect<VcsProcess.VcsProcessOutput, VcsError>;
     readonly checkpoints?: VcsCheckpointOps;
+    readonly getStatus?: (input: VcsStatusInput) => Effect.Effect<VcsStatusResult, VcsError>;
     readonly detectRepository: (
       cwd: string,
     ) => Effect.Effect<VcsRepositoryIdentity | null, VcsError>;

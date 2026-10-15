@@ -6,7 +6,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import type * as PlatformError from "effect/PlatformError";
 
-import type { VcsError } from "@t3tools/contracts";
+import { CheckpointRef, VcsProcessExitError, type VcsError } from "@t3tools/contracts";
+import { ChildProcessSpawner } from "effect/process";
 import * as JjVcsDriver from "./JjVcsDriver.ts";
 import * as VcsDriver from "./VcsDriver.ts";
 import * as VcsProcess from "./VcsProcess.ts";
@@ -14,6 +15,44 @@ import { runVcsDriverContractSuite } from "./testing/VcsDriverContractHarness.ts
 
 const layerJjContract = JjVcsDriver.layerVcs.pipe(
   Layer.provideMerge(VcsProcess.layer),
+  Layer.provideMerge(NodeServices.layer),
+);
+
+// What `slipjay status` prints to the driver; null makes the CLI fail as if absent.
+let slipJayStatus: unknown = null;
+
+// The real driver and Jujutsu, with SlipJay answered by `slipJayStatus`.
+const layerJjWithSlipJay = JjVcsDriver.layerVcs.pipe(
+  Layer.provideMerge(
+    Layer.effect(
+      VcsProcess.VcsProcess,
+      Effect.gen(function* () {
+        const real = yield* VcsProcess.VcsProcess;
+        return VcsProcess.VcsProcess.of({
+          run: (input) =>
+            input.command !== "slipjay"
+              ? real.run(input)
+              : slipJayStatus === null
+                ? Effect.fail(
+                    new VcsProcessExitError({
+                      operation: input.operation,
+                      command: "slipjay",
+                      cwd: input.cwd,
+                      exitCode: 127,
+                      detail: "not installed",
+                    }),
+                  )
+                : Effect.succeed({
+                    exitCode: ChildProcessSpawner.ExitCode(0),
+                    stdout: JSON.stringify(slipJayStatus),
+                    stderr: "",
+                    stdoutTruncated: false,
+                    stderrTruncated: false,
+                  }),
+        });
+      }),
+    ).pipe(Layer.provide(VcsProcess.layer)),
+  ),
   Layer.provideMerge(NodeServices.layer),
 );
 
@@ -59,13 +98,222 @@ runVcsDriverContractSuite<VcsDriver.VcsDriver, JjContractError>({
   },
 });
 
-it.layer(layerJjContract)("Jujutsu VCS driver", (it) => {
+it.layer(layerJjWithSlipJay)("Jujutsu VCS driver", (it) => {
   const makeRepo = Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
     const cwd = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-jj-vcs-" });
     yield* createPlainRepo(cwd);
     return cwd;
   });
+
+  it.effect(
+    "retains exact turn snapshots through abandoned-change and operation garbage collection",
+    () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeRepo;
+        const driver = yield* VcsDriver.VcsDriver;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const checkpoints = driver.checkpoints!;
+        const before = CheckpointRef.make("refs/t3/checkpoints/test/before");
+        const after = CheckpointRef.make("refs/t3/checkpoints/test/after");
+        yield* writeFile(cwd, "keep.ts", "before\n");
+        yield* checkpoints.captureCheckpoint({ cwd, checkpointRef: before });
+        yield* writeFile(cwd, "keep.ts", "after\n");
+        yield* writeFile(cwd, "new.ts", "new\n");
+        yield* checkpoints.captureCheckpoint({ cwd, checkpointRef: after });
+        const diff = yield* checkpoints.diffCheckpoints({
+          cwd,
+          fromCheckpointRef: before,
+          toCheckpointRef: after,
+          ignoreWhitespace: false,
+        });
+        assert.include(diff, "+after");
+        assert.include(diff, "+new");
+        // With an unmoved base the turn is the whole diff, so no path filter applies.
+        assert.isNull(
+          yield* checkpoints.listAuthoredPaths({
+            cwd,
+            fromCheckpointRef: before,
+            toCheckpointRef: after,
+          }),
+        );
+        yield* runJj(cwd, ["abandon", "@"]);
+        yield* runJj(cwd, ["op", "abandon", "..@-"]);
+        yield* runJj(cwd, ["util", "gc", "--expire", "now"]);
+        assert.isTrue(yield* checkpoints.hasCheckpointRef({ cwd, checkpointRef: after }));
+        assert.isTrue(yield* checkpoints.restoreCheckpoint({ cwd, checkpointRef: after }));
+        assert.equal(yield* fs.readFileString(path.join(cwd, "keep.ts")), "after\n");
+        assert.equal(yield* fs.readFileString(path.join(cwd, "new.ts")), "new\n");
+        yield* writeFile(cwd, ".gitignore", "ignored.log\n");
+        yield* writeFile(cwd, "ignored.log", "preserved\n");
+        assert.isTrue(yield* checkpoints.restoreCheckpoint({ cwd, checkpointRef: before }));
+        assert.equal(yield* fs.readFileString(path.join(cwd, "keep.ts")), "before\n");
+        assert.isFalse(yield* fs.exists(path.join(cwd, "new.ts")));
+        assert.equal(yield* fs.readFileString(path.join(cwd, "ignored.log")), "preserved\n");
+        yield* checkpoints.deleteCheckpointRefs({ cwd, checkpointRefs: [before, after] });
+        assert.isFalse(yield* checkpoints.hasCheckpointRef({ cwd, checkpointRef: before }));
+        assert.isFalse(yield* checkpoints.restoreCheckpoint({ cwd, checkpointRef: before }));
+      }),
+  );
+
+  it.effect(
+    "restores a shared JJ workspace without changing its peer or the shared Git index",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-jj-checkpoint-shared-" });
+        const cwd = path.join(parent, "main");
+        const peer = path.join(parent, "peer workspace");
+        yield* fs.makeDirectory(cwd);
+        yield* runJj(cwd, ["git", "init", "--colocate", "."]);
+        yield* writeFile(cwd, "file.txt", "main\n");
+        yield* runJj(cwd, ["commit", "-m", "base"]);
+        yield* runJj(cwd, ["workspace", "add", "--name", "peer", peer]);
+        const driver = yield* VcsDriver.VcsDriver;
+        const ref = CheckpointRef.make("refs/t3/checkpoints/test/shared");
+        yield* writeFile(peer, "file.txt", "peer snapshot\n");
+        yield* driver.checkpoints!.captureCheckpoint({ cwd: peer, checkpointRef: ref });
+        yield* writeFile(peer, "file.txt", "peer changed\n");
+        yield* writeFile(cwd, "file.txt", "main unsaved\n");
+        const index = path.join(cwd, ".git", "index");
+        const before = yield* fs.readFile(index);
+        assert.isTrue(
+          yield* driver.checkpoints!.restoreCheckpoint({ cwd: peer, checkpointRef: ref }),
+        );
+        assert.equal(yield* fs.readFileString(path.join(peer, "file.txt")), "peer snapshot\n");
+        assert.equal(yield* fs.readFileString(path.join(cwd, "file.txt")), "main unsaved\n");
+        assert.deepEqual(yield* fs.readFile(index), before);
+        const store = yield* runJj(peer, ["git", "root", "--ignore-working-copy"]);
+        assert.isEmpty(
+          (yield* fs.readDirectory(store.stdout.trim())).filter((name) =>
+            name.startsWith("t3-jj-checkpoint-index-"),
+          ),
+        );
+      }),
+  );
+
+  it.effect(
+    "reports the configured integration base, changed files and movement behind integration",
+    () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeRepo;
+        const driver = yield* VcsDriver.VcsDriver;
+        yield* writeFile(cwd, "slipjay.json", JSON.stringify({ integrationBranch: "develop" }));
+        yield* writeFile(cwd, "base.txt", "base\n");
+        yield* runJj(cwd, ["bookmark", "set", "develop", "-r", "@"]);
+        yield* runJj(cwd, ["new"]);
+        yield* writeFile(cwd, "changed.txt", "changed\n");
+        slipJayStatus = {
+          workspace: { name: "t3-29", issueNumber: 29 },
+          integration: { name: "default" },
+        };
+        const first = yield* driver.getStatus!({ cwd });
+        assert.deepEqual(first.slipJay, {
+          integration: "develop",
+          workspace: { name: "t3-29", issueNumber: 29, isIntegration: false },
+        });
+        assert.equal(first.refName, "develop");
+        assert.equal(first.otherVcsKind, "jj");
+        assert.equal(first.isRepo, false);
+        assert.equal(first.behindCount, 0);
+        assert.deepEqual(
+          first.workingTree.files.map((file) => file.path),
+          ["changed.txt"],
+        );
+        yield* runJj(cwd, ["new", "develop", "--no-edit", "-m", "integration advanced"]);
+        const next = yield* runJj(cwd, [
+          "log",
+          "--no-graph",
+          "-r",
+          "children(develop) ~ @",
+          "-T",
+          "commit_id",
+        ]);
+        yield* runJj(cwd, [
+          "bookmark",
+          "set",
+          "develop",
+          "-r",
+          next.stdout.trim(),
+          "--allow-backwards",
+        ]);
+        const behind = yield* driver.getStatus!({ cwd });
+        assert.equal(behind.behindCount, 1);
+        yield* writeFile(cwd, "another.txt", "another\n");
+        const edited = yield* driver.getStatus!({ cwd });
+        assert.sameMembers(
+          edited.workingTree.files.map((file) => file.path),
+          ["changed.txt", "another.txt"],
+        );
+      }),
+  );
+
+  it.effect("names the integration checkout, and leaves a Git-free repository unmarked", () =>
+    Effect.gen(function* () {
+      const driver = yield* VcsDriver.VcsDriver;
+      const plain = yield* makeRepo;
+      assert.isUndefined((yield* driver.getStatus!({ cwd: plain })).slipJay);
+      const cwd = yield* makeRepo;
+      yield* writeFile(cwd, "slipjay.json", JSON.stringify({ integrationBranch: "develop" }));
+      slipJayStatus = { workspace: { name: "default" }, integration: { name: "default" } };
+      assert.deepEqual((yield* driver.getStatus!({ cwd })).slipJay?.workspace, {
+        name: "default",
+        isIntegration: true,
+      });
+    }),
+  );
+
+  it.effect("still reports a SlipJay project whose config or CLI cannot be used", () =>
+    Effect.gen(function* () {
+      const driver = yield* VcsDriver.VcsDriver;
+      slipJayStatus = null;
+      const malformed = yield* makeRepo;
+      yield* writeFile(malformed, "slipjay.json", "{ not json");
+      const unreadable = yield* driver.getStatus!({ cwd: malformed });
+      assert.deepEqual(unreadable.slipJay, { integration: null });
+      assert.isNull(unreadable.refName);
+      // The bookmark slipjay.json names does not exist yet.
+      const unborn = yield* makeRepo;
+      yield* writeFile(unborn, "slipjay.json", JSON.stringify({ integrationBranch: "develop" }));
+      const missing = yield* driver.getStatus!({ cwd: unborn });
+      assert.deepEqual(missing.slipJay, { integration: "develop" });
+      assert.equal(missing.behindCount, 0);
+    }),
+  );
+
+  it.effect("counts only a turn's own edits as authored, not earlier working-copy edits", () =>
+    Effect.gen(function* () {
+      const cwd = yield* makeRepo;
+      const driver = yield* VcsDriver.VcsDriver;
+      const checkpoints = driver.checkpoints!;
+      const before = CheckpointRef.make("refs/t3/checkpoints/test/turn-before");
+      const after = CheckpointRef.make("refs/t3/checkpoints/test/turn-after");
+      yield* writeFile(cwd, "base.ts", "base\n");
+      yield* runJj(cwd, ["commit", "-m", "base"]);
+      yield* writeFile(cwd, "earlier.ts", "an earlier turn\n");
+      yield* checkpoints.captureCheckpoint({ cwd, checkpointRef: before });
+      yield* writeFile(cwd, "turn.ts", "this turn\n");
+      yield* checkpoints.captureCheckpoint({ cwd, checkpointRef: after });
+      // The base did not move, so the turn is exactly the diff between its checkpoints.
+      assert.isNull(
+        yield* checkpoints.listAuthoredPaths({
+          cwd,
+          fromCheckpointRef: before,
+          toCheckpointRef: after,
+        }),
+      );
+      const diff = yield* checkpoints.diffCheckpoints({
+        cwd,
+        fromCheckpointRef: before,
+        toCheckpointRef: after,
+        ignoreWhitespace: false,
+      });
+      assert.include(diff, "turn.ts");
+      assert.notInclude(diff, "earlier.ts");
+    }),
+  );
 
   it.effect("diffs the working copy against its parent, with whole-patch totals", () =>
     Effect.gen(function* () {

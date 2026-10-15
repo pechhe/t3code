@@ -1,19 +1,28 @@
+import * as Cache from "effect/Cache";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
+import * as Schema from "effect/Schema";
 import * as Hex from "effect/encoding/Hex";
 
 import {
   VcsProcessExitError,
   VcsUnsupportedOperationError,
+  PositiveInt,
+  SLIPJAY_PROJECT_FILE_NAME,
   type ReviewDiffFileStat,
   type ReviewDiffPreviewInput,
   type ReviewDiffPreviewSource,
 } from "@t3tools/contracts";
 import * as VcsDriver from "./VcsDriver.ts";
+import { listGitCheckpointAuthoredPaths } from "./GitCheckpointPaths.ts";
 import * as VcsProcess from "./VcsProcess.ts";
+import { PATCH_RENDER_PREFIX_ARGS } from "./GitVcsDriverCore.ts";
 
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const IGNORE_CHECK_MAX_STDIN_BYTES = 256 * 1024;
@@ -21,6 +30,25 @@ const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
 const REVIEW_DIFF_FILE_MAX_OUTPUT_BYTES = 1024 * 1024;
 const REVIEW_METADATA_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const TRUNCATED_MARKER = "\n\n[truncated]";
+const decodeSlipJayStatusConfig = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      integrationBranch: Schema.NonEmptyString,
+    }),
+  ),
+);
+const decodeSlipJayStatus = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      workspace: Schema.Struct({
+        name: Schema.NonEmptyString,
+        issueNumber: Schema.optional(PositiveInt),
+      }),
+      integration: Schema.Struct({ name: Schema.NonEmptyString }),
+    }),
+  ),
+);
+const quoteRevsetSymbol = Schema.encodeSync(Schema.fromJsonString(Schema.String));
 
 const nowFreshness = Effect.fn("JjVcsDriver.nowFreshness")(function* () {
   return {
@@ -82,6 +110,8 @@ const clipPatch = (patch: string, limit: number) => {
 export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
   const vcsProcess = yield* VcsProcess.VcsProcess;
   const crypto = yield* Crypto.Crypto;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
 
   const capabilities = {
     kind: "jj" as const,
@@ -465,9 +495,303 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
       return { oldContents, newContents };
     });
 
+  // Hidden Git refs retain the exact objects even after JJ abandons the change
+  // and prunes its operation/index history. JJ revision lookup alone cannot
+  // resolve those pruned commits, so restore exports their trees through a
+  // disposable Git index, then lets JJ snapshot the resulting working copy.
+  const checkpointGit = Effect.fn("JjVcsDriver.checkpoints.git")(function* (
+    cwd: string,
+    args: ReadonlyArray<string>,
+    options?: Pick<VcsProcess.VcsProcessInput, "env" | "allowNonZeroExit" | "outputMode">,
+  ) {
+    const store = yield* jj("JjVcsDriver.checkpoints.gitRoot", cwd, [
+      "git",
+      "root",
+      "--ignore-working-copy",
+    ]);
+    return yield* vcsProcess.run({
+      operation: "JjVcsDriver.checkpoints.git",
+      command: "git",
+      cwd,
+      args: ["--git-dir", store.stdout.trim(), ...args],
+      maxOutputBytes: 16 * 1024 * 1024,
+      ...options,
+    });
+  });
+  const checkpointCommit = (cwd: string, ref: string) =>
+    checkpointGit(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], {
+      allowNonZeroExit: true,
+    }).pipe(Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : null)));
+  const snapshot = Effect.fn("JjVcsDriver.checkpoints.snapshot")(function* (cwd: string) {
+    const result = yield* jj("JjVcsDriver.checkpoints.snapshot", cwd, [
+      "log",
+      "--no-graph",
+      "-r",
+      "@",
+      "-T",
+      'commit_id ++ " " ++ conflict',
+    ]);
+    const [revision, conflict] = result.stdout.trim().split(" ");
+    if (conflict !== "false" || !revision || !/^[0-9a-f]+$/.test(revision))
+      return yield* new VcsUnsupportedOperationError({
+        operation: "JjVcsDriver.checkpoints.snapshot",
+        kind: "jj",
+        detail: "A checkpoint requires a working-copy snapshot without unresolved conflicts.",
+      });
+    return revision;
+  });
+  const checkpoints: VcsDriver.VcsCheckpointOps = {
+    captureCheckpoint: Effect.fn("JjVcsDriver.checkpoints.capture")(function* (input) {
+      const revision = yield* snapshot(input.cwd);
+      // The working copy's first parent plays Git's recorded HEAD for authored-path
+      // accounting. The working-copy commit itself is rewritten on every snapshot, so
+      // as a parent it would count every edit since its base as this turn's. The root
+      // commit is no Git object, so a checkpoint on it has no parent.
+      const parents = yield* jj("JjVcsDriver.checkpoints.parent", input.cwd, [
+        "log",
+        "--ignore-working-copy",
+        "--no-graph",
+        "-r",
+        revision,
+        "-T",
+        'parents.map(|c| if(c.root(), "", c.commit_id())).join(" ")',
+      ]);
+      const parent = parents.stdout.trim().split(" ")[0] ?? "";
+      const commit = yield* checkpointGit(input.cwd, [
+        "-c",
+        "user.name=T3 Code",
+        "-c",
+        "user.email=checkpoint@t3.codes",
+        "-c",
+        "core.fsync=loose-object,reference",
+        "commit-tree",
+        `${revision}^{tree}`,
+        ...(parent === "" ? [] : ["-p", parent]),
+        "-m",
+        `t3 checkpoint ref=${input.checkpointRef}`,
+      ]);
+      yield* checkpointGit(input.cwd, [
+        "-c",
+        "core.fsync=loose-object,reference",
+        "update-ref",
+        input.checkpointRef,
+        commit.stdout.trim(),
+      ]);
+    }),
+    hasCheckpointRef: (input) =>
+      checkpointCommit(input.cwd, input.checkpointRef).pipe(
+        Effect.map((commit) => commit !== null),
+      ),
+    restoreCheckpoint: Effect.fn("JjVcsDriver.checkpoints.restore")(function* (input) {
+      const target =
+        (yield* checkpointCommit(input.cwd, input.checkpointRef)) ??
+        (input.fallbackToHead === true ? yield* snapshot(input.cwd) : null);
+      if (target === null) return false;
+      const current = yield* snapshot(input.cwd);
+      const rootPath = yield* root(input.cwd);
+      if (rootPath === null) return false;
+      const store = yield* jj("JjVcsDriver.checkpoints.restore.gitRoot", input.cwd, [
+        "git",
+        "root",
+        "--ignore-working-copy",
+      ]);
+      const indexId = yield* crypto.randomUUIDv4().pipe(Effect.orDie);
+      const indexPath = path.join(store.stdout.trim(), `t3-jj-checkpoint-index-${indexId}`);
+      yield* Effect.gen(function* () {
+        const env = { ...globalThis.process.env, GIT_INDEX_FILE: indexPath };
+        // The current tree tells Git which newly tracked files must disappear.
+        // The repository's real index and every other JJ workspace stay untouched.
+        yield* checkpointGit(input.cwd, ["read-tree", current], { env });
+        yield* checkpointGit(
+          input.cwd,
+          ["--work-tree", rootPath, "restore", "--source", target, "--worktree", "--", "."],
+          { env },
+        );
+      }).pipe(
+        Effect.ensuring(
+          Effect.forEach(
+            [indexPath, `${indexPath}.lock`],
+            (file) => fileSystem.remove(file, { force: true }).pipe(Effect.ignore),
+            { discard: true },
+          ),
+        ),
+      );
+      yield* snapshot(input.cwd);
+      return true;
+    }),
+    diffCheckpoints: Effect.fn("JjVcsDriver.checkpoints.diff")(function* (input) {
+      if (input.filePaths?.length === 0) return "";
+      const from =
+        (yield* checkpointCommit(input.cwd, input.fromCheckpointRef)) ??
+        (input.fallbackFromToHead === true ? yield* snapshot(input.cwd) : input.fromCheckpointRef);
+      return (yield* checkpointGit(
+        input.cwd,
+        [
+          "diff",
+          ...(input.format === "numstat" ? ["--numstat", "-z"] : ["--patch"]),
+          "--no-color",
+          "--no-ext-diff",
+          "--no-textconv",
+          ...PATCH_RENDER_PREFIX_ARGS,
+          ...(input.ignoreWhitespace ? ["--ignore-all-space"] : []),
+          `${from}^{commit}`,
+          `${input.toCheckpointRef}^{commit}`,
+          ...(input.filePaths
+            ? ["--", ...input.filePaths.map((file) => `:(top,literal)${file}`)]
+            : []),
+        ],
+        { outputMode: "error" },
+      )).stdout;
+    }),
+    listAuthoredPaths: (input) =>
+      listGitCheckpointAuthoredPaths(input, (read) =>
+        checkpointGit(read.cwd, read.args, { outputMode: "error" }),
+      ),
+
+    deleteCheckpointRefs: Effect.fn("JjVcsDriver.checkpoints.delete")(function* (input) {
+      yield* Effect.forEach(
+        input.checkpointRefs,
+        (ref) => checkpointGit(input.cwd, ["update-ref", "-d", ref]),
+        { discard: true },
+      );
+    }),
+  };
+
+  // SlipJay owns workspace identity. Status refreshes often and an Issue is attached rarely,
+  // so one `slipjay status` per workspace serves a few minutes. Without a working CLI the
+  // strip just goes unlabelled.
+  const slipJayWorkspaces = yield* Cache.makeWith(
+    (workspaceRoot: string) =>
+      vcsProcess
+        .run({
+          operation: "JjVcsDriver.getStatus.workspace",
+          command: "slipjay",
+          args: ["status"],
+          cwd: workspaceRoot,
+          timeoutMs: 3_000,
+          maxOutputBytes: 64 * 1024,
+        })
+        .pipe(
+          Effect.flatMap((result) => decodeSlipJayStatus(result.stdout)),
+          Effect.map((status) => ({
+            name: status.workspace.name,
+            ...(status.workspace.issueNumber === undefined
+              ? {}
+              : { issueNumber: status.workspace.issueNumber }),
+            isIntegration: status.workspace.name === status.integration.name,
+          })),
+          Effect.catch((cause) =>
+            Effect.logDebug("SlipJay workspace identity unavailable", cause).pipe(
+              Effect.as(undefined),
+            ),
+          ),
+        ),
+    { capacity: 64, timeToLive: () => Duration.minutes(2) },
+  );
+
+  const getStatus: NonNullable<VcsDriver.VcsDriver["Service"]["getStatus"]> = Effect.fn(
+    "JjVcsDriver.getStatus",
+  )(function* (input) {
+    const rootPath = yield* root(input.cwd);
+    if (rootPath === null)
+      return yield* new VcsUnsupportedOperationError({
+        operation: "JjVcsDriver.getStatus",
+        kind: "jj",
+        detail: "No Jujutsu repository is available.",
+      });
+    const configPath = path.join(rootPath, SLIPJAY_PROJECT_FILE_NAME);
+    // The file alone makes this a SlipJay project, as it does for WorkspaceProvider.
+    // A file SlipJay cannot use still reports the project, just without its base.
+    const isSlipJay = yield* fileSystem.exists(configPath).pipe(Effect.orElseSucceed(() => false));
+    const integration = isSlipJay
+      ? yield* fileSystem.readFileString(configPath).pipe(
+          Effect.flatMap(decodeSlipJayStatusConfig),
+          Effect.map((config): string | null => config.integrationBranch),
+          Effect.catch((cause) =>
+            Effect.logWarning("Could not read the SlipJay integration bookmark", cause).pipe(
+              Effect.as(null),
+            ),
+          ),
+        )
+      : null;
+    // Quote a bookmark as a revset symbol; config content cannot become a revset.
+    // present() leaves a bookmark that does not exist yet with nothing behind it.
+    const base = integration === null ? undefined : `present(${quoteRevsetSymbol(integration)})`;
+    // Status needs line counts, not whole patches. A structured template also
+    // preserves paths containing whitespace, quotes and line breaks.
+    const stats = yield* jj("JjVcsDriver.getStatus.files", rootPath, [
+      "log",
+      "--no-graph",
+      "-r",
+      "@",
+      "-T",
+      'self.diff().stat().files().map(|f| f.path() ++ "\\0" ++ f.lines_added() ++ "\\0" ++ f.lines_removed() ++ "\\0").join("")',
+    ]);
+    const fields = splitNullSeparated(stats.stdout, false);
+    const files: Array<{ path: string; insertions: number; deletions: number }> = [];
+    for (let offset = 0; offset < fields.length; offset += 3) {
+      const insertions = Number(fields[offset + 1]);
+      const deletions = Number(fields[offset + 2]);
+      if (
+        !Number.isSafeInteger(insertions) ||
+        insertions < 0 ||
+        !Number.isSafeInteger(deletions) ||
+        deletions < 0
+      )
+        return yield* new VcsUnsupportedOperationError({
+          operation: "JjVcsDriver.getStatus.files",
+          kind: "jj",
+          detail: "Jujutsu returned invalid working-copy statistics.",
+        });
+      files.push({ path: fields[offset]!, insertions, deletions });
+    }
+    const totals = files.reduce(
+      (sum, file) => ({
+        insertions: sum.insertions + file.insertions,
+        deletions: sum.deletions + file.deletions,
+      }),
+      { insertions: 0, deletions: 0 },
+    );
+    let behindCount = 0;
+    if (base !== undefined) {
+      const behind = yield* jj("JjVcsDriver.getStatus.behind", rootPath, [
+        "log",
+        "--ignore-working-copy",
+        "--no-graph",
+        "-r",
+        `fork_point((${base}) | @)..(${base})`,
+        "-T",
+        '"x"',
+      ]);
+      behindCount = behind.stdout.length;
+    }
+    const remotes = yield* listRemotes(rootPath);
+    const workspace = isSlipJay ? yield* Cache.get(slipJayWorkspaces, rootPath) : undefined;
+    return {
+      // isRepo is the legacy Git-action gate. JJ identifies itself separately
+      // while sharing the status payload; Git-only mutations stay unavailable.
+      isRepo: false,
+      otherVcsKind: "jj",
+      hasPrimaryRemote: remotes.remotes.length > 0,
+      isDefaultRef: false,
+      refName: integration,
+      ...(isSlipJay
+        ? { slipJay: { integration, ...(workspace === undefined ? {} : { workspace }) } }
+        : {}),
+      hasWorkingTreeChanges: files.length > 0,
+      workingTree: { files, ...totals },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount,
+      pr: null,
+    };
+  });
+
   return {
     capabilities,
     execute,
+    checkpoints,
+    getStatus,
     detectRepository,
     isInsideWorkTree,
     listWorkspaceFiles,

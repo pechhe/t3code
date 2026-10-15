@@ -38,6 +38,7 @@ import {
   splitNullSeparatedGitStdoutPaths,
 } from "./GitVcsDriverCore.ts";
 import * as VcsDriver from "./VcsDriver.ts";
+import { listGitCheckpointAuthoredPaths } from "./GitCheckpointPaths.ts";
 import * as VcsProcess from "./VcsProcess.ts";
 
 export interface ExecuteGitInput {
@@ -1242,54 +1243,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
       return result.stdout;
     }),
 
-    listAuthoredPaths: Effect.fn("GitVcsDriver.checkpoints.listAuthoredPaths")(function* (input) {
-      const operation = "GitVcsDriver.checkpoints.listAuthoredPaths";
-      const heads = yield* execute({
-        operation,
-        cwd: input.cwd,
-        args: [
-          "log",
-          "--no-walk=unsorted",
-          "--format=%P %ct",
-          `${input.fromCheckpointRef}^{commit}`,
-          `${input.toCheckpointRef}^{commit}`,
-        ],
-      });
-      // Each line is "<parent> <committer time>". The parent is the HEAD at capture.
-      const [fromLine = "", toLine = ""] = heads.stdout.trimEnd().split("\n");
-      const [startHead = "", capturedAt = ""] = fromLine.split(" ");
-      const [endHead = ""] = toLine.split(" ");
-      if (startHead === "" || endHead === "" || startHead === endHead) {
-        return null;
-      }
-
-      const listPaths = (args: ReadonlyArray<string>) =>
-        execute({
-          operation,
-          cwd: input.cwd,
-          args: [...args, "--name-only", "-z", "--no-renames", "--no-ext-diff"],
-          maxOutputBytes: CHECKPOINT_DIFF_MAX_OUTPUT_BYTES,
-          outputMode: "error",
-        }).pipe(Effect.map((result) => result.stdout.split("\0")));
-      // Remerge diff lists a merge's paths only where the result differs from Git's
-      // automatic merge, so a merge keeps its conflict fixes and drops clean upstream changes.
-      const pathLists = yield* Effect.all(
-        [
-          listPaths(["diff", startHead, `${input.fromCheckpointRef}^{commit}`]),
-          listPaths(["diff", endHead, `${input.toCheckpointRef}^{commit}`]),
-          listPaths(["log", "--format=", "--diff-merges=remerge", `${endHead}..${startHead}`]),
-          listPaths([
-            "log",
-            "--format=",
-            "--diff-merges=remerge",
-            `--since=@${capturedAt}`,
-            `${startHead}..${endHead}`,
-          ]),
-        ],
-        { concurrency: "unbounded" },
-      );
-      return new Set(pathLists.flat().filter((path) => path.length > 0));
-    }),
+    listAuthoredPaths: (input) => listGitCheckpointAuthoredPaths(input, execute),
 
     deleteCheckpointRefs: Effect.fn("GitVcsDriver.checkpoints.deleteCheckpointRefs")(
       function* (input) {

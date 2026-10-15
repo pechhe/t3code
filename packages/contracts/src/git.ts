@@ -223,6 +223,21 @@ const VcsStatusChangeRequest = Schema.Struct({
   updatedAt: Schema.optional(Schema.NullOr(Schema.String)),
 });
 
+const VcsStatusSlipJay = Schema.Struct({
+  /** The integration bookmark named by slipjay.json; null when the file cannot be read. */
+  integration: Schema.NullOr(TrimmedNonEmptyStringSchema),
+  /** Which workspace this checkout is, from `slipjay status`; absent when SlipJay cannot say. */
+  workspace: Schema.optional(
+    Schema.Struct({
+      name: TrimmedNonEmptyStringSchema,
+      /** The Issue SlipJay attached to the workspace, if any. */
+      issueNumber: Schema.optional(PositiveInt),
+      /** The project's integration checkout rather than an allocated workspace. */
+      isIntegration: Schema.Boolean,
+    }),
+  ),
+});
+
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
   /**
@@ -257,6 +272,11 @@ const VcsStatusLocalShape = {
       deletions: NonNegativeInt,
     }),
   ),
+  /**
+   * Set when the repository root holds slipjay.json, the same check that makes the server
+   * allocate thread workspaces through SlipJay. Absent otherwise and on older servers.
+   */
+  slipJay: Schema.optional(VcsStatusSlipJay),
 };
 
 const VcsStatusRemoteShape = {

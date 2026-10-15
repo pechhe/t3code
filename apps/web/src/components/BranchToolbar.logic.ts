@@ -2,6 +2,7 @@ import type {
   EnvironmentId,
   EnvironmentMachineKind,
   VcsRef,
+  VcsStatusResult,
   ProjectId,
   WorktreeSubmodules,
 } from "@t3tools/contracts";
@@ -116,6 +117,62 @@ export function resolveLockedWorkspaceLabel(
 ): string {
   if (activeWorktreePath) return "Worktree";
   return effectiveEnvMode === "worktree" ? resolveEnvModeLabel("worktree") : "Local checkout";
+}
+
+/** Where a thread works in a SlipJay project, from the checkout's VCS status. */
+export interface SlipJayCheckoutStatus {
+  /** Null when slipjay.json does not name a usable integration bookmark. */
+  integration: string | null;
+  workspace: NonNullable<VcsStatusResult["slipJay"]>["workspace"];
+  behindCount: number;
+  changedFileCount: number;
+}
+
+/** A checkout in a SlipJay project: the server reports it from the same slipjay.json check. */
+export function resolveSlipJayCheckoutStatus(
+  status: VcsStatusResult | null | undefined,
+): SlipJayCheckoutStatus | null {
+  if (status?.slipJay === undefined) return null;
+  return {
+    integration: status.slipJay.integration,
+    workspace: status.slipJay.workspace,
+    behindCount: status.behindCount,
+    changedFileCount: status.workingTree.files.length,
+  };
+}
+
+/**
+ * A draft is labelled for the workspace its first message allocates; a started
+ * thread names its own, or the integration checkout as `<integration> (root)`.
+ */
+export function resolveSlipJayWorkspaceLabel(
+  status: SlipJayCheckoutStatus,
+  isDraft: boolean,
+): string {
+  if (isDraft) return "New workspace";
+  const workspace = status.workspace;
+  if (workspace === undefined) return "SlipJay workspace";
+  if (workspace.isIntegration) return `${status.integration ?? "Integration"} (root)`;
+  return workspace.issueNumber === undefined
+    ? workspace.name
+    : `${workspace.name} · #${workspace.issueNumber}`;
+}
+
+/**
+ * `on <integration>`, with how far it has moved past the base and the uncommitted
+ * edits; null when slipjay.json names no usable bookmark.
+ */
+export function resolveSlipJayBaseLabel(
+  status: SlipJayCheckoutStatus,
+  isDraft: boolean,
+): string | null {
+  if (status.integration === null) return null;
+  const parts = [`on ${status.integration}`];
+  // A draft's counts describe the root checkout, not the workspace it will get.
+  if (!isDraft && status.behindCount > 0) parts.push(`${status.behindCount} behind`);
+  if (!isDraft && status.changedFileCount > 0)
+    parts.push(`${status.changedFileCount} ${status.changedFileCount === 1 ? "file" : "files"}`);
+  return parts.join(" · ");
 }
 
 export interface PreviousWorktreeSeed {

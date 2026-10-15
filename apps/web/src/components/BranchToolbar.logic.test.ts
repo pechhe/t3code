@@ -1,4 +1,4 @@
-import { EnvironmentId, type VcsRef } from "@t3tools/contracts";
+import { EnvironmentId, type VcsRef, type VcsStatusResult } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   dedupeRemoteBranchesWithLocalMatches,
@@ -16,6 +16,9 @@ import {
   resolveLocalCheckoutBranchMismatch,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
+  resolveSlipJayBaseLabel,
+  resolveSlipJayCheckoutStatus,
+  resolveSlipJayWorkspaceLabel,
   sanitizeNewRefName,
   shouldIncludeBranchPickerItem,
   shouldShowComposerContextStrip,
@@ -24,6 +27,103 @@ import {
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
 const remoteEnvironmentId = EnvironmentId.make("environment-remote");
+
+const checkoutStatus = (overrides: Partial<VcsStatusResult>): VcsStatusResult => ({
+  isRepo: false,
+  otherVcsKind: "jj",
+  hasPrimaryRemote: true,
+  isDefaultRef: false,
+  refName: "develop",
+  hasWorkingTreeChanges: false,
+  workingTree: { files: [], insertions: 0, deletions: 0 },
+  hasUpstream: false,
+  aheadCount: 0,
+  behindCount: 0,
+  pr: null,
+  slipJay: { integration: "develop" },
+  ...overrides,
+});
+
+const changedFile = (path: string) => ({ path, insertions: 1, deletions: 0 });
+
+describe("SlipJay composer strip", () => {
+  it("applies to a SlipJay project and leaves Git checkouts on their controls", () => {
+    expect(resolveSlipJayCheckoutStatus(undefined)).toBeNull();
+    expect(
+      resolveSlipJayCheckoutStatus(
+        checkoutStatus({ isRepo: true, otherVcsKind: undefined, slipJay: undefined }),
+      ),
+    ).toBeNull();
+    expect(
+      resolveSlipJayCheckoutStatus(checkoutStatus({ slipJay: undefined, refName: null })),
+    ).toBeNull();
+  });
+
+  it("keeps a SlipJay project whose config names no usable bookmark", () => {
+    const status = resolveSlipJayCheckoutStatus(
+      checkoutStatus({
+        refName: null,
+        slipJay: { integration: null, workspace: { name: "default", isIntegration: true } },
+      }),
+    )!;
+    expect(resolveSlipJayWorkspaceLabel(status, false)).toBe("Integration (root)");
+    expect(resolveSlipJayBaseLabel(status, false)).toBeNull();
+  });
+
+  it("names the workspace and its Issue, against its integration base and edits", () => {
+    const status = resolveSlipJayCheckoutStatus(
+      checkoutStatus({
+        slipJay: {
+          integration: "develop",
+          workspace: { name: "t3-29", issueNumber: 29, isIntegration: false },
+        },
+        behindCount: 2,
+        workingTree: {
+          files: [changedFile("a.ts"), changedFile("b.ts")],
+          insertions: 2,
+          deletions: 0,
+        },
+      }),
+    )!;
+    expect(resolveSlipJayWorkspaceLabel(status, false)).toBe("t3-29 · #29");
+    expect(resolveSlipJayBaseLabel(status, false)).toBe("on develop · 2 behind · 2 files");
+  });
+
+  it("omits an absent Issue and zero counts", () => {
+    const status = resolveSlipJayCheckoutStatus(
+      checkoutStatus({
+        slipJay: {
+          integration: "develop",
+          workspace: { name: "t3-scratch", isIntegration: false },
+        },
+        workingTree: { files: [changedFile("a.ts")], insertions: 1, deletions: 0 },
+      }),
+    )!;
+    expect(resolveSlipJayWorkspaceLabel(status, false)).toBe("t3-scratch");
+    expect(resolveSlipJayBaseLabel(status, false)).toBe("on develop · 1 file");
+  });
+
+  it("reads the integration checkout as the root", () => {
+    const status = resolveSlipJayCheckoutStatus(
+      checkoutStatus({
+        slipJay: { integration: "develop", workspace: { name: "default", isIntegration: true } },
+      }),
+    )!;
+    expect(resolveSlipJayWorkspaceLabel(status, false)).toBe("develop (root)");
+  });
+
+  it("labels a draft for the workspace its first message allocates", () => {
+    const status = resolveSlipJayCheckoutStatus(
+      checkoutStatus({
+        slipJay: { integration: "develop", workspace: { name: "default", isIntegration: true } },
+        behindCount: 3,
+        workingTree: { files: [changedFile("a.ts")], insertions: 1, deletions: 0 },
+      }),
+    )!;
+    expect(resolveSlipJayWorkspaceLabel(status, true)).toBe("New workspace");
+    expect(resolveSlipJayBaseLabel(status, true)).toBe("on develop");
+  });
+});
 
 describe("resolvePreviousWorktreeSeed", () => {
   it("picks the most recently updated worktree thread", () => {

@@ -1194,6 +1194,191 @@ it.effect("names the worktree itself when the client provides no branch", () =>
   }),
 );
 
+it.effect(
+  "automatically allocates once for a SlipJay root conversation and reuses its receipt",
+  () =>
+    Effect.gen(function* () {
+      const setupEntered = yield* Deferred.make<void>();
+      const allowSetup = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        slipjay: true,
+        runSetup: () =>
+          Deferred.succeed(setupEntered, undefined).pipe(
+            Effect.andThen(Deferred.await(allowSetup)),
+            Effect.as({ status: "no-script" as const }),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const input = launchInput({
+          command: "command:launch:automatic-slipjay",
+          thread: "thread:launch:automatic-slipjay",
+          message: "Explain the repository",
+        });
+        const launched = yield* launches.launch(input);
+        yield* Deferred.await(setupEntered);
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        assert.equal(projection.thread.worktreePath, "/slipjay/workspaces/build-the-feature");
+        assert.equal(projection.runs[0]?.status, "preparing");
+        yield* launches.launch(input);
+        assert.equal(harness.allocateWorkspace.mock.calls.length, 1);
+        assert.isEmpty(harness.createWorktree.mock.calls);
+        assert.isEmpty(harness.generateBranchName.mock.calls);
+        yield* Deferred.succeed(allowSetup, undefined);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect("replays a preparing Git worktree launch onto its bound worktree", () =>
+  Effect.gen(function* () {
+    const setupEntered = yield* Deferred.make<void>();
+    const allowSetup = yield* Deferred.make<void>();
+    const harness = makeHarness({
+      runSetup: () =>
+        Deferred.succeed(setupEntered, undefined).pipe(
+          Effect.andThen(Deferred.await(allowSetup)),
+          Effect.as({ status: "no-script" as const }),
+        ),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const input = launchInput({
+        command: "command:launch:git-replay",
+        thread: "thread:launch:git-replay",
+        message: "Build it",
+        workspace: { type: "worktree", baseRef: "main" },
+      });
+      const launched = yield* launches.launch(input);
+      yield* Deferred.await(setupEntered);
+      const bound = (yield* threads.getThreadProjection(launched.threadId)).thread;
+      yield* launches.launch(input);
+      const replayed = (yield* threads.getThreadProjection(launched.threadId)).thread;
+      assert.equal(replayed.worktreePath, bound.worktreePath);
+      assert.equal(harness.createWorktree.mock.calls.length, 1);
+      assert.isEmpty(harness.allocateWorkspace.mock.calls);
+      yield* Deferred.succeed(allowSetup, undefined);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("allocates a SlipJay workspace when an empty conversation is launched", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({ slipjay: true });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:empty-slipjay",
+          thread: "thread:launch:empty-slipjay",
+        }),
+      );
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(launched.threadId)
+          .pipe(
+            Effect.map(
+              (projection) =>
+                projection.thread.worktreePath === "/slipjay/workspaces/build-the-feature",
+            ),
+          ),
+      );
+      assert.equal(harness.allocateWorkspace.mock.calls.length, 1);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect(
+  "keeps a managed SlipJay reader on its borrowed checkout without allocation or setup",
+  () =>
+    Effect.gen(function* () {
+      const harness = makeHarness({ slipjay: true });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const agentTask = decodeAgentTaskBinding({
+          ...managedTaskBinding(project.workspaceRoot),
+          role: "advisor",
+          sourceAccess: "read-only",
+          toolProfile: "source-reader",
+        });
+        const launched = yield* launches.launch(
+          launchInput({
+            command: "command:launch:slipjay-reader",
+            thread: "thread:launch:slipjay-reader",
+            message: "Explore only",
+            agentTask,
+            workspace: { type: "existing_worktree", worktreePath: project.workspaceRoot },
+          }),
+        );
+        yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+          Stream.filter(
+            (stored) =>
+              stored.event.type === "run.updated" && stored.event.payload.status === "starting",
+          ),
+          Stream.runHead,
+        );
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        assert.equal(projection.thread.worktreePath, project.workspaceRoot);
+        assert.equal(projection.thread.agentTask?.sourceAccess, "read-only");
+        assert.isEmpty(harness.allocateWorkspace.mock.calls);
+        assert.isEmpty(harness.runSetup.mock.calls);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect("reuses a branchless SlipJay allocation when setup is retried", () =>
+  Effect.gen(function* () {
+    let setups = 0;
+    const harness = makeHarness({
+      slipjay: true,
+      runSetup: () =>
+        ++setups === 1
+          ? Effect.fail(new Error("setup failed") as never)
+          : Effect.succeed({ status: "no-script" as const }),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:branchless-retry",
+          thread: "thread:launch:branchless-retry",
+          message: "Start",
+        }),
+      );
+      yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+        Stream.filter(
+          (stored) =>
+            stored.event.type === "run.updated" && stored.event.payload.status === "failed",
+        ),
+        Stream.runHead,
+      );
+      const failed = yield* threads.getThreadProjection(launched.threadId);
+      const run = failed.runs[0]!;
+      assert.isNull(failed.thread.branch);
+      assert.equal(failed.thread.worktreePath, "/slipjay/workspaces/build-the-feature");
+      yield* launches.retryPreparation({
+        commandId: CommandId.make("command:launch:branchless-retry:retry"),
+        threadId: launched.threadId,
+        runId: run.id,
+      });
+      yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+        Stream.filter(
+          (stored) =>
+            stored.event.type === "run.updated" && stored.event.payload.status === "starting",
+        ),
+        Stream.runHead,
+      );
+      assert.equal(harness.allocateWorkspace.mock.calls.length, 1);
+      assert.equal(harness.runSetup.mock.calls.length, 2);
+      assert.isEmpty(harness.releaseWorkspace.mock.calls);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("allocates a SlipJay project's worktree through SlipJay", () =>
   Effect.gen(function* () {
     const harness = makeHarness({ slipjay: true });

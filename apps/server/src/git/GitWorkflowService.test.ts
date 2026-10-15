@@ -34,6 +34,58 @@ function layer(input: {
 
 describe("GitWorkflowService", () => {
   it.effect(
+    "serves live JJ workspace changes through the shared status path without enabling Git actions",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-jj-workflow-status-" });
+        const processes = yield* VcsProcess.VcsProcess;
+        const jj = (args: ReadonlyArray<string>) =>
+          processes.run({
+            operation: "test.jjStatus",
+            command: "jj",
+            cwd,
+            args,
+          });
+        yield* jj(["git", "init", "--no-colocate", "."]);
+        yield* fs.writeFileString(`${cwd}/slipjay.json`, '{"integrationBranch":"develop"}');
+        yield* jj(["bookmark", "set", "develop", "-r", "@"]);
+        yield* jj(["new"]);
+        yield* fs.writeFileString(`${cwd}/changed.txt`, "changed\n");
+        const workflow = yield* GitWorkflowService.GitWorkflowService;
+        const status = yield* workflow.status({ cwd });
+        const local = yield* workflow.localStatus({ cwd });
+        const remote = yield* workflow.remoteStatus({ cwd });
+        assert.equal(status.isRepo, false);
+        assert.equal(status.otherVcsKind, "jj");
+        assert.equal(local.refName, "develop");
+        assert.equal(local.hasWorkingTreeChanges, true);
+        assert.deepEqual(
+          local.workingTree.files.map((file) => file.path),
+          ["changed.txt"],
+        );
+        assert.equal(remote?.behindCount, 0);
+        const refused = yield* workflow.switchRef({ cwd, refName: "develop" }).pipe(Effect.flip);
+        assert.equal(refused._tag, "GitCommandError");
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          GitWorkflowService.layer.pipe(
+            Layer.provide(WorkspaceProvider.layerGitWorktree),
+            Layer.provide(Layer.mock(GitManager.GitManager)({})),
+            Layer.provideMerge(GitVcsDriver.layer),
+            Layer.provideMerge(VcsDriverRegistry.layer),
+            Layer.provideMerge(VcsProcess.layer),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), { prefix: "t3-jj-workflow-status-" }),
+            ),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ),
+      ),
+  );
+
+  it.effect(
     "routes normal workspace removal through the workspace provider before Git-only checks",
     () => {
       const removed: string[] = [];

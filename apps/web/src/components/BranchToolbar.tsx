@@ -9,7 +9,9 @@ import {
   FolderGit2Icon,
   FolderGitIcon,
   FolderIcon,
+  GitBranchIcon,
   ScaleIcon,
+  type LucideIcon,
 } from "lucide-react";
 import {
   type Ref,
@@ -36,7 +38,10 @@ import {
   resolveLockedWorkspaceLabel,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
+  resolveSlipJayBaseLabel,
+  resolveSlipJayWorkspaceLabel,
   shouldShowEnvironmentIndicator,
+  type SlipJayCheckoutStatus,
 } from "./BranchToolbar.logic";
 import {
   BranchToolbarBranchSelector,
@@ -84,6 +89,8 @@ interface BranchToolbarProps {
   environmentId: EnvironmentId;
   threadId: ThreadId;
   showGitControls: boolean;
+  /** Set in a SlipJay project, whose workspace and base replace the Git controls. */
+  slipJayStatus?: SlipJayCheckoutStatus | null;
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   /** The thread's env mode as ChatView resolves it. */
@@ -138,6 +145,42 @@ function showWorkspaceContextMenu(event: ReactMouseEvent, workspacePath: string)
         },
       );
     });
+}
+
+/** A read-only strip or panel row: SlipJay assigns the workspace and its base. */
+function SlipJayContextRow({
+  displayMode = "toolbar",
+  icon: Icon,
+  label,
+  tooltip,
+  className,
+}: {
+  displayMode?: "toolbar" | "panel";
+  icon: LucideIcon;
+  label: string;
+  tooltip: string;
+  className?: string;
+}) {
+  const isPanel = displayMode === "panel";
+  const row = (
+    <span
+      className={cn(
+        "inline-flex h-7 min-w-0 items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6",
+        isPanel && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
+        className,
+      )}
+      data-composer-context-control
+    >
+      <Icon className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"} />
+      <ComposerContextLabel displayMode={displayMode}>{label}</ComposerContextLabel>
+    </span>
+  );
+  return (
+    <Tooltip>
+      <TooltipTrigger render={row} />
+      <TooltipPopup>{tooltip}</TooltipPopup>
+    </Tooltip>
+  );
 }
 
 interface RunContextSelectorProps {
@@ -602,6 +645,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
   showGitControls,
+  slipJayStatus = null,
   draftId,
   onEnvModeChange,
   envMode,
@@ -641,7 +685,16 @@ export const BranchToolbar = memo(function BranchToolbar({
     ? null
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
   const effectiveEnvMode = forceNewWorktree ? "worktree" : envMode;
-  const envModeLocked = envLocked || (serverThread !== null && activeWorktreePath !== null);
+  // SlipJay allocates a draft's workspace on its first message; there is no checkout to choose.
+  const envModeLocked =
+    envLocked || slipJayStatus !== null || (serverThread !== null && activeWorktreePath !== null);
+  const slipJayRows =
+    slipJayStatus === null
+      ? null
+      : {
+          workspace: resolveSlipJayWorkspaceLabel(slipJayStatus, serverThread === null),
+          base: resolveSlipJayBaseLabel(slipJayStatus, serverThread === null),
+        };
 
   // "Previous worktree" hops a draft into the most recently active worktree
   // of this project — the "keep going where I just was" follow-up flow. Only
@@ -741,7 +794,24 @@ export const BranchToolbar = memo(function BranchToolbar({
             onUsePreviousWorktree={onUsePreviousWorktree}
           />
         ) : null}
-        {panelSection !== "workspace" ? (
+        {panelSection !== "workspace" && slipJayRows ? (
+          <>
+            <SlipJayContextRow
+              displayMode="panel"
+              icon={FolderGitIcon}
+              label={slipJayRows.workspace}
+              tooltip="SlipJay workspace"
+            />
+            {slipJayRows.base === null ? null : (
+              <SlipJayContextRow
+                displayMode="panel"
+                icon={GitBranchIcon}
+                label={slipJayRows.base}
+                tooltip="Integration branch"
+              />
+            )}
+          </>
+        ) : panelSection !== "workspace" ? (
           <BranchToolbarBranchSelector
             displayMode="panel"
             className="w-full"
@@ -796,7 +866,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           />
         </div>
       ) : null}
-      {showGitControls || showEnvironmentIndicator ? (
+      {showGitControls || showEnvironmentIndicator || slipJayRows ? (
         <div
           className={cn(
             "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
@@ -814,7 +884,7 @@ export const BranchToolbar = memo(function BranchToolbar({
                 availableEnvironments={availableEnvironments}
                 {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
-              {showGitControls ? (
+              {showGitControls || slipJayRows ? (
                 <Separator
                   orientation="vertical"
                   className="mx-0.5 h-3.5!"
@@ -823,7 +893,17 @@ export const BranchToolbar = memo(function BranchToolbar({
               ) : null}
             </>
           )}
-          {showGitControls ? (
+          {slipJayRows ? (
+            <SlipJayContextRow
+              icon={FolderGitIcon}
+              label={slipJayRows.workspace}
+              tooltip={
+                serverThread === null
+                  ? "Sending the first message allocates a SlipJay workspace."
+                  : "SlipJay workspace"
+              }
+            />
+          ) : showGitControls ? (
             <BranchToolbarEnvModeSelector
               forceNewWorktree={forceNewWorktree}
               envLocked={envModeLocked}
@@ -850,7 +930,16 @@ export const BranchToolbar = memo(function BranchToolbar({
         />
       ) : null}
 
-      {showGitControls ? (
+      {slipJayRows ? (
+        slipJayRows.base === null ? null : (
+          <SlipJayContextRow
+            icon={GitBranchIcon}
+            label={slipJayRows.base}
+            tooltip="Integration branch"
+            className="ml-auto"
+          />
+        )
+      ) : showGitControls ? (
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}

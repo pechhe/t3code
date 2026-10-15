@@ -102,13 +102,34 @@ function buildLargeText(lineCount = 5_000): string {
 }
 
 it.layer(layerTest)("CheckpointStore.layer", (it) => {
-  describe("isGitRepository", () => {
+  describe("supportsCheckpoints", () => {
+    it.effect("selects checkpoint support in a Jujutsu-only workspace", () =>
+      Effect.gen(function* () {
+        const tmp = yield* makeTmpDir();
+        const processes = yield* VcsProcess.VcsProcess;
+        yield* processes.run({
+          operation: "CheckpointStore.test.jj",
+          command: "jj",
+          cwd: tmp,
+          args: ["git", "init", "--no-colocate", "."],
+        });
+        const store = yield* CheckpointStore.CheckpointStore;
+        expect(yield* store.supportsCheckpoints(tmp)).toBe(true);
+        const ref = checkpointRefForThreadTurn(ThreadId.make("jj-checkpoint"), 0);
+        yield* writeTextFile(NodePath.join(tmp, "test.txt"), "retained\n");
+        yield* store.captureCheckpoint({ cwd: tmp, checkpointRef: ref });
+        yield* writeTextFile(NodePath.join(tmp, "test.txt"), "changed\n");
+        expect(yield* store.restoreCheckpoint({ cwd: tmp, checkpointRef: ref })).toBe(true);
+        const fs = yield* FileSystem.FileSystem;
+        expect(yield* fs.readFileString(NodePath.join(tmp, "test.txt"))).toBe("retained\n");
+      }),
+    );
     it.effect("returns false when no Git repository is detected", () =>
       Effect.gen(function* () {
         const tmp = yield* makeTmpDir();
         const checkpointStore = yield* CheckpointStore.CheckpointStore;
 
-        expect(yield* checkpointStore.isGitRepository(tmp)).toBe(false);
+        expect(yield* checkpointStore.supportsCheckpoints(tmp)).toBe(false);
       }),
     );
 
@@ -118,7 +139,7 @@ it.layer(layerTest)("CheckpointStore.layer", (it) => {
         yield* initRepoWithCommit(tmp);
         const checkpointStore = yield* CheckpointStore.CheckpointStore;
 
-        expect(yield* checkpointStore.isGitRepository(tmp)).toBe(true);
+        expect(yield* checkpointStore.supportsCheckpoints(tmp)).toBe(true);
       }),
     );
   });
@@ -131,7 +152,7 @@ it.layer(layerTest)("CheckpointStore.layer", (it) => {
       const nested = NodePath.join(tmp, "packages", "nested");
       yield* fileSystem.makeDirectory(nested, { recursive: true });
       const checkpointStore = yield* CheckpointStore.CheckpointStore;
-      expect(yield* checkpointStore.isGitRepository(nested)).toBe(true);
+      expect(yield* checkpointStore.supportsCheckpoints(nested)).toBe(true);
     }),
   );
   describe("diffCheckpoints", () => {

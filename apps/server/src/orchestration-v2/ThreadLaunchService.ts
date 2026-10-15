@@ -905,7 +905,7 @@ const make = Effect.gen(function* () {
 
         // A Scratch thread launched at the project root runs in a folder of its
         // own. Only the first attempt claims one; a retry replays its create.
-        const workspaceStrategy: ThreadLaunchWorkspaceStrategy =
+        let workspaceStrategy: ThreadLaunchWorkspaceStrategy =
           input.workspaceStrategy.type === "root" && Option.isNone(launchReceipt)
             ? Option.match(
                 yield* managedFolders
@@ -921,6 +921,17 @@ const make = Effect.gen(function* () {
                 },
               )
             : input.workspaceStrategy;
+        // A normal SlipJay conversation owns one checkout from its launch, so a
+        // later first message never runs in the integration checkout. Client
+        // drafts launch only when sent. Managed readers keep their parent's binding.
+        if (
+          workspaceStrategy.type === "root" &&
+          input.agentTask === undefined &&
+          input.importedNativeThread === undefined &&
+          (yield* workspaces.resolve(project.workspaceRoot)) === "slipjay"
+        ) {
+          workspaceStrategy = { type: "worktree", baseRef: "HEAD" };
+        }
         const initialBranch = workspaceStrategy.branch ?? null;
         const initialWorktreePath =
           workspaceStrategy.type === "existing_worktree" ? workspaceStrategy.worktreePath : null;
@@ -1023,13 +1034,11 @@ const make = Effect.gen(function* () {
         // a Scratch thread keeps its own. Other root launches bind no folder.
         const boundWorktreePath = projection.thread.worktreePath;
         const preparationStrategy: ThreadLaunchWorkspaceStrategy =
-          Option.isSome(launchReceipt) &&
-          workspaceStrategy.type === "root" &&
-          boundWorktreePath !== null
+          Option.isSome(launchReceipt) && boundWorktreePath !== null
             ? {
                 type: "existing_worktree",
                 worktreePath: boundWorktreePath,
-                branch: workspaceStrategy.branch,
+                ...(projection.thread.branch === null ? {} : { branch: projection.thread.branch }),
               }
             : workspaceStrategy;
         if (shouldSchedule) {
@@ -1107,14 +1116,12 @@ const make = Effect.gen(function* () {
     const message = projection.messages.find((candidate) => candidate.id === run.userMessageId);
     // A worktree the failed attempt already created is reused, not created again.
     const reuse =
-      workspacePreparation.type === "worktree" &&
-      projection.thread.worktreePath !== null &&
-      projection.thread.branch !== null
+      workspacePreparation.type === "worktree" && projection.thread.worktreePath !== null
         ? {
             strategy: {
               type: "existing_worktree" as const,
               worktreePath: projection.thread.worktreePath,
-              branch: projection.thread.branch,
+              ...(projection.thread.branch === null ? {} : { branch: projection.thread.branch }),
             },
             reusedWorktree: { baseRef: workspacePreparation.baseRef },
           }
