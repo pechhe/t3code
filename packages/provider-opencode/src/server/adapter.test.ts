@@ -1,3 +1,5 @@
+import * as NodeURL from "node:url";
+import * as FileSystem from "effect/FileSystem";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { OpencodeClient, ToolPart } from "@opencode-ai/sdk/v2";
@@ -162,6 +164,7 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
     settings: OPEN_CODE_TEST_SETTINGS,
     environment: {},
   }).pipe(
+    Effect.provide(NodeServices.layer),
     Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, {
       connectToOpenCodeServer: () => Effect.succeed({ url: "http://test.invalid", external: true }),
       createOpenCodeSdkClient: () => client,
@@ -186,6 +189,7 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
   const startTurn = (
     text = "hello",
     startProviderThread: OrchestrationV2ProviderThread = providerThread,
+    videoFrames?: import("@t3tools/provider-core/server/ProviderAdapter").ProviderAdapterV2TurnMessage["videoFrames"],
   ) =>
     runtime.startTurn({
       appThread: {
@@ -224,6 +228,7 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
         messageId: MessageId.make(`message-opencode-${suffix}`),
         text,
         attachments: [],
+        videoFrames,
       },
       modelSelection,
       runtimePolicy: policy,
@@ -241,6 +246,60 @@ const makeOpenCodeRuntimeHarness = Effect.fn("makeOpenCodeRuntimeHarness")(funct
 });
 
 describe("OpenCodeAdapterV2", () => {
+  it.effect("delivers labeled video image file parts and skips vanished frames", () =>
+    Effect.gen(function* () {
+      const videoFs = yield* FileSystem.FileSystem;
+      const videoDir = yield* videoFs.makeTempDirectoryScoped();
+      const framePath = videoDir + "/frame.jpg";
+      yield* videoFs.writeFile(framePath, Uint8Array.from([9, 10]));
+      const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
+        videoAttachmentId: "video" as never,
+        videoName: "clip.mp4",
+        timestampMs,
+        path: index === 2 ? videoDir + "/missing.jpg" : framePath,
+        mimeType: "image/jpeg" as const,
+        sizeBytes: 2,
+      }));
+
+      const events = asyncEventStream();
+      let received: unknown;
+      const harness = yield* makeOpenCodeRuntimeHarness("video", "root", {
+        event: { subscribe: async () => ({ stream: events.stream }) },
+        session: {
+          create: async () => ({ data: { id: "root", time: { created: 1, updated: 1 } } }),
+          promptAsync: async (input: unknown) => {
+            received = input;
+            return { data: true };
+          },
+          abort: async () => ({ data: true }),
+          children: async () => ({ data: [] }),
+        },
+      });
+      yield* harness.startTurn("Watch", harness.providerThread, videoFrames);
+      assert.deepEqual((received as { parts: unknown[] }).parts.slice(-4), [
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+        {
+          type: "file",
+          mime: "image/jpeg",
+          filename: "clip.mp4.jpg",
+          url: NodeURL.pathToFileURL(framePath).href,
+        },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+        {
+          type: "file",
+          mime: "image/jpeg",
+          filename: "clip.mp4.jpg",
+          url: NodeURL.pathToFileURL(framePath).href,
+        },
+      ]);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(NodeServices.layer, IdAllocator.layer, McpProviderSessions.layer),
+      ),
+    ),
+  );
+
   it.effect.each(["completed", "failed", "unresolved", "unavailable", "reconnect"] as const)(
     "normalizes OpenCode step usage for %s turns",
     (ending) =>
@@ -1531,6 +1590,7 @@ describe("OpenCodeAdapterV2", () => {
         settings: OPEN_CODE_TEST_SETTINGS,
         environment: {},
       }).pipe(
+        Effect.provide(NodeServices.layer),
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, {
           connectToOpenCodeServer: () =>
             Effect.succeed({ url: "http://test.invalid", external: true }),
@@ -1828,6 +1888,7 @@ describe("OpenCodeAdapterV2", () => {
         settings: OPEN_CODE_TEST_SETTINGS,
         environment: {},
       }).pipe(
+        Effect.provide(NodeServices.layer),
         Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, {
           connectToOpenCodeServer: () =>
             Effect.succeed({ url: "http://test.invalid", external: true }),
@@ -2526,7 +2587,10 @@ describe("OpenCodeAdapterV2", () => {
         instanceId,
         settings: OPENCODE_TEST_SETTINGS,
         environment: {},
-      }).pipe(Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, runtime));
+      }).pipe(
+        Effect.provide(NodeServices.layer),
+        Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, runtime),
+      );
       const session = yield* adapter.openSession({
         threadId,
         providerSessionId: ProviderSessionId.make("provider-session-opencode-adopt"),

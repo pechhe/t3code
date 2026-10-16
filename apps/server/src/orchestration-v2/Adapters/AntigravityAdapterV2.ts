@@ -154,6 +154,7 @@ export function makeAntigravityAcpAdapterFlavor(
     );
 
   return {
+    nativeAttachmentByteLimit: 50 * 1024 * 1024,
     driver: ANTIGRAVITY_PROVIDER,
     runtimeHarness: "Antigravity",
     capabilities: AntigravityProviderCapabilitiesV2,

@@ -3,9 +3,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
-import { resolveAttachmentPathById } from "../attachmentStore.ts";
+import { parseAttachmentUuid, resolveAttachmentPathById } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
@@ -41,6 +42,7 @@ export const layer = Layer.effect(
     const previews = yield* PreviewManager.PreviewManager;
     const fileSystem = yield* FileSystem.FileSystem;
     const config = yield* ServerConfig.ServerConfig;
+    const paths = yield* Path.Path;
     return {
       cleanupTerminals: (threadId: string) =>
         terminals
@@ -66,16 +68,20 @@ export const layer = Layer.effect(
               attachmentsDir: config.attachmentsDir,
               attachmentId,
             });
-            return path === null
-              ? Effect.void
-              : fileSystem
-                  .remove(path, { force: true })
-                  .pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new ResourceCleanupError({ operation: "attachment", attachmentId, cause }),
-                    ),
-                  );
+            const removeCache = parseAttachmentUuid(attachmentId)
+              ? fileSystem.remove(paths.join(config.attachmentsDir, "video-frames", attachmentId), {
+                  recursive: true,
+                  force: true,
+                })
+              : Effect.void;
+            return (path === null ? Effect.void : fileSystem.remove(path, { force: true }))
+              .pipe(Effect.andThen(removeCache))
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ResourceCleanupError({ operation: "attachment", attachmentId, cause }),
+                ),
+              );
           },
           { discard: true, concurrency: 4 },
         ),

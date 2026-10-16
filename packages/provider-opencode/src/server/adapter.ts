@@ -1,3 +1,5 @@
+import * as FileSystem from "effect/FileSystem";
+import * as NodeURL from "node:url";
 import type {
   Event as OpenCodeEvent,
   Message as OpenCodeMessage,
@@ -69,7 +71,12 @@ import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
-import { providerMessageTextWithAttachmentPaths } from "@t3tools/provider-core/server/attachmentPrompt";
+
+import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
+  providerMessageTextWithAttachmentPaths,
+} from "@t3tools/provider-core/server/attachmentPrompt";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import {
   ProviderAdapterDriverCreateError,
@@ -931,6 +938,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
   const runtime = yield* OpenCodeRuntime.OpenCodeRuntime;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
+  const videoFileSystem = yield* FileSystem.FileSystem;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const messageIdClock = yield* Ref.make({ epochMillis: -1, counter: 0 });
 
@@ -2809,7 +2817,9 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
           return state;
         };
 
-        const resolvePromptParts = (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) => {
+        const resolvePromptParts = Effect.fnUntraced(function* (
+          turnInput: ProviderAdapter.ProviderAdapterV2TurnInput,
+        ) {
           const text = providerMessageTextWithAttachmentPaths({
             text: turnInput.message.text,
             attachments: turnInput.message.attachments,
@@ -2819,11 +2829,26 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             attachments: turnInput.message.attachments,
             resolveAttachmentPath: host.resolveAttachmentPath,
           });
-          if (text.length === 0 && files.length === 0) {
-            throw protocolError("OpenCode turns require text or at least one valid attachment");
+          const parts = [...(text.length === 0 ? [] : [{ type: "text" as const, text }]), ...files];
+          for (const { frame } of yield* readProviderVideoFrames(
+            videoFileSystem,
+            turnInput.message.videoFrames,
+          )) {
+            parts.push({ type: "text", text: providerVideoFrameLabel(frame) });
+            parts.push({
+              type: "file",
+              mime: "image/jpeg",
+              filename: frame.videoName + ".jpg",
+              url: NodeURL.pathToFileURL(frame.path).href,
+            });
           }
-          return [...(text.length === 0 ? [] : [{ type: "text" as const, text }]), ...files];
-        };
+          if (parts.length === 0) {
+            return yield* protocolError(
+              "OpenCode turns require text or at least one valid attachment",
+            );
+          }
+          return parts;
+        });
 
         const readSnapshot = Effect.fnUntraced(function* (
           providerThread: OrchestrationV2ProviderThread,
@@ -3107,7 +3132,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               const isCompaction =
                 turnInput.message.text.trim() === "/compact" &&
                 turnInput.message.attachments.length === 0;
-              const parts = isCompaction ? [] : resolvePromptParts(turnInput);
+              const parts = isCompaction ? [] : yield* resolvePromptParts(turnInput);
               const startedAt = yield* DateTime.now;
               const syntheticNativeTurnId = `${sessionId}:attempt:${turnInput.attemptId}`;
               const providerTurnId = idAllocator.derive.providerTurn({
@@ -3323,6 +3348,18 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 ...(text.length === 0 ? [] : [{ type: "text" as const, text }]),
                 ...files,
               ];
+              for (const { frame } of yield* readProviderVideoFrames(
+                videoFileSystem,
+                steerInput.message.videoFrames,
+              )) {
+                parts.push({ type: "text", text: providerVideoFrameLabel(frame) });
+                parts.push({
+                  type: "file",
+                  mime: "image/jpeg",
+                  filename: frame.videoName + ".jpg",
+                  url: NodeURL.pathToFileURL(frame.path).href,
+                });
+              }
               turn.admissionGeneration = state.nextAdmissionGeneration++;
               turn.admissionMessageId = yield* makeOpenCodeMessageId(messageIdClock);
               turn.admissionPending = true;
@@ -3675,6 +3712,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
 });
 
 export type OpenCodeAdapterV2DriverEnv =
+  | FileSystem.FileSystem
   | OpenCodeRuntime.OpenCodeRuntime
   | IdAllocator.IdAllocatorV2
   | McpProviderSessions.McpProviderSessions

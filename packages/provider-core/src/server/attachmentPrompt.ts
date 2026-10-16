@@ -7,6 +7,9 @@ import {
   type SnapShotAccessibilityNode,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import type { ProviderAdapterV2VideoFrame } from "./ProviderAdapter.ts";
 
 const encodePromptJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -156,10 +159,73 @@ export function isProviderNativeImageAttachment(attachment: ChatAttachment): boo
   );
 }
 
+export function providerVideoFrameLabel(frame: ProviderAdapterV2VideoFrame): string {
+  const tenths = Math.round(frame.timestampMs / 100);
+  const minutes = Math.floor(tenths / 600)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (Math.floor(tenths / 10) % 60).toString().padStart(2, "0");
+  return `[Frame of video ${JSON.stringify(frame.videoName)} at ${minutes}:${seconds}.${tenths % 10}]`;
+}
+
+export const readProviderVideoFrames = Effect.fnUntraced(function* (
+  fileSystem: FileSystem.FileSystem,
+  frames: ReadonlyArray<ProviderAdapterV2VideoFrame> | undefined,
+) {
+  const loaded: Array<{ frame: ProviderAdapterV2VideoFrame; bytes: Uint8Array }> = [];
+  for (const frame of frames ?? []) {
+    const bytes = yield* fileSystem
+      .readFile(frame.path)
+      .pipe(
+        Effect.catch(() =>
+          Effect.logWarning("Skipping unreadable video frame").pipe(Effect.as(null)),
+        ),
+      );
+    if (bytes !== null) loaded.push({ frame, bytes });
+  }
+  return loaded;
+});
+
+// Resample from the original groups so repeated reductions do not cluster timestamps.
+export function videoFramesWithinByteBudget<
+  T extends { frame: ProviderAdapterV2VideoFrame; bytes: Uint8Array },
+>(frames: ReadonlyArray<T>, budget: number): ReadonlyArray<T> {
+  const groups = new Map<string, Array<T>>();
+  for (const frame of frames) {
+    const key = frame.frame.videoAttachmentId;
+    const group = groups.get(key) ?? [];
+    group.push(frame);
+    groups.set(key, group);
+  }
+  const counts = new Map([...groups].map(([key, group]) => [key, group.length]));
+  const sample = () =>
+    [...groups].flatMap(([key, group]) => {
+      const count = counts.get(key)!;
+      if (count === 0) return [];
+      if (count === 1) return [group[0]!];
+      return Array.from(
+        { length: count },
+        (_, i) => group[Math.round((i * (group.length - 1)) / (count - 1))]!,
+      );
+    });
+  let selected = sample();
+  while (selected.reduce((sum, item) => sum + item.bytes.length, 0) > budget) {
+    const candidates = [...counts].filter(([, count]) => count > 2);
+    const candidate = (
+      candidates.length ? candidates : [...counts].filter(([, count]) => count > 0)
+    ).sort((a, b) => b[1] - a[1])[0];
+    if (!candidate) return [];
+    counts.set(candidate[0], candidate[1] > 2 ? candidate[1] - 1 : 0);
+    selected = sample();
+  }
+  return selected;
+}
+
 export function providerMessageTextWithAttachmentPaths(input: {
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
   readonly resolveAttachmentPath: (attachment: ChatAttachment) => string | null;
+  readonly videoFrames?: ReadonlyArray<ProviderAdapterV2VideoFrame>;
 }): string {
   let text = input.text;
   const appendContext = (context: string | undefined) => {
@@ -213,5 +279,8 @@ export function providerMessageTextWithAttachmentPaths(input: {
     );
   }
 
+  for (const frame of input.videoFrames ?? []) {
+    appendContext(`${providerVideoFrameLabel(frame)} saved at: ${frame.path}`);
+  }
   return text;
 }

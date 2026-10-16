@@ -1,3 +1,4 @@
+import * as FileSystem from "effect/FileSystem";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { MspError } from "@muse-code/sdk";
@@ -351,6 +352,35 @@ const approval = (turnId: string) => ({
 });
 
 describe("MuseAdapterV2", () => {
+  it.effect("sends labeled native video images and skips vanished frames", () =>
+    Effect.gen(function* () {
+      const videoFs = yield* FileSystem.FileSystem;
+      const videoDir = yield* videoFs.makeTempDirectoryScoped();
+      const framePath = videoDir + "/frame.jpg";
+      yield* videoFs.writeFile(framePath, Uint8Array.from([9, 10]));
+      const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
+        videoAttachmentId: "video" as never,
+        videoName: "clip.mp4",
+        timestampMs,
+        path: index === 2 ? videoDir + "/missing.jpg" : framePath,
+        mimeType: "image/jpeg" as const,
+        sizeBytes: 2,
+      }));
+
+      const fake = yield* makeFakeMuse();
+      const harness = yield* makeHarness(fake);
+      const input = yield* turnInput(harness.providerThread, 1, harness.policy);
+      yield* harness.runtime.startTurn({ ...input, message: { ...input.message, videoFrames } });
+      const call = yield* fake.takeCall("turn/start");
+      assert.deepEqual((call.params.input as unknown[]).slice(-4), [
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+        { type: "image", base64Data: "CQo=", mediaType: "image/jpeg" },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+        { type: "image", base64Data: "CQo=", mediaType: "image/jpeg" },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
   it.effect("connects the thread's MCP credential on native start and resume", () =>
     Effect.gen(function* () {
       yield* (yield* McpProviderSessions.McpProviderSessions).set({

@@ -1,3 +1,4 @@
+import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import {
   extractCopilotSubagentUpdate,
   makeCopilotSubagentRouting,
@@ -13,6 +14,8 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  ChatAttachmentId,
+  ChatImageAttachment,
   CheckpointId,
   EnvironmentId,
   MessageId,
@@ -604,6 +607,135 @@ function makeTurnInput(input: {
 }
 
 describe("AcpAdapterV2", () => {
+  it.live.each(["acp-test", "grok", "acpRegistry", "antigravity", "path-only"] as const)(
+    "delivers labeled video frames through %s",
+    (driver) =>
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const videoDir = yield* fileSystem.makeTempDirectoryScoped();
+        const framePath = videoDir + "/frame.jpg";
+        yield* fileSystem.writeFile(framePath, Uint8Array.from([9, 10]));
+        const timestamps =
+          driver === "antigravity" ? [3200, 4000, 5000, 7200, 9000] : [3200, 7200, 9000];
+        const videoFrames = timestamps.map((timestampMs, index) => ({
+          videoAttachmentId: "video" as never,
+          videoName: "clip.mp4",
+          timestampMs,
+          path: index === timestamps.length - 1 ? videoDir + "/missing.jpg" : framePath,
+          mimeType: "image/jpeg" as const,
+          sizeBytes: 2,
+        }));
+        const path = yield* Path.Path;
+        const protocolEvents = yield* Queue.unbounded<EffectAcpProtocol.AcpProtocolLogEvent>();
+        const instanceId = ProviderInstanceId.make("video-" + driver);
+        const threadId = ThreadId.make("video-" + driver);
+        const adapter = yield* makeAcpAdapterV2({
+          instanceId,
+          selfInvocation: yield* resolveSelfInvocation(),
+          flavor: {
+            driver: ProviderDriverKind.make(driver),
+            capabilities: AcpProviderCapabilitiesV2,
+            supportsImagePrompts: driver !== "path-only",
+            nativeAttachmentByteLimit: driver === "antigravity" ? 6 : 4,
+            makeRuntime: makeMockRuntime({
+              childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+              mockAgentPath: yield* path.fromFileUrl(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+              protocolEvents,
+            }),
+          },
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: process.cwd(),
+        });
+        const modelSelection = { instanceId, model: "default" };
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("video-session-" + driver),
+          modelSelection,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const input = makeTurnInput({
+          threadId,
+          providerThread,
+          instanceId,
+          runtimePolicy,
+          now: yield* DateTime.now,
+        });
+        const attachments =
+          driver === "antigravity"
+            ? [
+                ChatImageAttachment.make({
+                  id: ChatAttachmentId.make("user-image"),
+                  type: "image",
+                  name: "user.jpg",
+                  mimeType: "image/jpeg",
+                  sizeBytes: 2,
+                }),
+              ]
+            : [];
+        for (const attachment of attachments) {
+          const host = yield* ProviderHost.ProviderHost;
+          yield* fileSystem.writeFile(
+            host.resolveAttachmentPath(attachment)!,
+            Uint8Array.from([1, 2]),
+          );
+        }
+        yield* runtime.startTurn({
+          ...input,
+          message: { ...input.message, attachments, videoFrames },
+        });
+        while (true) {
+          const event = yield* Queue.take(protocolEvents);
+          if (event.direction !== "outgoing" || rawProtocolMethod(event) !== "session/prompt")
+            continue;
+          const blocks = rawProtocolRequestParam(event, "prompt") as Array<{
+            type: string;
+            text?: string;
+            data?: string;
+            mimeType?: string;
+          }>;
+          if (driver === "path-only") {
+            const text = blocks.map((block) => block.text ?? "").join("\n");
+            assert.include(text, '[Frame of video "clip.mp4" at 00:03.2] saved at: ' + framePath);
+            assert.include(text, '[Frame of video "clip.mp4" at 00:07.2] saved at: ' + framePath);
+            assert.lengthOf(
+              blocks.filter((block) => block.type === "image"),
+              0,
+            );
+          } else {
+            if (driver === "antigravity") {
+              const images = blocks.filter((block) => block.type === "image");
+              assert.lengthOf(images, 3);
+              assert.equal(
+                images.reduce((sum, image) => sum + Buffer.from(image.data!, "base64").length, 0),
+                6,
+              );
+            }
+            const first = blocks.findIndex(
+              (block) => block.text === '[Frame of video "clip.mp4" at 00:03.2]',
+            );
+            assert.isAtLeast(first, 0);
+            assert.deepEqual(blocks.slice(first, first + 4), [
+              { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+              { type: "image", data: "CQo=", mimeType: "image/jpeg" },
+              { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+              { type: "image", data: "CQo=", mimeType: "image/jpeg" },
+            ]);
+          }
+          break;
+        }
+      }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.live.each(["failed", "recovered", "completed", "cancelled"] as const)(
     "projects Mistral retry notices and their %s outcome",
     (outcome) =>

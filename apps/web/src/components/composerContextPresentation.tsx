@@ -1,3 +1,4 @@
+import { useServerConfigs } from "~/state/entities";
 import ChatMarkdown from "./ChatMarkdown";
 import { ReadOnlySourcePreview } from "./files/AttachmentFilePreview";
 import type { PreviewAnnotationPayload, ThreadContextRecord } from "@t3tools/contracts";
@@ -232,6 +233,10 @@ function FileContextChip(props: {
   const suffix = needsReattach ? "attach again" : uploadStatusSuffix(props.upload);
   const size = formatAttachmentSize(props.record.sizeBytes);
   const isVideo = videoMimeType(props.record) !== null;
+  const configs = useServerConfigs();
+  const lacksFfmpeg =
+    actions.environmentId !== null &&
+    configs.get(actions.environmentId)?.environment.capabilities.videoFrames === false;
   return (
     <FileChip
       name={props.record.name}
@@ -241,6 +246,11 @@ function FileContextChip(props: {
       error={props.upload?.status === "failed"}
       unresolved={needsReattach}
       suffix={suffix}
+      hint={
+        isVideo && lacksFfmpeg
+          ? "Install ffmpeg on the server and restart T3 so agents can see this video"
+          : undefined
+      }
       accessibleLabel={`${isVideo && !needsReattach ? "Preview video" : "File"} attachment, ${props.record.name}, ${size}`}
       onOpen={
         !needsReattach

@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import {
   EventId,
   MessageId,
@@ -282,9 +283,16 @@ it.effect.each(storageCases)(
                 Effect.sync(() => {
                   calls.push("interrupt");
                 }),
-              steerTurn: (input: { message: { text: string }; runId: RunId }) =>
+              steerTurn: (input: {
+                message: { text: string; videoFrames?: ReadonlyArray<{ path: string }> };
+                runId: RunId;
+              }) =>
                 Effect.sync(() => {
                   assert.equal(input.runId, runId);
+                  assert.deepEqual(
+                    input.message.videoFrames?.map((frame) => frame.path),
+                    ["/frames/0.jpg"],
+                  );
                   calls.push(input.message.text);
                 }),
               respondToRuntimeRequest: () =>
@@ -344,6 +352,22 @@ it.effect.each(storageCases)(
       }).pipe(
         Effect.provide(
           Layer.merge(ProviderTurnControlService.layer, RuntimeRequestService.layer).pipe(
+            Layer.provide(
+              Layer.mock(VideoFrames.VideoFrames)({
+                // A steered message must carry frames just like a started turn.
+                framesForMessage: () =>
+                  Effect.succeed([
+                    {
+                      videoAttachmentId: "thread-video",
+                      videoName: "clip.mp4",
+                      timestampMs: 0,
+                      path: "/frames/0.jpg",
+                      mimeType: "image/jpeg" as const,
+                      sizeBytes: 10,
+                    },
+                  ]),
+              }),
+            ),
             Layer.provide(layerSessions),
           ),
         ),

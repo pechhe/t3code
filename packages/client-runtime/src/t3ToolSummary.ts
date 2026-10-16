@@ -347,6 +347,9 @@ export function summarizeT3ToolCalls(
         quantity(countEntities(entityIds("attachmentId")), "pending attachment"),
       );
       break;
+    case "video-frames":
+      label = phrase("Sampled", "sample", `video frames ${times}`);
+      break;
     case "attachment-send": {
       const messages = new Map<string, (typeof selected)[number]>();
       selected.forEach((call, index) =>

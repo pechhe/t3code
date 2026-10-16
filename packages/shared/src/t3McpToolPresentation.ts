@@ -54,6 +54,7 @@ export type T3McpToolSummaryAction =
   | "attachment-prepare"
   | "attachment-discard"
   | "attachment-send"
+  | "video-frames"
   | "link-pr"
   | "unlink-pr"
   | "list-prs"
@@ -357,6 +358,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "attachment-discard",
   ),
   t3_thread_send_attachments: tool(["Send", "Sending", "Sent", "attachments"], "attachment-send"),
+  t3_video_frames: tool(["Sample", "Sampling", "Sampled", "video frames"], "video-frames"),
   html_preview: tool(["Preview", "Previewing", "Previewed", "an HTML page"], "html-preview"),
   html_render: tool(["Render", "Rendering", "Rendered", "an HTML page"], "html-render"),
 };

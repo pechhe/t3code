@@ -65,6 +65,18 @@ describe("CursorAdapterV2", () => {
           authorizationHeader: "Bearer synthetic-cursor-token",
           browserToolsAvailable: true,
         });
+        const videoFs = yield* FileSystem.FileSystem;
+        const videoDir = yield* videoFs.makeTempDirectoryScoped();
+        const framePath = videoDir + "/frame.jpg";
+        yield* videoFs.writeFile(framePath, Uint8Array.from([9, 10]));
+        const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
+          videoAttachmentId: "video" as never,
+          videoName: "clip.mp4",
+          timestampMs,
+          path: index === 2 ? videoDir + "/missing.jpg" : framePath,
+          mimeType: "image/jpeg" as const,
+          sizeBytes: 2,
+        }));
         let sentWithMcpOverride = true;
         const modelSelection = { instanceId, model: "composer-2.5" };
         const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
@@ -87,6 +99,15 @@ describe("CursorAdapterV2", () => {
                 send: (input) =>
                   Effect.gen(function* () {
                     sentWithMcpOverride = Object.hasOwn(input.options ?? {}, "mcpServers");
+                    assert.isObject(input.message);
+                    const payload = input.message as { text: string; images: unknown[] };
+                    assert.include(payload.text, '[Frame of video "clip.mp4" at 00:03.2]');
+                    assert.include(payload.text, '[Frame of video "clip.mp4" at 00:07.2]');
+                    assert.notInclude(payload.text, framePath);
+                    assert.deepEqual(payload.images, [
+                      { data: "CQo=", mimeType: "image/jpeg" },
+                      { data: "CQo=", mimeType: "image/jpeg" },
+                    ]);
                     // Recorded Cursor task calls (see fixtures/subagent) stream a
                     // partial-tool-call before tool-call-started with the same args.
                     // The run then ends without tool-call-completed, which a live
@@ -190,6 +211,7 @@ describe("CursorAdapterV2", () => {
             creationSource: "web",
             text: "Review the code.",
             attachments: [],
+            videoFrames,
           },
         });
         const events = yield* runtime.events.pipe(

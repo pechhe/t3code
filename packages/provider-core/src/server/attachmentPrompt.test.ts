@@ -7,6 +7,7 @@ import {
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  providerVideoFrameLabel,
   isProviderNativeImageAttachment,
   providerMessageTextWithAttachmentPaths,
 } from "./attachmentPrompt.ts";
@@ -149,5 +150,40 @@ describe("provider attachment prompts", () => {
   it("classifies only image MIME types for native image payloads", () => {
     assert.isTrue(isProviderNativeImageAttachment(image));
     assert.isFalse(isProviderNativeImageAttachment(document));
+  });
+});
+
+describe("sampled video frame prompts", () => {
+  const frames = [3200, 7200].map((timestampMs, index) => ({
+    videoAttachmentId: ChatAttachmentId.make("video"),
+    videoName: "clip.mp4",
+    timestampMs,
+    path: "/frames/" + index + ".jpg",
+    mimeType: "image/jpeg" as const,
+    sizeBytes: 4,
+  }));
+  it("names each frame and appends paths in order", () => {
+    assert.equal(providerVideoFrameLabel(frames[0]!), '[Frame of video "clip.mp4" at 00:03.2]');
+    assert.equal(
+      providerMessageTextWithAttachmentPaths({
+        text: "Watch",
+        attachments: [],
+        resolveAttachmentPath,
+        videoFrames: frames,
+      }),
+      'Watch\n\n[Frame of video "clip.mp4" at 00:03.2] saved at: /frames/0.jpg\n\n[Frame of video "clip.mp4" at 00:07.2] saved at: /frames/1.jpg',
+    );
+  });
+  it("keeps the input length guard for frame paths", () => {
+    const text = "x".repeat(PROVIDER_SEND_TURN_MAX_INPUT_CHARS);
+    assert.equal(
+      providerMessageTextWithAttachmentPaths({
+        text,
+        attachments: [],
+        resolveAttachmentPath,
+        videoFrames: frames,
+      }),
+      text,
+    );
   });
 });

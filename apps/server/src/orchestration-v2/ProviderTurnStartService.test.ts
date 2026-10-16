@@ -1,3 +1,8 @@
+import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner";
+import * as HostProcess from "@t3tools/shared/HostProcess";
+import type { ChatAttachment } from "@t3tools/contracts";
+import * as ProcessRunner from "../processRunner.ts";
+import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
@@ -103,11 +108,15 @@ it("does not commit running state when inherited background routing cannot be re
   );
   const layer = ProviderTurnStart.layer.pipe(
     Layer.provide(
+      Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+    ),
+    Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({}),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
         Path.layer,
+        NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer)),
         Layer.succeed(ServerConfig.ServerConfig, {
           baseDir: "/tmp/provider-turn-start-data",
         } as never),
@@ -175,6 +184,9 @@ it("does not commit running state when inherited background routing cannot be re
 
 function makeLocalCommandHarness(input: {
   readonly text: string;
+  readonly attachments?: ReadonlyArray<ChatAttachment>;
+  readonly attachmentsDir?: string;
+  readonly processEnvironment?: NodeJS.ProcessEnv;
   readonly worktreePath?: string;
   /** Defaults to a git branch whenever a worktree is bound; null is a SlipJay workspace. */
   readonly branch?: string | null;
@@ -243,7 +255,7 @@ function makeLocalCommandHarness(input: {
     nodeId: rootNodeId,
     role: "user",
     text: input.text,
-    attachments: [],
+    attachments: input.attachments ?? [],
     streaming: false,
     createdBy: "user",
     creationSource: "web",
@@ -526,6 +538,7 @@ function makeLocalCommandHarness(input: {
     }),
   );
   const layer = ProviderTurnStart.layer.pipe(
+    Layer.provide(VideoFrames.layerLive),
     Layer.provide(
       Layer.mergeAll(
         Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
@@ -533,9 +546,12 @@ function makeLocalCommandHarness(input: {
         }),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
+        Layer.succeed(HostProcess.Environment, input.processEnvironment ?? process.env),
         Path.layer,
+        NodeChildProcessSpawner.layer.pipe(Layer.provide(NodeServices.layer)),
         Layer.succeed(ServerConfig.ServerConfig, {
           baseDir: "/tmp/provider-turn-start-data",
+          attachmentsDir: input.attachmentsDir,
         } as never),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
@@ -606,6 +622,70 @@ function makeLocalCommandHarness(input: {
     }).pipe(Effect.provide(layer)),
   };
 }
+
+effectIt.effect.each([true, false])(
+  "samples video at turn start when ffmpeg availability is %s",
+  (available) =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const runner = yield* ProcessRunner.ProcessRunner;
+      if (available && !(yield* VideoFrames.ffmpegAvailable)) {
+        yield* Effect.logWarning("Skipping real turn video fixture: ffmpeg is absent from PATH");
+        return;
+      }
+      const attachment: ChatAttachment = {
+        type: "file",
+        id: "thread-00000000-0000-4000-8000-000000000001-mp4",
+        name: "clip.mp4",
+        mimeType: "video/mp4",
+        sizeBytes: 10,
+      };
+      if (available) {
+        const generated = yield* runner.run({
+          command: "ffmpeg",
+          args: [
+            "-nostdin",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=32x32:r=25:d=1",
+            "-c:v",
+            "mpeg4",
+            "-y",
+            path.join(config.attachmentsDir, `${attachment.id}.mp4`),
+          ],
+        });
+        expect(generated.code).toBe(0);
+      }
+      const worktree = yield* fs.makeTempDirectoryScoped();
+      const harness = makeLocalCommandHarness({
+        text: "Describe this video",
+        worktreePath: worktree,
+        fileSystem: fs,
+        attachments: [attachment],
+        attachmentsDir: config.attachmentsDir,
+        failReadsAfterRunning: true,
+        ...(available ? {} : { processEnvironment: { PATH: "" } }),
+      });
+      yield* harness.start;
+      const message = harness.startRootRun.mock.calls[0]?.[0].message;
+      expect(message?.attachments).toEqual([attachment]);
+      if (available) expect(message?.videoFrames).toHaveLength(12);
+      else expect(message).not.toHaveProperty("videoFrames");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        ProcessRunner.layer.pipe(
+          Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "turn-video-test-" })),
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+    ),
+);
 
 effectIt.effect.each(["cleanup-first", "startup-first"])(
   "coordinates provider startup with %s",

@@ -1,3 +1,5 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as FileSystem from "effect/FileSystem";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
@@ -397,6 +399,38 @@ const history = {
 };
 
 it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
+  it.effect("delivers video frame labels with paths and skips vanished frames", () =>
+    Effect.gen(function* () {
+      const videoFs = yield* FileSystem.FileSystem;
+      const videoDir = yield* videoFs.makeTempDirectoryScoped();
+      const framePath = videoDir + "/frame.jpg";
+      yield* videoFs.writeFile(framePath, Uint8Array.from([9, 10]));
+      const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
+        videoAttachmentId: "video" as never,
+        videoName: "clip.mp4",
+        timestampMs,
+        path: index === 2 ? videoDir + "/missing.jpg" : framePath,
+        mimeType: "image/jpeg" as const,
+        sizeBytes: 2,
+      }));
+
+      const text =
+        'hi\n\n[Frame of video "clip.mp4" at 00:03.2] saved at: ' +
+        framePath +
+        '\n\n[Frame of video "clip.mp4" at 00:07.2] saved at: ' +
+        framePath;
+      const { runtime, thread } = yield* resumed([
+        out("session.prompt", { sessionID: SESSION, text }),
+        promptAccepted,
+        event("session.execution.succeeded", { sessionID: SESSION }),
+      ]);
+      const terminal = yield* terminalOf(runtime).pipe(Effect.forkScoped);
+      const input = turnInput(thread);
+      yield* runtime.startTurn({ ...input, message: { ...input.message, videoFrames } });
+      yield* Fiber.join(terminal);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("switches the session's model and variant before a turn that changed them", () =>
     Effect.gen(function* () {
       const { runtime, thread } = yield* resumed([

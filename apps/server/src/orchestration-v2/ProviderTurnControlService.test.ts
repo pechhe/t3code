@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import {
   type ModelSelection,
   NodeId,
@@ -280,6 +281,9 @@ it.effect(
         }),
       );
       const layerControl = ProviderTurnControlService.layer.pipe(
+        Layer.provide(
+          Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+        ),
         Layer.provide(Layer.merge(layerProjection, layerSessionManager)),
       );
 

@@ -220,6 +220,7 @@ export function FileChip(props: {
   theme: "light" | "dark";
   accessibleLabel: string;
   tooltip: string;
+  hint?: string | undefined;
   suffix?: string | null;
   copyMarkdown?: string;
   disabled?: boolean;
@@ -260,7 +261,7 @@ export function FileChip(props: {
         }
       />
       <TooltipPopup side="top" className="whitespace-pre-wrap">
-        {props.tooltip}
+        {[props.tooltip, props.hint].filter(Boolean).join("\n")}
       </TooltipPopup>
     </Tooltip>
   );

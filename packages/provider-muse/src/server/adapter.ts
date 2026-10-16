@@ -70,7 +70,10 @@ import {
   type MuseSdkHost,
 } from "./sdk.ts";
 import type * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
+
 import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
   providerMessageTextWithAttachmentPaths,
   isProviderNativeImageAttachment,
 } from "@t3tools/provider-core/server/attachmentPrompt";
@@ -1844,6 +1847,17 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
               mediaType: attachment.mimeType,
             });
           }
+        for (const { frame, bytes } of yield* readProviderVideoFrames(
+          fileSystem,
+          message.videoFrames,
+        )) {
+          parts.push({ type: "text", text: providerVideoFrameLabel(frame) });
+          parts.push({
+            type: "image",
+            base64Data: Buffer.from(bytes).toString("base64"),
+            mediaType: "image/jpeg",
+          });
+        }
         if (!parts.length) return yield* protocolError("Muse needs text or an image");
         return parts;
       });

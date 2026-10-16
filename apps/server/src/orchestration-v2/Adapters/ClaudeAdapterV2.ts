@@ -157,7 +157,12 @@ import {
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
-import { providerMessageTextWithAttachmentPaths } from "@t3tools/provider-core/server/attachmentPrompt";
+
+import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
+  providerMessageTextWithAttachmentPaths,
+} from "@t3tools/provider-core/server/attachmentPrompt";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import {
   ProviderAdapterDriverCreateError,
@@ -1615,13 +1620,14 @@ export function makeClaudeUserMessage(input: {
 const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input: {
   readonly text: string;
   readonly attachments: ReadonlyArray<ChatAttachment>;
+  readonly videoFrames?: ProviderAdapter.ProviderAdapterV2TurnMessage["videoFrames"];
   readonly priority?: SDKUserMessage["priority"];
   readonly uuid?: SDKUserMessage["uuid"];
   readonly attachmentsDir: string;
   readonly fileSystem: FileSystem.FileSystem;
   readonly skillNames?: ReadonlySet<string>;
 }) {
-  if (input.attachments.length === 0) {
+  if (input.attachments.length === 0 && !input.videoFrames?.length) {
     return makeClaudeUserMessage({
       text: input.text,
       ...(input.skillNames === undefined ? {} : { skillNames: input.skillNames }),
@@ -1683,6 +1689,21 @@ const makeClaudeUserMessageWithAttachments = Effect.fnUntraced(function* (input:
       source: {
         type: "base64",
         media_type: attachment.mimeType,
+        data: Buffer.from(bytes).toString("base64"),
+      },
+    });
+  }
+
+  for (const { frame, bytes } of yield* readProviderVideoFrames(
+    input.fileSystem,
+    input.videoFrames,
+  )) {
+    content.push({ type: "text", text: providerVideoFrameLabel(frame) });
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: "image/jpeg",
         data: Buffer.from(bytes).toString("base64"),
       },
     });
@@ -8391,6 +8412,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                       compileClaudeModelSelection(turnInput.modelSelection).promptEffort,
                     ),
                     attachments: turnInput.message.attachments,
+                    videoFrames: turnInput.message.videoFrames,
                     attachmentsDir,
                     fileSystem,
                     skillNames: yield* userInvocableSkillNames(turnInput.runtimePolicy.cwd),
@@ -8684,6 +8706,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 compileClaudeModelSelection(currentTurn.input.modelSelection).promptEffort,
               ),
               attachments: turnInput.message.attachments,
+              videoFrames: turnInput.message.videoFrames,
               priority: "now",
               attachmentsDir,
               fileSystem,

@@ -58,7 +58,10 @@ import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeI
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
+
 import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
   isProviderNativeImageAttachment,
   providerMessageTextWithAttachmentPaths,
 } from "@t3tools/provider-core/server/attachmentPrompt";
@@ -2138,7 +2141,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
                 .map((skill) => skill.name),
             );
           }
-          const userText = t3OrchestrationPromptForFirstRun({
+          let userText = t3OrchestrationPromptForFirstRun({
             prompt: providerMessageTextWithAttachmentPaths({
               text:
                 cursorSkillNames === undefined
@@ -2178,6 +2181,13 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               }),
             { concurrency: 1 },
           );
+          for (const { frame, bytes } of yield* readProviderVideoFrames(
+            fileSystem,
+            turnInput.message.videoFrames,
+          )) {
+            userText += "\n\n" + providerVideoFrameLabel(frame);
+            images.push({ data: Buffer.from(bytes).toString("base64"), mimeType: "image/jpeg" });
+          }
           if (userText.length === 0 && images.length === 0) {
             return yield* new ProviderAdapter.ProviderAdapterProtocolError({
               driver: CursorAgentSdk.CURSOR_PROVIDER,

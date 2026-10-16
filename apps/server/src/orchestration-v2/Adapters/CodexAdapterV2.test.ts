@@ -2761,6 +2761,73 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     ),
   );
 
+  it.effect("delivers labeled video image inputs and skips vanished frames", () =>
+    Effect.gen(function* () {
+      const videoFs = yield* FileSystem.FileSystem;
+      const videoDir = yield* videoFs.makeTempDirectoryScoped();
+      const framePath = videoDir + "/frame.jpg";
+      yield* videoFs.writeFile(framePath, Uint8Array.from([9, 10]));
+      const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
+        videoAttachmentId: "video" as never,
+        videoName: "clip.mp4",
+        timestampMs,
+        path: index === 2 ? videoDir + "/missing.jpg" : framePath,
+        mimeType: "image/jpeg" as const,
+        sizeBytes: 2,
+      }));
+
+      const nativeThreadId = "video-thread";
+      const nativeTurnId = "video-turn";
+      const entries = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Watch" });
+      const expected = [
+        { type: "text", text: "Watch" },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+        { type: "image", url: "data:image/jpeg;base64,CQo=" },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+        { type: "image", url: "data:image/jpeg;base64,CQo=" },
+      ];
+      const transcript = makeCodexReplayTranscript({
+        scenario: "video-frames",
+        entries: entries.map((entry) => {
+          if (entry.type === "expect_outbound" && entry.label === "turn/start") {
+            return {
+              ...entry,
+              frame: {
+                id: 3,
+                method: "turn/start",
+                params: {
+                  threadId: nativeThreadId,
+                  input: expected,
+                  cwd: "/workspace",
+                  model: "gpt-5.4",
+                  approvalPolicy: "never",
+                  approvalsReviewer: "user",
+                  sandboxPolicy: { type: "dangerFullAccess" },
+                  summary: "detailed",
+                },
+              },
+            };
+          }
+          return entry;
+        }),
+      });
+      const harness = yield* makeCodexReplayHarness(transcript);
+      const input = makeCodexTestTurnInput({
+        threadId: harness.threadId,
+        providerThread: harness.providerThread,
+        now: yield* DateTime.now,
+        attemptId: RunAttemptId.make("video-attempt"),
+        text: "Watch",
+      });
+      yield* harness.runtime.startTurn({ ...input, message: { ...input.message, videoFrames } });
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
   it.effect("sends currency-sigil skill mentions to Codex as $ mentions", () =>
     Effect.gen(function* () {
       const nativeThreadId = "skill-sigil-thread";

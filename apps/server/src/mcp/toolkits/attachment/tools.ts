@@ -1,6 +1,7 @@
 import { McpAttachmentInput } from "./input.ts";
 import {
   AttachmentCreateUploadUrlInput,
+  ChatAttachmentId,
   AttachmentCreateUploadUrlResult,
   AttachmentDeleteInput,
   MessageId,
@@ -16,6 +17,7 @@ import { Tool, Toolkit } from "effect/ai";
 import * as ServerSecretStore from "../../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../../config.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as VideoFrames from "../../../videoFrames/VideoFrames.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const shared = {
@@ -65,8 +67,32 @@ const AttachmentSendTool = Tool.make("t3_thread_send_attachments", {
 })
   .annotate(Tool.Destructive, true)
   .annotate(Tool.OpenWorld, true);
+const VideoFramesTool = Tool.make("t3_video_frames", {
+  failure: OrchestratorMcpFailure,
+  failureMode: "return" as const,
+  dependencies: [
+    McpInvocationContext.McpInvocationContext,
+    ThreadManagementService.ThreadManagementService,
+    VideoFrames.VideoFrames,
+  ],
+  description:
+    "Sample more frames from a video attached in your own thread, between startMs and endMs. Returns JPEG paths on this server with their timestamps; view them with your image or file reading tool. Use it when the frames sent with the message miss the moment you need.",
+  parameters: Schema.Struct({
+    attachmentId: ChatAttachmentId,
+    startMs: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
+    endMs: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
+    maxFrames: Schema.optional(
+      Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(12)),
+    ),
+  }),
+  success: Schema.Struct({
+    videoName: Schema.String,
+    frames: Schema.Array(Schema.Struct({ timestampMs: Schema.Number, path: Schema.String })),
+  }),
+}).annotate(Tool.Readonly, true);
 export const AttachmentToolkit = Toolkit.make(
   AttachmentUploadTool,
   AttachmentDiscardTool,
   AttachmentSendTool,
+  VideoFramesTool,
 );

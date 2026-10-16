@@ -1,3 +1,7 @@
+import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
+} from "@t3tools/provider-core/server/attachmentPrompt";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { AgentScope } from "@t3tools/shared/AgentScope";
 import { getModelSelectionStringOptionValue } from "@t3tools/shared/model";
@@ -2331,6 +2335,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       const resolvePromptPayload = Effect.fnUntraced(function* (
         text: string,
         attachments: ReadonlyArray<ChatAttachment>,
+        videoFrames?: ProviderAdapter.ProviderAdapterV2TurnMessage["videoFrames"],
       ) {
         const images: Array<{ type: "image"; data: string; mimeType: string }> = [];
         const extraLines: Array<string> = [];
@@ -2347,6 +2352,14 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           } else {
             extraLines.push(`[Attachment saved at ${path}]`);
           }
+        }
+        for (const { frame, bytes } of yield* readProviderVideoFrames(fileSystem, videoFrames)) {
+          extraLines.push(providerVideoFrameLabel(frame));
+          images.push({
+            type: "image",
+            data: Buffer.from(bytes).toString("base64"),
+            mimeType: "image/jpeg",
+          });
         }
         const message = extraLines.length === 0 ? text : `${text}\n\n${extraLines.join("\n")}`;
         return { message, images };
@@ -2457,7 +2470,11 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               : parsePiCompactCommand(turnInput.message.text);
             const payload =
               !continuation && compactCommand === null
-                ? yield* resolvePromptPayload(turnInput.message.text, turnInput.message.attachments)
+                ? yield* resolvePromptPayload(
+                    turnInput.message.text,
+                    turnInput.message.attachments,
+                    turnInput.message.videoFrames,
+                  )
                 : null;
             const startedAt = yield* DateTime.now;
             const syntheticNativeTurnId = `${state.providerThread.id}:attempt:${turnInput.attemptId}`;
@@ -2607,6 +2624,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 ? yield* resolvePromptPayload(
                     steerInput.message.text,
                     steerInput.message.attachments,
+                    steerInput.message.videoFrames,
                   )
                 : null;
             // Prompt with streamingBehavior steer is atomic on Pi's side: it

@@ -1,3 +1,9 @@
+import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
+  isProviderNativeImageAttachment,
+  providerMessageTextWithAttachmentPaths,
+} from "@t3tools/provider-core/server/attachmentPrompt";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
@@ -138,10 +144,7 @@ import {
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 import { turnScopedSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
-import {
-  isProviderNativeImageAttachment,
-  providerMessageTextWithAttachmentPaths,
-} from "@t3tools/provider-core/server/attachmentPrompt";
+
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
@@ -3219,6 +3222,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               { concurrency: 1 },
             );
             inputItems.push(...attachmentItems);
+            for (const { frame, bytes } of yield* readProviderVideoFrames(
+              fileSystem,
+              turnInput.message.videoFrames,
+            )) {
+              inputItems.push({ type: "text", text: providerVideoFrameLabel(frame) });
+              inputItems.push({
+                type: "image",
+                url: `data:image/jpeg;base64,${Buffer.from(bytes).toString("base64")}`,
+              });
+            }
             if (inputItems.length === 0) {
               return yield* toProtocolError("Turn requires non-empty text or attachments.");
             }

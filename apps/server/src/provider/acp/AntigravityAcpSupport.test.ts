@@ -230,6 +230,47 @@ const makeAttachmentFixture = Effect.fn("AntigravityAcpSupportTest.makeAttachmen
 );
 
 it.layer(NodeServices.layer)("buildAntigravityPrompt", (it) => {
+  it.effect(
+    "delivers labeled frames, skips vanished files and resamples within the native budget",
+    () =>
+      Effect.gen(function* () {
+        const fixture = yield* makeAttachmentFixture();
+        const { filePath: framePath } = yield* fixture.write(
+          imageAttachment,
+          Buffer.alloc(10 * 1024 * 1024, 1),
+        );
+        const frames = Array.from({ length: 7 }, (_, index) => ({
+          videoAttachmentId: imageAttachment.id,
+          videoName: "clip.mp4",
+          timestampMs: index * 1000,
+          path: framePath,
+          mimeType: "image/jpeg" as const,
+          sizeBytes: 10 * 1024 * 1024,
+        }));
+        const prompt = yield* buildAntigravityPrompt({
+          input: "Watch",
+          attachments: [imageAttachment],
+          attachmentsDir: fixture.attachmentsDir,
+          videoFrames: [
+            ...frames,
+            { ...frames[0]!, path: fixture.attachmentsDir + "/missing.jpg" },
+          ],
+        });
+        expect(prompt.filter((block) => block.type === "text")).toEqual([
+          { type: "text", text: "Watch" },
+          ...[0, 2, 4, 6].map((second) => ({
+            type: "text",
+            text: '[Frame of video "clip.mp4" at 00:0' + second + ".0]",
+          })),
+        ]);
+        const images = prompt.filter((block) => block.type === "image");
+        expect(images).toHaveLength(5);
+        expect(
+          images.reduce((sum, block) => sum + Buffer.from(block.data, "base64").length, 0),
+        ).toBe(50 * 1024 * 1024);
+      }),
+  );
+
   it.effect("sends image bytes as native image content alongside the user prompt", () =>
     Effect.gen(function* () {
       const fixture = yield* makeAttachmentFixture();

@@ -1,3 +1,4 @@
+import * as FileSystem from "effect/FileSystem";
 import {
   AbsolutePath,
   Agent,
@@ -59,7 +60,10 @@ import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { getModelSelectionStringOptionValue, modelSelectionsEqual } from "@t3tools/shared/model";
 import { causeErrorTag } from "@t3tools/shared/observability";
 
-import { providerMessageTextWithAttachmentPaths } from "@t3tools/provider-core/server/attachmentPrompt";
+import {
+  readProviderVideoFrames,
+  providerMessageTextWithAttachmentPaths,
+} from "@t3tools/provider-core/server/attachmentPrompt";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import {
   backgroundWorkNotification,
@@ -664,6 +668,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
   const server = yield* OpenCode2Server.OpenCode2Server;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
+  const videoFileSystem = yield* FileSystem.FileSystem;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
   const crypto = yield* Crypto.Crypto;
@@ -2910,12 +2915,17 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       };
     });
 
-    const promptText = (turnInput: ProviderAdapter.ProviderAdapterV2TurnInput) =>
-      providerMessageTextWithAttachmentPaths({
+    const promptText = Effect.fnUntraced(function* (
+      turnInput: Pick<ProviderAdapter.ProviderAdapterV2TurnInput, "message">,
+    ) {
+      const frames = yield* readProviderVideoFrames(videoFileSystem, turnInput.message.videoFrames);
+      return providerMessageTextWithAttachmentPaths({
         text: turnInput.message.text,
         attachments: turnInput.message.attachments,
         resolveAttachmentPath: host.resolveAttachmentPath,
+        videoFrames: frames.map(({ frame }) => frame),
       }).trim();
+    });
 
     const removeMcp = (mcp: { readonly name: string; readonly directory: string }) =>
       Effect.suspend(() =>
@@ -3259,7 +3269,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         .prompt({
           sessionID,
           id,
-          text: promptText(turnInput),
+          text: yield* promptText(turnInput),
           ...(skills.length === 0
             ? {}
             : { skills: skills.map((id) => ({ id: Skill.ID.make(id) })) }),
@@ -3584,11 +3594,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             .prompt({
               sessionID: Session.ID.make(sessionId),
               id: inboxID,
-              text: providerMessageTextWithAttachmentPaths({
-                text: steerInput.message.text,
-                attachments: steerInput.message.attachments,
-                resolveAttachmentPath: host.resolveAttachmentPath,
-              }).trim(),
+              text: yield* promptText(steerInput),
               delivery: "steer",
             })
             .pipe(

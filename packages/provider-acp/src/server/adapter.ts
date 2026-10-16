@@ -1,6 +1,13 @@
 // @effect-diagnostics nodeBuiltinImport:off
 
 import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
+  videoFramesWithinByteBudget,
+  isProviderNativeImageAttachment,
+  providerMessageTextWithAttachmentPaths,
+} from "@t3tools/provider-core/server/attachmentPrompt";
+import {
   type ChatAttachment,
   type ModelSelection,
   type OrchestrationV2ConversationMessage,
@@ -108,10 +115,7 @@ import {
   makeProviderRetryTurnItem,
 } from "@t3tools/provider-core/server/failure";
 import { acpSelectionTransition } from "@t3tools/provider-core/server/selectionTransition";
-import {
-  isProviderNativeImageAttachment,
-  providerMessageTextWithAttachmentPaths,
-} from "@t3tools/provider-core/server/attachmentPrompt";
+
 import {
   makeSubagentChildThread,
   makeSubagentConversationArtifacts,
@@ -192,6 +196,7 @@ export interface AcpAdapterV2ExtensionContext {
 }
 
 export interface AcpAdapterV2Flavor {
+  readonly nativeAttachmentByteLimit?: number;
   readonly promptFailure?: (cause: unknown) => OrchestrationV2ProviderFailure;
   readonly driver: ProviderDriverKind;
   readonly capabilities: OrchestrationV2ProviderCapabilities;
@@ -6311,9 +6316,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
             hasT3Mcp: (yield* readMcpContext(turnInput.threadId)).servers.length > 0,
           } satisfies T3AcpInstructionState;
           const previousInstructionState = (yield* Ref.get(promptInstructionStates)).get(sessionId);
+          const loadedFrames = yield* readProviderVideoFrames(
+            fileSystem,
+            turnInput.message.videoFrames,
+          );
           const messageText = providerMessageTextWithAttachmentPaths({
             text: turnInput.message.text,
             attachments: turnInput.message.attachments,
+            ...(!supportsImagePrompts
+              ? { videoFrames: loadedFrames.map(({ frame }) => frame) }
+              : {}),
             resolveAttachmentPath: host.resolveAttachmentPath,
           });
           const text = t3AcpPromptWithInstructions({
@@ -6358,6 +6370,28 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
               data: Buffer.from(bytes).toString("base64"),
               mimeType: attachment.mimeType,
             });
+          }
+          if (supportsImagePrompts && loadedFrames.length > 0) {
+            const imageBytes = prompt.reduce(
+              (sum, block) =>
+                sum + (block.type === "image" ? Buffer.byteLength(block.data, "base64") : 0),
+              0,
+            );
+            const frames =
+              flavor.nativeAttachmentByteLimit === undefined
+                ? loadedFrames
+                : videoFramesWithinByteBudget(
+                    loadedFrames,
+                    flavor.nativeAttachmentByteLimit - imageBytes,
+                  );
+            for (const { frame, bytes } of frames) {
+              prompt.push({ type: "text", text: providerVideoFrameLabel(frame) });
+              prompt.push({
+                type: "image",
+                data: Buffer.from(bytes).toString("base64"),
+                mimeType: "image/jpeg",
+              });
+            }
           }
           if (prompt.length === 0) {
             return yield* new ProviderAdapter.ProviderAdapterProtocolError({

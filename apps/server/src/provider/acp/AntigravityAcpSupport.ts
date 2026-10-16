@@ -1,4 +1,10 @@
 import {
+  providerVideoFrameLabel,
+  readProviderVideoFrames,
+  videoFramesWithinByteBudget,
+} from "@t3tools/provider-core/server/attachmentPrompt";
+import type { ProviderAdapterV2VideoFrame } from "@t3tools/provider-core/server/ProviderAdapter";
+import {
   ANTIGRAVITY_DEFAULT_MODEL,
   type AntigravityAuthMethod,
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
@@ -231,6 +237,7 @@ export const buildAntigravityPrompt = Effect.fn("buildAntigravityPrompt")(functi
   readonly input: ProviderSendTurnInput["input"];
   readonly attachments: ProviderSendTurnInput["attachments"];
   readonly attachmentsDir: string;
+  readonly videoFrames?: ReadonlyArray<ProviderAdapterV2VideoFrame>;
 }): Effect.fn.Return<
   ReadonlyArray<EffectAcpSchema.ContentBlock>,
   EffectAcpErrors.AcpError,
@@ -355,6 +362,18 @@ export const buildAntigravityPrompt = Effect.fn("buildAntigravityPrompt")(functi
       }
       blocks.push({ type: "resource", resource: { uri, mimeType, text: decoded } });
     }
+  }
+  const loadedFrames = yield* readProviderVideoFrames(fileSystem, input.videoFrames);
+  for (const { frame, bytes } of videoFramesWithinByteBudget(
+    loadedFrames,
+    MAX_TOTAL_ATTACHMENT_BYTES - totalBytes,
+  )) {
+    blocks.push({ type: "text", text: providerVideoFrameLabel(frame) });
+    blocks.push({
+      type: "image",
+      data: Buffer.from(bytes).toString("base64"),
+      mimeType: "image/jpeg",
+    });
   }
   if (blocks.length === 0) {
     return yield* EffectAcpErrors.AcpRequestError.invalidParams(

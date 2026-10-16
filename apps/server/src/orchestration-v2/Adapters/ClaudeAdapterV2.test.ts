@@ -184,6 +184,7 @@ function makeClaudeTestTurnInput(input: {
   readonly attemptId: RunAttemptId;
   readonly text: string;
   readonly attachments: ProviderAdapter.ProviderAdapterV2TurnInput["message"]["attachments"];
+  readonly videoFrames?: ProviderAdapter.ProviderAdapterV2TurnMessage["videoFrames"];
   readonly providerTurnOrdinal?: number;
   readonly nativeThreadHasTurns?: boolean;
   readonly messageCreatedBy?: ProviderAdapter.ProviderAdapterV2TurnInput["message"]["createdBy"];
@@ -209,6 +210,7 @@ function makeClaudeTestTurnInput(input: {
       messageId: MessageId.make(`message-${input.attemptId}`),
       text: input.text,
       attachments: input.attachments,
+      videoFrames: input.videoFrames,
     },
     modelSelection: input.modelSelection ?? CLAUDE_TEST_MODEL_SELECTION,
     runtimePolicy: input.runtimePolicy ?? CLAUDE_TEST_RUNTIME_POLICY,
@@ -1764,6 +1766,16 @@ describe("ClaudeAdapterV2 attachments", () => {
           path.join(attachmentsDir, attachmentRelativePath(document)!),
           Uint8Array.from([5, 6, 7, 8]),
         );
+        const framePath = path.join(attachmentsDir, "frame.jpg");
+        yield* fileSystem.writeFile(framePath, Uint8Array.from([9, 10]));
+        const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
+          videoAttachmentId: attachment.id,
+          videoName: "clip.mp4",
+          timestampMs,
+          path: index === 2 ? path.join(attachmentsDir, "missing.jpg") : framePath,
+          mimeType: "image/jpeg" as const,
+          sizeBytes: 2,
+        }));
         const attemptId = RunAttemptId.make("attempt-claude-attachments");
         const now = yield* DateTime.now;
 
@@ -1775,6 +1787,7 @@ describe("ClaudeAdapterV2 attachments", () => {
             attemptId,
             text: "What's in this image?",
             attachments: [attachment, document],
+            videoFrames,
           }),
         );
 
@@ -1793,6 +1806,10 @@ describe("ClaudeAdapterV2 attachments", () => {
         const expectedDocumentPath = path.join(attachmentsDir, attachmentRelativePath(document)!);
         assert.deepEqual(offeredMessages[0]?.message.content, [
           expectedImageBlock,
+          { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "CQo=" } },
+          { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "CQo=" } },
           {
             type: "text",
             text: `Ultrathink:\nWhat's in this image?\n\n[Attached image "diagram.png" is saved at: ${expectedAttachmentPath}]\n\n[Attached file "requirements.pdf" is saved at: ${expectedDocumentPath}]`,

@@ -1,4 +1,5 @@
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
+import * as VideoFrames from "../../videoFrames/VideoFrames.ts";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import type { ProviderDriverKind, ProviderReplayTranscript } from "@t3tools/contracts";
@@ -397,6 +398,9 @@ export function layerWithRegistry<Error>(
   );
   const layerProviderTurnStartServiceProvided = ProviderTurnStartService.layer.pipe(
     Layer.provide(
+      Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+    ),
+    Layer.provide(
       Layer.mergeAll(
         layerContextHandoffServiceProvided,
         layerEventSinkProvided,
@@ -412,6 +416,9 @@ export function layerWithRegistry<Error>(
     ),
   );
   const layerProviderTurnControlServiceProvided = ProviderTurnControlService.layer.pipe(
+    Layer.provide(
+      Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
+    ),
     Layer.provide(Layer.merge(layerStores, layerProviderSessionManagerProvided)),
   );
   const layerRuntimeRequestServiceProvided = RuntimeRequestService.layer.pipe(

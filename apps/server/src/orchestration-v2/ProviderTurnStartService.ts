@@ -1,3 +1,4 @@
+import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
 import {
@@ -109,6 +110,7 @@ export const layer: Layer.Layer<
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
   | ServerConfig.ServerConfig
+  | VideoFrames.VideoFrames
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -125,6 +127,7 @@ export const layer: Layer.Layer<
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
     const config = yield* ServerConfig.ServerConfig;
+    const videoFramesService = yield* VideoFrames.VideoFrames;
 
     // These callbacks outlive startup while a run drains background work. Build
     // them outside start's scope so they cannot retain its full thread history.
@@ -1251,6 +1254,7 @@ export const layer: Layer.Layer<
         projection.thread.sideChat !== true
           ? session
           : makeDeliverySession(session, startWithHandoffs);
+      const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);
       return runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
@@ -1288,6 +1292,7 @@ export const layer: Layer.Layer<
           messageId: message.id,
           text: userText,
           attachments: message.attachments,
+          ...(videoFrames.length === 0 ? {} : { videoFrames }),
           createdBy: message.createdBy,
           creationSource: message.creationSource,
           ...(message.scheduledTaskId === undefined

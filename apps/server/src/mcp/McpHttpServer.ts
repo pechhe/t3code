@@ -65,6 +65,7 @@ import {
   DeviceStandardToolkit,
 } from "./toolkits/device/tools.ts";
 import * as HtmlHandlers from "./toolkits/html/handlers.ts";
+import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
@@ -847,7 +848,7 @@ const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHand
 export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentToolkit,
   AttachmentHandlers.layer,
-);
+).pipe(Layer.provide(VideoFrames.layerLive));
 
 export const layerPullRequestsToolkit = toolkitRegistration(
   PullRequestsToolkit,

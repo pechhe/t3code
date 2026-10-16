@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
+import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 
 const yieldToRuntime = Effect.yieldNow.pipe(
   Effect.andThen(
@@ -84,12 +85,15 @@ export class ProviderTurnControlServiceV2 extends Context.Service<
 export const layer: Layer.Layer<
   ProviderTurnControlServiceV2,
   never,
-  ProjectionStore.ProjectionStoreV2 | ProviderSessionManager.ProviderSessionManagerV2
+  | ProjectionStore.ProjectionStoreV2
+  | ProviderSessionManager.ProviderSessionManagerV2
+  | VideoFrames.VideoFrames
 > = Layer.effect(
   ProviderTurnControlServiceV2,
   Effect.gen(function* () {
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const sessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
+    const videoFramesService = yield* VideoFrames.VideoFrames;
 
     const load = (input: {
       readonly threadId: ThreadId;
@@ -349,6 +353,7 @@ export const layer: Layer.Layer<
               cause: "The persisted steering message or target run is missing.",
             });
           }
+          const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);
           yield* loaded.session.value
             .steerTurn({
               threadId: input.threadId,
@@ -362,6 +367,7 @@ export const layer: Layer.Layer<
                   records: message.context?.records ?? [],
                 }),
                 attachments: message.attachments,
+                ...(videoFrames.length === 0 ? {} : { videoFrames }),
                 createdBy: message.createdBy,
                 creationSource: message.creationSource,
                 ...(message.scheduledTaskId === undefined

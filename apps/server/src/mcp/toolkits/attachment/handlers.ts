@@ -11,6 +11,7 @@ import * as Upload from "../../../assets/AttachmentUpload.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as VideoFrames from "../../../videoFrames/VideoFrames.ts";
 import { newCommandId, readThread, unavailable } from "../../threadAccess.ts";
 import { AttachmentToolkit } from "./tools.ts";
 
@@ -33,6 +34,52 @@ export function resolveAttachmentReferences(
       : Effect.succeed(canonical);
   });
 }
+
+/** Only the caller's own thread is passed in, so an agent cannot read another thread's video. */
+export const sampleThreadVideoFrames = (
+  threadAttachments: ReadonlyArray<ChatAttachment>,
+  input: {
+    readonly attachmentId: string;
+    readonly startMs: number;
+    readonly endMs: number;
+    readonly maxFrames?: number | undefined;
+  },
+) =>
+  VideoFrames.VideoFrames.pipe(
+    Effect.flatMap((videoFrames) =>
+      videoFrames.framesForThreadVideo({
+        threadAttachments,
+        attachmentId: input.attachmentId,
+        range: { startMs: input.startMs, endMs: input.endMs },
+        maxFrames: input.maxFrames ?? 12,
+      }),
+    ),
+    Effect.map(({ videoName, frames }) => ({
+      videoName,
+      frames: frames.map(({ timestampMs, path }) => ({ timestampMs, path })),
+    })),
+    Effect.catchTags({
+      VideoAttachmentNotInThread: () =>
+        new OrchestratorMcpFailure({
+          code: "invalid_request",
+          message: "The attachment is not in your thread.",
+        }),
+      NotASampleableVideo: (error) =>
+        new OrchestratorMcpFailure({ code: "invalid_request", message: error.message }),
+      VideoRangeInvalid: (error) =>
+        new OrchestratorMcpFailure({ code: "invalid_request", message: error.message }),
+      FfmpegUnavailable: () =>
+        new OrchestratorMcpFailure({
+          code: "orchestration_error",
+          message: "ffmpeg is not installed on the T3 server, so video frames cannot be sampled.",
+        }),
+      VideoFramesError: () =>
+        new OrchestratorMcpFailure({
+          code: "orchestration_error",
+          message: "Sampling frames from the video failed.",
+        }),
+    }),
+  );
 
 /**
  * The sweep counts its 24 hours from when the upload finishes, which can be up
@@ -74,6 +121,16 @@ export const layer = McpToolAccess.toLayer(
           uploadOwners.delete(input.attachmentId);
           return {};
         }),
+      ),
+      t3_video_frames: McpToolAccess.readsAsCaller((input) =>
+        readThread(undefined, ["messages"]).pipe(
+          Effect.flatMap(({ projection }) =>
+            sampleThreadVideoFrames(
+              projection.messages.flatMap((message) => message.attachments),
+              input,
+            ),
+          ),
+        ),
       ),
       t3_thread_send_attachments: McpToolAccess.writesThreads(
         (input) => [input.threadId],

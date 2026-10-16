@@ -1,3 +1,4 @@
+import * as FileSystem from "effect/FileSystem";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
@@ -426,6 +427,7 @@ const startTurn = Effect.fnUntraced(function* (
   runOrdinal = 1,
   threadId = THREAD_ID,
   continuation = false,
+  videoFrames?: ProviderAdapter.ProviderAdapterV2TurnMessage["videoFrames"],
 ) {
   const appThread = yield* makeAppThread(model, threadId);
   const runId = RunId.make(`run:${threadId}:${runOrdinal}`);
@@ -442,6 +444,7 @@ const startTurn = Effect.fnUntraced(function* (
       messageId: `message:${threadId}:${runOrdinal}` as never,
       text,
       attachments,
+      videoFrames,
       createdBy: continuation ? "agent" : "user",
       creationSource: continuation ? "provider" : "web",
     },
@@ -490,6 +493,51 @@ const expectModelFailure = (errorMessage: string) =>
   }).pipe(Effect.scoped, Effect.provide(layerTest));
 
 describe("PiAdapterV2", () => {
+  it.effect("sends labeled video images and skips vanished frames", () =>
+    Effect.gen(function* () {
+      const videoFs = yield* FileSystem.FileSystem;
+      const videoDir = yield* videoFs.makeTempDirectoryScoped();
+      const framePath = videoDir + "/frame.jpg";
+      yield* videoFs.writeFile(framePath, Uint8Array.from([9, 10]));
+      const videoFrames = [3200, 7200, 9000].map((timestampMs, index) => ({
+        videoAttachmentId: "video" as never,
+        videoName: "clip.mp4",
+        timestampMs,
+        path: index === 2 ? videoDir + "/missing.jpg" : framePath,
+        mimeType: "image/jpeg" as const,
+        sizeBytes: 2,
+      }));
+
+      const fake = yield* makeFakePi;
+      const { runtime } = yield* openRuntime(fake);
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      yield* startTurn(
+        runtime,
+        providerThread,
+        "default",
+        [],
+        "Watch",
+        undefined,
+        1,
+        THREAD_ID,
+        false,
+        videoFrames,
+      );
+      const request = yield* fake.takeRequest("prompt");
+      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:03.2]');
+      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:07.2]');
+      assert.notInclude(request.message as string, framePath);
+      assert.deepEqual(request.images, [
+        { type: "image", data: "CQo=", mimeType: "image/jpeg" },
+        { type: "image", data: "CQo=", mimeType: "image/jpeg" },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
   it.effect.each([false, true])(
     "completes a resumed user turn before native wake events arrive, Pi streaming=%s",
     (streaming) =>

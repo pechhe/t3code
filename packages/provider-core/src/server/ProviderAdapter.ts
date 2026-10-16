@@ -1,6 +1,7 @@
 import type { OrchestrationV2HistoricalMessage } from "@t3tools/contracts";
 import {
   ChatAttachment,
+  ChatAttachmentId,
   CheckpointId,
   MessageId,
   ModelSelection,
@@ -58,10 +59,27 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 
+/**
+ * A still sampled from a video attachment on the server host. Frames are derived
+ * from `attachments`, not attachments themselves, so they never count toward the
+ * user's attachment limits; `path` is a JPEG on the host the provider runs on.
+ */
+export const ProviderAdapterV2VideoFrame = Schema.Struct({
+  videoAttachmentId: ChatAttachmentId,
+  videoName: Schema.String,
+  timestampMs: Schema.Number,
+  path: Schema.String,
+  mimeType: Schema.Literal("image/jpeg"),
+  sizeBytes: Schema.Number,
+});
+export type ProviderAdapterV2VideoFrame = typeof ProviderAdapterV2VideoFrame.Type;
+
 export const ProviderAdapterV2TurnMessage = Schema.Struct({
   messageId: MessageId,
   text: Schema.String,
   attachments: Schema.Array(ChatAttachment),
+  /** Ordered by video, then timestamp. Absent when no video was attached or ffmpeg is unavailable. */
+  videoFrames: Schema.optional(Schema.Array(ProviderAdapterV2VideoFrame)),
   createdBy: OrchestrationV2ConversationMessage.fields.createdBy,
   creationSource: OrchestrationV2ConversationMessage.fields.creationSource,
   scheduledTaskId: OrchestrationV2ConversationMessage.fields.scheduledTaskId,
