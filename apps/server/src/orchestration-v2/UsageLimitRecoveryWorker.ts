@@ -9,6 +9,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { pickPoolFailoverMember } from "../provider/providerPools.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
@@ -130,12 +131,39 @@ export function limitRecoveryCommand(
   };
 }
 
+/**
+ * The command that moves a limited thread on, skipping any the server has
+ * already rejected: a rejection is recorded for good, so retrying it only
+ * repeats the failure and, for a pool switch, hides the plain recovery below.
+ */
+export function nextRecoveryCommand(input: {
+  readonly thread: ProjectionStore.ProjectionLimitRecoveryCandidate;
+  readonly providers: ReadonlyArray<ServerProvider> | null;
+  readonly nowMs: number;
+  readonly autoResume: boolean;
+  readonly snooze: boolean;
+  readonly rejected: ReadonlySet<string>;
+}): OrchestrationV2Command | null {
+  const poolSwitch =
+    input.providers === null
+      ? null
+      : poolFailoverCommand(input.thread, input.providers, input.nowMs);
+  const command =
+    poolSwitch !== null && !input.rejected.has(poolSwitch.commandId)
+      ? poolSwitch
+      : limitRecoveryCommand(input.thread, input.autoResume, input.nowMs, input.snooze);
+  return command !== null && !input.rejected.has(command.commandId) ? command : null;
+}
+
 const makeSweep = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const settings = yield* ServerSettings.ServerSettingsService;
   // Optional like ThreadManagementService: without the registry there are no pools.
   const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
+  // Rejected command ids, kept for the process: the server remembers them, so a
+  // restart costs one more attempt each.
+  const rejected = yield* Ref.make<ReadonlySet<string>>(new Set());
   return Effect.fn("UsageLimitRecoveryWorker.sweep")(function* () {
     const preferences = yield* settings.getSettings;
     const now = yield* DateTime.now;
@@ -150,19 +178,31 @@ const makeSweep = Effect.gen(function* () {
     const providers =
       poolSwitch && Option.isSome(providerRegistry)
         ? yield* providerRegistry.value.getProviders
-        : [];
+        : null;
     const nowMs = DateTime.toEpochMillis(now);
     for (const thread of candidates) {
-      const command =
-        (poolSwitch ? poolFailoverCommand(thread, providers, nowMs) : null) ??
-        limitRecoveryCommand(
-          thread,
-          preferences.autoResumeLimitedThreads,
-          nowMs,
-          preferences.snoozeLimitedThreads,
-        );
+      const command = nextRecoveryCommand({
+        thread,
+        providers,
+        nowMs,
+        autoResume: preferences.autoResumeLimitedThreads,
+        snooze: preferences.snoozeLimitedThreads,
+        rejected: yield* Ref.get(rejected),
+      });
       if (command === null) continue;
       yield* threads.dispatch(command).pipe(
+        Effect.catchTags({
+          OrchestratorCommandPreviouslyRejectedError: (error) =>
+            Ref.update(rejected, (ids) => new Set(ids).add(command.commandId)).pipe(
+              Effect.andThen(
+                Effect.logWarning("orchestration-v2.limit-recovery.command-rejected", {
+                  threadId: thread.id,
+                  commandId: command.commandId,
+                  detail: error.detail,
+                }),
+              ),
+            ),
+        }),
         Effect.catchCause((cause) =>
           Effect.logWarning("orchestration-v2.limit-recovery.dispatch-failed", {
             threadId: thread.id,

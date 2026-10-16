@@ -8,7 +8,7 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 
-import { poolFailoverCommand } from "./UsageLimitRecoveryWorker.ts";
+import { nextRecoveryCommand, poolFailoverCommand } from "./UsageLimitRecoveryWorker.ts";
 import type { ProjectionLimitRecoveryCandidate } from "./ProjectionStore.ts";
 
 const NOW = Date.parse("2026-10-15T12:00:00.000Z");
@@ -112,5 +112,34 @@ describe("poolFailoverCommand", () => {
     assert.isNull(
       poolFailoverCommand(limitedThread({ lastErrorClass: "provider_error" }), providers, NOW),
     );
+  });
+});
+
+describe("nextRecoveryCommand", () => {
+  const providers = [pool, account("a", 100, 3), account("b", 10, 2)];
+  const recovery = (rejected: ReadonlyArray<string> = []) =>
+    nextRecoveryCommand({
+      thread: limitedThread(),
+      providers,
+      nowMs: NOW,
+      autoResume: true,
+      snooze: false,
+      rejected: new Set(rejected),
+    });
+
+  it("moves a limited pooled thread to the next account first", () => {
+    assert.strictEqual(recovery()?.commandId, "limit-pool-switch:thread-1:run-1");
+  });
+
+  it("falls back to the plain recovery once the pool switch was rejected", () => {
+    const fallback = recovery(["limit-pool-switch:thread-1:run-1"]);
+    assert.strictEqual(fallback?.type, "thread.metadata.update");
+    assert.isTrue(fallback?.commandId.startsWith("limit-arm:"));
+  });
+
+  it("offers nothing once every command for the thread was rejected", () => {
+    const armed = recovery(["limit-pool-switch:thread-1:run-1"]);
+    assert.isNotNull(armed);
+    assert.isNull(recovery(["limit-pool-switch:thread-1:run-1", armed?.commandId ?? ""]));
   });
 });
