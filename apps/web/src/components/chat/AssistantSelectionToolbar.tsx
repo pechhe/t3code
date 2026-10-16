@@ -4,7 +4,8 @@ import {
   type AssistantCitation,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
-import { QuoteIcon } from "lucide-react";
+import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
+import { CopyIcon, QuoteIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -16,7 +17,13 @@ import {
   resolveSelectionActionPosition,
   type SelectionActionPoint,
 } from "~/lib/selectionActions";
+import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
+import { toastManager } from "../ui/toast";
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
 export function AssistantSelectionToolbar({
   viewport,
@@ -32,7 +39,7 @@ export function AssistantSelectionToolbar({
     position: SelectionActionPoint;
     sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
-  const toolbarRef = useRef<HTMLButtonElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const actionsRef = useRef<ReturnType<typeof observeSelectionActions> | null>(null);
 
   useLayoutEffect(() => {
@@ -108,10 +115,11 @@ export function AssistantSelectionToolbar({
       ) {
         return;
       }
-      if (toolbar.disabled) return;
+      const firstAction = toolbar.querySelector<HTMLButtonElement>("button:not(:disabled)");
+      if (!firstAction) return;
       event.preventDefault();
       event.stopPropagation();
-      toolbar.focus({ preventScroll: true });
+      firstAction.focus({ preventScroll: true });
     };
     document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
@@ -135,18 +143,35 @@ export function AssistantSelectionToolbar({
     dismiss();
     return true;
   };
+  // The composer turns the pasted link back into a chip in any thread; other apps get the quote.
+  const copy = () => {
+    if (tooLong) return;
+    const { citation } = selection;
+    window.getSelection()?.removeAllRanges();
+    dismiss();
+    void writeTextToClipboard(serializeAssistantCitation(citation), "citation", {
+      "text/html": `<blockquote>${escapeHtml(citation.text)}</blockquote>`,
+    }).then(
+      () =>
+        toastManager.add({
+          type: "success",
+          title: "Citation copied",
+          description: "Paste it into any thread's composer to cite this response there.",
+        }),
+      (error: Error) =>
+        toastManager.add({
+          type: "error",
+          title: "Could not copy citation",
+          description: error.message,
+        }),
+    );
+  };
   return createPortal(
-    <Button
+    <div
       ref={toolbarRef}
-      type="button"
-      size="xs"
-      variant="glass"
-      disabled={tooLong}
-      aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
-      className="fixed z-50 max-w-[calc(100vw-1rem)]"
+      className="fixed z-50 flex max-w-[calc(100vw-1rem)] gap-1"
       style={{ left: selection.position.x, top: selection.position.y }}
       onPointerDown={(event) => event.preventDefault()}
-      onClick={cite}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === "Escape" && !event.nativeEvent.isComposing) {
@@ -155,9 +180,30 @@ export function AssistantSelectionToolbar({
         }
       }}
     >
-      <QuoteIcon aria-hidden="true" className="size-3.5" />
-      {tooLong ? "Shorten selection" : "Cite"}
-    </Button>,
+      <Button
+        type="button"
+        size="xs"
+        variant="glass"
+        disabled={tooLong}
+        aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
+        onClick={cite}
+      >
+        <QuoteIcon aria-hidden="true" className="size-3.5" />
+        {tooLong ? "Shorten selection" : "Cite"}
+      </Button>
+      {tooLong ? null : (
+        <Button
+          type="button"
+          size="xs"
+          variant="glass"
+          aria-label="Copy citation to paste into another thread"
+          onClick={copy}
+        >
+          <CopyIcon aria-hidden="true" className="size-3.5" />
+          Copy
+        </Button>
+      )}
+    </div>,
     document.body,
   );
 }
