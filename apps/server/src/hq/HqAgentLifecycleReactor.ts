@@ -29,13 +29,18 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const connections = yield* HqAgentConnections.HqAgentConnections;
 
-  const agentOf = (threadId: ThreadId) =>
+  /** Ends or forgets the thread's agent; a thread with no HQ role never had one. */
+  const withAgentOf = (
+    threadId: ThreadId,
+    act: (agent: Omit<HqAgentConnections.HqAgent, "model">) => Effect.Effect<void>,
+  ) =>
     projections.getThread(threadId).pipe(
-      Effect.map((thread) => ({
-        threadId,
-        projectId: thread.projectId,
-        role: thread.agentTask?.role ?? "lead",
-      })),
+      Effect.flatMap((thread) => {
+        const role = HqAgentConnections.hqAgentRole(thread);
+        return role === undefined
+          ? Effect.void
+          : act({ threadId, projectId: thread.projectId, role });
+      }),
     );
 
   const handle: HqAgentLifecycleReactor["Service"]["handle"] = (event) =>
@@ -48,12 +53,12 @@ const make = Effect.gen(function* () {
             (status !== "completed" && status !== "failed" && status !== "cancelled")
           )
             return;
-          return yield* connections.end(yield* agentOf(event.threadId));
+          return yield* withAgentOf(event.threadId, connections.end);
         }
         case "thread.archived":
-          return yield* connections.end(yield* agentOf(event.threadId));
+          return yield* withAgentOf(event.threadId, connections.end);
         case "thread.deleted":
-          return yield* connections.forget(yield* agentOf(event.threadId));
+          return yield* withAgentOf(event.threadId, connections.forget);
         default:
           return;
       }

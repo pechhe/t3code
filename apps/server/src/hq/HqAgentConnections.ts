@@ -8,7 +8,7 @@
  * and a long-lived provider process (Codex keeps a thread's MCP headers for its lifetime) never
  * holds a token that can expire.
  */
-import type { ProjectId, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationV2AppThread, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -37,6 +37,17 @@ export interface HqAgent {
   readonly role: string;
   readonly model: string;
 }
+
+/**
+ * The role a thread's agent acts under in HQ: its delegated task's canonical role, or `lead` for
+ * a top-level thread. Any other thread has none and gets no HQ server: a raw, off-policy child,
+ * or a fork or side chat with no task (an agent can fork itself), would otherwise act with the
+ * lead's full authority.
+ */
+export const hqAgentRole = (
+  thread: Pick<OrchestrationV2AppThread, "agentTask" | "lineage">,
+): string | undefined =>
+  thread.agentTask?.role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined);
 
 /** What an adapter injects as the `yardsmith-hq` MCP server. It carries no HQ credential. */
 export interface HqMcpConnection {
@@ -79,6 +90,7 @@ type HqRefusal =
   | "not_connected"
   | "invalid_delegation"
   | "agent_revoked"
+  | "agent_role_conflict"
   | "agent_invalid"
   | "unauthorized"
   | "unavailable";
@@ -89,6 +101,8 @@ const refusalMessages: Record<HqRefusal, string> = {
     "HQ refused T3's delegation: it was revoked or has expired. Create a new one in HQ Settings → Connections → T3 agents and reconnect the project.",
   agent_revoked:
     "HQ refused this agent (agent_revoked): the person revoked it in HQ Settings → Connections. This thread can no longer act in HQ.",
+  agent_role_conflict:
+    "HQ refused this agent (agent_role_conflict): this thread already acts in HQ under another role, and a thread keeps the role it first had.",
   agent_invalid: "HQ refused this agent's identity.",
   unauthorized: "HQ refused this agent's token.",
   unavailable: "YardSmith HQ is unreachable. Try again shortly.",
@@ -254,8 +268,8 @@ const make = Effect.gen(function* () {
           return yield* Effect.fail<HqRefusal>(
             status === 401
               ? "invalid_delegation"
-              : code === "agent_revoked"
-                ? "agent_revoked"
+              : code === "agent_revoked" || code === "agent_role_conflict"
+                ? code
                 : status === 400
                   ? "agent_invalid"
                   : "unavailable",

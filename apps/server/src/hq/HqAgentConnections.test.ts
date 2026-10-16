@@ -1,10 +1,12 @@
-import { assert, it } from "@effect/vitest";
-import { ProjectId, ThreadId } from "@t3tools/contracts";
+import { assert, describe, it } from "@effect/vitest";
+import { AgentTaskBinding, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 
 import { claudeMcpQueryOverrides } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { codexThreadRuntimeParams } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import { hqAgentRole } from "./HqAgentConnections.ts";
 import {
   delegation,
   hourMs,
@@ -72,6 +74,24 @@ it.effect("a revoked agent's thread is refused and T3 reports agent_revoked", ()
     assert.include(refused.json.error?.message, "revoked");
     assert.isTrue(logs.some((line) => line.includes("agent_revoked")));
     assert.strictEqual(hq.agents.length, 1);
+    assertNoSecretsIn(refused);
+  }),
+);
+
+it.effect("a thread asking HQ for a second role is refused as agent_role_conflict", () =>
+  Effect.gen(function* () {
+    const { connections, call, logs, assertNoSecretsIn } = yield* makeHarness;
+    yield* call(leadThread);
+    yield* connections.prepare({
+      threadId: leadThread,
+      projectId,
+      role: "implementation-worker",
+      model: "claude-opus-5-5",
+    });
+    const refused = yield* call(leadThread);
+    assert.strictEqual(refused.json.error?.data.reason, "agent_role_conflict");
+    assert.include(refused.json.error?.message, "another role");
+    assert.isTrue(logs.some((line) => line.includes("agent_role_conflict")));
     assertNoSecretsIn(refused);
   }),
 );
@@ -183,3 +203,58 @@ it.effect("reconnecting to another HQ never presents one HQ's token to the other
     assertNoSecretsIn(first, second);
   }),
 );
+
+const decodeAgentTask = Schema.decodeUnknownSync(AgentTaskBinding);
+
+describe("hqAgentRole", () => {
+  const lineage = (relationshipToParent: "fork" | "subagent" | null) => ({
+    parentThreadId: relationshipToParent === null ? null : ThreadId.make("thread-parent"),
+    relationshipToParent,
+    rootThreadId: ThreadId.make("thread-parent"),
+  });
+  const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.5" };
+  const recordedTask = (review?: { readonly scope: "change" | "spec" }) =>
+    decodeAgentTask({
+      role: "reviewer",
+      taskClass: "non-ui",
+      workId: "work",
+      attemptId: "1",
+      workspacePath: "/workspace",
+      ...(review === undefined
+        ? {}
+        : {
+            review: {
+              ...review,
+              baseRevision: "base",
+              includedChanges: ["change"],
+              coverage: "complete",
+            },
+          }),
+      requestFingerprint: "a".repeat(64),
+      policyHash: "b".repeat(64),
+      policyRevision: "test",
+      briefHash: "c".repeat(64),
+      sourceAccess: "read-only",
+      toolProfile: "source-reader",
+      requested: modelSelection,
+      assigned: null,
+      effective: modelSelection,
+    });
+
+  it("is lead only for a top-level thread, and none for a raw child or a fork without a task", () => {
+    assert.strictEqual(hqAgentRole({ lineage: lineage(null) }), "lead");
+    assert.isUndefined(hqAgentRole({ lineage: lineage("subagent") }));
+    assert.isUndefined(hqAgentRole({ lineage: lineage("fork") }));
+  });
+
+  it("is a recorded reviewer task's canonical role, never the retired name", () => {
+    assert.strictEqual(
+      hqAgentRole({ lineage: lineage("subagent"), agentTask: recordedTask() }),
+      "ticket-reviewer",
+    );
+    assert.strictEqual(
+      hqAgentRole({ lineage: lineage("subagent"), agentTask: recordedTask({ scope: "spec" }) }),
+      "spec-reviewer",
+    );
+  });
+});

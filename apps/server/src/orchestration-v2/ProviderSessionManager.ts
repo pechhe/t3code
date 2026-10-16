@@ -465,14 +465,17 @@ export const layerWithOptions = (
         Option.isNone(hqConnections)
           ? Effect.void
           : projectionStore.getThread(threadId).pipe(
-              Effect.flatMap((thread) =>
-                hqConnections.value.prepare({
-                  threadId,
-                  projectId: thread.projectId,
-                  role: thread.agentTask?.role ?? "lead",
-                  model: model ?? thread.modelSelection.model,
-                }),
-              ),
+              Effect.flatMap((thread) => {
+                const role = HqAgentConnections.hqAgentRole(thread);
+                return role === undefined
+                  ? Effect.void
+                  : hqConnections.value.prepare({
+                      threadId,
+                      projectId: thread.projectId,
+                      role,
+                      model: model ?? thread.modelSelection.model,
+                    });
+              }),
               Effect.catchCause((cause) =>
                 Effect.logWarning("Could not prepare the thread's HQ connection", {
                   threadId,

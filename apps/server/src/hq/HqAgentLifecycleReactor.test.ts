@@ -16,6 +16,7 @@ import * as HqAgentLifecycleReactor from "./HqAgentLifecycleReactor.ts";
 const projectId = ProjectId.make("project-hq");
 const lead = ThreadId.make("thread-lead");
 const reviewer = ThreadId.make("thread-reviewer");
+const rawChild = ThreadId.make("thread-raw-child");
 
 const withReactor = <A, E>(
   body: (input: {
@@ -36,6 +37,7 @@ const withReactor = <A, E>(
                   Effect.succeed({
                     id: threadId,
                     projectId,
+                    lineage: { parentThreadId: threadId === lead ? null : lead },
                     ...(threadId === reviewer ? { agentTask: { role: "spec-reviewer" } } : {}),
                   } as never),
               }),
@@ -99,6 +101,19 @@ it.effect("archiving ends a lead's agent and deleting also drops its connection"
         { kind: "end", agent },
         { kind: "forget", agent },
       ]);
+    }),
+  ),
+);
+
+it.effect("a raw delegated child never had an HQ agent, so nothing is ended", () =>
+  withReactor(({ reactor, calls }) =>
+    Effect.gen(function* () {
+      yield* reactor.handle(
+        runUpdated(rawChild, { status: "completed", delegatedTaskId: "node-task" as never }),
+      );
+      yield* reactor.handle(threadEvent("thread.archived", rawChild));
+      yield* reactor.handle(threadEvent("thread.deleted", rawChild));
+      assert.deepStrictEqual(calls, []);
     }),
   ),
 );

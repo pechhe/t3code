@@ -35,6 +35,7 @@ const delegations = new Map([
 /**
  * HQ's exchange as `POST /api/mcp/agents` documents it: one live agent per reference and role,
  * renewed by a new exchange, replaced after it ends, refused for ever once the person revokes it.
+ * A reference keeps the role it first exchanged for.
  */
 const makeFakeHq = () => {
   const agents: Array<{
@@ -95,6 +96,12 @@ const makeFakeHq = () => {
           return respond(request, 200, { ended: live !== undefined });
         }
         if (forRef.some((a) => a.revoked)) return respond(request, 403, { error: "agent_revoked" });
+        if (
+          agents.some(
+            (a) => a.origin === hqOrigin && a.agentRef === claim.agentRef && a.role !== claim.role,
+          )
+        )
+          return respond(request, 409, { error: "agent_role_conflict" });
         let agent = forRef.find((a) => !a.ended);
         if (!agent) {
           agent = {
