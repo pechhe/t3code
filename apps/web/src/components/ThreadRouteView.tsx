@@ -193,11 +193,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   }
 
   if (isSnapShotOverlaySurface) {
-    return (
-      <SnapShotOverlayFrame threadRef={target.kind === "server" ? target.threadRef : null}>
-        {view}
-      </SnapShotOverlayFrame>
-    );
+    return <SnapShotOverlayFrame>{view}</SnapShotOverlayFrame>;
   }
 
   return (

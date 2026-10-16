@@ -10,7 +10,12 @@ import type {
 } from "./browserImport.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
-import { ExecutionEnvironmentDescriptor, type ScopedThreadRef } from "./environment.ts";
+import {
+  ExecutionEnvironmentDescriptor,
+  ScopedProjectRef,
+  type ScopedThreadRef,
+} from "./environment.ts";
+import { ModelSelection } from "./modelSelection.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type { PreviewForwardedShortcut } from "./keybindings.ts";
@@ -199,6 +204,33 @@ export const DesktopSnapShotState = Schema.Struct({
   message: Schema.NullOr(Schema.String),
 });
 export type DesktopSnapShotState = typeof DesktopSnapShotState.Type;
+
+/** A frame in a window's viewport, in CSS pixels. */
+export const DesktopViewportFrame = Schema.Struct({
+  x: Schema.Number,
+  y: Schema.Number,
+  width: Schema.Number,
+  height: Schema.Number,
+});
+export type DesktopViewportFrame = typeof DesktopViewportFrame.Type;
+
+/** An unsent SnapShot overlay chat, handed to the main window to carry on there. */
+export const DesktopSnapShotDraftHandoff = Schema.Struct({
+  projectRef: ScopedProjectRef,
+  prompt: Schema.String,
+  images: Schema.Array(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      mimeType: Schema.String,
+      sizeBytes: Schema.Number,
+      dataUrl: Schema.String,
+      source: Schema.optional(SnapShotSource),
+    }),
+  ),
+  modelSelection: Schema.optional(ModelSelection),
+});
+export type DesktopSnapShotDraftHandoff = typeof DesktopSnapShotDraftHandoff.Type;
 
 export const DesktopSnapShotShortcutAvailability = Schema.Struct({
   available: Schema.Boolean,
@@ -1082,6 +1114,19 @@ export interface DesktopBridge {
   hideSnapShotOverlay?: () => Promise<void>;
   /** Lets the overlay take the pointer over its content; elsewhere clicks reach the app behind. */
   setSnapShotOverlayInteractive?: (interactive: boolean) => Promise<void>;
+  /**
+   * The main window's composer column, whose bottom edge is where its composer rests, so the
+   * SnapShot overlay can put its composer in the same place.
+   */
+  setMainComposerFrame?: (frame: DesktopViewportFrame) => Promise<void>;
+  /** How far below the overlay's composer its window reaches, in CSS pixels. */
+  getSnapShotOverlayBottomInset?: () => Promise<number>;
+  /** The main window took focus while the overlay is up: hand the overlay's chat to it. */
+  onSnapShotOverlayHandoffRequest?: (listener: () => void) => () => void;
+  /** Gives the overlay's unsent chat to the main window and hides the overlay. */
+  handOffSnapShotDraft?: (draft: DesktopSnapShotDraftHandoff) => Promise<void>;
+  /** The main window receives the overlay's unsent chat. */
+  onSnapShotDraftHandoff?: (listener: (draft: DesktopSnapShotDraftHandoff) => void) => () => void;
   /** Opens a thread in the main window, revealing it, and hides the SnapShot overlay. */
   openThreadInMainWindow?: (thread: ScopedThreadRef) => Promise<void>;
   /** The main window is asked to open a thread, for example from the SnapShot overlay. */

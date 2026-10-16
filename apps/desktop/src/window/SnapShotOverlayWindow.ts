@@ -3,9 +3,14 @@ import type * as Electron from "electron";
 /** Marks the renderer as the SnapShot overlay; read once by the web app at startup. */
 export const SNAP_SHOT_OVERLAY_SURFACE = "snap-shot-overlay";
 
-// Wide enough for the chat composer, tall enough for an answer above it.
-const OVERLAY_WIDTH = 800;
+// Room above the composer for its menus and, later, an answer.
 const OVERLAY_HEIGHT = 640;
+// Either side of the composer, for its shadow; the renderer pads its lane by the same amount.
+const OVERLAY_SIDE_MARGIN = 24;
+// The composer's width without a main window to match: the default chat width.
+const DEFAULT_COMPOSER_WIDTH = 736;
+// Without a main window to match, the composer rests this far above the work area.
+const DEFAULT_COMPOSER_LIFT = 12;
 
 /** Platforms where the overlay can sit over other apps without raising T3. */
 export function supportsSnapShotOverlay(platform: NodeJS.Platform): boolean {
@@ -25,7 +30,7 @@ export function snapShotOverlayWindowOptions(input: {
   readonly title: string;
 }): Electron.BrowserWindowConstructorOptions {
   return {
-    width: OVERLAY_WIDTH,
+    width: DEFAULT_COMPOSER_WIDTH + 2 * OVERLAY_SIDE_MARGIN,
     height: OVERLAY_HEIGHT,
     show: false,
     frame: false,
@@ -58,22 +63,65 @@ export function snapShotOverlayWindowOptions(input: {
   };
 }
 
+export interface SnapShotOverlayPlacement {
+  readonly bounds: Electron.Rectangle;
+  /** From the composer's resting edge down to the window's bottom, in CSS pixels. */
+  readonly bottomInset: number;
+}
+
 /**
- * Centred along the bottom edge of the display under the pointer, where the main window's
- * composer usually sits. It reaches the screen edge, under any Dock or taskbar, so the composer
- * can slide in from it; the renderer keeps the composer itself above the work area.
+ * Puts the overlay's composer exactly where the main window's composer sits, so switching to
+ * T3 finds the same composer in the same place. `composer` is that composer's column on screen,
+ * whose bottom edge is where it rests; without it, the composer sits at the bottom centre of
+ * the display. Either way the window reaches the bottom of the screen, under any Dock, so the
+ * composer can slide in from the edge.
  */
-export function snapShotOverlayBounds(
-  display: Pick<Electron.Display, "bounds" | "workArea">,
-): Electron.Rectangle {
-  const { bounds, workArea } = display;
+export function snapShotOverlayPlacement(input: {
+  readonly display: Pick<Electron.Display, "bounds" | "workArea">;
+  readonly composer: Electron.Rectangle | null;
+  readonly zoomFactor: number;
+}): SnapShotOverlayPlacement {
+  const { bounds, workArea } = input.display;
+  const zoom = input.zoomFactor > 0 ? input.zoomFactor : 1;
   const bottom = bounds.y + bounds.height;
-  const width = Math.min(OVERLAY_WIDTH, workArea.width);
-  const height = Math.min(OVERLAY_HEIGHT, bottom - workArea.y);
+  const margin = Math.round(OVERLAY_SIDE_MARGIN * zoom);
+  const column = input.composer ?? {
+    width: Math.min(Math.round(DEFAULT_COMPOSER_WIDTH * zoom), workArea.width - 2 * margin),
+    x: 0,
+    y: 0,
+    height: workArea.y + workArea.height - Math.round(DEFAULT_COMPOSER_LIFT * zoom),
+  };
+  const x = input.composer
+    ? column.x
+    : Math.round(workArea.x + (workArea.width - column.width) / 2);
+  const anchor = Math.round(Math.min(column.y + column.height, bottom));
+  const top = Math.max(workArea.y, anchor - Math.round(OVERLAY_HEIGHT * zoom));
   return {
-    x: Math.round(workArea.x + (workArea.width - width) / 2),
-    y: bottom - height,
-    width,
-    height,
+    bounds: {
+      x: Math.round(x) - margin,
+      y: top,
+      width: Math.round(column.width) + 2 * margin,
+      height: bottom - top,
+    },
+    bottomInset: (bottom - anchor) / zoom,
+  };
+}
+
+/** A frame in a window's viewport, on screen. */
+export function viewportFrameOnScreen(
+  frame: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  },
+  contentBounds: Electron.Rectangle,
+  zoomFactor: number,
+): Electron.Rectangle {
+  return {
+    x: contentBounds.x + frame.x * zoomFactor,
+    y: contentBounds.y + frame.y * zoomFactor,
+    width: frame.width * zoomFactor,
+    height: frame.height * zoomFactor,
   };
 }

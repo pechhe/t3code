@@ -1,7 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { ScopedThreadRef } from "@t3tools/contracts";
-import { Outlet } from "@tanstack/react-router";
-import { ExternalLinkIcon } from "lucide-react";
+import type { DesktopSnapShotDraftHandoff } from "@t3tools/contracts";
+import { Outlet, useRouter } from "@tanstack/react-router";
 import {
   type CSSProperties,
   type ReactNode,
@@ -11,12 +10,12 @@ import {
   useState,
 } from "react";
 
-import type { DraftId } from "../../composerDraftStore";
+import { type DraftId, useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
 import { usePrimaryEnvironmentId } from "../../state/environments";
+import { resolveThreadRouteTarget } from "../../threadRoutes";
 import { SnapShotCoordinator } from "../desktop/SnapShotCoordinator";
-import { Button } from "../ui/button";
 
 /** Starts a fresh chat without a project in the overlay window, replacing what it shows. */
 function useStartSnapShotOverlayDraft(): () => Promise<DraftId | null> {
@@ -34,9 +33,67 @@ function useStartSnapShotOverlayDraft(): () => Promise<DraftId | null> {
   }, [handleNewThread, openScratchProject, primaryEnvironmentId]);
 }
 
+/** The overlay's chat in the form the main window takes it over in. */
+function snapShotDraftHandoff(draftId: DraftId): DesktopSnapShotDraftHandoff | null {
+  const store = useComposerDraftStore.getState();
+  const session = store.getDraftSession(draftId);
+  if (!session) return null;
+  const draft = store.getComposerDraft(draftId);
+  const modelSelection = draft?.activeProvider
+    ? draft.modelSelectionByProvider[draft.activeProvider]
+    : undefined;
+  return {
+    projectRef: scopeProjectRef(session.environmentId, session.projectId),
+    prompt: draft?.prompt ?? "",
+    images: (draft?.persistedAttachments ?? []).map(
+      ({ id, name, mimeType, sizeBytes, dataUrl, source }) => ({
+        id,
+        name,
+        mimeType,
+        sizeBytes,
+        dataUrl,
+        ...(source ? { source } : {}),
+      }),
+    ),
+    ...(modelSelection ? { modelSelection } : {}),
+  };
+}
+
+/**
+ * When the main window takes focus while the overlay is up, the overlay's chat moves there:
+ * an unsent one into the main window's composer, a sent one by opening it.
+ */
+function useSnapShotOverlayHandoff() {
+  const router = useRouter();
+  useEffect(() => {
+    const bridge = window.desktopBridge;
+    return bridge?.onSnapShotOverlayHandoffRequest?.(() => {
+      const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
+      const draftId = route?.kind === "draft" ? route.draftId : null;
+      const threadRef = route?.kind === "server" ? route.threadRef : null;
+      const sentThread =
+        threadRef ??
+        (draftId ? useComposerDraftStore.getState().getDraftSession(draftId)?.promotedTo : null);
+      if (sentThread) {
+        void bridge.openThreadInMainWindow?.(sentThread);
+        return;
+      }
+      const draft = draftId ? snapShotDraftHandoff(draftId) : null;
+      if (!draftId || !draft) {
+        void bridge.hideSnapShotOverlay?.();
+        return;
+      }
+      void bridge.handOffSnapShotDraft?.(draft).then(() => {
+        useComposerDraftStore.getState().clearComposerPromptAndImages(draftId);
+      });
+    });
+  }, [router]);
+}
+
 /** The overlay window's app: its routes plus the coordinator that puts captures in its chat. */
 export function SnapShotOverlayRoot() {
   const startOverlayDraft = useStartSnapShotOverlayDraft();
+  useSnapShotOverlayHandoff();
   return (
     <>
       <SnapShotCoordinator overlay startOverlayDraft={startOverlayDraft} />
@@ -58,30 +115,18 @@ export function SnapShotOverlayStart() {
   return null;
 }
 
-/** How far the bottom of the overlay window reaches below the work area, over the Dock. */
-function measureBelowWorkArea(): number {
-  const { availHeight, availTop = 0 } = window.screen as Screen & { availTop?: number };
-  return Math.max(0, window.screenY + window.innerHeight - (availTop + availHeight));
-}
-
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 /**
- * The overlay's composer, floating where the main window's composer sits. The window reaches
- * the bottom of the screen, so the composer slides up from the screen edge when the overlay
- * shows and drops back down when Escape hides it, keeping the chat for the next capture. Only
- * the composer and its menus take the pointer; elsewhere clicks reach the app behind.
+ * The overlay's composer, floating exactly where the main window's composer sits. The window
+ * reaches the bottom of the screen, so the composer slides up from the screen edge when the
+ * overlay shows and drops back down when Escape hides it, keeping the chat for the next
+ * capture. Only the composer and its menus take the pointer; elsewhere clicks reach the app
+ * behind.
  */
-export function SnapShotOverlayFrame({
-  threadRef,
-  children,
-}: {
-  /** The sent chat, which can then be opened in the main window. */
-  readonly threadRef: ScopedThreadRef | null;
-  readonly children: ReactNode;
-}) {
+export function SnapShotOverlayFrame({ children }: { readonly children: ReactNode }) {
   const [shown, setShown] = useState(false);
   const [belowWorkArea, setBelowWorkArea] = useState(0);
   const hidingRef = useRef(false);
@@ -90,9 +135,13 @@ export function SnapShotOverlayFrame({
     const slideIn = () => {
       if (document.visibilityState !== "visible") return;
       hidingRef.current = false;
-      setBelowWorkArea(measureBelowWorkArea());
-      // Paint the composer below the screen edge first, so it has somewhere to slide from.
-      requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+      void (window.desktopBridge?.getSnapShotOverlayBottomInset?.() ?? Promise.resolve(0))
+        .catch(() => 0)
+        .then((inset) => {
+          setBelowWorkArea(inset);
+          // Paint the composer below the screen edge first, so it has somewhere to slide from.
+          requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+        });
     };
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") slideIn();
@@ -150,30 +199,19 @@ export function SnapShotOverlayFrame({
   return (
     <div
       className="pointer-events-none flex h-svh min-h-0 overflow-hidden"
-      style={{ paddingBottom: belowWorkArea + 12 }}
+      style={{ paddingBottom: belowWorkArea }}
     >
       <div
         data-snap-shot-overlay-slide
         data-snap-shot-overlay-shown={shown || undefined}
         className="relative flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:duration-300 data-snap-shot-overlay-shown:ease-drawer motion-reduce:transition-none"
-        style={{ "--overlay-drop": `${belowWorkArea + 12}px` } as CSSProperties}
+        style={{ "--overlay-drop": `${belowWorkArea}px` } as CSSProperties}
         onTransitionEnd={(event) => {
           if (event.target !== event.currentTarget || shown || !hidingRef.current) return;
           hidingRef.current = false;
           void window.desktopBridge?.hideSnapShotOverlay?.();
         }}
       >
-        {threadRef ? (
-          <Button
-            size="xs"
-            variant="glass"
-            className="pointer-events-auto absolute top-3 right-14 z-30"
-            onClick={() => void window.desktopBridge?.openThreadInMainWindow?.(threadRef)}
-          >
-            <ExternalLinkIcon className="size-3.5" />
-            Open in T3
-          </Button>
-        ) : null}
         <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
       </div>
     </div>

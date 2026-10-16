@@ -9,7 +9,9 @@ import * as Ref from "effect/Ref";
 import * as Electron from "electron";
 
 import {
+  type DesktopSnapShotDraftHandoff,
   type DesktopSnapShotEvent,
+  type DesktopViewportFrame,
   type ScopedThreadRef,
   DEFAULT_CLIENT_SETTINGS,
 } from "@t3tools/contracts";
@@ -26,7 +28,9 @@ import {
   MENU_ACTION_CHANNEL,
   OPEN_THREAD_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
+  SNAP_SHOT_DRAFT_HANDOFF_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
+  SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
@@ -40,9 +44,10 @@ import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts"
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
 import {
-  snapShotOverlayBounds,
+  snapShotOverlayPlacement,
   snapShotOverlayUrl,
   snapShotOverlayWindowOptions,
+  viewportFrameOnScreen,
 } from "./SnapShotOverlayWindow.ts";
 
 const TITLEBAR_HEIGHT = 40;
@@ -129,6 +134,14 @@ export class DesktopWindow extends Context.Service<
     readonly hideSnapShotOverlay: Effect.Effect<void>;
     /** Takes the pointer while it is over the overlay's content; elsewhere clicks pass through. */
     readonly setSnapShotOverlayInteractive: (interactive: boolean) => Effect.Effect<void>;
+    /** Where the main window's composer rests, which the overlay's composer lines up with. */
+    readonly setMainComposerFrame: (frame: DesktopViewportFrame) => Effect.Effect<void>;
+    /** From the overlay's composer down to its window's bottom edge, in CSS pixels. */
+    readonly snapShotOverlayBottomInset: Effect.Effect<number>;
+    /** Gives the overlay's unsent chat to the main window, revealing it, and hides the overlay. */
+    readonly handOffSnapShotDraft: (
+      draft: DesktopSnapShotDraftHandoff,
+    ) => Effect.Effect<void, DesktopWindowError>;
     /** The overlay window when these web contents are its renderer. */
     readonly snapShotOverlayFor: (
       webContentsId: number,
@@ -346,6 +359,16 @@ export const make = Effect.gen(function* () {
   const liveSnapShotOverlay = Ref.get(snapShotOverlayRef).pipe(
     Effect.map(Option.filter((window) => !window.isDestroyed())),
   );
+  const mainComposerFrameRef = yield* Ref.make<Option.Option<DesktopViewportFrame>>(Option.none());
+  const snapShotOverlayBottomInsetRef = yield* Ref.make(0);
+
+  // Switching to the main window while the overlay is up carries its chat over, so the
+  // main window shows the same composer in the same place.
+  const requestSnapShotOverlayHandoff = Effect.gen(function* () {
+    const overlay = yield* liveSnapShotOverlay;
+    if (Option.isNone(overlay) || !overlay.value.isVisible()) return;
+    overlay.value.webContents.send(SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL);
+  });
 
   // The splash and the SnapShot overlay are auxiliary windows, so these never
   // latch onto them and ensureMain/activate/dispatchMenuAction still open (or
@@ -830,6 +853,7 @@ export const make = Effect.gen(function* () {
       window.webContents.openDevTools({ mode: "detach" });
     }
 
+    window.on("focus", () => void runPromise(requestSnapShotOverlayHandoff));
     window.on("closed", () => {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
@@ -1009,7 +1033,27 @@ export const make = Effect.gen(function* () {
       const display = Electron.screen.getDisplayNearestPoint(
         Electron.screen.getCursorScreenPoint(),
       );
-      window.setBounds(snapShotOverlayBounds(display));
+      const main = yield* electronWindow.main;
+      const mainWindow = Option.filter(
+        main,
+        (candidate) =>
+          !candidate.isDestroyed() && candidate.isVisible() && !candidate.isMinimized(),
+      );
+      const zoomFactor = Option.isSome(mainWindow)
+        ? mainWindow.value.webContents.getZoomFactor()
+        : 1;
+      const frame = yield* Ref.get(mainComposerFrameRef);
+      // Line up with the main window's composer when it is on this display.
+      const composer =
+        Option.isSome(mainWindow) &&
+        Option.isSome(frame) &&
+        Electron.screen.getDisplayMatching(mainWindow.value.getBounds()).id === display.id
+          ? viewportFrameOnScreen(frame.value, mainWindow.value.getContentBounds(), zoomFactor)
+          : null;
+      const placement = snapShotOverlayPlacement({ display, composer, zoomFactor });
+      window.webContents.setZoomFactor(zoomFactor);
+      window.setBounds(placement.bounds);
+      yield* Ref.set(snapShotOverlayBottomInsetRef, placement.bottomInset);
     }
     return Option.some(window.getBounds());
   }).pipe(Effect.withSpan("desktop.window.placeSnapShotOverlay"));
@@ -1031,6 +1075,13 @@ export const make = Effect.gen(function* () {
     const overlay = yield* liveSnapShotOverlay;
     if (Option.isSome(overlay) && overlay.value.isVisible()) overlay.value.hide();
   }).pipe(Effect.withSpan("desktop.window.hideSnapShotOverlay"));
+
+  const handOffSnapShotDraft = Effect.fn("desktop.window.handOffSnapShotDraft")(function* (
+    draft: DesktopSnapShotDraftHandoff,
+  ) {
+    yield* dispatchRendererEvent(SNAP_SHOT_DRAFT_HANDOFF_CHANNEL, draft);
+    yield* hideSnapShotOverlay;
+  });
 
   const setSnapShotOverlayInteractive = Effect.fn("desktop.window.setSnapShotOverlayInteractive")(
     function* (interactive: boolean) {
@@ -1091,6 +1142,9 @@ export const make = Effect.gen(function* () {
     showSnapShotOverlay,
     hideSnapShotOverlay,
     setSnapShotOverlayInteractive,
+    setMainComposerFrame: (frame) => Ref.set(mainComposerFrameRef, Option.some(frame)),
+    snapShotOverlayBottomInset: Ref.get(snapShotOverlayBottomInsetRef),
+    handOffSnapShotDraft,
     snapShotOverlayFor: (webContentsId) =>
       liveSnapShotOverlay.pipe(
         Effect.map(Option.filter((window) => window.webContents.id === webContentsId)),

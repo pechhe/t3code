@@ -633,6 +633,8 @@ import { useAssetUrls } from "../assets/assetUrls";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import { recallableComposerPrompt } from "./chat/composerPromptHistory";
 import { observeResize } from "~/lib/observeResize";
+import { useDockedDraftHeroStore } from "~/lib/draftHeroDock";
+import { useReportMainComposerFrame } from "./snapShot/useReportMainComposerFrame";
 
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
@@ -4067,8 +4069,11 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [activeThreadRef, storeEnsureTerminal, worktreeSetup]);
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
+  const handedOverDocked = useDockedDraftHeroStore(
+    (state) => activeThreadKey !== null && state.threadKeys.has(activeThreadKey),
+  );
   const draftHeroDockRequested =
-    activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
+    activeThreadKey !== null && (dockedDraftHeroThreadKey === activeThreadKey || handedOverDocked);
   const isDraftHeroState =
     !overlayPresentation &&
     resolveDraftHeroState({
@@ -6246,6 +6251,7 @@ export default function ChatView(props: ChatViewProps) {
       }
     };
   }, [composerOverlayElement]);
+  useReportMainComposerFrame(composerOverlayElement, isElectron && !overlayPresentation);
   const onComposerPageScrollKeyDown = (key: PageScrollKey) => {
     pageScrollControllerRef.current?.handleKeyDown(key);
   };
@@ -11162,11 +11168,8 @@ export default function ChatView(props: ChatViewProps) {
             <div
               className={cn(
                 "relative flex min-h-0 flex-1 flex-col bg-background",
-                // The overlay shows only its composer until the chat is sent.
-                overlayPresentation &&
-                  (isServerThread
-                    ? "pointer-events-auto overflow-hidden rounded-2xl border border-border shadow-xl"
-                    : "invisible"),
+                // The overlay shows only its composer.
+                overlayPresentation && "invisible",
               )}
             >
               <MessagesTimeline
@@ -11351,7 +11354,8 @@ export default function ChatView(props: ChatViewProps) {
               )}
               <div
                 ref={draftHeroTransition.transitionGroupRef}
-                className="chat-composer-lane w-full"
+                // The overlay window is the composer's width plus room for its shadow.
+                className={cn("chat-composer-lane w-full", overlayPresentation && "px-6")}
               >
                 <div
                   data-chat-composer-stack="true"

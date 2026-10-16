@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  snapShotOverlayBounds,
+  snapShotOverlayPlacement,
   snapShotOverlayUrl,
   snapShotOverlayWindowOptions,
   supportsSnapShotOverlay,
@@ -15,25 +15,32 @@ describe("SnapShot overlay window", () => {
     expect(url.href).toBe("t3code://app/?surface=snap-shot-overlay#/snap-shot");
   });
 
-  it("sits on the bottom edge of the display, centred over the work area", () => {
-    // A secondary display with a menu bar above and a Dock below its work area.
-    const bounds = { x: 1440, y: 0, width: 1920, height: 1080 };
-    const workArea = { x: 1440, y: 25, width: 1920, height: 985 };
-    expect(snapShotOverlayBounds({ bounds, workArea })).toEqual({
-      x: 1440 + 560,
-      y: 1080 - 640,
-      width: 800,
-      height: 640,
+  // A display with a menu bar above and a Dock below its work area.
+  const display = {
+    bounds: { x: 1440, y: 0, width: 1920, height: 1080 },
+    workArea: { x: 1440, y: 25, width: 1920, height: 985 },
+  };
+
+  it("puts its composer where the main window's composer rests, reaching the screen edge", () => {
+    const composer = { x: 1900, y: 400, width: 736, height: 560 };
+    expect(snapShotOverlayPlacement({ display, composer, zoomFactor: 1 })).toEqual({
+      bounds: { x: 1900 - 24, y: 960 - 640, width: 736 + 48, height: 1080 - (960 - 640) },
+      bottomInset: 1080 - 960,
     });
   });
 
-  it("shrinks to fit a small display", () => {
-    const bounds = { x: 0, y: 0, width: 600, height: 400 };
-    expect(snapShotOverlayBounds({ bounds, workArea: { ...bounds, y: 25, height: 375 } })).toEqual({
-      x: 0,
-      y: 25,
-      width: 600,
-      height: 375,
+  it("scales its margins and inset with the main window's zoom", () => {
+    const composer = { x: 1900, y: 400, width: 920, height: 560 };
+    const placement = snapShotOverlayPlacement({ display, composer, zoomFactor: 1.25 });
+    expect(placement.bounds.x).toBe(1900 - 30);
+    expect(placement.bounds.width).toBe(920 + 60);
+    expect(placement.bottomInset).toBe((1080 - 960) / 1.25);
+  });
+
+  it("sits at the bottom centre of the display without a main window to match", () => {
+    expect(snapShotOverlayPlacement({ display, composer: null, zoomFactor: 1 })).toEqual({
+      bounds: { x: 1440 + 592 - 24, y: 998 - 640, width: 736 + 48, height: 1080 - (998 - 640) },
+      bottomInset: 1080 - 998,
     });
   });
 

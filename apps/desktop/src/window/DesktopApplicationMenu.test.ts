@@ -93,6 +93,9 @@ const layerDesktopWindow = (selectedAction: Deferred.Deferred<string>) =>
     showSnapShotOverlay: Effect.succeed(false),
     hideSnapShotOverlay: Effect.void,
     setSnapShotOverlayInteractive: () => Effect.void,
+    setMainComposerFrame: () => Effect.void,
+    snapShotOverlayBottomInset: Effect.succeed(0),
+    handOffSnapShotDraft: () => Effect.void,
     snapShotOverlayFor: () => Effect.succeed(Option.none()),
     openThreadInMain: () => Effect.void,
     zoomMain: (direction) =>

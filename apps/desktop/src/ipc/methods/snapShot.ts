@@ -11,6 +11,8 @@ import {
   DesktopCaptureConfigPreview,
   DesktopCaptureConfigApplied,
   ScopedThreadRef,
+  DesktopSnapShotDraftHandoff,
+  DesktopViewportFrame,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -245,6 +247,39 @@ export const setSnapShotOverlayInteractive = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.snapShot.setOverlayInteractive")(function* (interactive, event) {
     yield* ensureTrustedSnapShotSender(event);
     yield* (yield* DesktopWindow.DesktopWindow).setSnapShotOverlayInteractive(interactive);
+  }),
+});
+
+export const setMainComposerFrame = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_MAIN_COMPOSER_FRAME_CHANNEL,
+  payload: DesktopViewportFrame,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.snapShot.setMainComposerFrame")(function* (frame, event) {
+    const sender = yield* ensureTrustedSnapShotSender(event);
+    const main = yield* (yield* ElectronWindow.ElectronWindow).main;
+    // Only the main window's composer anchors the overlay.
+    if (Option.isNone(main) || main.value !== sender) return;
+    yield* (yield* DesktopWindow.DesktopWindow).setMainComposerFrame(frame);
+  }),
+});
+
+export const getSnapShotOverlayBottomInset = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GET_SNAP_SHOT_OVERLAY_BOTTOM_INSET_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Number,
+  handler: Effect.fn("desktop.ipc.snapShot.getOverlayBottomInset")(function* (_, event) {
+    yield* ensureTrustedSnapShotSender(event);
+    return yield* (yield* DesktopWindow.DesktopWindow).snapShotOverlayBottomInset;
+  }),
+});
+
+export const handOffSnapShotDraft = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.HAND_OFF_SNAP_SHOT_DRAFT_CHANNEL,
+  payload: DesktopSnapShotDraftHandoff,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.snapShot.handOffDraft")(function* (draft, event) {
+    yield* ensureTrustedSnapShotSender(event);
+    yield* (yield* DesktopWindow.DesktopWindow).handOffSnapShotDraft(draft);
   }),
 });
 

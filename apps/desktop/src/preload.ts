@@ -137,6 +137,33 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   hideSnapShotOverlay: () => ipcRenderer.invoke(IpcChannels.HIDE_SNAP_SHOT_OVERLAY_CHANNEL),
   setSnapShotOverlayInteractive: (interactive) =>
     ipcRenderer.invoke(IpcChannels.SET_SNAP_SHOT_OVERLAY_INTERACTIVE_CHANNEL, interactive),
+  setMainComposerFrame: (frame) =>
+    ipcRenderer.invoke(IpcChannels.SET_MAIN_COMPOSER_FRAME_CHANNEL, frame),
+  getSnapShotOverlayBottomInset: () =>
+    ipcRenderer.invoke(IpcChannels.GET_SNAP_SHOT_OVERLAY_BOTTOM_INSET_CHANNEL),
+  handOffSnapShotDraft: (draft) =>
+    ipcRenderer.invoke(IpcChannels.HAND_OFF_SNAP_SHOT_DRAFT_CHANNEL, draft),
+  onSnapShotOverlayHandoffRequest: (listener) => {
+    const wrappedListener = () => listener();
+    ipcRenderer.on(IpcChannels.SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(
+        IpcChannels.SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL,
+        wrappedListener,
+      );
+    };
+  },
+  onSnapShotDraftHandoff: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, draft: unknown) => {
+      // The desktop app validated the draft when the overlay handed it over.
+      if (typeof draft !== "object" || draft === null || !("projectRef" in draft)) return;
+      listener(draft as Parameters<typeof listener>[0]);
+    };
+    ipcRenderer.on(IpcChannels.SNAP_SHOT_DRAFT_HANDOFF_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.SNAP_SHOT_DRAFT_HANDOFF_CHANNEL, wrappedListener);
+    };
+  },
   openThreadInMainWindow: (thread) =>
     ipcRenderer.invoke(IpcChannels.OPEN_THREAD_IN_MAIN_WINDOW_CHANNEL, thread),
   getConnectionCatalog: () => ipcRenderer.invoke(IpcChannels.GET_CONNECTION_CATALOG_CHANNEL),
