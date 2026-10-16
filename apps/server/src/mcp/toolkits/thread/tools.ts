@@ -17,8 +17,9 @@ import {
   ThreadId,
   RunId,
   NonNegativeInt,
+  PositiveInt,
   ProjectId,
-  RunSetupRecord,
+  RunSetupReportEntry,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
@@ -203,19 +204,16 @@ const ThreadSetupTool = Tool.make("t3_thread_setup", {
     ProviderRegistry.ProviderRegistry,
   ],
   description:
-    "Read the setup a thread's recent runs started with: agent-config revision, instruction and skill hashes, policy, model and effective options, workflow, rollover settings and experiment assignments, plus the skills each run invoked. Omit threadId for this thread. Null means T3 could not observe it; runs from before capture appear with null setup fields. invokedSkills is null for providers that do not report skill loads (only Claude does).",
+    "Read the setup a thread's runs started with, newest first: agent-config revision, policy, model and effective options, workflow, rollover settings and experiment assignments, instruction and skill files as a count and digest each, and the skills each run invoked. Omit threadId for this thread. Every run is listed, including one that never started (status says so, setup is null). limit (default 10, at most 50) sets the page size and beforeOrdinal pages back to older runs: pass the oldest runOrdinal returned. Pass runOrdinal to read one run with its full instruction and skill file lists, paths and hashes included. Null means T3 could not observe it; runs from before capture have null setup fields. invokedSkills is null for providers that do not report skill loads (only Claude does).",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+    beforeOrdinal: Schema.optional(PositiveInt),
+    runOrdinal: Schema.optional(PositiveInt),
   }),
   success: Schema.Struct({
     threadId: ThreadId,
-    runs: Schema.Array(
-      Schema.Struct({
-        ...RunSetupRecord.fields,
-        invokedSkills: Schema.NullOr(Schema.Array(Schema.String)),
-      }),
-    ),
+    runs: Schema.Array(RunSetupReportEntry),
   }),
 })
   .annotate(Tool.Readonly, true)

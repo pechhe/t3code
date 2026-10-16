@@ -278,28 +278,32 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   ),
   t3_thread_setup: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
-      const limit = input.limit ?? 10;
       const { projection } = yield* readThread(
         input.threadId,
         ["turnItems", "runs"],
         ["dynamic_tool"],
       );
+      const runs = RunSetupRecorder.setupWindow(projection.runs, {
+        limit: input.limit ?? 10,
+        beforeOrdinal: input.beforeOrdinal,
+        runOrdinal: input.runOrdinal,
+      });
       const store = yield* RunSetupRecorder.RunSetupStore;
       const providers = yield* ProviderRegistry.ProviderRegistry;
       const records = yield* store
-        .list(projection.thread.id, limit)
+        .list(runs.map((run) => run.id))
         .pipe(Effect.mapError(unavailable));
       const drivers = new Map(
         (yield* providers.getProviders).map((provider) => [provider.instanceId, provider.driver]),
       );
       return {
         threadId: projection.thread.id,
-        runs: RunSetupRecorder.setupReport({
-          runs: projection.runs,
+        runs: yield* RunSetupRecorder.setupReport({
+          runs,
           records,
           turnItems: projection.turnItems,
           driverOf: (instanceId) => drivers.get(instanceId as never),
-          limit,
+          detail: input.runOrdinal === undefined ? "summary" : "full",
         }),
       };
     }),

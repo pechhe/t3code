@@ -6,9 +6,9 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
   RunSetupRecord,
+  type RunSetupReportEntry,
   type RunSetupFile,
   type RunSetupSkill,
-  type ThreadId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
@@ -291,54 +291,106 @@ export function invokedSkills(items: ReadonlyArray<OrchestrationV2TurnItem>, run
   return [...names];
 }
 
+type ReportRun = Pick<
+  OrchestrationV2Run,
+  | "id"
+  | "threadId"
+  | "ordinal"
+  | "status"
+  | "modelSelection"
+  | "workflow"
+  | "requestedAt"
+  | "startedAt"
+>;
+
 /**
- * A thread's recent runs with their setup, newest first. A started run with no stored
- * record (one that predates capture) appears with null setup fields, and a run whose
- * driver does not report skill loads has `invokedSkills: null` rather than an empty list.
+ * The runs one report covers, newest first: the `limit` runs before `beforeOrdinal` (the
+ * newest when absent), or just the run with `runOrdinal`. Paging back by the oldest
+ * ordinal returned reaches every run of a thread, started or not.
  */
-export function setupReport(input: {
-  readonly runs: ReadonlyArray<
-    Pick<
-      OrchestrationV2Run,
-      "id" | "threadId" | "ordinal" | "modelSelection" | "workflow" | "startedAt"
-    >
-  >;
+export function setupWindow<Run extends Pick<OrchestrationV2Run, "ordinal">>(
+  runs: ReadonlyArray<Run>,
+  input: {
+    readonly limit: number;
+    readonly beforeOrdinal?: number | undefined;
+    readonly runOrdinal?: number | undefined;
+  },
+) {
+  const newestFirst = [...runs].sort((left, right) => right.ordinal - left.ordinal);
+  if (input.runOrdinal !== undefined)
+    return newestFirst.filter((run) => run.ordinal === input.runOrdinal);
+  return newestFirst
+    .filter((run) => input.beforeOrdinal === undefined || run.ordinal < input.beforeOrdinal)
+    .slice(0, input.limit);
+}
+
+/** A file list's size and one digest of every path and content hash in it. */
+const fileSummary = Effect.fn("RunSetupRecorder.fileSummary")(function* (
+  files: ReadonlyArray<{ readonly path: string; readonly sha256: string | null }>,
+) {
+  const crypto = yield* Crypto.Crypto;
+  const text = files
+    .map((file) => `${file.path}\0${file.sha256 ?? ""}`)
+    .sort()
+    .join("\n");
+  const digest = yield* crypto
+    .digest("SHA-256", new TextEncoder().encode(text))
+    .pipe(Effect.map(Hex.encode), Effect.orDie);
+  return { count: files.length, digest };
+});
+
+/**
+ * Each of a thread's runs in `runs` with its setup, in the order given. A run with no
+ * stored record (one that predates capture, or never started) appears with null setup
+ * fields, and a run whose driver does not report skill loads has `invokedSkills: null`
+ * rather than an empty list. Instruction and skill files are a count and digest, and
+ * listed in full only with `detail: "full"`.
+ */
+export const setupReport = Effect.fn("RunSetupRecorder.setupReport")(function* (input: {
+  readonly runs: ReadonlyArray<ReportRun>;
   readonly records: ReadonlyArray<RunSetupRecord>;
   readonly turnItems: ReadonlyArray<OrchestrationV2TurnItem>;
   /** The driver kind of a provider instance, when the instance is known. */
   readonly driverOf: (instanceId: string) => string | undefined;
-  readonly limit: number;
+  readonly detail?: "summary" | "full";
 }) {
-  const stored = new Set(input.records.map((record) => record.runId));
-  const ordinals = new Map(input.runs.map((run) => [run.id as string, run.ordinal]));
-  const predating = input.runs
-    .filter((run) => run.startedAt !== null && !stored.has(run.id))
-    .map((run) => uncapturedRunSetup(run, DateTime.formatIso(run.startedAt!)));
-  return [...input.records, ...predating]
-    .map((record) => ({
-      record,
-      ordinal: ordinals.get(record.runId) ?? record.runOrdinal ?? 0,
-    }))
-    .sort((left, right) => right.ordinal - left.ordinal)
-    .slice(0, input.limit)
-    .map(({ record }) => ({
+  const stored = new Map(input.records.map((record) => [record.runId as string, record]));
+  const entries: Array<RunSetupReportEntry> = [];
+  for (const run of input.runs) {
+    const {
+      instructions,
+      skills,
+      runOrdinal: _runOrdinal,
+      ...record
+    } = stored.get(run.id) ??
+    uncapturedRunSetup(run, DateTime.formatIso(run.startedAt ?? run.requestedAt));
+    const driver = input.driverOf(record.modelSelection.instanceId) ?? null;
+    entries.push({
       ...record,
-      invokedSkills: SKILL_REPORTING_DRIVERS.has(
-        input.driverOf(record.modelSelection.instanceId) ?? "",
-      )
-        ? invokedSkills(input.turnItems, record.runId)
-        : null,
-    }));
-}
+      runOrdinal: run.ordinal,
+      driver,
+      status: run.status,
+      startedAt: run.startedAt === null ? null : DateTime.formatIso(run.startedAt),
+      instructionSummary: instructions === null ? null : yield* fileSummary(instructions),
+      skillSummary: skills === null ? null : yield* fileSummary(skills),
+      ...(input.detail === "full" ? { instructions, skills } : {}),
+      invokedSkills:
+        driver !== null && SKILL_REPORTING_DRIVERS.has(driver)
+          ? invokedSkills(input.turnItems, run.id)
+          : null,
+    });
+  }
+  return entries;
+});
 
-/** A thread's setup records, newest first. */
+/** The stored setup records of the given runs, in no particular order. */
 const listRunSetups = Effect.fn("RunSetupRecorder.listRunSetups")(function* (
-  threadId: ThreadId,
-  limit: number,
+  runIds: ReadonlyArray<string>,
 ) {
+  if (runIds.length === 0) return [];
   const sql = yield* SqlClient.SqlClient;
   const rows = yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
-    WHERE thread_id = ${threadId} ORDER BY captured_at DESC LIMIT ${limit}`;
+    WHERE run_id IN ${sql.in(runIds)}`;
   return yield* Effect.forEach(rows, (row) => decodeRecord(row.record_json));
 });
 
@@ -347,8 +399,7 @@ export class RunSetupStore extends Context.Service<
   RunSetupStore,
   {
     readonly list: (
-      threadId: ThreadId,
-      limit: number,
+      runIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<RunSetupRecord>, RunSetupStoreError>;
   }
 >()("t3/agents/RunSetupRecorder/RunSetupStore") {}
@@ -363,8 +414,8 @@ export const storeLayer = Layer.effect(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     return RunSetupStore.of({
-      list: (threadId, limit) =>
-        listRunSetups(threadId, limit).pipe(
+      list: (runIds) =>
+        listRunSetups(runIds).pipe(
           Effect.provideService(SqlClient.SqlClient, sql),
           Effect.mapError((cause) => new RunSetupStoreError({ cause })),
         ),

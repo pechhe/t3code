@@ -704,21 +704,27 @@ describe("orchestrator MCP toolkit", () => {
             Layer.provide(layerScheduledTaskStub),
             Layer.provide(
               Layer.mock(RunSetupRecorder.RunSetupStore)({
-                list: (threadId) =>
+                list: (runIds) =>
                   Effect.succeed(
-                    [
-                      { id: "run:setup-read", instanceId: claudeInstanceId },
-                      { id: "run:setup-codex", instanceId: codexInstanceId },
-                    ].map(({ id, instanceId }) =>
-                      RunSetupRecorder.uncapturedRunSetup(
+                    runIds.map((id) => ({
+                      ...RunSetupRecorder.uncapturedRunSetup(
                         {
                           id: RunId.make(id),
-                          threadId,
-                          modelSelection: { instanceId, model: "gpt-5" },
+                          threadId: ThreadId.make("thread:setup-read"),
+                          modelSelection: { instanceId: claudeInstanceId, model: "gpt-5" },
                         },
                         "2026-10-16T00:00:00.000Z",
                       ),
-                    ),
+                      instructions: [],
+                      skills: [
+                        {
+                          name: "lead",
+                          source: "agent-config" as const,
+                          path: "/config/skills/lead/SKILL.md",
+                          sha256: "1".repeat(64),
+                        },
+                      ],
+                    })),
                   ),
               }),
             ),
@@ -2331,15 +2337,21 @@ describe("orchestrator MCP toolkit", () => {
             ).pipe(Effect.orDie);
             expect(workflowCleared.workflow).toBeNull();
             const setupBefore = yield* invoke("t3_thread_setup", {
-              threadId: emptyThread.threadId,
+              threadId: promptedThread.threadId,
             });
             expect(setupBefore.structuredContent).toMatchObject({
-              threadId: emptyThread.threadId,
+              threadId: promptedThread.threadId,
               runs: [
-                { runId: "run:setup-read", agentConfig: null, invokedSkills: [] },
-                { runId: "run:setup-codex", invokedSkills: null },
+                {
+                  runId: promptedThread.runId,
+                  runOrdinal: 1,
+                  driver: "claudeAgent",
+                  skillSummary: { count: 1 },
+                  invokedSkills: [],
+                },
               ],
             });
+            expect(setupBefore.structuredContent).not.toHaveProperty("runs.0.skills");
             // The skill list comes from the thread's own tool calls, read through the same
             // path as every other MCP thread read.
             yield* (yield* EventSink.EventSinkV2).write({
@@ -2347,13 +2359,15 @@ describe("orchestrator MCP toolkit", () => {
                 {
                   id: EventId.make("event:setup-skill-call"),
                   type: "turn-item.updated",
-                  threadId: emptyThread.threadId,
+                  threadId: promptedThread.threadId,
                   occurredAt: yield* DateTime.now,
                   payload: {
-                    ...sourceItem,
+                    ...(yield* orchestrator.getThreadProjection(
+                      promptedThread.threadId,
+                    )).turnItems.find((item) => item.type === "user_message")!,
                     id: TurnItemId.make("item:setup-skill-call"),
-                    threadId: emptyThread.threadId,
-                    runId: RunId.make("run:setup-read"),
+                    threadId: promptedThread.threadId,
+                    runId: promptedThread.runId,
                     type: "dynamic_tool" as const,
                     toolName: "Skill",
                     input: { skill: "lead" },
@@ -2362,15 +2376,24 @@ describe("orchestrator MCP toolkit", () => {
                 },
               ],
             });
-            const setupCall = yield* invoke("t3_thread_setup", {
-              threadId: emptyThread.threadId,
+            const setupFull = yield* invoke("t3_thread_setup", {
+              threadId: promptedThread.threadId,
+              runOrdinal: 1,
             });
-            expect(setupCall.structuredContent).toMatchObject({
+            expect(setupFull.structuredContent).toMatchObject({
               runs: [
-                { runId: "run:setup-read", invokedSkills: ["lead"] },
-                { runId: "run:setup-codex", invokedSkills: null },
+                {
+                  runId: promptedThread.runId,
+                  invokedSkills: ["lead"],
+                  skills: [{ name: "lead", path: "/config/skills/lead/SKILL.md" }],
+                },
               ],
             });
+            const setupOlder = yield* invoke("t3_thread_setup", {
+              threadId: promptedThread.threadId,
+              beforeOrdinal: 1,
+            });
+            expect(setupOlder.structuredContent).toMatchObject({ runs: [] });
             expect(
               (yield* orchestrator.getThreadProjection(emptyThread.threadId)).thread.workflow,
             ).toBeNull();

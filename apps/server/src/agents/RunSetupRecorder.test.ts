@@ -49,6 +49,16 @@ const rolloverOn = Schema.decodeSync(ContextRolloverSettings)({ enabled: true })
 
 const layer = ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer));
 
+const decodeStored = Schema.decodeUnknownSync(Schema.fromJsonString(RunSetupRecord));
+
+/** A thread's stored setup records, newest captured first. */
+const storedSetups = Effect.fn("storedSetups")(function* (thread: ThreadId, limit: number) {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
+    WHERE thread_id = ${thread} ORDER BY captured_at DESC LIMIT ${limit}`;
+  return rows.map((row) => decodeStored(row.record_json));
+});
+
 const sha256 = (text: string) =>
   Effect.gen(function* () {
     const crypto = yield* Crypto.Crypto;
@@ -196,74 +206,179 @@ describe("setupReport", () => {
       id: RunId.make(`run:report:${ordinal}`),
       threadId,
       ordinal,
+      status: startedAt === null ? "cancelled" : "completed",
       modelSelection: { instanceId, model: "m" },
       workflow: null,
+      requestedAt: started,
       startedAt,
     }) as never as OrchestrationV2Run;
   const driverOf = (instanceId: string) => (instanceId === "claude" ? "claudeAgent" : "codex");
   const skillCall = (runId: string, skill: string) =>
     ({ type: "dynamic_tool", runId, toolName: "Skill", input: { skill } }) as never;
-
-  it("shows a run that predates capture with null fields, newest first and limited", () => {
-    const [stored] = RunSetup.setupReport({
-      runs: [],
-      records: [{ ...RunSetup.uncapturedRunSetup(runOf(2, "claude"), "x"), runOrdinal: 2 }],
-      turnItems: [],
-      driverOf,
-      limit: 10,
-    });
-    assert.equal(stored?.runId, "run:report:2");
-    const report = RunSetup.setupReport({
-      runs: [runOf(1, "codex"), runOf(2, "claude"), runOf(3, "claude", null)],
-      records: [stored!],
-      turnItems: [],
-      driverOf,
-      limit: 10,
-    });
-    // Run 3 has not started, so it has nothing to report yet.
-    assert.deepEqual(
-      report.map((entry) => ({
-        runId: entry.runId,
-        agentConfig: entry.agentConfig,
-        skills: entry.skills,
-      })),
-      [
-        { runId: RunId.make("run:report:2"), agentConfig: null, skills: null },
-        { runId: RunId.make("run:report:1"), agentConfig: null, skills: null },
-      ],
-    );
-    assert.lengthOf(
-      RunSetup.setupReport({
-        runs: [runOf(1, "codex"), runOf(2, "claude")],
-        records: [],
-        turnItems: [],
-        driverOf,
-        limit: 1,
-      }),
-      1,
-    );
+  const skill = (name: string, sha256: string | null) => ({
+    name,
+    source: "agent-config" as const,
+    path: `/config/skills/${name}/SKILL.md`,
+    sha256,
+  });
+  const recordWith = (
+    run: OrchestrationV2Run,
+    skills: ReadonlyArray<ReturnType<typeof skill>>,
+  ) => ({
+    ...RunSetup.uncapturedRunSetup(run, "2026-10-16T00:00:01.000Z"),
+    instructions: [{ path: "/config/AGENTS.md", sha256: "a".repeat(64) }],
+    skills,
   });
 
-  it("reports skills only for drivers that report skill loads", () => {
-    const report = RunSetup.setupReport({
-      runs: [runOf(1, "codex"), runOf(2, "claude")],
-      records: [],
-      turnItems: [skillCall("run:report:1", "lead"), skillCall("run:report:2", "shape")],
-      driverOf,
-      limit: 10,
-    });
-    assert.deepEqual(
-      report.map((entry) => ({ runId: entry.runId, invokedSkills: entry.invokedSkills })),
-      [
-        { runId: "run:report:2", invokedSkills: ["shape"] },
-        { runId: "run:report:1", invokedSkills: null },
-      ],
-    );
+  it.effect(
+    "lists every run newest first with its driver, and null setup for one that predates capture or never started",
+    () =>
+      Effect.gen(function* () {
+        const report = yield* RunSetup.setupReport({
+          runs: [
+            runOf(4, "unknown"),
+            runOf(3, "claude"),
+            runOf(2, "claude", null),
+            runOf(1, "codex"),
+          ],
+          records: [],
+          turnItems: [],
+          driverOf: (instanceId) => (instanceId === "unknown" ? undefined : driverOf(instanceId)),
+        });
+        const started = "2026-10-16T00:00:00.000Z";
+        assert.deepEqual(
+          report.map((entry) => ({
+            runOrdinal: entry.runOrdinal,
+            driver: entry.driver,
+            status: entry.status,
+            startedAt: entry.startedAt,
+            agentConfig: entry.agentConfig,
+            skillSummary: entry.skillSummary,
+          })),
+          [
+            { runOrdinal: 4, driver: null, status: "completed" as const, startedAt: started },
+            {
+              runOrdinal: 3,
+              driver: "claudeAgent",
+              status: "completed" as const,
+              startedAt: started,
+            },
+            { runOrdinal: 2, driver: "claudeAgent", status: "cancelled" as const, startedAt: null },
+            { runOrdinal: 1, driver: "codex", status: "completed" as const, startedAt: started },
+          ].map((entry) => ({ ...entry, agentConfig: null, skillSummary: null })),
+        );
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("reports skills only for drivers that report skill loads", () =>
+    Effect.gen(function* () {
+      const report = yield* RunSetup.setupReport({
+        runs: [runOf(2, "claude"), runOf(1, "codex")],
+        records: [],
+        turnItems: [skillCall("run:report:1", "lead"), skillCall("run:report:2", "shape")],
+        driverOf,
+      });
+      assert.deepEqual(
+        report.map((entry) => ({ runId: entry.runId, invokedSkills: entry.invokedSkills })),
+        [
+          { runId: RunId.make("run:report:2"), invokedSkills: ["shape"] },
+          { runId: RunId.make("run:report:1"), invokedSkills: null },
+        ],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("summarises files by count and digest and lists them only on request", () =>
+    Effect.gen(function* () {
+      const runs = [runOf(3, "claude"), runOf(2, "claude"), runOf(1, "claude")];
+      const sha = (character: string) => character.repeat(64);
+      const records = [
+        recordWith(runs[2]!, [skill("lead", sha("1")), skill("shape", sha("2"))]),
+        recordWith(runs[1]!, [skill("shape", sha("2")), skill("lead", sha("1"))]),
+        recordWith(runs[0]!, [skill("lead", sha("3")), skill("shape", sha("2"))]),
+      ];
+      const summary = yield* RunSetup.setupReport({ runs, records, turnItems: [], driverOf });
+      const [third, second, first] = summary;
+      assert.deepEqual(first?.skillSummary?.count, 2);
+      // The same files in another order digest alike; a changed hash digests differently.
+      assert.equal(first?.skillSummary?.digest, second?.skillSummary?.digest);
+      assert.notEqual(first?.skillSummary?.digest, third?.skillSummary?.digest);
+      assert.equal(first?.instructionSummary?.count, 1);
+      assert.notProperty(first!, "skills");
+      assert.notProperty(first!, "instructions");
+
+      const [full] = yield* RunSetup.setupReport({
+        runs: [runs[2]!],
+        records: [records[0]!],
+        turnItems: [],
+        driverOf,
+        detail: "full",
+      });
+      assert.deepEqual(full?.skills, records[0]!.skills);
+      assert.deepEqual(full?.instructions, records[0]!.instructions);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("setupReport size", () => {
+  it.effect("keeps ten runs of thirty skills under 15k characters", () =>
+    Effect.gen(function* () {
+      const started = DateTime.makeUnsafe("2026-10-16T00:00:00.000Z");
+      const runs = Array.from(
+        { length: 10 },
+        (_, index) =>
+          ({
+            id: RunId.make(`run:size:${index + 1}`),
+            threadId,
+            ordinal: index + 1,
+            status: "completed",
+            modelSelection: { instanceId: "claude", model: "m" },
+            workflow: null,
+            requestedAt: started,
+            startedAt: started,
+          }) as never as OrchestrationV2Run,
+      );
+      const records = runs.map((run) => ({
+        ...RunSetup.uncapturedRunSetup(run, "2026-10-16T00:00:01.000Z"),
+        instructions: [{ path: "/Users/someone/.agents/AGENTS.md", sha256: "a".repeat(64) }],
+        skills: Array.from({ length: 30 }, (_, skill) => ({
+          name: `skill-${skill}`,
+          source: "agent-config" as const,
+          path: `/Users/someone/.agents/skills/skill-${skill}/SKILL.md`,
+          sha256: "b".repeat(64),
+        })),
+      }));
+      const report = yield* RunSetup.setupReport({
+        runs,
+        records,
+        turnItems: [],
+        driverOf: () => "claudeAgent",
+      });
+      assert.isBelow(JSON.stringify(report).length, 15_000);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+});
+
+describe("setupWindow", () => {
+  const runs = [4, 1, 7, 3, 6, 2, 5].map((ordinal) => ({ ordinal }));
+  const ordinalsOf = (input: Parameters<typeof RunSetup.setupWindow>[1]) =>
+    RunSetup.setupWindow(runs, input).map((run) => run.ordinal);
+
+  it("pages back through every run once, newest first", () => {
+    assert.deepEqual(ordinalsOf({ limit: 3 }), [7, 6, 5]);
+    assert.deepEqual(ordinalsOf({ limit: 3, beforeOrdinal: 5 }), [4, 3, 2]);
+    assert.deepEqual(ordinalsOf({ limit: 3, beforeOrdinal: 2 }), [1]);
+    assert.deepEqual(ordinalsOf({ limit: 3, beforeOrdinal: 1 }), []);
+  });
+
+  it("selects one run by ordinal", () => {
+    assert.deepEqual(ordinalsOf({ limit: 3, runOrdinal: 4 }), [4]);
+    assert.deepEqual(ordinalsOf({ limit: 3, runOrdinal: 9 }), []);
   });
 });
 
 describe("RunSetupStore", () => {
-  it.effect("lists a thread's records newest first", () =>
+  it.effect("lists the stored records of the runs asked for", () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
       const store = yield* RunSetup.RunSetupStore;
@@ -287,11 +402,11 @@ describe("RunSetupStore", () => {
       ])
         yield* sql`INSERT INTO run_setup_records (run_id, thread_id, captured_at, record_json)
           VALUES (${record.runId}, ${threadId}, ${record.capturedAt}, ${JSON.stringify(record)})`;
-      const records = yield* store.list(threadId, 10);
       assert.deepEqual(
-        records.map((record) => record.runId),
-        ["run:b", "run:a"],
+        (yield* store.list(["run:b", "run:missing"])).map((record) => record.runId),
+        ["run:b"],
       );
+      assert.deepEqual(yield* store.list([]), []);
     }).pipe(Effect.provide(RunSetup.storeLayer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
   );
 });
@@ -343,12 +458,11 @@ describe("RunSetupRecorder.record", () => {
   it.effect("gives each run, a rollover run included, its own record once", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       yield* recorder.record(runAt(1), null);
       yield* recorder.record(runAt(1), null);
       // A rollover continues the thread in a new run, which is captured afresh.
       yield* recorder.record(runAt(2), null);
-      const records = yield* store.list(threadId, 10);
+      const records = yield* storedSetups(threadId, 10);
       assert.deepEqual(records.map((record) => record.runId).sort(), [
         "run:setup:1",
         "run:setup:2",
@@ -367,9 +481,8 @@ describe("RunSetupRecorder.record", () => {
   it.effect("names the instruction variant the run was delivered by its hash", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       yield* recorder.record(runAt(4), null);
-      const [record] = yield* store.list(threadId, 10);
+      const [record] = yield* storedSetups(threadId, 10);
       assert.deepEqual(record?.instructionOverlay, {
         experimentId: "instructions",
         variantId: "terse",
@@ -398,9 +511,8 @@ describe("RunSetupRecorder.record", () => {
   it.effect("keeps a null record when capture fails", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       yield* recorder.record(runAt(3), null);
-      const [record] = yield* store.list(threadId, 10);
+      const [record] = yield* storedSetups(threadId, 10);
       assert.deepEqual(
         { ...record, capturedAt: "" },
         { ...RunSetup.uncapturedRunSetup(runAt(3), ""), capturedAt: "" },
@@ -570,7 +682,6 @@ describe("setup cut points", () => {
     let gate: Deferred.Deferred<void> | null = null;
     return Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       gate = yield* Deferred.make<void>();
       const runAt = (ordinal: number) =>
         ({
@@ -588,7 +699,7 @@ describe("setup cut points", () => {
       yield* Deferred.succeed(gate, undefined);
       yield* Fiber.joinAll([first, second]);
       assert.deepEqual(captured, ["run:order:1", "run:order:2"]);
-      assert.lengthOf(yield* store.list(threadId, 10), 2);
+      assert.lengthOf(yield* storedSetups(threadId, 10), 2);
     }).pipe(
       Effect.provide(
         recorderLayer(() =>
@@ -605,7 +716,6 @@ describe("setup cut points", () => {
   it.effect("records a run that started before the recorder did as unobserved", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       // The test clock starts at the epoch, so this run started a minute before the
       // recorder: a run brought back by a restart.
       yield* recorder.record(
@@ -618,7 +728,7 @@ describe("setup cut points", () => {
         } as never,
         null,
       );
-      const [record] = yield* store.list(threadId, 1);
+      const [record] = yield* storedSetups(threadId, 1);
       assert.isNull(record?.instructions);
       assert.isNull(record?.skills);
     }).pipe(
@@ -633,7 +743,6 @@ describe("setup cut points", () => {
     let calls = 0;
     return Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       gate = yield* Deferred.make<void>();
       const runAt = (ordinal: number) =>
         ({
@@ -651,7 +760,7 @@ describe("setup cut points", () => {
       yield* TestClock.adjust("31 seconds");
       yield* Deferred.succeed(gate, undefined);
       yield* Fiber.joinAll([first, second]);
-      const records = yield* store.list(threadId, 10);
+      const records = yield* storedSetups(threadId, 10);
       const byRun = new Map(records.map((record) => [record.runId as string, record]));
       // Run 1's own capture timed out, so run 2 only got its turn after the delay passed.
       assert.isNull(byRun.get("run:waited:2")?.instructions);
@@ -672,7 +781,6 @@ describe("setup cut points", () => {
     let gate: Deferred.Deferred<void> | null = null;
     return Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       gate = yield* Deferred.make<void>();
       const reading = yield* Effect.forkChild(
         recorder.record(
@@ -691,7 +799,7 @@ describe("setup cut points", () => {
       yield* TestClock.adjust("11 seconds");
       yield* Deferred.succeed(gate, undefined);
       yield* Fiber.join(reading);
-      const [record] = yield* store.list(threadId, 1);
+      const [record] = yield* storedSetups(threadId, 1);
       assert.isNull(record?.instructions);
     }).pipe(
       Effect.provide(
@@ -709,7 +817,6 @@ describe("setup cut points", () => {
     let gate: Deferred.Deferred<void> | null = null;
     return Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      const store = yield* RunSetup.RunSetupStore;
       gate = yield* Deferred.make<void>();
       const runIn = (thread: string) =>
         ({
@@ -721,8 +828,8 @@ describe("setup cut points", () => {
       const slow = yield* Effect.forkChild(recorder.record(runIn("thread:slow"), null));
       yield* Effect.yieldNow;
       yield* recorder.record(runIn("thread:quick"), null);
-      assert.lengthOf(yield* store.list(ThreadId.make("thread:quick"), 10), 1);
-      assert.lengthOf(yield* store.list(ThreadId.make("thread:slow"), 10), 0);
+      assert.lengthOf(yield* storedSetups(ThreadId.make("thread:quick"), 10), 1);
+      assert.lengthOf(yield* storedSetups(ThreadId.make("thread:slow"), 10), 0);
       yield* Deferred.succeed(gate, undefined);
       yield* Fiber.join(slow);
     }).pipe(
@@ -744,7 +851,6 @@ describe("setup cut points", () => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const sql = yield* SqlClient.SqlClient;
-      const store = yield* RunSetup.RunSetupStore;
       const recorder = yield* RunSetup.RunSetupRecorder;
       const repo = yield* fs.makeTempDirectoryScoped({ prefix: "run-setup-restart-" });
       repoPath = repo;
@@ -760,7 +866,7 @@ describe("setup cut points", () => {
       yield* recorder.record(runAt(1), null);
       // Run 2 was captured before the restart: its record is stored, and this recorder
       // has not seen it, so it captures run 2 again from today's files.
-      const [first] = yield* store.list(threadId, 1);
+      const [first] = yield* storedSetups(threadId, 1);
       const stored = { ...first!, runId: RunId.make("run:restart:2"), runOrdinal: 2 };
       const json = yield* Schema.encodeEffect(Schema.fromJsonString(RunSetupRecord))(stored);
       yield* sql`INSERT INTO run_setup_records (run_id, thread_id, captured_at, record_json)

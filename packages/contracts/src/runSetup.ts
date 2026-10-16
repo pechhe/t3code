@@ -1,9 +1,15 @@
 import * as Schema from "effect/Schema";
 import { Sha256 } from "./agentPolicy.ts";
-import { PositiveInt, RunId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  NonNegativeInt,
+  PositiveInt,
+  RunId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { ProviderOptionSelection } from "./model.ts";
 import { ModelSelection } from "./modelSelection.ts";
-import { OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
+import { OrchestrationV2RunStatus, OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
 
 /** A file the agent could read at run start, with its content hash or null when unreadable. */
 export const RunSetupFile = Schema.Struct({
@@ -92,3 +98,33 @@ export const RunSetupRecord = Schema.Struct({
   ),
 });
 export type RunSetupRecord = typeof RunSetupRecord.Type;
+
+/** A file list reduced to its size and one digest of every path and content hash in it. */
+export const RunSetupFileSummary = Schema.Struct({
+  count: NonNegativeInt,
+  digest: Sha256,
+});
+export type RunSetupFileSummary = typeof RunSetupFileSummary.Type;
+
+const { instructions, skills, runOrdinal: _runOrdinal, ...recordFields } = RunSetupRecord.fields;
+
+/**
+ * What `t3_thread_setup` reports for one run: its record with the instruction and skill
+ * files reduced to a count and digest, and the full lists only when one run is asked for.
+ * A run that never started has no setup, so its setup fields are null.
+ */
+export const RunSetupReportEntry = Schema.Struct({
+  ...recordFields,
+  runOrdinal: PositiveInt,
+  /** The driver kind behind the run's provider instance; null when the instance is unknown. */
+  driver: Schema.NullOr(Schema.String),
+  status: OrchestrationV2RunStatus,
+  startedAt: Schema.NullOr(Schema.String),
+  instructionSummary: Schema.NullOr(RunSetupFileSummary),
+  skillSummary: Schema.NullOr(RunSetupFileSummary),
+  instructions: Schema.optional(instructions),
+  skills: Schema.optional(skills),
+  /** Null for providers that do not report skill loads. */
+  invokedSkills: Schema.NullOr(Schema.Array(Schema.String)),
+});
+export type RunSetupReportEntry = typeof RunSetupReportEntry.Type;
