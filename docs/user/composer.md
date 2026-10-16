@@ -77,7 +77,8 @@ keyboard. The button only offers Steer when the running agent supports it.
 On web and desktop, type in the **Side chat** card in the right-hand column,
 above Usage left, to ask a question the main agent won't see. Your first message
 starts the side chat as a copy of the thread up to its last finished reply, using
-the same model; pick another model at the top of the card. The card shows when the
+the same model; pick another model at the top of the card. Side chats answer
+briefly unless you ask for more detail. The card shows when the
 window is wide enough for that column. The main agent keeps working while you
 ask. **Use in main** adds an answer to your draft, and **Open as fork** keeps the
 side chat as an ordinary thread in the sidebar. Closing the side chat deletes it.

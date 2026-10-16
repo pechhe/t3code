@@ -1,4 +1,5 @@
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
+import { ActivityShimmerOverlay } from "./ActivityShimmer";
 import { shouldPreserveAssistantLineBreaks } from "@t3tools/shared/markdownPipeline";
 import { MarkdownFindContext, useFindRevealRef } from "./markdownFindContext";
 import { useChatCanvas } from "./ChatCanvasContext";
@@ -3829,19 +3830,6 @@ function ExpandedWorkGroupEntries({
 }
 
 const workEntryKey = (entry: TimelineWorkEntry) => entry.id;
-
-function ActivityShimmerOverlay({ children }: { children: ReactNode }) {
-  return (
-    <span
-      aria-hidden
-      className="live-activity-focus pointer-events-none absolute inset-y-0 select-none"
-    >
-      <span className="live-activity-focus-counter block">
-        <span className="live-activity-focus-aligned block text-foreground">{children}</span>
-      </span>
-    </span>
-  );
-}
 
 const failedToolIconClassName = "text-tool-error-icon/40";
 

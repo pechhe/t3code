@@ -52,6 +52,10 @@ import {
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
 
+/** Sent with each side chat turn; the side chat card is narrow and meant for quick answers. */
+export const SIDE_CHAT_NOTE =
+  "This is a side chat: the user is asking a quick question beside the main conversation. Answer as briefly as possible, in a few sentences at most, unless the user asks for more detail.";
+
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
   {
@@ -1196,7 +1200,11 @@ export const layer: Layer.Layer<
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
-          const context = [delivery.context, restartNote]
+          const context = [
+            delivery.context,
+            restartNote,
+            projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
+          ]
             .filter((part) => part !== "")
             .join("\n\n");
           // A note continuation has no turn to resume; its text is the prompt.
@@ -1249,7 +1257,8 @@ export const layer: Layer.Layer<
         effectiveHandoffs.length === 0 &&
         missedItems.length === 0 &&
         restartNote === "" &&
-        !noteContinuation
+        !noteContinuation &&
+        projection.thread.sideChat !== true
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       return runExecution.startRootRun({

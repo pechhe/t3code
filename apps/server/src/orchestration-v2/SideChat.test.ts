@@ -6,16 +6,21 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderThreadId,
   RunId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
 
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
+import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import { SIDE_CHAT_NOTE } from "./ProviderTurnStartService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -34,6 +39,126 @@ const layer = ProviderReplayHarness.layerWithRegistry(
   { name: "side-chat" },
   ProviderAdapterRegistry.layerFromAdapters([adapter]),
   { runEffectWorker: false },
+);
+
+/** Records the text each provider turn receives, then leaves the turn running. */
+const recordingLayer = (started: Deferred.Deferred<string>) =>
+  ProviderReplayHarness.layerWithRegistry(
+    { name: "side-chat-note" },
+    ProviderAdapterRegistry.layerFromAdapters([
+      {
+        ...adapter,
+        openSession: (sessionInput) =>
+          Effect.gen(function* () {
+            const now = yield* DateTime.now;
+            return {
+              instanceId,
+              driver,
+              providerSessionId: sessionInput.providerSessionId,
+              providerSession: {
+                id: sessionInput.providerSessionId,
+                driver,
+                providerInstanceId: instanceId,
+                status: "ready",
+                cwd: sessionInput.runtimePolicy.cwd ?? "/fallback",
+                model: sessionInput.modelSelection.model,
+                capabilities: CodexProviderCapabilitiesV2,
+                createdAt: now,
+                updatedAt: now,
+                lastError: null,
+              },
+              events: Stream.never,
+              ensureThread: (threadInput: { readonly threadId: ThreadId }) =>
+                Effect.succeed({
+                  id: ProviderThreadId.make(`provider-thread:${threadInput.threadId}`),
+                  driver,
+                  providerInstanceId: instanceId,
+                  providerSessionId: sessionInput.providerSessionId,
+                  appThreadId: threadInput.threadId,
+                  ownerNodeId: null,
+                  nativeThreadRef: {
+                    driver,
+                    nativeId: `native:${threadInput.threadId}`,
+                    strength: "strong",
+                  },
+                  nativeConversationHeadRef: null,
+                  status: "idle",
+                  firstRunOrdinal: null,
+                  lastRunOrdinal: null,
+                  handoffIds: [],
+                  forkedFrom: null,
+                  createdAt: now,
+                  updatedAt: now,
+                }),
+              resumeThread: ({ providerThread }: { readonly providerThread: unknown }) =>
+                Effect.succeed(providerThread),
+              startTurn: (input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+                Deferred.succeed(started, input.message.text).pipe(Effect.asVoid),
+              steerTurn: () => Effect.void,
+              interruptTurn: () => Effect.void,
+              respondToRuntimeRequest: () => Effect.void,
+            } as unknown as ProviderAdapter.ProviderAdapterV2SessionRuntime;
+          }),
+      },
+    ]),
+  );
+
+it.effect("tells the provider to answer briefly in a side chat", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<string>();
+    yield* Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const threadId = ThreadId.make("side-chat-note");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-side-chat-note"),
+        threadId,
+        projectId,
+        title: "Side chat note",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      // Marked directly: the note depends only on the flag, not on how the fork was made.
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            id: EventId.make("side-chat-note-flag"),
+            type: "thread.metadata-updated",
+            threadId,
+            providerInstanceId: instanceId,
+            occurredAt: yield* DateTime.now,
+            payload: {
+              ...(yield* orchestrator.getThreadProjection(threadId)).thread,
+              sideChat: true,
+            },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("ask-side-chat"),
+        threadId,
+        messageId: MessageId.make("ask-side-chat"),
+        text: "What does this do?",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* worker.drain();
+    }).pipe(Effect.provide(recordingLayer(started)));
+
+    const text = yield* Deferred.await(started);
+    assert.include(text, SIDE_CHAT_NOTE);
+    assert.isTrue(text.endsWith("What does this do?"));
+  }),
 );
 
 it.effect("opens a side chat from the latest finished turn and keeps it as a fork", () =>

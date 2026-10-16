@@ -21,6 +21,8 @@ import {
 import { type KeyboardEvent, useMemo, useState } from "react";
 
 import ChatMarkdown from "../ChatMarkdown";
+import { observeVisibleAnimation } from "../../lib/visibleAnimation";
+import { ActivityShimmerOverlay } from "./ActivityShimmer";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn, newMessageId, newThreadId } from "~/lib/utils";
@@ -116,6 +118,14 @@ export function SideChatCard(props: {
   const isRunning = sideChat !== null && threadRuntimeIsActive(sideChat.runtime);
   const canStart = parent.latestRun !== null;
   const busy = isRunning || isOpening;
+  const lastItem = items.at(-1);
+  // Shimmer from send until the answer's first words stream in. An error or a
+  // finished answer ends it, even while the run is still settling.
+  const showThinking =
+    error === null &&
+    (isOpening ||
+      (sideChat !== null && items.length === 0) ||
+      (isRunning && lastItem?.type === "user_message"));
   // The card has no approval, question or plan controls; the full thread does.
   const waitingFor =
     sideChat === null
@@ -292,12 +302,9 @@ export function SideChatCard(props: {
         ) : null}
       </header>
 
-      {active ? (
+      {active || isOpening ? (
         <ScrollArea scrollFade className="min-h-0 flex-1">
           <div className="grid gap-3 px-3.5 py-2">
-            {items.length === 0 && !isRunning ? (
-              <p className="text-muted-foreground">Starting…</p>
-            ) : null}
             {items.map((item) =>
               item.type === "user_message" ? (
                 <p
@@ -332,6 +339,15 @@ export function SideChatCard(props: {
                 </div>
               ),
             )}
+            {showThinking && waitingFor === null ? (
+              <span
+                ref={observeVisibleAnimation}
+                className="relative justify-self-start overflow-hidden whitespace-nowrap text-muted-foreground"
+              >
+                Thinking…
+                <ActivityShimmerOverlay>Thinking…</ActivityShimmerOverlay>
+              </span>
+            ) : null}
             {waitingFor === null ? null : (
               <p className="text-muted-foreground">
                 Waiting for {waitingFor}. Open it as a fork to respond.
