@@ -394,6 +394,11 @@ const VcsStatusSlipJay = Schema.Struct({
    */
   integration: Schema.NullOr(TrimmedNonEmptyStringSchema),
   /**
+   * Whether slipjay.json names a release branch, so a release is possible. Absent on
+   * older servers, which clients treat as unknown rather than as no release.
+   */
+  hasReleaseBranch: Schema.optional(Schema.Boolean),
+  /**
    * Which workspace this checkout is, from `slipjay status`; absent when SlipJay cannot
    * say or has removed it, so there is nothing to land.
    */

@@ -11100,7 +11100,11 @@ export default function ChatView(props: ChatViewProps) {
                     environmentId={activeThread.environmentId}
                     releaseProject={
                       isSlipJayProject && activeProject
-                        ? { cwd: activeProject.workspaceRoot, name: activeProject.title }
+                        ? {
+                            cwd: activeProject.workspaceRoot,
+                            name: activeProject.title,
+                            hasRelease: gitStatusQuery.data?.slipJay?.hasReleaseBranch !== false,
+                          }
                         : null
                     }
                     onOpenThread={onOpenRelatedThreadStable}

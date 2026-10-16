@@ -768,7 +768,13 @@ export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* ()
       isDefaultRef: false,
       refName: integration,
       ...(isSlipJay
-        ? { slipJay: { integration, ...(workspace === undefined ? {} : { workspace }) } }
+        ? {
+            slipJay: {
+              integration,
+              hasReleaseBranch: slipJayProject.hasReleaseBranch,
+              ...(workspace === undefined ? {} : { workspace }),
+            },
+          }
         : {}),
       hasWorkingTreeChanges: files.length > 0,
       workingTree: { files, ...totals },

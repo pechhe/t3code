@@ -18,6 +18,8 @@ export interface SlipJayProject {
   readonly root: string;
   /** The integration bookmark slipjay.json names; null when it names none SlipJay can use. */
   readonly integration: string | null;
+  /** Whether slipjay.json names a release branch; without one there is nothing to promote. */
+  readonly hasReleaseBranch: boolean;
   /** The remote SlipJay publishes to, which keys its landings on the runner. */
   readonly remote: string;
 }
@@ -26,6 +28,7 @@ const decodeConfig = Schema.decodeUnknownOption(
   Schema.fromJsonString(
     Schema.Struct({
       integrationBranch: Schema.optional(Schema.NonEmptyString),
+      releaseBranch: Schema.optional(Schema.NonEmptyString),
       remote: Schema.optional(Schema.NonEmptyString),
     }),
   ),
@@ -100,6 +103,7 @@ export const findSlipJayProject = Effect.fn("findSlipJayProject")(function* (sta
       return {
         root: directory,
         integration: config?.integrationBranch ?? null,
+        hasReleaseBranch: config?.releaseBranch !== undefined,
         remote: config?.remote ?? "origin",
       } satisfies SlipJayProject;
     }

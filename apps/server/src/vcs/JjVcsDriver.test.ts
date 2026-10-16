@@ -212,6 +212,7 @@ it.layer(layerJjWithSlipJay)("Jujutsu VCS driver", (it) => {
         const first = yield* driver.getStatus!({ cwd });
         assert.deepEqual(first.slipJay, {
           integration: "develop",
+          hasReleaseBranch: false,
           workspace: { name: "t3-29", issueNumber: 29, isIntegration: false },
         });
         assert.equal(first.refName, "develop");
@@ -272,14 +273,22 @@ it.layer(layerJjWithSlipJay)("Jujutsu VCS driver", (it) => {
       const malformed = yield* makeRepo;
       yield* writeFile(malformed, "slipjay.json", "{ not json");
       const unreadable = yield* driver.getStatus!({ cwd: malformed });
-      assert.deepEqual(unreadable.slipJay, { integration: null });
+      assert.deepEqual(unreadable.slipJay, { integration: null, hasReleaseBranch: false });
       assert.isNull(unreadable.refName);
       // The bookmark slipjay.json names does not exist yet.
       const unborn = yield* makeRepo;
       yield* writeFile(unborn, "slipjay.json", JSON.stringify({ integrationBranch: "develop" }));
       const missing = yield* driver.getStatus!({ cwd: unborn });
-      assert.deepEqual(missing.slipJay, { integration: "develop" });
+      assert.deepEqual(missing.slipJay, { integration: "develop", hasReleaseBranch: false });
       assert.equal(missing.behindCount, 0);
+      const releasing = yield* makeRepo;
+      yield* writeFile(
+        releasing,
+        "slipjay.json",
+        JSON.stringify({ integrationBranch: "develop", releaseBranch: "master" }),
+      );
+      const releasable = yield* driver.getStatus!({ cwd: releasing });
+      assert.deepEqual(releasable.slipJay, { integration: "develop", hasReleaseBranch: true });
     }),
   );
 

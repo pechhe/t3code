@@ -59,7 +59,12 @@ it.layer(layer)("findSlipJayProject", (it) => {
         // jj's own trunk() pointing elsewhere does not matter.
         yield* jj(repo, "config", "set", "--repo", 'revset-aliases."trunk()"', "root()");
 
-        const expected = { root: repo, integration: "dev", remote: "upstream" };
+        const expected = {
+          root: repo,
+          integration: "dev",
+          hasReleaseBranch: false,
+          remote: "upstream",
+        };
         assert.deepEqual(yield* findSlipJayProject(repo), expected);
 
         // Without origin/HEAD, `main` is next.

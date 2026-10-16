@@ -54,7 +54,7 @@ export function SlipJayRunnerControl({
 }: {
   environmentId: EnvironmentId;
   /** The active thread's SlipJay project, which the popover offers to release. */
-  releaseProject: { cwd: string; name: string } | null;
+  releaseProject: { cwd: string; name: string; hasRelease: boolean } | null;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -163,12 +163,13 @@ export function SlipJayRunnerControl({
                     size="xs"
                     variant="outline"
                     className="mx-2 mt-1 self-start"
+                    disabled={!release.hasRelease}
                     onClick={() => {
                       setOpen(false);
                       setReleaseOpen(true);
                     }}
                   >
-                    Release {release.name}…
+                    {release.hasRelease ? `Release ${release.name}…` : "Nothing to release"}
                   </Button>
                 ) : null}
               </RunnerSection>
