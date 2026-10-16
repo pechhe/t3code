@@ -57,7 +57,8 @@ export interface PhiBrowserRound {
       }
     | {
         readonly kind: "agent";
-        readonly name: "Agents";
+        /** The shared Agents Space of this host; see PhiBrowser's agentsSpace. */
+        readonly name: string;
         readonly persistent: true;
       }
     | {

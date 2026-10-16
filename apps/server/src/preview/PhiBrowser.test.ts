@@ -69,7 +69,7 @@ const withFixture = (
   use: (
     fixture: Fixture,
   ) => Effect.Effect<unknown, PreviewAutomationError | PreviewError, Scope.Scope>,
-  options: { readonly blockedRecovery?: boolean } = {},
+  options: { readonly blockedRecovery?: boolean; readonly platform?: NodeJS.Platform } = {},
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -217,7 +217,7 @@ const withFixture = (
         Layer.provideMerge(NodeServices.layer),
       ),
     ),
-    Effect.provideService(HostProcess.Platform, "darwin"),
+    Effect.provideService(HostProcess.Platform, options.platform ?? "darwin"),
   );
 
 it.effect("starts the service while old-resource recovery waits for Phi", () =>
@@ -411,6 +411,28 @@ it.effect(
         expect(navigation?.action.url).toBe("https://example.com/");
       }),
     ),
+);
+
+it.effect("keeps a separate shared Agents Space on a host that reaches Phi remotely", () =>
+  Effect.gen(function* () {
+    for (const [platform, name] of [
+      ["darwin", "Agents"],
+      ["linux", "Agents (VPS)"],
+    ] as const) {
+      yield* withFixture(
+        ({ browser, calls }) =>
+          Effect.gen(function* () {
+            yield* browser.invoke({ scope, operation: "open", input: { phiLane: "agents" } });
+            expect(calls.find((call) => call.action.operation === "open")?.context).toEqual({
+              kind: "agent",
+              name,
+              persistent: true,
+            });
+          }),
+        { platform },
+      );
+    }
+  }),
 );
 
 it.effect("holds exclusive Agents custody across human handoff and credential revocation", () =>

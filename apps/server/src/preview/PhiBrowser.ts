@@ -161,6 +161,9 @@ const make = Effect.gen(function* () {
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
   const platform = yield* HostProcess.Platform;
+  // Phi keeps each driver's agent tasks apart, and the Mac's own driver holds its Agents
+  // Space, so a host reaching that Phi remotely keeps a shared Space of its own.
+  const agentsSpace = platform === "darwin" ? "Agents" : "Agents (VPS)";
   const journalPath = path.join(config.stateDir, "phi-browser-tabs.json");
   const loaded = yield* Effect.gen(function* () {
     const tabs = (yield* fs.exists(journalPath))
@@ -193,7 +196,7 @@ const make = Effect.gen(function* () {
   });
   const context = (binding: Binding): PhiBrowserRunner.PhiBrowserRound["context"] =>
     binding.lane === "agents"
-      ? { kind: "agent", name: "Agents", persistent: true }
+      ? { kind: "agent", name: agentsSpace, persistent: true }
       : binding.lane === "user"
         ? { kind: "user", ...(binding.windowId === undefined ? {} : { window: binding.windowId }) }
         : {
