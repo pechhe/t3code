@@ -732,6 +732,11 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         });
       const projectRoot = yield* workspace("main");
       const allocated = yield* workspace("allocated");
+      // jj keeps its commits in a git directory the store points at, shared by every workspace.
+      const gitDirectory = `${f.root}/git-directory`;
+      yield* f.fs.makeDirectory(gitDirectory);
+      yield* f.fs.makeDirectory(`${store}/store`);
+      yield* f.fs.writeFileString(`${store}/store/git_target`, "../../git-directory\n");
       const accepted = yield* f.prepare({
         workspacePath: null,
         projectRoot,
@@ -776,7 +781,18 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         });
         expect(resolved.managedAgent).toBe(true);
         expect(resolved.cwd).toBe(allocated);
-        expect(resolved.sandboxPolicy).toMatchObject({ type: "workspaceWrite" });
+        // It can commit: the sandbox also writes the shared store and its git directory.
+        expect(resolved.sandboxPolicy).toMatchObject({
+          type: "workspaceWrite",
+          writableRoots: [allocated, yield* f.fs.realPath(store), gitDirectory],
+        });
+        // Other sandboxed writers and reviewers keep their workspace alone.
+        expect(
+          yield* f.service.repositoryRoots({ ...accepted.binding, workspaceAssignment: "lead" }),
+        ).toEqual([]);
+        expect(
+          yield* f.service.repositoryRoots({ ...accepted.binding, sourceAccess: "read-only" }),
+        ).toEqual([]);
         // A helper bound to the project's main checkout is still refused.
         const main = yield* runtime
           .resolve({

@@ -42,6 +42,25 @@ export const repositoryStore = Effect.fn("workspaceIdentity.repositoryStore")(fu
 });
 
 /**
+ * The directories a version-control client needs to write to commit from the workspace at
+ * `root`: its shared repository store, and for jj the git directory behind that store.
+ * Both are shared by every workspace of the repository.
+ */
+export const repositoryWriteRoots = Effect.fn("workspaceIdentity.repositoryWriteRoots")(function* (
+  root: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const store = yield* repositoryStore(root);
+  const target = path.join(store, "store", "git_target");
+  if (!(yield* fs.exists(target))) return [store];
+  const git = yield* fs.realPath(
+    path.resolve(store, "store", (yield* fs.readFileString(target)).trim()),
+  );
+  return git === store ? [store] : [store, git];
+});
+
+/**
  * The workspace root of the checkout containing `directory`, which may be a subdirectory
  * of it, as a project's registered root can be. The nearest `.jj` or `.git` decides, so a
  * Git-only repository nested in a jj checkout is not taken for the outer one.

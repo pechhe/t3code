@@ -215,6 +215,14 @@ export const layerFromProjectStore: Layer.Layer<
                   }),
               ),
             );
+          // A sandboxed isolated writer also writes the repository store it shares with every
+          // other workspace, because committing and even reading history snapshot into it.
+          const repositoryRoots =
+            isolated &&
+            input.thread.agentTask.sourceAccess !== "read-only" &&
+            input.thread.agentTask.executionBoundary !== "trusted-host-access"
+              ? yield* managed.value.repositoryRoots(input.thread.agentTask)
+              : [];
           return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
             runtimeMode: input.thread.runtimeMode,
             interactionMode: "default",
@@ -229,7 +237,7 @@ export const layerFromProjectStore: Layer.Layer<
                   ? { type: "dangerFullAccess" }
                   : {
                       type: "workspaceWrite",
-                      writableRoots: [cwd],
+                      writableRoots: [cwd, ...repositoryRoots],
                       networkAccess: false,
                       excludeTmpdirEnvVar: true,
                       excludeSlashTmp: true,

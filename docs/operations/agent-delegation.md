@@ -81,7 +81,10 @@ its revision and the role names, or the reason the policy is refused.
   checkout, and is refused while another thread is writing there. The lead's
   thread need not have a workspace binding. Its child thread launches, resumes
   and checkpoints in that workspace, and a finished writer reports the revision
-  its run handed back, even after later work changes that workspace.
+  its run handed back, even after later work changes that workspace. A Codex
+  writer's sandbox also writes the repository store (and, for jj, the git
+  directory behind it) shared by every workspace of the repository, so it can
+  commit and read its own history; a reviewer's stays read-only.
 - A read-only task pinned to a `sourceRevision`, such as a review or a pinned
   advisor, may run in any workspace of the lead's repository on this computer,
   even when the lead's thread has no workspace binding (for example a lead that

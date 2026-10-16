@@ -43,6 +43,7 @@ import {
   containingRepositoryStore,
   handoffRevision,
   repositoryStore,
+  repositoryWriteRoots,
 } from "./workspaceIdentity.ts";
 
 export const sourceRevisionGuidance =
@@ -131,6 +132,12 @@ export class ManagedAgentService extends Context.Service<
     readonly configured: () => Effect.Effect<boolean>;
     /** Serialises workspace occupancy checks with the launch they authorise, across routes. */
     readonly exclusive: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+    /**
+     * What an isolated writer's sandbox may write besides its workspace: the repository store
+     * shared by all workspaces, so it can commit and read its own history. None for other
+     * tasks, and none when the workspace has no readable store.
+     */
+    readonly repositoryRoots: (binding: AgentTaskBinding) => Effect.Effect<ReadonlyArray<string>>;
     /**
      * Records the source an isolated scoped-write task's run hands back as the run ends.
      * The first record stands, so a repeated finalisation cannot replace it.
@@ -397,6 +404,17 @@ const make = Effect.gen(function* () {
         Effect.orElseSucceed(() => false),
       ),
     exclusive: (effect) => isolatedLaunches.withPermit(effect),
+    repositoryRoots: (binding) =>
+      handsBack(binding)
+        ? local(repositoryWriteRoots(binding.workspacePath)).pipe(
+            Effect.tapError((cause) =>
+              Effect.logWarning("Unable to resolve an isolated writer's repository store.", {
+                cause,
+              }),
+            ),
+            Effect.orElseSucceed((): ReadonlyArray<string> => []),
+          )
+        : Effect.succeed([]),
     recordHandoff: Effect.fn("ManagedAgentService.recordHandoff")(
       function* (binding, run) {
         if (!handsBack(binding)) return;
