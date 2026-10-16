@@ -5472,6 +5472,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Thread ${command.threadId} cannot roll over while a fork, merge-back or provider switch is pending.`,
         });
       }
+      // Like queued delivery, a run started while a completed run's note still
+      // waits carries the note, so it never lands on the context the note left.
+      const pendingNote = rolloverNotes.get(command.threadId);
+      const noteSource =
+        pendingNote !== undefined &&
+        command.contextRollover === undefined &&
+        startsInPlace &&
+        activeProviderThread !== undefined
+          ? latestExecutedRun(projection.runs)
+          : undefined;
+      const carriedNote =
+        pendingNote !== undefined &&
+        noteSource?.status === "completed" &&
+        noteSource.id === pendingNote.runId
+          ? { note: pendingNote.note, ofRunId: pendingNote.runId }
+          : undefined;
+      const contextRollover = command.contextRollover ?? carriedNote;
+      const delegatedTaskId =
+        carriedNote === undefined ? continuedTaskId : noteSource?.delegatedTaskId;
       if (startsInPlace) {
         const adapter = yield* providerAdapters.get(modelSelection.instanceId).pipe(
           Effect.mapError(
@@ -5517,7 +5536,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         // A rollover keeps the provider thread row but drops its native ref, so the
         // adapter binds a fresh native session seeded with the agent's note.
         const rolloverHandoff =
-          command.contextRollover !== undefined && activeProviderThread !== undefined
+          contextRollover !== undefined && activeProviderThread !== undefined
             ? yield* contextHandoffService
                 .prepare({
                   threadId: command.threadId,
@@ -5525,7 +5544,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   fromProviderThreadIds: [activeProviderThread.id],
                   toProviderThreadId: providerThreadId,
                   toProviderInstanceId: modelSelection.instanceId,
-                  summaryText: command.contextRollover.note,
+                  summaryText: contextRollover.note,
                   createdAt: now,
                 })
                 .pipe(mapDispatchError(command))
@@ -5611,9 +5630,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           completedAt: null,
           checkpointId: null,
           contextHandoffId: seedHandoff?.id ?? null,
-          ...(command.contextRollover === undefined
-            ? {}
-            : { rolloverOfRunId: command.contextRollover.ofRunId }),
+          ...(contextRollover === undefined ? {} : { rolloverOfRunId: contextRollover.ofRunId }),
           ...(command.sourcePlanRef === undefined ? {} : { sourcePlanRef: command.sourcePlanRef }),
           ...(command.restartContinuationOfRunId === undefined
             ? {}
@@ -5621,7 +5638,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           ...(dispatchMode.type === "defer_start" && dispatchMode.workspaceStrategy !== undefined
             ? { workspacePreparation: dispatchMode.workspaceStrategy }
             : {}),
-          ...(continuedTaskId === undefined ? {} : { delegatedTaskId: continuedTaskId }),
+          ...(delegatedTaskId === undefined ? {} : { delegatedTaskId }),
           ...wakeWorkStartedAt(projection.runs, command),
         };
         const attempt: OrchestrationV2RunAttempt = {

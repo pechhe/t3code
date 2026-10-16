@@ -424,6 +424,91 @@ it.live("continues a thread on a fresh native session seeded with the rollover n
   ),
 );
 
+it.live("a message sent while a rollover note waits starts the fresh session with it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const name = "context-rollover-carried";
+      const cwd = yield* checkpointWorkspace(name);
+      const threadId = ThreadId.make(`thread:${name}`);
+      const captured = yield* Ref.make<Captured>(emptyCaptured);
+
+      const after = yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const notes = yield* ContextRolloverNotes;
+        const runDone = Effect.gen(function* () {
+          return yield* eventSink
+            .stream({ threadId, afterSequence: yield* eventSink.latestSequence({ threadId }) })
+            .pipe(
+              Stream.map((stored) => stored.event),
+              Stream.filter(
+                (event) => event.type === "run.updated" && event.payload.status === "completed",
+              ),
+              Stream.take(1),
+              Stream.runDrain,
+              Effect.forkScoped,
+            );
+        });
+        const send = (text: string) =>
+          orchestrator.dispatch({
+            type: "message.dispatch",
+            createdBy: "user",
+            creationSource: "web",
+            commandId: CommandId.make(`command:${name}:${text}`),
+            threadId,
+            messageId: MessageId.make(`message:${name}:${text}`),
+            text,
+            attachments: [],
+            modelSelection: selection,
+            dispatchMode: { type: "start_immediately" },
+          });
+
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`command:${name}:create`),
+          threadId,
+          projectId: ProjectId.make(`project:${name}`),
+          title: name,
+          modelSelection: selection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: cwd,
+        });
+        const firstDone = yield* runDone;
+        yield* send("first");
+        yield* Fiber.join(firstDone);
+        yield* worker.drain();
+        const firstRun = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+        notes.save(threadId, { runId: firstRun.id, note: "## Goal\nCarry the note forward." });
+
+        const nextDone = yield* runDone;
+        yield* send("continue");
+        yield* Fiber.join(nextDone);
+        yield* worker.drain();
+        return yield* orchestrator.getThreadProjection(threadId);
+      }).pipe(
+        Effect.provide(
+          ProviderReplayHarness.layerWithRegistry(
+            { name },
+            ProviderAdapterRegistry.layerSingle(makeAdapter(captured)),
+          ),
+        ),
+      );
+
+      const next = after.runs[1]!;
+      assert.equal(next.rolloverOfRunId, after.runs[0]!.id);
+      const start = (yield* Ref.get(captured)).started[1]!;
+      assert.isFalse(start.nativeThreadHasTurns);
+      assert.include(JSON.stringify(start.message), "continue");
+      assert.include(JSON.stringify(start.message), "Carry the note forward.");
+    }),
+  ),
+);
+
 /**
  * Runs a thread whose first turn reports 1.5k context tokens against a 1k/2k
  * rollover, waits for the reactor's steer, saves `note` when given, optionally
@@ -439,6 +524,8 @@ const runHeldTurnScenario = (
     readonly duringFirst?: (control: HeldControl) => Effect.Effect<void>;
     readonly rolloverEnabled?: boolean;
     readonly queueMessage?: boolean;
+    /** Leaves a message held in the queue, as stopping an earlier turn does. */
+    readonly heldQueuedMessage?: boolean;
     readonly usedTokens?: number;
     readonly maxTokens?: number;
     readonly hold?: OrchestrationV2RolloverHold;
@@ -553,6 +640,44 @@ const runHeldTurnScenario = (
           thresholds: options.thresholds,
         });
       }
+      if (options.heldQueuedMessage === true) {
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`command:${name}:stopped`),
+          threadId,
+          messageId: MessageId.make(`message:${name}:stopped`),
+          text: "stopped",
+          attachments: [],
+          modelSelection: selection,
+          dispatchMode: { type: "start_immediately" },
+        });
+        yield* Queue.take(held.running);
+        // Its usage is past the soft threshold; take the request before stopping it.
+        yield* Queue.take(held.steered);
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: CommandId.make(`command:${name}:held`),
+          threadId,
+          messageId: MessageId.make(`message:${name}:held`),
+          text: "held",
+          attachments: [],
+          modelSelection: selection,
+          dispatchMode: { type: "queue_after_active" },
+        });
+        yield* orchestrator.dispatch({
+          type: "run.interrupt",
+          commandId: CommandId.make(`command:${name}:stop`),
+          threadId,
+          runId: (yield* orchestrator.getThreadProjection(threadId)).runs[0]!.id,
+          holdQueue: true,
+        });
+        yield* worker.drain();
+        yield* reactor.drain;
+      }
       const nudged = options.nudged !== false;
       const bothDone = yield* eventSink
         .stream({ threadId, afterSequence: yield* eventSink.latestSequence({ threadId }) })
@@ -594,7 +719,9 @@ const runHeldTurnScenario = (
       const steer = nudged ? yield* Queue.take(held.steered) : undefined;
       // Nothing to wait for without a request: wait for the turn itself to be running.
       const earlyTurn = nudged ? undefined : yield* Queue.take(held.running);
-      const firstRun = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+      const firstRun = (yield* orchestrator.getThreadProjection(threadId)).runs.findLast(
+        (run) => run.status === "running",
+      )!;
       assert.equal(firstRun.status, "running");
 
       if (note !== null) notes.save(threadId, { runId: firstRun.id, note });
@@ -789,6 +916,28 @@ it.live("keeps queued work on the current session when no rollover note was save
       assert.isTrue(captured.started[1]!.nativeThreadHasTurns);
       assert.include(JSON.stringify(captured.started[1]!.message), "queued");
       assert.isEmpty(after.contextHandoffs);
+    }),
+  ),
+);
+
+it.live("rolls over without waiting for a held queue, which stays held", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { firstRun, after, noteLeft, captured } = yield* runHeldTurnScenario(
+        "context-rollover-held-queue",
+        "## Goal\nContinue past the held queue.",
+        { heldQueuedMessage: true, duringRollover: () => Effect.void },
+      );
+
+      assert.isUndefined(noteLeft);
+      const rolloverRun = after.runs.find((run) => run.rolloverOfRunId === firstRun.id);
+      assert.equal(rolloverRun?.status, "completed");
+      const rolloverStart = captured.started.at(-1)!;
+      assert.equal(rolloverStart.runId, rolloverRun!.id);
+      assert.isFalse(rolloverStart.nativeThreadHasTurns);
+      assert.include(JSON.stringify(rolloverStart.message), "Continue past the held queue.");
+      const heldRun = after.runs.find((run) => run.status === "queued");
+      assert.isTrue(heldRun?.queueHeld);
     }),
   ),
 );

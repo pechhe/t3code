@@ -19,7 +19,7 @@ import * as ContextRolloverReactor from "./ContextRolloverReactor.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 
-it.effect("releases the completed source result when its last held queued turn is cancelled", () =>
+it.effect("releases the completed source result when its last queued turn is cancelled", () =>
   Effect.scoped(
     Effect.gen(function* () {
       const threadId = ThreadId.make("cancel-held-rollover");
@@ -32,7 +32,6 @@ it.effect("releases the completed source result when its last held queued turn i
         id: RunId.make("queued"),
         threadId,
         status: "queued",
-        queueHeld: true,
       } as OrchestrationV2Run;
       const runs = yield* Ref.make([source, queued]);
       const sourceRead = yield* Deferred.make<void>();

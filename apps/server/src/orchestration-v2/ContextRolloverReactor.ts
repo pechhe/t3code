@@ -426,8 +426,15 @@ export const make = Effect.gen(function* () {
     if (runs.some((other) => other.rolloverOfRunId === run.id)) {
       return yield* finishRollover(threadId, run);
     }
-    if (runs.some((other) => other.status === "queued")) return;
-    if (runs.some((other) => other.id !== run.id && !isTerminalRunStatus(other.status))) {
+    // A held queue waits for the user, so it would never consume the note; the
+    // fresh session starts now and the held messages stay held behind it.
+    if (runs.some((other) => other.status === "queued" && other.queueHeld !== true)) return;
+    if (
+      runs.some(
+        (other) =>
+          other.id !== run.id && other.status !== "queued" && !isTerminalRunStatus(other.status),
+      )
+    ) {
       return yield* giveUp("another run started first");
     }
     const policy = yield* thresholdsFor(threadId, run);
@@ -497,7 +504,7 @@ export const make = Effect.gen(function* () {
         });
     }
     const pending = notes.get(threadId);
-    // A held queue can be cancelled after its completed source saved a note.
+    // A queued turn can be cancelled before it starts and consumes the note.
     // Release the source result when no queued delivery remains to consume it;
     // cancellation must not create an unsolicited continuation turn.
     if (pending !== undefined && pending.runId !== run.id) {
