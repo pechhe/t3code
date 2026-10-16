@@ -1,5 +1,9 @@
 import type { DraftId } from "~/composerDraftStore";
-import { composerDraftHasUserContent, useComposerDraftStore } from "~/composerDraftStore";
+import {
+  composerDraftHasUserContent,
+  draftThreadHasOpenPreview,
+  useComposerDraftStore,
+} from "~/composerDraftStore";
 import { resolveEnvironmentMachineKind, type ScopedProjectRef } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
@@ -41,32 +45,72 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 
-// A chip clicked in the row flies into the question. Choosing a project from an empty
-// draft opens that project's own draft and remounts this headline, so the launch point
-// lives outside it until the chosen project lands in the sentence.
-let pendingFlight: { projectKey: string; from: DOMRect; at: number } | null = null;
-const FLIGHT_MAX_AGE_MS = 2_000;
+// Keys for the pieces of the question that move when the project changes. Each project
+// chip is keyed by its project key, in the row or in the sentence alike.
+const NO_PROJECT_KEY = "flip:no-project";
+const SENTENCE_LEAD_KEY = "flip:sentence-lead";
+const SENTENCE_TAIL_KEY = "flip:sentence-tail";
+const ADD_PROJECT_KEY = "flip:add-project";
+// Long enough to cover reading the project's t3.json defaults before the change lands.
+const FLIP_MAX_AGE_MS = 5_000;
 
-/** Plays a one-shot transform from where the chip was clicked to where it now sits. */
-function landFlight(slot: HTMLElement, projectKey: string) {
-  const flight = pendingFlight;
-  if (!flight || flight.projectKey !== projectKey) return;
-  pendingFlight = null;
-  if (performance.now() - flight.at > FLIGHT_MAX_AGE_MS) return;
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const to = slot.getBoundingClientRect();
-  if (to.height === 0) return;
-  const { from } = flight;
-  slot.animate(
-    [
-      {
-        transformOrigin: "top left",
-        transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.height / to.height})`,
-      },
-      { transformOrigin: "top left", transform: "none" },
-    ],
-    { duration: 320, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+/**
+ * Glides keyed elements from where they were to where they land after a re-render: the
+ * chosen chip flies into the question, the one it replaces flies back to its place in the
+ * row, and everything between them slides. `capture(target)` records positions before a
+ * change; the move plays when `changeKey` becomes `target`, and is dropped if anything else
+ * lands first. Transforms only, one shot.
+ */
+function useFlip(changeKey: string) {
+  const nodes = useRef(new Map<string, HTMLElement>());
+  const captured = useRef<{ rects: Map<string, DOMRect>; target: string; at: number } | null>(null);
+  const landedKey = useRef(changeKey);
+  const refFor = useCallback(
+    (key: string) => (node: HTMLElement | null) => {
+      if (!node) return;
+      nodes.current.set(key, node);
+      return () => {
+        if (nodes.current.get(key) === node) nodes.current.delete(key);
+      };
+    },
+    [],
   );
+  const capture = useCallback((target: string) => {
+    const rects = new Map<string, DOMRect>();
+    for (const [key, node] of nodes.current) rects.set(key, node.getBoundingClientRect());
+    captured.current = { rects, target, at: performance.now() };
+  }, []);
+  useLayoutEffect(() => {
+    if (landedKey.current === changeKey) return;
+    landedKey.current = changeKey;
+    const snapshot = captured.current;
+    captured.current = null;
+    if (
+      !snapshot ||
+      snapshot.target !== changeKey ||
+      performance.now() - snapshot.at > FLIP_MAX_AGE_MS
+    ) {
+      return;
+    }
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    for (const [key, node] of nodes.current) {
+      const from = snapshot.rects.get(key);
+      const to = node.getBoundingClientRect();
+      if (!from || to.height === 0) continue;
+      const dx = from.left - to.left;
+      const dy = from.top - to.top;
+      const scale = from.height / to.height;
+      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(scale - 1) < 0.01) continue;
+      node.animate(
+        [
+          { transformOrigin: "top left", transform: `translate(${dx}px, ${dy}px) scale(${scale})` },
+          { transformOrigin: "top left", transform: "none" },
+        ],
+        { duration: 320, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+      );
+    }
+  }, [changeKey]);
+  return { refFor, capture };
 }
 
 interface DraftHeroHeadlineProps {
@@ -89,6 +133,7 @@ export function DraftHeroHeadline({
     (store) => store.setLogicalProjectDraftThreadId,
   );
   const getComposerDraft = useComposerDraftStore((store) => store.getComposerDraft);
+  const getDraftSession = useComposerDraftStore((store) => store.getDraftSession);
   const applyStickyState = useComposerDraftStore((store) => store.applyStickyState);
   const setModelSelection = useComposerDraftStore((store) => store.setModelSelection);
   const openAddProject = useCallback(() => openCommandPalette({ open: "add-project" }), []);
@@ -118,7 +163,14 @@ export function DraftHeroHeadline({
         threads,
         openedAt,
       ),
-    [environmentLabelById, openedAt, primaryEnvironmentId, projectGroupingSettings, projects, threads],
+    [
+      environmentLabelById,
+      openedAt,
+      primaryEnvironmentId,
+      projectGroupingSettings,
+      projects,
+      threads,
+    ],
   );
   // Same-named projects on two machines are only told apart by where they
   // live, so rows on another machine carry its icon once the catalog spans
@@ -196,11 +248,9 @@ export function DraftHeroHeadline({
   useEffect(() => {
     latestTargetRef.current = { draftId, activeProjectKey, scratchTargetEnvironmentId };
   }, [activeProjectKey, scratchTargetEnvironmentId, draftId]);
-  // With a prompt typed, project selection changes the target of the open
-  // draft in place, so the prompt stays in the same composer session. An empty
-  // draft instead opens the chosen project's own draft, like starting a new
-  // thread there: moving it would replace that draft and strand whatever it
-  // holds, such as the browser tabs of the no-project draft.
+  // Project selection changes the target of the open draft in place, so the composer
+  // stays mounted. An empty draft takes the project's new-thread defaults, like starting
+  // a new thread there; with a prompt typed, the workspace choices made so far stand.
   const selectProject = (project: (typeof projects)[number], logicalProjectKey: string) => {
     if (!draftId) {
       return;
@@ -212,7 +262,13 @@ export function DraftHeroHeadline({
     };
     const currentDraft = getComposerDraft(draftId);
     if (!composerDraftHasUserContent(currentDraft)) {
-      void openProjectDraft(scopeProjectRef(project.environmentId, project.id));
+      // A draft holding open browser tabs keeps them where they are; the project's own
+      // draft opens instead.
+      const keepsOpenPages = draftThreadHasOpenPreview(getDraftSession(draftId) ?? undefined);
+      void openProjectDraft(
+        scopeProjectRef(project.environmentId, project.id),
+        keepsOpenPages ? undefined : { retargetDraftId: draftId },
+      );
       return;
     }
     setLogicalProjectDraftThreadId(
@@ -262,10 +318,7 @@ export function DraftHeroHeadline({
   const rowEntries = menuEntries.filter(
     ({ group }) => group.projectKey !== chosenGroup?.projectKey,
   );
-  const slotRef = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    if (slotRef.current && chosenGroup) landFlight(slotRef.current, chosenGroup.projectKey);
-  }, [chosenGroup]);
+  const { refFor, capture } = useFlip(chosenGroup?.projectKey ?? NO_PROJECT_KEY);
 
   if (!canChooseProject && !hasResolvedProject && !canStartWithoutProject) {
     return (
@@ -287,9 +340,15 @@ export function DraftHeroHeadline({
         }
         className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
       >
-        What should we build in{" "}
+        <span ref={refFor(SENTENCE_LEAD_KEY)} className="inline-block">
+          What should we build in
+        </span>{" "}
         {chosenGroup ? (
-          <span ref={slotRef} className="inline-flex max-w-80 align-middle">
+          <span
+            key={chosenGroup.projectKey}
+            ref={refFor(chosenGroup.projectKey)}
+            className="inline-flex max-w-80 align-middle"
+          >
             <ProjectChip
               project={chosenGroup}
               label={chosenGroup.displayName}
@@ -298,9 +357,13 @@ export function DraftHeroHeadline({
             />
           </span>
         ) : (
-          <span className="text-muted-foreground/50">…</span>
+          <span ref={refFor(NO_PROJECT_KEY)} className="inline-block text-muted-foreground/50">
+            …
+          </span>
         )}
-        ?
+        <span ref={refFor(SENTENCE_TAIL_KEY)} className="inline-block">
+          ?
+        </span>
       </h1>
       <ProjectChipRow
         className="pointer-events-auto mt-3"
@@ -309,18 +372,15 @@ export function DraftHeroHeadline({
         {rowEntries.map(({ group, targetProject }) => (
           <ProjectChip
             key={group.projectKey}
+            ref={refFor(group.projectKey)}
             project={group}
             label={group.displayName}
             className="h-6 max-w-48 px-2 text-xs"
             render={
               <button
                 type="button"
-                onClick={(event) => {
-                  pendingFlight = {
-                    projectKey: group.projectKey,
-                    from: event.currentTarget.getBoundingClientRect(),
-                    at: performance.now(),
-                  };
+                onClick={() => {
+                  capture(group.projectKey);
                   selectProject(targetProject, group.projectKey);
                 }}
               />
@@ -340,8 +400,12 @@ export function DraftHeroHeadline({
             <TooltipTrigger
               render={
                 <button
+                  ref={refFor(NO_PROJECT_KEY)}
                   type="button"
-                  onClick={() => void startScratch()}
+                  onClick={() => {
+                    capture(NO_PROJECT_KEY);
+                    void startScratch();
+                  }}
                   className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed border-border px-2 font-semibold text-muted-foreground text-xs transition-[border-color,color] hover:border-foreground/30 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none"
                 />
               }
@@ -358,6 +422,7 @@ export function DraftHeroHeadline({
           <TooltipTrigger
             render={
               <button
+                ref={refFor(ADD_PROJECT_KEY)}
                 type="button"
                 aria-label="Add project"
                 onClick={openAddProject}

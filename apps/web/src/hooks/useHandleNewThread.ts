@@ -79,6 +79,11 @@ export function useNewThreadHandler() {
         envMode?: DraftThreadEnvMode;
         startFromOrigin?: boolean;
         replace?: boolean;
+        /**
+         * Move this open, empty draft to the project in place instead of opening the
+         * project's own draft, so the composer stays mounted while the project changes.
+         */
+        retargetDraftId?: DraftId;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
       // prepared checkout, a task to write — addresses that one rather than looking the project
@@ -184,6 +189,40 @@ export function useNewThreadHandler() {
       const logicalProjectKey = project
         ? deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings)
         : scopedProjectKey(projectRef);
+      const retargetDraftId = options?.retargetDraftId;
+      if (retargetDraftId !== undefined) {
+        return (async () => {
+          const envMode = options?.envMode ?? (await resolveDefaultEnvMode());
+          const retargeted = getDraftSession(retargetDraftId);
+          if (abandonedSinceRequest() || !retargeted || retargeted.promotedTo != null) {
+            return null;
+          }
+          // Same fresh workspace context as minting a new draft for the project.
+          setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, retargetDraftId, {
+            threadId: retargeted.threadId,
+            createdAt: retargeted.createdAt,
+            branch: options?.branch ?? null,
+            worktreePath: options?.worktreePath ?? null,
+            envMode,
+            startFromOrigin:
+              options?.startFromOrigin ??
+              resolveNewDraftStartFromOrigin({
+                envMode,
+                newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
+              }),
+            runtimeMode: defaultRuntimeMode,
+            ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
+          });
+          if (!hasExplicitComposerModelSelection(getComposerDraft(retargetDraftId))) {
+            applyStickyState(retargetDraftId);
+            const modelSelectionOverride = resolveModelSelectionOverride(retargetDraftId);
+            if (modelSelectionOverride) {
+              setModelSelection(retargetDraftId, modelSelectionOverride, { replaceOptions: true });
+            }
+          }
+          return { draftId: retargetDraftId, threadId: retargeted.threadId };
+        })();
+      }
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;

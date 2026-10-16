@@ -317,3 +317,78 @@ describe.each([
     },
   );
 });
+
+describe("useNewThreadHandler retargeting an open draft", () => {
+  it("moves the open draft to the project with its defaults, without opening another", async () => {
+    testState.reset(
+      {
+        draftId: "draft-existing",
+        environmentId: "environment-ssh",
+        promotedTo: null,
+        threadId: "thread-existing",
+      },
+      { envMode: "worktree", startFromOrigin: true },
+    );
+    testState.draftStore.getDraftSession.mockImplementation(
+      () =>
+        ({
+          draftId: "draft-open",
+          threadId: "thread-open",
+          createdAt: "2026-10-16T00:00:00.000Z",
+          promotedTo: null,
+        }) as never,
+    );
+    const projectRef = { environmentId: "environment-ssh", projectId: "project-remote" } as never;
+
+    const pendingOpen = useNewThreadHandler()(projectRef, {
+      retargetDraftId: "draft-open" as never,
+    });
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+    testState.draftStore.getDraftSession.mockImplementation(() => null);
+
+    expect(opened).toEqual({ draftId: "draft-open", threadId: "thread-open" });
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledTimes(1);
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      "draft-open",
+      expect.objectContaining({
+        threadId: "thread-open",
+        branch: null,
+        worktreePath: null,
+        envMode: "worktree",
+        startFromOrigin: true,
+      }),
+    );
+    expect(testState.router.navigate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["promoted to a thread", { promotedTo: { threadId: "thread-server" } }],
+    ["gone", null],
+  ])("leaves a draft that was %s meanwhile untouched", async (_, session) => {
+    testState.reset(null);
+    testState.draftStore.getDraftSession.mockImplementation(() =>
+      session === null
+        ? null
+        : ({
+            draftId: "draft-open",
+            threadId: "thread-open",
+            createdAt: "2026-10-16T00:00:00.000Z",
+            ...session,
+          } as never),
+    );
+    const pendingOpen = useNewThreadHandler()(
+      { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+      { retargetDraftId: "draft-open" as never },
+    );
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+    testState.draftStore.getDraftSession.mockImplementation(() => null);
+
+    expect(opened).toBeNull();
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).not.toHaveBeenCalled();
+    expect(testState.router.navigate).not.toHaveBeenCalled();
+  });
+});
