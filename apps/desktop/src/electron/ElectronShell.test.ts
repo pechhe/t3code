@@ -2,12 +2,16 @@ import { assert, describe, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { beforeEach, vi } from "vite-plus/test";
 
-const { openExternalMock, writeTextMock } = vi.hoisted(() => ({
+const { browserNameMock, openExternalMock, writeTextMock } = vi.hoisted(() => ({
+  browserNameMock: vi.fn(),
   openExternalMock: vi.fn(),
   writeTextMock: vi.fn(),
 }));
 
 vi.mock("electron", () => ({
+  app: {
+    getApplicationNameForProtocol: browserNameMock,
+  },
   shell: {
     openExternal: openExternalMock,
   },
@@ -21,6 +25,8 @@ import * as ElectronShell from "./ElectronShell.ts";
 describe("ElectronShell", () => {
   beforeEach(() => {
     openExternalMock.mockReset();
+    browserNameMock.mockReset();
+    browserNameMock.mockReturnValue("Safari");
     writeTextMock.mockReset();
   });
 
@@ -32,8 +38,28 @@ describe("ElectronShell", () => {
       const result = yield* electronShell.openExternal("https://example.com/path");
 
       assert.equal(result, true);
-      assert.deepEqual(openExternalMock.mock.calls, [["https://example.com/path"]]);
+      assert.deepEqual(openExternalMock.mock.calls, [
+        ["https://example.com/path", { activate: true }],
+      ]);
     }).pipe(Effect.provide(ElectronShell.layer)),
+  );
+
+  it.effect.skipIf(process.platform !== "darwin")(
+    "leaves Phi in the background for web links so only its kiosk window shows",
+    () =>
+      Effect.gen(function* () {
+        browserNameMock.mockReturnValue("Phi");
+        openExternalMock.mockResolvedValue(undefined);
+
+        const electronShell = yield* ElectronShell.ElectronShell;
+        yield* electronShell.openExternal("https://example.com/path");
+        yield* electronShell.openExternal("zed://ssh/example.com/");
+
+        assert.deepEqual(openExternalMock.mock.calls, [
+          ["https://example.com/path", { activate: false }],
+          ["zed://ssh/example.com/", { activate: true }],
+        ]);
+      }).pipe(Effect.provide(ElectronShell.layer)),
   );
 
   it.effect("copies text to the system clipboard", () =>
@@ -83,7 +109,7 @@ describe("ElectronShell", () => {
 
       assert.equal(result, true);
       assert.deepEqual(openExternalMock.mock.calls, [
-        ["vscode://vscode-remote/ssh-remote+example.com/home/user/project"],
+        ["vscode://vscode-remote/ssh-remote+example.com/home/user/project", { activate: true }],
       ]);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
@@ -100,8 +126,8 @@ describe("ElectronShell", () => {
 
       assert.deepEqual(results, [true, true]);
       assert.deepEqual(openExternalMock.mock.calls, [
-        ["zed://ssh/example.com/home/user/project"],
-        ["zed://ssh/example.com/"],
+        ["zed://ssh/example.com/home/user/project", { activate: true }],
+        ["zed://ssh/example.com/", { activate: true }],
       ]);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
@@ -116,7 +142,7 @@ describe("ElectronShell", () => {
       const result = yield* electronShell.openExternal(url);
 
       assert.equal(result, true);
-      assert.deepEqual(openExternalMock.mock.calls, [[url]]);
+      assert.deepEqual(openExternalMock.mock.calls, [[url, { activate: true }]]);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
 

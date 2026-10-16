@@ -54,6 +54,13 @@ export function parseSafeExternalUrl(rawUrl: unknown): Option.Option<string> {
   }
 }
 
+// Phi raises a kiosk window for links from other apps; activating Phi as well
+// would bring every Phi window forward. Other browsers need activation to be seen.
+const shouldActivate = (url: string) =>
+  process.platform !== "darwin" ||
+  !SAFE_WEB_PROTOCOLS.has(new URL(url).protocol) ||
+  Electron.app.getApplicationNameForProtocol("https://") !== "Phi";
+
 export class ElectronShell extends Context.Service<
   ElectronShell,
   {
@@ -70,7 +77,7 @@ export const make = ElectronShell.of({
       onNone: () => Effect.succeed(false),
       onSome: (externalUrl) =>
         Effect.promise(() =>
-          Electron.shell.openExternal(externalUrl).then(
+          Electron.shell.openExternal(externalUrl, { activate: shouldActivate(externalUrl) }).then(
             () => true,
             () => false,
           ),
