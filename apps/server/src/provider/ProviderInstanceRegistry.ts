@@ -13,7 +13,7 @@
  *   - `listUnavailable` — `ServerProvider` shadows for instances whose
  *     driver is not registered in this build (rollback / fork tolerance).
  *   - `listPools` — account pools, which route to member instances and
- *     run no driver of their own (see `providerPools.ts`).
+ *     run no driver of their own (see `@t3tools/shared/providerPools`).
  *   - `streamChanges` — coalesced "registry mutated" pings so consumers
  *     can re-pull lists or re-broadcast.
  *
@@ -70,7 +70,7 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import { buildUnavailableProviderSnapshot } from "./unavailableProviderSnapshot.ts";
-import type { ProviderPool } from "./providerPools.ts";
+import type { ProviderPool } from "@t3tools/shared/providerPools";
 import * as ProviderInstanceRegistryMutator from "./ProviderInstanceRegistryMutator.ts";
 import type { AnyProviderDriver, ProviderInstance } from "@t3tools/provider-core/server/driver";
 

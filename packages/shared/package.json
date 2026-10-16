@@ -43,6 +43,10 @@
       "types": "./src/model.ts",
       "import": "./src/model.ts"
     },
+    "./providerPools": {
+      "types": "./src/providerPools.ts",
+      "import": "./src/providerPools.ts"
+    },
     "./advertisedEndpoint": {
       "types": "./src/advertisedEndpoint.ts",
       "import": "./src/advertisedEndpoint.ts"

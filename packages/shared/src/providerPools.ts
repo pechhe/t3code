@@ -6,7 +6,7 @@
  * unused soonest, among those with allowance left. A thread already on a member stays there while it has
  * allowance, which avoids a provider switch and its context handoff.
  *
- * @module provider/providerPools
+ * @module providerPools
  */
 import type {
   ProviderDriverKind,
@@ -144,7 +144,7 @@ export const pickPoolMember = (input: {
   if (current !== undefined && !isProviderUsageExhausted(current, input.nowMs)) {
     return current.instanceId;
   }
-  return candidates.toSorted(compareByUsageReset(input.nowMs))[0]?.instanceId;
+  return [...candidates].sort(compareByUsageReset(input.nowMs))[0]?.instanceId;
 };
 
 /**
@@ -164,7 +164,7 @@ export const pickPoolFailoverMember = (input: {
       (provider) =>
         provider.instanceId !== input.limited && !isProviderUsageExhausted(provider, input.nowMs),
     )
-    .toSorted(compareByUsageReset(input.nowMs))[0]?.instanceId;
+    .sort(compareByUsageReset(input.nowMs))[0]?.instanceId;
 
 /**
  * Append one snapshot per pool, presented as the member a turn would use now

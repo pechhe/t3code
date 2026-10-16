@@ -6,6 +6,7 @@ import type {
   ProviderInstanceId,
   ServerProvider,
 } from "@t3tools/contracts";
+import { pickPoolMember } from "@t3tools/shared/providerPools";
 
 /**
  * The subset of a projection run that handoff rows read. Kept minimal so the
@@ -19,11 +20,16 @@ export type HandoffTimelineRun = Pick<
 
 export type HandoffEndpoints = ReturnType<typeof resolveHandoffEndpoints>;
 
-/** Preview the next send's handoff without adding anything to durable history. */
+/**
+ * Preview the next send's handoff without adding anything to durable history.
+ * An account pool resolves to the member the server will route the turn to,
+ * so the preview names the account that actually runs it.
+ */
 export function resolvePendingHandoff(
   projection: OrchestrationV2ThreadProjection | null | undefined,
   selection: ModelSelection | null | undefined,
   providers: ReadonlyArray<ServerProvider>,
+  nowMs: number,
 ): HandoffEndpoints | null {
   // A thread with an empty timeline has nothing to hand off. Any loaded row
   // counts: paging can leave a window of only tool rows.
@@ -32,16 +38,59 @@ export function resolvePendingHandoff(
     (run) => run.startedAt !== null && run.status !== "rolled_back",
   )?.modelSelection;
   if (from === undefined || selection == null) return null;
+  // The server keeps the thread on the member its own selection names.
+  const to = routePoolSelection(
+    selection,
+    providers,
+    projection.thread.modelSelection.instanceId,
+    nowMs,
+  );
   const source = providers.find((provider) => provider.instanceId === from.instanceId);
-  const target = providers.find((provider) => provider.instanceId === selection.instanceId);
+  const target = providers.find((provider) => provider.instanceId === to.instanceId);
   const needsHandoff =
-    from.instanceId === selection.instanceId
-      ? from.model !== selection.model && target?.requiresNewThreadForModelChange === true
+    from.instanceId === to.instanceId
+      ? from.model !== to.model && target?.requiresNewThreadForModelChange === true
       : // Accounts sharing a continuation group resume the same native thread.
         source?.continuation?.groupKey === undefined ||
         source.driver !== target?.driver ||
         source.continuation.groupKey !== target.continuation?.groupKey;
-  return needsHandoff ? { from: [from], to: selection } : null;
+  return needsHandoff ? { from: [from], to } : null;
+}
+
+/** Mirrors the server's pool routing: a pool runs on the thread's member while it has allowance. */
+function routePoolSelection(
+  selection: ModelSelection,
+  providers: ReadonlyArray<ServerProvider>,
+  current: ProviderInstanceId,
+  nowMs: number,
+): ModelSelection {
+  const pool = providers.find((provider) => provider.instanceId === selection.instanceId);
+  const members = pool?.poolMembers;
+  if (pool === undefined || members === undefined) return selection;
+  const member =
+    pickPoolMember({ pool: { driver: pool.driver, members }, providers, nowMs, current }) ??
+    members[0];
+  return member === undefined ? selection : { ...selection, instanceId: member };
+}
+
+/**
+ * Whether handoff endpoints need their account names: two endpoints are
+ * different accounts of the same provider, so icon and model alone read the same.
+ */
+export function handoffCrossesAccounts(
+  endpoints: HandoffEndpoints,
+  providers: ReadonlyArray<ServerProvider>,
+): boolean {
+  const instances = new Set(
+    [...endpoints.from, endpoints.to].map((endpoint) => endpoint.instanceId),
+  );
+  const drivers = new Set(
+    [...instances].map(
+      (instanceId) =>
+        providers.find((provider) => provider.instanceId === instanceId)?.driver ?? instanceId,
+    ),
+  );
+  return drivers.size < instances.size;
 }
 
 export function resolveHandoffEndpoints(

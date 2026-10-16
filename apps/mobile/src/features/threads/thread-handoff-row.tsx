@@ -1,7 +1,11 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { resolveHandoffEndpoints, type HandoffEndpoints } from "@t3tools/client-runtime/handoff";
+import {
+  handoffCrossesAccounts,
+  resolveHandoffEndpoints,
+  type HandoffEndpoints,
+} from "@t3tools/client-runtime/handoff";
 import { resolveProviderInstanceDisplayName } from "@t3tools/client-runtime/state/provider-instance-display";
 import type {
   EnvironmentId,
@@ -68,6 +72,8 @@ export function ThreadHandoffDivider(props: {
 }) {
   const config = useAtomValue(serverEnvironment.configValueAtom(props.environmentId));
   const { endpoints } = props;
+  const providers = config?.providers ?? [];
+  const showAccount = handoffCrossesAccounts(endpoints, providers);
   return (
     <ThreadContextDivider
       label={props.label}
@@ -81,7 +87,7 @@ export function ThreadHandoffDivider(props: {
             key={`${endpoint.instanceId}:${endpoint.model ?? ""}`}
             className="max-w-full flex-row items-center"
           >
-            <HandoffEndpoint {...endpoint} providers={config?.providers ?? []} />
+            <HandoffEndpoint {...endpoint} providers={providers} showAccount={showAccount} />
             {index < endpoints.from.length - 1 ? (
               <Text accessible={false} className="text-xs text-foreground-muted">
                 ,
@@ -92,7 +98,7 @@ export function ThreadHandoffDivider(props: {
         {endpoints.from.length > 0 ? (
           <SymbolView name="arrow.right" size={12} tintColor={props.iconColor} />
         ) : null}
-        <HandoffEndpoint {...endpoints.to} providers={config?.providers ?? []} />
+        <HandoffEndpoint {...endpoints.to} providers={providers} showAccount={showAccount} />
       </View>
     </ThreadContextDivider>
   );
@@ -102,27 +108,21 @@ function HandoffEndpoint(props: {
   instanceId: ProviderInstanceId;
   model?: string | undefined;
   providers: ReadonlyArray<ServerProvider>;
+  showAccount: boolean;
 }) {
   const provider = props.providers.find((candidate) => candidate.instanceId === props.instanceId);
   const model = provider?.models.find((candidate) => candidate.slug === props.model);
-  const label =
-    model?.shortName ??
-    model?.name ??
-    props.model ??
-    (provider ? resolveProviderInstanceDisplayName(provider) : props.instanceId);
+  const account = provider ? resolveProviderInstanceDisplayName(provider) : props.instanceId;
+  const label = model?.shortName ?? model?.name ?? props.model ?? account;
+  const accountLabel = props.showAccount && account !== label ? account : null;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={label}
+      accessibilityLabel={accountLabel === null ? label : `${label}, ${accountLabel}`}
       accessibilityHint="Show provider account"
       className="min-h-6 max-w-full flex-row items-center justify-center gap-1"
       hitSlop={{ top: 8, bottom: 8 }}
-      onPress={() =>
-        Dialog.alert(
-          label,
-          provider ? resolveProviderInstanceDisplayName(provider) : props.instanceId,
-        )
-      }
+      onPress={() => Dialog.alert(label, account)}
     >
       <ProviderIcon
         provider={provider?.driver ?? props.instanceId}
@@ -132,6 +132,11 @@ function HandoffEndpoint(props: {
       <Text numberOfLines={1} className="shrink text-xs text-foreground-muted">
         {label}
       </Text>
+      {accountLabel === null ? null : (
+        <Text numberOfLines={1} className="shrink text-xs text-foreground-muted">
+          {accountLabel}
+        </Text>
+      )}
     </Pressable>
   );
 }

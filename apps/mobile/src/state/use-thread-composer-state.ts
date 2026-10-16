@@ -339,6 +339,7 @@ export function useThreadComposerState() {
         selectedThreadProjection?.projection,
         modelSelection,
         selectedEnvironmentRuntime?.serverConfig?.providers ?? [],
+        Date.now(),
       ),
     [modelSelection, selectedThreadProjection, selectedEnvironmentRuntime?.serverConfig?.providers],
   );

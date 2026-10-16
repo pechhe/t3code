@@ -7598,6 +7598,7 @@ export default function ChatView(props: ChatViewProps) {
         serverProjection,
         composerSelectedModelSelection ?? activeThread?.modelSelection,
         providerStatuses,
+        Date.now(),
       ),
     [
       serverProjection,

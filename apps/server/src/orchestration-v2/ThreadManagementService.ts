@@ -59,7 +59,7 @@ import { projectTurnItemForDetail } from "./WireProjection.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import { pickPoolMember } from "../provider/providerPools.ts";
+import { pickPoolMember } from "@t3tools/shared/providerPools";
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 

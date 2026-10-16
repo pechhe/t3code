@@ -71,7 +71,7 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import type { ProviderSnapshotSource } from "./builtInProviderCatalog.ts";
-import { withPoolSnapshots, type ProviderPool } from "./providerPools.ts";
+import { withPoolSnapshots, type ProviderPool } from "@t3tools/shared/providerPools";
 
 export type ProviderMaintenanceActionKind = "update";
 

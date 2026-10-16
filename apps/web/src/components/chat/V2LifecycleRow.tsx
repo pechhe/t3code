@@ -12,6 +12,7 @@ import { MiddleTruncate } from "../ui/middle-truncate";
 import * as DateTime from "effect/DateTime";
 import { WorkLogRow } from "./WorkLog";
 import {
+  handoffCrossesAccounts,
   resolveHandoffEndpoints,
   type HandoffEndpoints,
   type HandoffTimelineRun,
@@ -594,6 +595,7 @@ export function HandoffRow(props: {
 }) {
   const { to } = props.endpoints;
   const fromEndpoints = props.rollover ? [] : props.endpoints.from;
+  const showAccount = handoffCrossesAccounts(props.endpoints, props.providers);
   return (
     <TimelineSystemDivider
       label={
@@ -617,6 +619,7 @@ export function HandoffRow(props: {
                 providers={props.providers}
                 instanceId={endpoint.instanceId}
                 model={endpoint.model}
+                showAccount={showAccount}
               />
               {index < fromEndpoints.length - 1 ? (
                 <span aria-hidden="true" className="ml-0.5">
@@ -632,6 +635,7 @@ export function HandoffRow(props: {
             providers={props.providers}
             instanceId={to.instanceId}
             model={to.model}
+            showAccount={showAccount}
           />
         </span>
       }
@@ -643,8 +647,10 @@ function HandoffEndpoint(props: {
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly instanceId: ProviderInstanceId;
   readonly model?: string | undefined;
+  readonly showAccount: boolean;
 }) {
   const entry = getProviderInstanceEntry(props.providers, props.instanceId);
+  const account = entry?.displayName ?? props.instanceId;
   const model = props.model?.trim();
   const providerModel =
     model === undefined || model.length === 0
@@ -680,11 +686,14 @@ function HandoffEndpoint(props: {
             >
               {label}
             </span>
+            {props.showAccount && account !== label ? (
+              <span className="truncate">{account}</span>
+            ) : null}
           </span>
         }
       />
       <TooltipPopup>
-        {entry?.displayName ?? props.instanceId} · {label}
+        {account} · {label}
       </TooltipPopup>
     </Tooltip>
   );

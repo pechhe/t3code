@@ -14,7 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { compareByUsageReset } from "../provider/providerPools.ts";
+import { compareByUsageReset } from "@t3tools/shared/providerPools";
 
 export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentRoleError", {
   reason: Schema.Literals([
