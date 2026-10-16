@@ -19,6 +19,7 @@ import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
+import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
 import {
@@ -221,6 +222,7 @@ function PolicyEditor({
             environmentId={environmentId}
             group={group}
             manifest={draft}
+            briefs={data.snapshot.briefs}
             providers={data.providers}
             catalog={catalog}
             disabled={pending}
@@ -312,10 +314,29 @@ function FallbackAlert({
   );
 }
 
+/** A role's chip; hovering it shows the brief the role's helpers start from. */
+function RoleBriefChip({ role, brief }: { role: AgentRole; brief: string | undefined }) {
+  if (brief === undefined) return <AgentRoleChip role={role} />;
+  return (
+    <PreviewCard>
+      <PreviewCardTrigger delay={350} closeDelay={120} render={<AgentRoleChip role={role} />} />
+      <PreviewCardPopup align="start" className="w-96 max-w-[calc(100vw-2rem)]">
+        <div className="max-h-80 overflow-y-auto p-3">
+          <p className="mb-1.5 text-2xs font-medium text-muted-foreground">
+            Brief every {AGENT_ROLE_PRESENTATION[role].label.toLowerCase()} starts from
+          </p>
+          <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">{brief}</p>
+        </div>
+      </PreviewCardPopup>
+    </PreviewCard>
+  );
+}
+
 function JobRow({
   environmentId,
   group,
   manifest,
+  briefs,
   providers,
   catalog,
   disabled,
@@ -324,6 +345,7 @@ function JobRow({
   environmentId: EnvironmentId;
   group: RoleGroup;
   manifest: Manifest;
+  briefs: AgentPolicySettings["snapshot"]["briefs"];
   providers: ReadonlyArray<ServerProvider>;
   catalog: ReadonlyArray<CatalogModel>;
   disabled: boolean;
@@ -390,7 +412,7 @@ function JobRow({
             <div className="flex flex-wrap items-center gap-1.5">
               {group.roles.map((role) => (
                 <span key={role} className="flex items-center gap-1">
-                  <AgentRoleChip role={role} />
+                  <RoleBriefChip role={role} brief={briefs[role]?.text} />
                   {UNAVAILABLE_ROLES.has(role) ? (
                     <Badge variant="outline" size="sm">
                       not available yet
