@@ -187,6 +187,7 @@ export const CHAT_MARKDOWN_REHYPE_PLUGINS: PluggableList = [
 type MarkdownAstNode = {
   type?: string;
   meta?: unknown;
+  value?: unknown;
   url?: string;
   data?: {
     hProperties?: Record<string, unknown>;
@@ -213,6 +214,14 @@ function remarkPreserveCodeMeta() {
   };
 }
 
+/** Agents often put a URL in backticks; it should still open like any other link. */
+function linkInlineCodeUrl(node: MarkdownAstNode): MarkdownAstNode {
+  if (node.type !== "inlineCode" || typeof node.value !== "string") return node;
+  const url = node.value.trim();
+  if (!/^https?:\/\/\S+$/i.test(url) || !URL.canParse(url)) return node;
+  return { type: "link", url, children: [node] };
+}
+
 function remarkNormalizeLinksAndTagInlineCode() {
   return (tree: MarkdownAstNode) => {
     const visit = (node: MarkdownAstNode, insideLink: boolean) => {
@@ -233,6 +242,9 @@ function remarkNormalizeLinksAndTagInlineCode() {
         };
       }
       const childInsideLink = insideLink || node.type === "link" || node.type === "linkReference";
+      if (!childInsideLink && node.children) {
+        node.children = node.children.map(linkInlineCodeUrl);
+      }
       node.children?.forEach((child) => visit(child, childInsideLink));
     };
 

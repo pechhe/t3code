@@ -27,3 +27,39 @@ it("preserves in-app thread links through the shared Markdown sanitizer", () => 
   });
   expect(JSON.stringify(tree)).not.toContain("javascript:");
 });
+
+it("links inline code that is exactly a web URL", () => {
+  const processor = unified()
+    .use(remarkParse)
+    .use(CHAT_MARKDOWN_REMARK_PLUGINS)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(CHAT_MARKDOWN_REHYPE_PLUGINS);
+  const tree = processor.runSync(
+    processor.parse(
+      "Open `https://app.executor.sh` then run `curl https://example.com` or `ftp://host`.",
+    ),
+  );
+  const paragraph = tree.children[0];
+  expect(paragraph).toMatchObject({
+    tagName: "p",
+    children: [
+      { type: "text", value: "Open " },
+      {
+        tagName: "a",
+        properties: { href: "https://app.executor.sh" },
+        children: [
+          {
+            tagName: "code",
+            properties: {},
+            children: [{ type: "text", value: "https://app.executor.sh" }],
+          },
+        ],
+      },
+      { type: "text", value: " then run " },
+      { tagName: "code", properties: { dataInlineCode: "" } },
+      { type: "text", value: " or " },
+      { tagName: "code", properties: { dataInlineCode: "" } },
+      { type: "text", value: "." },
+    ],
+  });
+});
