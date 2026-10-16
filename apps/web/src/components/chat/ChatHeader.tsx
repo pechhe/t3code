@@ -33,6 +33,8 @@ import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectChip } from "../ProjectChip";
 import { ThreadWorkflowMenu } from "./ThreadWorkflowMenu";
+import { BuildWorkItemSegment } from "../buildItem/BuildWorkItemSegment";
+import { useProjectBuildConnected, useThreadBuildWorkItem } from "../../state/buildWorkItems";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -104,6 +106,11 @@ export const ChatHeader = memo(function ChatHeader({
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
+  const buildWorkItem = useThreadBuildWorkItem(isServerThread ? activeThreadRef : null).data;
+  const buildConnected = useProjectBuildConnected(
+    isServerThread ? activeThreadEnvironmentId : null,
+    activeProject?.id ?? null,
+  );
   const [renaming, setRenaming] = useState<{
     threadId: ThreadId;
     environmentId: EnvironmentId;
@@ -200,6 +207,7 @@ export const ChatHeader = memo(function ChatHeader({
     threadRef: isServerThread ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
+    canLinkBuildItem: buildConnected,
   });
   const titleGroupRef = useRef<HTMLDivElement | null>(null);
   const titleClickTimerRef = useRef<number | null>(null);
@@ -328,6 +336,20 @@ export const ChatHeader = memo(function ChatHeader({
                 />
               </WorkspaceBreadcrumbItem>
             ) : null}
+            <WorkspaceBreadcrumbSeparator>
+              <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
+            </WorkspaceBreadcrumbSeparator>
+          </>
+        ) : null}
+        {buildWorkItem ? (
+          <>
+            <WorkspaceBreadcrumbItem className="shrink">
+              <BuildWorkItemSegment
+                threadRef={activeThreadRef}
+                link={buildWorkItem}
+                canEdit={canOperateThread}
+              />
+            </WorkspaceBreadcrumbItem>
             <WorkspaceBreadcrumbSeparator>
               <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
             </WorkspaceBreadcrumbSeparator>

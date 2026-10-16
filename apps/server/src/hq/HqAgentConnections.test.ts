@@ -116,7 +116,7 @@ it.effect("renewal and reconnect failures report a reason and leak no credential
 it.effect("the delegation is kept only in the server secret store", () =>
   Effect.gen(function* () {
     const { connections, stored } = yield* makeHarness;
-    assert.deepStrictEqual(yield* connections.read(projectId), { origin });
+    assert.strictEqual((yield* connections.read(projectId))?.origin, origin);
     const [entry] = [...stored.values()];
     assert.include(new TextDecoder().decode(entry), delegation);
     yield* connections.disconnect(projectId);

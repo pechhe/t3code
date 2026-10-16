@@ -85,6 +85,18 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("reads a thread's Build item under read scope and links it under operate scope", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.buildConnectionRead)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.buildWorkItemRead)).toBe(
+      AuthOrchestrationReadScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.buildWorkItemLink)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("requires write access to import agent session history", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.agentSessionsScan)).toBe(
       AuthOrchestrationReadScope,

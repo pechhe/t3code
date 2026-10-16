@@ -55,6 +55,11 @@ const makeFakeHq = () => {
     body: string;
   }> = [];
   const state = { unreachable: false, delegationRevoked: false };
+  /** Answers a `tools/call` with HQ's structured outcome; tests replace it with Build data. */
+  const tools: {
+    call: (name: string, args: Record<string, unknown>) => Record<string, unknown>;
+  } = { call: () => ({ status: "succeeded", value: null }) };
+  const toolCalls: Array<{ name: string; args: Record<string, unknown>; agentId: string }> = [];
   let minted = 0;
 
   const respond = (
@@ -144,13 +149,30 @@ const makeFakeHq = () => {
           body,
         });
         if (!valid) return respond(request, 401, { error: "invalid_token" });
-        const id = (parseJson(body) as { id: number }).id;
-        return respond(request, 200, { jsonrpc: "2.0", id, result: { agent: agent.id } });
+        const message = parseJson(body) as {
+          id: number;
+          method: string;
+          params?: { name: string; arguments: Record<string, unknown> };
+        };
+        if (message.method === "tools/call" && message.params !== undefined) {
+          toolCalls.push({
+            name: message.params.name,
+            args: message.params.arguments,
+            agentId: agent.id,
+          });
+          const outcome = tools.call(message.params.name, message.params.arguments);
+          return respond(request, 200, {
+            jsonrpc: "2.0",
+            id: message.id,
+            result: { content: [], structuredContent: outcome },
+          });
+        }
+        return respond(request, 200, { jsonrpc: "2.0", id: message.id, result: { agent: agent.id } });
       }
       return respond(request, 404, {});
     }),
   );
-  return { client, agents, tokens, mcpCalls, state };
+  return { client, agents, tokens, mcpCalls, state, tools, toolCalls };
 };
 
 /**

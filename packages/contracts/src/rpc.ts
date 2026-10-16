@@ -187,6 +187,15 @@ import {
   OrchestrationSearchThreadsResult,
 } from "./threadSearch.ts";
 import {
+  BuildConnectionReadInput,
+  BuildConnectionReadResult,
+  BuildWorkItemError,
+  BuildWorkItemLinkInput,
+  BuildWorkItemLinkResult,
+  BuildWorkItemReadInput,
+  BuildWorkItemReadResult,
+} from "./buildWorkItem.ts";
+import {
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
   ProviderUploadFeedbackResult,
@@ -554,6 +563,10 @@ export const WS_METHODS = {
   experimentsImportHistorical: "experiments.importHistorical",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+
+  buildConnectionRead: "build.connection.read",
+  buildWorkItemRead: "build.workItem.read",
+  buildWorkItemLink: "build.workItem.link",
 
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
@@ -1904,6 +1917,24 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
+const WsBuildConnectionReadRpc = Rpc.make(WS_METHODS.buildConnectionRead, {
+  payload: BuildConnectionReadInput,
+  success: BuildConnectionReadResult,
+  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+});
+
+const WsBuildWorkItemReadRpc = Rpc.make(WS_METHODS.buildWorkItemRead, {
+  payload: BuildWorkItemReadInput,
+  success: BuildWorkItemReadResult,
+  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+});
+
+const WsBuildWorkItemLinkRpc = Rpc.make(WS_METHODS.buildWorkItemLink, {
+  payload: BuildWorkItemLinkInput,
+  success: BuildWorkItemLinkResult,
+  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2111,6 +2142,9 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
+  WsBuildConnectionReadRpc,
+  WsBuildWorkItemReadRpc,
+  WsBuildWorkItemLinkRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,

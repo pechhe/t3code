@@ -211,6 +211,8 @@ import { Checkbox } from "./ui/checkbox";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
+import { openLinkBuildItemDialog } from "./buildItem/LinkBuildItemDialog";
+import { useProjectBuildConnected } from "../state/buildWorkItems";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -656,6 +658,10 @@ function OpenCommandPaletteDialog(props: {
         ? scopeThreadRef(activeThread.environmentId, activeThread.id)
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
+  const activeThreadBuildConnected = useProjectBuildConnected(
+    activeThread?.environmentId ?? null,
+    activeThread?.projectId ?? null,
+  );
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1860,6 +1866,20 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
+  }
+
+  if (activeThread !== null && activeThreadBuildConnected) {
+    const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+    actionItems.push({
+      kind: "action",
+      value: "action:link-build-item",
+      searchTerms: ["link", "build", "spec", "ticket", "hq", "yardsmith"],
+      title: activeThread.workItem ? "Change linked Build item" : "Link Build item",
+      icon: <LinkIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openLinkBuildItemDialog(threadRef);
+      },
+    });
   }
 
   if (activeThread !== null) {

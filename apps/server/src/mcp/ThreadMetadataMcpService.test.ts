@@ -4,6 +4,8 @@ import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts"
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import type * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -34,7 +36,7 @@ function layerService(
           getThreadRecords: () => Effect.die("projection must not load after shell failure"),
         } satisfies Partial<ThreadManagement.ThreadManagementService["Service"]>),
         NodeCrypto.layer,
-      ),
+      ).pipe(Layer.merge(Layer.mock(BuildWorkItems.BuildWorkItems)({}))),
     ),
   );
 }

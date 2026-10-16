@@ -386,6 +386,17 @@ export const OrchestrationV2ThreadWorkflow = Schema.Struct({
 export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;
 
 /**
+ * The YardSmith HQ Build Spec or Ticket a thread works on. T3 stores only the
+ * reference; the item itself is always read from the HQ it was resolved against.
+ */
+export const OrchestrationV2ThreadWorkItem = Schema.Struct({
+  itemId: TrimmedNonEmptyString,
+  number: PositiveInt,
+  origin: TrimmedNonEmptyString,
+});
+export type OrchestrationV2ThreadWorkItem = typeof OrchestrationV2ThreadWorkItem.Type;
+
+/**
  * A project an agent suggested for its own No project chat. The user moves the
  * chat there or keeps it; a dismissed suggestion stays recorded so the chat is
  * suggested at most once.
@@ -470,6 +481,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
   workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
+  workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
@@ -1968,6 +1980,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
   workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
+  workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   /** Slot in the user-arranged pinned order; omitted by pre-reorder servers. */
@@ -2823,6 +2836,8 @@ export const OrchestrationV2Command = Schema.Union([
     keepSideChat: Schema.optional(Schema.Literal(true)),
     /** Set (object) or clear (null) the governing workflow; absent leaves it unchanged. */
     workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
+    /** Link (object) or unlink (null) the thread's Build item; absent leaves it unchanged. */
+    workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
     /** Record a suggested project, or dismiss the recorded one; absent leaves it unchanged. */
     projectSuggestion: Schema.optional(
       Schema.Union([

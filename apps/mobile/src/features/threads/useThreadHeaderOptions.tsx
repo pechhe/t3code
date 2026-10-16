@@ -1,5 +1,5 @@
 import { StackActions, useNavigation } from "@react-navigation/native";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { Platform } from "react-native";
 import type { AppNativeStackNavigationOptions } from "../../native/StackHeader";
 import { useNativeWorkspaceColumnsSupported } from "../../native/NativeWorkspaceColumns";
@@ -17,6 +17,8 @@ type NativeHeaderItems = ReadonlyArray<Record<string, unknown>>;
 export function useThreadHeaderOptions(props: {
   readonly title: string;
   readonly subtitle: string;
+  /** A custom title view, such as one whose subtitle opens the linked Build item. */
+  readonly titleContent?: ReactNode;
   readonly headerColor: string;
   readonly usesNativeHeaderGlass: boolean;
   readonly gitControls: Parameters<typeof ThreadGitControls>[0];
@@ -136,7 +138,7 @@ export function useThreadHeaderOptions(props: {
 
   const options: AppNativeStackNavigationOptions = {
     headerShown: true,
-    headerTitle: props.title,
+    headerTitle: props.titleContent ? () => props.titleContent : props.title,
     headerTitleStyle: props.usesNativeHeaderGlass
       ? {
           fontSize: 17,
@@ -157,7 +159,8 @@ export function useThreadHeaderOptions(props: {
           ? threadCenterHeaderItems
           : compactRightHeaderItems,
     unstable_headerToolbarItems: () => [],
-    unstable_headerSubtitle: props.usesNativeHeaderGlass ? props.subtitle : undefined,
+    unstable_headerSubtitle:
+      props.usesNativeHeaderGlass && !props.titleContent ? props.subtitle : undefined,
     contentStyle: undefined,
   };
   const { environmentId, threadId, gitStatus } = props.gitControls;
@@ -168,6 +171,8 @@ export function useThreadHeaderOptions(props: {
     // callbacks also read state the items do not display (a "Push" item runs `push` or
     // `commit_push` depending on the default ref), so that state is keyed too.
     optionsVersion: [
+      // The title view is rebuilt each render; its subtitle text says when it changed.
+      props.titleContent ? props.subtitle : null,
       splitLeftHeaderItems,
       threadCenterHeaderItems,
       compactRightHeaderItems,

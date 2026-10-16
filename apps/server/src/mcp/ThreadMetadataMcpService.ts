@@ -14,6 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 
@@ -70,7 +71,9 @@ function metadataCommand(input: {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
   readonly projectId: OrchestrationV2AppThread["projectId"];
-  readonly update: ThreadMetadataMcpUpdateInput;
+  readonly update: ThreadMetadataMcpUpdateInput & {
+    readonly action: Exclude<ThreadMetadataMcpAction, "link_work_item" | "unlink_work_item">;
+  };
 }): Extract<OrchestrationV2Command, { readonly type: "thread.metadata.update" }> {
   switch (input.update.action) {
     case "rename":
@@ -120,7 +123,7 @@ function resultFromThread(input: {
   readonly sequence: number;
   readonly thread: Pick<
     OrchestrationV2AppThread,
-    "id" | "title" | "titleRegeneration" | "linkedPullRequest" | "workflow" | "updatedAt"
+    "id" | "title" | "titleRegeneration" | "linkedPullRequest" | "workflow" | "workItem" | "updatedAt"
   >;
 }): ThreadMetadataMcpUpdateResult {
   return {
@@ -138,6 +141,7 @@ function resultFromThread(input: {
           },
     linkedPullRequest: input.thread.linkedPullRequest ?? null,
     workflow: input.thread.workflow ?? null,
+    workItem: input.thread.workItem ?? null,
     updatedAt: DateTime.formatIso(input.thread.updatedAt),
   };
 }
@@ -145,6 +149,7 @@ function resultFromThread(input: {
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+  const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
 
   const update = Effect.fn("ThreadMetadataMcpService.update")(function* (
     scope: McpInvocationScope,
@@ -190,23 +195,44 @@ const make = Effect.gen(function* () {
       action: input.action,
       requestKey,
     });
-    const dispatched = yield* threadManagement
-      .dispatch(
-        metadataCommand({
-          commandId: updateCommandId,
-          threadId,
-          projectId: target.thread.projectId,
-          update: input,
-        }),
-      )
-      .pipe(
-        Effect.mapError((error) =>
-          failure(
-            "orchestration_error",
-            `Unable to ${input.action} for thread ${threadId}: ${errorMessage(error)}`,
-          ),
-        ),
-      );
+    const dispatched =
+      input.action === "link_work_item" || input.action === "unlink_work_item"
+        ? yield* buildWorkItems
+            .link({
+              threadId,
+              reference: input.action === "link_work_item" ? input.workItem! : null,
+              commandId: updateCommandId,
+            })
+            .pipe(
+              Effect.map(({ dispatch }) => dispatch),
+              Effect.mapError((error) =>
+                failure(
+                  error.reason === "dispatch_failed" || error.reason === "unavailable"
+                    ? "orchestration_error"
+                    : error.reason === "thread_not_found"
+                      ? "thread_not_found"
+                      : "invalid_request",
+                  error.message,
+                ),
+              ),
+            )
+        : yield* threadManagement
+            .dispatch(
+              metadataCommand({
+                commandId: updateCommandId,
+                threadId,
+                projectId: target.thread.projectId,
+                update: { ...input, action: input.action },
+              }),
+            )
+            .pipe(
+              Effect.mapError((error) =>
+                failure(
+                  "orchestration_error",
+                  `Unable to ${input.action} for thread ${threadId}: ${errorMessage(error)}`,
+                ),
+              ),
+            );
     const metadataEvent = dispatched.storedEvents.find(
       (stored) => stored.event.type === "thread.metadata-updated",
     );
@@ -238,5 +264,5 @@ const make = Effect.gen(function* () {
 export const layer: Layer.Layer<
   ThreadMetadataMcpService,
   never,
-  Crypto.Crypto | ThreadManagementService.ThreadManagementService
+  Crypto.Crypto | ThreadManagementService.ThreadManagementService | BuildWorkItems.BuildWorkItems
 > = Layer.effect(ThreadMetadataMcpService, make);

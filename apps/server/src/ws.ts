@@ -132,6 +132,7 @@ import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts"
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
+import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1252,6 +1253,7 @@ const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
+      const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const deviceService = yield* DeviceService.DeviceService;
@@ -2051,6 +2053,16 @@ const layerWsRpc = (
             Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
               Effect.as(commandOutputHub.subscribe(input)),
             ),
+          ),
+        [WS_METHODS.buildConnectionRead]: (input) => buildWorkItems.connected(input.projectId),
+        [WS_METHODS.buildWorkItemRead]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(buildWorkItems.view(input.threadId)),
+          ),
+        [WS_METHODS.buildWorkItemLink]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(buildWorkItems.link(input)),
+            Effect.map(({ workItem }) => ({ workItem })),
           ),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),

@@ -53,6 +53,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // Linking hands another environment read access to every thread here.
   [WS_METHODS.peersUpdate]: AuthAccessWriteScope,
 
+  [WS_METHODS.buildWorkItemLink]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksSetEnabled]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,

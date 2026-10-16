@@ -79,6 +79,7 @@ export function ThreadHeader(
       <AppBar
         title={props.title}
         subtitle={props.subtitle}
+        titleContent={props.titleContent}
         sidebar={native.sidebar}
         options={native.options}
         optionsVersion={native.optionsVersion}

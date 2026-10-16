@@ -89,6 +89,10 @@ import {
 import { threadRouteIsHydrating } from "./thread-route-hydration";
 import { useThreadPromptLink } from "../prompt-links/useThreadPromptLink";
 import { ThreadHeader } from "./ThreadHeader";
+import { presentBuildWorkItem } from "@t3tools/client-runtime/state/build-work-items";
+import { useThreadBuildWorkItem } from "../../state/build-work-items";
+import { buildWorkItemSubtitle } from "./build-work-item-subtitle";
+import { ThreadBuildHeaderTitle } from "./ThreadBuildHeaderTitle";
 import {
   useAndroidWorkspaceBack,
   useWorkspaceListNavigation,
@@ -429,12 +433,15 @@ function ThreadRouteContent(
   );
 
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
-  const headerSubtitle = [
-    selectedThreadProject?.title ?? null,
-    selectedEnvironmentConnection?.environmentLabel ?? null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const buildWorkItem = useThreadBuildWorkItem(selectedThread);
+  const headerSubtitle = buildWorkItem
+    ? buildWorkItemSubtitle(presentBuildWorkItem(buildWorkItem))
+    : [
+        selectedThreadProject?.title ?? null,
+        selectedEnvironmentConnection?.environmentLabel ?? null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
   const gitStatus = useEnvironmentQuery(
     selectedThread !== null && selectedThreadCwd !== null
       ? vcsEnvironment.status({
@@ -1069,6 +1076,15 @@ function ThreadRouteContent(
       <ThreadHeader
         title={selectedThread.title}
         subtitle={headerSubtitle}
+        titleContent={
+          buildWorkItem ? (
+            <ThreadBuildHeaderTitle
+              title={selectedThread.title}
+              subtitle={headerSubtitle}
+              url={buildWorkItem.url}
+            />
+          ) : undefined
+        }
         headerColor={headerColor}
         usesNativeHeaderGlass={usesNativeHeaderGlass}
         gitControls={threadGitControlProps}

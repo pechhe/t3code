@@ -51,6 +51,7 @@ import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
@@ -390,6 +391,7 @@ export const layerProduction = Layer.mergeAll(
   layerScheduledTaskProvided,
   RunSetupRecorder.storeLayer,
   layerSecretRequestsProvided,
+  BuildWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),
   ),

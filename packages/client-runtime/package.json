@@ -219,6 +219,10 @@
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"
     },
+    "./state/build-work-items": {
+      "types": "./src/state/buildWorkItems.ts",
+      "default": "./src/state/buildWorkItems.ts"
+    },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",
       "default": "./src/state/pullRequests.ts"

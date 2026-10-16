@@ -102,4 +102,67 @@ it.layer(layerTest)("thread workflow", (it) => {
       assert.equal((yield* orchestrator.getThreadProjection(threadId)).thread.workflow, null);
     }),
   );
+
+  it.effect("the Build item link is set, replaced, kept and cleared like the workflow", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const threadId = ThreadId.make("thread:work-item");
+      const spec = { itemId: "item-spec", number: 1_000_078, origin: "https://hq.example.test" };
+      const ticket = { itemId: "item-ticket", number: 1_000_079, origin: spec.origin };
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-work-item"),
+        threadId,
+        projectId: ProjectId.make("project:work-item"),
+        title: "Work item",
+        modelSelection: { instanceId, model: "gpt-5" },
+        runtimeMode: "approval-required",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      assert.equal((yield* projections.getThreadShell(threadId))?.workItem, null);
+
+      const set = yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("link-spec"),
+        threadId,
+        workItem: spec,
+      });
+      const event = set.storedEvents.find(
+        (stored) => stored.event.type === "thread.metadata-updated",
+      )?.event;
+      assert.ok(event?.type === "thread.metadata-updated");
+      assert.deepEqual(event.payload.workItem, spec);
+
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("link-ticket"),
+        threadId,
+        workItem: ticket,
+      });
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("rename-work-item"),
+        threadId,
+        title: "Renamed",
+      });
+      assert.deepEqual((yield* projections.getThreadShell(threadId))?.workItem, ticket);
+      assert.deepEqual(
+        (yield* orchestrator.getThreadProjection(threadId)).thread.workItem,
+        ticket,
+      );
+
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("unlink"),
+        threadId,
+        workItem: null,
+      });
+      assert.equal((yield* projections.getThreadShell(threadId))?.workItem, null);
+    }),
+  );
 });

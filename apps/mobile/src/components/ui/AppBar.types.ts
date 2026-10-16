@@ -56,6 +56,8 @@ export interface AppBarSearch {
 export interface AppBarProps {
   readonly title: string;
   readonly subtitle?: string;
+  /** Replaces the title and subtitle on Android, for a header whose subtitle is pressable. */
+  readonly titleContent?: import("react").ReactNode;
   readonly actions?: ReadonlyArray<AppBarAction>;
   readonly menus?: ReadonlyArray<AppBarMenu>;
   readonly search?: AppBarSearch;

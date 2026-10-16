@@ -18,6 +18,7 @@ export type ThreadActionMenuId =
   | "rename"
   | "regenerate-title"
   | "mark-unread"
+  | "link-build-item"
   | "copy"
   | "copy-path"
   | "copy-branch"
@@ -86,6 +87,8 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
+  /** The thread's project is connected to YardSmith HQ, so it can link a Build item. */
+  readonly canLinkBuildItem?: boolean;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -159,6 +162,9 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.canLinkBuildItem
+      ? [{ id: "link-build-item" as const, label: "Link Build item", icon: "link" }]
+      : []),
     ...(state.projectFilter
       ? [
           {

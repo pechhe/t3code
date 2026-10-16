@@ -202,6 +202,17 @@ describe("buildThreadActionMenuItems", () => {
     expect(item).toMatchObject({ label: "Regenerating…", disabled: true });
   });
 
+  it("offers Link Build item only for a project connected to HQ, and only to operators", () => {
+    expect(ids(baseState)).not.toContain("link-build-item");
+    expect(ids({ ...baseState, canLinkBuildItem: true })).toContain("link-build-item");
+    const readOnly = buildThreadActionMenuItems({
+      ...baseState,
+      canLinkBuildItem: true,
+      canOperate: false,
+    }).find((item) => item.id === "link-build-item");
+    expect(readOnly?.disabled).toBe(true);
+  });
+
   it("marks delete as destructive and keeps it last", () => {
     const items = buildThreadActionMenuItems({ ...baseState, branch: "main" });
     expect(items.at(-1)).toMatchObject({ id: "delete", destructive: true });

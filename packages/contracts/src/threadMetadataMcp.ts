@@ -8,7 +8,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
-import { OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
+import { OrchestrationV2ThreadWorkflow, OrchestrationV2ThreadWorkItem } from "./orchestrationV2.ts";
 import { ThreadLinkedPullRequest } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
 
@@ -65,9 +65,11 @@ export const ThreadMetadataMcpAction = Schema.Literals([
   "link_pull_request",
   "unlink_pull_request",
   "set_workflow",
+  "link_work_item",
+  "unlink_work_item",
 ]).annotate({
   description:
-    "Metadata mutation: rename, regenerate_title, link_pull_request, unlink_pull_request, or set_workflow.",
+    "Metadata mutation: rename, regenerate_title, link_pull_request, unlink_pull_request, set_workflow, link_work_item, or unlink_work_item.",
 });
 export type ThreadMetadataMcpAction = typeof ThreadMetadataMcpAction.Type;
 
@@ -93,9 +95,22 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
     description:
       "Governing workflow (kind: lead, shape, solo, chat or worker) and whether it runs unattended. Required only when action is set_workflow; null clears it.",
   }),
+  workItem: Schema.optional(TrimmedNonEmptyString).annotate({
+    description:
+      "The YardSmith HQ Build Spec or Ticket to link: its Build URL, #<number> or number, on the project's HQ. Required only when action is link_work_item; linking replaces any earlier item.",
+  }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
   Schema.makeFilter((input) => {
+    if (input.action === "link_work_item") {
+      return input.workItem !== undefined &&
+        input.title === undefined &&
+        input.pullRequest === undefined &&
+        input.workflow === undefined
+        ? true
+        : "link_work_item requires workItem and accepts no title, pullRequest or workflow.";
+    }
+    if (input.workItem !== undefined) return `${input.action} does not accept workItem.`;
     if (input.action === "set_workflow") {
       return input.workflow !== undefined &&
         input.title === undefined &&
@@ -115,6 +130,7 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
           : "link_pull_request requires pullRequest and does not accept title.";
       case "regenerate_title":
       case "unlink_pull_request":
+      case "unlink_work_item":
         return input.title === undefined && input.pullRequest === undefined
           ? true
           : `${input.action} does not accept title or pullRequest.`;
@@ -132,6 +148,7 @@ export const ThreadMetadataMcpUpdateResult = Schema.Struct({
   titleRegeneration: Schema.NullOr(ThreadTitleRegeneration),
   linkedPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
   workflow: Schema.NullOr(OrchestrationV2ThreadWorkflow),
+  workItem: Schema.NullOr(OrchestrationV2ThreadWorkItem),
   updatedAt: IsoDateTime,
 });
 export type ThreadMetadataMcpUpdateResult = typeof ThreadMetadataMcpUpdateResult.Type;

@@ -155,6 +155,7 @@ export function AppBar(props: AppBarProps) {
     <AndroidScreenHeader
       title={props.title}
       subtitle={props.subtitle}
+      titleContent={props.titleContent}
       onBack={props.onBack}
       leading={props.sidebar !== false ? <AndroidWorkspaceSidebarButton /> : undefined}
       hideBottomBorder={props.hideBottomBorder}

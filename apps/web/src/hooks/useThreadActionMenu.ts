@@ -47,6 +47,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
+import { openLinkBuildItemDialog } from "../components/buildItem/LinkBuildItemDialog";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -62,8 +63,10 @@ export function useThreadActionMenu(input: {
   readonly threadRef: ScopedThreadRef | null;
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
+  /** Offered only where the caller knows the project is connected to YardSmith HQ. */
+  readonly canLinkBuildItem?: boolean;
 }) {
-  const { threadRef, projectCwd, onStartRename } = input;
+  const { threadRef, projectCwd, onStartRename, canLinkBuildItem = false } = input;
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -147,6 +150,7 @@ export function useThreadActionMenu(input: {
           isRunning: !threadRuntimeCanArchive(thread.runtime),
           supports,
           snoozePresets,
+          canLinkBuildItem,
         });
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -250,6 +254,9 @@ export function useThreadActionMenu(input: {
           case "mark-unread":
             markThreadUnread(threadRef);
             return;
+          case "link-build-item":
+            openLinkBuildItemDialog(threadRef);
+            return;
           case "copy-path": {
             const workspacePath = thread.worktreePath ?? projectCwd;
             if (!workspacePath) {
@@ -327,6 +334,7 @@ export function useThreadActionMenu(input: {
     },
     [
       archiveThread,
+      canLinkBuildItem,
       confirmThreadArchive,
       confirmThreadDelete,
       confirmAndUnpinThread,

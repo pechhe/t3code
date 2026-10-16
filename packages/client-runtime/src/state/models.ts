@@ -127,6 +127,8 @@ export interface EnvironmentThreadShell {
   readonly rolloverHold?: import("@t3tools/contracts").OrchestrationV2RolloverHold | null;
   /** Governing workflow and unattended stance the thread's agent last recorded. */
   readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
+  /** The Build Spec or Ticket the thread is linked to. */
+  readonly workItem?: import("@t3tools/contracts").OrchestrationV2ThreadWorkItem | null;
   /** A project the thread's agent suggested for this No project chat. */
   readonly projectSuggestion?: {
     readonly projectId: import("@t3tools/contracts").ProjectId;
@@ -284,6 +286,7 @@ export function presentThreadShell(
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
     rolloverHold: thread.rolloverHold ?? null,
     workflow: thread.workflow ?? null,
+    workItem: thread.workItem ?? null,
     projectSuggestion: thread.projectSuggestion
       ? {
           projectId: thread.projectSuggestion.projectId,

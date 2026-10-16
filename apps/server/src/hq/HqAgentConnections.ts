@@ -69,6 +69,13 @@ interface HqForwardResponse {
   readonly body: Uint8Array;
 }
 
+/** Why the server's own read of HQ failed. `refused` covers a revoked delegation or observer. */
+export class HqObserveError extends Schema.TaggedError<HqObserveError>()("HqObserveError", {
+  reason: Schema.Literals(["not_connected", "refused", "unavailable", "failed"]),
+  /** HQ's failure code when the tool itself failed, such as `build_item_unavailable`. */
+  code: Schema.optional(Schema.String),
+}) {}
+
 export class HqConnectionError extends Schema.TaggedError<HqConnectionError>()(
   "HqConnectionError",
   { reason: Schema.Literals(["invalid_origin", "invalid_delegation", "store_failed"]) },
@@ -119,6 +126,17 @@ const decodeExchange = Schema.decodeUnknownOption(ExchangeResponse);
 const HqError = Schema.Struct({ error: Schema.String });
 const decodeHqError = Schema.decodeUnknownOption(HqError);
 
+const ToolCallResponse = Schema.Struct({
+  result: Schema.Struct({
+    structuredContent: Schema.Struct({
+      status: Schema.String,
+      value: Schema.optional(Schema.Unknown),
+      code: Schema.optional(Schema.String),
+    }),
+  }),
+});
+const decodeToolCall = Schema.decodeUnknownOption(ToolCallResponse);
+
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
@@ -153,6 +171,12 @@ interface AgentToken {
   readonly delegation: string;
 }
 
+/** The server's own `observer` agent for one HQ connection, shared by every project using it. */
+interface ObserverToken {
+  readonly value: string;
+  readonly expiresAt: number;
+}
+
 interface ThreadConnection {
   readonly credential: string;
   readonly credentialHash: string;
@@ -169,9 +193,26 @@ export class HqAgentConnections extends Context.Service<
       readonly delegation: string;
     }) => Effect.Effect<{ readonly origin: string }, HqConnectionError>;
     readonly disconnect: (projectId: ProjectId) => Effect.Effect<void, HqConnectionError>;
+    /** `connection` stands for the stored origin and delegation without revealing either. */
     readonly read: (
       projectId: ProjectId,
-    ) => Effect.Effect<{ readonly origin: string } | null, HqConnectionError>;
+    ) => Effect.Effect<
+      { readonly origin: string; readonly connection: string } | null,
+      HqConnectionError
+    >;
+    /**
+     * Calls a read-only HQ MCP tool as T3's own `observer` agent for the project's connection,
+     * whether or not any provider runs. `connection` identifies the origin and delegation used,
+     * so callers can key what they cache by it without seeing the delegation.
+     */
+    readonly observe: (
+      projectId: ProjectId,
+      tool: string,
+      args: Record<string, unknown>,
+    ) => Effect.Effect<
+      { readonly origin: string; readonly connection: string; readonly value: unknown },
+      HqObserveError
+    >;
     /** Gives the thread's agent a connection when its project is connected to HQ, and none otherwise. */
     readonly prepare: (agent: HqAgent) => Effect.Effect<void>;
     readonly connection: (threadId: ThreadId) => Effect.Effect<HqMcpConnection | undefined>;
@@ -193,6 +234,10 @@ const make = Effect.gen(function* () {
   const threads = new Map<ThreadId, ThreadConnection>();
   const threadByCredentialHash = new Map<string, ThreadId>();
   const tokenLock = yield* KeyedLock.make<ThreadId>();
+  const observers = new Map<string, ObserverToken>();
+  /** The projects that have read through each connection's observer since it was exchanged. */
+  const observerProjects = new Map<string, Set<ProjectId>>();
+  const observerLock = yield* KeyedLock.make<string>();
 
   const digest = (value: string) =>
     crypto
@@ -287,6 +332,130 @@ const make = Effect.gen(function* () {
         return token.value;
       }),
     );
+
+  const connectionKey = (stored: StoredHqConnection) =>
+    digest(`${stored.origin}\n${stored.delegation}`);
+
+  // Every project and thread in this environment shares one observer per HQ connection.
+  const observerToken = (key: string, stored: StoredHqConnection) =>
+    observerLock.withLock(
+      key,
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const cached = observers.get(key);
+        if (cached !== undefined && cached.expiresAt - now > RENEW_BEFORE_EXPIRY_MS)
+          return cached.value;
+        const { status, json } = yield* postAgents(stored, {
+          action: "exchange",
+          agentRef: environmentId,
+          role: "observer",
+          harness: "t3",
+        }).pipe(Effect.mapError(() => new HqObserveError({ reason: "unavailable" })));
+        const exchanged = status === 200 ? decodeExchange(json) : Option.none();
+        if (Option.isNone(exchanged))
+          return yield* new HqObserveError({
+            reason: status === 401 || status === 403 ? "refused" : "unavailable",
+            code: Option.getOrUndefined(decodeHqError(json))?.error,
+          });
+        observers.set(key, {
+          value: exchanged.value.token,
+          expiresAt: Date.parse(exchanged.value.expiresAt),
+        });
+        return exchanged.value.token;
+      }),
+    );
+
+  /** Ends the connection's observer once the project leaving it was the last one using it. */
+  const releaseObserver = (projectId: ProjectId, stored: StoredHqConnection) =>
+    Effect.gen(function* () {
+      const key = yield* connectionKey(stored);
+      yield* observerLock.withLock(
+        key,
+        Effect.gen(function* () {
+          const users = observerProjects.get(key);
+          users?.delete(projectId);
+          if (users !== undefined && users.size > 0) return;
+          observerProjects.delete(key);
+          if (!observers.delete(key)) return;
+          const { status } = yield* postAgents(stored, {
+            action: "end",
+            agentRef: environmentId,
+            role: "observer",
+          });
+          if (status !== 200) return yield* Effect.fail("unavailable" as const);
+        }).pipe(
+          Effect.catch((reason) =>
+            Effect.logWarning("Could not end T3's YardSmith HQ observer", { reason }),
+          ),
+        ),
+      );
+    });
+
+  const observe: HqAgentConnections["Service"]["observe"] = Effect.fn("HqAgentConnections.observe")(
+    function* (projectId, tool, args) {
+      const stored = yield* readStored(projectId).pipe(
+        Effect.mapError(() => new HqObserveError({ reason: "unavailable" })),
+      );
+      if (Option.isNone(stored)) return yield* new HqObserveError({ reason: "not_connected" });
+      const key = yield* connectionKey(stored.value);
+      const users = observerProjects.get(key) ?? new Set<ProjectId>();
+      users.add(projectId);
+      observerProjects.set(key, users);
+      const body = new TextEncoder().encode(
+        encodeJson({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: tool, arguments: args },
+        }),
+      );
+      const attempt = Effect.gen(function* () {
+        const token = yield* observerToken(key, stored.value);
+        const response = yield* callHq(stored.value.origin, token, {
+          authorization: undefined,
+          body,
+          contentType: "application/json",
+          accept: "application/json, text/event-stream",
+          protocolVersion: undefined,
+        }).pipe(Effect.mapError(() => new HqObserveError({ reason: "unavailable" })));
+        if (response.status === 401) {
+          observers.delete(key);
+          return Option.none<HqForwardResponse>();
+        }
+        return Option.some(response);
+      });
+      // A 401 means HQ no longer honours the token; one fresh exchange tells a stale token
+      // from a revoked observer or delegation, which the exchange itself then refuses.
+      const response = yield* attempt.pipe(
+        Effect.flatMap(
+          Option.match({
+            onSome: Effect.succeed,
+            onNone: () =>
+              attempt.pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onSome: Effect.succeed,
+                    onNone: () => Effect.fail(new HqObserveError({ reason: "refused" })),
+                  }),
+                ),
+              ),
+          }),
+        ),
+      );
+      const result =
+        response.status === 200
+          ? decodeJson(new TextDecoder().decode(response.body)).pipe(Option.flatMap(decodeToolCall))
+          : Option.none();
+      if (Option.isNone(result)) return yield* new HqObserveError({ reason: "unavailable" });
+      const outcome = result.value.result.structuredContent;
+      if (outcome.status !== "succeeded")
+        return yield* new HqObserveError({
+          reason: "failed",
+          code: outcome.code ?? outcome.status,
+        });
+      return { origin: stored.value.origin, connection: key, value: outcome.value };
+    },
+  );
 
   const callHq = (origin: string, token: string, request: HqForwardRequest) =>
     HttpClientRequest.post(`${origin}/api/mcp`).pipe(
@@ -423,6 +592,7 @@ const make = Effect.gen(function* () {
       if (!DELEGATION_PATTERN.test(delegation))
         return yield* new HqConnectionError({ reason: "invalid_delegation" });
       const encoded = yield* encodeStored({ origin, delegation }).pipe(Effect.orDie);
+      const previous = yield* readStored(input.projectId);
       yield* storeName(input.projectId).pipe(
         Effect.flatMap((name) => store.set(name, new TextEncoder().encode(encoded))),
         Effect.mapError(storeFailed),
@@ -430,16 +600,31 @@ const make = Effect.gen(function* () {
       // A new delegation or origin takes over at each thread's next exchange.
       for (const connection of threads.values())
         if (connection.agent.projectId === input.projectId) connection.token = undefined;
+      if (
+        Option.isSome(previous) &&
+        (previous.value.origin !== origin || previous.value.delegation !== delegation)
+      )
+        yield* releaseObserver(input.projectId, previous.value);
       return { origin };
     }),
     disconnect: Effect.fn("HqAgentConnections.disconnect")(function* (projectId) {
+      const previous = yield* readStored(projectId);
       yield* storeName(projectId).pipe(Effect.flatMap(store.remove), Effect.mapError(storeFailed));
       for (const connection of threads.values())
         if (connection.agent.projectId === projectId) connection.token = undefined;
+      if (Option.isSome(previous)) yield* releaseObserver(projectId, previous.value);
     }),
     read: (projectId) =>
       readStored(projectId).pipe(
-        Effect.map(Option.match({ onNone: () => null, onSome: ({ origin }) => ({ origin }) })),
+        Effect.flatMap(
+          Option.match({
+            onNone: () => Effect.succeed(null),
+            onSome: (stored) =>
+              connectionKey(stored).pipe(
+                Effect.map((connection) => ({ origin: stored.origin, connection })),
+              ),
+          }),
+        ),
       ),
     prepare: Effect.fn("HqAgentConnections.prepare")(function* (agent) {
       const connected = yield* readStored(agent.projectId).pipe(
@@ -473,6 +658,7 @@ const make = Effect.gen(function* () {
           ? undefined
           : { endpoint, authorizationHeader: `Bearer ${connection.credential}` };
       }),
+    observe,
     forward,
     end,
     forget: Effect.fn("HqAgentConnections.forget")(function* (agent) {
