@@ -293,9 +293,12 @@ type DelegateTaskResult = {
 Reads a delegated task from the parent thread's durable projection. A task ID
 from another parent thread is rejected. `childRunId` identifies the original
 run. `workState` distinguishes active work, a finished turn waiting for children,
-and an available result. The task remains nonterminal until its known work
-finishes. Its published `summary` and result transfer then remain stable across
-later follow-ups. `hasPendingChildRuns` reports later queued or executing turns;
+and an available result. A turn that ends with a child, a background command or a
+provider background task still pending is waiting for children; this is the same
+finished rule thread watches use (`delegatedTaskProgress`). The task remains
+nonterminal until its known work finishes. Its published `summary` and result
+transfer then remain stable across later follow-ups. `hasPendingChildRuns`
+reports later queued or executing turns;
 `latestTerminal*` exposes later executed, non-monitor results without replacing
 the published task result.
 
@@ -351,6 +354,8 @@ its own under the environment's Scratch project. For stacked PRs, use the parent
 `startFromOrigin: false`. The new thread may not run with broader runtime or
 interaction modes than the caller. Launch has no retry key, so inspect existing threads after a failed or lost response before
 launching again. `create_threads` remains the batch option for a shared checkout.
+`watch: true` records the caller's `watch_thread` watch before the first message
+is dispatched, so a thread that finishes quickly cannot be missed.
 
 ### `t3_thread_list`
 
@@ -442,6 +447,30 @@ Waits for a selected run to become `completed`, `failed`, `cancelled`,
 `interrupted`, or `rolled_back`. Without `runId`, it pins the latest run at call
 time; an idle thread returns immediately. A timeout reports the latest durable
 status and does not cancel work.
+
+### `watch_thread` and `unwatch_thread`
+
+`watch_thread` wakes the calling thread once when another thread in its
+environment has finished, so a lead needs no timer, repeated wait or report-back
+brief. The watched thread does nothing special. A watch is event-sourced state
+of the watcher (`threadWatches`), so it survives restarts. A thread has finished
+when `delegatedTaskProgress` reports `result_available` and its pending
+background work is empty, apart from its own thread watches: a pull request
+watch is unfinished work, waiting on another thread is not.
+
+A watch fires with the first outcome that applies: archived or deleted, needs
+input (a pending question or approval), failed, stopped, or finished. The wake is
+a server notification whose source is the watched thread; it quotes that
+thread's result or oldest request as its own words. `ThreadWatchReactor` only
+picks the moment, from events and a periodic sweep of stored state. The
+`thread.thread-watch.fire` command decides again under the watcher's lock, ends
+the watch and queues the wake in one transaction, and derives the wake's message
+id from the watch, so a replay cannot wake twice.
+
+A watch ends without a wake on `unwatch_thread`, when the user stops the
+watcher, or when the watcher is archived, settled or deleted. A thread cannot
+watch itself or a thread in another environment, and a subagent or a settled or
+archived thread cannot start a watch.
 
 ### `t3_thread_interrupt`
 

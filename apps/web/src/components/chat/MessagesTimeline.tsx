@@ -5290,6 +5290,7 @@ function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconName {
       case "command":
         return "terminal";
       case "monitor":
+      case "thread":
         return "eye";
       case "background_task":
         return "zap";

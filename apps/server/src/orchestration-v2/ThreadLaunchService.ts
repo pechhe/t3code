@@ -96,6 +96,8 @@ export interface ThreadLaunchInput {
    */
   readonly rootIsDefault?: boolean;
   readonly initialMessage?: ThreadLaunchInitialMessage;
+  /** A thread that watches the new one, from before its first message, so no finish is missed. */
+  readonly watchedBy?: ThreadId;
   readonly importedNativeThread?: {
     readonly ref: {
       readonly driver: ProviderDriverKind;
@@ -138,6 +140,7 @@ export class ThreadLaunchError extends Schema.TaggedError<ThreadLaunchError>()(
       "run-setup-script",
       "create-thread",
       "update-thread",
+      "watch-thread",
       "dispatch-message",
       "release-run",
       "fail-run",
@@ -1025,6 +1028,32 @@ const make = Effect.gen(function* () {
           return yield* mapError(input, "resolve-project", threadId)("Project identity changed.");
         }
 
+        if (input.watchedBy !== undefined) {
+          yield* threads
+            .dispatch({
+              type: "thread.thread-watch",
+              commandId: CommandId.make(`${input.commandId}:watch`),
+              threadId: input.watchedBy,
+              watchedThreadId: threadId,
+              watching: true,
+            })
+            .pipe(Effect.mapError(mapError(input, "watch-thread", threadId)));
+        }
+
+        // A launch whose first message is refused never runs, so its watch would wait forever.
+        const unwatchLaunched =
+          input.watchedBy === undefined
+            ? Effect.void
+            : threads
+                .dispatch({
+                  type: "thread.thread-watch",
+                  commandId: CommandId.make(`${input.commandId}:unwatch`),
+                  threadId: input.watchedBy,
+                  watchedThreadId: threadId,
+                  watching: false,
+                })
+                .pipe(Effect.ignore);
+
         let runId: RunId | null = null;
         let messageWasAlreadyAccepted = false;
         if (input.initialMessage !== undefined) {
@@ -1057,12 +1086,16 @@ const make = Effect.gen(function* () {
               createdBy: input.createdBy,
               creationSource: input.creationSource,
             })
-            .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId)));
+            .pipe(
+              Effect.tapError(() => unwatchLaunched),
+              Effect.mapError(mapError(input, "dispatch-message", threadId)),
+            );
           const runCreated = dispatched.storedEvents.find(
             (stored) => stored.event.type === "run.created",
           );
           runId = runCreated?.event.type === "run.created" ? runCreated.event.payload.id : null;
           if (runId === null) {
+            yield* unwatchLaunched;
             return yield* mapError(
               input,
               "dispatch-message",

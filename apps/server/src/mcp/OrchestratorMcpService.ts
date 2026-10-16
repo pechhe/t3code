@@ -61,6 +61,8 @@ import {
   type OrchestratorMcpThreadDetail,
   type OrchestratorMcpThreadInterruptInput,
   type OrchestratorMcpThreadInterruptResult,
+  type OrchestratorMcpThreadWatchInput,
+  type OrchestratorMcpThreadWatchResult,
   type OrchestratorMcpThreadListInput,
   type OrchestratorMcpThreadListItem,
   type OrchestratorMcpThreadListResult,
@@ -101,12 +103,14 @@ import * as ProviderAdapterRegistry from "../orchestration-v2/ProviderAdapterReg
 import {
   subagentResultForRun,
   delegatedTaskProgress,
+  delegatedTaskProgressTurnItems,
 } from "@t3tools/provider-core/server/subagentProjection";
 import {
   DispatchModeLimit,
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
 import { runOutcome } from "../orchestration-v2/RestartBackgroundNote.ts";
+import { threadWatchRefusal } from "../orchestration-v2/threadWatch.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -254,6 +258,11 @@ export interface OrchestratorMcpServiceShape {
     scope: McpInvocationScope,
     input: OrchestratorMcpThreadInterruptInput,
   ) => Effect.Effect<OrchestratorMcpThreadInterruptResult, OrchestratorMcpFailure>;
+  readonly watchThread: (
+    scope: McpInvocationScope,
+    input: OrchestratorMcpThreadWatchInput,
+    watching: boolean,
+  ) => Effect.Effect<OrchestratorMcpThreadWatchResult, OrchestratorMcpFailure>;
 }
 
 export class OrchestratorMcpService extends Context.Service<
@@ -1448,8 +1457,9 @@ const make = Effect.gen(function* () {
             "subagents",
             "providerThreads",
             "runtimeRequests",
+            "turnItems",
           ],
-          { messageRoles: ["user"] },
+          { messageRoles: ["user"], ...delegatedTaskProgressTurnItems },
         )
         .pipe(Effect.mapError(threadManagementFailure));
       const childRun = delegatedTaskRun(childControls, task);
@@ -3590,6 +3600,59 @@ const make = Effect.gen(function* () {
           status: result.run === null ? "idle" : runOutcome(result.run),
           timedOut: result.timedOut,
         } satisfies OrchestratorMcpThreadWaitResult;
+      }),
+    watchThread: (scope, input, watching) =>
+      Effect.gen(function* () {
+        yield* requireCapability(scope);
+        const { thread } = yield* requireThreadScope(
+          scope,
+          watching ? "watch_thread" : "unwatch_thread",
+        );
+        const watcher = yield* threadManagement
+          .getThreadShell(thread.threadId)
+          .pipe(Effect.mapError(threadManagementFailure));
+        if (watcher === null || watcher.deletedAt !== null) {
+          return yield* failure("thread_not_found", `Thread ${thread.threadId} was not found.`);
+        }
+        const wasWatching = (watcher.threadWatches ?? []).some(
+          (watch) => watch.threadId === input.threadId,
+        );
+        if (watching) {
+          const refusal = threadWatchRefusal(watcher, input.threadId);
+          if (refusal !== undefined) return yield* failure("invalid_request", refusal);
+          const watched = yield* threadManagement
+            .getThreadShell(input.threadId)
+            .pipe(Effect.mapError(threadManagementFailure));
+          if (watched === null || watched.deletedAt !== null) {
+            return yield* failure(
+              "thread_not_found",
+              `Thread ${input.threadId} is not in this environment. A thread can watch only threads in its own environment.`,
+            );
+          }
+        }
+        yield* threadManagement
+          .dispatch({
+            type: "thread.thread-watch",
+            commandId: stableCommandId({
+              scope,
+              requestKey: yield* requestKey(undefined),
+              operation: watching ? "thread-watch" : "thread-unwatch",
+            }),
+            threadId: watcher.id,
+            watchedThreadId: input.threadId,
+            watching,
+          })
+          .pipe(
+            Effect.mapError((error) =>
+              isThreadManagementError(error)
+                ? threadManagementFailure(error)
+                : failure(
+                    "orchestration_error",
+                    `Unable to ${watching ? "watch" : "unwatch"} thread ${input.threadId}: ${errorMessage(error)}`,
+                  ),
+            ),
+          );
+        return { threadId: input.threadId, watching, wasWatching };
       }),
     interruptThread: (scope, input) =>
       Effect.gen(function* () {

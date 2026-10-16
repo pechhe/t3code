@@ -18,6 +18,7 @@ import type {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
+import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -209,8 +210,25 @@ export function subagentResultForRun(
   };
 }
 
+/** The turn items `delegatedTaskProgress` reads: those that can still be background work. */
+export const delegatedTaskProgressTurnItems = {
+  turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+  turnItemStatuses: ["pending", "running", "waiting"],
+} as const satisfies {
+  readonly turnItemTypes: ReadonlyArray<OrchestrationV2TurnItem["type"]>;
+  readonly turnItemStatuses: ReadonlyArray<OrchestrationV2TurnItem["status"]>;
+};
+
+/**
+ * When a thread has finished its work: the one rule delegated-task delivery, `task_status` and
+ * thread watches share. Its own thread watches do not count, since waiting on another thread is
+ * not unfinished work of its own; its pull request watches do.
+ */
 export function delegatedTaskProgress(projection: {
+  readonly thread: Pick<OrchestrationV2AppThread, "pullRequests" | "activeProviderThreadId">;
   readonly runs: OrchestrationV2ThreadProjection["runs"];
+  /** Active turn items are enough: only those can be pending background work. */
+  readonly turnItems: Parameters<typeof derivePendingBackgroundWork>[0]["turnItems"];
   readonly messages: ReadonlyArray<
     Pick<OrchestrationV2ConversationMessage, "runId" | "notification">
   >;
@@ -218,7 +236,10 @@ export function delegatedTaskProgress(projection: {
     Pick<OrchestrationV2ThreadProjection["subagents"][number], "status" | "completionDelivery">
   >;
   readonly providerThreads: ReadonlyArray<
-    Pick<OrchestrationV2ThreadProjection["providerThreads"][number], "pendingBackgroundTasks">
+    Pick<
+      OrchestrationV2ThreadProjection["providerThreads"][number],
+      "id" | "pendingBackgroundTasks"
+    >
   >;
 }) {
   const terminal = (status: string) =>
@@ -234,6 +255,9 @@ export function delegatedTaskProgress(projection: {
   const active = workRuns.some(
     (run) => !terminal(run.status) && !(run.status === "queued" && run.queueHeld === true),
   );
+  const resultRun = workRuns
+    .filter((run) => terminal(run.status) && (run.startedAt !== null || run.ordinal === 1))
+    .toSorted((a, b) => (runRanAfter(a, b) ? -1 : runRanAfter(b, a) ? 1 : 0))[0];
   const children =
     projection.subagents.some(
       (task) =>
@@ -243,10 +267,16 @@ export function delegatedTaskProgress(projection: {
         task.completionDelivery?.state === "pending" ||
         task.completionDelivery?.state === "claimed",
     ) ||
-    projection.providerThreads.some((thread) => (thread.pendingBackgroundTasks?.length ?? 0) > 0);
-  const resultRun = workRuns
-    .filter((run) => terminal(run.status) && (run.startedAt !== null || run.ordinal === 1))
-    .toSorted((a, b) => (runRanAfter(a, b) ? -1 : runRanAfter(b, a) ? 1 : 0))[0];
+    projection.providerThreads.some((thread) => (thread.pendingBackgroundTasks?.length ?? 0) > 0) ||
+    (resultRun !== undefined &&
+      derivePendingBackgroundWork({
+        latestRun: resultRun,
+        providerThreads: projection.providerThreads,
+        turnItems: projection.turnItems,
+        activeProviderThreadId: projection.thread.activeProviderThreadId,
+        runs: projection.runs,
+        pullRequests: projection.thread.pullRequests,
+      }).length > 0);
   return {
     state:
       active || resultRun === undefined

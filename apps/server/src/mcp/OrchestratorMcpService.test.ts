@@ -102,6 +102,7 @@ describe("OrchestratorMcpService", () => {
         subagents: [],
         providerThreads: [],
         runtimeRequests: [],
+        turnItems: [],
       } as unknown as OrchestrationV2ThreadProjection;
       let hasNestedWork = true;
       const layerDependencies = Layer.mergeAll(

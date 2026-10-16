@@ -20,6 +20,7 @@ import * as RunSetupRecorder from "./agents/RunSetupRecorder.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
+import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
@@ -624,6 +625,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* service.start();
     }),
   ).pipe(Layer.provide(DelegatedTaskQuestionReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* ThreadWatchReactor.ThreadWatchReactor).start();
+    }),
+  ).pipe(Layer.provide(ThreadWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* HqAgentLifecycleReactor.HqAgentLifecycleReactor).start();

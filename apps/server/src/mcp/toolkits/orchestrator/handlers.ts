@@ -176,6 +176,24 @@ const handlers = {
       return yield* service.waitForThread(scope, input);
     }),
   ),
+  watch_thread: McpToolAccess.writesThreads(
+    () => [],
+    (input) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.watchThread(scope, input, true);
+      }),
+  ),
+  unwatch_thread: McpToolAccess.writesThreads(
+    () => [],
+    (input) =>
+      Effect.gen(function* () {
+        const scope = yield* McpInvocationContext.McpInvocationContext;
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.watchThread(scope, input, false);
+      }),
+  ),
   t3_thread_interrupt: McpToolAccess.writesThreads(
     (input) => [input.threadId],
     (input) =>

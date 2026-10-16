@@ -4,6 +4,7 @@ import * as Option from "effect/Option";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
+import { threadWatchRefusal } from "../../../orchestration-v2/threadWatch.ts";
 import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
@@ -112,6 +113,14 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 }),
             ),
           );
+        if (input.watch === true) {
+          const refusal =
+            caller === undefined
+              ? "Only a thread can watch the thread it launches."
+              : threadWatchRefusal(caller, threadId);
+          if (refusal !== undefined)
+            return yield* new OrchestratorMcpFailure({ code: "invalid_request", message: refusal });
+        }
         const modelSelection =
           input.modelSelection ??
           caller?.modelSelection ??
@@ -133,6 +142,7 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           interactionMode,
           workspaceStrategy: input.workspaceStrategy ?? { type: "root" },
           rootIsDefault: input.workspaceStrategy === undefined,
+          ...(input.watch === true && caller !== undefined ? { watchedBy: caller.id } : {}),
           ...(input.message === undefined && attachments.length === 0
             ? {}
             : {

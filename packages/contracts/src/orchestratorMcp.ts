@@ -561,6 +561,18 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
 });
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
+export const OrchestratorMcpThreadWatchInput = Schema.Struct({
+  threadId: ThreadId,
+});
+export type OrchestratorMcpThreadWatchInput = typeof OrchestratorMcpThreadWatchInput.Type;
+
+export const OrchestratorMcpThreadWatchResult = Schema.Struct({
+  threadId: ThreadId,
+  watching: Schema.Boolean,
+  wasWatching: Schema.Boolean,
+});
+export type OrchestratorMcpThreadWatchResult = typeof OrchestratorMcpThreadWatchResult.Type;
+
 export const OrchestratorMcpThreadInterruptInput = Schema.Struct({
   threadId: ThreadId,
   runId: Schema.optional(RunId),

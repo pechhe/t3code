@@ -226,7 +226,10 @@ it("waits for nested work and retains the report across monitor acknowledgements
     delegatedTaskProgress({
       ...projection,
       providerThreads: [
-        { pendingBackgroundTasks: [{ taskId: "background-audit", kind: "command" }] },
+        {
+          id: ProviderThreadId.make("provider-thread:audit"),
+          pendingBackgroundTasks: [{ taskId: "background-audit", kind: "command" }],
+        },
       ],
     }).state,
     "waiting_for_children",
@@ -278,6 +281,71 @@ it("waits for nested work and retains the report across monitor acknowledgements
   });
   assert.equal(progress.state, "result_available");
   assert.equal(progress.resultRun?.id, report.id);
+});
+
+it("holds the result for pending background work and pull request watches, not thread watches", () => {
+  const { projection, run } = taskFixture();
+  const command = {
+    id: TurnItemId.make("background-tests"),
+    type: "command_execution" as const,
+    status: "running" as const,
+    title: null,
+    runId: run.id,
+    input: "vp test run",
+  };
+  // A background command the thread will be woken by delays its parent's delivery.
+  assert.equal(
+    delegatedTaskProgress({ ...projection, turnItems: [command] }).state,
+    "waiting_for_children",
+  );
+  assert.equal(
+    delegatedTaskProgress({
+      ...projection,
+      turnItems: [{ ...command, status: "completed" as const }],
+    }).state,
+    "result_available",
+  );
+  const pullRequest = {
+    host: "github.com",
+    repository: "t3tools/t3code",
+    number: 7,
+    url: "https://github.com/t3tools/t3code/pull/7",
+    source: "agent" as const,
+    linkedAt: "2026-07-24T09:00:00.000Z",
+    snapshot: null,
+    stack: null,
+  };
+  const watch = {
+    startedAt: "2026-07-24T09:00:00.000Z",
+    headSha: null,
+    failedChecks: [],
+    passed: false,
+    passedChecks: [],
+    remarksThrough: "2026-07-24T09:00:00.000Z",
+    remarkIds: [],
+    conflicting: false,
+    wakes: 0,
+  };
+  assert.equal(
+    delegatedTaskProgress({
+      ...projection,
+      thread: { ...projection.thread, pullRequests: [{ ...pullRequest, watch }] },
+    }).state,
+    "waiting_for_children",
+  );
+  const watcher: OrchestrationV2AppThread = {
+    ...projection.thread,
+    pullRequests: [pullRequest],
+    threadWatches: [
+      {
+        id: "thread-watch:a",
+        threadId: childThreadId,
+        title: "Child",
+        startedAt: "2026-07-24T09:00:00.000Z",
+      },
+    ],
+  };
+  assert.equal(delegatedTaskProgress({ ...projection, thread: watcher }).state, "result_available");
 });
 
 it("exposes the provider failure rather than a progress message from the failed run", () => {

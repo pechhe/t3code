@@ -34,6 +34,7 @@ import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -497,6 +498,56 @@ it.effect("retains automation and sender attribution while a message waits in th
     assert.equal(message?.scheduledTaskId, scheduledTaskId);
     assert.equal(message?.senderThreadId, senderThreadId);
     assert.equal(message?.text, "Run the audit");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("records its launcher's watch before the first message", () => {
+  const harness = makeHarness({ runSetup: () => Effect.never });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const lead = yield* launches.launch(
+      launchInput({ command: "command:watch:lead", thread: "thread:watch:lead" }),
+    );
+    const worker = yield* launches.launch({
+      ...launchInput({
+        command: "command:watch:worker",
+        thread: "thread:watch:worker",
+        message: "Fix it",
+      }),
+      watchedBy: lead.threadId,
+    });
+    const shell = yield* threads.getThreadShell(lead.threadId);
+    assert.deepEqual(
+      shell?.threadWatches?.map((watch) => watch.threadId),
+      [worker.threadId],
+    );
+    assert.isTrue(worker.projection.runs.length > 0);
+
+    // A launch whose first message is refused never runs, so it leaves no watch behind. The
+    // worker runs above its caller's limit, so its message is refused after the watch is recorded.
+    const limited = yield* launches.launch({
+      ...launchInput({ command: "command:watch:limited", thread: "thread:watch:limited" }),
+      runtimeMode: "approval-required",
+    });
+    const refused = yield* launches
+      .launch({
+        ...launchInput({
+          command: "command:watch:refused",
+          thread: "thread:watch:refused",
+          message: "Fix it",
+        }),
+        watchedBy: limited.threadId,
+      })
+      .pipe(
+        Effect.provideService(DispatchModeLimit, {
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+        }),
+        Effect.exit,
+      );
+    assert.isTrue(Exit.isFailure(refused));
+    assert.isEmpty((yield* threads.getThreadShell(limited.threadId))?.threadWatches ?? []);
   }).pipe(Effect.provide(harness.layer));
 });
 

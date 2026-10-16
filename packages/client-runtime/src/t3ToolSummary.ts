@@ -159,6 +159,16 @@ export function summarizeT3ToolCalls(
     case "thread-list":
       label = phrase("Listed", "list", `threads ${times}`);
       break;
+    case "thread-watch":
+      label = phrase("Watching", "watch", quantity(countEntities(threadIds), "thread"));
+      break;
+    case "thread-unwatch":
+      label = phrase(
+        "Stopped watching",
+        "stop watching",
+        quantity(countEntities(threadIds), "thread"),
+      );
+      break;
     case "thread-interrupt":
       label = phrase(
         "Requested interrupts for",

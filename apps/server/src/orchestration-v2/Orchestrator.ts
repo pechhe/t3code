@@ -28,6 +28,7 @@ import {
   type OrchestrationV2InternalCommand,
   type OrchestrationV2ServerCommand,
   type ThreadPullRequestLink,
+  type OrchestrationV2ThreadWatch,
   type ThreadPullRequestWatch,
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
@@ -114,6 +115,13 @@ import {
   type ShellSnapshotOptions,
 } from "./ProjectionStore.ts";
 import { ProviderAdapterRegistryV2 } from "./ProviderAdapterRegistry.ts";
+import {
+  decideThreadWatch,
+  requestPrompt,
+  threadWatchRefusal,
+  threadWatchWake,
+  watchedThreadRecords,
+} from "./threadWatch.ts";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as RunExecutionService from "./RunExecutionService.ts";
@@ -127,6 +135,7 @@ import {
   makeSubagentChildThread,
   subagentResultForRun,
   delegatedTaskProgress,
+  delegatedTaskProgressTurnItems,
   subagentThreadTitle,
 } from "@t3tools/provider-core/server/subagentProjection";
 import {
@@ -452,6 +461,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-link.sync":
     case "thread.pull-request.watch":
     case "thread.pull-request-watch.sync":
+    case "thread.thread-watch":
+    case "thread.thread-watch.fire":
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
     case "thread.runtime-mode.set":
@@ -546,6 +557,11 @@ function withPullRequestWatch(
 ): ThreadPullRequestLink {
   const { watch: _previous, ...rest } = link;
   return watch === undefined ? rest : { ...rest, watch };
+}
+
+function withoutThreadWatches(thread: OrchestrationV2AppThread): OrchestrationV2AppThread {
+  const { threadWatches: _watches, ...rest } = thread;
+  return rest;
 }
 
 function legacyPullRequestLink(
@@ -2471,6 +2487,163 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     },
   );
 
+  const dispatchThreadWatch = Effect.fn("orchestrationV2.dispatch.threadWatch")(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.thread-watch" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const readThread = (threadId: ThreadId) =>
+      projectionStore
+        .getThread(threadId)
+        .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+    const refuse = (cause: string) =>
+      new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause,
+      });
+    const thread = yield* readThread(command.threadId);
+    if (thread.deletedAt !== null) return yield* refuse(`Thread ${command.threadId} is deleted.`);
+    const watches = thread.threadWatches ?? [];
+    const existing = watches.find((watch) => watch.threadId === command.watchedThreadId);
+    if (!command.watching) {
+      if (existing === undefined) return;
+      return yield* emitThreadWatches(
+        events,
+        command,
+        thread,
+        watches.filter((watch) => watch !== existing),
+      );
+    }
+    const refusal = threadWatchRefusal(thread, command.watchedThreadId);
+    if (refusal !== undefined) return yield* refuse(refusal);
+    if (existing !== undefined) return;
+    const watched = yield* readThread(command.watchedThreadId);
+    if (watched.deletedAt !== null) {
+      return yield* refuse(`Thread ${command.watchedThreadId} is deleted.`);
+    }
+    yield* emitThreadWatches(events, command, thread, [
+      ...watches,
+      {
+        id: `thread-watch:${command.commandId}`,
+        threadId: watched.id,
+        title: watched.title,
+        startedAt: DateTime.formatIso(yield* DateTime.now),
+      },
+    ]);
+  });
+
+  // Ending the watch and queueing its wake share one transaction, and the wake's message id comes
+  // from the watch, so a crash or a replay cannot lose the wake or send it twice. The decision is
+  // made here from stored state, so the reactor only says when to look.
+  const dispatchThreadWatchFire = Effect.fn("orchestrationV2.dispatch.threadWatchFire")(function* (
+    command: Extract<OrchestrationV2ServerCommand, { readonly type: "thread.thread-watch.fire" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    effects: Ref.Ref<Array<PendingOrchestrationEffectV2>>,
+  ) {
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    const watches = thread.threadWatches ?? [];
+    const watch = watches.find((candidate) => candidate.id === command.watchId);
+    if (watch === undefined || thread.deletedAt !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "The thread watch has ended.",
+      });
+    }
+    const readWatched = <K extends ProjectionRecordField>(
+      keys: ReadonlyArray<K>,
+      filter: ProjectionRecordFilter,
+    ) =>
+      projectionStore
+        .getThreadRecords(watch.threadId, keys, filter)
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: watch.threadId, cause }),
+          ),
+        );
+    const watched = yield* readWatched(watchedThreadRecords.fields, watchedThreadRecords.filter);
+    const decision = decideThreadWatch(watched);
+    if (decision === undefined) return;
+    if (
+      decision.kind !== "archived" &&
+      decision.kind !== "needs-input" &&
+      (yield* childAwaitsRestartContinuation(watched.runs, decision.resultRun).pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: watch.threadId, cause }),
+        ),
+      ))
+    ) {
+      return;
+    }
+    let detail: string | undefined;
+    if (decision.kind === "needs-input") {
+      const { turnItems } = yield* readWatched(["turnItems"], {
+        turnItemTypes: ["user_input_request", "approval_request"],
+      });
+      detail = requestPrompt(decision.requests[0]!, turnItems);
+    } else if (decision.kind !== "archived") {
+      const records = yield* readWatched(["messages", "turnItems"], {
+        messageRoles: ["assistant"],
+        messageRunIds: [decision.resultRun.id],
+        turnItemRunIds: [decision.resultRun.id],
+        turnItemTypes: ["assistant_message", "error"],
+      });
+      const result = subagentResultForRun(records, decision.resultRun);
+      detail = result.messageId === null && result.turnItemId === null ? undefined : result.text;
+    }
+    const wake = threadWatchWake({ watch, title: watched.thread.title, decision, detail });
+    yield* emitThreadWatches(
+      events,
+      command,
+      thread,
+      watches.filter((candidate) => candidate !== watch),
+    );
+    yield* dispatchMessage(
+      {
+        type: "message.dispatch",
+        commandId: command.commandId,
+        threadId: command.threadId,
+        messageId: MessageId.make(`message:${watch.id}`),
+        text: wake.text,
+        notification: wake.notification,
+        attachments: [],
+        dispatchMode: { type: "queue_after_active" },
+        createdBy: "agent",
+        creationSource: "server",
+      },
+      events,
+      effects,
+    );
+  });
+
+  const emitThreadWatches = (
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    command: OrchestrationV2ServerCommand,
+    thread: OrchestrationV2AppThread,
+    watches: ReadonlyArray<OrchestrationV2ThreadWatch>,
+  ) =>
+    Effect.gen(function* () {
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload:
+          watches.length === 0
+            ? withoutThreadWatches(thread)
+            : { ...thread, threadWatches: watches },
+      });
+    });
+
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
     command: Extract<
       OrchestrationV2ServerCommand,
@@ -2924,7 +3097,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       switch (command.type) {
         case "thread.archive":
           return {
-            ...thread,
+            ...withoutThreadWatches(thread),
             archivedAt: now,
             titleRegeneration: null,
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
@@ -2937,7 +3110,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           const alreadySettled =
             thread.settledOverride === "settled" && thread.settledAt !== null && !wasPinned;
           return {
-            ...thread,
+            ...withoutThreadWatches(thread),
             settledOverride: "settled",
             settledAt: alreadySettled ? thread.settledAt : (command.settledAt ?? now),
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
@@ -9199,14 +9372,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         });
       }
       const pullRequests = thread.pullRequests ?? [];
-      if (pullRequests.some((link) => link.watch !== undefined)) {
+      if (
+        pullRequests.some((link) => link.watch !== undefined) ||
+        (thread.threadWatches?.length ?? 0) > 0
+      ) {
         yield* emitEvent({
           type: "thread.pull-request-synced",
           threadId: thread.id,
           providerInstanceId: thread.providerInstanceId,
           occurredAt: input.now,
           payload: {
-            ...thread,
+            ...withoutThreadWatches(thread),
             pullRequests: pullRequests.map((link) => withPullRequestWatch(link, undefined)),
           },
         });
@@ -10680,8 +10856,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     Effect.gen(function* () {
       const childControls = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-        { messageRoles: ["user"] },
+        [
+          "runs",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "providerTurns",
+          "attempts",
+          "turnItems",
+        ],
+        { messageRoles: ["user"], ...delegatedTaskProgressTurnItems },
       );
       const parentThreadId = childControls.thread.lineage.parentThreadId;
       if (
@@ -11263,6 +11447,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.pull-request-watch.sync":
         yield* dispatchPullRequestWatchSync(command, events, effects);
         break;
+      case "thread.thread-watch":
+        yield* dispatchThreadWatch(command, events);
+        break;
+      case "thread.thread-watch.fire":
+        yield* dispatchThreadWatchFire(command, events, effects);
+        break;
       case "provider-session.detach":
         yield* dispatchProviderSessionDetach(command, events, effects);
         break;
@@ -11556,7 +11746,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.stop" ||
         command.type === "advisor.result.observe" ||
         command.type === "advisor.idle.close" ||
-        command.type === "subagent.stop"
+        command.type === "subagent.stop" ||
+        // Watching a thread already watched, or a check that finds the thread still working.
+        command.type === "thread.thread-watch" ||
+        command.type === "thread.thread-watch.fire"
           ? Effect.succeed(planned)
           : Effect.fail(
               new OrchestratorDispatchError({
@@ -11875,8 +12068,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     Effect.gen(function* () {
       const child = yield* projectionStore.getThreadRecords(
         childThreadId,
-        ["runs", "messages", "subagents", "providerThreads", "providerTurns", "attempts"],
-        { messageRoles: ["user"] },
+        [
+          "runs",
+          "messages",
+          "subagents",
+          "providerThreads",
+          "providerTurns",
+          "attempts",
+          "turnItems",
+        ],
+        { messageRoles: ["user"], ...delegatedTaskProgressTurnItems },
       );
       if (taskId !== undefined) {
         const runs = child.runs.filter((run) => run.delegatedTaskId === taskId);

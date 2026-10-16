@@ -2,6 +2,7 @@ import type {
   OrchestrationV2PendingBackgroundTask,
   OrchestrationV2ProviderThread,
   OrchestrationV2Run,
+  OrchestrationV2ThreadWatch,
   OrchestrationV2TurnItem,
   ThreadId,
   ThreadPullRequestLink,
@@ -180,6 +181,10 @@ export function derivePendingBackgroundWork(input: {
    */
   readonly runs?: ReadonlyArray<PendingBackgroundWorkRun>;
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
+  /** Omitted by the finished rule: waiting on another thread is not this thread's own work. */
+  readonly threadWatches?:
+    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "title">>
+    | undefined;
 }): ReadonlyArray<PendingBackgroundWorkTask> {
   const hasActiveRun =
     input.hasActiveRun ??
@@ -191,7 +196,7 @@ export function derivePendingBackgroundWork(input: {
     return [];
   }
   if (input.latestRun == null) {
-    return pullRequestWatchTasks(input.pullRequests);
+    return watchTasks(input);
   }
   if (!isLatestRunSettledForBackgroundWait(input.latestRun)) {
     return [];
@@ -227,9 +232,25 @@ export function derivePendingBackgroundWork(input: {
     byTaskId.set(taskId, pendingTaskFromTurnItem(taskId, item));
   }
 
-  for (const task of pullRequestWatchTasks(input.pullRequests)) byTaskId.set(task.taskId, task);
+  for (const task of watchTasks(input)) byTaskId.set(task.taskId, task);
 
   return Array.from(byTaskId.values());
+}
+
+function watchTasks(input: {
+  readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
+  readonly threadWatches?:
+    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "title">>
+    | undefined;
+}): Array<PendingBackgroundWorkTask> {
+  return [
+    ...pullRequestWatchTasks(input.pullRequests),
+    ...(input.threadWatches ?? []).map((watch) => ({
+      taskId: `thread-watch:${watch.id}`,
+      description: `Watching thread ${watch.title}`,
+      kind: "monitor" as const,
+    })),
+  ];
 }
 
 function pullRequestWatchTasks(

@@ -215,6 +215,7 @@ export function deriveThreadRuntime(
       activeProviderThreadId: projection.thread.activeProviderThreadId,
       runs: projection.runs,
       pullRequests: projection.thread.pullRequests,
+      threadWatches: projection.thread.threadWatches,
     }),
   );
   // A pull request watch can hold a thread that never ran.
@@ -394,6 +395,7 @@ export function notificationChildThreadId(
       return source.childThreadId;
     case "command":
     case "monitor":
+    case "thread":
     case "background_task":
     case "system":
       return undefined;

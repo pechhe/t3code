@@ -428,6 +428,19 @@ export const OrchestrationV2ThreadRolloverThresholds = Schema.Struct({
 export type OrchestrationV2ThreadRolloverThresholds =
   typeof OrchestrationV2ThreadRolloverThresholds.Type;
 
+/**
+ * A watch this thread holds on another thread of its environment. It wakes this thread once,
+ * when the watched thread finishes or needs attention, and then ends.
+ */
+export const OrchestrationV2ThreadWatch = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  threadId: ThreadId,
+  /** The watched thread's title when the watch started, for the watcher's pending work. */
+  title: TrimmedNonEmptyString,
+  startedAt: IsoDateTime,
+});
+export type OrchestrationV2ThreadWatch = typeof OrchestrationV2ThreadWatch.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
   advisorResultObserved: Schema.optional(Schema.Struct({ runId: RunId, at: Schema.DateTimeUtc })),
@@ -445,6 +458,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
+  threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -1153,12 +1167,17 @@ const SubagentNotificationSource = Schema.Struct({
   childThreadId: Schema.optional(ThreadId),
 });
 const CommandNotificationSource = Schema.Struct({ kind: Schema.Literal("command") });
+const ThreadNotificationSource = Schema.Struct({
+  kind: Schema.Literal("thread"),
+  threadId: ThreadId,
+});
 
 /**
  * Sources are stored and sent in the shape clients before `subagent` and `command` existed decode,
  * since they reject a kind they do not know: a command is `background_command`, and a subagent is
- * `background_task` with `work: "subagent"`, a field those clients ignore. Encoding picks the first
- * member that fits, so those come first.
+ * `background_task` with `work: "subagent"`, a field those clients ignore, and a watched thread is
+ * `background_task` with `work: "thread"`. Encoding picks the first member that fits, so those
+ * come first.
  */
 export const OrchestrationV2NotificationSource = kindUnionWithFallback(
   [
@@ -1185,8 +1204,23 @@ export const OrchestrationV2NotificationSource = kindUnionWithFallback(
         })),
       }),
     ),
+    Schema.Struct({
+      kind: Schema.Literal("background_task"),
+      work: Schema.Literal("thread"),
+      threadId: ThreadId,
+    }).pipe(
+      Schema.decodeTo(Schema.toType(ThreadNotificationSource), {
+        decode: SchemaGetter.transform(({ threadId }) => ({ kind: "thread" as const, threadId })),
+        encode: SchemaGetter.transform(({ threadId }) => ({
+          kind: "background_task" as const,
+          work: "thread" as const,
+          threadId,
+        })),
+      }),
+    ),
     Schema.Struct({ kind: Schema.Literal("background_command").transform("command") }),
     SubagentNotificationSource,
+    ThreadNotificationSource,
     CommandNotificationSource,
     Schema.Struct({ kind: Schema.Literal("monitor") }),
     Schema.Struct({ kind: Schema.Literal("background_task") }),
@@ -1930,6 +1964,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
+  threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
   sideChat: Schema.optional(Schema.Boolean),
@@ -2868,6 +2903,17 @@ export const OrchestrationV2Command = Schema.Union([
     snapshot: ThreadPullRequestSnapshot,
     stack: Schema.NullOr(ThreadPullRequestStack),
   }),
+  /**
+   * Starts or ends `threadId`'s watch on `watchedThreadId`. Starting a watch the thread already
+   * holds changes nothing.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.thread-watch"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    watchedThreadId: ThreadId,
+    watching: Schema.Boolean,
+  }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.watch"),
     commandId: CommandId,
@@ -3252,6 +3298,17 @@ const OrchestrationV2InternalCommand = Schema.Union([
     reason: Schema.String,
     placeholder: Schema.optional(Schema.String),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /**
+   * Fires the watch if the watched thread's stored state calls for it: ends the watch and queues
+   * its wake in one transaction, and otherwise changes nothing. Rejected once the watch has
+   * ended, and the wake's message id comes from the watch, so a replay cannot wake twice.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.thread-watch.fire"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    watchId: TrimmedNonEmptyString,
   }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;

@@ -1360,6 +1360,7 @@ it("round-trips typed notifications and keeps work outcome separate from item st
     { kind: "delegated_task", taskIds: ["task-1"], childThreadId: "child" },
     { kind: "subagent", childThreadId: "child" },
     { kind: "subagent" },
+    { kind: "thread", threadId: "watched" },
     { kind: "command" },
     { kind: "monitor" },
     { kind: "background_task" },
@@ -1438,6 +1439,7 @@ describe("background work kinds from older or newer servers", () => {
     const cases = [
       [{ kind: "subagent", childThreadId: "child" }, { kind: "background_task" }],
       [{ kind: "subagent" }, { kind: "background_task" }],
+      [{ kind: "thread", threadId: "watched" }, { kind: "background_task" }],
       [{ kind: "command" }, { kind: "background_command" }],
       [{ kind: "monitor" }, { kind: "monitor" }],
       [{ kind: "background_task" }, { kind: "background_task" }],

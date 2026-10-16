@@ -1476,6 +1476,7 @@ export function threadShellFromProjection(
     activeProviderThreadId: projection.thread.activeProviderThreadId,
     runs: projection.runs,
     pullRequests: projection.thread.pullRequests,
+    threadWatches: projection.thread.threadWatches,
   });
   return {
     createdBy: projection.thread.createdBy,
@@ -1499,6 +1500,9 @@ export function threadShellFromProjection(
       : { agentTask: projection.thread.agentTask }),
     worktreePath: projection.thread.worktreePath,
     pullRequests: threadPullRequestsOf(projection.thread),
+    ...(projection.thread.threadWatches === undefined
+      ? {}
+      : { threadWatches: projection.thread.threadWatches }),
     ...(projection.thread.linkedPullRequest === undefined
       ? {}
       : { linkedPullRequest: projection.thread.linkedPullRequest }),
@@ -1771,6 +1775,9 @@ function shellFromState(input: {
       : { agentTask: input.state.thread.agentTask }),
     worktreePath: input.state.thread.worktreePath,
     pullRequests: threadPullRequestsOf(input.state.thread),
+    ...(input.state.thread.threadWatches === undefined
+      ? {}
+      : { threadWatches: input.state.thread.threadWatches }),
     ...(input.state.thread.linkedPullRequest === undefined
       ? {}
       : { linkedPullRequest: input.state.thread.linkedPullRequest }),
@@ -5695,6 +5702,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                     activeProviderThreadId: thread.activeProviderThreadId,
                     hasActiveRun: false,
                     pullRequests: thread.pullRequests,
+                    threadWatches: thread.threadWatches,
                   }),
                 } satisfies ProjectionSettlementCandidate;
               }),
@@ -5836,6 +5844,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             activeProviderThreadId: thread.activeProviderThreadId,
             hasActiveRun: row.active_run_id !== null,
             pullRequests: thread.pullRequests,
+            threadWatches: thread.threadWatches,
           }),
         ];
         return {
