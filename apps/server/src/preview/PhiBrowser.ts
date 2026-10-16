@@ -1,4 +1,5 @@
 import {
+  PhiBrowserLane,
   PreviewAutomationBackendError,
   PreviewAutomationOpenInput,
   type PreviewAutomationStatus,
@@ -38,8 +39,10 @@ const Binding = Schema.Struct({
   environmentId: Schema.String,
   threadId: Schema.String,
   sessionId: Schema.String,
-  lane: Schema.Literals(["shadow", "agents"]),
+  lane: PhiBrowserLane,
   name: Schema.String,
+  /** A user-lane tab the user already had open: released, never closed. */
+  attached: Schema.optional(Schema.Literal(true)),
   skillDirectory: Schema.String,
   profile: Schema.optional(Schema.String),
   windowId: Schema.optional(Schema.Number),
@@ -109,7 +112,8 @@ const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknow
       cause.reason === "invalid-response" ||
       cause.reason === "human-control" ||
       cause.reason === "login-required" ||
-      cause.reason === "action-failed")
+      cause.reason === "action-failed" ||
+      cause.reason === "user-space-unavailable")
   )
     reason = cause.reason;
   return new PreviewAutomationBackendError({
@@ -190,12 +194,14 @@ const make = Effect.gen(function* () {
   const context = (binding: Binding): PhiBrowserRunner.PhiBrowserRound["context"] =>
     binding.lane === "agents"
       ? { kind: "agent", name: "Agents", persistent: true }
-      : {
-          kind: "shadow",
-          name: binding.name,
-          incognito: true,
-          ...(binding.profile === undefined ? {} : { profile: binding.profile }),
-        };
+      : binding.lane === "user"
+        ? { kind: "user", ...(binding.windowId === undefined ? {} : { window: binding.windowId }) }
+        : {
+            kind: "shadow",
+            name: binding.name,
+            incognito: true,
+            ...(binding.profile === undefined ? {} : { profile: binding.profile }),
+          };
   const run = (
     binding: Binding,
     action: PhiBrowserRunner.PhiBrowserRound["action"],
@@ -207,7 +213,11 @@ const make = Effect.gen(function* () {
         context: context(binding),
         skillDirectory: binding.skillDirectory,
         ...(binding.windowId === undefined ? {} : { expectedWindow: binding.windowId }),
-        ...(binding.targetId === undefined ? {} : { targetId: binding.targetId }),
+        ...(binding.targetId === undefined
+          ? binding.attached
+            ? { attachFocusedTab: true as const }
+            : {}
+          : { targetId: binding.targetId }),
         ...(binding.allocationUrl === undefined ? {} : { allocationUrl: binding.allocationUrl }),
         ...(binding.viewport === undefined ? {} : { viewport: binding.viewport }),
         action,
@@ -215,9 +225,12 @@ const make = Effect.gen(function* () {
         readHumanMessages,
       })
       .pipe(Effect.mapError((cause) => failure("unavailable", cause)));
-  const remove = (binding: Binding) =>
+  // Only the owning agent's explicit close removes a tab from the user's own Space, and only
+  // one it opened there; a released session or a restart just forgets it.
+  const remove = (binding: Binding, closeUserTab = false) =>
     Effect.gen(function* () {
-      yield* run(binding, { operation: "close" });
+      if (binding.lane !== "user" || (closeUserTab && !binding.attached))
+        yield* run(binding, { operation: "close" });
       yield* save((yield* Ref.get(state)).filter((tab) => tab.tabId !== binding.tabId));
       references.delete(binding.tabId);
       if (currentTabs.get(binding.sessionId) === binding.tabId)
@@ -311,7 +324,7 @@ const make = Effect.gen(function* () {
           }
           if (
             request.operation === "open" &&
-            (binding.lane === "shadow" || binding.allocationUrl !== undefined)
+            (binding.lane !== "agents" || binding.allocationUrl !== undefined)
           ) {
             yield* remove(binding);
             tabs = yield* Ref.get(state);
@@ -319,7 +332,7 @@ const make = Effect.gen(function* () {
           } else if (
             !(
               request.operation === "close" &&
-              (binding.lane === "shadow" || binding.allocationUrl !== undefined)
+              (binding.lane !== "agents" || binding.allocationUrl !== undefined)
             )
           )
             return yield* failure("unavailable");
@@ -337,7 +350,7 @@ const make = Effect.gen(function* () {
             return yield* failure("conflicting-binding");
           if (!binding) {
             const lane = input.phiLane ?? "shadow";
-            if (lane === "agents" && input.profileId !== undefined)
+            if (lane !== "shadow" && input.profileId !== undefined)
               return yield* failure("unsupported");
             if (lane === "agents") {
               const previous = tabs.find((tab) => tab.lane === "agents");
@@ -360,6 +373,8 @@ const make = Effect.gen(function* () {
               lane,
               name: `t3-${tabId}`,
               ...(lane === "agents" ? { allocationUrl: `about:blank#t3-${tabId}` } : {}),
+              // Without a URL the user lane carries on in the tab the user has in front of them.
+              ...(lane === "user" && input.url === undefined ? { attached: true as const } : {}),
               skillDirectory: request.scope.phiBrowserSkillDirectory ?? "",
               url: input.url ?? "",
               title: "",
@@ -377,12 +392,19 @@ const make = Effect.gen(function* () {
               const tab = yield* decodeOpened(opened.result).pipe(
                 Effect.mapError((cause) => failure("invalid-response", cause)),
               );
+              // A user-lane takeover can land on a tab another task already holds; one tab, one task.
+              if (
+                (yield* Ref.get(state)).some(
+                  (entry) => entry.tabId !== allocated.tabId && entry.targetId === tab.targetId,
+                )
+              )
+                return yield* failure("ownership");
               const window = yield* decodeWindow(opened.context).pipe(
                 Effect.mapError((cause) => failure("invalid-response", cause)),
               );
               binding = {
                 ...allocated,
-                url: action.url ?? allocated.url,
+                url: allocated.attached ? "" : (action.url ?? allocated.url),
                 targetId: tab.targetId,
                 windowId: window.windowId,
               };
@@ -432,15 +454,19 @@ const make = Effect.gen(function* () {
           const live = yield* decodeStatus(verified.result).pipe(
             Effect.mapError((cause) => failure("invalid-response", cause)),
           );
-          if (!live.tabs.some((tab) => tab.targetId === binding!.targetId))
-            return yield* failure("unavailable");
+          const liveTab = live.tabs.find((tab) => tab.targetId === binding!.targetId);
+          if (!liveTab) return yield* failure("unavailable");
           request.onTargetTab?.(binding!.tabId);
           if (request.updateCurrentTab !== false)
             currentTabs.set(request.scope.thread.providerSessionId, binding!.tabId);
           const human = live.space?.ownership === "user";
           if (human) references.delete(binding!.tabId);
           return {
-            ...status(binding!),
+            ...status({
+              ...binding!,
+              url: liveTab.url ?? binding!.url,
+              title: liveTab.title ?? binding!.title,
+            }),
             control: { owner: human ? "human" : "agent", ownedByCaller: !human, generation: 0 },
           };
         }
@@ -479,9 +505,12 @@ const make = Effect.gen(function* () {
             currentTabs.set(request.scope.thread.providerSessionId, resolvedTabId);
         };
         if (request.operation === "close") {
-          yield* remove(binding);
+          yield* remove(binding, true);
           return { tabId: null };
         }
+        // The user's window is theirs to size, and they are already in control of it.
+        if (binding.lane === "user" && ["resize", "handoff", "resume"].includes(request.operation))
+          return yield* failure("unsupported");
         const action = yield* Effect.try({
           try: () =>
             translatePhiOperation(

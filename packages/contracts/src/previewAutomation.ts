@@ -1174,6 +1174,7 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
       "invalid-response",
       "storage",
       "human-control",
+      "user-space-unavailable",
     ]),
     cause: Schema.optional(Schema.Defect()),
   },
@@ -1210,6 +1211,8 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
         return "Browser ownership state could not be saved. Resolve storage before continuing.";
       case "human-control":
         return "The shared Agents Space is held by another task or a human. Wait for hand-back before resuming.";
+      case "user-space-unavailable":
+        return "The user's own Space cannot be used: they have no ordinary Phi window in front, the tab was closed, or Phi's Settings > Developer > \"Allow agents to operate your Spaces\" is off. Ask the user; no other lane was substituted.";
     }
   }
 }

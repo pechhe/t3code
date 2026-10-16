@@ -150,11 +150,15 @@ change.
 
 Phi opens pages outside T3 Code's browser panel. Private checks use isolated incognito windows;
 work needing your sign-in uses the shared Agents Space and waits when you take control. Hand
-control back before asking the agent to resume. If Phi is unavailable, the agent reports that
-failure rather than opening the page in another browser.
+control back before asking the agent to resume. When you ask, an agent can also work in your own
+window: it carries on in the tab you have selected, or opens a new tab beside it. It never closes
+a tab it did not open there, and it needs Phi's Settings > Developer > "Allow agents to operate
+your Spaces". If Phi is unavailable, the agent reports that failure rather than opening the page
+in another browser.
 
-Delegated browser and UI-verifier agents use Phi through T3 Code's browser tools only: they have
-no shell, cannot change files, and cannot touch tabs they did not open. They are refused up front,
+Delegated browser, UI-verifier and UI-worker agents use Phi through T3 Code's browser tools only.
+They have no shell, only the UI worker can change files, and none can touch another task's tabs.
+They are refused up front,
 with the reason, when browser access is off for the project, Phi is not enabled, the Phi skill is
 missing, or Phi cannot be reached. Turning access off mid-task stops their browser actions, but
 they can still close their own tabs.

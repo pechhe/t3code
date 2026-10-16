@@ -113,6 +113,9 @@ const withFixture = (
           .pipe(Effect.orDie);
       }
       const tabs = new Map<string, { targetId: string; windowId: number }>();
+      // The user lane has no named context: its window is the one the user has in front.
+      const key = (request: PhiBrowserRunner.PhiBrowserRound) =>
+        request.context.kind === "user" ? "user" : request.context.name;
       const runner = PhiBrowserRunner.PhiBrowserRunner.of({
         run: (request) =>
           Effect.gen(function* () {
@@ -128,28 +131,31 @@ const withFixture = (
             if (request.action.operation === "open") {
               // The real filesystem journal must precede the external allocation.
               expect(yield* journal).toContain(
-                request.context.kind === "agent"
-                  ? '"lane":"agents"'
-                  : scope.thread.providerSessionId,
+                request.context.kind === "shadow"
+                  ? scope.thread.providerSessionId
+                  : `"lane":"${request.context.kind === "agent" ? "agents" : "user"}"`,
               );
               yield* Deferred.succeed(started, undefined);
               if (control.blockOpen) yield* Deferred.await(never);
-              const tab = { targetId: `phi-${calls.length}`, windowId: calls.length };
-              tabs.set(request.context.name, tab);
+              const tab = {
+                targetId: request.attachFocusedTab ? "users-own-tab" : `phi-${calls.length}`,
+                windowId: calls.length,
+              };
+              tabs.set(key(request), tab);
               return { result: { targetId: tab.targetId }, context: { windowId: tab.windowId } };
             }
-            const tab = tabs.get(request.context.name);
+            const tab = tabs.get(key(request));
             if (control.human && request.action.operation !== "status")
               return yield* new PhiBrowserRunner.PhiBrowserRunnerError({
                 reason: "connection-failed",
                 cause: "human owns input",
               });
             if (request.action.operation === "close") {
-              if (options.blockedRecovery && request.context.name === "retired-shadow") {
+              if (options.blockedRecovery && key(request) === "retired-shadow") {
                 yield* Deferred.succeed(cleanupStarted, undefined);
                 yield* Deferred.await(finishCleanup);
               }
-              tabs.delete(request.context.name);
+              tabs.delete(key(request));
               return { result: {}, context: null };
             }
             if (request.action.operation === "handoff") control.human = true;
@@ -369,7 +375,7 @@ it.effect("cleans interrupted allocation by its pre-recorded shadow name", () =>
       yield* Deferred.await(started);
       yield* Fiber.interrupt(opening);
       expect(calls.map((call) => call.action.operation)).toEqual(["open", "close"]);
-      expect(calls[1]?.context.name).toBe(calls[0]?.context.name);
+      expect(calls[1]?.context).toEqual(calls[0]?.context);
       expect(yield* browser.list(scope)).toEqual([]);
     }),
   ),
@@ -475,6 +481,103 @@ it.effect("serves a Phi tab through the production broker boundary", () =>
       );
       yield* broker.close({ scope, tabId: opened.tabId! });
       expect(yield* browser.list(scope)).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("carries on in the user's selected tab and releases it without closing", () =>
+  withFixture(({ browser, calls, journal }) =>
+    Effect.gen(function* () {
+      const opened = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: { phiLane: "user" },
+      })) as PreviewAutomationStatus;
+      expect(opened.phiLane).toBe("user");
+      expect(calls[0]).toMatchObject({ context: { kind: "user" }, attachFocusedTab: true });
+      expect(calls[0]?.context).not.toHaveProperty("window");
+      expect(yield* journal).toContain('"attached":true');
+      const tabId = opened.tabId!;
+      yield* browser.invoke({ scope, operation: "click", tabId, input: { selector: "button" } });
+      // Later rounds stay pinned to the window and tab found on open.
+      expect(calls.at(-1)).toMatchObject({
+        context: { kind: "user", window: 1 },
+        targetId: "users-own-tab",
+      });
+      expect(calls.at(-1)).not.toHaveProperty("attachFocusedTab");
+      const refused = yield* browser
+        .invoke({
+          scope,
+          operation: "resize",
+          tabId,
+          input: { mode: "preset", preset: "iphone-se" },
+        })
+        .pipe(Effect.flip, Effect.orDie);
+      expect(refused.reason).toBe("unsupported");
+      const before = calls.length;
+      yield* browser.invoke({ scope, operation: "close", tabId, input: {} });
+      expect(calls.slice(before).map((call) => call.action.operation)).not.toContain("close");
+      expect(yield* browser.list(scope)).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("closes a tab it opened in the user's Space only on the agent's own close", () =>
+  withFixture(({ browser, calls }) =>
+    Effect.gen(function* () {
+      const open = () =>
+        browser.invoke({
+          scope,
+          operation: "open",
+          input: { phiLane: "user", url: "https://example.com", reuseExistingTab: false },
+        }) as Effect.Effect<PreviewAutomationStatus, PreviewAutomationError>;
+      const kept = yield* open();
+      expect(calls[0]).not.toHaveProperty("attachFocusedTab");
+      const closed = yield* open();
+      yield* browser.invoke({ scope, operation: "close", tabId: closed.tabId!, input: {} });
+      expect(calls.at(-1)).toMatchObject({
+        action: { operation: "close" },
+        context: { kind: "user" },
+        targetId: expect.any(String),
+      });
+      const before = calls.length;
+      yield* browser.releaseSession(scope.thread.providerSessionId);
+      expect(calls.slice(before)).toEqual([]);
+      expect(yield* browser.hasTab(kept.tabId!)).toBe(false);
+      const profile = yield* browser
+        .invoke({
+          scope,
+          operation: "open",
+          input: { phiLane: "user", profileId: "Work", reuseExistingTab: false },
+        })
+        .pipe(Effect.flip, Effect.orDie);
+      expect(profile.reason).toBe("unsupported");
+    }),
+  ),
+);
+
+it.effect("refuses to take over a user tab another task already holds", () =>
+  withFixture(({ browser, calls }) =>
+    Effect.gen(function* () {
+      const first = (yield* browser.invoke({
+        scope,
+        operation: "open",
+        input: { phiLane: "user" },
+      })) as PreviewAutomationStatus;
+      const taken = yield* browser
+        .invoke({ scope: other, operation: "open", input: { phiLane: "user" } })
+        .pipe(Effect.flip, Effect.orDie);
+      expect(taken.reason).toBe("ownership");
+      expect(yield* browser.list(other)).toEqual([]);
+      // The refused takeover forgets its binding without closing the user's tab.
+      expect(calls.map((call) => call.action.operation)).not.toContain("close");
+      yield* browser.invoke({
+        scope,
+        operation: "click",
+        tabId: first.tabId!,
+        input: { selector: "button" },
+      });
+      expect(calls.at(-1)?.targetId).toBe("users-own-tab");
     }),
   ),
 );

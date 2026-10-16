@@ -21,6 +21,7 @@ export class PhiBrowserRunnerError extends Schema.TaggedError<PhiBrowserRunnerEr
       "human-control",
       "login-required",
       "action-failed",
+      "user-space-unavailable",
     ]),
     cause: Schema.Defect(),
   },
@@ -39,6 +40,8 @@ export class PhiBrowserRunnerError extends Schema.TaggedError<PhiBrowserRunnerEr
         return "The shadow page requires human sign-in through the Agents lane.";
       case "action-failed":
         return "Phi could not complete the page action.";
+      case "user-space-unavailable":
+        return "Phi could not reach a tab in the user's own Space.";
     }
   }
 }
@@ -56,7 +59,14 @@ export interface PhiBrowserRound {
         readonly kind: "agent";
         readonly name: "Agents";
         readonly persistent: true;
+      }
+    | {
+        readonly kind: "user";
+        /** Unset only on open, which binds the window the user is looking at. */
+        readonly window?: number;
       };
+  /** On a user-lane open, take over the tab the user has selected instead of opening one. */
+  readonly attachFocusedTab?: true;
   readonly readHumanMessages?: boolean;
   /** Reach Phi without allocating a browser resource. */
   readonly probe?: true;
@@ -73,7 +83,9 @@ export interface PhiBrowserRound {
 const RunnerReply = Schema.Struct({
   result: Schema.Unknown,
   context: Schema.Unknown,
-  failure: Schema.optional(Schema.Literals(["human-control", "login-required", "action-failed"])),
+  failure: Schema.optional(
+    Schema.Literals(["human-control", "login-required", "action-failed", "user-space-unavailable"]),
+  ),
 });
 const decodeReply = Schema.decodeUnknownSync(RunnerReply);
 
@@ -121,6 +133,10 @@ ${PHI_RUNNER_PROGRAM}
 } catch (error) {
   if (typeof error?.message === 'string' && error.message.startsWith('user is controlling')) {
     cliLog(JSON.stringify({t3Phi: {result: null, context: null, failure: 'human-control'}}));
+  } else if (error?.t3Failure === 'user-space-unavailable' ||
+      ['user_space_operations_disabled', 'no_focused_window', 'window_not_open', 'space_not_open'].includes(error?.reply?.error)) {
+    // Phi refuses the user's Space when its agent setting is off or the window has gone.
+    cliLog(JSON.stringify({t3Phi: {result: null, context: null, failure: 'user-space-unavailable'}}));
   } else throw error;
 } finally {
   await new Promise((resolve) => process.stdout.write('', resolve));

@@ -236,6 +236,8 @@ export function translatePhiOperation(
  * The runner itself selects the supported local/remote connection route.
  */
 export const PHI_RUNNER_PROGRAM = String.raw`
+const userSpaceUnavailable = () =>
+  Object.assign(new Error('The user Space is unavailable'), {t3Failure: 'user-space-unavailable'});
 if (request.probe) {
   await listAgentSpaces();
   cliLog(JSON.stringify({t3Phi: {result: {}, context: null}}));
@@ -275,6 +277,23 @@ if (request.action.operation === 'close' && request.context.kind === 'shadow') {
   cliLog(JSON.stringify({t3Phi: {result: {}, context: null}}));
   return;
 }
+if (request.context.kind === 'user') {
+  if (request.context.window === undefined) {
+    // Open works where the user is looking now; every later round stays pinned to that window.
+    const focus = await userFocus();
+    if (focus.isAgentSpace || focus.isIncognito || focus.windowId === undefined ||
+        (request.attachFocusedTab && !focus.tab?.targetId)) throw userSpaceUnavailable();
+    request.context = {kind: 'user', window: focus.windowId};
+    if (request.attachFocusedTab) request.targetId = focus.tab.targetId;
+  }
+  if (request.action.operation === 'close') {
+    // T3 closes only a tab the agent opened here; the user's own tabs are released, never closed.
+    await enterContext(request.context);
+    if ((await listTabs()).some(tab => tab.targetId === request.targetId)) await closeTab(request.targetId);
+    cliLog(JSON.stringify({t3Phi: {result: {}, context: null}}));
+    return;
+  }
+}
 if (request.expectedWindow !== undefined && request.context.kind === 'shadow') {
   const windows = await listShadowWindows();
   if (!windows.some(window => window.windowId === request.expectedWindow)) {
@@ -295,7 +314,8 @@ if (request.expectedWindow !== undefined && ctx.windowId !== request.expectedWin
 if (ctx.pendingUserMessages && request.action.operation !== 'status') throw new Error('Phi has pending human instructions; read status through the owning task');
 if (request.targetId) {
   const tabs = await listTabs();
-  if (!tabs.some(tab => tab.targetId === request.targetId)) throw new Error('Phi tab was lost');
+  if (!tabs.some(tab => tab.targetId === request.targetId))
+    throw request.context.kind === 'user' ? userSpaceUnavailable() : new Error('Phi tab was lost');
 }
 const op = request.action;
 // Phi's scan treats an element without a box as invisible and skips everything inside it. A
@@ -386,7 +406,9 @@ if (op.operation === 'status') {
     if (['click', 'type'].includes(op.operation) && op.target !== undefined && op.timeout !== undefined)
       await waitForElement(op.target, {timeout: op.timeout});
     switch (op.operation) {
-      case 'open': result = await openTab(request.allocationUrl ?? op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
+      case 'open': result = request.attachFocusedTab
+        ? {targetId: request.targetId}
+        : await openTab(request.allocationUrl ?? op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
       case 'navigate': result = await goto(op.url, {timeout: op.timeout}); break;
       case 'snapshot': {
         const {observed, text} = await scanPage(true);

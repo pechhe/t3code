@@ -21,5 +21,9 @@ export const DEFAULT_AGENT_BROWSER_BACKENDS: AgentBrowserBackends = {
   default: "integrated",
 };
 
-export const PhiBrowserLane = Schema.Literals(["shadow", "agents"]);
+/**
+ * `shadow` is a hidden incognito window, `agents` the shared sign-in Space, and `user` the
+ * window the user is looking at, so an agent can carry on in a tab they already have open.
+ */
+export const PhiBrowserLane = Schema.Literals(["shadow", "agents", "user"]);
 export type PhiBrowserLane = typeof PhiBrowserLane.Type;
