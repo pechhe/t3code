@@ -29,8 +29,8 @@ whole theme, or click a theme's light or dark circle to choose separately for ea
 the gallery shows your app theme. The reset button beside **Theme** returns the project to your app
 theme.
 
-The theme applies while a thread or a new thread in that project is open; your own theme returns
-everywhere else. Choosing the project in the new-thread project picker switches to its theme
+The theme applies while a thread or a new thread in that project is open, and while its Project
+settings are open, so each pick shows straight away; your own theme returns everywhere else. Choosing the project in the new-thread project picker switches to its theme
 straight away. A project keeps your light, dark or system appearance mode, and its chip takes the
 theme's accent colour.
 

@@ -1,6 +1,6 @@
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import type { EnvironmentId } from "@t3tools/contracts";
-import { useParams } from "@tanstack/react-router";
+import { useLocation, useParams } from "@tanstack/react-router";
 import { useEffect } from "react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
@@ -71,11 +71,16 @@ function useLogicalProjectKey(
 }
 
 /**
- * Logical key of the project behind the open thread or draft, or null on
- * routes without one. A draft follows its project picker, so changing the
- * project on the new-thread page changes this too.
+ * Logical key of the project behind the open thread or draft, or of the
+ * project open in Settings → Projects, so its theme gallery repaints the app
+ * as you pick; null on routes without one. A draft follows its project picker,
+ * so changing the project on the new-thread page changes this too.
  */
 export function useActiveProjectKey(): string | null {
+  const settingsProjectKey = useLocation({
+    select: (location) =>
+      location.pathname === "/settings/projects" ? (location.search.project ?? null) : null,
+  });
   const routeTarget = useParams({
     strict: false,
     select: (params) => resolveThreadRouteTarget(params),
@@ -91,7 +96,8 @@ export function useActiveProjectKey(): string | null {
       candidate.environmentId === owner.environmentId &&
       candidate.id === owner.projectId,
   );
-  return useLogicalProjectKey(project);
+  const threadProjectKey = useLogicalProjectKey(project);
+  return settingsProjectKey ?? threadProjectKey;
 }
 
 /** The theme the project paints, or null when it follows the user's theme. */
