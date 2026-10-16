@@ -11083,18 +11083,20 @@ export default function ChatView(props: ChatViewProps) {
               {...(activeDraftLogicalProjectKey
                 ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
                 : {})}
+              actions={
+                isServerThread ? (
+                  <SlipJayRunnerControl
+                    environmentId={activeThread.environmentId}
+                    releaseProject={
+                      isSlipJayProject && activeProject
+                        ? { cwd: activeProject.workspaceRoot, name: activeProject.title }
+                        : null
+                    }
+                    onOpenThread={onOpenRelatedThreadStable}
+                  />
+                ) : null
+              }
             />
-            {isServerThread ? (
-              <SlipJayRunnerControl
-                environmentId={activeThread.environmentId}
-                releaseProject={
-                  isSlipJayProject && activeProject
-                    ? { cwd: activeProject.workspaceRoot, name: activeProject.title }
-                    : null
-                }
-                onOpenThread={onOpenRelatedThreadStable}
-              />
-            ) : null}
           </header>
         )}
 
