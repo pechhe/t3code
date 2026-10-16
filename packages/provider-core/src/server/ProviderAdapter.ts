@@ -68,6 +68,8 @@ export const ProviderAdapterV2VideoFrame = Schema.Struct({
   videoAttachmentId: ChatAttachmentId,
   videoName: Schema.String,
   timestampMs: Schema.Number,
+  /** The screen changed at this frame, so the moments around it deserve a closer look. */
+  changed: Schema.optional(Schema.Boolean),
   path: Schema.String,
   mimeType: Schema.Literal("image/jpeg"),
   sizeBytes: Schema.Number,

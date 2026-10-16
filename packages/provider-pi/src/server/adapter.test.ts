@@ -528,8 +528,8 @@ describe("PiAdapterV2", () => {
         videoFrames,
       );
       const request = yield* fake.takeRequest("prompt");
-      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:03.2]');
-      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:07.2]');
+      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:03.200]');
+      assert.include(request.message as string, '[Frame of video "clip.mp4" at 00:07.200]');
       assert.notInclude(request.message as string, framePath);
       assert.deepEqual(request.images, [
         { type: "image", data: "CQo=", mimeType: "image/jpeg" },

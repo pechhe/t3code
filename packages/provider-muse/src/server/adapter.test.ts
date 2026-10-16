@@ -373,9 +373,9 @@ describe("MuseAdapterV2", () => {
       yield* harness.runtime.startTurn({ ...input, message: { ...input.message, videoFrames } });
       const call = yield* fake.takeCall("turn/start");
       assert.deepEqual((call.params.input as unknown[]).slice(-4), [
-        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.200]' },
         { type: "image", base64Data: "CQo=", mediaType: "image/jpeg" },
-        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.200]' },
         { type: "image", base64Data: "CQo=", mediaType: "image/jpeg" },
       ]);
     }).pipe(Effect.scoped, Effect.provide(testLayer)),

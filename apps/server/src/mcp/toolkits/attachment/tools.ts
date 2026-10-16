@@ -76,7 +76,7 @@ const VideoFramesTool = Tool.make("t3_video_frames", {
     VideoFrames.VideoFrames,
   ],
   description:
-    "Sample more frames from a video attached in your own thread, between startMs and endMs. Returns JPEG paths on this server with their timestamps; view them with your image or file reading tool. Use it when the frames sent with the message miss the moment you need.",
+    "Sample more frames from a video attached in your own thread, between startMs and endMs. Returns JPEG paths on this server with their timestamps; view them with your image or file reading tool. Use it when the frames sent with the message miss the moment you need: frames marked changed show where the screen changed, so ask for a narrow range around one to see it frame by frame.",
   parameters: Schema.Struct({
     attachmentId: ChatAttachmentId,
     startMs: Schema.Number.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -87,7 +87,13 @@ const VideoFramesTool = Tool.make("t3_video_frames", {
   }),
   success: Schema.Struct({
     videoName: Schema.String,
-    frames: Schema.Array(Schema.Struct({ timestampMs: Schema.Number, path: Schema.String })),
+    frames: Schema.Array(
+      Schema.Struct({
+        timestampMs: Schema.Number,
+        changed: Schema.optional(Schema.Boolean),
+        path: Schema.String,
+      }),
+    ),
   }),
 }).annotate(Tool.Readonly, true);
 export const AttachmentToolkit = Toolkit.make(

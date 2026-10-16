@@ -277,14 +277,14 @@ describe("OpenCodeAdapterV2", () => {
       });
       yield* harness.startTurn("Watch", harness.providerThread, videoFrames);
       assert.deepEqual((received as { parts: unknown[] }).parts.slice(-4), [
-        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.200]' },
         {
           type: "file",
           mime: "image/jpeg",
           filename: "clip.mp4.jpg",
           url: NodeURL.pathToFileURL(framePath).href,
         },
-        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.200]' },
         {
           type: "file",
           mime: "image/jpeg",

@@ -33,7 +33,15 @@ const output = (stdout = "", code = 0): ProcessRunner.ProcessRunOutput => ({
   stderrInvalidUtf8: false,
 });
 
-function harness(options: { missing?: boolean; bytes?: number; failVideo?: boolean } = {}) {
+function harness(
+  options: {
+    missing?: boolean;
+    bytes?: number;
+    failVideo?: boolean;
+    failDetect?: boolean;
+    changesMs?: number[];
+  } = {},
+) {
   const calls: ProcessRunner.ProcessRunInput[] = [];
   const runner = Layer.effect(
     ProcessRunner.ProcessRunner,
@@ -49,6 +57,14 @@ function harness(options: { missing?: boolean; bytes?: number; failVideo?: boole
                 '{"streams":[{"duration":"11.04","avg_frame_rate":"25/1"}],"format":{}}',
               );
             if (options.failVideo) return output("", 1);
+            if (input.args.includes("-hide_banner") && options.failDetect) return output("", 1);
+            if (input.args.includes("-hide_banner"))
+              return {
+                ...output(),
+                stderr: (options.changesMs ?? [0])
+                  .map((ms) => `[Parsed_showinfo_2 @ 0x1] n:   0 pts: 0 pts_time:${ms / 1000}`)
+                  .join("\n"),
+              };
             yield* fs
               .writeFile(input.args.at(-1)!, new Uint8Array(options.bytes ?? 8))
               .pipe(Effect.orDie);
@@ -255,6 +271,38 @@ it.effect("omits an extraction failure without failing the message", () => {
   }).pipe(Effect.provide(h.layer));
 });
 
+it.effect("spends frames on the moments the screen changed and marks them", () => {
+  const h = harness({ changesMs: [0, 2000, 2233, 5000, 5066] });
+  return Effect.gen(function* () {
+    const service = yield* VideoFrames.VideoFrames;
+    const frames = yield* service.framesForVideo({ attachment: video(), maxFrames: 12 });
+    expect(frames).toHaveLength(12);
+    expect(frames.filter((f) => f.changed).map((f) => f.timestampMs)).toEqual([
+      2000, 2233, 5000, 5066,
+    ]);
+    const detections = h.calls.filter((call) => call.args.includes("-hide_banner"));
+    expect(detections).toHaveLength(1);
+    yield* service.framesForVideo({
+      attachment: video(),
+      range: { startMs: 1900, endMs: 2400 },
+      maxFrames: 6,
+    });
+    expect(h.calls.filter((call) => call.args.includes("-hide_banner"))).toHaveLength(1);
+  }).pipe(Effect.provide(h.layer));
+});
+
+it.effect("falls back to even spacing when change detection fails", () => {
+  const h = harness({ failDetect: true });
+  return Effect.gen(function* () {
+    const service = yield* VideoFrames.VideoFrames;
+    const frames = yield* service.framesForVideo({ attachment: video(), maxFrames: 12 });
+    expect(frames.map((f) => f.timestampMs)).toEqual(
+      Array.from({ length: 12 }, (_, i) => i * 1000),
+    );
+    expect(frames.some((f) => f.changed)).toBe(false);
+  }).pipe(Effect.provide(h.layer));
+});
+
 it.effect("extracts real JPEGs from a generated fixture when ffmpeg is installed", () =>
   Effect.gen(function* () {
     const runner = yield* ProcessRunner.ProcessRunner;
@@ -299,6 +347,53 @@ it.effect("extracts real JPEGs from a generated fixture when ffmpeg is installed
       VideoFrames.layer.pipe(
         Layer.provideMerge(ProcessRunner.layer),
         Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "video-frames-real-" })),
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
+  ),
+);
+
+it.effect("finds a 200 ms toast and a one-frame flicker in a real still recording", () =>
+  Effect.gen(function* () {
+    const runner = yield* ProcessRunner.ProcessRunner;
+    if (!(yield* VideoFrames.ffmpegAvailable)) return;
+    const path = yield* Path.Path;
+    const config = yield* ServerConfig.ServerConfig;
+    const attachment = video(1);
+    const source = path.join(config.attachmentsDir, `${attachment.id}.mp4`);
+    const generated = yield* runner.run({
+      command: "ffmpeg",
+      args: [
+        "-nostdin",
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=0x203040:s=1280x720:r=30:d=8",
+        "-vf",
+        "drawbox=x=900:y=40:w=300:h=60:color=red:t=fill:enable='between(t,2.0,2.2)',drawbox=x=100:y=600:w=80:h=40:color=white:t=fill:enable='between(t,5.0,5.034)'",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-y",
+        source,
+      ],
+    });
+    expect(generated.code).toBe(0);
+    const service = yield* VideoFrames.VideoFrames;
+    const frames = yield* service.framesForVideo({ attachment, maxFrames: 12 });
+    const changed = frames.filter((frame) => frame.changed).map((frame) => frame.timestampMs);
+    expect(changed.some((ms) => Math.abs(ms - 2000) < 70)).toBe(true);
+    expect(changed.some((ms) => Math.abs(ms - 5000) < 70)).toBe(true);
+  }).pipe(
+    Effect.provide(
+      VideoFrames.layer.pipe(
+        Layer.provideMerge(ProcessRunner.layer),
+        Layer.provideMerge(
+          ServerConfig.layerTest(process.cwd(), { prefix: "video-frames-toast-" }),
+        ),
         Layer.provideMerge(NodeServices.layer),
       ),
     ),

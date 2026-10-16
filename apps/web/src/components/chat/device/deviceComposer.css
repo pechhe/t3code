@@ -1125,7 +1125,9 @@
  * it up when it appears (choosing another machine, or a project's Git status arriving).
  * There it hangs below the chassis and slides out from behind it instead.
  */
-[data-draft-hero] [data-slot="composer-shell"]:has(.composer-device) [data-slot="composer-context-strip"] {
+[data-draft-hero]
+  [data-slot="composer-shell"]:has(.composer-device)
+  [data-slot="composer-context-strip"] {
   position: absolute;
   inset-inline: 0;
   top: 100%;

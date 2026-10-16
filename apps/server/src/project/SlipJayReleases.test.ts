@@ -154,15 +154,17 @@ describe("SlipJayReleases.promote", () => {
             Effect.map(FileSystem.FileSystem, (real) => ({
               ...real,
               readFileString: (target: string, encoding?: string) =>
-                real.readFileString(target, encoding).pipe(
-                  Effect.tap(() =>
-                    Ref.updateAndGet(projectReads, (count) => count + 1).pipe(
-                      Effect.flatMap((count) =>
-                        count === 3 ? Deferred.succeed(thirdRead, undefined) : Effect.void,
+                real
+                  .readFileString(target, encoding)
+                  .pipe(
+                    Effect.tap(() =>
+                      Ref.updateAndGet(projectReads, (count) => count + 1).pipe(
+                        Effect.flatMap((count) =>
+                          count === 3 ? Deferred.succeed(thirdRead, undefined) : Effect.void,
+                        ),
                       ),
                     ),
                   ),
-                ),
             })),
           ).pipe(Layer.provide(NodeServices.layer));
           const runner = Layer.succeed(ProcessRunner.ProcessRunner, {

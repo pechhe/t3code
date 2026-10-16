@@ -19,6 +19,7 @@ import {
 } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import { pickFrameTimes } from "./frameTimes.ts";
 
 export class FfmpegUnavailable extends Schema.TaggedError<FfmpegUnavailable>()(
   "FfmpegUnavailable",
@@ -123,8 +124,13 @@ export const ffmpegAvailable = Effect.gen(function* () {
 });
 
 const Manifest = Schema.Array(
-  Schema.Struct({ timestampMs: Schema.Number, sizeBytes: Schema.Number }),
+  Schema.Struct({
+    timestampMs: Schema.Number,
+    sizeBytes: Schema.Number,
+    changed: Schema.optionalKey(Schema.Boolean),
+  }),
 );
+const Changes = Schema.Array(Schema.Number);
 const Probe = Schema.Struct({
   streams: Schema.Array(
     Schema.Struct({
@@ -136,10 +142,18 @@ const Probe = Schema.Struct({
 });
 const decodeManifest = Schema.decodeEffect(Schema.fromJsonString(Manifest));
 const encodeManifest = Schema.encodeEffect(Schema.fromJsonString(Manifest));
+const decodeChanges = Schema.decodeEffect(Schema.fromJsonString(Changes));
+const encodeChanges = Schema.encodeEffect(Schema.fromJsonString(Changes));
 const decodeProbe = Schema.decodeEffect(Schema.fromJsonString(Probe));
 const isVideoFramesError = Schema.is(VideoFramesError);
 
 const MAX_RANGE_CACHES_PER_VIDEO = 8;
+// Finding changes decodes every frame, so longer videos keep even spacing instead of
+// stalling the turn that carries them. Recordings stop at 60 seconds.
+const MAX_CHANGE_DETECTION_MS = 120_000;
+// A dot-prefixed name keeps pruneRangeCaches away from it.
+const CHANGES_FILE = ".changes.json";
+const SHOWINFO_PTS_TIME = /Parsed_showinfo.*\spts_time:([0-9.]+)/;
 
 function evenly<T>(items: ReadonlyArray<T>, count: number): Array<T> {
   if (count <= 0) return [];
@@ -185,6 +199,56 @@ const make = Effect.gen(function* () {
     if (result.code !== 0)
       return yield* new VideoFramesError({ attachmentId, stage, cause: result.code });
     return result.stdout;
+  });
+  // mpdecimate drops frames that match their predecessor, so the frames showinfo sees are
+  // the moments the screen changed. The first frame is always kept and is no change.
+  const detectChanges = Effect.fn("VideoFrames.detectChanges")(function* (
+    attachmentId: string,
+    source: string,
+    root: string,
+  ) {
+    const cachePath = path.join(root, CHANGES_FILE);
+    const cached = yield* fs.readFileString(cachePath).pipe(
+      Effect.flatMap(decodeChanges),
+      Effect.orElseSucceed(() => undefined),
+    );
+    if (cached) return cached;
+    const result = yield* runner.run({
+      command: "ffmpeg",
+      args: [
+        "-nostdin",
+        "-hide_banner",
+        "-v",
+        "info",
+        "-i",
+        source,
+        "-an",
+        "-map",
+        "0:v:0",
+        "-vf",
+        "scale=w='min(960,iw)':h=-2,mpdecimate=hi=512:lo=192:frac=0.1,showinfo=checksum=0",
+        "-fps_mode",
+        "passthrough",
+        "-f",
+        "null",
+        "-",
+      ],
+      env,
+      timeout: "60 seconds",
+      maxOutputBytes: 4 * 1024 * 1024,
+    });
+    if (result.code !== 0 || result.stderrTruncated)
+      return yield* new VideoFramesError({ attachmentId, stage: "extract", cause: result.code });
+    const changesMs = result.stderr
+      .split("\n")
+      .flatMap((line) => {
+        const seconds = SHOWINFO_PTS_TIME.exec(line)?.[1];
+        return seconds === undefined ? [] : [Math.floor(Number(seconds) * 1000)];
+      })
+      .slice(1);
+    yield* fs.makeDirectory(root, { recursive: true });
+    yield* fs.writeFileString(cachePath, yield* encodeChanges(changesMs));
+    return changesMs;
   });
   // Ranged requests are agent-driven, so keep only the most recent few per video; the
   // full-video set always stays. Every variant is regenerable.
@@ -254,6 +318,7 @@ const make = Effect.gen(function* () {
             videoAttachmentId: attachment.id,
             videoName: attachment.name,
             timestampMs: entry.timestampMs,
+            ...(entry.changed ? { changed: true } : {}),
             path: framePath,
             mimeType: "image/jpeg" as const,
             sizeBytes: entry.sizeBytes,
@@ -307,11 +372,21 @@ const make = Effect.gen(function* () {
         fs.makeTempDirectory({ directory: root, prefix: ".frames-" }),
         (directory) => fs.remove(directory, { recursive: true, force: true }).pipe(Effect.ignore),
       );
+      // Detection is an aid: when it fails the frames are simply evenly spaced.
+      const changesMs =
+        durationMs <= MAX_CHANGE_DETECTION_MS
+          ? yield* detectChanges(attachment.id, source, root).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Sampling video frames without change detection", {
+                  attachmentId: attachment.id,
+                  cause,
+                }).pipe(Effect.as([] as ReadonlyArray<number>)),
+              ),
+            )
+          : [];
       const entries = yield* Effect.forEach(
-        Array.from({ length: count }, (_, i) =>
-          count === 1 ? startMs : startMs + (i * (endMs - startMs)) / (count - 1),
-        ),
-        (timestampMs, i) =>
+        pickFrameTimes({ startMs, endMs, count, changesMs }),
+        ({ timestampMs, changed }, i) =>
           Effect.gen(function* () {
             const output = path.join(temp, `${i}.jpg`);
             // Reverse only the scaled final second so variable-rate videos retain their actual last frame.
@@ -339,7 +414,7 @@ const make = Effect.gen(function* () {
             ]);
             const stat = yield* fs.stat(output);
             if (Number(stat.size) <= 0) return yield* Effect.fail("empty frame");
-            return { timestampMs, sizeBytes: Number(stat.size) };
+            return { timestampMs, sizeBytes: Number(stat.size), ...(changed ? { changed } : {}) };
           }),
       );
       yield* fs.writeFileString(path.join(temp, "manifest.json"), yield* encodeManifest(entries));

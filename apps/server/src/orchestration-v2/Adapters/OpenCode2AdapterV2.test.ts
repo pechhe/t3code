@@ -415,9 +415,9 @@ it.layer(McpProviderSessions.layer)("OpenCode2 adapter", (it) => {
       }));
 
       const text =
-        'hi\n\n[Frame of video "clip.mp4" at 00:03.2] saved at: ' +
+        'hi\n\n[Frame of video "clip.mp4" at 00:03.200] saved at: ' +
         framePath +
-        '\n\n[Frame of video "clip.mp4" at 00:07.2] saved at: ' +
+        '\n\n[Frame of video "clip.mp4" at 00:07.200] saved at: ' +
         framePath;
       const { runtime, thread } = yield* resumed([
         out("session.prompt", { sessionID: SESSION, text }),

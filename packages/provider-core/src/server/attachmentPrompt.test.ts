@@ -163,7 +163,11 @@ describe("sampled video frame prompts", () => {
     sizeBytes: 4,
   }));
   it("names each frame and appends paths in order", () => {
-    assert.equal(providerVideoFrameLabel(frames[0]!), '[Frame of video "clip.mp4" at 00:03.2]');
+    assert.equal(providerVideoFrameLabel(frames[0]!), '[Frame of video "clip.mp4" at 00:03.200]');
+    assert.equal(
+      providerVideoFrameLabel({ ...frames[0]!, timestampMs: 61_033, changed: true }),
+      '[Frame of video "clip.mp4" at 01:01.033, the screen changed here]',
+    );
     assert.equal(
       providerMessageTextWithAttachmentPaths({
         text: "Watch",
@@ -171,7 +175,7 @@ describe("sampled video frame prompts", () => {
         resolveAttachmentPath,
         videoFrames: frames,
       }),
-      'Watch\n\n[Frame of video "clip.mp4" at 00:03.2] saved at: /frames/0.jpg\n\n[Frame of video "clip.mp4" at 00:07.2] saved at: /frames/1.jpg',
+      'Watch\n\n[Frame of video "clip.mp4" at 00:03.200] saved at: /frames/0.jpg\n\n[Frame of video "clip.mp4" at 00:07.200] saved at: /frames/1.jpg',
     );
   });
   it("keeps the input length guard for frame paths", () => {

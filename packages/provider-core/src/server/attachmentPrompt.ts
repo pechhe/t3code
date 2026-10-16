@@ -160,12 +160,14 @@ export function isProviderNativeImageAttachment(attachment: ChatAttachment): boo
 }
 
 export function providerVideoFrameLabel(frame: ProviderAdapterV2VideoFrame): string {
-  const tenths = Math.round(frame.timestampMs / 100);
-  const minutes = Math.floor(tenths / 600)
+  const ms = Math.round(frame.timestampMs);
+  const minutes = Math.floor(ms / 60_000)
     .toString()
     .padStart(2, "0");
-  const seconds = (Math.floor(tenths / 10) % 60).toString().padStart(2, "0");
-  return `[Frame of video ${JSON.stringify(frame.videoName)} at ${minutes}:${seconds}.${tenths % 10}]`;
+  const seconds = (Math.floor(ms / 1000) % 60).toString().padStart(2, "0");
+  const millis = (ms % 1000).toString().padStart(3, "0");
+  const changed = frame.changed ? ", the screen changed here" : "";
+  return `[Frame of video ${JSON.stringify(frame.videoName)} at ${minutes}:${seconds}.${millis}${changed}]`;
 }
 
 export const readProviderVideoFrames = Effect.fnUntraced(function* (

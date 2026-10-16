@@ -715,13 +715,11 @@ it.effect("blocks agent messages to external work backing threads before dispatc
     expect(foreignUnpinned).toMatchObject({ _tag: "OrchestratorCommandRejectedError" });
     expect(dispatched).toEqual([]);
     expect(
-      (
-        yield* threads.sendToThread({
-          ...unpinned,
-          commandId: CommandId.make("command:owned-external-unpinned"),
-          messageId: MessageId.make("message:owned-external-unpinned"),
-        })
-      ).delivery,
+      (yield* threads.sendToThread({
+        ...unpinned,
+        commandId: CommandId.make("command:owned-external-unpinned"),
+        messageId: MessageId.make("message:owned-external-unpinned"),
+      })).delivery,
     ).toBe("queued");
     expect(dispatched).toHaveLength(1);
     dispatched.length = 0;

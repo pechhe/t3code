@@ -319,23 +319,25 @@ it.live("falls back to a later route when an earlier address now answers as anot
   ),
 );
 
-it.live("shares one deadline across a peer's routes, so a hung address leaves the next one time", () =>
-  withPeers((peers) =>
-    Effect.gen(function* () {
-      const state = newState();
-      const hung = yield* startPeer(state, descriptor(peerId, "Peer"), { hangMcp: true });
-      const live = yield* startPeer(state);
-      yield* peers.link({ code: "code-1", routes: [hung.url, live.url] });
+it.live(
+  "shares one deadline across a peer's routes, so a hung address leaves the next one time",
+  () =>
+    withPeers((peers) =>
+      Effect.gen(function* () {
+        const state = newState();
+        const hung = yield* startPeer(state, descriptor(peerId, "Peer"), { hangMcp: true });
+        const live = yield* startPeer(state);
+        yield* peers.link({ code: "code-1", routes: [hung.url, live.url] });
 
-      const read = yield* peers.callTool({
-        environmentId: peerId,
-        name: "t3_environment_read",
-        arguments: {},
-        timeout: Duration.millis(600),
-      });
-      expect(read.isError).toBe(false);
-    }),
-  ),
+        const read = yield* peers.callTool({
+          environmentId: peerId,
+          name: "t3_environment_read",
+          arguments: {},
+          timeout: Duration.millis(600),
+        });
+        expect(read.isError).toBe(false);
+      }),
+    ),
 );
 
 it.live("answers a peer whose every route hangs within its one deadline", () =>

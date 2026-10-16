@@ -1806,9 +1806,9 @@ describe("ClaudeAdapterV2 attachments", () => {
         const expectedDocumentPath = path.join(attachmentsDir, attachmentRelativePath(document)!);
         assert.deepEqual(offeredMessages[0]?.message.content, [
           expectedImageBlock,
-          { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+          { type: "text", text: '[Frame of video "clip.mp4" at 00:03.200]' },
           { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "CQo=" } },
-          { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+          { type: "text", text: '[Frame of video "clip.mp4" at 00:07.200]' },
           { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "CQo=" } },
           {
             type: "text",

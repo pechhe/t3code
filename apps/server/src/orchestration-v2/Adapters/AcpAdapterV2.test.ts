@@ -705,8 +705,8 @@ describe("AcpAdapterV2", () => {
           }>;
           if (driver === "path-only") {
             const text = blocks.map((block) => block.text ?? "").join("\n");
-            assert.include(text, '[Frame of video "clip.mp4" at 00:03.2] saved at: ' + framePath);
-            assert.include(text, '[Frame of video "clip.mp4" at 00:07.2] saved at: ' + framePath);
+            assert.include(text, '[Frame of video "clip.mp4" at 00:03.200] saved at: ' + framePath);
+            assert.include(text, '[Frame of video "clip.mp4" at 00:07.200] saved at: ' + framePath);
             assert.lengthOf(
               blocks.filter((block) => block.type === "image"),
               0,
@@ -721,13 +721,13 @@ describe("AcpAdapterV2", () => {
               );
             }
             const first = blocks.findIndex(
-              (block) => block.text === '[Frame of video "clip.mp4" at 00:03.2]',
+              (block) => block.text === '[Frame of video "clip.mp4" at 00:03.200]',
             );
             assert.isAtLeast(first, 0);
             assert.deepEqual(blocks.slice(first, first + 4), [
-              { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+              { type: "text", text: '[Frame of video "clip.mp4" at 00:03.200]' },
               { type: "image", data: "CQo=", mimeType: "image/jpeg" },
-              { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+              { type: "text", text: '[Frame of video "clip.mp4" at 00:07.200]' },
               { type: "image", data: "CQo=", mimeType: "image/jpeg" },
             ]);
           }

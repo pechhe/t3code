@@ -101,8 +101,8 @@ describe("CursorAdapterV2", () => {
                     sentWithMcpOverride = Object.hasOwn(input.options ?? {}, "mcpServers");
                     assert.isObject(input.message);
                     const payload = input.message as { text: string; images: unknown[] };
-                    assert.include(payload.text, '[Frame of video "clip.mp4" at 00:03.2]');
-                    assert.include(payload.text, '[Frame of video "clip.mp4" at 00:07.2]');
+                    assert.include(payload.text, '[Frame of video "clip.mp4" at 00:03.200]');
+                    assert.include(payload.text, '[Frame of video "clip.mp4" at 00:07.200]');
                     assert.notInclude(payload.text, framePath);
                     assert.deepEqual(payload.images, [
                       { data: "CQo=", mimeType: "image/jpeg" },

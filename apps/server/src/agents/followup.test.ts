@@ -18,7 +18,9 @@ const binding = (sourceRevision?: string): AgentTaskBinding => ({
 });
 
 it("a follow-up states the revision its workspace is at now", () => {
-  expect(followupBinding(binding("one"), { sourceRevision: "two" }, undefined)?.sourceRevision).toBe("two");
+  expect(
+    followupBinding(binding("one"), { sourceRevision: "two" }, undefined)?.sourceRevision,
+  ).toBe("two");
   expect(followupBinding(binding(), { sourceRevision: "two" }, "one")?.sourceRevision).toBe("two");
 });
 

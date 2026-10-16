@@ -361,9 +361,7 @@ const make = Effect.gen(function* () {
     });
 
   const readAcross: ThreadDirectory["Service"]["readAcross"] = (input) =>
-    input.environmentId !== undefined &&
-    input.environmentId !== input.localId &&
-    !input.fromPeer
+    input.environmentId !== undefined && input.environmentId !== input.localId && !input.fromPeer
       ? read(input.environmentId, input.arguments)
       : input.local;
 

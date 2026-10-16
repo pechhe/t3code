@@ -37,7 +37,8 @@ Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
 receives them on the environment's machine. Provider and model limits still
 apply, including images already in the conversation. When the environment's
 machine has [ffmpeg](https://ffmpeg.org) installed, the agent also sees a video as
-up to 12 stills with timestamps, and can ask for more stills around a moment.
+up to 12 stills with timestamps, chosen to include the moments the screen changed so
+brief glitches are not skipped, and can ask for more stills around a moment.
 Without ffmpeg it gets only the video's file path; install ffmpeg and restart
 T3 Code to change that.
 

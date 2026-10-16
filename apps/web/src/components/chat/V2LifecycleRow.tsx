@@ -422,9 +422,7 @@ function SubagentTimelineLink(props: {
   // The timestamp replaces elapsed time on an event card, so its length joins the details.
   const meta: ReactNode[] = [];
   if (agent?.model) {
-    meta.push(
-      resolveSubagentMetadata({ model: agent.model, provider: props.provider }).modelLabel,
-    );
+    meta.push(resolveSubagentMetadata({ model: agent.model, provider: props.provider }).modelLabel);
   }
   if (props.event) meta.push(<SubagentElapsed agent={timing} />);
   if (agent?.totalTokens !== undefined) meta.push(`${formatTokens(agent.totalTokens)} tokens`);

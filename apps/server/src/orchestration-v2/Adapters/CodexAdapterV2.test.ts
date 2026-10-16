@@ -2781,9 +2781,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       const entries = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt: "Watch" });
       const expected = [
         { type: "text", text: "Watch" },
-        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.2]' },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:03.200]' },
         { type: "image", url: "data:image/jpeg;base64,CQo=" },
-        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.2]' },
+        { type: "text", text: '[Frame of video "clip.mp4" at 00:07.200]' },
         { type: "image", url: "data:image/jpeg;base64,CQo=" },
       ];
       const transcript = makeCodexReplayTranscript({

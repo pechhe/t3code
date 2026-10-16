@@ -438,20 +438,18 @@ const make = Effect.gen(function* () {
       // Removing the worktree must succeed before deleting its freshly created
       // branch; otherwise the branch may still be checked out there.
       remove: (worktreePath: string) =>
-        gitWorkflow
-          .removeWorktree({ cwd: projectCwd, path: worktreePath, force: true })
-          .pipe(
-            Effect.andThen(
-              Effect.suspend(() =>
-                gitWorkflow.deleteLocalBranch({
-                  cwd: projectCwd,
-                  refName: input.branch,
-                  force: true,
-                }),
-              ),
+        gitWorkflow.removeWorktree({ cwd: projectCwd, path: worktreePath, force: true }).pipe(
+          Effect.andThen(
+            Effect.suspend(() =>
+              gitWorkflow.deleteLocalBranch({
+                cwd: projectCwd,
+                refName: input.branch,
+                force: true,
+              }),
             ),
-            Effect.ignoreCause({ log: true }),
           ),
+          Effect.ignoreCause({ log: true }),
+        ),
     } satisfies CheckoutPlan;
   });
 

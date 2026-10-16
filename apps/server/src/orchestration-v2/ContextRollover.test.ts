@@ -169,10 +169,7 @@ describe("assignedRolloverThresholds", () => {
       assignedRolloverThresholds(settings({ enabled: false }), ownTopLevel, "model", undefined),
       own,
     );
-    assert.deepEqual(
-      assignedRolloverThresholds(settings(), ownTopLevel, "model", variant),
-      own,
-    );
+    assert.deepEqual(assignedRolloverThresholds(settings(), ownTopLevel, "model", variant), own);
     assert.deepEqual(
       assignedRolloverThresholds(
         settings({ delegatedThreads: false }),
@@ -183,7 +180,12 @@ describe("assignedRolloverThresholds", () => {
       own,
     );
     assert.isNull(
-      assignedRolloverThresholds(settings(), { ...native, rolloverThresholds: own }, "model", variant),
+      assignedRolloverThresholds(
+        settings(),
+        { ...native, rolloverThresholds: own },
+        "model",
+        variant,
+      ),
     );
   });
 });

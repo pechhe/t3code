@@ -32,7 +32,13 @@ export function dragRolloverBand(input: {
     return { soft, hard: soft + width };
   }
   if (part === "soft") {
-    return { soft: Math.min(Math.max(STEP_TOKENS, start.soft + delta), start.hard - gap), hard: start.hard };
+    return {
+      soft: Math.min(Math.max(STEP_TOKENS, start.soft + delta), start.hard - gap),
+      hard: start.hard,
+    };
   }
-  return { soft: start.soft, hard: Math.max(Math.min(maxTokens, start.hard + delta), start.soft + gap) };
+  return {
+    soft: start.soft,
+    hard: Math.max(Math.min(maxTokens, start.hard + delta), start.soft + gap),
+  };
 }

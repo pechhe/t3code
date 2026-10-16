@@ -83,7 +83,8 @@ export function PolicyModelPicker(props: {
       {...(props.binding ? {} : { triggerLabel: "Choose model" })}
       getModelDisabledReason={(pickedInstance, slug) => {
         const picked = catalogModel(pickedInstance, slug);
-        if (picked === undefined) return "Subagents run Codex and Claude models with an effort setting";
+        if (picked === undefined)
+          return "Subagents run Codex and Claude models with an effort setting";
         return props.pickDisabledReason?.(picked) ?? null;
       }}
       onInstanceModelChange={(pickedInstance, slug) => {
@@ -105,8 +106,9 @@ export function PolicyEffortPicker(props: {
   const { settings, entries } = useInstanceEntries(props.environmentId);
   const binding = props.binding;
   const entry =
-    entries.find((candidate) => candidate.driverKind === binding?.driverKind && candidate.isDefault) ??
-    entries.find((candidate) => candidate.driverKind === binding?.driverKind);
+    entries.find(
+      (candidate) => candidate.driverKind === binding?.driverKind && candidate.isDefault,
+    ) ?? entries.find((candidate) => candidate.driverKind === binding?.driverKind);
   if (binding === undefined || entry === undefined) {
     return <span className="text-muted-foreground text-xs">{props.effort}</span>;
   }

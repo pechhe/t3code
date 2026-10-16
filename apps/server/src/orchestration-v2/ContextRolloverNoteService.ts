@@ -58,18 +58,16 @@ const make = Effect.gen(function* () {
             }),
         ),
       );
-      const { thread, runs } = yield* threads
-        .getThreadProjection(threadId)
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new RolloverNoteError({
-                reason: "operation",
-                message: "Unable to save the context rollover note.",
-                cause,
-              }),
-          ),
-        );
+      const { thread, runs } = yield* threads.getThreadProjection(threadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new RolloverNoteError({
+              reason: "operation",
+              message: "Unable to save the context rollover note.",
+              cause,
+            }),
+        ),
+      );
       const run = runs.findLast(
         (candidate) => candidate.status === "running" || candidate.status === "waiting",
       );
@@ -78,18 +76,16 @@ const make = Effect.gen(function* () {
           reason: "run_not_found",
           message: "This thread has no running turn to hand off from.",
         });
-      const assignment = yield* experiments
-        .getRolloverAssignment(threadId)
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new RolloverNoteError({
-                reason: "operation",
-                message: "Unable to save the context rollover note.",
-                cause,
-              }),
-          ),
-        );
+      const assignment = yield* experiments.getRolloverAssignment(threadId).pipe(
+        Effect.mapError(
+          (cause) =>
+            new RolloverNoteError({
+              reason: "operation",
+              message: "Unable to save the context rollover note.",
+              cause,
+            }),
+        ),
+      );
       if (
         assignedRolloverThresholds(
           settings.contextRollover,
@@ -103,18 +99,16 @@ const make = Effect.gen(function* () {
           message: "Context rollover is off for this thread. Continue normally; nothing was saved.",
         });
       if (assignment !== null) {
-        const digest = yield* crypto
-          .digest("SHA-256", new TextEncoder().encode(note))
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new RolloverNoteError({
-                  reason: "operation",
-                  message: "Unable to save the context rollover note.",
-                  cause,
-                }),
-            ),
-          );
+        const digest = yield* crypto.digest("SHA-256", new TextEncoder().encode(note)).pipe(
+          Effect.mapError(
+            (cause) =>
+              new RolloverNoteError({
+                reason: "operation",
+                message: "Unable to save the context rollover note.",
+                cause,
+              }),
+          ),
+        );
         yield* experiments
           .recordEvidence({
             id: `rollover-note:${assignment.id}:${run.id}:${Buffer.from(digest).toString("hex")}`,

@@ -56,7 +56,7 @@ export const sampleThreadVideoFrames = (
     ),
     Effect.map(({ videoName, frames }) => ({
       videoName,
-      frames: frames.map(({ timestampMs, path }) => ({ timestampMs, path })),
+      frames: frames.map(({ timestampMs, changed, path }) => ({ timestampMs, changed, path })),
     })),
     Effect.catchTags({
       VideoAttachmentNotInThread: () =>

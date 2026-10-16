@@ -764,7 +764,10 @@ function TaskDetail(props: {
               {draft.agentRole !== null ? (
                 <AgentRoleChip role={draft.agentRole} />
               ) : group ? (
-                <FixedModelLabel environmentId={leadEnvironmentId} selection={group.lead.modelSelection} />
+                <FixedModelLabel
+                  environmentId={leadEnvironmentId}
+                  selection={group.lead.modelSelection}
+                />
               ) : (
                 "a fixed model"
               )}
@@ -783,7 +786,10 @@ function TaskDetail(props: {
               <SelectItem value="fixed">
                 <span className="flex items-center gap-2">
                   <span className="text-muted-foreground text-xs">its fixed model</span>
-                  <FixedModelLabel environmentId={leadEnvironmentId} selection={group.lead.modelSelection} />
+                  <FixedModelLabel
+                    environmentId={leadEnvironmentId}
+                    selection={group.lead.modelSelection}
+                  />
                 </span>
               </SelectItem>
             ) : null}

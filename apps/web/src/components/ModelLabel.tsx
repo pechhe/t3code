@@ -32,7 +32,9 @@ export function ModelLabel(props: {
     const entries = deriveProviderInstanceEntries(providers ?? []);
     return (
       entries.find((candidate) => candidate.instanceId === props.instanceId) ??
-      entries.find((candidate) => candidate.driverKind === props.driverKind && candidate.isDefault) ??
+      entries.find(
+        (candidate) => candidate.driverKind === props.driverKind && candidate.isDefault,
+      ) ??
       entries.find((candidate) => candidate.driverKind === props.driverKind)
     );
   }, [props.driverKind, props.instanceId, providers]);
@@ -59,7 +61,9 @@ export function ModelLabel(props: {
       >
         {icon}
         <span className="min-w-0 truncate font-medium text-foreground">{name}</span>
-        {props.effort ? <span className="shrink-0 text-muted-foreground">{props.effort}</span> : null}
+        {props.effort ? (
+          <span className="shrink-0 text-muted-foreground">{props.effort}</span>
+        ) : null}
       </span>
     );
   }
