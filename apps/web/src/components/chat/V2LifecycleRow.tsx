@@ -1,7 +1,7 @@
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subagentRuntime";
-import type { ReactNode } from "react";
+import { Fragment, type ReactNode } from "react";
 import { useThreadShell, useProject } from "../../state/entities";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
 import { AgentRoleChip } from "../AgentRoleChip";
@@ -16,7 +16,11 @@ import {
   type HandoffEndpoints,
   type HandoffTimelineRun,
 } from "@t3tools/client-runtime/handoff";
-import { formatSubagentDisplayTitle } from "@t3tools/client-runtime/state/subagent-display";
+import {
+  formatSubagentDisplayTitle,
+  resolveSubagentMetadata,
+} from "@t3tools/client-runtime/state/subagent-display";
+import { formatTokens } from "@t3tools/shared/usageFormat";
 import {
   agentTaskTopic,
   ProviderDriverKind,
@@ -428,6 +432,15 @@ function SubagentTimelineLink(props: {
     startedAt: isoOrNull(agent?.startedAt ?? props.startedAt),
     completedAt: isoOrNull(agent?.completedAt ?? props.completedAt),
   };
+  // The timestamp replaces elapsed time on an event card, so its length joins the details.
+  const meta: ReactNode[] = [];
+  if (agent?.model) {
+    meta.push(
+      resolveSubagentMetadata({ model: agent.model, provider: props.provider }).modelLabel,
+    );
+  }
+  if (props.event) meta.push(<SubagentElapsed agent={timing} />);
+  if (agent?.totalTokens !== undefined) meta.push(`${formatTokens(agent.totalTokens)} tokens`);
   const content = (
     <>
       <SubagentAvatar
@@ -467,8 +480,18 @@ function SubagentTimelineLink(props: {
           )}
         </span>
       </span>
-      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {props.event ? props.event.timestamp : <SubagentElapsed agent={timing} />}
+      <span className="flex shrink-0 flex-col items-end text-xs text-muted-foreground tabular-nums">
+        <span>{props.event ? props.event.timestamp : <SubagentElapsed agent={timing} />}</span>
+        {meta.length > 0 ? (
+          <span className="text-3xs">
+            {meta.map((part, index) => (
+              <Fragment key={index}>
+                {index > 0 ? " · " : null}
+                {part}
+              </Fragment>
+            ))}
+          </span>
+        ) : null}
       </span>
       {threadId !== null ? (
         <ChevronRightIcon
@@ -512,6 +535,7 @@ function SubagentTimelineLink(props: {
           elapsed={agent ? <AgentElapsed agent={projectedSubagentsToRuntime([agent])[0]!} /> : null}
           model={agent?.model ?? null}
           modelSelection={agent?.modelSelection}
+          totalTokens={agent?.totalTokens}
           status={liveStatus}
           result={agent?.result ?? props.result}
           progress={agent?.progress ?? props.progress}
@@ -526,6 +550,7 @@ function SubagentTimelineTooltip(
     model: string | null;
     modelSelection: OrchestrationV2Subagent["modelSelection"];
     elapsed: ReactNode;
+    totalTokens: number | undefined;
   },
 ) {
   const environmentId = props.parentRef.environmentId;
@@ -548,6 +573,7 @@ function SubagentTimelineTooltip(
       providers={props.providers}
       driver={props.driver}
       elapsed={props.elapsed}
+      totalTokens={props.totalTokens}
       status={props.status}
       result={props.result}
       progress={props.progress}

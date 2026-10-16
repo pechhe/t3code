@@ -517,6 +517,10 @@ export interface ProjectionStoreV2Shape {
     OrchestrationV2ThreadProjection["runtimeRequests"][number] | undefined,
     ProjectionStoreV2Error
   >;
+  /** The subagent record that owns this child thread, if any. */
+  readonly getSubagentByChildThread: (
+    childThreadId: ThreadId,
+  ) => Effect.Effect<OrchestrationV2Subagent | undefined, ProjectionStoreV2Error>;
   readonly getProviderControlContext: (
     threadId: ThreadId,
     target: ProjectionProviderControlTarget,
@@ -4573,6 +4577,18 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError(controlReadError(threadId)));
 
+    const getSubagentByChildThread: ProjectionStoreV2Shape["getSubagentByChildThread"] = (
+      childThreadId,
+    ) =>
+      Effect.gen(function* () {
+        const rows = yield* sql<PayloadRow>`
+          SELECT payload_json FROM orchestration_v2_projection_subagents
+          WHERE child_thread_id = ${childThreadId}
+          LIMIT 1
+        `;
+        return rows[0] === undefined ? undefined : yield* decodeSubagentPayload(rows[0].payload_json);
+      }).pipe(Effect.mapError(controlReadError(childThreadId)));
+
     const getProviderControlContext: ProjectionStoreV2Shape["getProviderControlContext"] = (
       threadId,
       target,
@@ -6169,6 +6185,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getTurnItem,
       getThreadRecords,
       getRuntimeRequest,
+      getSubagentByChildThread,
       getPlan,
       getProviderControlContext,
       getLimitRecoveryCandidates,
@@ -6528,6 +6545,14 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
           if (projection === undefined)
             return yield* new ProjectionStoreThreadNotFoundError({ threadId });
           return projection.runtimeRequests.find((request) => request.id === requestId);
+        }),
+      getSubagentByChildThread: (childThreadId) =>
+        Effect.gen(function* () {
+          for (const projection of (yield* Ref.get(replayState)).projections.values()) {
+            const found = projection.subagents.find((task) => task.childThreadId === childThreadId);
+            if (found !== undefined) return found;
+          }
+          return undefined;
         }),
       getProviderControlContext: (threadId, target) =>
         Effect.gen(function* () {

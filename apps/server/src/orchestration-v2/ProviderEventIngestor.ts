@@ -405,6 +405,30 @@ export const layer: Layer.Layer<
     );
 
     /**
+     * The parent's card for a child thread shows the child's token usage, so
+     * mirror each changed report onto the subagent that owns the thread.
+     */
+    const mirrorSubagentTokens = Effect.fn("ProviderEventIngestor.mirrorSubagentTokens")(function* (
+      input: ProviderEventIngestInput,
+      childThreadId: ThreadId | undefined,
+      usedTokens: number | undefined,
+    ) {
+      if (childThreadId === undefined || usedTokens === undefined) return [];
+      const subagent = yield* projections.getSubagentByChildThread(childThreadId);
+      if (subagent === undefined || subagent.totalTokens === usedTokens) return [];
+      const now = yield* DateTime.now;
+      return [
+        yield* makeDomainEvent(input, {
+          type: "subagent.updated",
+          threadId: subagent.threadId,
+          payload: { ...subagent, totalTokens: usedTokens, updatedAt: now },
+          runId: subagent.runId,
+          nodeId: subagent.id,
+        }),
+      ];
+    });
+
+    /**
      * A native subagent's thread starts on the parent's model when the
      * provider names the real one later (a Claude agent file's model arrives
      * with the subagent's first reply). Clients read the thread's model and
@@ -613,6 +637,11 @@ export const layer: Layer.Layer<
                 payload: input.event.providerTurn,
                 nodeId: input.event.providerTurn.nodeId,
               }),
+              ...(yield* mirrorSubagentTokens(
+                input,
+                input.event.threadId,
+                input.event.providerTurn.tokenUsage?.usedTokens,
+              )),
             ];
           case "node.updated":
             // Adapters send an unchanged node again with each text delta. Compare with the
@@ -627,16 +656,26 @@ export const layer: Layer.Layer<
                 nodeId: input.event.node.id,
               }),
             ];
-          case "subagent.updated":
+          case "subagent.updated": {
+            // Adapters know nothing of the child's usage, which the server mirrors.
+            const { childThreadId } = input.event.subagent;
+            const stored =
+              input.event.subagent.totalTokens === undefined && childThreadId !== null
+                ? yield* projections.getSubagentByChildThread(childThreadId)
+                : undefined;
             return [
               yield* makeDomainEvent(input, {
                 type: "subagent.updated",
                 threadId: input.event.subagent.threadId,
-                payload: input.event.subagent,
+                payload:
+                  stored?.totalTokens === undefined
+                    ? input.event.subagent
+                    : { ...input.event.subagent, totalTokens: stored.totalTokens },
                 runId: input.event.subagent.runId,
                 nodeId: input.event.subagent.id,
               }),
             ];
+          }
           case "message.updated":
             return [
               yield* makeDomainEvent(input, {

@@ -8,6 +8,7 @@ import type {
   OrchestrationV2Subagent,
 } from "@t3tools/contracts";
 import { agentTaskTopic } from "@t3tools/contracts";
+import { formatTokens } from "@t3tools/shared/usageFormat";
 import {
   agentExecutionBoundaryLabel,
   resolveSubagentMetadata,
@@ -46,6 +47,7 @@ export function SubagentTooltipContent(props: {
   providers?: ReadonlyArray<ServerProvider> | undefined;
   driver?: ProviderDriverKind | undefined;
   elapsed?: ReactNode;
+  totalTokens?: number | undefined;
   parentThread?: Pick<OrchestrationV2ThreadShell, "projectId" | "worktreePath"> | undefined;
   childThread?:
     | Pick<OrchestrationV2ThreadShell, "branch" | "worktreePath" | "modelSelection" | "agentTask">
@@ -159,6 +161,11 @@ export function SubagentTooltipContent(props: {
             </span>
           ) : null}
         </span>
+        {props.totalTokens === undefined ? null : (
+          <span className="ms-auto shrink-0 tabular-nums">
+            {formatTokens(props.totalTokens)} tokens
+          </span>
+        )}
       </div>
       <div className="flex min-w-0 items-center justify-between gap-4">
         <span

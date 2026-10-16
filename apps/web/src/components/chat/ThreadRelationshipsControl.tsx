@@ -515,6 +515,7 @@ export function ThreadRelationshipsPanel(props: {
                   providers={providers}
                   driver={providerDriver}
                   elapsed={<AgentElapsed agent={agent} />}
+                  totalTokens={agent.usage?.totalTokens}
                   status={agent.status}
                   result={agent.result}
                   progress={agent.progress}

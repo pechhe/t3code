@@ -106,6 +106,7 @@ function WorkflowMemberRow({
             providers={providers}
             driver={driver}
             elapsed={<AgentElapsed agent={member} />}
+            totalTokens={member.usage?.totalTokens}
             status={member.status}
             result={member.result ?? member.error}
             progress={member.progress}
