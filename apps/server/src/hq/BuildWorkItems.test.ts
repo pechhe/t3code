@@ -30,9 +30,24 @@ interface FakeItem {
   kind: string;
   title: string;
   status: string;
-  holds: Array<{ kind: string; note: string; clearedAt: string | null }>;
+  holds: Array<{ kind: string; note: string; clearedAt: string | null; openedAt?: string }>;
   /** The waits Build derives for it, as `hq_build_waits` returns them. */
   waits: Array<{ required: "landed" | "accepted"; blocker: FakeItem }>;
+  parentId?: string;
+  governedBy?: Array<{ id: string; number: number; title: string; status: string }>;
+  updates?: Array<{ createdAt: string }>;
+}
+
+interface FakeSession {
+  specId: string;
+  parentSessionId: string | null;
+  ticketIds: string[];
+  harness: string;
+  sessionRef: string;
+  activity: "active" | "quiet" | "stalled" | "ended";
+  currentGeneration: boolean;
+  lastActivityAt: string;
+  endedAt: string | null;
 }
 
 const item = (number: number, kind: string, title: string, status: string): FakeItem => ({
@@ -45,22 +60,55 @@ const item = (number: number, kind: string, title: string, status: string): Fake
   waits: [],
 });
 
+/** The body Build never sends T3: a card carries only the summary. */
+const BODY = "The whole Spec body, which T3 never asks for";
+
 /**
- * BuildWorkItems over the real HqAgentConnections and a fake HQ whose Build answers
- * `hq_build_read` and `hq_build_waits` from `items`, for one thread in a connected project.
+ * BuildWorkItems over the real HqAgentConnections and a fake HQ whose Build answers its read
+ * tools from `items`, `sessions`, `attempts` and `acceptances`, for one thread in a connected
+ * project.
  */
 const makeHarness = Effect.gen(function* () {
   const harness = yield* makeHqHarness;
   const items = new Map<number, FakeItem>();
+  const sessions: FakeSession[] = [];
+  const attempts = new Map<string, unknown[]>();
+  const acceptances = new Map<string, { acceptedAt: string }>();
   const add = (...added: FakeItem[]) => added.forEach((entry) => items.set(entry.number, entry));
   const byId = (id: unknown) => [...items.values()].find((entry) => entry.id === id);
+  const viewOf = ({ waits: _waits, ...found }: FakeItem) => ({
+    ...found,
+    holds: found.holds.map((hold) => ({ openedAt: "2026-10-01T00:00:00.000Z", ...hold })),
+    parentId: found.parentId ?? null,
+    specKind: found.kind === "spec" ? "feature" : null,
+    effectiveHorizon: found.kind === "spec" ? "now" : null,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updates: found.updates ?? [],
+    summary: "A body summary",
+    bodySize: 1,
+    body: BODY,
+  });
   harness.hq.tools.call = (name, args) => {
+    if (name === "hq_build_list")
+      return {
+        status: "succeeded",
+        value: [...items.values()]
+          .filter((entry) => entry.kind === args.kind && entry.parentId === args.parentId)
+          .toSorted((a, b) => a.number - b.number)
+          .map(viewOf),
+      };
+    if (name === "hq_build_sessions")
+      return {
+        status: "succeeded",
+        value: sessions.filter((session) => session.specId === args.specId),
+      };
+    if (name === "hq_build_acceptance")
+      return { status: "succeeded", value: acceptances.get(String(args.specId)) ?? null };
     const found = args.itemId !== undefined ? byId(args.itemId) : items.get(Number(args.number));
     if (found === undefined) return { status: "failed", code: "build_item_unavailable" };
-    if (name === "hq_build_read") {
-      const { waits: _waits, ...view } = found;
-      return { status: "succeeded", value: { ...view, summary: "A body summary", bodySize: 1 } };
-    }
+    if (name === "hq_build_read") return { status: "succeeded", value: viewOf(found) };
+    if (name === "hq_build_attempts")
+      return { status: "succeeded", value: attempts.get(found.id) ?? [] };
     if (name === "hq_build_waits")
       return {
         status: "succeeded",
@@ -68,7 +116,7 @@ const makeHarness = Effect.gen(function* () {
           relationId: `relation-${blocker.number}`,
           required,
           derivedFromTicketId: null,
-          blocker: { ...blocker, waits: undefined },
+          blocker: viewOf(blocker),
         })),
       };
     return { status: "failed", code: "unknown_tool" };
@@ -110,7 +158,17 @@ const makeHarness = Effect.gen(function* () {
   );
   const buildReads = () =>
     harness.hq.toolCalls.filter((call) => call.args.itemId !== undefined).length;
-  return { ...harness, service, add, thread, dispatched, buildReads };
+  return {
+    ...harness,
+    service,
+    add,
+    thread,
+    dispatched,
+    buildReads,
+    sessions,
+    attempts,
+    acceptances,
+  };
 });
 
 it.effect("links by URL, #number or number through T3's own observer agent", () =>
@@ -282,5 +340,227 @@ it.effect("the shared observer ends only when the last project using it disconne
 
     yield* connections.disconnect(otherProject);
     assert.isTrue(hq.agents[0]!.ended);
+  }),
+);
+
+const session = (
+  overrides: Partial<FakeSession> & Pick<FakeSession, "sessionRef">,
+): FakeSession => ({
+  specId: "item-1000078",
+  parentSessionId: null,
+  ticketIds: [],
+  harness: "t3",
+  activity: "active",
+  currentGeneration: true,
+  lastActivityAt: "2026-10-16T10:00:00.000Z",
+  endedAt: null,
+  ...overrides,
+});
+
+it.effect("a Spec card shows its summary, Tickets by status, Decisions and current lead", () =>
+  Effect.gen(function* () {
+    const { service, add, sessions, assertNoSecretsIn } = yield* makeHarness;
+    const spec = item(1_000_078, "spec", "Show the Build item", "in_progress");
+    spec.holds.push({ kind: "information", note: "Waiting on the glyphs", clearedAt: null });
+    spec.governedBy = [
+      { id: "item-1000010", number: 1_000_010, title: "Build is the source", status: "accepted" },
+    ];
+    spec.updates = [{ createdAt: "2026-10-15T09:00:00.000Z" }];
+    add(spec);
+    const statuses = ["landed", "landed", "in_progress", "ready", "ready", "ready", "dropped"];
+    statuses.forEach((status, index) =>
+      add({ ...item(1_000_100 + index, "ticket", `Ticket ${index}`, status), parentId: spec.id }),
+    );
+    sessions.push(
+      session({
+        sessionRef: "env/old-lead",
+        currentGeneration: false,
+        endedAt: "2026-10-14T00:00:00.000Z",
+        activity: "ended",
+      }),
+      session({
+        sessionRef: "env/lead",
+        activity: "quiet",
+        lastActivityAt: "2026-10-16T11:00:00.000Z",
+      }),
+      session({
+        sessionRef: "env/helper",
+        parentSessionId: "lead",
+        lastActivityAt: "2026-10-16T12:00:00.000Z",
+      }),
+    );
+
+    const card = yield* service.card({ threadId, itemId: spec.id, open: "open-1" });
+    assert.strictEqual(card?.url, `${origin}/build/1000078`);
+    assert.strictEqual(card?.summary, "A body summary");
+    assert.deepStrictEqual(card?.item.holds, [
+      { kind: "information", note: "Waiting on the glyphs" },
+    ]);
+    assert.deepStrictEqual(card?.detail, {
+      kind: "spec",
+      specKind: "feature",
+      horizon: "now",
+      ticketCounts: { landed: 2, in_progress: 1, ready: 3, dropped: 1 },
+      tickets: statuses.slice(0, 5).map((status, index) => ({
+        number: 1_000_100 + index,
+        title: `Ticket ${index}`,
+        status,
+      })),
+      acceptedAt: null,
+      governedBy: [{ number: 1_000_010, title: "Build is the source", status: "accepted" }],
+      lead: {
+        harness: "t3",
+        sessionRef: "env/lead",
+        activity: "quiet",
+        lastActivityAt: "2026-10-16T11:00:00.000Z",
+      },
+    });
+    // The lead's activity is the latest change; helpers never stand in for the lead.
+    assert.strictEqual(card?.updatedAt, "2026-10-16T11:00:00.000Z");
+    assert.notInclude(JSON.stringify(card), BODY);
+    assertNoSecretsIn(card);
+  }),
+);
+
+it.effect(
+  "a Ticket card names its Spec, blocker, delivery and worker, falling back to the last ended worker",
+  () =>
+    Effect.gen(function* () {
+      const { service, add, sessions, attempts } = yield* makeHarness;
+      const spec = item(1_000_078, "spec", "Show the Build item", "in_progress");
+      const blocker = item(1_000_079, "ticket", "Link and header", "in_progress");
+      const ticket = { ...item(1_000_080, "ticket", "Cards", "ready"), parentId: spec.id };
+      ticket.waits.push({ required: "landed", blocker });
+      add(spec, blocker, ticket);
+      attempts.set(ticket.id, [
+        {
+          status: "failed",
+          failure: { stage: "verifying", cause: "typecheck failed" },
+          events: [{ occurredAt: "2026-10-16T08:00:00.000Z" }],
+        },
+        { status: "queued", failure: null, events: [{ occurredAt: "2026-10-16T09:00:00.000Z" }] },
+      ]);
+      sessions.push(
+        session({ sessionRef: "env/lead" }),
+        session({
+          sessionRef: "env/worker-a",
+          parentSessionId: "lead",
+          ticketIds: [ticket.id],
+          activity: "ended",
+          endedAt: "2026-10-16T07:00:00.000Z",
+          lastActivityAt: "2026-10-16T07:00:00.000Z",
+        }),
+        session({
+          sessionRef: "env/other-ticket",
+          parentSessionId: "lead",
+          ticketIds: [blocker.id],
+        }),
+      );
+
+      const card = yield* service.card({ threadId, itemId: ticket.id, open: "open-1" });
+      assert.deepStrictEqual(card?.item.waits, [
+        { number: 1_000_079, title: "Link and header", status: "in_progress", required: "landed" },
+      ]);
+      assert.deepStrictEqual(card?.detail, {
+        kind: "ticket",
+        spec: { number: 1_000_078, title: "Show the Build item", status: "in_progress" },
+        attempts: 2,
+        latestAttempt: { status: "queued", at: "2026-10-16T09:00:00.000Z" },
+        lastFailure: { stage: "verifying", cause: "typecheck failed" },
+        worker: {
+          harness: "t3",
+          sessionRef: "env/worker-a",
+          activity: "ended",
+          lastActivityAt: "2026-10-16T07:00:00.000Z",
+        },
+      });
+      assert.strictEqual(card?.updatedAt, "2026-10-16T09:00:00.000Z");
+    }),
+);
+
+it.effect(
+  "a card reads at once, re-reads at most once a minute and keeps the last card when HQ fails",
+  () =>
+    Effect.gen(function* () {
+      const { hq, service, add } = yield* makeHarness;
+      const spec = item(1_000_078, "spec", "Show the Build item", "in_progress");
+      add(spec);
+      const calls = () => hq.toolCalls.length;
+
+      const first = yield* service.card({ threadId, itemId: spec.id, open: "open-1" });
+      const afterFirst = calls();
+      assert.isFalse(first?.unavailable);
+
+      spec.status = "landed";
+      yield* TestClock.adjust(30_000);
+      assert.strictEqual(
+        (yield* service.card({ threadId, itemId: spec.id, open: "open-1" }))?.item.status,
+        "in_progress",
+      );
+      assert.strictEqual(calls(), afterFirst);
+      yield* TestClock.adjust(30_000);
+      assert.strictEqual(
+        (yield* service.card({ threadId, itemId: spec.id, open: "open-1" }))?.item.status,
+        "landed",
+      );
+      assert.isAbove(calls(), afterFirst);
+
+      hq.state.unreachable = true;
+      yield* TestClock.adjust(60_000);
+      const stale = yield* service.card({ threadId, itemId: spec.id, open: "open-1" });
+      assert.isTrue(stale?.unavailable);
+      assert.strictEqual(stale?.item.status, "landed");
+
+      const cold = yield* service
+        .card({ threadId, itemId: "item-never-read", open: "open-1" })
+        .pipe(Effect.flip);
+      assert.strictEqual(cold.reason, "unavailable");
+    }),
+);
+
+it.effect("each opening of a card reads Build at once, and retries a failed first read", () =>
+  Effect.gen(function* () {
+    const { hq, service, add } = yield* makeHarness;
+    const spec = item(1_000_078, "spec", "Show the Build item", "in_progress");
+    add(spec);
+    const open = (opening: string) => service.card({ threadId, itemId: spec.id, open: opening });
+
+    yield* open("first");
+    spec.status = "landed";
+    yield* TestClock.adjust(20_000);
+    // The same opening polling again waits for the minute; closing and reopening does not.
+    assert.strictEqual((yield* open("first"))?.item.status, "in_progress");
+    assert.strictEqual((yield* open("second"))?.item.status, "landed");
+
+    const fresh = item(1_000_090, "spec", "Never read", "ready");
+    add(fresh);
+    hq.state.unreachable = true;
+    const failed = yield* service
+      .card({ threadId, itemId: fresh.id, open: "third" })
+      .pipe(Effect.flip);
+    assert.strictEqual(failed.reason, "unavailable");
+    hq.state.unreachable = false;
+    const retried = yield* service.card({ threadId, itemId: fresh.id, open: "fourth" });
+    assert.strictEqual(retried?.item.title, "Never read");
+  }),
+);
+
+it.effect("keeps the last known state of only the most recently asked-for cards", () =>
+  Effect.gen(function* () {
+    const { hq, service, add } = yield* makeHarness;
+    const specs = Array.from({ length: BuildWorkItems.CARD_CACHE_LIMIT + 1 }, (_, index) =>
+      item(1_100_000 + index, "spec", `Spec ${index}`, "ready"),
+    );
+    add(...specs);
+    for (const spec of specs) yield* service.card({ threadId, itemId: spec.id, open: "a" });
+
+    hq.state.unreachable = true;
+    const newest = yield* service.card({ threadId, itemId: specs.at(-1)!.id, open: "b" });
+    assert.isTrue(newest?.unavailable);
+    assert.strictEqual(newest?.item.title, `Spec ${BuildWorkItems.CARD_CACHE_LIMIT}`);
+    const evicted = yield* service
+      .card({ threadId, itemId: specs[0]!.id, open: "b" })
+      .pipe(Effect.flip);
+    assert.strictEqual(evicted.reason, "unavailable");
   }),
 );

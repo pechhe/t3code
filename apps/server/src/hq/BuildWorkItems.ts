@@ -4,9 +4,14 @@
  * so every client, local or remote, sees the same state without ever reaching HQ itself.
  */
 import {
+  type BuildItemReference,
+  type BuildWorkItemCard,
+  type BuildWorkItemCardInput,
+  type BuildWorkItemCardResult,
   BuildWorkItemError,
   BuildWorkItemSummary,
   type BuildWorkItemReadResult,
+  type BuildWorkItemSession,
   CommandId,
   type OrchestrationV2ThreadWorkItem,
   type ProjectId,
@@ -55,6 +60,12 @@ const BuildWaits = Schema.Array(
   }),
 );
 const decodeBuildWaits = Schema.decodeUnknownOption(BuildWaits);
+const BuildReference = Schema.Struct({
+  id: Schema.String,
+  number: Schema.Number,
+  title: Schema.String,
+  status: Schema.String,
+});
 const decodeSummary = Schema.decodeUnknownOption(BuildWorkItemSummary);
 
 const summaryOf = (
@@ -76,6 +87,93 @@ const summaryOf = (
     })),
   });
 
+/** The parts of `hq_build_read` a card shows. Bodies are never requested. */
+const BuildCardRead = Schema.Struct({
+  ...BuildRead.fields,
+  holds: Schema.Array(
+    Schema.Struct({
+      kind: Schema.String,
+      note: Schema.String,
+      openedAt: Schema.String,
+      clearedAt: Schema.NullOr(Schema.String),
+    }),
+  ),
+  summary: Schema.NullOr(Schema.String),
+  parentId: Schema.NullOr(Schema.String),
+  specKind: Schema.NullOr(Schema.String),
+  effectiveHorizon: Schema.NullOr(Schema.String),
+  createdAt: Schema.String,
+  updates: Schema.Array(Schema.Struct({ createdAt: Schema.String })),
+  governedBy: Schema.optionalKey(Schema.Array(BuildReference)),
+});
+const decodeBuildCardRead = Schema.decodeUnknownOption(BuildCardRead);
+const decodeBuildList = Schema.decodeUnknownOption(Schema.Array(BuildReference));
+const BuildSession = Schema.Struct({
+  parentSessionId: Schema.NullOr(Schema.String),
+  ticketIds: Schema.Array(Schema.String),
+  harness: Schema.String,
+  sessionRef: Schema.String,
+  activity: Schema.Literals(["active", "quiet", "stalled", "ended"]),
+  currentGeneration: Schema.Boolean,
+  lastActivityAt: Schema.String,
+  endedAt: Schema.NullOr(Schema.String),
+});
+const decodeBuildSessions = Schema.decodeUnknownOption(Schema.Array(BuildSession));
+const decodeBuildAttempts = Schema.decodeUnknownOption(
+  Schema.Array(
+    Schema.Struct({
+      status: Schema.String,
+      failure: Schema.NullOr(Schema.Struct({ stage: Schema.String, cause: Schema.String })),
+      events: Schema.Array(Schema.Struct({ occurredAt: Schema.String })),
+    }),
+  ),
+);
+const decodeBuildAcceptance = Schema.decodeUnknownOption(
+  Schema.NullOr(Schema.Struct({ acceptedAt: Schema.String })),
+);
+
+/** Tickets a Spec card names before "+N more". */
+export const CARD_TICKET_LIMIT = 5;
+/** Build's summary is already plain text; a card shows three lines of it. */
+const CARD_SUMMARY_LIMIT = 400;
+
+/**
+ * The session to show for an item: the open one of the current bind generation with the latest
+ * activity or, with none open, the one that ended last.
+ */
+const pickSession = (
+  sessions: ReadonlyArray<typeof BuildSession.Type>,
+  matches: (session: typeof BuildSession.Type) => boolean,
+): BuildWorkItemSession | null => {
+  const candidates = sessions.filter(matches);
+  const latest = (
+    pool: ReadonlyArray<typeof BuildSession.Type>,
+    at: (session: typeof BuildSession.Type) => string,
+  ) => pool.toSorted((a, b) => at(b).localeCompare(at(a)))[0];
+  const chosen =
+    latest(
+      candidates.filter((session) => session.currentGeneration && session.endedAt === null),
+      (session) => session.lastActivityAt,
+    ) ??
+    latest(
+      candidates.filter((session) => session.endedAt !== null),
+      (session) => session.endedAt ?? "",
+    );
+  if (chosen === undefined) return null;
+  return {
+    harness: chosen.harness,
+    sessionRef: chosen.sessionRef,
+    activity: chosen.endedAt === null ? chosen.activity : "ended",
+    lastActivityAt: chosen.lastActivityAt,
+  };
+};
+
+const latestOf = (dates: ReadonlyArray<string | null | undefined>) =>
+  dates
+    .filter((date): date is string => typeof date === "string")
+    .toSorted()
+    .at(-1);
+
 /** A Build URL on any HQ, `#<number>` or a bare number. */
 export const parseBuildReference = (
   reference: string,
@@ -92,6 +190,24 @@ export const parseBuildReference = (
   }
 };
 
+/** A card as Build answered it, before T3 adds where and when it was read. */
+type FreshCard = Omit<BuildWorkItemCard, "url" | "updatedAt" | "readAt" | "unavailable"> & {
+  readonly updatedAt: string | undefined;
+};
+
+interface CachedCard {
+  readonly card: Omit<BuildWorkItemCard, "unavailable"> | null;
+  readonly attemptedAt: number;
+  readonly unavailable: boolean;
+  /** Recent openings of this card; a polling client repeats its own, a new one reads at once. */
+  readonly opens: ReadonlyArray<string>;
+}
+
+/** Openings remembered per card, enough for every client showing it at once. */
+const CARD_OPENS_REMEMBERED = 32;
+/** Cards kept for their last known state; the least recently asked for go first. */
+export const CARD_CACHE_LIMIT = 256;
+
 interface CachedItem {
   readonly item: BuildWorkItemSummary | null;
   readonly readAt: number | null;
@@ -106,6 +222,14 @@ export class BuildWorkItems extends Context.Service<
     readonly view: (
       threadId: ThreadId,
     ) => Effect.Effect<BuildWorkItemReadResult, BuildWorkItemError>;
+    /**
+     * The card for an item read from the thread's project HQ: its summary, Tickets or delivery,
+     * and who works on it. A new `open` reads Build at once; repeating it reads at most once a
+     * minute.
+     */
+    readonly card: (
+      input: BuildWorkItemCardInput,
+    ) => Effect.Effect<BuildWorkItemCardResult, BuildWorkItemError>;
     /** Whether the project's threads can link Build items at all. */
     readonly connected: (
       projectId: ProjectId,
@@ -136,6 +260,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const crypto = yield* Crypto.Crypto;
   const cache = new Map<string, CachedItem>();
+  const cardCache = new Map<string, CachedCard>();
   const readLock = yield* KeyedLock.make<string>();
 
   const shellOf = (threadId: ThreadId) =>
@@ -291,8 +416,181 @@ const make = Effect.gen(function* () {
     },
   );
 
+  const reference = (item: typeof BuildReference.Type): BuildItemReference => ({
+    number: item.number,
+    title: item.title,
+    status: item.status,
+  });
+
+  /** Everything a card shows, or none when Build fails or answers with something unexpected. */
+  const readCard = (projectId: ProjectId, itemId: string) =>
+    Effect.gen(function* () {
+      const none = Option.none<FreshCard>();
+      const observe = (tool: string, args: Record<string, unknown>) =>
+        hq.observe(projectId, tool, args).pipe(Effect.map((result) => result.value));
+      const [readValue, waitsValue] = yield* Effect.all(
+        [observe("hq_build_read", { itemId }), observe("hq_build_waits", { itemId })],
+        { concurrency: 2 },
+      );
+      const read = decodeBuildCardRead(readValue);
+      const waits = decodeBuildWaits(waitsValue);
+      if (Option.isNone(read) || Option.isNone(waits)) return none;
+      const item = summaryOf(read.value, waits.value);
+      if (Option.isNone(item)) return none;
+      const fields = read.value;
+      const changes: Array<string | null | undefined> = [
+        fields.createdAt,
+        ...fields.updates.map((update) => update.createdAt),
+        ...fields.holds.flatMap((hold) => [hold.openedAt, hold.clearedAt]),
+      ];
+
+      if (item.value.kind === "spec") {
+        const [ticketsValue, sessionsValue, acceptanceValue] = yield* Effect.all(
+          [
+            observe("hq_build_list", { kind: "ticket", parentId: itemId }),
+            observe("hq_build_sessions", { specId: itemId }),
+            item.value.status === "accepted"
+              ? observe("hq_build_acceptance", { specId: itemId })
+              : Effect.succeed(null),
+          ],
+          { concurrency: 3 },
+        );
+        const tickets = decodeBuildList(ticketsValue);
+        const sessions = decodeBuildSessions(sessionsValue);
+        const acceptance = decodeBuildAcceptance(acceptanceValue);
+        if (Option.isNone(tickets) || Option.isNone(sessions) || Option.isNone(acceptance))
+          return none;
+        const lead = pickSession(sessions.value, (session) => session.parentSessionId === null);
+        const ticketCounts: Record<string, number> = {};
+        for (const ticket of tickets.value)
+          ticketCounts[ticket.status] = (ticketCounts[ticket.status] ?? 0) + 1;
+        return Option.some<FreshCard>({
+          number: fields.number,
+          item: item.value,
+          summary: fields.summary?.slice(0, CARD_SUMMARY_LIMIT) ?? null,
+          updatedAt: latestOf([...changes, lead?.lastActivityAt, acceptance.value?.acceptedAt]),
+          detail: {
+            kind: "spec" as const,
+            specKind: fields.specKind,
+            horizon: fields.effectiveHorizon,
+            ticketCounts,
+            tickets: tickets.value.slice(0, CARD_TICKET_LIMIT).map(reference),
+            acceptedAt: acceptance.value?.acceptedAt ?? null,
+            governedBy: (fields.governedBy ?? []).map(reference),
+            lead,
+          },
+        });
+      }
+
+      const parentId = fields.parentId;
+      const [parentValue, attemptsValue, sessionsValue] = yield* Effect.all(
+        [
+          parentId === null ? Effect.succeed(null) : observe("hq_build_read", { itemId: parentId }),
+          observe("hq_build_attempts", { itemId }),
+          parentId === null
+            ? Effect.succeed([])
+            : observe("hq_build_sessions", { specId: parentId }),
+        ],
+        { concurrency: 3 },
+      );
+      const parent = parentValue === null ? Option.some(null) : decodeBuildCardRead(parentValue);
+      const attempts = decodeBuildAttempts(attemptsValue);
+      const sessions = decodeBuildSessions(sessionsValue);
+      if (Option.isNone(parent) || Option.isNone(attempts) || Option.isNone(sessions)) return none;
+      const worker = pickSession(
+        sessions.value,
+        (session) => session.parentSessionId !== null && session.ticketIds.includes(itemId),
+      );
+      const latestAttempt = attempts.value.at(-1);
+      const latestAttemptAt = latestAttempt?.events.at(-1)?.occurredAt;
+      const lastFailure = attempts.value.findLast((attempt) => attempt.failure !== null)?.failure;
+      return Option.some<FreshCard>({
+        number: fields.number,
+        item: item.value,
+        summary: fields.summary?.slice(0, CARD_SUMMARY_LIMIT) ?? null,
+        updatedAt: latestOf([...changes, worker?.lastActivityAt, latestAttemptAt]),
+        detail: {
+          kind: "ticket" as const,
+          spec: parent.value === null ? null : reference(parent.value),
+          attempts: attempts.value.length,
+          latestAttempt:
+            latestAttempt === undefined || latestAttemptAt === undefined
+              ? null
+              : { status: latestAttempt.status, at: latestAttemptAt },
+          lastFailure: lastFailure ?? null,
+          worker,
+        },
+      });
+    }).pipe(Effect.option, Effect.map(Option.flatten));
+
+  const card: BuildWorkItems["Service"]["card"] = Effect.fn("BuildWorkItems.card")(
+    function* (input) {
+      const shell = yield* shellOf(input.threadId);
+      const connection = yield* connectionOf(shell.projectId);
+      if (connection === null) return null;
+      const key = `${connection.connection}\n${input.itemId}`;
+      const cached = yield* readLock.withLock(
+        `card\n${key}`,
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const previous = cardCache.get(key);
+          // Opening a card reads at once; only a client's periodic re-reads are rate-limited.
+          if (
+            previous !== undefined &&
+            previous.opens.includes(input.open) &&
+            now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS
+          ) {
+            cardCache.delete(key);
+            cardCache.set(key, previous);
+            return previous;
+          }
+          const opens = [
+            input.open,
+            ...(previous?.opens ?? []).filter((open) => open !== input.open),
+          ].slice(0, CARD_OPENS_REMEMBERED);
+          const read = yield* readCard(shell.projectId, input.itemId);
+          const next: CachedCard = Option.match(read, {
+            onSome: (fresh) => ({
+              card: {
+                ...fresh,
+                url: `${connection.origin}/build/${fresh.number}`,
+                updatedAt: fresh.updatedAt ?? DateTime.formatIso(DateTime.makeUnsafe(now)),
+                readAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
+              },
+              attemptedAt: now,
+              unavailable: false,
+              opens,
+            }),
+            onNone: () => ({
+              card: previous?.card ?? null,
+              attemptedAt: now,
+              unavailable: true,
+              opens,
+            }),
+          });
+          if (Option.isNone(read))
+            yield* Effect.logWarning("Could not read a Build item's card", {
+              itemId: input.itemId,
+            });
+          cardCache.delete(key);
+          cardCache.set(key, next);
+          // Map order is recency: drop the card asked for least recently.
+          if (cardCache.size > CARD_CACHE_LIMIT) {
+            const oldest = cardCache.keys().next();
+            if (!oldest.done) cardCache.delete(oldest.value);
+          }
+          return next;
+        }),
+      );
+      if (cached.card === null)
+        return yield* error("unavailable", "YardSmith HQ could not be reached. Try again shortly.");
+      return { ...cached.card, unavailable: cached.unavailable };
+    },
+  );
+
   return BuildWorkItems.of({
     view,
+    card,
     link,
     connected: (projectId) =>
       connectionOf(projectId).pipe(

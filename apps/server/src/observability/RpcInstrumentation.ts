@@ -97,6 +97,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverGetBackgroundPolicy]: "server",
   [WS_METHODS.buildConnectionRead]: "build",
   [WS_METHODS.buildWorkItemRead]: "build",
+  [WS_METHODS.buildWorkItemCard]: "build",
   [WS_METHODS.buildWorkItemLink]: "build",
   [WS_METHODS.scheduledTasksList]: "scheduledTasks",
   [WS_METHODS.scheduledTasksSubscribe]: "scheduledTasks",

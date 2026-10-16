@@ -1081,7 +1081,15 @@ function ThreadRouteContent(
             <ThreadBuildHeaderTitle
               title={selectedThread.title}
               subtitle={headerSubtitle}
-              url={buildWorkItem.url}
+              onOpenItem={() =>
+                navigation.navigate("ThreadBuildItem", {
+                  environmentId: selectedThread.environmentId,
+                  threadId: selectedThread.id,
+                  itemId: buildWorkItem.itemId,
+                  number: buildWorkItem.number,
+                  url: buildWorkItem.url,
+                })
+              }
             />
           ) : undefined
         }

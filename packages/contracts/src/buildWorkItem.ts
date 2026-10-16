@@ -71,6 +71,83 @@ export type BuildWorkItemReadInput = typeof BuildWorkItemReadInput.Type;
 export const BuildWorkItemReadResult = Schema.NullOr(BuildWorkItemView);
 export type BuildWorkItemReadResult = typeof BuildWorkItemReadResult.Type;
 
+/** Another Build item a card names: a Ticket, a parent Spec or a governing Decision. */
+export const BuildItemReference = Schema.Struct({
+  number: PositiveInt,
+  title: Schema.String,
+  status: Schema.String,
+});
+export type BuildItemReference = typeof BuildItemReference.Type;
+
+/**
+ * The Build session working on an item: a Spec's lead or a Ticket's worker. `sessionRef` is the
+ * harness's own reference; for harness `t3` it is `<environmentId>/<threadId>`.
+ */
+export const BuildWorkItemSession = Schema.Struct({
+  harness: Schema.String,
+  sessionRef: Schema.String,
+  activity: Schema.Literals(["active", "quiet", "stalled", "ended"]),
+  lastActivityAt: IsoDateTime,
+});
+export type BuildWorkItemSession = typeof BuildWorkItemSession.Type;
+
+/** What a Spec card adds: its Tickets, acceptance and the Decisions governing it. */
+export const BuildSpecCardDetail = Schema.Struct({
+  kind: Schema.Literal("spec"),
+  specKind: Schema.NullOr(Schema.String),
+  horizon: Schema.NullOr(Schema.String),
+  /** Every Ticket by status, for the progress bar. */
+  ticketCounts: Schema.Record(Schema.String, Schema.Number),
+  /** The first Tickets by number; `ticketCounts` holds the rest. */
+  tickets: Schema.Array(BuildItemReference),
+  acceptedAt: Schema.NullOr(IsoDateTime),
+  governedBy: Schema.Array(BuildItemReference),
+  lead: Schema.NullOr(BuildWorkItemSession),
+});
+
+/** What a Ticket card adds: its Spec, delivery and worker. */
+export const BuildTicketCardDetail = Schema.Struct({
+  kind: Schema.Literal("ticket"),
+  spec: Schema.NullOr(BuildItemReference),
+  attempts: Schema.Number,
+  /** The latest delivery attempt's state, such as `published` or `failed`. */
+  latestAttempt: Schema.NullOr(Schema.Struct({ status: Schema.String, at: IsoDateTime })),
+  lastFailure: Schema.NullOr(Schema.Struct({ stage: Schema.String, cause: Schema.String })),
+  worker: Schema.NullOr(BuildWorkItemSession),
+});
+
+/** A hover card or sheet for a Build item: its summary plus what its kind adds, never its body. */
+export const BuildWorkItemCard = Schema.Struct({
+  number: PositiveInt,
+  url: Schema.String,
+  item: BuildWorkItemSummary,
+  /** Build's plain-text summary of the body, at most a few lines. */
+  summary: Schema.NullOr(Schema.String),
+  detail: Schema.Union([BuildSpecCardDetail, BuildTicketCardDetail]),
+  /** The latest change T3 can see: an update, a hold, an attempt or session activity. */
+  updatedAt: IsoDateTime,
+  readAt: IsoDateTime,
+  /** The latest re-read failed, so this is the card as last read. */
+  unavailable: Schema.Boolean,
+});
+export type BuildWorkItemCard = typeof BuildWorkItemCard.Type;
+
+export const BuildWorkItemCardInput = Schema.Struct({
+  /** The thread whose project's HQ the item is read from. */
+  threadId: ThreadId,
+  itemId: TrimmedNonEmptyString,
+  /**
+   * Identifies one opening of the card. A new one reads Build at once; the periodic re-reads of
+   * an open card repeat it and are rate-limited.
+   */
+  open: TrimmedNonEmptyString,
+});
+export type BuildWorkItemCardInput = typeof BuildWorkItemCardInput.Type;
+
+/** Null when the project is not connected to HQ. A first read Build fails is an error. */
+export const BuildWorkItemCardResult = Schema.NullOr(BuildWorkItemCard);
+export type BuildWorkItemCardResult = typeof BuildWorkItemCardResult.Type;
+
 /** Whether a project is connected to YardSmith HQ, so its threads can link Build items. */
 export const BuildConnectionReadInput = Schema.Struct({ projectId: ProjectId });
 export type BuildConnectionReadInput = typeof BuildConnectionReadInput.Type;
