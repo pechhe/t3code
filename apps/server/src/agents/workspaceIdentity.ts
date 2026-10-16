@@ -43,7 +43,8 @@ export const repositoryStore = Effect.fn("workspaceIdentity.repositoryStore")(fu
 
 /**
  * The workspace root of the checkout containing `directory`, which may be a subdirectory
- * of it, as a project's registered root can be.
+ * of it, as a project's registered root can be. The nearest `.jj` or `.git` decides, so a
+ * Git-only repository nested in a jj checkout is not taken for the outer one.
  */
 export const checkoutRoot = Effect.fn("workspaceIdentity.checkoutRoot")(function* (
   directory: string,
@@ -54,6 +55,7 @@ export const checkoutRoot = Effect.fn("workspaceIdentity.checkoutRoot")(function
   const real = yield* fs.realPath(directory);
   for (let root = real; ; root = path.dirname(root)) {
     if (yield* fs.exists(path.join(root, ".jj"))) return root;
+    if (yield* fs.exists(path.join(root, ".git"))) break;
     if (path.dirname(root) === root) break;
   }
   const top = yield* processes.run({
