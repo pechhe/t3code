@@ -2383,11 +2383,15 @@ const make = Effect.gen(function* () {
               "invalid_request",
               "Only a managed advisor or worker can continue its conversation; reviewers and UI verifiers start fresh.",
             );
-          const followupTarget = followupBinding(binding, followup);
+          const followupTarget = followupBinding(
+            binding,
+            followup,
+            child.thread.followupSourceRevision,
+          );
           if (followupTarget === undefined)
             return yield* failure(
               "invalid_request",
-              "This agent was launched on a source revision: state the revision its workspace is at now.",
+              "This agent is pinned to a source revision: state the revision its workspace is at now.",
             );
           const key = yield* requestKey(input.clientRequestId);
           const commandId = stableCommandId({
@@ -2472,7 +2476,6 @@ const make = Effect.gen(function* () {
               .validate({
                 binding: followupTarget,
                 runtimeMode: child.thread.runtimeMode,
-                followupWithoutRevision: followup.sourceRevision === undefined,
                 selection: binding.effective,
                 projectId: parent.thread.projectId,
                 providers,

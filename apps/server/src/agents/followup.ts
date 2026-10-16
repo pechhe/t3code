@@ -22,17 +22,20 @@ export const followupPrompt = (
   `${followup.sourceRevision === undefined ? "" : `Source revision: ${followup.sourceRevision}\n`}Changes since your previous task: ${followup.changes}\n\n${task}`;
 
 /**
- * The binding a follow-up is validated against. A task launched with a source
- * revision needs a newly stated one; a task launched without one, as outside a
- * repository, stays without one. Undefined when a pinned task states none.
+ * The binding a follow-up is validated against. A pinned task, launched on a source
+ * revision or given one by an earlier follow-up that its runs keep, needs a newly
+ * stated one; an unpinned task may state one or not, as at launch. Undefined when a
+ * pinned task states none. `priorRevision` is the thread's `followupSourceRevision`.
  */
 export const followupBinding = (
   binding: AgentTaskBinding,
   followup: { readonly sourceRevision?: string | undefined },
+  priorRevision: string | undefined,
 ) =>
   followup.sourceRevision !== undefined
     ? { ...binding, sourceRevision: followup.sourceRevision }
-    : binding.sourceRevision === undefined
+    : binding.sourceRevision === undefined &&
+        (priorRevision === undefined || !pinsFollowupRevision(binding))
       ? binding
       : undefined;
 

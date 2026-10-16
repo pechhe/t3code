@@ -22,7 +22,6 @@ import {
   type RuntimeMode,
   type ServerProvider,
   type ThreadId,
-  isConsultingRole,
   isReviewerRole,
   readOnlyToolProfile,
   REVIEWER_SCOPE,
@@ -126,8 +125,6 @@ export class ManagedAgentService extends Context.Service<
       input: Authority & {
         readonly binding: AgentTaskBinding;
         readonly selection: ModelSelection;
-        /** A follow-up that stated no source revision; an advisor's workspace must then not be a repository. */
-        readonly followupWithoutRevision?: boolean;
       },
     ) => Effect.Effect<void, ManagedAgentError>;
     /** Whether this environment names a policy, readable or not. */
@@ -285,14 +282,19 @@ const make = Effect.gen(function* () {
       if (leadStore !== childStore) return yield* new ManagedAgentError({ reason: "workspace" });
     });
     if (pinnedReader) {
-      if (expected !== lead) yield* sameRepository();
-      // A live writer would change the files under the reader after the pin was checked.
-      if (
-        (authority.occupants ?? []).some(
-          (occupant) => occupant.workspacePath === expected && occupant.running && occupant.writes,
+      // In another workspace, a live writer would change the files under the reader after the
+      // pin was checked. The lead's own checkout is always occupied by the lead, which may read
+      // it beside its own work exactly as an unpinned reader does.
+      if (expected !== lead) {
+        yield* sameRepository();
+        if (
+          (authority.occupants ?? []).some(
+            (occupant) =>
+              occupant.workspacePath === expected && occupant.running && occupant.writes,
+          )
         )
-      )
-        return yield* new ManagedAgentError({ reason: "workspace" });
+          return yield* new ManagedAgentError({ reason: "workspace" });
+      }
     } else if (assignment === "lead") {
       if (expected !== lead) return yield* new ManagedAgentError({ reason: "workspace" });
     } else {
@@ -586,14 +588,6 @@ const make = Effect.gen(function* () {
     }),
     validate: Effect.fn("ManagedAgentService.validate")(function* (input) {
       yield* workspace(input.binding, input, input.binding.sourceAccess === "scoped-write");
-      // A consulting role reads a stated revision of a repository; only outside one may it go without.
-      if (input.followupWithoutRevision === true && isConsultingRole(input.binding.role)) {
-        const repository = yield* local(repositoryStore(input.binding.workspacePath)).pipe(
-          Effect.as(true),
-          Effect.orElseSucceed(() => false),
-        );
-        if (repository) return yield* new ManagedAgentError({ reason: "source" });
-      }
       const owner = input.binding.externalOwner;
       if (owner !== undefined) {
         const auth = yield* Effect.serviceOption(AuthSessions.AuthSessionRepository);

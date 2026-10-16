@@ -558,7 +558,11 @@ const make = Effect.gen(function* () {
                 },
               }),
             );
-          const followupTarget = followupBinding(binding, followup);
+          const followupTarget = followupBinding(
+            binding,
+            followup,
+            originalThread.thread.followupSourceRevision,
+          );
           if (followupTarget === undefined)
             return yield* new ExternalAgentWorkError({ reason: "source" });
           const prompt = followupPrompt(followup, input.task);
@@ -581,7 +585,6 @@ const make = Effect.gen(function* () {
               .validate({
                 binding: followupTarget,
                 runtimeMode: originalThread.thread.runtimeMode,
-                followupWithoutRevision: followup.sourceRevision === undefined,
                 selection: binding.effective,
                 projectId: session.projectId,
                 providers: eligible,

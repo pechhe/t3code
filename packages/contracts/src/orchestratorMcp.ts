@@ -188,7 +188,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
       changes: TrimmedNonEmptyString.check(Schema.isMaxLength(10_000)),
     }).annotate({
       description:
-        "Continue an owned, idle managed advisor or worker in its existing conversation, workspace, model and permissions. taskId is any of its earlier task IDs. Supply the revision its workspace is at now and the changes since its previous task; the revision may be omitted only when the task was launched without one, as outside a repository; do not supply agentTask, target, isolation or mode overrides. task is the new question or correction. Each follow-up is a new task with its own ID and result. Close the conversation with task_cancel when the work ends. Reviewers and UI verifiers always start fresh.",
+        "Continue an owned, idle managed advisor or worker in its existing conversation, workspace, model and permissions. taskId is any of its earlier task IDs. Supply the changes since its previous task, and sourceRevision when the agent should read a specific revision; it is required only when the task was launched with one or an earlier follow-up stated one; do not supply agentTask, target, isolation or mode overrides. task is the new question or correction. Each follow-up is a new task with its own ID and result. Close the conversation with task_cancel when the work ends. Reviewers and UI verifiers always start fresh.",
     }),
   ),
   offPolicyReason: Schema.optional(

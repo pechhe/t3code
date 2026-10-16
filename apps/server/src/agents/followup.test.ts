@@ -18,17 +18,24 @@ const binding = (sourceRevision?: string): AgentTaskBinding => ({
 });
 
 it("a follow-up states the revision its workspace is at now", () => {
-  expect(followupBinding(binding("one"), { sourceRevision: "two" })?.sourceRevision).toBe("two");
-  expect(followupBinding(binding(), { sourceRevision: "two" })?.sourceRevision).toBe("two");
+  expect(followupBinding(binding("one"), { sourceRevision: "two" }, undefined)?.sourceRevision).toBe("two");
+  expect(followupBinding(binding(), { sourceRevision: "two" }, "one")?.sourceRevision).toBe("two");
 });
 
 it("a task launched without a revision continues without one", () => {
   const unpinned = binding();
-  expect(followupBinding(unpinned, {})).toBe(unpinned);
+  expect(followupBinding(unpinned, {}, undefined)).toBe(unpinned);
 });
 
-it("a task launched on a revision refuses a follow-up that states none", () => {
-  expect(followupBinding(binding("one"), {})).toBeUndefined();
+it("a pinned task refuses a follow-up that states no revision", () => {
+  expect(followupBinding(binding("one"), {}, undefined)).toBeUndefined();
+  // A consulting role keeps the revision an earlier follow-up stated.
+  expect(followupBinding(binding(), {}, "one")).toBeUndefined();
+});
+
+it("a worker's earlier follow-up revision does not pin it", () => {
+  const worker = { ...binding(), role: "implementation-worker" as const };
+  expect(followupBinding(worker, {}, "one")).toBe(worker);
 });
 
 it("the follow-up message names a revision only when one is stated", () => {

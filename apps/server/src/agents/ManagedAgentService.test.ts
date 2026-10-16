@@ -829,6 +829,14 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         occupants: [{ ...writer, writes: false }],
       });
       expect(yield* refused({ request: reviewer, occupants: [writer] })).toBe("workspace");
+      // The lead is always a live writer in its own checkout, and may still read it pinned.
+      const leadThread = { ...writer, workspacePath: lead, workId: null, attemptId: null };
+      yield* f.prepare({
+        workspacePath: lead,
+        owner: "lead-thread",
+        request: request({ workspacePath: lead, role: "advisor", readOnly: true, sourceRevision }),
+        occupants: [leadThread],
+      });
 
       // Validation re-checks against the lead it was accepted under.
       yield* f.service
@@ -1047,7 +1055,7 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
   );
 
   it.effect.each(["advisor", "scout"] as const)(
-    "lets a %s follow-up omit its revision only outside a repository",
+    "lets a %s follow-up in a repository state a revision or omit it",
     (role) =>
       Effect.gen(function* () {
         const f = yield* fixture;
@@ -1060,26 +1068,27 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             scout: { ...f.manifest.roles.advisor!, brief },
           },
         });
+        yield* f.fs.makeDirectory(`${f.workspacePath}/.jj/repo`, { recursive: true });
         const consultant = (yield* f.prepare({
           request: request({ role, workspacePath: f.workspacePath, readOnly: true }),
         })).binding;
-        const followup = (revisionStated: boolean) =>
+        const followup = (binding: typeof consultant) =>
           f.service
             .validate({
               workspacePath: f.workspacePath,
               providers: [codex, claude],
               ceiling: "full-access",
-              binding: revisionStated ? { ...consultant, sourceRevision } : consultant,
+              binding,
               selection: consultant.effective,
-              followupWithoutRevision: !revisionStated,
             })
             .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
-        // A scratch folder has no revision to state.
-        yield* followup(false);
-        // In a repository a consulting role reads a stated revision, which must match.
-        yield* f.fs.makeDirectory(`${f.workspacePath}/.jj/repo`, { recursive: true });
-        expect((yield* followup(false).pipe(Effect.flip)).reason).toBe("source");
-        yield* followup(true);
+        yield* followup(consultant);
+        yield* followup({ ...consultant, sourceRevision });
+        // A stated revision is still checked against the workspace.
+        expect(
+          (yield* followup({ ...consultant, sourceRevision: "other-commit" }).pipe(Effect.flip))
+            .reason,
+        ).toBe("source");
       }),
   );
 
