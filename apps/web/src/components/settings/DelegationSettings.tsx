@@ -48,6 +48,7 @@ import {
   type RoleGroup,
 } from "./DelegationSettings.logic";
 import { AGENT_ROLE_PRESENTATION, AgentRoleChip } from "../AgentRoleChip";
+import ChatMarkdown from "../ChatMarkdown";
 import { ModelLabel } from "../ModelLabel";
 import { cn } from "~/lib/utils";
 import { PolicyEffortPicker, PolicyModelPicker } from "./PolicyModelPicker";
@@ -223,6 +224,7 @@ function PolicyEditor({
             group={group}
             manifest={draft}
             briefs={data.snapshot.briefs}
+            rolesDir={`${data.sourceRoot}/roles`}
             providers={data.providers}
             catalog={catalog}
             disabled={pending}
@@ -315,17 +317,25 @@ function FallbackAlert({
 }
 
 /** A role's chip; hovering it shows the brief the role's helpers start from. */
-function RoleBriefChip({ role, brief }: { role: AgentRole; brief: string | undefined }) {
+function RoleBriefChip({
+  role,
+  brief,
+  rolesDir,
+}: {
+  role: AgentRole;
+  brief: string | undefined;
+  rolesDir: string;
+}) {
   if (brief === undefined) return <AgentRoleChip role={role} />;
   return (
     <PreviewCard>
       <PreviewCardTrigger delay={350} closeDelay={120} render={<AgentRoleChip role={role} />} />
-      <PreviewCardPopup align="start" className="w-96 max-w-[calc(100vw-2rem)]">
-        <div className="max-h-80 overflow-y-auto p-3">
-          <p className="mb-1.5 text-2xs font-medium text-muted-foreground">
+      <PreviewCardPopup align="start" className="w-[40rem] max-w-[calc(100vw-2rem)]">
+        <div className="max-h-[min(36rem,70vh)] overflow-y-auto px-4 py-3">
+          <p className="mb-2 text-xs font-medium text-muted-foreground">
             Brief every {AGENT_ROLE_PRESENTATION[role].label.toLowerCase()} starts from
           </p>
-          <p className="whitespace-pre-wrap text-xs leading-relaxed text-foreground">{brief}</p>
+          <ChatMarkdown text={brief} cwd={rolesDir} className="text-sm" />
         </div>
       </PreviewCardPopup>
     </PreviewCard>
@@ -337,6 +347,7 @@ function JobRow({
   group,
   manifest,
   briefs,
+  rolesDir,
   providers,
   catalog,
   disabled,
@@ -346,6 +357,7 @@ function JobRow({
   group: RoleGroup;
   manifest: Manifest;
   briefs: AgentPolicySettings["snapshot"]["briefs"];
+  rolesDir: string;
   providers: ReadonlyArray<ServerProvider>;
   catalog: ReadonlyArray<CatalogModel>;
   disabled: boolean;
@@ -412,7 +424,7 @@ function JobRow({
             <div className="flex flex-wrap items-center gap-1.5">
               {group.roles.map((role) => (
                 <span key={role} className="flex items-center gap-1">
-                  <RoleBriefChip role={role} brief={briefs[role]?.text} />
+                  <RoleBriefChip role={role} brief={briefs[role]?.text} rolesDir={rolesDir} />
                   {UNAVAILABLE_ROLES.has(role) ? (
                     <Badge variant="outline" size="sm">
                       not available yet
