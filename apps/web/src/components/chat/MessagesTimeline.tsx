@@ -1318,6 +1318,40 @@ const ConversationTimeline = memo(function ConversationTimeline({
     if (wasFollowing && !liveFollowEnabled) handleScroll();
   }, [handleScroll, liveFollowEnabled]);
 
+  // Whatever owns the scroll position (citation jump, restore, anchored turn,
+  // fullscreen, disclosure toggle, manual navigation) also stops end-pinning.
+  const endPinSuppressed =
+    citationPositioning ||
+    (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
+    anchoredEndSpace !== undefined ||
+    !liveFollowEnabled ||
+    fullscreenAppRowId !== null ||
+    disclosureToggleSettling;
+  const endPinSuppressedRef = useRef(endPinSuppressed);
+  endPinSuppressedRef.current = endPinSuppressed || findActive;
+
+  // The final rows of a run (summary, footer) settle after the last follow
+  // scroll, and the "at end" tolerance hides a short gap from live-follow, so
+  // the finished thread would rest a few pixels above the true end. One
+  // instant pin once layout has settled lands it at the end. Guards are read
+  // at frame time so a change during the wait neither cancels nor forces it.
+  const wasWorkingRef = useRef(isWorking);
+  useEffect(() => {
+    const wasWorking = wasWorkingRef.current;
+    wasWorkingRef.current = isWorking;
+    if (!wasWorking || isWorking) return;
+    let innerFrame: number | null = null;
+    const outerFrame = requestAnimationFrame(() => {
+      innerFrame = requestAnimationFrame(() => {
+        if (!endPinSuppressedRef.current) void listRef.current?.scrollToEnd?.({ animated: false });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(outerFrame);
+      if (innerFrame !== null) cancelAnimationFrame(innerFrame);
+    };
+  }, [isWorking, listRef]);
+
   useEffect(() => {
     if (!timelineViewportElement) {
       return;
@@ -1661,12 +1695,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
               contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
               maintainScrollAtEnd={
-                citationPositioning ||
-                (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
-                anchoredEndSpace ||
-                !liveFollowEnabled ||
-                fullscreenAppRowId !== null ||
-                disclosureToggleSettling
+                endPinSuppressed
                   ? false
                   : isWorking && !prefersReducedMotion && settlingListIdentity === null
                     ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
