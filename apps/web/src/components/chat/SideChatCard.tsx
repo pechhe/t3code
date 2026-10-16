@@ -20,9 +20,9 @@ import {
 } from "lucide-react";
 import { type KeyboardEvent, useMemo, useState } from "react";
 
-import ChatMarkdown from "../ChatMarkdown";
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import { ActivityShimmerOverlay } from "./ActivityShimmer";
+import { AssistantMessageText } from "./AssistantMessageText";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn, newMessageId, newThreadId } from "~/lib/utils";
@@ -319,11 +319,11 @@ export function SideChatCard(props: {
                 </p>
               ) : (
                 <div key={item.id} className="grid gap-1">
-                  <ChatMarkdown
+                  <AssistantMessageText
                     text={item.text}
                     cwd={props.cwd}
                     threadRef={sideChatRef ?? parentRef}
-                    isStreaming={item.streaming}
+                    streaming={item.streaming}
                   />
                   {!item.streaming && item.text.trim().length > 0 ? (
                     <ThreadDetailsControl
