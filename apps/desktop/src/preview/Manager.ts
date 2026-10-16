@@ -3056,8 +3056,9 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   });
 
   // Answers the renderer's `getDisplayMedia()` with the tab that `startRecording` armed. With
-  // nothing armed, only the main window's own top frame (the composer's Record control) may capture,
-  // so preview pages and embedded app frames cannot capture on their own.
+  // nothing armed, only the main window's own top frame (the composer's Record control) may
+  // capture. Where the macOS system picker is used, Electron shows it without calling this handler,
+  // so that check applies only to the `desktopCapturer` fallback.
   const handleDisplayMediaRequest = (
     request: DisplayMediaRequestHandlerHandlerRequest,
     callback: (streams: Streams) => void,

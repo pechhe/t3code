@@ -58,8 +58,8 @@ See [images and videos](#images-and-videos-in-messages) for previewing and savin
 To show the agent behaviour rather than a still, choose the record button next
 to **Send**, pick a screen or window, and choose **Stop** when you are done. The
 recording is attached to your draft as a video. Recordings stop by themselves
-after 60 seconds and capture no audio. Sending waits until the recording is
-attached.
+after 60 seconds and capture no audio. Stop the recording before sending; it
+attaches when it stops.
 
 Recording works in desktop browsers and in the desktop app on macOS 15 or later
 and Linux on Wayland. On macOS, allow T3 Code under **System Settings → Privacy

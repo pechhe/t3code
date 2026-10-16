@@ -106,21 +106,24 @@ export class VideoFrames extends Context.Service<
   }
 >()("t3/videoFrames/VideoFrames") {}
 
+// Sampling needs both: ffprobe finds the duration and rate, ffmpeg extracts the frames.
 export const ffmpegAvailable = Effect.gen(function* () {
   const runner = yield* ProcessRunner.ProcessRunner;
   const env = yield* HostProcess.Environment;
-  return yield* runner
-    .run({
-      command: "ffmpeg",
-      args: ["-version"],
-      env,
-      timeout: "5 seconds",
-      maxOutputBytes: 16384,
-    })
-    .pipe(
-      Effect.map((result) => result.code === 0),
-      Effect.orElseSucceed(() => false),
-    );
+  const responds = (command: string) =>
+    runner
+      .run({
+        command,
+        args: ["-version"],
+        env,
+        timeout: "5 seconds",
+        maxOutputBytes: 16384,
+      })
+      .pipe(
+        Effect.map((result) => result.code === 0),
+        Effect.orElseSucceed(() => false),
+      );
+  return (yield* responds("ffmpeg")) && (yield* responds("ffprobe"));
 });
 
 const Manifest = Schema.Array(

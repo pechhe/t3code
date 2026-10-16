@@ -1537,6 +1537,8 @@ export interface ChatComposerHandle {
 }
 
 export interface ChatComposerProps {
+  /** False in the SnapShot overlay, which sits on top of the screen being recorded. */
+  screenRecordingEnabled: boolean;
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
   canOperateThread: boolean;
@@ -7675,7 +7677,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     </>
                   ) : null}
                   {screenRecordingState.phase !== "idle" ||
-                  (showComposerAttachAction && screenRecordingAvailable) ? (
+                  (props.screenRecordingEnabled &&
+                    showComposerAttachAction &&
+                    screenRecordingAvailable) ? (
                     <ComposerScreenRecordControl
                       state={screenRecordingState}
                       onStart={startScreenRecordingStable}

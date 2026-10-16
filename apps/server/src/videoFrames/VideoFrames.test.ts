@@ -36,6 +36,7 @@ const output = (stdout = "", code = 0): ProcessRunner.ProcessRunOutput => ({
 function harness(
   options: {
     missing?: boolean;
+    missingProbe?: boolean;
     bytes?: number;
     failVideo?: boolean;
     failDetect?: boolean;
@@ -51,7 +52,11 @@ function harness(
         run: (input) =>
           Effect.gen(function* () {
             calls.push(input);
-            if (input.args[0] === "-version") return output("", options.missing ? 1 : 0);
+            if (input.args[0] === "-version")
+              return output(
+                "",
+                options.missing || (options.missingProbe && input.command === "ffprobe") ? 1 : 0,
+              );
             if (input.command === "ffprobe")
               return output(
                 '{"streams":[{"duration":"11.04","avg_frame_rate":"25/1"}],"format":{}}',
@@ -248,6 +253,14 @@ it.effect("drops middle frames evenly to fit the image bytes remaining", () => {
         ...images.map((a) => ({ ...a, sizeBytes: PROVIDER_SEND_TURN_MAX_TOTAL_IMAGE_BYTES / 8 })),
       ]),
     ).toEqual([]);
+  }).pipe(Effect.provide(h.layer));
+});
+
+it.effect("is unavailable when ffprobe is missing even though ffmpeg runs", () => {
+  const h = harness({ missingProbe: true });
+  return Effect.gen(function* () {
+    const service = yield* VideoFrames.VideoFrames;
+    expect(yield* service.available).toBe(false);
   }).pipe(Effect.provide(h.layer));
 });
 
