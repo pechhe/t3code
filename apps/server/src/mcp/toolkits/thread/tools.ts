@@ -25,6 +25,7 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
 import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
+import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
@@ -194,9 +195,13 @@ const ThreadConfigurationTool = Tool.make("t3_thread_configuration", {
   .annotate(Tool.Destructive, false);
 const ThreadSetupTool = Tool.make("t3_thread_setup", {
   ...commandTool,
-  dependencies: [...commandTool.dependencies, RunSetupRecorder.RunSetupStore],
+  dependencies: [
+    ...commandTool.dependencies,
+    RunSetupRecorder.RunSetupStore,
+    ProviderRegistry.ProviderRegistry,
+  ],
   description:
-    "Read the setup a thread's recent runs started with: agent-config revision, instruction and skill hashes, policy, model and effective options, workflow, rollover settings and experiment assignments, plus the skills each run invoked. Omit threadId for this thread. Null means T3 could not observe it; runs from before capture have no record.",
+    "Read the setup a thread's recent runs started with: agent-config revision, instruction and skill hashes, policy, model and effective options, workflow, rollover settings and experiment assignments, plus the skills each run invoked. Omit threadId for this thread. Null means T3 could not observe it; runs from before capture appear with null setup fields. invokedSkills is null for providers that do not report skill loads (only Claude does).",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
@@ -204,7 +209,10 @@ const ThreadSetupTool = Tool.make("t3_thread_setup", {
   success: Schema.Struct({
     threadId: ThreadId,
     runs: Schema.Array(
-      Schema.Struct({ ...RunSetupRecord.fields, invokedSkills: Schema.Array(Schema.String) }),
+      Schema.Struct({
+        ...RunSetupRecord.fields,
+        invokedSkills: Schema.NullOr(Schema.Array(Schema.String)),
+      }),
     ),
   }),
 })

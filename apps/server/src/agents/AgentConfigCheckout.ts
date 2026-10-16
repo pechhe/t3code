@@ -24,6 +24,10 @@ const jjLog = (root: string, revset: string, template: string) =>
  * The agent-config checkout's landed base (the working copy's parent) and working copy.
  * Local changes come from git in a colocated checkout, whose HEAD is that landed base,
  * so edits made since jj's last snapshot still count. Anything unreadable is null.
+ *
+ * Unlike `handoffRevision` in `workspaceIdentity.ts`, this never snapshots the live
+ * checkout, so `revision` is the working copy's parent. For a checkout with uncommitted
+ * edits the two name different commits and are not comparable.
  */
 export const read = Effect.fn("AgentConfigCheckout.read")(function* (root: string) {
   const fs = yield* FileSystem.FileSystem;

@@ -20,6 +20,7 @@ import {
   unavailable,
 } from "../../threadAccess.ts";
 import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
+import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -198,17 +199,29 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   ),
   t3_thread_setup: McpToolAccess.reads((input) =>
     Effect.gen(function* () {
-      const { projection } = yield* readThread(input.threadId, ["turnItems"]);
+      const limit = input.limit ?? 10;
+      const { projection } = yield* readThread(
+        input.threadId,
+        ["turnItems", "runs"],
+        ["dynamic_tool"],
+      );
       const store = yield* RunSetupRecorder.RunSetupStore;
+      const providers = yield* ProviderRegistry.ProviderRegistry;
       const records = yield* store
-        .list(projection.thread.id, input.limit ?? 10)
+        .list(projection.thread.id, limit)
         .pipe(Effect.mapError(unavailable));
+      const drivers = new Map(
+        (yield* providers.getProviders).map((provider) => [provider.instanceId, provider.driver]),
+      );
       return {
         threadId: projection.thread.id,
-        runs: records.map((record) => ({
-          ...record,
-          invokedSkills: RunSetupRecorder.invokedSkills(projection.turnItems, record.runId),
-        })),
+        runs: RunSetupRecorder.setupReport({
+          runs: projection.runs,
+          records,
+          turnItems: projection.turnItems,
+          driverOf: (instanceId) => drivers.get(instanceId as never),
+          limit,
+        }),
       };
     }),
   ),

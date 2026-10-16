@@ -8,6 +8,7 @@ import {
   type RuntimeMode,
   type ThreadId,
   type OrchestrationV2ThreadShell,
+  type OrchestrationV2TurnItem,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -176,7 +177,12 @@ const resolveThreadId = (context: Caller, threadId: ThreadId | undefined) =>
 /** Load a target thread anywhere in the environment; an omitted id means the calling thread. */
 export const readThread = Effect.fn("mcp.readThread")(function* <
   K extends ProjectionRecordField = never,
->(threadId?: ThreadId, fields: ReadonlyArray<K> = []) {
+>(
+  threadId?: ThreadId,
+  fields: ReadonlyArray<K> = [],
+  /** The turn-item types to load when `fields` includes "turnItems". */
+  turnItemTypes: ReadonlyArray<OrchestrationV2TurnItem["type"]> = ["user_input_request"],
+) {
   const context = yield* readCaller();
   const targetId = yield* resolveThreadId(context, threadId);
   const shell = yield* context.threads.getThreadShell(targetId).pipe(Effect.mapError(unavailable));
@@ -189,7 +195,7 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
   yield* assertExternalWorkOwner(context.scope, shell);
   const projection = yield* context.threads
     .getProjectThreadRecords({ projectId: shell.projectId, threadId: targetId }, fields, {
-      turnItemTypes: ["user_input_request"],
+      turnItemTypes,
     })
     .pipe(
       Effect.mapError((error) =>

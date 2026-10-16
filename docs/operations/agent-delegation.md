@@ -35,8 +35,9 @@ Briefs remain read-only.
 Save validates the choices against the policy rules and installed model catalog,
 advances the revision, and writes the policy file. Running tasks retain their
 recorded snapshot. A concurrent source edit refuses the save and reloads the
-current values. The page reports uncommitted source changes until you publish
-agent-config through its normal workflow; saving does not commit or land it.
+current values. The page shows the installed agent-config revision, whether it has
+unlanded changes, and how far it trails main, until you publish agent-config through
+its normal workflow; saving does not commit or land it.
 Unavailable accounts remain visible and are skipped. A policy still at version 1
 is read as one list per role and written as version 2 on its first save.
 Version 2 has no per-task-class restrictions: a version 1 restriction survives

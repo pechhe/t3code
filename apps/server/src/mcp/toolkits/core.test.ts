@@ -93,6 +93,7 @@ const layerThreadToolkit = McpHttpServer.layerThreadToolkit.pipe(
   Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
   Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
   Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+  Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
 );
 
 it("publishes unique tool names with reference-free object-root inputs", () => {
@@ -673,6 +674,7 @@ it.effect(
           ),
           Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
           Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
+          Layer.provide(Layer.mock(ProviderRegistry.ProviderRegistry)({})),
           Layer.provideMerge(McpServer.McpServer.layer),
           Layer.provide(
             Layer.merge(
@@ -708,7 +710,6 @@ it.effect(
       ),
     ),
 );
-
 
 it.effect(
   "routes a client caller's delegation to external work, unavailable when unconfigured",

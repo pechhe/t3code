@@ -22,6 +22,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
@@ -49,6 +50,15 @@ import * as Policy from "./AgentPolicyService.ts";
 
 /** The provider tool that loads a skill; its calls are the skills a run actually invoked. */
 const SKILL_TOOL_NAME = "Skill";
+/** Drivers whose runs report skill loads as `Skill` tool calls; for others "none" is unknown. */
+const SKILL_REPORTING_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent"]);
+/**
+ * Capture reads the files as they are now, so it describes a run's setup only shortly
+ * after the run started. A run captured later than this (it waited behind another
+ * capture, say) is recorded as unobserved; so is a run that started before this
+ * recorder did, which a restart brings back.
+ */
+const MAX_CAPTURE_DELAY_MS = 10 * 1000;
 /** Instruction files a provider reads from the agent-config root and the working directory. */
 const SHARED_INSTRUCTIONS = ["AGENTS.md"];
 const REPOSITORY_INSTRUCTIONS = ["AGENTS.md", "CLAUDE.md"];
@@ -240,7 +250,8 @@ export function uncapturedRunSetup(
 
 /**
  * What a run's setup changed from the thread's previous run: the agent-config revision
- * and each instruction file's hash. A value either record could not observe is not a change.
+ * and each instruction and skill file's hash. A value either record could not observe is
+ * not a change.
  */
 export function setupChanges(previous: RunSetupRecord, next: RunSetupRecord) {
   const changes: Array<{ subject: string; from: string | null; to: string | null }> = [];
@@ -248,9 +259,13 @@ export function setupChanges(previous: RunSetupRecord, next: RunSetupRecord) {
   const to = next.agentConfig?.revision ?? null;
   if (from !== null && to !== null && from !== to)
     changes.push({ subject: "agent-config", from, to });
-  if (previous.instructions !== null && next.instructions !== null) {
-    const before = new Map(previous.instructions.map((file) => [file.path, file.sha256]));
-    const after = new Map(next.instructions.map((file) => [file.path, file.sha256]));
+  // An unlanded edit leaves the revision alone, so the files themselves are compared.
+  for (const key of ["instructions", "skills"] as const) {
+    const previousFiles = previous[key];
+    const nextFiles = next[key];
+    if (previousFiles === null || nextFiles === null) continue;
+    const before = new Map(previousFiles.map((file) => [file.path, file.sha256]));
+    const after = new Map(nextFiles.map((file) => [file.path, file.sha256]));
     for (const path of new Set([...before.keys(), ...after.keys()])) {
       const fromHash = before.get(path) ?? null;
       const toHash = after.get(path) ?? null;
@@ -274,6 +289,46 @@ export function invokedSkills(items: ReadonlyArray<OrchestrationV2TurnItem>, run
     if (typeof skill === "string" && skill.trim() !== "") names.add(skill.trim());
   }
   return [...names];
+}
+
+/**
+ * A thread's recent runs with their setup, newest first. A started run with no stored
+ * record (one that predates capture) appears with null setup fields, and a run whose
+ * driver does not report skill loads has `invokedSkills: null` rather than an empty list.
+ */
+export function setupReport(input: {
+  readonly runs: ReadonlyArray<
+    Pick<
+      OrchestrationV2Run,
+      "id" | "threadId" | "ordinal" | "modelSelection" | "workflow" | "startedAt"
+    >
+  >;
+  readonly records: ReadonlyArray<RunSetupRecord>;
+  readonly turnItems: ReadonlyArray<OrchestrationV2TurnItem>;
+  /** The driver kind of a provider instance, when the instance is known. */
+  readonly driverOf: (instanceId: string) => string | undefined;
+  readonly limit: number;
+}) {
+  const stored = new Set(input.records.map((record) => record.runId));
+  const ordinals = new Map(input.runs.map((run) => [run.id as string, run.ordinal]));
+  const predating = input.runs
+    .filter((run) => run.startedAt !== null && !stored.has(run.id))
+    .map((run) => uncapturedRunSetup(run, DateTime.formatIso(run.startedAt!)));
+  return [...input.records, ...predating]
+    .map((record) => ({
+      record,
+      ordinal: ordinals.get(record.runId) ?? record.runOrdinal ?? 0,
+    }))
+    .sort((left, right) => right.ordinal - left.ordinal)
+    .slice(0, input.limit)
+    .map(({ record }) => ({
+      ...record,
+      invokedSkills: SKILL_REPORTING_DRIVERS.has(
+        input.driverOf(record.modelSelection.instanceId) ?? "",
+      )
+        ? invokedSkills(input.turnItems, record.runId)
+        : null,
+    }));
 }
 
 /** A thread's setup records, newest first. */
@@ -343,10 +398,23 @@ export const make = Effect.gen(function* () {
     FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner | Crypto.Crypto
   >();
   const recorded = new Set<string>();
+  const recorderStartedAt = yield* DateTime.now;
+  // A thread's captures run one at a time, in the order its runs start, so a later run
+  // never reads the files before an earlier one and cut points follow run order.
+  const captureOrders = new Map<string, Semaphore.Semaphore>();
+  const captureOrder = (threadId: string) => {
+    const existing = captureOrders.get(threadId);
+    if (existing !== undefined) return existing;
+    const created = Semaphore.makeUnsafe(1);
+    captureOrders.set(threadId, created);
+    return created;
+  };
 
+  /** True when the record was stored; false when the run already had one. */
   const insert = (record: RunSetupRecord) =>
     sql`INSERT OR IGNORE INTO run_setup_records (run_id, thread_id, captured_at, record_json)
-      VALUES (${record.runId}, ${record.threadId}, ${record.capturedAt}, ${encodeRecord(record)})`;
+      VALUES (${record.runId}, ${record.threadId}, ${record.capturedAt}, ${encodeRecord(record)})
+      RETURNING run_id`.pipe(Effect.map((rows) => rows.length > 0));
 
   const capture = (run: OrchestrationV2Run, maxTokens: number | null) =>
     Effect.gen(function* () {
@@ -437,6 +505,8 @@ export const make = Effect.gen(function* () {
   /**
    * Compares a new record with its neighbours in run order. Captures finish out of order,
    * so a record stored after a later run's still marks the cut that later run starts.
+   * A record holds the files as they were when it was captured, shortly after its run
+   * started, so a change landing in that window can be attributed to the earlier run.
    */
   const markCutPoints = (record: RunSetupRecord) =>
     Effect.gen(function* () {
@@ -448,24 +518,46 @@ export const make = Effect.gen(function* () {
     });
 
   const record = (run: OrchestrationV2Run, maxTokens: number | null) =>
-    Effect.gen(function* () {
-      if (recorded.has(run.id)) return;
-      recorded.add(run.id);
-      const capturedAt = DateTime.formatIso(yield* DateTime.now);
-      const captured = yield* capture(run, maxTokens).pipe(
+    captureOrder(run.threadId)
+      .withPermits(1)(
+        Effect.gen(function* () {
+          if (recorded.has(run.id)) return;
+          recorded.add(run.id);
+          const startedAt = DateTime.now;
+          const unobservable = Effect.gen(function* () {
+            const now = yield* DateTime.now;
+            return (
+              run.startedAt != null &&
+              (DateTime.isLessThan(run.startedAt, recorderStartedAt) ||
+                DateTime.toEpochMillis(now) - DateTime.toEpochMillis(run.startedAt) >
+                  MAX_CAPTURE_DELAY_MS)
+            );
+          });
+          const capturedAt = DateTime.formatIso(yield* startedAt);
+          const unobserved = uncapturedRunSetup(run, capturedAt);
+          // Checked again once the files are read: a slow read may have spanned a change.
+          const captured = (yield* unobservable)
+            ? unobserved
+            : yield* capture(run, maxTokens).pipe(
+                Effect.flatMap((record) =>
+                  Effect.map(unobservable, (late) => (late ? unobserved : record)),
+                ),
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("Run setup capture failed", { runId: run.id, cause }).pipe(
+                    Effect.as(unobserved),
+                  ),
+                ),
+              );
+          // After a restart a running run is captured again from today's files; its stored
+          // record stands, and the new one must not mark a cut.
+          if (yield* insert(captured)) yield* markCutPoints(captured);
+        }),
+      )
+      .pipe(
         Effect.catchCause((cause) =>
-          Effect.logWarning("Run setup capture failed", { runId: run.id, cause }).pipe(
-            Effect.as(uncapturedRunSetup(run, capturedAt)),
-          ),
+          Effect.logWarning("Run setup record failed", { runId: run.id, cause }),
         ),
       );
-      yield* insert(captured);
-      yield* markCutPoints(captured);
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Run setup record failed", { runId: run.id, cause }),
-      ),
-    );
 
   return RunSetupRecorder.of({
     record,
