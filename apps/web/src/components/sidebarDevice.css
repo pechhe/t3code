@@ -127,10 +127,16 @@
     border: none;
   }
 
+  /* Title-bar controls pinned to the window but drawn over the card offset by
+     this, so they share the card header's row and gutter. */
+  :root {
+    --workspace-card-inset: 8px;
+  }
+
   /* The main view floats off the metal like a card, as in peach-pi. */
   [data-slot="sidebar-wrapper"] > [data-slot="sidebar-inset"] {
-    height: calc(100dvh - 16px);
-    margin: 8px 8px 8px 0;
+    height: calc(100dvh - 2 * var(--workspace-card-inset));
+    margin: var(--workspace-card-inset) var(--workspace-card-inset) var(--workspace-card-inset) 0;
     border-radius: 16px;
     /* Light falls from the upper right, so the card casts left and down, and
        no outline ring hardens its edge. Wider and a touch deeper than peach-pi's. */
@@ -140,7 +146,7 @@
   }
 
   [data-slot="sidebar"][data-state="collapsed"] ~ [data-slot="sidebar-inset"] {
-    margin-left: 8px;
+    margin-left: var(--workspace-card-inset);
   }
 }
 
