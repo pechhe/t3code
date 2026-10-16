@@ -253,6 +253,7 @@ export const V2ItemInspector = memo(function V2ItemInspector(props: V2ItemInspec
       {item.type === "reasoning" && item.text ? (
         <div className="rounded-md border border-border/45 bg-muted/15 p-2 italic text-muted-foreground">
           <ChatMarkdown
+            className="font-response"
             text={item.text}
             cwd={props.cwd}
             threadRef={{

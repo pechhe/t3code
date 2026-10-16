@@ -205,6 +205,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               threadRef={threadRef}
               isStreaming={false}
               headingLevelOffset={3}
+              className="font-response"
             />
           ) : (
             <ChatMarkdown
@@ -214,6 +215,7 @@ export const ProposedPlanCard = memo(function ProposedPlanCard({
               threadRef={threadRef}
               isStreaming={false}
               headingLevelOffset={3}
+              className="font-response"
             />
           )}
           {isCollapsed ? (

@@ -61,6 +61,7 @@ export function appearanceFontStack(custom: string, defaultStack: string): strin
 
 export interface AppearanceFontPreferences {
   readonly sans: string;
+  readonly response: string;
   readonly code: string;
   readonly composer: string;
   readonly sizeInterface: number;
@@ -80,6 +81,7 @@ export function applyAppearanceFontVariables(
 ): void {
   const families: ReadonlyArray<readonly [variable: string, custom: string, fallback: string]> = [
     ["--font-sans", preferences.sans, DEFAULT_SANS_FONT_STACK],
+    ["--font-response", preferences.response, DEFAULT_SANS_FONT_STACK],
     ["--font-mono", preferences.code, DEFAULT_CODE_FONT_STACK],
     ["--font-composer", preferences.composer, "var(--font-sans)"],
   ];

@@ -5358,7 +5358,7 @@ function ReasoningTraceContent({ entries }: { entries: ReadonlyArray<TimelineWor
       {entries.map((entry) => (
         <ChatMarkdown
           key={entry.id}
-          className="text-foreground"
+          className="font-response text-foreground"
           text={entry.detail ?? ""}
           cwd={ctx.markdownCwd}
           threadRef={ctx.threadRef ?? undefined}
