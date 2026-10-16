@@ -23,8 +23,8 @@ of the selected theme.
 
 ## Project themes
 
-On web and desktop, open a project in **Settings → Projects** and choose a **Theme** to give the
-project its own look. The theme applies while a thread or a new thread in that project is open; your
+On web and desktop, open **Project settings** from a project's gear in the sidebar and choose a
+**Theme** to give the project its own look. The theme applies while a thread or a new thread in that project is open; your
 own theme returns everywhere else. Choosing the project in the new-thread project picker switches
 to its theme straight away. A project theme replaces your light and dark mix but keeps your
 appearance mode, unless the theme only has one appearance.
