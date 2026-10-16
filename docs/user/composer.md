@@ -56,10 +56,12 @@ See [images and videos](#images-and-videos-in-messages) for previewing and savin
 ## Record your screen
 
 To show the agent behaviour rather than a still, choose the record button next
-to **Send**, pick a screen or window, and choose **Stop** when you are done. The
-recording is attached to your draft as a video. Recordings stop by themselves
-after 60 seconds and capture no audio. Stop the recording before sending; it
-attaches when it stops.
+to **Send** and pick a screen or window. While recording you can move around
+T3 Code and other apps: in the Mac app the controls sit in the notch at the top of the
+screen (elsewhere, along the top of T3 Code), where you can pause, stop or
+discard. When you stop, the video is attached to the draft of the thread you
+started in. Paused time is not recorded; recordings stop by themselves after 60
+seconds of recording and capture no audio.
 
 Recording works in desktop browsers and in the desktop app on macOS 15 or later
 and Linux on Wayland. On macOS, allow T3 Code under **System Settings → Privacy

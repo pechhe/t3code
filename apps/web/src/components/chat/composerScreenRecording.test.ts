@@ -5,6 +5,7 @@ import {
   composerScreenRecordingFileName,
   createComposerScreenRecorder,
   type ComposerScreenRecordingState,
+  screenRecordingElapsedMs,
 } from "./composerScreenRecording";
 
 class FakeTrack extends EventTarget {
@@ -40,6 +41,12 @@ class FakeRecorder extends EventTarget {
   state: RecordingState = "inactive";
   mimeType = "video/webm;codecs=vp9";
   start() {
+    this.state = "recording";
+  }
+  pause() {
+    this.state = "paused";
+  }
+  resume() {
     this.state = "recording";
   }
   stop() {
@@ -174,6 +181,40 @@ describe("composer screen recording", () => {
     expect(await screenRecorder.start()).toBeNull();
     screenRecorder.discard();
     await outcome;
+  });
+  it("leaves paused time out of the elapsed time and the limit", async () => {
+    const { recorder, screenRecorder } = setup();
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(10_000);
+    screenRecorder.pause();
+    expect(recorder.state).toBe("paused");
+    await vi.advanceTimersByTimeAsync(COMPOSER_SCREEN_RECORDING_LIMIT_MS * 2);
+    const paused = screenRecorder.getState();
+    if (paused.phase !== "recording") throw new Error(`expected recording, got ${paused.phase}`);
+    expect(paused.resumedAt).toBeNull();
+    expect(screenRecordingElapsedMs(paused, Date.now())).toBe(10_000);
+
+    screenRecorder.resume();
+    expect(recorder.state).toBe("recording");
+    await vi.advanceTimersByTimeAsync(COMPOSER_SCREEN_RECORDING_LIMIT_MS - 10_000 - 1);
+    const resumed = screenRecorder.getState();
+    if (resumed.phase !== "recording") throw new Error(`expected recording, got ${resumed.phase}`);
+    expect(screenRecordingElapsedMs(resumed, Date.now())).toBe(
+      COMPOSER_SCREEN_RECORDING_LIMIT_MS - 1,
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await outcome)?.type).toBe("recorded");
+  });
+
+  it("stops from paused and keeps what was captured", async () => {
+    const { screenRecorder, allTracksStopped } = setup();
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(3_000);
+    screenRecorder.pause();
+    screenRecorder.stop();
+    expect((await outcome)?.type).toBe("recorded");
+    expect(allTracksStopped()).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

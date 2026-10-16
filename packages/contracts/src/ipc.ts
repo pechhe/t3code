@@ -1065,6 +1065,23 @@ export const DesktopScreenRecordingSupport = Schema.Literals([
   "unsupported",
 ]);
 export type DesktopScreenRecordingSupport = typeof DesktopScreenRecordingSupport.Type;
+
+/** What the desktop's recording indicator shows; it ticks the clock itself between updates. */
+export const DesktopScreenRecordingIndicatorState = Schema.Struct({
+  elapsedMs: Schema.Finite,
+  /** Epoch ms when recording last resumed, or null while paused. */
+  resumedAt: Schema.NullOr(Schema.Finite),
+  limitMs: Schema.Finite,
+});
+export type DesktopScreenRecordingIndicatorState = typeof DesktopScreenRecordingIndicatorState.Type;
+export const DesktopScreenRecordingIndicatorAction = Schema.Literals([
+  "pause",
+  "resume",
+  "stop",
+  "discard",
+]);
+export type DesktopScreenRecordingIndicatorAction =
+  typeof DesktopScreenRecordingIndicatorAction.Type;
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
 export interface DesktopBridge {
@@ -1174,6 +1191,16 @@ export interface DesktopBridge {
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
   getScreenRecordingSupport?: () => Promise<DesktopScreenRecordingSupport>;
+  /**
+   * Shows recording controls outside the window, or hides them for null. Resolves whether they are
+   * shown; where they are not, the app shows its own.
+   */
+  setScreenRecordingIndicator?: (
+    state: DesktopScreenRecordingIndicatorState | null,
+  ) => Promise<boolean>;
+  onScreenRecordingIndicatorAction?: (
+    listener: (action: DesktopScreenRecordingIndicatorAction) => void,
+  ) => () => void;
   /**
    * Optional: older desktop builds lack it; callers fall back to VS Code only.
    */

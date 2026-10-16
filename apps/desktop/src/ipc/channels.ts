@@ -129,6 +129,11 @@ export const MAC_PERMISSION_HELPER_CHANNEL = "desktop:mac-permission-helper";
 
 export const CHECK_SYSTEM_PERMISSION_CHANNEL = "desktop:check-system-permission";
 export const GET_SCREEN_RECORDING_SUPPORT_CHANNEL = "desktop:get-screen-recording-support";
+export const SET_SCREEN_RECORDING_INDICATOR_CHANNEL = "desktop:set-screen-recording-indicator";
+export const SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL =
+  "desktop:screen-recording-indicator-action";
+export const SCREEN_RECORDING_INDICATOR_STATE_CHANNEL = "desktop:screen-recording-indicator-state";
+export const SCREEN_RECORDING_INDICATOR_PILL_CHANNEL = "desktop:screen-recording-indicator-pill";
 
 export const PREVIEW_RECORDING_INPUT_CHANNEL = "desktop:preview-recording-input";
 

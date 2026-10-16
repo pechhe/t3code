@@ -2,6 +2,7 @@ import {
   ContextMenuItemSchema,
   DesktopAppBrandingSchema,
   DesktopEnvironmentBootstrapSchema,
+  DesktopScreenRecordingIndicatorState,
   DesktopScreenRecordingSupport,
   DesktopThemeSchema,
   EDITORS,
@@ -40,6 +41,7 @@ import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
 import { currentComposerScreenRecordingSupport } from "../../preview/ComposerDisplayMedia.ts";
+import * as ScreenRecordingIndicator from "../../preview/ScreenRecordingIndicator.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import {
@@ -403,6 +405,17 @@ export const getScreenRecordingSupport = DesktopIpc.makeIpcMethod({
       environment.platform,
       yield* HostProcess.Environment,
     );
+  }),
+});
+
+export const setScreenRecordingIndicator = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_SCREEN_RECORDING_INDICATOR_CHANNEL,
+  payload: Schema.NullOr(DesktopScreenRecordingIndicatorState),
+  result: Schema.Boolean,
+  handler: Effect.fn("desktop.ipc.window.setScreenRecordingIndicator")(function* (state, event) {
+    if (!event) return false;
+    const indicator = yield* ScreenRecordingIndicator.ScreenRecordingIndicator;
+    return yield* indicator.set(event.sender.id, state);
   }),
 });
 

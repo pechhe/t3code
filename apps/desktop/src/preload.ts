@@ -237,6 +237,22 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.OPEN_SYSTEM_SETTINGS_CHANNEL, pane),
   getScreenRecordingSupport: () =>
     ipcRenderer.invoke(IpcChannels.GET_SCREEN_RECORDING_SUPPORT_CHANNEL, undefined),
+  setScreenRecordingIndicator: (state) =>
+    ipcRenderer.invoke(IpcChannels.SET_SCREEN_RECORDING_INDICATOR_CHANNEL, state),
+  onScreenRecordingIndicatorAction: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
+      if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "discard")
+        return;
+      listener(action);
+    };
+    ipcRenderer.on(IpcChannels.SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(
+        IpcChannels.SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL,
+        wrappedListener,
+      );
+    };
+  },
   probeRemoteEditors: () => ipcRenderer.invoke(IpcChannels.PROBE_REMOTE_EDITORS_CHANNEL, undefined),
   pasteAsText: () => ipcRenderer.invoke(IpcChannels.PASTE_AS_TEXT_CHANNEL, undefined),
   onMenuAction: (listener) => {

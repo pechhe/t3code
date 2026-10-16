@@ -9,7 +9,14 @@ const UPLOAD_CAP_HEADROOM = 0.8;
 export type ComposerScreenRecordingState =
   | { readonly phase: "idle" }
   | { readonly phase: "picking" }
-  | { readonly phase: "recording"; readonly startedAt: number }
+  | {
+      readonly phase: "recording";
+      readonly startedAt: number;
+      /** Recorded time before `resumedAt`; paused spans are not recorded and do not count. */
+      readonly elapsedMs: number;
+      /** When recording last resumed, or null while paused. */
+      readonly resumedAt: number | null;
+    }
   | { readonly phase: "finishing" };
 
 export type ComposerScreenRecordingOutcome =
@@ -53,6 +60,13 @@ export function browserComposerScreenRecorderHost(
   };
 }
 
+export function screenRecordingElapsedMs(
+  state: Extract<ComposerScreenRecordingState, { phase: "recording" }>,
+  now: number,
+): number {
+  return state.elapsedMs + (state.resumedAt === null ? 0 : now - state.resumedAt);
+}
+
 export function composerScreenRecordingFileName(startedAt: number, mimeType: string): string {
   const date = new Date(startedAt);
   const pad = (value: number) => String(value).padStart(2, "0");
@@ -76,6 +90,7 @@ export function createComposerScreenRecorder(
   let state: ComposerScreenRecordingState = { phase: "idle" };
   let discardPicking: (() => void) | null = null;
   let finishRecording: ((keep: boolean) => void) | null = null;
+  let setPaused: ((paused: boolean) => void) | null = null;
 
   const setState = (next: ComposerScreenRecordingState) => {
     state = next;
@@ -102,14 +117,24 @@ export function createComposerScreenRecorder(
       recorder.addEventListener("stop", () => resolve(), { once: true }),
     );
     const startedAt = host.now();
-    setState({ phase: "recording", startedAt });
+    let elapsedMs = 0;
+    let resumedAt: number | null = startedAt;
+    setState({ phase: "recording", startedAt, elapsedMs, resumedAt });
 
     return new Promise((resolve) => {
       let done = false;
+      let limitTimer: ReturnType<typeof setTimeout> | undefined;
+      const armLimit = () => {
+        limitTimer = setTimeout(
+          () => finishOnce(true),
+          COMPOSER_SCREEN_RECORDING_LIMIT_MS - elapsedMs,
+        );
+      };
       const finish = async (keep: boolean) => {
         if (done) return;
         done = true;
         if (finishRecording === finishOnce) finishRecording = null;
+        if (setPaused === pause) setPaused = null;
         clearTimeout(limitTimer);
         if (!keep) {
           stopMediaStream(stream);
@@ -144,8 +169,24 @@ export function createComposerScreenRecorder(
           resolve({ type: "failed", error });
         });
       };
+      const pause = (paused: boolean) => {
+        if (done || paused === (resumedAt === null)) return;
+        const now = host.now();
+        if (paused) {
+          clearTimeout(limitTimer);
+          elapsedMs += now - (resumedAt ?? now);
+          resumedAt = null;
+          recorder.pause();
+        } else {
+          resumedAt = now;
+          recorder.resume();
+          armLimit();
+        }
+        setState({ phase: "recording", startedAt, elapsedMs, resumedAt });
+      };
       finishRecording = finishOnce;
-      const limitTimer = setTimeout(() => finishOnce(true), COMPOSER_SCREEN_RECORDING_LIMIT_MS);
+      setPaused = pause;
+      armLimit();
       for (const track of stream.getVideoTracks()) {
         track.addEventListener("ended", () => finishOnce(true), { once: true });
       }
@@ -188,6 +229,8 @@ export function createComposerScreenRecorder(
       return record(stream);
     },
     stop: () => finishRecording?.(true),
+    pause: () => setPaused?.(true),
+    resume: () => setPaused?.(false),
     discard: () => {
       discardPicking?.();
       discardPicking = null;

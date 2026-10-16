@@ -1,4 +1,5 @@
 import { PermissionUpdateNotice } from "../components/PermissionUpdateNotice";
+import { ScreenRecordingBar } from "../components/chat/ComposerScreenRecordControl";
 import { type ServerLifecycleWelcomePayload } from "@t3tools/contracts";
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import {
@@ -276,6 +277,7 @@ function RootRouteView() {
           <ReopenClosedViewShortcut />
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />
+          <ScreenRecordingBar />
           <SlowRpcRequestToastCoordinator />
           <PermissionUpdateNotice />
           {primaryEnvironmentAuthenticated ? <LegacyThreadMigrationToast /> : null}

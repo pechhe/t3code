@@ -1,15 +1,16 @@
 import type { DesktopScreenRecordingSupport } from "@t3tools/contracts";
-import { ScreenShareIcon, SquareIcon } from "lucide-react";
+import { PauseIcon, PlayIcon, ScreenShareIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "../ui/button";
-import { toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   COMPOSER_SCREEN_RECORDING_LIMIT_MS,
   composerScreenRecordingSupported,
   type ComposerScreenRecordingState,
+  screenRecordingElapsedMs,
 } from "./composerScreenRecording";
+import { screenRecordingControls, useScreenRecording } from "./screenRecordingSession";
 
 // The desktop's answer is fixed for the life of the app, so every composer shares one read.
 let desktopSupport: DesktopScreenRecordingSupport | null | undefined;
@@ -52,45 +53,34 @@ const formatClock = (ms: number) => {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
 
-function RecordingElapsed({ startedAt }: { readonly startedAt: number }) {
+function RecordingElapsed({
+  state,
+}: {
+  readonly state: Extract<ComposerScreenRecordingState, { phase: "recording" }>;
+}) {
   const [now, setNow] = useState(() => Date.now());
+  const running = state.resumedAt !== null;
   useEffect(() => {
+    if (!running) return;
+    setNow(Date.now());
     const interval = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [running]);
   return (
     <span role="timer" className="text-muted-foreground text-xs tabular-nums">
-      {formatClock(now - startedAt)} / {formatClock(COMPOSER_SCREEN_RECORDING_LIMIT_MS)}
+      {formatClock(screenRecordingElapsedMs(state, now))} /{" "}
+      {formatClock(COMPOSER_SCREEN_RECORDING_LIMIT_MS)}
     </span>
   );
 }
 
 export function ComposerScreenRecordControl({
-  state,
+  busy,
   onStart,
-  onStop,
 }: {
-  readonly state: ComposerScreenRecordingState;
+  readonly busy: boolean;
   readonly onStart: () => void;
-  readonly onStop: () => void;
 }) {
-  if (state.phase === "recording") {
-    return (
-      <div data-chat-composer-screen-recording="true" className="flex items-center gap-2">
-        <RecordingElapsed startedAt={state.startedAt} />
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={onStop}
-        >
-          <SquareIcon />
-          Stop
-        </Button>
-      </div>
-    );
-  }
   return (
     <Tooltip>
       <TooltipTrigger
@@ -99,7 +89,7 @@ export function ComposerScreenRecordControl({
             type="button"
             variant="ghost"
             size="icon-sm"
-            disabled={state.phase !== "idle"}
+            disabled={busy}
             onPointerDown={(event) => event.preventDefault()}
             onClick={onStart}
             aria-label="Record screen"
@@ -108,30 +98,59 @@ export function ComposerScreenRecordControl({
       >
         <ScreenShareIcon />
       </TooltipTrigger>
-      <TooltipPopup>Record a screen or window (up to 1 minute)</TooltipPopup>
+      <TooltipPopup>
+        {busy ? "A recording is in progress" : "Record a screen or window (up to 1 minute)"}
+      </TooltipPopup>
     </Tooltip>
   );
 }
 
 /**
- * A refused macOS Screen Recording permission arrives as the same `NotAllowedError` as a dismissed
- * picker, so ask the desktop shell, which SnapShot already uses for this.
+ * Recording controls on every screen, for clients where the desktop does not show them outside
+ * the window. A recording keeps going across threads, so its controls cannot live in a composer.
  */
-export async function explainRefusedScreenRecording(): Promise<void> {
-  const bridge = window.desktopBridge;
-  if (!bridge?.getSnapShotState || !bridge.setupSnapShot) return;
-  const state = await bridge.getSnapShotState().catch(() => null);
-  if (state?.macPermissions?.screenRecording !== false) return;
-  const id = toastManager.add({
-    type: "error",
-    title: "T3 Code can't record your screen",
-    description: "Allow Screen Recording in System Settings, then restart T3 Code.",
-    actionProps: {
-      children: "Open System Settings",
-      onClick: () => {
-        toastManager.close(id);
-        void bridge.setupSnapShot?.("allow-screen-recording").catch(() => undefined);
-      },
-    },
-  });
+export function ScreenRecordingBar() {
+  const { state, origin, indicator } = useScreenRecording();
+  if (state.phase !== "recording" || indicator !== "none") return null;
+  const paused = state.resumedAt === null;
+  return (
+    <div
+      role="region"
+      aria-label="Screen recording"
+      className="bg-popover text-popover-foreground fixed top-2 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border py-1 pr-1 pl-3 shadow-lg"
+    >
+      <span
+        aria-hidden
+        className={
+          paused ? "bg-muted-foreground size-2 rounded-full" : "bg-destructive size-2 rounded-full"
+        }
+      />
+      <RecordingElapsed state={state} />
+      {origin ? (
+        <span className="text-muted-foreground max-w-48 truncate text-xs">for {origin.title}</span>
+      ) : null}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={paused ? "Resume recording" : "Pause recording"}
+        onClick={paused ? screenRecordingControls.resume : screenRecordingControls.pause}
+      >
+        {paused ? <PlayIcon /> : <PauseIcon />}
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={screenRecordingControls.stop}>
+        <SquareIcon />
+        Stop
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Discard recording"
+        onClick={screenRecordingControls.discard}
+      >
+        <Trash2Icon />
+      </Button>
+    </div>
+  );
 }
