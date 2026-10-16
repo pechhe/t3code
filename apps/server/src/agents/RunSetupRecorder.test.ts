@@ -511,6 +511,60 @@ describe("setup cut points", () => {
     );
   });
 
+  it.effect("marks the cut across a run whose setup was unobserved", () => {
+    let repoPath = "";
+    const observations: Array<{ id: string }> = [];
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const recorder = yield* RunSetup.RunSetupRecorder;
+      const repo = yield* fs.makeTempDirectoryScoped({ prefix: "run-setup-gap-" });
+      repoPath = repo;
+      const agents = path.join(repo, "AGENTS.md");
+      const runAt = (ordinal: number, startedAt?: DateTime.Utc) =>
+        ({
+          id: RunId.make(`run:gap:${ordinal}`),
+          threadId,
+          ordinal,
+          ...(startedAt === undefined ? {} : { startedAt }),
+          modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
+        }) as never;
+      yield* fs.writeFileString(agents, "v1");
+      yield* recorder.record(runAt(1), null);
+      yield* fs.writeFileString(agents, "v2");
+      // Run 2 started before the recorder did, so it is stored as unobserved.
+      yield* recorder.record(runAt(2, DateTime.makeUnsafe(-60 * 1000)), null);
+      yield* recorder.record(runAt(3), null);
+      assert.deepEqual(
+        observations.map((observation) => observation.id),
+        ["setup-change:assignment:trial:run:gap:3"],
+      );
+    }).pipe(
+      Effect.provide(
+        recorderLayer(
+          () =>
+            Effect.sync(
+              () => ({ ...thread, projectId: "project:setup", worktreePath: repoPath }) as never,
+            ),
+          {
+            list: () => Effect.succeed([{ id: "trial", status: "running" }] as never),
+            assignments: () =>
+              Effect.succeed([
+                { id: "assignment:trial", experimentId: "trial", variant: { id: "a" } },
+              ] as never),
+            recordObservation: (input) =>
+              Effect.sync(() => {
+                observations.push(input);
+                return input as never;
+              }),
+          },
+        ),
+      ),
+      Effect.scoped,
+      Effect.provide(layer),
+    );
+  });
+
   it.effect("captures runs one at a time in the order they start", () => {
     const captured: Array<string> = [];
     let gate: Deferred.Deferred<void> | null = null;

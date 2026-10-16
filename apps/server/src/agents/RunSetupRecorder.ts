@@ -462,15 +462,18 @@ export const make = Effect.gen(function* () {
       return record;
     }).pipe(Effect.provide(context), Effect.timeout("30 seconds"));
 
+  /** The nearest run before or after `ordinal` whose setup was observed; unobserved runs say nothing. */
   const recordAt = (threadId: string, ordinal: number, direction: "before" | "after") =>
     Effect.gen(function* () {
       const rows =
         direction === "before"
           ? yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
               WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') < ${ordinal}
+                AND json_extract(record_json, '$.instructions') IS NOT NULL
               ORDER BY json_extract(record_json, '$.runOrdinal') DESC LIMIT 1`
           : yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
               WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') > ${ordinal}
+                AND json_extract(record_json, '$.instructions') IS NOT NULL
               ORDER BY json_extract(record_json, '$.runOrdinal') ASC LIMIT 1`;
       return rows[0] === undefined ? null : yield* decodeRecord(rows[0].record_json);
     });
