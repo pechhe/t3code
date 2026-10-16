@@ -843,7 +843,7 @@ function MarkdownCodeBlock({
   const canRun =
     onRunShellCommand !== undefined &&
     !isStreaming &&
-    /^(?:sh|bash|zsh|fish|shell|powershell|pwsh)$/.test(language) &&
+    /^(?:sh|bash|zsh|fish|shell|powershell|pwsh|text)$/.test(language) &&
     code.endsWith("\n") &&
     command.length > 0 &&
     !command.endsWith("\\") &&

@@ -311,6 +311,8 @@ describe("ChatMarkdown streaming", () => {
         "~~~bash\necho tilde\n~~~",
         "> ```bash\n> echo quote\n> ```",
         "````bash\necho four\n````",
+        "```text\nbws-save EXECUTOR_PAT\n```",
+        "```\nbws-save EXECUTOR_PAT\n```",
       ]) {
         await act(async () => {
           mounted.update(message(text));
