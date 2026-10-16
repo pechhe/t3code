@@ -10,7 +10,7 @@ import { CornerUpRight, ListPlus } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
 import { formatContextWindowTokens } from "~/lib/contextWindow";
-import { pressClick } from "~/lib/interfaceSounds";
+import { dialClicks, pressClick } from "~/lib/interfaceSounds";
 import { cn } from "~/lib/utils";
 import { useShortcutModifierState } from "../../shortcutModifierState";
 import { StageBackdropButtonArt, useSidebarStageBackdropVariant } from "../SidebarStageBackdrop";
@@ -132,32 +132,36 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
     releaseDialRef.current?.();
     releaseDialRef.current = null;
   };
-  const pointerFocusProps = device
-    ? {
-        onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
-          if (preserveComposerFocusOnPointerDown) event.preventDefault();
-          if (event.button === 0 && !event.currentTarget.matches(":disabled")) {
-            releaseDialRef.current = pressClick();
-          }
-        },
-        onPointerUp: releaseDial,
-        onPointerLeave: releaseDial,
-        onPointerCancel: () => {
-          releaseDialRef.current = null;
-        },
-      }
-    : preserveComposerFocusOnPointerDown
-      ? { onPointerDown: preventPointerFocus }
-      : undefined;
+  // A send or queue cue stands in for the dial's click, so a dial that sends asks at each press whether to click.
+  const pointerPropsFor = (clicks: () => boolean) =>
+    device
+      ? {
+          onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+            if (preserveComposerFocusOnPointerDown) event.preventDefault();
+            if (event.button === 0 && !event.currentTarget.matches(":disabled") && clicks()) {
+              releaseDialRef.current = pressClick();
+            }
+          },
+          onPointerUp: releaseDial,
+          onPointerLeave: releaseDial,
+          onPointerCancel: () => {
+            releaseDialRef.current = null;
+          },
+        }
+      : preserveComposerFocusOnPointerDown
+        ? { onPointerDown: preventPointerFocus }
+        : undefined;
+  const pointerFocusProps = pointerPropsFor(() => true);
   const environmentIdentificationMode = useEnvironmentIdentificationMode();
   const shortcutModifiers = useShortcutModifierState();
-  const isQueuing =
-    !isEditingQueuedMessage &&
+  // What a send would do even while editing a queued message, whose label stays "Update".
+  const dispatchesQueued =
     resolveComposerDispatchMode({
       running: isRunning,
       activeTurnDefault: followUpBehavior,
       alternateModifier: shortcutModifiers.metaKey || shortcutModifiers.ctrlKey,
     }) === "queue";
+  const isQueuing = !isEditingQueuedMessage && dispatchesQueued;
   const alternateAction = alternateComposerDispatchAction(followUpBehavior);
   const isSendDisabled = !canOperateThread || sendDisabledReason !== null;
   const stageBackdropVariant = useSidebarStageBackdropVariant(
@@ -226,7 +230,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <button
           type="submit"
           className={cn(messageActionPillClassName, "h-8 sm:h-7", compact ? "px-3" : "px-4")}
-          {...pointerFocusProps}
+          {...pointerPropsFor(() => dialClicks(false))}
           disabled={
             !canOperateThread ||
             isEnvironmentUnavailable ||
@@ -251,7 +255,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <button
           type="submit"
           className={cn(messageActionPillClassName, "h-9 sm:h-8", compact ? "px-3" : "px-4")}
-          {...pointerFocusProps}
+          {...pointerPropsFor(() => dialClicks(false))}
           disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Refine"}
@@ -264,7 +268,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <button
           type="submit"
           className={cn(messageActionPillClassName, "h-9 rounded-r-none px-4 sm:h-8")}
-          {...pointerFocusProps}
+          {...pointerPropsFor(() => dialClicks(false))}
           disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Implement"}
@@ -359,7 +363,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                 : "bg-message-action text-message-action-foreground enabled:shadow-message-action/24 hover:bg-message-action-hover",
             )
       }
-      {...pointerFocusProps}
+      {...pointerPropsFor(() => showResume || dialClicks(dispatchesQueued))}
       onClick={showResume ? onResume : onSubmitMessage}
       disabled={
         isSendBusy ||

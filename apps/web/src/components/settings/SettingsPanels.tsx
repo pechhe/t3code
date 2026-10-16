@@ -50,6 +50,7 @@ import {
   type QuitConfirmationMode,
   QueueSound,
   SendSound,
+  SettleSound,
   SidebarProjectSortOrder,
 } from "@t3tools/contracts/settings";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
@@ -175,7 +176,7 @@ import { searchableSetting } from "./settingsSearch";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { PanelAnimationsPreview } from "./PanelAnimationsPreview";
 import { COMPOSER_FINISHES, resolveComposerFinish } from "~/lib/composerFinish";
-import { previewQueueSound, previewSendSound } from "~/lib/interfaceSounds";
+import { previewQueueSound, previewSendSound, previewSettleSound } from "~/lib/interfaceSounds";
 
 const ENVIRONMENT_IDENTIFICATION_LABELS: Record<EnvironmentIdentificationMode, string> = {
   artwork: "Version pill",
@@ -608,6 +609,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.sendMotion !== DEFAULT_UNIFIED_SETTINGS.sendMotion ? ["Send motion"] : []),
       ...(settings.sendSound !== DEFAULT_UNIFIED_SETTINGS.sendSound ? ["Send sound"] : []),
       ...(settings.queueSound !== DEFAULT_UNIFIED_SETTINGS.queueSound ? ["Queue sound"] : []),
+      ...(settings.settleSound !== DEFAULT_UNIFIED_SETTINGS.settleSound ? ["Settle sound"] : []),
       ...(settings.composerFinish !== DEFAULT_UNIFIED_SETTINGS.composerFinish
         ? ["Composer finish"]
         : []),
@@ -746,6 +748,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.sendMotion,
       settings.sendSound,
       settings.queueSound,
+      settings.settleSound,
       settings.composerFinish,
       followSystem,
       theme,
@@ -827,6 +830,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       sendMotion: DEFAULT_UNIFIED_SETTINGS.sendMotion,
       sendSound: DEFAULT_UNIFIED_SETTINGS.sendSound,
       queueSound: DEFAULT_UNIFIED_SETTINGS.queueSound,
+      settleSound: DEFAULT_UNIFIED_SETTINGS.settleSound,
       composerFinish: DEFAULT_UNIFIED_SETTINGS.composerFinish,
       persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
@@ -1819,7 +1823,7 @@ function SendSoundRow() {
   return (
     <SettingsRow
       {...searchableSetting("send-sound")}
-      description="What the send dial plays after its press when a message goes straight to the agent."
+      description="What the send dial sounds like when a message goes straight to the agent. Press is the dial's own click; the others play instead of it."
       resetAction={
         settings.sendSound !== DEFAULT_UNIFIED_SETTINGS.sendSound ? (
           <SettingResetButton
@@ -1866,7 +1870,7 @@ function QueueSoundRow() {
   return (
     <SettingsRow
       {...searchableSetting("queue-sound")}
-      description="What the send dial plays instead when the agent is busy and your message waits in the queue."
+      description="What the send dial plays, in place of its click, when the agent is busy and your message waits in the queue."
       resetAction={
         settings.queueSound !== DEFAULT_UNIFIED_SETTINGS.queueSound ? (
           <SettingResetButton
@@ -1892,6 +1896,60 @@ function QueueSoundRow() {
             {QUEUE_SOUNDS.map((sound) => (
               <SelectItem key={sound} hideIndicator value={sound}>
                 {QUEUE_SOUND_LABELS[sound]}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
+  );
+}
+
+const SETTLE_SOUNDS = SettleSound.literals;
+
+const SETTLE_SOUND_LABELS = {
+  off: "Off",
+  whoosh: "Metal whoosh",
+  filed: "Filed",
+  stamp: "Stamp",
+  resolve: "Resolve",
+  switch: "Heavy switch",
+  tap: "Glass tap",
+} as const satisfies Record<SettleSound, string>;
+
+function SettleSoundRow() {
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  if (!settings.interfaceSounds) return null;
+  return (
+    <SettingsRow
+      {...searchableSetting("settle-sound")}
+      description="What plays when you settle a thread, from the sidebar, a shortcut or the thread menu."
+      resetAction={
+        settings.settleSound !== DEFAULT_UNIFIED_SETTINGS.settleSound ? (
+          <SettingResetButton
+            label="settle sound"
+            onClick={() => updateSettings({ settleSound: DEFAULT_UNIFIED_SETTINGS.settleSound })}
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={settings.settleSound}
+          onValueChange={(value) => {
+            const sound = SETTLE_SOUNDS.find((candidate) => candidate === value);
+            if (!sound) return;
+            updateSettings({ settleSound: sound });
+            previewSettleSound(sound);
+          }}
+        >
+          <SelectTrigger size="sm" className="w-full sm:w-40" aria-label="Settle sound">
+            <SelectValue>{SETTLE_SOUND_LABELS[settings.settleSound]}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {SETTLE_SOUNDS.map((sound) => (
+              <SelectItem key={sound} hideIndicator value={sound}>
+                {SETTLE_SOUND_LABELS[sound]}
               </SelectItem>
             ))}
           </SelectPopup>
@@ -2087,6 +2145,7 @@ function TypographySection() {
       <InterfaceSoundsRow />
       <SendSoundRow />
       <QueueSoundRow />
+      <SettleSoundRow />
       <SendMotionRow />
       <ComposerFinishRow />
     </SettingsSection>

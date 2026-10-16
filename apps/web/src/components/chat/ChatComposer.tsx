@@ -308,7 +308,7 @@ import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
-import { playDispatchCue, pressClick } from "~/lib/interfaceSounds";
+import { dialClicks, playDispatchCue, pressClick } from "~/lib/interfaceSounds";
 import { recordSendOrigin } from "~/lib/sendMotion";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
@@ -4445,11 +4445,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (!submission.didDispatch) return;
     // A click already pressed the dial; keyboard sends press it here.
     if (deviceComposer) {
+      const queued = resolvedDispatchMode === "queue" && !activePendingProgress;
       if (!event) {
         setSendPressKey((key) => key + 1);
-        pressClick()();
+        if (dialClicks(queued)) pressClick()();
       }
-      playDispatchCue(resolvedDispatchMode === "queue" && !activePendingProgress);
+      playDispatchCue(queued);
     }
     onTypingGuardSend();
     if (shouldBlurMobileComposerOnSubmit()) {

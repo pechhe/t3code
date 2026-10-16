@@ -324,13 +324,25 @@ export type ModelPreferences = {
 export const SendMotion = Schema.Literals(["lift", "vacuum", "off"]);
 export type SendMotion = typeof SendMotion.Type;
 
-/** What the send dial adds after its press when a message goes straight to the agent. */
+/** What the send dial sounds like when a message goes straight to the agent: its own click (`press`) or a cue in its place. */
 export const SendSound = Schema.Literals(["press", "air", "tube", "bell"]);
 export type SendSound = typeof SendSound.Type;
 
-/** What the send dial adds when a message waits in the queue instead. */
+/** What the send dial plays, in place of its click, when a message waits in the queue instead. */
 export const QueueSound = Schema.Literals(["latch", "drop"]);
 export type QueueSound = typeof QueueSound.Type;
+
+/** What plays once a thread settles; `whoosh` is the metal recording ported from peach-pi. */
+export const SettleSound = Schema.Literals([
+  "off",
+  "whoosh",
+  "filed",
+  "stamp",
+  "resolve",
+  "switch",
+  "tap",
+]);
+export type SettleSound = typeof SettleSound.Type;
 
 export const ClientSettingsSchema = Schema.Struct({
   notificationMode: NotificationMode.pipe(
@@ -530,6 +542,7 @@ export const ClientSettingsSchema = Schema.Struct({
   sendMotion: SendMotion.pipe(Schema.withDecodingDefault(Effect.succeed("lift" as const))),
   sendSound: SendSound.pipe(Schema.withDecodingDefault(Effect.succeed("press" as const))),
   queueSound: QueueSound.pipe(Schema.withDecodingDefault(Effect.succeed("latch" as const))),
+  settleSound: SettleSound.pipe(Schema.withDecodingDefault(Effect.succeed("whoosh" as const))),
   /** The device composer's metal and screen; ids are defined by the web client. */
   composerFinish: TrimmedNonEmptyString.pipe(Schema.withDecodingDefault(Effect.succeed("auto"))),
   /** Names the composer's model slider shows for favourites, keyed by `instanceId:model`. */
@@ -1907,6 +1920,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sendMotion: Schema.optionalKey(SendMotion),
   sendSound: Schema.optionalKey(SendSound),
   queueSound: Schema.optionalKey(QueueSound),
+  settleSound: Schema.optionalKey(SettleSound),
   composerFinish: Schema.optionalKey(TrimmedNonEmptyString),
   modelSlotLabels: Schema.optionalKey(Schema.Record(Schema.String, TrimmedNonEmptyString)),
 });

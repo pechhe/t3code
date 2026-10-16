@@ -387,6 +387,12 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["sound audio queue queued message latch drop slot click dial"],
   },
   {
+    id: "settle-sound",
+    title: "Settle sound",
+    to: "/settings/appearance",
+    searchTerms: ["sound audio settle settled done thread whoosh metal stamp filed switch tap"],
+  },
+  {
     id: "send-motion",
     title: "Send motion",
     to: "/settings/appearance",

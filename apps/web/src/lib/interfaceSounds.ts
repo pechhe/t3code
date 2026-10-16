@@ -1,17 +1,19 @@
 /**
  * Interface sounds: the composer's machined press and rotary clicks (peach-pi's
- * recordings), the synthesised cue that follows a send or queue, and the sidebar's
- * hover tick (YardSmith's synthesised detent).
+ * recordings), the synthesised cue that replaces the click on a send or
+ * a queue, the cue that marks a thread settling (one of them peach-pi's metal whoosh),
+ * and the sidebar's hover tick (YardSmith's synthesised detent).
  *
  * Browsers keep audio silent until the page sees a gesture, so the context starts
  * on the first pointer or key press and anything earlier is skipped. Between
  * bursts it suspends, so an idle window holds no audio output open. Everything is
  * quiet while the `interfaceSounds` client setting is off.
  */
-import type { QueueSound, SendSound } from "@t3tools/contracts/settings";
+import type { QueueSound, SendSound, SettleSound } from "@t3tools/contracts/settings";
 
 import { getClientSettings } from "~/hooks/useSettings";
 
+import metalWhooshUrl from "../assets/sounds/metal-whoosh.mp3?url";
 import pressDownUrl from "../assets/sounds/press-down.mp3?url";
 import pressUpUrl from "../assets/sounds/press-up.mp3?url";
 import rotaryUrl from "../assets/sounds/rotary.mp3?url";
@@ -23,18 +25,22 @@ const FALLBACK_PRESS_MS = 260;
 /** A sweep across the sidebar ticks like a detent instead of buzzing. */
 const TICK_INTERVAL_MS = 30;
 const TICK_PITCH_SPREAD = 0.04;
-/** How far into the release click a dispatch cue starts. */
-const RELEASE_LEAD_S = 0.07;
+/** A bulk settle lands its threads back to back; only the first of a burst sounds. */
+const SETTLE_COOLDOWN_MS = 250;
 
-const RECORDINGS = { pressDown: pressDownUrl, pressUp: pressUpUrl, rotary: rotaryUrl };
+const RECORDINGS = {
+  pressDown: pressDownUrl,
+  pressUp: pressUpUrl,
+  rotary: rotaryUrl,
+  metalWhoosh: metalWhooshUrl,
+};
 type Recording = keyof typeof RECORDINGS;
 
 let context: AudioContext | null = null;
 let master: GainNode | null = null;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
 let lastTickAt = Number.NEGATIVE_INFINITY;
-/** When the dial's latest release click starts, so a dispatch cue can follow instead of masking it. */
-let releaseAt = Number.NEGATIVE_INFINITY;
+let lastSettleAt = Number.NEGATIVE_INFINITY;
 let tickBuffer: AudioBuffer | null = null;
 const recordings = new Map<Recording, AudioBuffer>();
 
@@ -156,7 +162,7 @@ function tone(
 
 type Cue = (audio: AudioContext, output: AudioNode, at: number) => void;
 
-/** What follows the dial's press once a message goes to the agent; `press` adds nothing. */
+/** What a send sounds like: `press` is the dial's own click, any other cue plays instead of it. */
 // Laptop speakers drop most of what sits below ~200 Hz and filtered noise loses most of
 // its energy, so the cues keep their partials high and their noise loud to stay audible.
 const SEND_CUES: Record<SendSound, Cue | null> = {
@@ -172,7 +178,7 @@ const SEND_CUES: Record<SendSound, Cue | null> = {
   },
 };
 
-/** What follows the press when the message waits in the queue instead. */
+/** What a queued message sounds like; it always plays instead of the dial's click. */
 const QUEUE_CUES: Record<QueueSound, Cue> = {
   latch: (audio, output, at) => {
     playAt(audio, output, recordings.get("pressDown"), at, 1.35, 0.9);
@@ -182,6 +188,35 @@ const QUEUE_CUES: Record<QueueSound, Cue> = {
   drop: (audio, output, at) => {
     sweep(audio, output, at, 0.16, [3200, 800], 1.4, 1);
     tone(audio, output, at + 0.15, 0.12, [360, 180], 0.7, "triangle");
+  },
+};
+
+/** What plays once a thread settles; `off` adds nothing. Kept under half a second, since settling repeats all day. */
+const SETTLE_CUES: Record<SettleSound, Cue | null> = {
+  off: null,
+  whoosh: (audio, output, at) => playAt(audio, output, recordings.get("metalWhoosh"), at, 1, 1),
+  filed: (audio, output, at) => {
+    sweep(audio, output, at, 0.22, [5200, 1100], 1.5, 0.9);
+    tone(audio, output, at + 0.2, 0.07, [420, 300], 0.5, "triangle");
+  },
+  stamp: (audio, output, at) => {
+    sweep(audio, output, at, 0.04, [2600, 2600], 0.9, 0.8, "highpass");
+    tone(audio, output, at, 0.26, [300, 110], 0.55, "triangle");
+    tone(audio, output, at, 0.14, [620, 240], 0.2);
+  },
+  resolve: (audio, output, at) => {
+    tone(audio, output, at, 0.2, [1175, 1170], 0.5);
+    tone(audio, output, at + 0.11, 0.4, [880, 877], 0.55);
+    tone(audio, output, at + 0.11, 0.25, [1760, 1754], 0.12);
+  },
+  // The dial's own press and release, slowed so the same switch sounds heavier.
+  switch: (audio, output, at) => {
+    playAt(audio, output, recordings.get("pressDown"), at, 0.8, 1);
+    playAt(audio, output, recordings.get("pressUp"), at + 0.2, 0.8, 0.9);
+  },
+  tap: (audio, output, at) => {
+    tone(audio, output, at, 0.34, [2093, 2088], 0.55);
+    tone(audio, output, at, 0.12, [3136, 3128], 0.2);
   },
 };
 
@@ -270,7 +305,6 @@ export function pressClick(): () => void {
   const pressMs = press ? press.duration * 1000 : FALLBACK_PRESS_MS;
   return () => {
     const wait = Math.max(0, pressMs - (performance.now() - pressedAt));
-    releaseAt = performance.now() + wait;
     if (wait === 0) play(recordings.get("pressUp"));
     else setTimeout(() => play(recordings.get("pressUp")), wait);
   };
@@ -291,30 +325,41 @@ export function playHoverTick(): void {
   play(tickBuffer, 1 + (Math.random() - 0.5) * TICK_PITCH_SPREAD * 2, 0.12 / MASTER_VOLUME);
 }
 
-/** The cue after the dial's press: the chosen send sound, or the queue sound when it waits. */
+/** Whether the dial's own click sounds: only a send on `press`, since every other cue stands in for it. */
+export function dialClicks(queued: boolean): boolean {
+  return !queued && SEND_CUES[getClientSettings().sendSound] === null;
+}
+
+/** The sound of a dispatch: the chosen send cue, or the queue cue when the message waits. */
 export function playDispatchCue(queued: boolean): void {
   const settings = getClientSettings();
   const cue = queued ? QUEUE_CUES[settings.queueSound] : SEND_CUES[settings.sendSound];
-  if (cue) synthAfterRelease(cue);
+  if (cue) synth(cue);
 }
 
-/** Starts `cue` just after the release click lands, so the two never sound as one. */
-function synthAfterRelease(cue: Cue): void {
-  const delay = Math.max(0, releaseAt - performance.now()) / 1000 + RELEASE_LEAD_S;
-  synth((audio, output, at) => cue(audio, output, at + delay));
-}
-
-function previewCue(cue: Cue | null): void {
-  pressClick()();
-  if (cue) synthAfterRelease(cue);
-}
-
-/** A whole dial press followed by a send sound, for choosing one in Settings. */
+/** A send sound as a send plays it, for choosing one in Settings. */
 export function previewSendSound(sound: SendSound): void {
-  previewCue(SEND_CUES[sound]);
+  const cue = SEND_CUES[sound];
+  if (cue) synth(cue);
+  else pressClick()();
 }
 
-/** A whole dial press followed by a queue sound, for choosing one in Settings. */
+/** A queue sound as a queued send plays it, for choosing one in Settings. */
 export function previewQueueSound(sound: QueueSound): void {
-  previewCue(QUEUE_CUES[sound]);
+  synth(QUEUE_CUES[sound]);
+}
+
+/** The chosen settle sound, once a thread has settled. */
+export function playSettleSound(): void {
+  const now = performance.now();
+  if (now - lastSettleAt < SETTLE_COOLDOWN_MS) return;
+  lastSettleAt = now;
+  const cue = SETTLE_CUES[getClientSettings().settleSound];
+  if (cue) synth(cue);
+}
+
+/** A settle sound on its own, for choosing one in Settings. */
+export function previewSettleSound(sound: SettleSound): void {
+  const cue = SETTLE_CUES[sound];
+  if (cue) synth(cue);
 }
