@@ -10,6 +10,7 @@ import {
   DesktopCaptureConfigRequest,
   DesktopCaptureConfigPreview,
   DesktopCaptureConfigApplied,
+  ScopedProjectRef,
   ScopedThreadRef,
   DesktopSnapShotDraftHandoff,
   DesktopViewportFrame,
@@ -280,6 +281,16 @@ export const handOffSnapShotDraft = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.snapShot.handOffDraft")(function* (draft, event) {
     yield* ensureTrustedSnapShotSender(event);
     yield* (yield* DesktopWindow.DesktopWindow).handOffSnapShotDraft(draft);
+  }),
+});
+
+export const prepareSnapShotDraftHandoff = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREPARE_SNAP_SHOT_DRAFT_HANDOFF_CHANNEL,
+  payload: ScopedProjectRef,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.snapShot.prepareDraftHandoff")(function* (projectRef, event) {
+    yield* ensureTrustedSnapShotSender(event);
+    yield* (yield* DesktopWindow.DesktopWindow).prepareSnapShotDraftHandoff(projectRef);
   }),
 });
 

@@ -1142,6 +1142,13 @@ export interface DesktopBridge {
   onSnapShotOverlayHandoffRequest?: (listener: () => void) => () => void;
   /** Gives the overlay's unsent chat to the main window and hides the overlay. */
   handOffSnapShotDraft?: (draft: DesktopSnapShotDraftHandoff) => Promise<void>;
+  /** The SnapShot overlay window was shown (`true`) or hidden (`false`). */
+  onSnapShotOverlayVisibility?: (listener: (visible: boolean) => void) => () => void;
+  /**
+   * Opens the overlay chat's project on the main window's new-chat page while T3 is in the
+   * background, so switching to T3 finds it already there. Ignored while T3 is the active app.
+   */
+  prepareSnapShotDraftHandoff?: (projectRef: ScopedProjectRef) => Promise<void>;
   /** The main window receives the overlay's unsent chat. */
   onSnapShotDraftHandoff?: (listener: (draft: DesktopSnapShotDraftHandoff) => void) => () => void;
   /** Opens a thread in the main window, revealing it, and hides the SnapShot overlay. */

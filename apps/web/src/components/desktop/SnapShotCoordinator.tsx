@@ -249,7 +249,16 @@ export function SnapShotCoordinator({
       lastTargetRef.current = null;
     }
     if (overlay) {
-      const draftId = (await startOverlayDraft?.()) ?? null;
+      // Starting the chat can lose a race with the overlay's own navigation; the chat it shows
+      // then still takes the capture.
+      const draftId =
+        (await startOverlayDraft?.()) ??
+        reusableSnapShotTarget(
+          lastTargetRef.current
+            ? resolveExistingSnapShotTarget(lastTargetRef.current, routeThreadRef)
+            : null,
+          overlay,
+        );
       lastTargetRef.current = draftId;
       return draftId;
     }
@@ -318,11 +327,19 @@ export function SnapShotCoordinator({
             await dismissSnapShotAnimation(item.id);
             soundedCaptureIdsRef.current.delete(item.id);
             toastManager.add(
-              stackedThreadToast({
-                type: "error",
-                title: "Snapshot taken, but no project is available",
-                description: "Add a project, then capture the window again.",
-              }),
+              stackedThreadToast(
+                overlay
+                  ? {
+                      type: "error",
+                      title: "Snapshot taken, but no chat could start for it",
+                      description: "Capture the window again.",
+                    }
+                  : {
+                      type: "error",
+                      title: "Snapshot taken, but no project is available",
+                      description: "Add a project, then capture the window again.",
+                    },
+              ),
             );
             continue;
           }

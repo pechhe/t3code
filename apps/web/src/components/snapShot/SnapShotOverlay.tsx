@@ -29,8 +29,24 @@ function useStartSnapShotOverlayDraft(): () => Promise<DraftId | null> {
     const created = await handleNewThread(scopeProjectRef(project.environmentId, project.id), {
       replace: true,
     });
+    prepareMainWindowFor(created?.draftId ?? null);
     return created?.draftId ?? null;
   }, [handleNewThread, openScratchProject, primaryEnvironmentId]);
+}
+
+/** The overlay's current chat, read from its route. */
+function currentOverlayDraftId(router: ReturnType<typeof useRouter>): DraftId | null {
+  const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
+  return route?.kind === "draft" ? route.draftId : null;
+}
+
+/** Opens the overlay chat's project on the main window's new-chat page, ready for the handover. */
+function prepareMainWindowFor(draftId: DraftId | null): void {
+  const session = draftId ? useComposerDraftStore.getState().getDraftSession(draftId) : null;
+  if (!session || session.promotedTo) return;
+  void window.desktopBridge?.prepareSnapShotDraftHandoff?.(
+    scopeProjectRef(session.environmentId, session.projectId),
+  );
 }
 
 /** The overlay's chat in the form the main window takes it over in. */
@@ -72,7 +88,7 @@ function useSnapShotOverlayHandoff() {
     return bridge?.onSnapShotOverlayHandoffRequest?.(() => {
       if (handingOff) return;
       const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
-      const draftId = route?.kind === "draft" ? route.draftId : null;
+      const draftId = currentOverlayDraftId(router);
       const threadRef = route?.kind === "server" ? route.threadRef : null;
       const sentThread =
         threadRef ??
@@ -95,6 +111,13 @@ function useSnapShotOverlayHandoff() {
         });
     });
   }, [router]);
+  useEffect(
+    () =>
+      window.desktopBridge?.onSnapShotOverlayVisibility?.((visible) => {
+        if (visible) prepareMainWindowFor(currentOverlayDraftId(router));
+      }),
+    [router],
+  );
 }
 
 /** The overlay window's app: its routes plus the coordinator that puts captures in its chat. */
@@ -122,6 +145,10 @@ export function SnapShotOverlayStart() {
   return null;
 }
 
+/** Layers that close on Escape before the overlay does. */
+const OPEN_LAYER_SELECTOR =
+  '[data-composer-drawer-layer], [data-slot$="-popup"]:not([data-closed]), [role="dialog"]';
+
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
@@ -140,8 +167,8 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
 
   useEffect(() => {
     const slideIn = () => {
-      if (document.visibilityState !== "visible") return;
       hidingRef.current = false;
+      setShown(false);
       void (window.desktopBridge?.getSnapShotOverlayBottomInset?.() ?? Promise.resolve(0))
         .catch(() => 0)
         .then((inset) => {
@@ -150,24 +177,27 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
           requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
         });
     };
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") slideIn();
-      else setShown(false);
-    };
-    slideIn();
-    window.addEventListener("focus", slideIn);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () => {
-      window.removeEventListener("focus", slideIn);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-    };
+    // The window never reports itself hidden, so the desktop app says when it shows and hides.
+    if (document.hasFocus()) slideIn();
+    return window.desktopBridge?.onSnapShotOverlayVisibility?.((visible) => {
+      if (visible) {
+        slideIn();
+        return;
+      }
+      hidingRef.current = false;
+      setShown(false);
+    });
   }, []);
 
   useEffect(() => {
+    // Escape hides the overlay from anywhere, the composer included, unless it is closing a menu,
+    // popup or the composer's suggestions first. Listening ahead of the composer, which keeps
+    // Escape for itself.
     const onKeyDown = (event: KeyboardEvent) => {
-      // The composer and dialogs claim Escape first, for menus they close.
-      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      if (document.querySelector(OPEN_LAYER_SELECTOR)) return;
       event.preventDefault();
+      event.stopPropagation();
       if (prefersReducedMotion()) {
         void window.desktopBridge?.hideSnapShotOverlay?.();
         return;
@@ -175,8 +205,8 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
       hidingRef.current = true;
       setShown(false);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
   useEffect(() => {

@@ -61,6 +61,8 @@ export const SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL =
   "desktop:snap-shot-overlay-handoff-request";
 export const HAND_OFF_SNAP_SHOT_DRAFT_CHANNEL = "desktop:hand-off-snap-shot-draft";
 export const SNAP_SHOT_DRAFT_HANDOFF_CHANNEL = "desktop:snap-shot-draft-handoff";
+export const SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL = "desktop:snap-shot-overlay-visibility";
+export const PREPARE_SNAP_SHOT_DRAFT_HANDOFF_CHANNEL = "desktop:prepare-snap-shot-draft-handoff";
 export const OPEN_THREAD_IN_MAIN_WINDOW_CHANNEL = "desktop:open-thread-in-main-window";
 export const OPEN_THREAD_CHANNEL = "desktop:open-thread";
 export const GET_CONNECTION_CATALOG_CHANNEL = "desktop:get-connection-catalog";

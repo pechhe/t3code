@@ -12,6 +12,7 @@ import {
   type DesktopSnapShotDraftHandoff,
   type DesktopSnapShotEvent,
   type DesktopViewportFrame,
+  type ScopedProjectRef,
   type ScopedThreadRef,
   DEFAULT_CLIENT_SETTINGS,
 } from "@t3tools/contracts";
@@ -31,6 +32,7 @@ import {
   SNAP_SHOT_DRAFT_HANDOFF_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL,
+  SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
@@ -141,6 +143,13 @@ export class DesktopWindow extends Context.Service<
     /** Gives the overlay's unsent chat to the main window, revealing it, and hides the overlay. */
     readonly handOffSnapShotDraft: (
       draft: DesktopSnapShotDraftHandoff,
+    ) => Effect.Effect<void, DesktopWindowError>;
+    /**
+     * Opens a project's new-chat page in the main window without revealing it, while T3 is in
+     * the background, so switching to T3 finds the overlay's chat already there.
+     */
+    readonly prepareSnapShotDraftHandoff: (
+      projectRef: ScopedProjectRef,
     ) => Effect.Effect<void, DesktopWindowError>;
     /** The overlay window when these web contents are its renderer. */
     readonly snapShotOverlayFor: (
@@ -372,7 +381,15 @@ export const make = Effect.gen(function* () {
   // Switching into the app by ⌘-Tab or the Dock leaves the overlay as the key window, so the
   // main window gets no focus event. The overlay is a non-activating panel: showing or typing
   // in it never activates the app by itself.
-  yield* electronApp.on("did-become-active", () => void runPromise(requestSnapShotOverlayHandoff));
+  const appActiveRef = yield* Ref.make(true);
+  yield* electronApp.on(
+    "did-become-active",
+    () =>
+      void runPromise(
+        Ref.set(appActiveRef, true).pipe(Effect.andThen(requestSnapShotOverlayHandoff)),
+      ),
+  );
+  yield* electronApp.on("did-resign-active", () => void runPromise(Ref.set(appActiveRef, false)));
 
   // The splash and the SnapShot overlay are auxiliary windows, so these never
   // latch onto them and ensureMain/activate/dispatchMenuAction still open (or
@@ -1066,18 +1083,24 @@ export const make = Effect.gen(function* () {
     const overlay = yield* liveSnapShotOverlay;
     if (Option.isNone(overlay)) return false;
     const window = overlay.value;
+    const wasVisible = window.isVisible();
     if (environment.platform === "win32") {
       yield* electronWindow.reveal(window).pipe(Effect.ignoreCause);
     } else {
       window.show();
     }
     window.webContents.focus();
+    // The overlay slides its composer in once it is on screen.
+    if (!wasVisible) window.webContents.send(SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL, true);
     return true;
   }).pipe(Effect.withSpan("desktop.window.showSnapShotOverlay"));
 
   const hideSnapShotOverlay = Effect.gen(function* () {
     const overlay = yield* liveSnapShotOverlay;
-    if (Option.isSome(overlay) && overlay.value.isVisible()) overlay.value.hide();
+    if (Option.isNone(overlay) || !overlay.value.isVisible()) return;
+    overlay.value.hide();
+    // Hidden, the overlay rests its composer below the screen edge, ready to slide in again.
+    overlay.value.webContents.send(SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL, false);
   }).pipe(Effect.withSpan("desktop.window.hideSnapShotOverlay"));
 
   const handOffSnapShotDraft = Effect.fn("desktop.window.handOffSnapShotDraft")(function* (
@@ -1086,6 +1109,15 @@ export const make = Effect.gen(function* () {
     yield* dispatchRendererEvent(SNAP_SHOT_DRAFT_HANDOFF_CHANNEL, draft);
     yield* hideSnapShotOverlay;
   });
+
+  const prepareSnapShotDraftHandoff = Effect.fn("desktop.window.prepareSnapShotDraftHandoff")(
+    function* (projectRef: ScopedProjectRef) {
+      // While T3 is the active app the main window is in view: leave it where it is.
+      if (yield* Ref.get(appActiveRef)) return;
+      const draft: DesktopSnapShotDraftHandoff = { projectRef, prompt: "", images: [] };
+      yield* dispatchRendererEvent(SNAP_SHOT_DRAFT_HANDOFF_CHANNEL, draft, { reveal: false });
+    },
+  );
 
   const setSnapShotOverlayInteractive = Effect.fn("desktop.window.setSnapShotOverlayInteractive")(
     function* (interactive: boolean) {
@@ -1149,6 +1181,7 @@ export const make = Effect.gen(function* () {
     setMainComposerFrame: (frame) => Ref.set(mainComposerFrameRef, Option.some(frame)),
     snapShotOverlayBottomInset: Ref.get(snapShotOverlayBottomInsetRef),
     handOffSnapShotDraft,
+    prepareSnapShotDraftHandoff,
     snapShotOverlayFor: (webContentsId) =>
       liveSnapShotOverlay.pipe(
         Effect.map(Option.filter((window) => window.webContents.id === webContentsId)),

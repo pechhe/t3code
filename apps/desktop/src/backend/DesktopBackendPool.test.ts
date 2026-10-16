@@ -111,6 +111,7 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           setMainComposerFrame: () => Effect.void,
           snapShotOverlayBottomInset: Effect.succeed(0),
           handOffSnapShotDraft: () => Effect.void,
+          prepareSnapShotDraftHandoff: () => Effect.void,
           snapShotOverlayFor: () => Effect.succeed(Option.none()),
           openThreadInMain: () => Effect.void,
           zoomMain: () => Effect.die("unexpected zoom"),

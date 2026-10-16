@@ -153,6 +153,17 @@ contextBridge.exposeInMainWorld("desktopBridge", {
       );
     };
   },
+  onSnapShotOverlayVisibility: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, visible: unknown) => {
+      if (typeof visible === "boolean") listener(visible);
+    };
+    ipcRenderer.on(IpcChannels.SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL, wrappedListener);
+    };
+  },
+  prepareSnapShotDraftHandoff: (projectRef) =>
+    ipcRenderer.invoke(IpcChannels.PREPARE_SNAP_SHOT_DRAFT_HANDOFF_CHANNEL, projectRef),
   onSnapShotDraftHandoff: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, draft: unknown) => {
       // The desktop app validated the draft when the overlay handed it over.
