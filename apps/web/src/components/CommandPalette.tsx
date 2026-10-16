@@ -107,15 +107,10 @@ import {
 } from "./promptLinks/copyPromptLink";
 import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
-import { useCustomThemes } from "../hooks/useCustomThemes";
-import { useEnvironmentThemeDefinitions } from "../hooks/useEnvironmentTheme";
-import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
+import { useActiveProjectKey } from "../hooks/useProjectTheme";
+import { useThemeCards } from "../hooks/useThemeCards";
 import { getThemeDefinition } from "../themePalette";
-import {
-  STANDARD_THEME_CARDS,
-  getThemeCardDefinition,
-  ThemePreviewCircle,
-} from "./settings/ThemePreviewCircles";
+import { ThemePreviewCircle } from "./settings/ThemePreviewCircles";
 import { readLocalApi } from "../localApi";
 import { desktopLocalBackendId } from "../connection/desktopLocal";
 import { filesystemEnvironment, useFilesystemReadAccess } from "../state/filesystem";
@@ -706,22 +701,20 @@ function OpenCommandPaletteDialog(props: {
     setAppearanceMode,
     setTheme,
     setThemeHalf,
+    projectTheme,
   } = useTheme();
-  const customThemes = useCustomThemes();
-  const environmentThemes = useEnvironmentThemeDefinitions();
-  const themeCards = useMemo(() => {
-    const seen = new Set<string>();
-    return [
-      ...STANDARD_THEME_CARDS.map((card) => ({ ...card, id: null })),
-      ...[...BUILT_IN_THEMES, ...customThemes, ...environmentThemes]
-        .filter((definition) => {
-          if (seen.has(definition.id)) return false;
-          seen.add(definition.id);
-          return true;
-        })
-        .map(getThemeCardDefinition),
-    ];
-  }, [customThemes, environmentThemes]);
+  const themeCards = useThemeCards();
+  // Inside a project with its own theme, picking a theme changes what is on
+  // screen: that project's theme, not the user's own one underneath it.
+  // Keyed on the painted project theme, so a project whose theme this device
+  // no longer has behaves like an unthemed one, as it looks.
+  const activeProjectKey = useActiveProjectKey();
+  const setProjectTheme = useUiStateStore((store) => store.setProjectTheme);
+  const themedProjectKey = projectTheme === null ? null : activeProjectKey;
+  const currentThemeCardId =
+    projectTheme === null
+      ? (themeHalves?.[resolvedTheme] ?? getThemeDefinition(theme)?.id ?? null)
+      : (getThemeDefinition(projectTheme)?.id ?? null);
   const providers = useAtomValue(primaryServerProvidersAtom);
   const providerEntryByEnvironmentAndInstanceId = useMemo(() => {
     const map = new Map<string, ProviderInstanceEntry>();
@@ -1239,7 +1232,6 @@ function OpenCommandPaletteDialog(props: {
     ],
   );
 
-
   const allThreadItems = useMemo(
     () =>
       buildThreadActionItems({
@@ -1696,7 +1688,6 @@ function OpenCommandPaletteDialog(props: {
     openAddProjectFlow();
   }, [clearOpenIntent, openAddProjectFlow, openIntent]);
 
-
   const actionItems: Array<CommandPaletteActionItem | CommandPaletteSubmenuItem> = [];
 
   if (projects.length > 0) {
@@ -1726,7 +1717,6 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
-
   }
 
   if (scratchTargetEnvironmentId !== null) {
@@ -1989,39 +1979,58 @@ function OpenCommandPaletteDialog(props: {
     groups: [
       {
         value: "themes",
-        label: "Change theme",
-        items: themeCards.map(({ id, label, previews }) => ({
-          kind: "action",
-          value: id === null ? "theme:standard" : `theme:palette:${id}`,
-          title: label,
-          description: previews.length === 1 ? `For ${previews[0]!.mode} mode` : undefined,
-          searchTerms: [label, "theme", "appearance"],
-          icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
-          titleTrailingContent: (
-            <span className="flex shrink-0 items-center gap-2">
-              {(themeHalves?.[resolvedTheme] ?? getThemeDefinition(theme)?.id ?? null) === id ? (
-                <span className="text-xs text-muted-foreground/70">Current</span>
-              ) : null}
-              <span className="flex items-center gap-1" aria-hidden>
-                {previews.map((preview) => (
-                  <ThemePreviewCircle
-                    key={preview.mode}
-                    colors={preview.colors}
-                    mode={preview.mode}
-                    className="size-3 border-0"
-                  />
-                ))}
+        label: themedProjectKey === null ? "Change theme" : "Change project theme",
+        items: [
+          ...(themedProjectKey === null
+            ? []
+            : ([
+                {
+                  kind: "action",
+                  value: "theme:app",
+                  title: "App theme",
+                  description: "Stop overriding the theme in this project",
+                  searchTerms: ["app theme", "theme", "appearance", "reset"],
+                  icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+                  run: async () => setProjectTheme(themedProjectKey, null),
+                },
+              ] satisfies CommandPaletteActionItem[])),
+          ...themeCards.map(({ id, label, previews }): CommandPaletteActionItem => ({
+            kind: "action",
+            value: id === null ? "theme:standard" : `theme:palette:${id}`,
+            title: label,
+            description: previews.length === 1 ? `For ${previews[0]!.mode} mode` : undefined,
+            searchTerms: [label, "theme", "appearance"],
+            icon: <PaletteIcon className={ITEM_ICON_CLASS} />,
+            titleTrailingContent: (
+              <span className="flex shrink-0 items-center gap-2">
+                {currentThemeCardId === id ? (
+                  <span className="text-xs text-muted-foreground/70">Current</span>
+                ) : null}
+                <span className="flex items-center gap-1" aria-hidden>
+                  {previews.map((preview) => (
+                    <ThemePreviewCircle
+                      key={preview.mode}
+                      colors={preview.colors}
+                      mode={preview.mode}
+                      className="size-3 border-0"
+                    />
+                  ))}
+                </span>
               </span>
-            </span>
-          ),
-          run: async () => {
-            const saved =
-              previews.length === 1 && id !== null
-                ? setThemeHalf(previews[0]!.mode, id)
-                : setTheme(id ?? appearanceMode);
-            if (!saved) notifyThemeSaveFailure();
-          },
-        })),
+            ),
+            run: async () => {
+              if (themedProjectKey !== null) {
+                setProjectTheme(themedProjectKey, id ?? "system");
+                return;
+              }
+              const saved =
+                previews.length === 1 && id !== null
+                  ? setThemeHalf(previews[0]!.mode, id)
+                  : setTheme(id ?? appearanceMode);
+              if (!saved) notifyThemeSaveFailure();
+            },
+          })),
+        ],
       },
     ],
   };

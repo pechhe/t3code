@@ -45,6 +45,7 @@ import {
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { ProjectThemeSetting } from "./ProjectThemeSetting";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
@@ -600,6 +601,7 @@ function ProjectDetail({
               </div>
             }
           />
+          <ProjectThemeSetting projectKey={group.projectKey} />
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />

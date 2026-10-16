@@ -1087,6 +1087,19 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   animation-duration: 0s !important;
 }
 
+/* A theme change crossfades as one snapshot; see paintThemeChange in useTheme. */
+/* Clicks reach the live page instead of the fading snapshot. */
+html[data-theme-transition="true"]::view-transition {
+  pointer-events: none;
+}
+
+html[data-theme-transition="true"]::view-transition-group(*),
+html[data-theme-transition="true"]::view-transition-old(*),
+html[data-theme-transition="true"]::view-transition-new(*) {
+  animation-duration: 220ms;
+  animation-timing-function: ease-out;
+}
+
 :root {
   color-scheme: light;
   --radius: 0.625rem;

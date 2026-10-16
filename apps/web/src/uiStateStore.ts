@@ -28,6 +28,7 @@ export interface PersistedUiState {
   projectOrderCwds?: string[];
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
+  projectThemeByKey?: Record<string, string>;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
@@ -40,6 +41,9 @@ export interface UiProjectState {
   // projects". Lives here so routes that unmount the sidebar (Settings)
   // cannot reset the filter.
   sidebarProjectScopeKey: string | null;
+  // Theme preference painted while a thread or draft of the logical project
+  // is open. Device-local, like the user's own theme choice.
+  projectThemeByKey: Record<string, string>;
 }
 
 export interface UiThreadState {
@@ -62,6 +66,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKey: null,
+  projectThemeByKey: {},
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -100,6 +105,18 @@ function sanitizeBooleanRecord(value: unknown): Record<string, boolean> {
 
 function sanitizeOptionalKey(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function sanitizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] =>
+        entry[0].length > 0 && typeof entry[1] === "string" && entry[1].length > 0,
+    ),
+  );
 }
 
 function sanitizeTimestampRecord(value: unknown): Record<string, string> {
@@ -155,6 +172,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         : {},
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     sidebarProjectScopeKey: sanitizeOptionalKey(parsed.sidebarProjectScopeKey),
+    projectThemeByKey: sanitizeStringRecord(parsed.projectThemeByKey),
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
@@ -229,6 +247,7 @@ export function persistState(state: UiState): void {
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,
+        projectThemeByKey: state.projectThemeByKey,
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
@@ -340,6 +359,17 @@ export function setSidebarProjectScopeKey(state: UiState, projectKey: string | n
   };
 }
 
+/** Sets the theme a logical project paints, or null to follow the user's own theme. */
+export function setProjectTheme(state: UiState, projectKey: string, theme: string | null): UiState {
+  if ((state.projectThemeByKey[projectKey] ?? null) === theme) {
+    return state;
+  }
+  const projectThemeByKey = { ...state.projectThemeByKey };
+  if (theme === null) delete projectThemeByKey[projectKey];
+  else projectThemeByKey[projectKey] = theme;
+  return { ...state, projectThemeByKey };
+}
+
 function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMethod): UiState {
   return state.pullRequestMergeMethod === method
     ? state
@@ -429,6 +459,7 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
+  setProjectTheme: (projectKey: string, theme: string | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -450,6 +481,7 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     set((state) => setDefaultAdvertisedEndpointKey(state, key)),
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
+  setProjectTheme: (projectKey, theme) => set((state) => setProjectTheme(state, projectKey, theme)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

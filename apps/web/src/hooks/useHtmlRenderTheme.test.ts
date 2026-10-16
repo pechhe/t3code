@@ -8,15 +8,13 @@ import {
   getStandardThemeColors,
   setEnvironmentThemes,
   type ThemeAppearance,
-  type ThemeHalves,
   type ThemePreference,
 } from "../themePalette";
 import { useHtmlRenderTheme } from "./useHtmlRenderTheme";
 
 const selection = vi.hoisted(() => ({
-  theme: "ocean" as ThemePreference,
+  activeTheme: "ocean" as ThemePreference,
   resolvedTheme: "dark" as ThemeAppearance,
-  themeHalves: null as ThemeHalves | null,
 }));
 
 vi.mock("./useTheme", () => ({ useTheme: () => selection }));
@@ -30,7 +28,6 @@ let renderer: ReactTestRenderer | undefined;
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  selection.themeHalves = null;
 });
 
 afterEach(() => {
@@ -63,7 +60,7 @@ describe("useHtmlRenderTheme", () => {
     it.each([appearance, ...BUILT_IN_THEME_IDS])(
       `injects hex colors for %s in ${appearance} mode`,
       (preference) => {
-        selection.theme = preference;
+        selection.activeTheme = preference;
         selection.resolvedTheme = appearance;
 
         const theme = readRenderTheme();
@@ -89,7 +86,7 @@ describe("useHtmlRenderTheme", () => {
         colors: { ...getStandardThemeColors("dark"), accent: "oklch(0.5 0 0 / 0.5)" },
       },
     ]);
-    selection.theme = "transparent";
+    selection.activeTheme = "transparent";
     selection.resolvedTheme = "dark";
 
     const theme = readRenderTheme();

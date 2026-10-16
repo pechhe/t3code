@@ -183,7 +183,7 @@ export function TerminalFontPreview({ family, size }: { family: string; size: nu
   const mountRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<GhosttyTerminalSurface | null>(null);
   const fontRef = useRef({ family, size });
-  const { theme, resolvedTheme } = useTheme();
+  const { activeTheme, resolvedTheme } = useTheme();
 
   useEffect(() => {
     const current = fontRef.current;
@@ -199,7 +199,7 @@ export function TerminalFontPreview({ family, size }: { family: string; size: nu
     const surface = surfaceRef.current;
     if (!mount || !surface) return;
     surface.setTheme(terminalThemeFromApp(mount));
-  }, [theme, resolvedTheme]);
+  }, [activeTheme, resolvedTheme]);
 
   useEffect(() => {
     const mount = mountRef.current;

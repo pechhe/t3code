@@ -43,7 +43,6 @@ import { ensureLocalApi } from "~/localApi";
 import {
   getThemeDefinition,
   getThemePreviewSidebarArtwork,
-  resolveThemeHalf,
   subscribeToThemePreview,
   themeAllowsSidebarArtwork,
 } from "~/themePalette";
@@ -396,13 +395,12 @@ export function resolveEnvironmentIdentificationMode(input: {
 export function useEnvironmentIdentificationMode(): EnvironmentIdentificationMode {
   const settingsHydrated = useClientSettingsHydrated();
   const mode = useClientSettingsValue().environmentIdentificationMode;
-  const { resolvedTheme, theme, themeHalves } = useTheme();
+  const { activeTheme } = useTheme();
   const previewSidebarArtwork = useSyncExternalStore(
     subscribeToThemePreview,
     getThemePreviewSidebarArtwork,
     () => null,
   );
-  const activeTheme = resolveThemeHalf(theme, themeHalves, resolvedTheme);
   const activeThemeDefinition = getThemeDefinition(activeTheme);
   const resolved = resolveEnvironmentIdentificationMode({
     mode,

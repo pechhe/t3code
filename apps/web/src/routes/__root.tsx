@@ -43,6 +43,7 @@ import { ThemeEditorHost } from "../components/settings/ThemeEditorHost";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useDefaultThemeAdoption } from "../hooks/useDefaultTheme";
 import { useEnvironmentThemeSync } from "../hooks/useEnvironmentTheme";
+import { useProjectThemeSync } from "../hooks/useProjectTheme";
 import { Button } from "../components/ui/button";
 import { MorphIcon } from "~/components/MorphIcon";
 import { StandalonePage, StandalonePageHeader } from "../components/ui/standalone-page";
@@ -278,12 +279,13 @@ function RootRouteView() {
   );
 }
 
-/** Follows the palette the primary environment's machine publishes, if any. */
+/** Follows the palette the primary environment's machine publishes, if any, and the open project's theme. */
 function EnvironmentThemeSync() {
   useEnvironmentThemeSync();
   // Ordered after the palette sync so a first-run client adopting the
   // environment's own theme finds it already in the library.
   useDefaultThemeAdoption();
+  useProjectThemeSync();
   return null;
 }
 

@@ -6,23 +6,17 @@ import {
   getStandardThemeColors,
   getThemeColorsForMode,
   getThemeDefinition,
-  resolveThemeHalf,
   subscribeToCustomThemes,
   themeColorToHex,
   type ThemeAppearance,
-  type ThemeHalves,
   type ThemePreference,
 } from "../themePalette";
 import { useClientSettings } from "./useSettings";
 import { useTheme } from "./useTheme";
 
-/** The palette `applyTheme` paints for a preference, or the stock look when no theme applies. */
-function resolveActiveThemeColors(
-  theme: ThemePreference,
-  halves: ThemeHalves | null,
-  appearance: ThemeAppearance,
-) {
-  const definition = getThemeDefinition(resolveThemeHalf(theme, halves, appearance));
+/** The palette `applyTheme` paints for the active theme, or the stock look when no theme applies. */
+function resolveActiveThemeColors(activeTheme: ThemePreference, appearance: ThemeAppearance) {
+  const definition = getThemeDefinition(activeTheme);
   return definition === null
     ? getStandardThemeColors(appearance)
     : (getThemeColorsForMode(definition, appearance) ?? definition.colors);
@@ -30,11 +24,11 @@ function resolveActiveThemeColors(
 
 /** The app's active theme and fonts, as handed to agent HTML renders. Stable until one changes. */
 export function useHtmlRenderTheme() {
-  const { theme, resolvedTheme, themeHalves } = useTheme();
+  const { activeTheme, resolvedTheme } = useTheme();
   // Custom and published palettes can be edited in place, under an unchanged preference.
   const colors = useSyncExternalStore(
     subscribeToCustomThemes,
-    () => resolveActiveThemeColors(theme, themeHalves, resolvedTheme),
+    () => resolveActiveThemeColors(activeTheme, resolvedTheme),
     () => getStandardThemeColors(resolvedTheme),
   );
   const sans = useClientSettings((settings) => settings.fontFamilySans);

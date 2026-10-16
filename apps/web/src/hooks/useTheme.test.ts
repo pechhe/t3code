@@ -204,3 +204,46 @@ describe("theme failure handling", () => {
     }
   });
 });
+
+describe("project themes", () => {
+  it("paints the open project's theme over the user's mix, and falls back when it cannot", async () => {
+    vi.doMock("react", () => ({
+      useCallback: <A>(callback: A) => callback,
+      useEffect: () => undefined,
+      useSyncExternalStore: (_subscribe: unknown, getSnapshot: () => unknown) => getSnapshot(),
+    }));
+    const { THEME_APPEARANCE_MODE_STORAGE_KEY, THEME_HALVES_STORAGE_KEY } =
+      await import("../themePalette");
+    const localStorage = createStorage();
+    localStorage.setItem("t3code:theme", "ocean");
+    localStorage.setItem(THEME_APPEARANCE_MODE_STORAGE_KEY, "dark");
+    localStorage.setItem(THEME_HALVES_STORAGE_KEY, JSON.stringify({ dark: "ember" }));
+    vi.stubGlobal("window", { localStorage, matchMedia: () => ({ matches: true }) });
+
+    const { setActiveProjectTheme, useTheme } = await import("./useTheme");
+    const read = () => {
+      const { theme, themeHalves, projectTheme, activeTheme, resolvedTheme } = useTheme();
+      return { theme, themeHalves, projectTheme, activeTheme, resolvedTheme };
+    };
+    const ownChoice = {
+      theme: "ocean",
+      themeHalves: { dark: "ember" },
+      projectTheme: null,
+      activeTheme: "ember",
+      resolvedTheme: "dark",
+    };
+
+    expect(read()).toEqual(ownChoice);
+
+    setActiveProjectTheme("grove");
+    // The user's own choice is untouched, so Settings still edits it.
+    expect(read()).toEqual({ ...ownChoice, projectTheme: "grove", activeTheme: "grove" });
+
+    // A theme this device no longer has must not leave the app unthemed.
+    setActiveProjectTheme("deleted-custom-theme");
+    expect(read()).toEqual(ownChoice);
+
+    setActiveProjectTheme(null);
+    expect(read()).toEqual(ownChoice);
+  });
+});

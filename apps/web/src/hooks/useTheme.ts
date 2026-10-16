@@ -26,6 +26,10 @@ import {
 type Theme = ThemePreference;
 type ThemeSnapshot = {
   theme: Theme;
+  /** The open project's own theme while it overrides `theme` and the mix. */
+  projectTheme: Theme | null;
+  /** The theme actually painted for `resolvedTheme`, after any project or mix. */
+  activeTheme: Theme;
   resolvedTheme: ThemeAppearance;
   systemDark: boolean;
   followSystem: boolean;
@@ -39,6 +43,8 @@ const STORAGE_KEY = "t3code:theme";
 const MEDIA_QUERY = "(prefers-color-scheme: dark)";
 const DEFAULT_THEME_SNAPSHOT: ThemeSnapshot = {
   theme: "system",
+  projectTheme: null,
+  activeTheme: "system",
   resolvedTheme: "light",
   systemDark: false,
   followSystem: true,
@@ -136,12 +142,46 @@ let listeners: Array<() => void> = [];
 let lastSnapshot: ThemeSnapshot | null = null;
 let snapshotStale = true;
 let lastDesktopTheme: "light" | "dark" | "system" | null = null;
-let lastAppliedTheme: Omit<ThemeSnapshot, "resolvedTheme"> | null = null;
+let lastAppliedTheme: Pick<
+  ThemeSnapshot,
+  "theme" | "systemDark" | "followSystem" | "appearanceMode" | "themeHalves"
+> | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
+let requestedProjectTheme: Theme | null = null;
 
 function emitChange() {
   snapshotStale = true;
   for (const listener of listeners) listener();
+}
+
+/**
+ * The base theme and mix to paint. An open project's theme replaces the
+ * user's whole choice, mix included, so a project looks the same in either
+ * appearance mode; one that does not resolve yet (a published theme still
+ * streaming in) falls back to the user's choice.
+ */
+function paintedThemeChoice(storedTheme: Theme): {
+  theme: Theme;
+  projectTheme: Theme | null;
+  themeHalves: ThemeHalves | null;
+} {
+  if (requestedProjectTheme !== null && isKnownThemePreference(requestedProjectTheme)) {
+    const projectTheme = canonicalThemePreference(requestedProjectTheme);
+    return { theme: projectTheme, projectTheme, themeHalves: null };
+  }
+  return { theme: storedTheme, projectTheme: null, themeHalves: readStoredThemeHalves() };
+}
+
+/**
+ * Points the painted theme at the open project's theme, or back at the user's
+ * own choice with null. The route sync calls this as the user moves between
+ * projects, so the change crossfades.
+ */
+export function setActiveProjectTheme(theme: Theme | null): void {
+  if (requestedProjectTheme === theme) return;
+  requestedProjectTheme = theme;
+  applyTheme(getStored(), { animate: true });
+  emitChange();
 }
 
 function getSystemDark() {
@@ -320,16 +360,57 @@ export function syncBrowserChromeTheme() {
   }
 }
 
-function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview = true } = {}) {
+const THEME_TRANSITION_ATTRIBUTE = "themeTransition";
+let latestThemeTransition = 0;
+
+/**
+ * Crossfades a theme change as one composited snapshot instead of letting
+ * every element transition its own colors. Skipped where it would fight
+ * something: reduced motion, no View Transitions support, or a route
+ * transition that a second view transition would abort.
+ */
+function paintThemeChange(paint: () => void, animate: boolean): void {
+  const root = document.documentElement;
+  const canAnimate =
+    animate &&
+    typeof document.startViewTransition === "function" &&
+    root.dataset.mobileComposerRouteTransition === undefined &&
+    !(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false);
+  if (!canAnimate) {
+    paint();
+    return;
+  }
+  // Stepping quickly through threads starts a new crossfade before the last
+  // one ends; only the newest may clear the marker its animation reads.
+  const token = ++latestThemeTransition;
+  const settle = () => {
+    if (token === latestThemeTransition) delete root.dataset[THEME_TRANSITION_ATTRIBUTE];
+  };
+  root.dataset[THEME_TRANSITION_ATTRIBUTE] = "true";
+  try {
+    void document
+      .startViewTransition(paint)
+      .finished.catch(() => undefined)
+      .finally(settle);
+  } catch {
+    settle();
+    paint();
+  }
+}
+
+function applyTheme(
+  storedTheme: Theme,
+  { suppressTransitions = false, preservePreview = true, animate = false } = {},
+) {
   if (typeof document === "undefined" || typeof window === "undefined") return;
   // Keep the editor's draft visible until an explicit refresh restores the selection.
   if (preservePreview && document.documentElement.dataset?.themeId === THEME_PREVIEW_ID) {
     return;
   }
-  const appearanceMode = readAppearanceModePreference(theme);
+  const appearanceMode = readAppearanceModePreference(storedTheme);
   const followSystem = appearanceMode === "system";
   const systemDark = followSystem ? getSystemDark() : false;
-  const themeHalves = readStoredThemeHalves();
+  const { theme, themeHalves } = paintedThemeChoice(storedTheme);
   if (
     lastAppliedTheme?.theme === theme &&
     lastAppliedTheme.systemDark === systemDark &&
@@ -337,13 +418,10 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     lastAppliedTheme.appearanceMode === appearanceMode &&
     themeHalvesSignature(lastAppliedTheme.themeHalves) === themeHalvesSignature(themeHalves)
   ) {
-    syncDesktopTheme(theme, followSystem, appearanceMode);
+    syncDesktopTheme(theme, followSystem, appearanceMode, themeHalves);
     return;
   }
 
-  if (suppressTransitions) {
-    document.documentElement.classList.add("no-transitions");
-  }
   const resolvedAppearance = resolveThemeAppearance(
     theme,
     systemDark,
@@ -351,18 +429,25 @@ function applyTheme(theme: Theme, { suppressTransitions = false, preservePreview
     appearanceMode,
     themeHalves,
   );
-  applyThemePalette(resolveThemeHalf(theme, themeHalves, resolvedAppearance), resolvedAppearance);
-  document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
+  // A crossfade replaces per-element transitions, so those are suppressed too.
+  const suppress = suppressTransitions || animate;
+  paintThemeChange(() => {
+    if (suppress) {
+      document.documentElement.classList.add("no-transitions");
+    }
+    applyThemePalette(resolveThemeHalf(theme, themeHalves, resolvedAppearance), resolvedAppearance);
+    document.documentElement.classList.toggle("dark", resolvedAppearance === "dark");
+    syncBrowserChromeTheme();
+    if (suppress) {
+      // Force a reflow so the no-transitions class takes effect before removal
+      void document.documentElement.offsetHeight;
+      requestAnimationFrame(() => {
+        document.documentElement.classList.remove("no-transitions");
+      });
+    }
+  }, animate);
   lastAppliedTheme = { theme, systemDark, followSystem, appearanceMode, themeHalves };
-  syncBrowserChromeTheme();
-  syncDesktopTheme(theme, followSystem, appearanceMode);
-  if (suppressTransitions) {
-    // Force a reflow so the no-transitions class takes effect before removal
-    void document.documentElement.offsetHeight;
-    requestAnimationFrame(() => {
-      document.documentElement.classList.remove("no-transitions");
-    });
-  }
+  syncDesktopTheme(theme, followSystem, appearanceMode, themeHalves);
 }
 
 export async function syncDesktopThemePreference(
@@ -383,10 +468,10 @@ export function syncDesktopTheme(
   theme: Theme,
   followSystem?: boolean,
   appearanceMode?: ThemePreferenceMode,
+  halves: ThemeHalves | null = readStoredThemeHalves(),
 ) {
   if (typeof window === "undefined") return;
   const bridge = window.desktopBridge;
-  const halves = readStoredThemeHalves();
   const desktopTheme = resolveDesktopTheme(theme, followSystem, appearanceMode, halves);
   if (!bridge || typeof bridge.setTheme !== "function" || lastDesktopTheme === desktopTheme) {
     return;
@@ -425,17 +510,22 @@ function getSnapshot(): ThemeSnapshot {
   const followSystem = appearanceMode === "system";
   const systemDark = followSystem ? getSystemDark() : false;
   const themeHalves = readStoredThemeHalves();
+  const painted = paintedThemeChoice(theme);
+  const projectTheme = painted.projectTheme;
 
   const resolvedTheme = resolveThemeAppearance(
-    theme,
+    painted.theme,
     systemDark,
     followSystem,
     appearanceMode,
-    themeHalves,
+    painted.themeHalves,
   );
+  const activeTheme = resolveThemeHalf(painted.theme, painted.themeHalves, resolvedTheme);
   if (
     lastSnapshot &&
     lastSnapshot.theme === theme &&
+    lastSnapshot.projectTheme === projectTheme &&
+    lastSnapshot.activeTheme === activeTheme &&
     lastSnapshot.resolvedTheme === resolvedTheme &&
     lastSnapshot.systemDark === systemDark &&
     lastSnapshot.followSystem === followSystem &&
@@ -445,7 +535,16 @@ function getSnapshot(): ThemeSnapshot {
     return lastSnapshot;
   }
 
-  lastSnapshot = { theme, resolvedTheme, systemDark, followSystem, appearanceMode, themeHalves };
+  lastSnapshot = {
+    theme,
+    projectTheme,
+    activeTheme,
+    resolvedTheme,
+    systemDark,
+    followSystem,
+    appearanceMode,
+    themeHalves,
+  };
   return lastSnapshot;
 }
 
@@ -456,7 +555,7 @@ function getServerSnapshot() {
 function handleSystemAppearanceChange() {
   const storedTheme = getStored();
   if (readAppearanceModePreference(storedTheme) === "system") {
-    applyTheme(storedTheme, { suppressTransitions: true });
+    applyTheme(storedTheme, { animate: true });
   }
   emitChange();
 }
@@ -553,7 +652,7 @@ export function useTheme() {
       });
       return false;
     }
-    applyTheme(next, { suppressTransitions: true });
+    applyTheme(next, { animate: true });
     emitChange();
     return true;
   }, []);
@@ -578,7 +677,7 @@ export function useTheme() {
       return false;
     }
     themeStorageReadFailure = null;
-    applyTheme(getStored(), { suppressTransitions: true });
+    applyTheme(getStored(), { animate: true });
     emitChange();
     return true;
   }, []);
@@ -622,7 +721,7 @@ export function useTheme() {
         });
         return false;
       }
-      applyTheme(getStored(), { suppressTransitions: true });
+      applyTheme(getStored(), { animate: true });
       emitChange();
       return true;
     },
@@ -646,7 +745,7 @@ export function useTheme() {
       });
       return false;
     }
-    applyTheme(getStored(), { suppressTransitions: true });
+    applyTheme(getStored(), { animate: true });
     emitChange();
     return true;
   }, []);
@@ -675,5 +774,7 @@ export function useTheme() {
     appearanceMode: snapshot.appearanceMode,
     resolvedTheme,
     themeHalves: snapshot.themeHalves,
+    projectTheme: snapshot.projectTheme,
+    activeTheme: snapshot.activeTheme,
   } as const;
 }
