@@ -96,6 +96,8 @@ interface BranchToolbarProps {
   showGitControls: boolean;
   /** Set in a SlipJay project, whose workspace and base replace the Git controls. */
   slipJayStatus?: SlipJayCheckoutStatus | null;
+  /** A remembered SlipJay project whose status has not answered yet: hold its row, not Git's. */
+  slipJayPending?: boolean;
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   envMode: EnvMode;
@@ -636,6 +638,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   threadId,
   showGitControls,
   slipJayStatus = null,
+  slipJayPending = false,
   draftId,
   onEnvModeChange,
   envMode,
@@ -677,10 +680,15 @@ export const BranchToolbar = memo(function BranchToolbar({
   const effectiveEnvMode = forceNewWorktree ? "worktree" : envMode;
   // SlipJay allocates a draft's workspace on its first message; there is no checkout to choose.
   const envModeLocked =
-    envLocked || slipJayStatus !== null || (serverThread !== null && activeWorktreePath !== null);
+    envLocked ||
+    slipJayStatus !== null ||
+    slipJayPending ||
+    (serverThread !== null && activeWorktreePath !== null);
   const slipJayRows =
     slipJayStatus === null
-      ? null
+      ? slipJayPending
+        ? { workspace: "SlipJay workspace", base: null, landing: null }
+        : null
       : {
           workspace: resolveSlipJayWorkspaceLabel(slipJayStatus, serverThread === null),
           base: resolveSlipJayBaseLabel(slipJayStatus, serverThread === null),

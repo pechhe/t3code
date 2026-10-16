@@ -26,7 +26,9 @@ import {
   resolveThreadSwitchTimeline,
   timelineHasEphemeralPreviewUrls,
   recallCheckoutIsRepo,
+  recallSlipJayProject,
   rememberCheckoutIsRepo,
+  rememberSlipJayProject,
 } from "./ChatView.logic";
 import { useLoadBalancedEnvironment } from "../hooks/useLoadBalancedEnvironment";
 import { useScratchProject } from "../hooks/useScratchProject";
@@ -4230,6 +4232,15 @@ export default function ChatView(props: ChatViewProps) {
     () => resolveSlipJayCheckoutStatus(gitStatusQuery.data, gitStatusCwd),
     [gitStatusQuery.data, gitStatusCwd],
   );
+  const activeProjectId = activeProject?.id ?? null;
+  const liveIsSlipJay =
+    gitStatusQuery.data == null ? undefined : gitStatusQuery.data.slipJay !== undefined;
+  useEffect(() => {
+    if (activeProjectId !== null && liveIsSlipJay !== undefined) {
+      rememberSlipJayProject(environmentId, activeProjectId, liveIsSlipJay);
+    }
+  }, [activeProjectId, environmentId, liveIsSlipJay]);
+  const isSlipJayProject = liveIsSlipJay ?? recallSlipJayProject(environmentId, activeProjectId);
   // When context is enabled, keep a hidden, off-flow strip mounted so the composer
   // can measure whether its relocated controls fit. The visible chrome remains
   // content-driven: Git/environment context or controls that actually fit.
@@ -4264,18 +4275,18 @@ export default function ChatView(props: ChatViewProps) {
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
     // A SlipJay thread always shows the workspace it works in.
-    persistInActiveThreads: settings.persistComposerContextStrip || slipJayStatus !== null,
+    persistInActiveThreads: settings.persistComposerContextStrip || isSlipJayProject,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo: isGitRepo || slipJayStatus !== null,
+    isGitRepo: isGitRepo || isSlipJayProject,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
     // A SlipJay thread always shows the workspace it works in.
-    persistInActiveThreads: settings.persistComposerContextStrip || slipJayStatus !== null,
+    persistInActiveThreads: settings.persistComposerContextStrip || isSlipJayProject,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo: isGitRepo || slipJayStatus !== null,
+    isGitRepo: isGitRepo || isSlipJayProject,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -11464,9 +11475,7 @@ export default function ChatView(props: ChatViewProps) {
                               restingControlsHost={restingComposerControlsHost}
                               restingControlsHaveLeadingContext={
                                 mountComposerContextStrip &&
-                                (isGitRepo ||
-                                  slipJayStatus !== null ||
-                                  showComposerEnvironmentIndicator)
+                                (isGitRepo || isSlipJayProject || showComposerEnvironmentIndicator)
                               }
                               onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                               getTimelineScrollableNode={getTimelineScrollableNodeStable}
@@ -11548,6 +11557,7 @@ export default function ChatView(props: ChatViewProps) {
                                 threadId={activeThread.id}
                                 showGitControls={isGitRepo}
                                 slipJayStatus={slipJayStatus}
+                                slipJayPending={isSlipJayProject && slipJayStatus === null}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChangeStable}
                                 startFromOrigin={startFromOrigin}

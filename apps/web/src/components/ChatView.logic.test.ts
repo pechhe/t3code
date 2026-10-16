@@ -1,7 +1,9 @@
 import { findRecordedWorktreeSetup, resolveVisibleWorktreeSetup } from "./ChatView.logic";
 import {
   recallCheckoutIsRepo,
+  recallSlipJayProject,
   rememberCheckoutIsRepo,
+  rememberSlipJayProject,
   threadShellHasStarted,
 } from "./ChatView.logic";
 import {
@@ -1848,6 +1850,21 @@ describe("shouldRefocusComposerOnWindowFocus", () => {
   it("leaves focus inside a dialog or popup alone", () => {
     expect(shouldRefocusComposerOnWindowFocus(element("BUTTON", { within: "dialog" }))).toBe(false);
     expect(shouldRefocusComposerOnWindowFocus(element("BUTTON", { within: "-popup" }))).toBe(false);
+  });
+});
+
+describe("SlipJay project memory", () => {
+  it("answers from the last status seen for the project", () => {
+    const projectId = ProjectId.make("project-slipjay-memory");
+    expect(recallSlipJayProject(environmentId, projectId)).toBe(false);
+    rememberSlipJayProject(environmentId, projectId, true);
+    expect(recallSlipJayProject(environmentId, projectId)).toBe(true);
+    rememberSlipJayProject(environmentId, projectId, false);
+    expect(recallSlipJayProject(environmentId, projectId)).toBe(false);
+  });
+
+  it("does not answer without a project", () => {
+    expect(recallSlipJayProject(environmentId, null)).toBe(false);
   });
 });
 
