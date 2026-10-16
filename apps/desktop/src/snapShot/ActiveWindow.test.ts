@@ -1,11 +1,9 @@
 import { assert, beforeEach, it, vi } from "vite-plus/test";
 
-const { execFileMock, loadWindowsForegroundApiMock } = vi.hoisted(() => ({
-  execFileMock: vi.fn(),
+const { loadWindowsForegroundApiMock } = vi.hoisted(() => ({
   loadWindowsForegroundApiMock: vi.fn(),
 }));
 
-vi.mock("node:child_process", () => ({ execFile: execFileMock }));
 vi.mock("../electron/WindowsForeground.ts", () => ({
   loadWindowsForegroundApi: loadWindowsForegroundApiMock,
 }));
@@ -13,75 +11,7 @@ vi.mock("../electron/WindowsForeground.ts", () => ({
 import { activeWindow } from "./ActiveWindow.ts";
 
 beforeEach(() => {
-  execFileMock.mockReset();
   loadWindowsForegroundApiMock.mockReset();
-});
-
-function stubMacLookup(stdout: string) {
-  execFileMock.mockImplementation(
-    (
-      _file: string,
-      _args: ReadonlyArray<string>,
-      _options: unknown,
-      callback: (error: Error | null, stdout: string) => void,
-    ) => callback(null, stdout),
-  );
-}
-
-it("parses the frontmost macOS window from the osascript lookup", async () => {
-  stubMacLookup(
-    JSON.stringify({
-      id: 42,
-      title: "main.ts",
-      bounds: { x: 10, y: 20, width: 800, height: 600 },
-      owner: {
-        name: "Editor",
-        processId: 123,
-        path: "/Applications/Editor.app",
-        bundleId: "com.example.editor",
-      },
-    }) + "\n",
-  );
-
-  const window = await activeWindow("darwin");
-
-  assert.deepEqual(window, {
-    platform: "macos",
-    id: 42,
-    title: "main.ts",
-    bounds: { x: 10, y: 20, width: 800, height: 600 },
-    owner: {
-      name: "Editor",
-      processId: 123,
-      path: "/Applications/Editor.app",
-      bundleId: "com.example.editor",
-    },
-  });
-  const [file, args] = execFileMock.mock.calls[0]!;
-  assert.strictEqual(file, "/usr/bin/osascript");
-  assert.deepEqual(args.slice(0, 3), ["-l", "JavaScript", "-e"]);
-  assert.lengthOf(loadWindowsForegroundApiMock.mock.calls, 0);
-});
-
-it("omits an empty macOS bundle identifier", async () => {
-  stubMacLookup(
-    JSON.stringify({
-      id: 7,
-      title: "",
-      bounds: { x: 0, y: 0, width: 1, height: 1 },
-      owner: { name: "cli", processId: 9, path: "", bundleId: "" },
-    }),
-  );
-
-  const window = await activeWindow("darwin");
-
-  assert.deepEqual(window?.owner, { name: "cli", processId: 9, path: "" });
-});
-
-it("resolves undefined when macOS has no frontmost window", async () => {
-  stubMacLookup("\n");
-
-  assert.isUndefined(await activeWindow("darwin"));
 });
 
 it("composes the Windows foreground window from Win32 calls", async () => {
@@ -105,7 +35,6 @@ it("composes the Windows foreground window from Win32 calls", async () => {
   });
   assert.deepEqual(api.getWindowRect.mock.calls, [[0x1_f123_4567n]]);
   assert.deepEqual(api.getProcessImagePath.mock.calls, [[123]]);
-  assert.lengthOf(execFileMock.mock.calls, 0);
 });
 
 it("resolves undefined when Windows reports no foreground window", async () => {
@@ -123,7 +52,7 @@ it("resolves undefined when Windows reports no foreground window", async () => {
 });
 
 it("resolves undefined on other platforms without querying the OS", async () => {
+  assert.isUndefined(await activeWindow("darwin"));
   assert.isUndefined(await activeWindow("linux"));
-  assert.lengthOf(execFileMock.mock.calls, 0);
   assert.lengthOf(loadWindowsForegroundApiMock.mock.calls, 0);
 });

@@ -188,7 +188,20 @@ vi.mock("./RegionSnapShot.ts", async (original) => ({
 vi.mock("./WindowsCaptureFeedback.ts", () => ({
   showWindowsCaptureOverlay: (window: Electron.BaseWindow) => window.showInactive(),
 }));
-vi.mock("./MacSnapShot.ts", () => ({ captureMacWindowSnapshot: macCaptureMock }));
+// The macOS helper reads the front window and its pixels together; the stub keeps
+// those as the two mocks the other platforms use.
+vi.mock("./MacSnapShot.ts", () => ({
+  makeMacSnapShotPool: () => ({ warm: vi.fn(), cool: vi.fn(), close: vi.fn(), capture: vi.fn() }),
+  captureMacWindowSnapshot: async (
+    _pool: unknown,
+    imagePath: string,
+    maxSize: (active: unknown) => unknown,
+  ) => {
+    const active = await activeWindowMock("darwin");
+    if (!active) return undefined;
+    return { active, ...(await macCaptureMock(active, imagePath, maxSize(active))) };
+  },
+}));
 vi.mock("./LinuxSnapShot.ts", () => ({
   captureLinuxWindow: linuxCaptureMock,
   getLinuxCaptureSupport: async () => ({

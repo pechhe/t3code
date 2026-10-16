@@ -118,8 +118,8 @@ an active binding.
 Native modules never load in the Electron main process on the startup path, and the two the
 snapshot feature keeps are isolated: `@crowecawcaw/xa11y` runs only in forked Node-mode children
 (`SnapShotAccessibilityWorker`, `RegionSnapShotWorker`) and a worker thread, and `ffi-rs` loads
-lazily inside `WindowsForeground.ts` for a handful of Win32 calls. macOS window lookup shells out
-to `osascript` instead of a native addon. A crash or stall in any of these must not take the app
+lazily inside `WindowsForeground.ts` for a handful of Win32 calls. macOS window lookup and capture
+run in a pre-started single-use `osascript` helper instead of a native addon. A crash or stall in any of these must not take the app
 down, so new native capability goes in a child with a deadline, not an `import` in main.
 
 See the [glossary](./glossary.md) for shared terms and the

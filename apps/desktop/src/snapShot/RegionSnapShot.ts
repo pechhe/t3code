@@ -5,6 +5,11 @@ import * as NodeChildProcess from "node:child_process";
 import * as Electron from "electron";
 
 import type { ActiveWindow } from "./ActiveWindow.ts";
+import {
+  makeSnapShotProcessPool,
+  type SnapShotProcess,
+  type SnapShotProcessPool,
+} from "./SnapShotProcessPool.ts";
 
 const CAPTURE_TIMEOUT_MS = 15_000;
 
@@ -47,13 +52,9 @@ function forkRegionSnapShotChild(workerPath: string): RegionSnapShotChild {
   };
 }
 
-export type RegionSnapShotProcess = {
-  readonly alive: boolean;
-  readonly capture: (
-    region: Electron.Rectangle,
-  ) => Promise<{ width: number; height: number; png: Buffer }>;
-  readonly close: () => void;
-};
+type RegionSnapShotImage = { width: number; height: number; png: Buffer };
+
+export type RegionSnapShotProcess = SnapShotProcess<Electron.Rectangle, RegionSnapShotImage>;
 
 export function startRegionSnapShotProcess(
   workerPath: string,
@@ -70,9 +71,9 @@ export function startRegionSnapShotProcess(
     };
   }
   const ready = Promise.withResolvers<void>();
-  const result = Promise.withResolvers<{ width: number; height: number; png: Buffer }>();
+  const result = Promise.withResolvers<RegionSnapShotImage>();
   let settled = false;
-  const finish = (error?: Error, value?: { width: number; height: number; png: Buffer }) => {
+  const finish = (error?: Error, value?: RegionSnapShotImage) => {
     if (settled) return;
     settled = true;
     ready.resolve();
@@ -122,54 +123,16 @@ export function startRegionSnapShotProcess(
   };
 }
 
-export type RegionSnapShotPool = {
-  readonly warm: () => void;
-  readonly cool: () => void;
-  readonly capture: (
-    region: Electron.Rectangle,
-  ) => Promise<{ width: number; height: number; png: Buffer }>;
-  readonly close: () => void;
-};
+export type RegionSnapShotPool = SnapShotProcessPool<Electron.Rectangle, RegionSnapShotImage>;
 
 export function makeRegionSnapShotPool(
   workerPath: string,
   start: (workerPath: string) => RegionSnapShotProcess = startRegionSnapShotProcess,
 ): RegionSnapShotPool {
-  let standby: RegionSnapShotProcess | undefined;
-  let inFlight: RegionSnapShotProcess | undefined;
-  let closed = false;
-  const warm = () => {
-    if (closed || standby?.alive) return;
-    standby = start(workerPath);
-  };
-  const cool = () => {
-    standby?.close();
-    standby = undefined;
-  };
-  return {
-    warm,
-    cool,
-    capture: async (region) => {
-      if (closed) throw new Error("Windows window capture is unavailable.");
-      if (inFlight?.alive) {
-        throw new Error("Windows window capture is still in progress. Try again.");
-      }
-      const current = standby?.alive ? standby : start(workerPath);
-      standby = undefined;
-      inFlight = current;
-      try {
-        return await current.capture(region);
-      } finally {
-        if (inFlight === current) inFlight = undefined;
-        warm();
-      }
-    },
-    close: () => {
-      closed = true;
-      cool();
-      inFlight?.close();
-    },
-  };
+  return makeSnapShotProcessPool(() => start(workerPath), {
+    unavailable: "Windows window capture is unavailable.",
+    busy: "Windows window capture is still in progress. Try again.",
+  });
 }
 
 export async function captureRegionWindowSnapshot(

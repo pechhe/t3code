@@ -42,7 +42,12 @@ import * as DesktopWindow from "../window/DesktopWindow.ts";
 import { startGlobalShiftShortcutProcess } from "./GlobalShiftShortcutProcess.ts";
 import { startMacModifierPairShortcutProcess } from "./MacModifierPairShortcutProcess.ts";
 import { activeWindow, type ActiveWindow } from "./ActiveWindow.ts";
-import { captureMacWindowSnapshot, type MacSnapShotSource } from "./MacSnapShot.ts";
+import {
+  captureMacWindowSnapshot,
+  makeMacSnapShotPool,
+  type MacSnapShotPool,
+  type MacSnapShotSource,
+} from "./MacSnapShot.ts";
 import type { LinuxCaptureFeedback, LinuxWindowMetadata } from "./LinuxSnapShot.ts";
 import { niriSocketPath } from "./NiriSnapShot.ts";
 import { CaptureShortcutConfig, niriCaptureConfigPath } from "./CaptureShortcutConfig.ts";
@@ -401,6 +406,7 @@ async function captureSource({
   kdeCapturePaths,
   hyprlandCapturePaths,
   accessibilityProcessPool,
+  macSnapShotPool,
   regionSnapShotPool,
   prepareReveal,
   onLinuxFeedback,
@@ -416,6 +422,7 @@ async function captureSource({
   kdeCapturePaths: KdeCapturePaths;
   hyprlandCapturePaths: HyprlandCapturePaths;
   accessibilityProcessPool: AccessibilityProcessPool;
+  macSnapShotPool: MacSnapShotPool;
   regionSnapShotPool: RegionSnapShotPool;
   prepareReveal: () => Promise<void>;
   onLinuxFeedback: (feedback: LinuxCaptureFeedback) => void;
@@ -431,7 +438,8 @@ async function captureSource({
   {
     const revealPreparation =
       platform === "win32" ? prepareReveal().catch(() => undefined) : Promise.resolve();
-    if (mode === "direct") {
+    const captureStartedAt = performance.now();
+    if (mode === "direct" && platform !== "darwin") {
       active = await activeWindow(platform);
     }
 
@@ -439,14 +447,15 @@ async function captureSource({
     let png: Buffer;
     let imageTempReady = false;
     if (platform === "darwin") {
-      if (!active) {
+      const capture = await captureMacWindowSnapshot(
+        macSnapShotPool,
+        imageTempPath,
+        snapShotThumbnailSize,
+      );
+      if (!capture) {
         throw new DesktopSnapShotError({ operation: "window-unavailable", captureId });
       }
-      ({ source, png } = await captureMacWindowSnapshot(
-        active,
-        imageTempPath,
-        snapShotThumbnailSize(active),
-      ));
+      ({ active, source, png } = capture);
       imageTempReady = true;
     } else if (mode === "direct") {
       if (!active) {
@@ -493,6 +502,7 @@ async function captureSource({
         png = selected.thumbnail.toPNG();
       }
     }
+    const captureMs = performance.now() - captureStartedAt;
     const accessibleIdentity = active
       ? { ...active, bounds: snapShotFlashBounds(active, platform) }
       : linuxWindow?.processId
@@ -520,6 +530,7 @@ async function captureSource({
     }
     const contextPromise = accessibilityRead?.result ?? Promise.resolve(undefined);
     await revealPreparation;
+    const feedbackStartedAt = performance.now();
     if (linuxFeedback && destinationWindow && !destinationWindow.isDestroyed()) {
       if (destinationWindow.isMinimized()) destinationWindow.restore();
       if (!destinationWindow.isVisible()) destinationWindow.show();
@@ -540,6 +551,7 @@ async function captureSource({
         destinationWindowBounds,
       ));
     return {
+      timings: { captureMs, feedbackMs: performance.now() - feedbackStartedAt },
       source,
       active,
       linuxWindow,
@@ -765,6 +777,7 @@ export const make = Effect.gen(function* () {
     "SnapShotAccessibilityWorker.cjs",
   );
   const accessibilityProcessPool = makeSnapShotAccessibilityProcessPool(accessibilityWorkerPath);
+  const macSnapShotPool = makeMacSnapShotPool();
   const regionSnapShotPool = makeRegionSnapShotPool(
     path.join(__dirname, "snapShot", "RegionSnapShotWorker.cjs"),
   );
@@ -885,6 +898,7 @@ export const make = Effect.gen(function* () {
             kdeCapturePaths,
             hyprlandCapturePaths,
             accessibilityProcessPool,
+            macSnapShotPool,
             regionSnapShotPool,
             prepareReveal: () => runPromise(desktopWindow.prepareCaptureReveal),
             onLinuxFeedback: (feedback) => {
@@ -892,6 +906,10 @@ export const make = Effect.gen(function* () {
             },
           }),
         catch: (cause) => captureFailure(cause, id),
+      });
+      yield* Effect.annotateCurrentSpan({
+        "snapShot.captureMs": Math.round(snapshot.timings.captureMs),
+        "snapShot.feedbackMs": Math.round(snapshot.timings.feedbackMs),
       });
       const capturedAt = yield* DateTime.now.pipe(Effect.map(DateTime.formatIso));
       if (snapshot.linuxActivationFailure) {
@@ -1086,6 +1104,11 @@ export const make = Effect.gen(function* () {
       accessibilityProcessPool.warm();
     } else {
       accessibilityProcessPool.cool();
+    }
+    if (settings.snapShotEnabled && environment.platform === "darwin") {
+      macSnapShotPool.warm();
+    } else {
+      macSnapShotPool.cool();
     }
     if (settings.snapShotEnabled && environment.platform === "win32") {
       regionSnapShotPool.warm();
@@ -1329,13 +1352,12 @@ export const make = Effect.gen(function* () {
             prefix: "t3-snapshot-test-",
           });
           yield* Effect.tryPromise(async () => {
-            const active = await activeWindow("darwin");
-            if (!active) throw new Error("No window is available to test capture.");
-            await captureMacWindowSnapshot(
-              active,
+            const capture = await captureMacWindowSnapshot(
+              macSnapShotPool,
               path.join(directory, "test.png"),
-              snapShotThumbnailSize(active),
+              snapShotThumbnailSize,
             );
+            if (!capture) throw new Error("No window is available to test capture.");
           });
         }),
       ).pipe(
@@ -1443,6 +1465,7 @@ export const make = Effect.gen(function* () {
       transition.dispose();
       closeLinuxFeedback();
       accessibilityProcessPool.close();
+      macSnapShotPool.close();
       regionSnapShotPool.close();
     }),
   );
