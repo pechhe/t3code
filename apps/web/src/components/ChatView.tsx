@@ -11069,6 +11069,11 @@ export default function ChatView(props: ChatViewProps) {
           {isServerThread ? (
             <SlipJayRunnerControl
               environmentId={activeThread.environmentId}
+              releaseProject={
+                isSlipJayProject && activeProject
+                  ? { cwd: activeProject.workspaceRoot, name: activeProject.title }
+                  : null
+              }
               onOpenThread={onOpenRelatedThreadStable}
             />
           ) : null}

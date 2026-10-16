@@ -106,30 +106,32 @@ describe("command permissions", () => {
     ),
   );
 
-  it.effect.each([WS_METHODS.vcsSlipJayLand, WS_METHODS.vcsSlipJayCancel])(
-    "requires the destination source control grant for %s",
-    (method) =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const registry = yield* setup;
-          const command = createCommandPermissions(runtime, method);
-          registry.set(sessions(env), AsyncResult.success(grant(true)));
-          expect(registry.get(command.permissionAtom(env))).toBe(false);
-          expect((yield* command.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
-            "EnvironmentAuthorizationError",
-          );
-          registry.set(
-            sessions(env),
-            AsyncResult.success({
-              ...grant(false),
-              scopes: [AuthSourceControlWriteScope],
-              permissions: [AuthSourceControlWriteScope],
-            }),
-          );
-          expect(registry.get(command.permissionAtom(env))).toBe(true);
-          yield* command.authorize(registry, env);
-        }),
-      ),
+  it.effect.each([
+    WS_METHODS.vcsSlipJayLand,
+    WS_METHODS.vcsSlipJayCancel,
+    WS_METHODS.vcsSlipJayPromote,
+  ])("requires the destination source control grant for %s", (method) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const registry = yield* setup;
+        const command = createCommandPermissions(runtime, method);
+        registry.set(sessions(env), AsyncResult.success(grant(true)));
+        expect(registry.get(command.permissionAtom(env))).toBe(false);
+        expect((yield* command.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+          "EnvironmentAuthorizationError",
+        );
+        registry.set(
+          sessions(env),
+          AsyncResult.success({
+            ...grant(false),
+            scopes: [AuthSourceControlWriteScope],
+            permissions: [AuthSourceControlWriteScope],
+          }),
+        );
+        expect(registry.get(command.permissionAtom(env))).toBe(true);
+        yield* command.authorize(registry, env);
+      }),
+    ),
   );
 
   it.effect("uses the target grant for both availability and execution", () =>

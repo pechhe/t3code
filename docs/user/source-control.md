@@ -278,6 +278,12 @@ The **SlipJay** button at the top of a thread shows the runner this server follo
 running and queued in each lane, and the latest staging and production deploys. Select an
 operation to open the thread whose workspace submitted it.
 
+In a SlipJay project, **Release <project>…** in that menu shows what promoting would release,
+or SlipJay's reason it will not: the commit staging deployed, its changes, the production
+migrations (flagging ones that are not additive and so are not rolled back automatically), and
+open Specs it only partly delivers. **Promote** approves exactly that commit, the same as
+`slipjay promote --confirm`; its progress shows in the menu's lanes.
+
 ## Troubleshooting
 
 - **Not authenticated:** run the provider's login command on the server, then rescan. For Bitbucket,

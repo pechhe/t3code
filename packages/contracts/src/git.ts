@@ -299,6 +299,65 @@ export const SlipJayRunnerOverview = Schema.Struct({
 });
 export type SlipJayRunnerOverview = typeof SlipJayRunnerOverview.Type;
 
+/** A SlipJay project checkout to plan or confirm a promotion from. */
+export const VcsSlipJayPromotionPlanInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsSlipJayPromotionPlanInput = typeof VcsSlipJayPromotionPlanInput.Type;
+
+/** An open Spec the release only partly delivers, as `slipjay promote` warns. */
+export const VcsSlipJayHalfBuiltSpec = Schema.Struct({
+  number: PositiveInt,
+  title: Schema.String,
+  url: Schema.String,
+  closedTickets: NonNegativeInt,
+  totalTickets: NonNegativeInt,
+});
+
+/** `slipjay promote`'s plan, which publishes nothing. */
+export const VcsSlipJayPromotionPlan = Schema.Struct({
+  /**
+   * `planned` when there is a candidate to approve, `up_to_date` when the release branch
+   * already holds it, `refused` when SlipJay will not promote from this checkout.
+   */
+  status: Schema.String,
+  /** SlipJay's reason for a refusal. */
+  reason: Schema.optional(Schema.String),
+  integrationBranch: Schema.optional(Schema.String),
+  releaseBranch: Schema.optional(Schema.String),
+  /** The commit to approve: the newest one staging deployed. */
+  candidate: Schema.optional(Schema.String),
+  /** The release branch the candidate is merged onto. */
+  base: Schema.optional(Schema.String),
+  /** The subjects of the commits it releases, newest first. */
+  subjects: Schema.Array(Schema.String),
+  /** The release checks the runner runs before it publishes. */
+  checks: Schema.Array(Schema.String),
+  /** Migration files the runner applies to production before it activates. */
+  migrationArtifacts: Schema.Array(Schema.String),
+  /** Migrations that drop, rename or rewrite something; a failed deploy is not rolled back. */
+  nonAdditiveMigrations: Schema.Array(Schema.String),
+  halfBuiltSpecs: Schema.Array(VcsSlipJayHalfBuiltSpec),
+});
+export type VcsSlipJayPromotionPlan = typeof VcsSlipJayPromotionPlan.Type;
+
+/** The approved candidate to promote with `slipjay promote --confirm`. */
+export const VcsSlipJayPromoteInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  candidate: Schema.String.check(Schema.isPattern(/^[0-9a-f]{12,40}$/)),
+});
+export type VcsSlipJayPromoteInput = typeof VcsSlipJayPromoteInput.Type;
+
+export const VcsSlipJayPromoteResult = Schema.Struct({
+  /** The candidate is on the release branch and production deployed it. */
+  released: Schema.Boolean,
+  /** SlipJay's final status, such as `released`, `failed` or `refused`. */
+  status: Schema.String,
+  /** SlipJay's own words on why it did not release, or how production ended. */
+  messages: Schema.Array(Schema.String),
+});
+export type VcsSlipJayPromoteResult = typeof VcsSlipJayPromoteResult.Type;
+
 const VcsStatusChangeRequest = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyStringSchema,

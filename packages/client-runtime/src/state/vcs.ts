@@ -310,6 +310,17 @@ export function createVcsEnvironmentAtoms<R, E>(
       label: "environment-data:vcs:slipjay-cancel",
       tag: WS_METHODS.vcsSlipJayCancel,
     }),
+    // `slipjay promote`'s plan for a SlipJay project, read when the owner reviews a release.
+    slipJayPromotionPlan: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:slipjay-promotion-plan",
+      tag: WS_METHODS.vcsSlipJayPromotionPlan,
+      staleTimeMs: 0,
+    }),
+    // The owner's approval of one candidate: `slipjay promote --confirm`.
+    slipJayPromote: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-promote",
+      tag: WS_METHODS.vcsSlipJayPromote,
+    }),
     // The SlipJay runner's lanes and deploys, shared by every SlipJay view of an environment.
     slipJayRunner: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:slipjay-runner",

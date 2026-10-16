@@ -178,6 +178,8 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.vcsListRefs]: AuthOrchestrationReadScope,
   [WS_METHODS.vcsSlipJayLandingLog]: AuthOrchestrationReadScope,
   [WS_METHODS.subscribeSlipJayRunner]: AuthOrchestrationReadScope,
+  // Planning publishes nothing; confirming is the guarded step.
+  [WS_METHODS.vcsSlipJayPromotionPlan]: AuthOrchestrationReadScope,
   [WS_METHODS.reviewGetDiffPreview]: AuthFilesystemReadScope,
   [WS_METHODS.reviewGetDiffFileContents]: AuthFilesystemReadScope,
   [WS_METHODS.terminalOpen]: AuthTerminalOperateScope,

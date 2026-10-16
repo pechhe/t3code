@@ -23,6 +23,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { SlipJayReleaseDialog } from "./SlipJayReleaseDialog";
 
 const TONE_DOT_CLASS = {
   idle: "bg-muted-foreground/50",
@@ -48,11 +49,17 @@ function latestDeploys(deploys: ReadonlyArray<SlipJayRunnerDeploy>) {
  */
 export function SlipJayRunnerControl({
   environmentId,
+  releaseProject,
   onOpenThread,
 }: {
   environmentId: EnvironmentId;
+  /** The active thread's SlipJay project, which the popover offers to release. */
+  releaseProject: { cwd: string; name: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  const canRelease = useAtomValue(vcsEnvironment.slipJayPromote.permissionAtom(environmentId));
+  const release = canRelease ? releaseProject : null;
   const { data: overview } = useEnvironmentQuery(
     vcsEnvironment.slipJayRunner({ environmentId, input: {} }),
   );
@@ -82,79 +89,102 @@ export function SlipJayRunnerControl({
   const showRepository = repositories.size > 1;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        render={
-          <Button
-            size="xs"
-            variant="ghost"
-            className="shrink-0 [-webkit-app-region:no-drag]"
-            aria-label={summary.label}
-          />
-        }
-      >
-        <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT_CLASS[summary.tone])} />
-        <span className="max-sm:hidden">{summary.label}</span>
-      </PopoverTrigger>
-      <PopoverPopup side="bottom" align="end" width="md" padding="compact">
-        <div className="flex flex-col gap-3 text-sm">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-medium">
-              {overview.connected ? "Runner connected" : "Reconnecting to the runner"}
-            </span>
-            {overview.paused ? <span className="text-warning text-xs">Paused</span> : null}
-          </div>
-          <RunnerLane
-            title="Serial lane"
-            environmentId={environmentId}
-            operations={overview.serial}
-            threadsByWorkspace={threadsByWorkspace}
-            showRepository={showRepository}
-            onOpenThread={(threadId) => {
-              setOpen(false);
-              onOpenThread(threadId);
-            }}
-          />
-          <RunnerLane
-            title="Deploy lane"
-            environmentId={environmentId}
-            operations={overview.deploy}
-            threadsByWorkspace={threadsByWorkspace}
-            showRepository={showRepository}
-            onOpenThread={(threadId) => {
-              setOpen(false);
-              onOpenThread(threadId);
-            }}
-          />
-          {overview.deploys.length > 0 ? (
-            <RunnerSection title="Environments">
-              {latestDeploys(overview.deploys).map((deploy) => (
-                <div key={deploy.operationId} className="flex min-w-0 items-baseline gap-2 px-2">
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="capitalize">{deploy.environment}</span>{" "}
-                    <span className="font-mono text-xs">{deploy.commitId.slice(0, 8)}</span>
-                    {showRepository ? (
-                      <span className="text-muted-foreground"> · {deploy.repo}</span>
-                    ) : null}
-                  </span>
-                  <span
-                    className={cn(
-                      "shrink-0 text-xs",
-                      deploy.status === "deployed" ? "text-muted-foreground" : "text-destructive",
-                    )}
+    <>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <Button
+              size="xs"
+              variant="ghost"
+              className="shrink-0 [-webkit-app-region:no-drag]"
+              aria-label={summary.label}
+            />
+          }
+        >
+          <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT_CLASS[summary.tone])} />
+          <span className="max-sm:hidden">{summary.label}</span>
+        </PopoverTrigger>
+        <PopoverPopup side="bottom" align="end" width="md" padding="compact">
+          <div className="flex flex-col gap-3 text-sm">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">
+                {overview.connected ? "Runner connected" : "Reconnecting to the runner"}
+              </span>
+              {overview.paused ? <span className="text-warning text-xs">Paused</span> : null}
+            </div>
+            <RunnerLane
+              title="Serial lane"
+              environmentId={environmentId}
+              operations={overview.serial}
+              threadsByWorkspace={threadsByWorkspace}
+              showRepository={showRepository}
+              onOpenThread={(threadId) => {
+                setOpen(false);
+                onOpenThread(threadId);
+              }}
+            />
+            <RunnerLane
+              title="Deploy lane"
+              environmentId={environmentId}
+              operations={overview.deploy}
+              threadsByWorkspace={threadsByWorkspace}
+              showRepository={showRepository}
+              onOpenThread={(threadId) => {
+                setOpen(false);
+                onOpenThread(threadId);
+              }}
+            />
+            {overview.deploys.length > 0 || release !== null ? (
+              <RunnerSection title="Environments">
+                {latestDeploys(overview.deploys).map((deploy) => (
+                  <div key={deploy.operationId} className="flex min-w-0 items-baseline gap-2 px-2">
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="capitalize">{deploy.environment}</span>{" "}
+                      <span className="font-mono text-xs">{deploy.commitId.slice(0, 8)}</span>
+                      {showRepository ? (
+                        <span className="text-muted-foreground"> · {deploy.repo}</span>
+                      ) : null}
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-xs",
+                        deploy.status === "deployed" ? "text-muted-foreground" : "text-destructive",
+                      )}
+                    >
+                      {deploy.status}
+                      {deploy.finishedAt === undefined
+                        ? ""
+                        : ` ${formatRelativeTimeLabel(deploy.finishedAt)}`}
+                    </span>
+                  </div>
+                ))}
+                {release !== null ? (
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    className="mx-2 mt-1 self-start"
+                    onClick={() => {
+                      setOpen(false);
+                      setReleaseOpen(true);
+                    }}
                   >
-                    {deploy.status}
-                    {deploy.finishedAt === undefined
-                      ? ""
-                      : ` ${formatRelativeTimeLabel(deploy.finishedAt)}`}
-                  </span>
-                </div>
-              ))}
-            </RunnerSection>
-          ) : null}
-        </div>
-      </PopoverPopup>
-    </Popover>
+                    Release {release.name}…
+                  </Button>
+                ) : null}
+              </RunnerSection>
+            ) : null}
+          </div>
+        </PopoverPopup>
+      </Popover>
+      {release !== null ? (
+        <SlipJayReleaseDialog
+          environmentId={environmentId}
+          project={release}
+          open={releaseOpen}
+          onOpenChange={setReleaseOpen}
+        />
+      ) : null}
+    </>
   );
 }
 
