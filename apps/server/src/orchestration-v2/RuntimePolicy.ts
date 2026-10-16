@@ -168,6 +168,25 @@ export const layerFromProjectStore: Layer.Layer<
               projectId: input.thread.projectId,
               providerInstanceId: input.modelSelection.instanceId,
             });
+          // An isolated helper is the only thread in its workspace, so judged as that
+          // workspace's own lead it would be refused as the lead's checkout. Its workspace is
+          // checked as a separate workspace of the project's repository instead; the lead and
+          // live occupants were checked when the task was admitted.
+          const isolated = input.thread.agentTask.workspaceAssignment === "isolated";
+          const leadless = isolated || input.thread.worktreePath === null;
+          const projectRoot = isolated
+            ? yield* projects.get(input.thread.projectId).pipe(
+                Effect.map((project) => Option.getOrUndefined(project)?.workspaceRoot),
+                Effect.mapError(
+                  (cause) =>
+                    new RuntimePolicyResolveError({
+                      projectId: input.thread.projectId,
+                      providerInstanceId: input.modelSelection.instanceId,
+                      cause,
+                    }),
+                ),
+              )
+            : cwd;
           yield* managed.value
             .validate({
               binding:
@@ -183,8 +202,8 @@ export const layerFromProjectStore: Layer.Layer<
               providers: [yield* instance.snapshot.getSnapshot],
               ceiling: input.thread.runtimeMode,
               runtimeMode: input.thread.runtimeMode,
-              workspacePath: input.thread.worktreePath,
-              ...(input.thread.worktreePath === null ? { projectRoot: cwd } : {}),
+              workspacePath: isolated ? null : input.thread.worktreePath,
+              ...(leadless && projectRoot !== undefined ? { projectRoot } : {}),
             })
             .pipe(
               Effect.mapError(

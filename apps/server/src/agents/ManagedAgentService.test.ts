@@ -718,6 +718,84 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
+  it.effect("launches a root-bound lead's isolated writer through the real runtime guard", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const store = `${f.root}/repo-store`;
+      yield* f.fs.makeDirectory(store);
+      const workspace = (name: string) =>
+        Effect.gen(function* () {
+          const path = `${f.root}/${name}`;
+          yield* f.fs.makeDirectory(`${path}/.jj`, { recursive: true });
+          yield* f.fs.writeFileString(`${path}/.jj/repo`, store);
+          return path;
+        });
+      const projectRoot = yield* workspace("main");
+      const allocated = yield* workspace("allocated");
+      const accepted = yield* f.prepare({
+        workspacePath: null,
+        projectRoot,
+        owner: "lead-thread",
+        request: request({ workspacePath: allocated, workspaceAssignment: "isolated" }),
+      });
+      const runtimeLayer = RuntimePolicy.layerFromProjectStore.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            Layer.mock(Projects.ProjectStoreV2)({
+              get: () => Effect.succeed(Option.some({ workspaceRoot: projectRoot } as never)),
+            }),
+            Layer.mock(Providers.ProviderInstanceRegistry)({
+              getInstance: () =>
+                Effect.succeed({
+                  snapshot: { getSnapshot: Effect.succeed(codex) },
+                } as ProviderInstance),
+            }),
+          ),
+        ),
+      );
+      yield* Effect.gen(function* () {
+        const runtime = yield* RuntimePolicy.RuntimePolicyV2;
+        const settings = yield* Settings.ServerSettingsService;
+        const projectId = ProjectId.make("isolated-writer-project");
+        yield* settings.updateSettings({
+          projectSettingsOverrides: {
+            [projectId]: { providerInstances: { [codex.instanceId]: { enabled: true } } },
+          },
+        });
+        // The child thread is bound to the helper's own workspace, as the orchestrator creates it.
+        const thread = {
+          projectId,
+          worktreePath: allocated,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          agentTask: accepted.binding,
+        } as OrchestrationV2AppThread;
+        const resolved = yield* runtime.resolve({
+          thread,
+          modelSelection: accepted.binding.effective,
+        });
+        expect(resolved.managedAgent).toBe(true);
+        expect(resolved.cwd).toBe(allocated);
+        expect(resolved.sandboxPolicy).toMatchObject({ type: "workspaceWrite" });
+        // A helper bound to the project's main checkout is still refused.
+        const main = yield* runtime
+          .resolve({
+            thread: {
+              ...thread,
+              worktreePath: projectRoot,
+              agentTask: { ...accepted.binding, workspacePath: projectRoot },
+            },
+            modelSelection: accepted.binding.effective,
+          })
+          .pipe(Effect.flip);
+        expect(main.cause).toMatchObject({ reason: "workspace" });
+      }).pipe(
+        Effect.provide(runtimeLayer.pipe(Layer.provideMerge(Settings.layerTest()))),
+        Effect.provideService(ConfigProvider.ConfigProvider, f.config),
+      );
+    }),
+  );
+
   it.effect("binds an isolated helper only to a separate workspace of the lead's repository", () =>
     Effect.gen(function* () {
       const f = yield* fixture;
