@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Processes from "../processRunner.ts";
@@ -59,7 +60,24 @@ const make = Effect.gen(function* () {
       result._tag === "Some" && result.value.code === 0
         ? result.value.stdout.trim().length > 0
         : null;
-    return { snapshot, sourceRoot, uncommitted, providers: yield* providers.getProviders };
+    const checkout = yield* AgentConfigCheckout.read(sourceRoot).pipe(
+      Effect.provideService(Processes.ProcessRunner, process),
+      Effect.provideService(FileSystem.FileSystem, fs),
+      Effect.provideService(Path.Path, path),
+    );
+    return {
+      snapshot,
+      sourceRoot,
+      uncommitted,
+      checkout: {
+        revision: checkout.revision,
+        hasLocalChanges: checkout.hasLocalChanges,
+        behindMain: yield* AgentConfigCheckout.commitsBehindMain(sourceRoot).pipe(
+          Effect.provideService(Processes.ProcessRunner, process),
+        ),
+      },
+      providers: yield* providers.getProviders,
+    };
   });
   const validateModels = Effect.fn(function* (manifest: AgentPolicyManifest) {
     const catalog = yield* providers.getProviders;

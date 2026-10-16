@@ -28,6 +28,8 @@ export type RunSetupSkill = typeof RunSetupSkill.Type;
 export const RunSetupRecord = Schema.Struct({
   runId: RunId,
   threadId: ThreadId,
+  /** The run's ordinal in its thread, which orders records; absent from early records. */
+  runOrdinal: Schema.optional(PositiveInt),
   capturedAt: Schema.String,
   /** The live agent-config checkout (`T3CODE_AGENT_POLICY_ROOT`), read without snapshotting it. */
   agentConfig: Schema.NullOr(

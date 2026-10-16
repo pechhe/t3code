@@ -43,6 +43,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 import * as Policy from "./AgentPolicyService.ts";
 
 /** The provider tool that loads a skill; its calls are the skills a run actually invoked. */
@@ -121,67 +122,12 @@ const skillsIn = Effect.fn("RunSetupRecorder.skillsIn")(function* (
 });
 
 /**
- * The agent-config checkout's landed base and working copy, read with
- * `--ignore-working-copy` so a capture never snapshots or rewrites the live checkout.
- * Local changes come from git in a colocated checkout, whose HEAD is that landed base,
- * so edits made since jj's last snapshot still count.
- */
-const agentConfigRevision = Effect.fn("RunSetupRecorder.agentConfigRevision")(function* (
-  root: string,
-) {
-  const processes = yield* ProcessRunner.ProcessRunner;
-  const output = yield* processes
-    .run({
-      command: "jj",
-      args: [
-        "--ignore-working-copy",
-        "log",
-        "-r",
-        "@",
-        "--no-graph",
-        "-T",
-        'commit_id ++ " " ++ parents.map(|c| c.commit_id()).join(",") ++ " " ++ if(empty, "empty", "changed")',
-      ],
-      cwd: root,
-      timeout: "5 seconds",
-      maxOutputBytes: 4096,
-    })
-    .pipe(Effect.option);
-  if (Option.isNone(output) || output.value.code !== 0)
-    return { root, revision: null, workingCopyRevision: null, hasLocalChanges: null };
-  const [workingCopy, parents, state] = output.value.stdout.trim().split(" ");
-  const status = yield* processes
-    .run({
-      command: "git",
-      args: ["--no-optional-locks", "status", "--porcelain"],
-      cwd: root,
-      timeout: "5 seconds",
-      maxOutputBytes: 64 * 1024,
-    })
-    .pipe(Effect.option);
-  // A merge working copy has no single landed base.
-  const revision =
-    parents !== undefined && parents !== "" && !parents.includes(",") ? parents : null;
-  return {
-    root,
-    revision,
-    workingCopyRevision: workingCopy || null,
-    hasLocalChanges:
-      Option.isSome(status) && status.value.code === 0
-        ? status.value.stdout.trim() !== ""
-        : // An empty last snapshot says nothing about edits made since.
-          state === "changed"
-          ? true
-          : null,
-  };
-});
-
-/**
  * Observes the setup a run starts with. Anything T3 cannot read is recorded as null or
  * left out; capture never fails, so a missing agent-config checkout cannot stop a run.
  */
 export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(function* (input: {
-  readonly run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection" | "workflow">;
+  readonly run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection" | "workflow"> &
+    Partial<Pick<OrchestrationV2Run, "ordinal">>;
   readonly thread: Pick<
     OrchestrationV2AppThread,
     "lineage" | "creationSource" | "rolloverThresholds" | "rolloverHold"
@@ -214,8 +160,9 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
   return {
     runId: input.run.id,
     threadId: input.run.threadId,
+    ...(input.run.ordinal === undefined ? {} : { runOrdinal: input.run.ordinal }),
     capturedAt: DateTime.formatIso(yield* DateTime.now),
-    agentConfig: root === null ? null : yield* agentConfigRevision(root),
+    agentConfig: root === null ? null : yield* AgentConfigCheckout.read(root),
     instructions: [
       ...(root === null ? [] : yield* instructionFiles(root, SHARED_INSTRUCTIONS)),
       ...(workingDirectory === null || workingDirectory === root
@@ -258,12 +205,14 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
 
 /** The record kept when capture failed outright: only what the run itself carries is known. */
 export function uncapturedRunSetup(
-  run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection" | "workflow">,
+  run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection" | "workflow"> &
+    Partial<Pick<OrchestrationV2Run, "ordinal">>,
   capturedAt: string,
 ): RunSetupRecord {
   return {
     runId: run.id,
     threadId: run.threadId,
+    ...(run.ordinal === undefined ? {} : { runOrdinal: run.ordinal }),
     capturedAt,
     agentConfig: null,
     instructions: null,
@@ -275,6 +224,30 @@ export function uncapturedRunSetup(
     rollover: null,
     experimentAssignments: null,
   };
+}
+
+/**
+ * What a run's setup changed from the thread's previous run: the agent-config revision
+ * and each instruction file's hash. A value either record could not observe is not a change.
+ */
+export function setupChanges(previous: RunSetupRecord, next: RunSetupRecord) {
+  const changes: Array<{ subject: string; from: string | null; to: string | null }> = [];
+  const from = previous.agentConfig?.revision ?? null;
+  const to = next.agentConfig?.revision ?? null;
+  if (from !== null && to !== null && from !== to)
+    changes.push({ subject: "agent-config", from, to });
+  if (previous.instructions !== null && next.instructions !== null) {
+    const before = new Map(previous.instructions.map((file) => [file.path, file.sha256]));
+    const after = new Map(next.instructions.map((file) => [file.path, file.sha256]));
+    for (const path of new Set([...before.keys(), ...after.keys()])) {
+      const fromHash = before.get(path) ?? null;
+      const toHash = after.get(path) ?? null;
+      // An unreadable file (a null hash) on either side is unknown, not a change.
+      if (before.has(path) && after.has(path) && (fromHash === null || toHash === null)) continue;
+      if (fromHash !== toHash) changes.push({ subject: path, from: fromHash, to: toHash });
+    }
+  }
+  return changes;
 }
 
 /** Skills a run invoked, from the provider tool calls it reported. */
@@ -395,6 +368,59 @@ export const make = Effect.gen(function* () {
       return record;
     }).pipe(Effect.provide(context), Effect.timeout("30 seconds"));
 
+  const recordAt = (threadId: string, ordinal: number, direction: "before" | "after") =>
+    Effect.gen(function* () {
+      const rows =
+        direction === "before"
+          ? yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
+              WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') < ${ordinal}
+              ORDER BY json_extract(record_json, '$.runOrdinal') DESC LIMIT 1`
+          : yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
+              WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') > ${ordinal}
+              ORDER BY json_extract(record_json, '$.runOrdinal') ASC LIMIT 1`;
+      return rows[0] === undefined ? null : yield* decodeRecord(rows[0].record_json);
+    });
+
+  /** Records a `setup-change` observation on `next` for each running experiment its thread is in. */
+  const markCut = (previous: RunSetupRecord, next: RunSetupRecord) =>
+    Effect.gen(function* () {
+      const changes = setupChanges(previous, next);
+      if (changes.length === 0) return;
+      const running = new Set(
+        (yield* experiments.list())
+          .filter((experiment) => experiment.status === "running")
+          .map((experiment) => experiment.id),
+      );
+      const assignments = (yield* experiments.assignments({ threadId: next.threadId })).filter(
+        (assignment) => running.has(assignment.experimentId),
+      );
+      yield* Effect.forEach(assignments, (assignment) =>
+        experiments.recordObservation({
+          id: `setup-change:${assignment.id}:${next.runId}`,
+          assignmentId: assignment.id,
+          runId: next.runId,
+          kind: "setup-change",
+          usedTokens: null,
+          maxTokens: null,
+          setupChanges: changes,
+          evidence: [`run-setup:${previous.runId}`, `run-setup:${next.runId}`],
+        }),
+      );
+    });
+
+  /**
+   * Compares a new record with its neighbours in run order. Captures finish out of order,
+   * so a record stored after a later run's still marks the cut that later run starts.
+   */
+  const markCutPoints = (record: RunSetupRecord) =>
+    Effect.gen(function* () {
+      if (record.runOrdinal === undefined) return;
+      const previous = yield* recordAt(record.threadId, record.runOrdinal, "before");
+      if (previous !== null) yield* markCut(previous, record);
+      const following = yield* recordAt(record.threadId, record.runOrdinal, "after");
+      if (following !== null) yield* markCut(record, following);
+    });
+
   const record = (run: OrchestrationV2Run, maxTokens: number | null) =>
     Effect.gen(function* () {
       if (recorded.has(run.id)) return;
@@ -408,6 +434,7 @@ export const make = Effect.gen(function* () {
         ),
       );
       yield* insert(captured);
+      yield* markCutPoints(captured);
     }).pipe(
       Effect.catchCause((cause) =>
         Effect.logWarning("Run setup record failed", { runId: run.id, cause }),

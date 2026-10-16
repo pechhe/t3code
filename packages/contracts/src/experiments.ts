@@ -307,6 +307,11 @@ export type ExperimentEvaluation = typeof ExperimentEvaluation.Type;
 export const ExperimentEpisodeReport = Schema.Struct({
   id: TrimmedNonEmptyString,
   recipeRevision: TrimmedNonEmptyString,
+  /**
+   * The setup segment of this entry's captures (see the runs' `setupSegment`). An episode
+   * spanning a cut appears once per segment, each entry holding only that side's captures.
+   */
+  setupSegment: Schema.optional(NonNegativeInt),
   captureIds: Schema.Array(TrimmedNonEmptyString),
   evaluationIds: Schema.Array(TrimmedNonEmptyString),
 });
@@ -352,6 +357,7 @@ export const ExperimentObservationInput = Schema.Struct({
     "native-compaction",
     "restart-failure",
     "continuation-ended",
+    "setup-change",
   ]),
   usedTokens: Schema.NullOr(NonNegativeInt),
   maxTokens: Schema.NullOr(PositiveInt),
@@ -359,6 +365,19 @@ export const ExperimentObservationInput = Schema.Struct({
   recoveredTokens: Schema.optional(NonNegativeInt),
   delayMs: Schema.optional(NonNegativeInt),
   lowYield: Schema.optional(Schema.Boolean),
+  /**
+   * A `setup-change` cut point: what differs from the thread's previous run. `subject`
+   * is `agent-config` for the revision, or an instruction file's path for its hash.
+   */
+  setupChanges: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        subject: TrimmedNonEmptyString,
+        from: Schema.NullOr(TrimmedNonEmptyString),
+        to: Schema.NullOr(TrimmedNonEmptyString),
+      }),
+    ),
+  ),
   evidence: Schema.Array(TrimmedNonEmptyString),
 });
 export type ExperimentObservationInput = typeof ExperimentObservationInput.Type;
@@ -418,6 +437,11 @@ export const ExperimentAssignmentReport = Schema.Struct({
       requestedAt: Schema.String,
       startedAt: Schema.NullOr(Schema.String),
       completedAt: Schema.NullOr(Schema.String),
+      /**
+       * How many `setup-change` cut points on this run's thread precede or start it, so
+       * runs on either side of a cut can be compared separately.
+       */
+      setupSegment: Schema.optional(NonNegativeInt),
     }),
   ),
   descendantCoverage: Schema.Literals(["complete", "partial"]),

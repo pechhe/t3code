@@ -1986,7 +1986,8 @@ const make = Effect.gen(function* () {
             id: string;
             episode_id: string;
             recipe_revision: string;
-          }>`SELECT id, episode_id, json_extract(payload_json, '$.recipeRevision') AS recipe_revision FROM experiment_evidence WHERE assignment_id = ${assignment.id} ORDER BY rowid DESC LIMIT 101`,
+            run_id: string;
+          }>`SELECT id, episode_id, json_extract(payload_json, '$.recipeRevision') AS recipe_revision, json_extract(payload_json, '$.runId') AS run_id FROM experiment_evidence WHERE assignment_id = ${assignment.id} ORDER BY rowid DESC LIMIT 101`,
         );
         const captures = evidenceRows.slice(0, 100);
         const evaluationRows = yield* persist(
@@ -2286,14 +2287,38 @@ const make = Effect.gen(function* () {
           reasoningTokens: missingStartedRuns.length > 0 ? null : observedUsage.reasoningTokens,
           hasUnattributedSubagentUsage: incompleteDescendants,
         };
+        // Each setup cut point starts a new segment of its thread's runs.
+        const cuts = observations.flatMap((observation) =>
+          observation.kind === "setup-change"
+            ? runs.filter((run) => run.runId === observation.runId)
+            : [],
+        );
+        const setupSegment = (run: { threadId: ThreadId; requestedAt: string }) =>
+          cuts.filter((cut) => cut.threadId === run.threadId && cut.requestedAt <= run.requestedAt)
+            .length;
         const entry: ExperimentAssignmentReport = {
           assignment,
           coExposureIds: [...new Set(coExposureIds)],
           turns,
-          runs,
+          runs: runs.map((run) => ({ ...run, setupSegment: setupSegment(run) })),
           outcomes,
           observations,
-          episodes,
+          // An episode whose captures fall on both sides of a cut is reported once per
+          // side, each with only its own captures.
+          episodes: episodes.flatMap((episode) => {
+            const bySegment = new Map<number | undefined, string[]>();
+            for (const captureId of episode.captureIds.toReversed()) {
+              const runId = captures.find((capture) => capture.id === captureId)?.run_id;
+              const run = runs.find((candidate) => candidate.runId === runId);
+              const segment = run === undefined ? undefined : setupSegment(run);
+              bySegment.set(segment, [...(bySegment.get(segment) ?? []), captureId]);
+            }
+            return [...bySegment].map(([segment, captureIds]) => ({
+              ...episode,
+              captureIds: captureIds.toReversed(),
+              ...(segment === undefined ? {} : { setupSegment: segment }),
+            }));
+          }),
           episodeSummariesTruncated,
           projectionAvailable,
           descendantCoverage:

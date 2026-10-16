@@ -215,28 +215,34 @@ describe("RunSetupStore", () => {
   );
 });
 
-describe("RunSetupRecorder.record", () => {
-  const recorderLayer = (getThread: ProjectionStore.ProjectionStoreV2["Service"]["getThread"]) =>
-    Layer.effect(RunSetup.RunSetupRecorder, RunSetup.make).pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          Layer.mock(Orchestrator.OrchestratorV2)({}),
-          Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThread }),
-          Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeed(Option.none()) }),
-          Layer.mock(ExperimentService.ExperimentService)({
-            assignments: () => Effect.succeed([]),
-            getRolloverAssignment: () => Effect.succeed(null),
-          }),
-          Layer.mock(Policy.AgentPolicyService)({}),
-          Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
-          ServerSettings.layerTest(),
-        ),
+const recorderLayer = (
+  getThread: ProjectionStore.ProjectionStoreV2["Service"]["getThread"],
+  experiments: Partial<ExperimentService.ExperimentService["Service"]> = {},
+) =>
+  Layer.effect(RunSetup.RunSetupRecorder, RunSetup.make).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(Orchestrator.OrchestratorV2)({}),
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThread }),
+        Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeed(Option.none()) }),
+        Layer.mock(ExperimentService.ExperimentService)({
+          assignments: () => Effect.succeed([]),
+          getRolloverAssignment: () => Effect.succeed(null),
+          list: () => Effect.succeed([]),
+          ...experiments,
+        }),
+        Layer.mock(Policy.AgentPolicyService)({}),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        ServerSettings.layerTest(),
       ),
-      Layer.provideMerge(RunSetup.storeLayer),
-      Layer.provideMerge(Sqlite.layerMemory),
-      Layer.provide(layer),
-      Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
-    );
+    ),
+    Layer.provideMerge(RunSetup.storeLayer),
+    Layer.provideMerge(Sqlite.layerMemory),
+    Layer.provide(layer),
+    Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),
+  );
+
+describe("RunSetupRecorder.record", () => {
   const runAt = (ordinal: number) =>
     ({
       id: RunId.make(`run:setup:${ordinal}`),
@@ -280,4 +286,97 @@ describe("RunSetupRecorder.record", () => {
       );
     }).pipe(Effect.provide(recorderLayer(() => Effect.die("projection unavailable")))),
   );
+});
+
+describe("setup cut points", () => {
+  const record = (runId: string, revision: string | null, hash: string | null) =>
+    ({
+      ...RunSetup.uncapturedRunSetup(
+        {
+          id: RunId.make(runId),
+          threadId,
+          modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
+        } as never,
+        "2026-10-16T00:00:00.000Z",
+      ),
+      agentConfig:
+        revision === null
+          ? null
+          : { root: "/agents", revision, workingCopyRevision: null, hasLocalChanges: false },
+      instructions: [{ path: "/repo/AGENTS.md", sha256: hash }],
+    }) as never;
+
+  it("names the old and new revision and instruction hashes, and ignores unknowns", () => {
+    assert.deepEqual(RunSetup.setupChanges(record("a", "r1", "h1"), record("b", "r2", "h2")), [
+      { subject: "agent-config", from: "r1", to: "r2" },
+      { subject: "/repo/AGENTS.md", from: "h1", to: "h2" },
+    ]);
+    assert.deepEqual(RunSetup.setupChanges(record("a", "r1", "h1"), record("b", "r1", "h1")), []);
+    assert.deepEqual(RunSetup.setupChanges(record("a", null, null), record("b", "r2", "h2")), []);
+  });
+
+  it.effect("marks one observation when a thread's instructions change mid-trial", () => {
+    let repoPath = "";
+    const observations: Array<{ id: string; runId: string; setupChanges?: unknown }> = [];
+    return Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const recorder = yield* RunSetup.RunSetupRecorder;
+      const repo = yield* fs.makeTempDirectoryScoped({ prefix: "run-setup-cut-" });
+      const agents = path.join(repo, "AGENTS.md");
+      const runAt = (ordinal: number) =>
+        ({
+          id: RunId.make(`run:cut:${ordinal}`),
+          threadId,
+          ordinal,
+          modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
+        }) as never;
+      repoPath = repo;
+      yield* fs.writeFileString(agents, "v1");
+      yield* recorder.record(runAt(1), null);
+      yield* fs.writeFileString(agents, "v2");
+      yield* recorder.record(runAt(2), null);
+      yield* recorder.record(runAt(3), null);
+      // Run 5 sees v3 and its capture lands before run 4's, which still saw v2.
+      yield* fs.writeFileString(agents, "v3");
+      yield* recorder.record(runAt(5), null);
+      yield* fs.writeFileString(agents, "v2");
+      yield* recorder.record(runAt(4), null);
+      assert.deepEqual(
+        observations.map((observation) => observation.id),
+        ["setup-change:assignment:trial:run:cut:2", "setup-change:assignment:trial:run:cut:5"],
+      );
+      assert.deepEqual(observations[0]?.setupChanges, [
+        { subject: agents, from: yield* sha256("v1"), to: yield* sha256("v2") },
+      ]);
+      assert.deepEqual(observations[1]?.setupChanges, [
+        { subject: agents, from: yield* sha256("v2"), to: yield* sha256("v3") },
+      ]);
+    }).pipe(
+      Effect.provide(
+        recorderLayer(
+          () =>
+            Effect.sync(
+              () => ({ ...thread, projectId: "project:setup", worktreePath: repoPath }) as never,
+            ),
+          {
+            list: () => Effect.succeed([{ id: "trial", status: "running" }] as never),
+            assignments: () =>
+              Effect.succeed([
+                { id: "assignment:trial", experimentId: "trial", variant: { id: "a" } },
+              ] as never),
+            recordObservation: (input) =>
+              // Like the service, a repeated id with the same content is one observation.
+              Effect.sync(() => {
+                if (!observations.some((observation) => observation.id === input.id))
+                  observations.push(input);
+                return input as never;
+              }),
+          },
+        ),
+      ),
+      Effect.scoped,
+      Effect.provide(layer),
+    );
+  });
 });

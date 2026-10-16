@@ -142,6 +142,12 @@ function EnvironmentDelegation({
         </Alert>
       ) : null}
       {notice ? <p className="px-4 text-sm text-muted-foreground">{notice}</p> : null}
+      {query.error && !query.data ? (
+        // Without a readable policy the checkout is unreadable too: say so, never "up to date".
+        <p className="px-4 text-xs text-muted-foreground">
+          {describeCheckout({ revision: null, hasLocalChanges: null, behindMain: null })}
+        </p>
+      ) : null}
       {query.data ? (
         <PolicyEditor
           key={query.data.snapshot.hash}
@@ -245,11 +251,32 @@ function PolicyEditor({
         </Alert>
       ) : null}
       <p className="px-4 text-xs text-muted-foreground">
-        {data.sourceRoot}/roles/policy.json · revision {data.snapshot.sourceRevision}
-        {data.uncommitted === true ? " · not committed" : ""}
+        {data.sourceRoot}/roles/policy.json · policy {data.snapshot.sourceRevision}
+        {data.checkout === undefined ? null : ` · ${describeCheckout(data.checkout)}`}
       </p>
     </>
   );
+}
+
+/** The installed agent-config revision, its unlanded state and how far it trails main. */
+export function describeCheckout(checkout: NonNullable<AgentPolicySettings["checkout"]>) {
+  const revision =
+    checkout.revision === null
+      ? "agent-config unknown"
+      : `agent-config ${checkout.revision.slice(0, 12)}`;
+  const local =
+    checkout.hasLocalChanges === null
+      ? "unlanded changes unknown"
+      : checkout.hasLocalChanges
+        ? "unlanded changes"
+        : "no unlanded changes";
+  const behind =
+    checkout.behindMain === null
+      ? "behind main unknown"
+      : checkout.behindMain === 0
+        ? "up to date with main"
+        : `${checkout.behindMain} behind main`;
+  return [revision, local, behind].join(" · ");
 }
 
 /** Names a job whose first choice cannot take work now, and what it uses instead. */

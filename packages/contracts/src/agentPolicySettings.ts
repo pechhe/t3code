@@ -28,7 +28,16 @@ export type AgentPolicyPreview = typeof AgentPolicyPreview.Type;
 export const AgentPolicySettings = Schema.Struct({
   snapshot: AgentPolicySnapshot,
   sourceRoot: Schema.String,
+  /** Whether `roles/` has unsaved edits; kept for clients that predate `checkout`. */
   uncommitted: Schema.NullOr(Schema.Boolean),
+  /** The installed agent-config checkout; null fields are unknown. Absent from older servers. */
+  checkout: Schema.optional(
+    Schema.Struct({
+      revision: Schema.NullOr(Schema.String),
+      hasLocalChanges: Schema.NullOr(Schema.Boolean),
+      behindMain: Schema.NullOr(Schema.Number),
+    }),
+  ),
   providers: Schema.Array(ServerProvider),
 });
 export type AgentPolicySettings = typeof AgentPolicySettings.Type;

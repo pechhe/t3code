@@ -513,6 +513,59 @@ describe("ExperimentService", () => {
       assert.strictEqual(entry.turns[0]?.modelSource, "run-selection");
     }).pipe(Effect.provide(layer)),
   );
+  it.effect("splits a thread's runs at a setup cut point", () =>
+    Effect.gen(function* () {
+      yield* start();
+      yield* addThread("thread:1");
+      const service = yield* Experiments.ExperimentService;
+      const assignment = (yield* service.assign(assignInput()))[0]!;
+      const timing = (at: number) => ({ requested: at, start: at, end: at + 1 });
+      yield* addRunTurn("thread:1", "1", undefined, undefined, timing(1_000));
+      yield* addRunTurn("thread:1", "2", undefined, undefined, timing(2_000));
+      yield* addRunTurn("thread:1", "3", undefined, undefined, timing(3_000));
+      yield* service.recordObservation({
+        id: "setup-change:run:2",
+        assignmentId: assignment.id,
+        runId: RunId.make("run:2"),
+        kind: "setup-change",
+        usedTokens: null,
+        maxTokens: null,
+        setupChanges: [{ subject: "agent-config", from: "aaa", to: "bbb" }],
+        evidence: ["run-setup:run:1", "run-setup:run:2"],
+      });
+      // A rollover episode whose continuation starts after the cut.
+      for (const [id, runId] of [
+        ["capture:before", "run:1"],
+        ["capture:after", "run:2"],
+      ] as const)
+        yield* service.recordEvidence({
+          id,
+          assignmentId: assignment.id,
+          episodeId: "episode:spanning",
+          recipeRevision: "rollover-v1",
+          runId: RunId.make(runId),
+          phase: "after",
+          source: "runtime",
+          artifacts: [],
+          missing: ["history-unavailable"],
+        });
+      const entry = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      assert.deepEqual(
+        (entry.episodes ?? []).map((episode) => [episode.setupSegment, episode.captureIds]),
+        [
+          [0, ["capture:before"]],
+          [1, ["capture:after"]],
+        ],
+      );
+      assert.deepEqual(
+        entry.runs.map((run) => `${run.runId}:${run.setupSegment}`),
+        ["run:1:0", "run:2:1", "run:3:1"],
+      );
+      assert.deepEqual(entry.observations[0]?.setupChanges, [
+        { subject: "agent-config", from: "aaa", to: "bbb" },
+      ]);
+    }).pipe(Effect.provide(layer)),
+  );
   it.effect(
     "scopes external assignment, outcome and report reads to the owning session and reuses the assignment on a paused retry",
     () =>

@@ -14,6 +14,7 @@ import {
 
 const state = vi.hoisted(() => ({
   data: null as AgentPolicySettings | null,
+  error: null as string | null,
   save: vi.fn(),
   refresh: vi.fn(),
 }));
@@ -32,7 +33,7 @@ vi.mock("../../state/query", () => ({
   useEnvironmentQuery: () => ({
     data: state.data,
     isPending: false,
-    error: null,
+    error: state.error,
     refresh: state.refresh,
   }),
 }));
@@ -79,7 +80,7 @@ vi.mock("../ui/select", () => ({
   SelectItem: passthrough,
 }));
 
-import { DelegationSettings } from "./DelegationSettings";
+import { DelegationSettings, describeCheckout } from "./DelegationSettings";
 
 const decodeManifest = Schema.decodeUnknownSync(AgentPolicyManifest);
 function fixture(): AgentPolicySettings {
@@ -136,6 +137,7 @@ let renderer: ReactTestRenderer | undefined;
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   state.data = fixture();
+  state.error = null;
   state.save.mockReset();
   state.refresh.mockReset();
   state.save.mockResolvedValue(AsyncResult.success(state.data));
@@ -202,4 +204,21 @@ it("a job without models cannot be saved, and discarding restores it", async () 
   expect(button("Save").props.disabled).toBe(true);
   await click("Discard");
   expect(buttons("Save")).toHaveLength(0);
+});
+
+it("describes an unreadable agent-config checkout as unknown, never up to date", () => {
+  expect(describeCheckout({ revision: null, hasLocalChanges: null, behindMain: null })).toBe(
+    "agent-config unknown · unlanded changes unknown · behind main unknown",
+  );
+  expect(
+    describeCheckout({ revision: "286cf1056a2b9f00", hasLocalChanges: true, behindMain: 3 }),
+  ).toBe("agent-config 286cf1056a2b · unlanded changes · 3 behind main");
+});
+
+it("shows the checkout as unknown when the policy cannot be read", async () => {
+  state.data = null;
+  state.error = "Could not read the delegation policy.";
+  await mount();
+  expect(text()).toContain("agent-config unknown");
+  expect(text()).not.toContain("up to date");
 });
