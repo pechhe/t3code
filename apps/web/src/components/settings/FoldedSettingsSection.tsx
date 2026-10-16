@@ -10,12 +10,6 @@ import {
   useSettingsSearchTargetId,
 } from "./settingsLayout";
 
-/**
- * A grouped settings section that starts closed. The header carries the title,
- * a one line summary of what is set inside, and an optional control such as
- * the section's own switch. A settings search that targets the section opens it,
- * and the search view opens every fold so the matches inside can show.
- */
 export function FoldedSettingsSection({
   id,
   title,

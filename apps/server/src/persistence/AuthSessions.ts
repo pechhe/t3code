@@ -336,8 +336,6 @@ export const make = Effect.gen(function* () {
       `,
   });
 
-  // COALESCE keeps the previous value when a client reports only one field, so
-  // a partial report never nulls out data a fuller client stored earlier.
   const setClientConnectionRow = SqlSchema.void({
     Request: SetAuthSessionClientConnectionInput,
     execute: ({ sessionId, surface, appVersion }) =>

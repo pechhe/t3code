@@ -107,8 +107,6 @@ const mcpClient = McpSchema.McpServerClient.of({
   getClient: Effect.die("unused"),
 });
 
-// One tool per declaration, each answering with the modes it was handed, so
-// the table below reads what the gate let through.
 const probe = {
   success: Schema.Struct({ ran: Schema.String }),
   failure: OrchestratorMcpFailure,
@@ -160,7 +158,6 @@ const layerProbeHandlers = McpToolAccess.toLayer(ProbeToolkit, probeHandlers);
 
 const unchecked = () => ran;
 
-// What the compiler refuses: each line below must fail to typecheck, and its
 // `@ts-expect-error` fails the build if one ever compiles. Never called.
 export const refusedAtCompileTime = () => {
   McpToolAccess.toLayer(ProbeToolkit, {
@@ -182,7 +179,6 @@ export const refusedAtCompileTime = () => {
   new McpToolAccess.Declaration(unchecked);
   // @ts-expect-error a handlers layer built outside McpToolAccess
   McpToolAccess.HandlersLayer.make(Layer.empty);
-  // The refused layer below types its error and services as unknown, which is fine here.
   // @effect-diagnostics-next-line anyUnknownInErrorContext:off
   McpHttpServer.toolkitRegistration(
     ProbeToolkit,
@@ -206,7 +202,6 @@ const probeServer = (threads: Layer.Layer<ThreadManagement.ThreadManagementServi
     Layer.provideMerge(threads),
   );
 
-/** A probe's answer, or the gate's refusal, as the result's JSON text. */
 const decodeOutcome = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Union([Schema.Struct({ ran: Schema.String }), Schema.Struct({ code: Schema.String })]),
@@ -243,7 +238,6 @@ const foreignExternalClient: McpInvocationContext.McpInvocationScope = {
 const previewOnly = { ...fullAccess, capabilities: new Set(["preview"] as const) };
 
 it.effect.each([
-  // Reads are open to every caller, even one whose turn ended.
   ["reads", ended, {}, "ran"],
   ["reads", supervisedClient, {}, "ran"],
   ["reads", readOnlyClient, {}, "ran"],
@@ -252,33 +246,27 @@ it.effect.each([
   ["reads_task", fullAccessClient, {}, "ran"],
   ["reads_task", readOnlyClient, {}, "ran"],
 
-  // A client approved for read-only access changes nothing.
   ["writes", readOnlyClient, {}, "capability_denied"],
   ["writes_threads", readOnlyClient, { threadId: supervisedThreadId }, "capability_denied"],
   ["starts_threads", readOnlyClient, {}, "capability_denied"],
   ["writes_environment", readOnlyClient, {}, "capability_denied"],
 
-  // What belongs to the calling thread needs one; changing it needs its live turn.
   ["reads_as_caller", ended, {}, "ran"],
   ["reads_as_caller", fullAccessClient, {}, "thread_credential_required"],
   ["acts_as_caller", supervised, {}, "ran"],
   ["acts_as_caller", ended, {}, "parent_not_active"],
   ["acts_as_caller", fullAccessClient, {}, "thread_credential_required"],
 
-  // Any change needs a thread caller's live turn; a client has none to lose.
   ["writes", supervised, {}, "ran"],
   ["writes", ended, {}, "parent_not_active"],
   ["writes", supervisedClient, {}, "ran"],
-  // Uploads, scheduled tasks, projects and settings need a credential that controls threads.
   ["writes", previewOnly, {}, "capability_denied"],
   ["writes_environment", previewOnly, {}, "capability_denied"],
 
-  // A tool's own capability stands in for thread control; the rest of a change still applies.
   ["writes_with_capability", previewOnly, {}, "ran"],
   ["writes_with_capability", readOnlyClient, {}, "capability_denied"],
   ["writes_with_capability", ended, {}, "parent_not_active"],
 
-  // Changing a thread: only one that runs within the caller's modes.
   ["writes_threads", supervised, {}, "ran"],
   ["writes_threads", supervised, { threadId: planThreadId }, "ran"],
   [
@@ -305,10 +293,8 @@ it.effect.each([
     { threadId: fullAccessThreadId },
     "runtime_mode_escalation_denied",
   ],
-  // A thread that does not exist is the tool's to report.
   ["writes_threads", supervised, { threadId: "thread:missing" }, "ran"],
 
-  // Starting a thread: the caller's own modes or narrower.
   ["starts_threads", supervised, {}, "approval-required/default"],
   ["starts_threads", supervised, { runtimeMode: "full-access" }, "runtime_mode_escalation_denied"],
   ["starts_threads", plan, {}, "approval-required/plan"],
@@ -319,7 +305,6 @@ it.effect.each([
   ["starts_threads", supervisedClient, { runtimeMode: "auto" }, "runtime_mode_escalation_denied"],
   ["starts_threads", fullAccessClient, { runtimeMode: "full-access" }, "full-access/default"],
 
-  // Projects and environment settings need full access.
   ["writes_environment", fullAccess, {}, "ran"],
   ["writes_environment", supervised, {}, "capability_denied"],
   ["writes_environment", plan, {}, "capability_denied"],
@@ -339,13 +324,11 @@ it.effect.each([
 );
 
 it("refuses a declaration or handlers layer built outside McpToolAccess", () => {
-  // Private constructors only bind the type checker; Reflect.construct reaches them anyway.
   expect(() => Reflect.construct(McpToolAccess.Declaration, [unchecked])).toThrow(TypeError);
   expect(() => Reflect.construct(McpToolAccess.HandlersLayer, [Layer.empty])).toThrow(TypeError);
 });
 
 it("refuses a declaration or handlers layer that only wears another's fields", () => {
-  // The types already refuse these; at runtime the private fields are missing too.
   const copiedDeclaration = Object.assign(
     unchecked,
     McpToolAccess.reads(() => ran),

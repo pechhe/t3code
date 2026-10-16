@@ -2,10 +2,6 @@ import type { EnvironmentId, ThreadContextRecord, UserInputQuestion } from "@t3t
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 
-/**
- * Question responses carry text, so send thread chips as links with the actual thread IDs. A
- * thread outside the answering environment is qualified so it does not resolve locally.
- */
 export function projectPendingUserInputAnswer(
   answer: unknown,
   threadContexts: ReadonlyArray<ThreadContextRecord>,
@@ -114,12 +110,6 @@ export function setPendingUserInputCustomAnswer(
 
 const DISPLACED_ANSWER_SEPARATOR = "\n\n";
 
-/**
- * Selecting an option replaces the custom answer, because a non-empty custom
- * answer outranks selected options in `resolvePendingUserInputAnswer`. Text the
- * user typed into the answer field must not vanish on that click: it moves back
- * into the thread draft, after whatever was already waiting there.
- */
 export function carryDisplacedCustomAnswerIntoPrompt(
   prompt: string,
   customAnswer: string | undefined,

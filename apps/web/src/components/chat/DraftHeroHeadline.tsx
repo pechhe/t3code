@@ -172,9 +172,6 @@ export function DraftHeroHeadline({
       threads,
     ],
   );
-  // Same-named projects on two machines are only told apart by where they
-  // live, so rows on another machine carry its icon once the catalog spans
-  // more than one environment; a single-machine catalog stays as it was.
   const showProjectEnvironments = useMemo(
     () => projectGroupsSpanEnvironments(projectGroups),
     [projectGroups],
@@ -248,9 +245,9 @@ export function DraftHeroHeadline({
   useEffect(() => {
     latestTargetRef.current = { draftId, activeProjectKey, scratchTargetEnvironmentId };
   }, [activeProjectKey, scratchTargetEnvironmentId, draftId]);
-  // Project selection changes the target of the open draft in place, so the composer
-  // stays mounted. An empty draft takes the project's new-thread defaults, like starting
-  // a new thread there; with a prompt typed, the workspace choices made so far stand.
+  // An empty draft instead opens the chosen project's own draft, like starting a new thread there:
+  // moving it would replace that draft and strand whatever it holds, such as the browser tabs of
+  // the no-project draft.
   const selectProject = (project: (typeof projects)[number], logicalProjectKey: string) => {
     if (!draftId) {
       return;

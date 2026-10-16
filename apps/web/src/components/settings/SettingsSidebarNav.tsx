@@ -172,9 +172,6 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
             target.tagName === "TEXTAREA" ||
             target.tagName === "SELECT" ||
             target.isContentEditable)) ||
-          // Preserve dialog and popup focus traps, list typeahead, and let
-          // shortcut recorders capture the keypress without moving focus into
-          // the sidebar search.
           target.closest(
             '[role="dialog"], [aria-modal="true"], [data-slot$="popup"], [role="listbox"], [role="menu"], [role="combobox"], [data-keybinding-capture]',
           ) !== null)

@@ -46,7 +46,6 @@ interface ChatHeaderProps {
   activeThreadEnvironmentId: EnvironmentId;
   activeThreadId: ThreadId;
   activeThreadTitle: string;
-  /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
   /** The thread's governing workflow; unset or null when none is recorded. */
@@ -58,10 +57,6 @@ interface ChatHeaderProps {
   onOpenProjectSettings?: (() => void) | undefined;
 }
 
-/**
- * Rename commit rule shared with the sidebar's inline rename: trim, reject
- * empty (the caller toasts), and skip the mutation when nothing changed.
- */
 export function resolveRenameCommit(input: {
   readonly title: string;
   readonly originalTitle: string;
@@ -105,9 +100,6 @@ export const ChatHeader = memo(function ChatHeader({
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
-  // Inline rename, keyed by thread: navigating away drops an in-progress
-  // rename instead of committing stale text. Cleared on thread change (not
-  // just hidden) so returning to the thread doesn't revive the old draft.
   const [renaming, setRenaming] = useState<{
     threadId: ThreadId;
     environmentId: EnvironmentId;
@@ -127,14 +119,10 @@ export const ChatHeader = memo(function ChatHeader({
     renaming.environmentId === activeThreadEnvironmentId
       ? renaming.title
       : null;
-  // Leaving rename swaps the input back for the title, which needs a fresh fit.
   const isRenamingTitle = renamingTitle !== null;
   useEffect(() => {
     const list = breadcrumbContainerRef.current?.querySelector("ol");
     if (!list || !parentThreadLink) return;
-    // Measure the untruncated labels, including a collapsed parent's hidden
-    // text, so expanding and collapsing never change the fit calculation.
-    // Width-capped labels (the project) never grow, so their overflow is skipped.
     const measure = () => {
       const gap = Number.parseFloat(getComputedStyle(list).columnGap) || 0;
       const width = Array.from(list.children).reduce(
@@ -216,8 +204,6 @@ export const ChatHeader = memo(function ChatHeader({
     clearTimeout(titleClickTimerRef.current);
     titleClickTimerRef.current = null;
   }, []);
-  // Drop a pending copy when the thread changes or the header unmounts, so it
-  // can never fire for a thread the user already left.
   useEffect(
     () => () => {
       cancelPendingTitleClick();
@@ -232,7 +218,6 @@ export const ChatHeader = memo(function ChatHeader({
   }, [cancelPendingTitleClick, openMenu]);
   const copyIdFromTitle = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
-      // The trailing click of a double-click belongs to rename, not the copy.
       if (isTrailingDoubleClick(event.detail)) return;
       cancelPendingTitleClick();
       // Keyboard activation, and a thread that cannot be renamed, have no
@@ -306,9 +291,6 @@ export const ChatHeader = memo(function ChatHeader({
         ariaLabel="Thread breadcrumb"
         className="flex-1 overflow-clip [overflow-clip-margin:2px]"
       >
-        {/* The project always leads the header: knowing which project a
-            thread lives in is priority zero, and the thread title alone
-            doesn't answer it. */}
         {activeProject ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
@@ -390,8 +372,6 @@ export const ChatHeader = memo(function ChatHeader({
               defaultValue={renamingTitle}
               onBlur={(event) => {
                 if (renameCommittedRef.current) return;
-                // Focus landing on a navigation button means the rename was
-                // abandoned — discard it rather than persisting a half-draft.
                 if (
                   event.relatedTarget instanceof HTMLElement &&
                   event.relatedTarget.closest("button")

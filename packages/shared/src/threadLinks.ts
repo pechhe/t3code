@@ -2,13 +2,6 @@ import { EnvironmentId, ThreadId } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-/**
- * Agents mention another thread in Markdown as `[title](t3-thread://v1/<threadId>)`. The id is
- * the reference and resolves in the environment of the message that holds it. A thread on a
- * linked environment adds `?environment=<environmentId>`; clients that do not know the qualifier
- * still read the id and fall back to the label. Titles change, so clients show the thread's
- * current title; the label only stands in for a thread they cannot see.
- */
 export const THREAD_LINK_PROTOCOL = "t3-thread";
 const THREAD_LINK_HREF_PREFIX = `${THREAD_LINK_PROTOCOL}://v1/`;
 // Code comes first in the alternation so a link written inside a code span or fence is skipped.
@@ -47,10 +40,6 @@ export function parseThreadLinkHref(href: string): ThreadId | null {
   return parseThreadLink(href)?.threadId ?? null;
 }
 
-/**
- * Agents often percent-encode the id anyway. When the id as written names no thread, clients try
- * this decoded form. Null when decoding changes nothing or fails.
- */
 export function percentDecodedThreadLinkId(threadId: ThreadId): ThreadId | null {
   try {
     const decoded = decodeURIComponent(threadId);
@@ -83,11 +72,6 @@ export function hasThreadLinks(markdown: string): boolean {
   return markdown.includes(`](${THREAD_LINK_HREF_PREFIX}`);
 }
 
-/**
- * Relabels each thread link with `title(threadId)`, pointing it at the thread that title came from.
- * A link it returns nothing for keeps its label, as does a qualified link: `title` knows only the
- * environment of the message that holds the markdown.
- */
 export function relabelThreadLinks(
   markdown: string,
   title: (threadId: ThreadId) => string | undefined,

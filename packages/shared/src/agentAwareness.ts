@@ -54,7 +54,6 @@ export interface ProjectThreadAwarenessV2Input {
   >;
 }
 
-/** Build relay activity directly from the V2 shell projection. */
 export function projectThreadAwarenessV2(
   input: ProjectThreadAwarenessV2Input,
 ): AgentAwarenessState | null {
@@ -104,7 +103,6 @@ function resolveThreadAwarenessPhaseV2(
     case "waiting":
       return "running";
     case "completed":
-      // Pending background work keeps the thread working until completion or Stop.
       return backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])
         ? "running"
         : "completed";
