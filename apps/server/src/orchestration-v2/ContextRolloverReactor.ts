@@ -3,6 +3,7 @@ import {
   MessageId,
   type OrchestrationV2DomainEvent,
   type RunId,
+  type RunAttemptId,
   type ProviderThreadId,
   type TurnItemId,
   type OrchestrationV2Run,
@@ -59,6 +60,8 @@ interface ThreadRollover {
   floor: number | "pending" | null;
   /** The warning that a threshold sits below this floor was logged. */
   floorWarned: boolean;
+  /** The run attempt whose nudge was last weighed, so a turn's start is weighed once. */
+  attemptId: RunAttemptId | null;
   rollover?: { assignmentId: string; fromRunId: RunId; usedTokens: number; startedAt: number };
 }
 
@@ -195,6 +198,7 @@ export const make = Effect.gen(function* () {
       usageUpdatedAt: null,
       floor: null,
       floorWarned: false,
+      attemptId: null,
     };
     const reportedAt = Date.parse(turn.tokenUsage!.updatedAt);
     if (Number.isFinite(reportedAt)) {
@@ -265,9 +269,48 @@ export const make = Effect.gen(function* () {
     if (state.floor === "pending" || (state.floor !== null && used < state.floor)) {
       state.floor = used;
     }
+    state.attemptId = turn.runAttemptId;
     threads.set(event.threadId, state);
-    if (notes.get(event.threadId) !== undefined) return;
-    const configured = yield* thresholdsFor(event.threadId, run);
+    yield* nudgeIfDue(event.threadId, run, turn, state, turn.tokenUsage!.updatedAt);
+  });
+
+  /**
+   * A turn starting on a session already past a threshold is weighed against the
+   * session's last reported context, so a request the previous turn ended without
+   * answering reaches this turn before its first model response.
+   */
+  const onTurnStart = Effect.fn("ContextRolloverReactor.onTurnStart")(function* (
+    event: Extract<RolloverEvent, { readonly type: "provider-turn.updated" }>,
+  ) {
+    const turn = event.payload;
+    const state = threads.get(event.threadId);
+    if (
+      turn.status !== "running" ||
+      turn.runAttemptId === null ||
+      state === undefined ||
+      state.phase !== "idle" ||
+      state.floor === "pending" ||
+      state.providerThreadId !== turn.providerThreadId ||
+      state.attemptId === turn.runAttemptId
+    )
+      return;
+    state.attemptId = turn.runAttemptId;
+    const { runs } = yield* projections.getThreadRecords(event.threadId, ["runs"]);
+    const run = runs.find((candidate) => candidate.activeAttemptId === turn.runAttemptId);
+    if (run === undefined || (run.status !== "running" && run.status !== "waiting")) return;
+    yield* nudgeIfDue(event.threadId, run, turn, state, "turn-start");
+  });
+
+  const nudgeIfDue = Effect.fn("ContextRolloverReactor.nudgeIfDue")(function* (
+    threadId: ThreadId,
+    run: OrchestrationV2Run,
+    turn: Extract<RolloverEvent, { readonly type: "provider-turn.updated" }>["payload"],
+    state: ThreadRollover,
+    reportKey: string,
+  ) {
+    const used = state.used;
+    if (notes.get(threadId) !== undefined) return;
+    const configured = yield* thresholdsFor(threadId, run);
     if (configured === null) return;
     const thresholds = boundRolloverThresholds(configured.thresholds, state.maxTokens);
     if (used < thresholds.soft) {
@@ -280,7 +323,7 @@ export const make = Effect.gen(function* () {
       yield* Effect.logWarning(
         "context rollover threshold is below a fresh session's size; waiting for growth",
         {
-          threadId: event.threadId,
+          threadId,
           model: run.modelSelection.model,
           freshSessionTokens: floor,
           softThreshold: thresholds.soft,
@@ -291,7 +334,7 @@ export const make = Effect.gen(function* () {
     const action = rolloverUsageAction(state.phase, used, thresholds, floor);
     if (action === "none") return;
     yield* message(
-      event.threadId,
+      threadId,
       run,
       action === "hard" ? rolloverHardNudge(used) : rolloverSoftNudge(used, thresholds.hard),
       rolloverNudgeSummary(action, used),
@@ -300,7 +343,7 @@ export const make = Effect.gen(function* () {
     state.phase = action === "hard" ? "hardNudged" : "softNudged";
     if (configured.assignment !== undefined) {
       yield* experiments.recordObservation({
-        id: `rollover:${configured.assignment.id}:${run.id}:${action}:${turn.id}:${turn.tokenUsage!.updatedAt}`,
+        id: `rollover:${configured.assignment.id}:${run.id}:${action}:${turn.id}:${reportKey}`,
         assignmentId: configured.assignment.id,
         runId: run.id,
         kind: action,
@@ -346,6 +389,7 @@ export const make = Effect.gen(function* () {
       usageUpdatedAt: null,
       floor: "pending",
       floorWarned: false,
+      attemptId: null,
       ...(policy?.assignment === undefined || before === undefined
         ? {}
         : {
@@ -477,8 +521,10 @@ export const make = Effect.gen(function* () {
       }
       return yield* rollOver(threadId, run, pending.note);
     }
-    // A completed task needs no bookkeeping turn. If an advisory was ignored,
-    // the next real user turn can receive a hard nudge when it actually needs one.
+    // A run that ends without a note needs no bookkeeping turn, but the request
+    // was not answered: forget it so the next turn past a threshold is asked again.
+    const state = threads.get(threadId);
+    if (state !== undefined) state.phase = "idle";
   });
 
   const onCompaction = Effect.fn("ContextRolloverReactor.onCompaction")(function* (
@@ -548,7 +594,9 @@ export const make = Effect.gen(function* () {
   });
 
   const handle = (event: RolloverEvent) => {
-    if (event.type === "provider-turn.updated") return onUsage(event);
+    if (event.type === "provider-turn.updated") {
+      return event.payload.tokenUsage === undefined ? onTurnStart(event) : onUsage(event);
+    }
     if (event.type === "turn-item.updated") return onCompaction(event);
     if (isTerminalRunStatus(event.payload.status)) return onRunEnd(event.threadId, event.payload);
     if (
@@ -588,7 +636,9 @@ export const make = Effect.gen(function* () {
       Stream.runForEach(engine.streamDomainEvents, (event) => {
         switch (event.type) {
           case "provider-turn.updated":
-            return event.payload.tokenUsage === undefined ? Effect.void : worker.enqueue(event);
+            return event.payload.tokenUsage === undefined && event.payload.status !== "running"
+              ? Effect.void
+              : worker.enqueue(event);
           case "run.updated":
             return worker.enqueue(event);
           case "turn-item.updated":

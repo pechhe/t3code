@@ -75,6 +75,8 @@ interface HeldTurn {
   readonly maxTokens?: number;
   /** Hold every turn, not only the first. */
   readonly holdEveryTurn?: boolean;
+  /** Whether held turns after the first report their usage when they start (default true). */
+  readonly laterTurnsReportUsage?: boolean;
   /** Receives the controls of each held turn once it is running. */
   readonly running: Queue.Queue<HeldControl>;
   /** Receives each steer into a held turn. */
@@ -246,7 +248,15 @@ function makeAdapter(
                     },
                   });
                 }).pipe(Effect.asVoid);
-              yield* reportUsage(held.usedTokens);
+              // Like the real adapters, a turn is announced as running before any usage.
+              yield* Queue.offer(events, {
+                type: "provider_turn.updated",
+                driver,
+                providerTurn: { ...providerTurn, status: "running", completedAt: null },
+              });
+              if (turnCount === 1 || held.laterTurnsReportUsage !== false) {
+                yield* reportUsage(held.usedTokens);
+              }
               yield* Queue.offer(held.running, { reportUsage, reportCompaction, complete });
             }),
           steerTurn: (input) =>
@@ -435,6 +445,7 @@ const runHeldTurnScenario = (
     /** The thread's own thresholds, as set by dragging its composer's rollover band. */
     readonly thresholds?: { readonly soft: number; readonly hard: number };
     readonly nudged?: boolean;
+    readonly laterTurnsReportUsage?: boolean;
     /** Holds the rollover run's turn too and runs this against it before completing it. */
     readonly duringRollover?: (
       control: HeldControl,
@@ -451,6 +462,9 @@ const runHeldTurnScenario = (
       usedTokens: options.usedTokens ?? 1_500,
       ...(options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens }),
       holdEveryTurn: options.duringRollover !== undefined,
+      ...(options.laterTurnsReportUsage === undefined
+        ? {}
+        : { laterTurnsReportUsage: options.laterTurnsReportUsage }),
       running: yield* Queue.unbounded<HeldControl>(),
       steered: yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2SteerInput>(),
     };
@@ -692,6 +706,26 @@ it.live.each([1_500, 2_500])(
         assert.isFalse(after.contextHandoffs.some((entry) => entry.strategy === "manual_context"));
       }),
     ),
+);
+
+it.live("asks again as the next turn starts when a turn ends without a note", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let secondSteer: ProviderAdapter.ProviderAdapterV2SteerInput | undefined;
+      const { after } = yield* runHeldTurnScenario("context-rollover-reactor-ask-again", null, {
+        queueMessage: true,
+        // The queued turn reports no usage: it is asked as it starts, from the 1.5k
+        // the first turn reported before ending without a note.
+        laterTurnsReportUsage: false,
+        duringRollover: (_control, steered) =>
+          Queue.take(steered).pipe(Effect.map((steer) => void (secondSteer = steer))),
+      });
+
+      assert.lengthOf(after.runs, 2);
+      assert.equal(secondSteer?.runId, after.runs[1]!.id);
+      assert.include(JSON.stringify(secondSteer?.message), "next natural break");
+    }),
+  ),
 );
 
 it.live("uses the provider context boundary when configured thresholds are too high", () =>
