@@ -5,21 +5,25 @@ need a separate branch and working directory.
 
 ## Start a thread
 
-On web and desktop, a new thread keeps the current project and carries your model
-and mode selections, unless the destination project has its own model default.
-Its branch and workspace mode come from your configured defaults. To continue in
-an existing worktree, use **New thread in this worktree** from the branch toolbar.
+On web and desktop, the sidebar button and `mod+n` open the new-thread screen
+without a project, so a thread never lands in the wrong project by default. Pick
+a project from the chips under the question; the chosen one moves into the
+question. With a chip focused, type a project's name to jump to it. To start in
+your current project instead, press `mod+shift+n`. A machine that cannot run
+threads without a project starts in your current project.
 
-Every way to start a thread, including the sidebar button and `mod+n`, opens the
-new-thread screen in your current project. Pick another project from the chips
-under the question. With a chip focused, type a project's name to jump to it.
+A new thread carries your model and mode selections, unless the destination
+project has its own model default. Its branch and workspace mode come from your
+configured defaults. To continue in an existing worktree, use **New thread in
+this worktree** from the branch toolbar.
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
 ### Start without a project
 
-A thread does not need a project. To start one without a project, pick the
-**No project** chip on the new-thread screen, or press `mod+alt+n`. On mobile, pick **No project** from the project
+A thread does not need a project, and a new thread starts without one. To go back
+to no project after picking one, pick the **No project** chip on the new-thread
+screen, or press `mod+alt+n`. On mobile, pick **No project** from the project
 list. It starts on your current machine; before sending, pick another machine
 from the machine menu to move it there. To move a draft into a project, pick its
 chip.

@@ -10,6 +10,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -39,6 +40,34 @@ import { sortLogicalProjectsByRecentUse } from "../Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { cn } from "~/lib/utils";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
+
+// A chip clicked in the row flies into the question. Choosing a project from an empty
+// draft opens that project's own draft and remounts this headline, so the launch point
+// lives outside it until the chosen project lands in the sentence.
+let pendingFlight: { projectKey: string; from: DOMRect; at: number } | null = null;
+const FLIGHT_MAX_AGE_MS = 2_000;
+
+/** Plays a one-shot transform from where the chip was clicked to where it now sits. */
+function landFlight(slot: HTMLElement, projectKey: string) {
+  const flight = pendingFlight;
+  if (!flight || flight.projectKey !== projectKey) return;
+  pendingFlight = null;
+  if (performance.now() - flight.at > FLIGHT_MAX_AGE_MS) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const to = slot.getBoundingClientRect();
+  if (to.height === 0) return;
+  const { from } = flight;
+  slot.animate(
+    [
+      {
+        transformOrigin: "top left",
+        transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.height / to.height})`,
+      },
+      { transformOrigin: "top left", transform: "none" },
+    ],
+    { duration: 320, easing: "cubic-bezier(0.2, 0, 0, 1)" },
+  );
+}
 
 interface DraftHeroHeadlineProps {
   readonly draftId: DraftId | null;
@@ -129,7 +158,6 @@ export function DraftHeroHeadline({
           ),
         ) ?? null);
   const activeProjectKey = activeProjectGroup?.projectKey ?? "";
-  const activeProjectDisplayName = activeProjectGroup?.displayName ?? activeProjectTitle;
   const hasResolvedProject = activeProjectTitle !== null;
   const canChooseProject = projectPickerEntries.length > 0;
   // The project that hosts threads without a project is not a chip of its own:
@@ -229,34 +257,70 @@ export function DraftHeroHeadline({
 
   const noProjectShortcut = shortcutLabelForCommand(keybindings, "chat.newWithoutProject");
   const canStartWithoutProject = scratchWorkspaceRoot !== null;
-  const heading = isScratchDraft
-    ? "What should we work on?"
-    : canChooseProject || hasResolvedProject
-      ? "What should we build?"
-      : "Add a project to start";
+  // The chosen project sits in the question; the row offers the others.
+  const chosenGroup = isScratchDraft ? null : activeProjectGroup;
+  const rowEntries = menuEntries.filter(
+    ({ group }) => group.projectKey !== chosenGroup?.projectKey,
+  );
+  const slotRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    if (slotRef.current && chosenGroup) landFlight(slotRef.current, chosenGroup.projectKey);
+  }, [chosenGroup]);
+
+  if (!canChooseProject && !hasResolvedProject && !canStartWithoutProject) {
+    return (
+      <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
+        <h1 className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
+          Add a project to start
+        </h1>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col items-center">
-      <h1 className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl">
-        {heading}
+      <h1
+        aria-label={
+          chosenGroup
+            ? `What should we build in ${chosenGroup.displayName}?`
+            : "What should we build without a project?"
+        }
+        className="w-full text-center font-normal text-2xl text-foreground tracking-tight sm:text-3xl"
+      >
+        What should we build in{" "}
+        {chosenGroup ? (
+          <span ref={slotRef} className="inline-flex max-w-80 align-middle">
+            <ProjectChip
+              project={chosenGroup}
+              label={chosenGroup.displayName}
+              selected
+              className="h-8 gap-1.5 px-2.5 text-lg sm:h-9 sm:text-xl [&>:first-child]:size-4.5"
+            />
+          </span>
+        ) : (
+          <span className="text-muted-foreground/50">…</span>
+        )}
+        ?
       </h1>
       <ProjectChipRow
         className="pointer-events-auto mt-3"
-        label={activeProjectDisplayName ?? "Project"}
+        label={chosenGroup?.displayName ?? "No project"}
       >
-        {menuEntries.map(({ group, targetProject }) => (
+        {rowEntries.map(({ group, targetProject }) => (
           <ProjectChip
             key={group.projectKey}
             project={group}
             label={group.displayName}
-            selected={!isScratchDraft && group.projectKey === activeProjectKey}
             className="h-6 max-w-48 px-2 text-xs"
             render={
               <button
                 type="button"
-                aria-pressed={!isScratchDraft && group.projectKey === activeProjectKey}
-                onClick={() => {
-                  if (!isScratchDraft && group.projectKey === activeProjectKey) return;
+                onClick={(event) => {
+                  pendingFlight = {
+                    projectKey: group.projectKey,
+                    from: event.currentTarget.getBoundingClientRect(),
+                    at: performance.now(),
+                  };
                   selectProject(targetProject, group.projectKey);
                 }}
               />
@@ -271,18 +335,14 @@ export function DraftHeroHeadline({
             ) : null}
           </ProjectChip>
         ))}
-        {canStartWithoutProject ? (
+        {canStartWithoutProject && chosenGroup ? (
           <Tooltip>
             <TooltipTrigger
               render={
                 <button
                   type="button"
-                  aria-pressed={isScratchDraft}
                   onClick={() => void startScratch()}
-                  className={cn(
-                    "inline-flex h-6 items-center gap-1 rounded-md border border-dashed border-border px-2 font-semibold text-muted-foreground text-xs transition-[background-color,border-color,color] hover:border-foreground/30 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none",
-                    isScratchDraft && "border-solid border-foreground/60 bg-foreground/8 text-foreground",
-                  )}
+                  className="inline-flex h-6 items-center gap-1 rounded-md border border-dashed border-border px-2 font-semibold text-muted-foreground text-xs transition-[border-color,color] hover:border-foreground/30 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring motion-reduce:transition-none"
                 />
               }
             >
