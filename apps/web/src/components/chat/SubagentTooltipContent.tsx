@@ -161,11 +161,6 @@ export function SubagentTooltipContent(props: {
             </span>
           ) : null}
         </span>
-        {props.totalTokens === undefined ? null : (
-          <span className="ms-auto shrink-0 tabular-nums">
-            {formatTokens(props.totalTokens)} tokens
-          </span>
-        )}
       </div>
       <div className="flex min-w-0 items-center justify-between gap-4">
         <span
@@ -184,7 +179,14 @@ export function SubagentTooltipContent(props: {
           {props.status.replaceAll("_", " ")}
         </span>
         {role ? <AgentRoleChip role={role} className="ms-auto" /> : null}
-        {props.elapsed}
+        <span className={cn("inline-flex shrink-0 items-center gap-1.5", !role && "ms-auto")}>
+          {props.totalTokens === undefined ? null : (
+            <span className="tabular-nums text-muted-foreground">
+              {formatTokens(props.totalTokens)} tokens
+            </span>
+          )}
+          {props.elapsed}
+        </span>
       </div>
       {metadata.map(({ label, value }) => {
         const Icon = label === "Branch" ? GitBranchIcon : FolderIcon;
