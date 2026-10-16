@@ -4,7 +4,7 @@
   "integrationBranch": "t3peach",
   "remote": "origin",
   "parallelExecution": true,
-  "spares": 0,
+  "spares": 8,
   "requiredLandingVerification": [
     {
       "executable": "pnpm",
