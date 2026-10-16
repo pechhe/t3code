@@ -106,28 +106,30 @@ describe("command permissions", () => {
     ),
   );
 
-  it.effect("requires the destination source control grant to land a SlipJay workspace", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const registry = yield* setup;
-        const land = createCommandPermissions(runtime, WS_METHODS.vcsSlipJayLand);
-        registry.set(sessions(env), AsyncResult.success(grant(true)));
-        expect(registry.get(land.permissionAtom(env))).toBe(false);
-        expect((yield* land.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
-          "EnvironmentAuthorizationError",
-        );
-        registry.set(
-          sessions(env),
-          AsyncResult.success({
-            ...grant(false),
-            scopes: [AuthSourceControlWriteScope],
-            permissions: [AuthSourceControlWriteScope],
-          }),
-        );
-        expect(registry.get(land.permissionAtom(env))).toBe(true);
-        yield* land.authorize(registry, env);
-      }),
-    ),
+  it.effect.each([WS_METHODS.vcsSlipJayLand, WS_METHODS.vcsSlipJayCancel])(
+    "requires the destination source control grant for %s",
+    (method) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const registry = yield* setup;
+          const command = createCommandPermissions(runtime, method);
+          registry.set(sessions(env), AsyncResult.success(grant(true)));
+          expect(registry.get(command.permissionAtom(env))).toBe(false);
+          expect((yield* command.authorize(registry, env).pipe(Effect.flip))._tag).toBe(
+            "EnvironmentAuthorizationError",
+          );
+          registry.set(
+            sessions(env),
+            AsyncResult.success({
+              ...grant(false),
+              scopes: [AuthSourceControlWriteScope],
+              permissions: [AuthSourceControlWriteScope],
+            }),
+          );
+          expect(registry.get(command.permissionAtom(env))).toBe(true);
+          yield* command.authorize(registry, env);
+        }),
+      ),
   );
 
   it.effect("uses the target grant for both availability and execution", () =>

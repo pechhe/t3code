@@ -1,6 +1,12 @@
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
-import type { VcsStatusSlipJayLanding } from "@t3tools/contracts";
+import type {
+  SlipJayRunnerDeploy,
+  SlipJayRunnerOperation,
+  SlipJayRunnerOverview,
+  VcsStatusSlipJayLanding,
+} from "@t3tools/contracts";
 
 /**
  * SlipJay landing state as `slipjay watch --json` reports it, reduced to what a
@@ -71,7 +77,18 @@ const WatchOperation = Schema.Struct({
   repo: Schema.String,
   changeId: Schema.optional(Schema.String),
   stage: Schema.String,
+  status: Schema.optional(Schema.String),
+  position: Schema.optional(Schema.Number),
+  submittedAt: Schema.optional(Schema.String),
+  finishedAt: Schema.optional(Schema.String),
+  commitId: Schema.optional(Schema.String),
+  submittedBy: Schema.optional(Schema.String),
+  environment: Schema.optional(Schema.String),
 });
+type WatchOperation = typeof WatchOperation.Type;
+const decodeWatchOperation = Schema.decodeUnknownOption(WatchOperation);
+const watchOperations = (entries: ReadonlyArray<unknown> | undefined) =>
+  (entries ?? []).flatMap((entry) => Option.toArray(decodeWatchOperation(entry)));
 
 const WatchEvent = Schema.Struct({
   type: Schema.String,
@@ -88,7 +105,15 @@ const WatchEnvelope = Schema.Union([
     type: Schema.Literal("snapshot"),
     snapshot: Schema.Struct({
       seq: Schema.Number,
-      lanes: Schema.Struct({ serial: Schema.Array(WatchOperation) }),
+      lanes: Schema.Struct({
+        serial: Schema.Array(WatchOperation),
+        // Read entry by entry for the overview, so one it cannot read never drops the
+        // snapshot that landing tracking depends on.
+        deploy: Schema.optional(Schema.Array(Schema.Unknown)),
+      }),
+      paused: Schema.optional(Schema.Unknown),
+      lastStagingDeploys: Schema.optional(Schema.Array(Schema.Unknown)),
+      recentProductionDeploys: Schema.optional(Schema.Array(Schema.Unknown)),
     }),
   }),
   Schema.Struct({
@@ -103,6 +128,7 @@ const WatchEnvelope = Schema.Union([
   Schema.Struct({ type: Schema.Literal("heartbeat") }),
 ]);
 export type WatchEnvelope = typeof WatchEnvelope.Type;
+type WatchSnapshot = Extract<WatchEnvelope, { readonly type: "snapshot" }>["snapshot"];
 
 const decodeWatchLine = Schema.decodeUnknownOption(Schema.fromJsonString(WatchEnvelope));
 
@@ -362,5 +388,86 @@ function toStatusLanding(
     ...(landing.commitId === undefined ? {} : { commitId: landing.commitId }),
     ...(landing.reason === undefined ? {} : { reason: landing.reason }),
     live: state.connected,
+  };
+}
+
+export const emptyRunnerOverview: SlipJayRunnerOverview = {
+  connected: false,
+  paused: false,
+  serial: [],
+  deploy: [],
+  deploys: [],
+};
+
+/**
+ * The SlipJay workspace named by a submitter label from `host`: `host:<name>` for a
+ * landing, `host:<path>` for a release. Other hosts, schedules and promotions name none.
+ */
+export function submittingWorkspace(submittedBy: string, host: string): string | undefined {
+  const separator = submittedBy.indexOf(":");
+  if (separator < 0 || submittedBy.slice(0, separator) !== host) return undefined;
+  const name = submittedBy
+    .slice(separator + 1)
+    .replace(/\/+$/, "")
+    .split("/")
+    .at(-1);
+  return name === undefined || name.length === 0 ? undefined : name;
+}
+
+const runnerOperation = (operation: WatchOperation, host: string): SlipJayRunnerOperation => {
+  const workspaceName =
+    operation.submittedBy === undefined
+      ? undefined
+      : submittingWorkspace(operation.submittedBy, host);
+  return {
+    operationId: operation.id,
+    kind: operation.kind ?? "landing",
+    repo: operation.repo.toLowerCase(),
+    status: operation.status ?? "queued",
+    stage: operation.stage,
+    submittedBy: operation.submittedBy ?? "",
+    ...(operation.position === undefined ? {} : { position: operation.position }),
+    ...(operation.submittedAt === undefined ? {} : { submittedAt: operation.submittedAt }),
+    ...(operation.commitId === undefined ? {} : { commitId: operation.commitId }),
+    ...(operation.environment === undefined ? {} : { environment: operation.environment }),
+    ...(workspaceName === undefined ? {} : { workspaceName }),
+  };
+};
+
+const runnerDeploy = (operation: WatchOperation): SlipJayRunnerDeploy | undefined =>
+  operation.environment === undefined || operation.commitId === undefined
+    ? undefined
+    : {
+        operationId: operation.id,
+        repo: operation.repo.toLowerCase(),
+        environment: operation.environment,
+        commitId: operation.commitId,
+        status: operation.status ?? "unknown",
+        ...(operation.finishedAt === undefined ? {} : { finishedAt: operation.finishedAt }),
+      };
+
+/**
+ * The runner overview a snapshot shows. Commands, environment names and outputs in the
+ * snapshot stay on the server; only what the overview names reaches a client.
+ */
+export function runnerOverviewFromSnapshot(
+  snapshot: WatchSnapshot,
+  host: string,
+): SlipJayRunnerOverview {
+  const deploys = [
+    ...watchOperations(snapshot.lastStagingDeploys),
+    ...watchOperations(snapshot.recentProductionDeploys),
+  ]
+    .map(runnerDeploy)
+    .filter((deploy) => deploy !== undefined)
+    .toSorted((left, right) => (right.finishedAt ?? "").localeCompare(left.finishedAt ?? ""));
+  return {
+    connected: true,
+    paused: snapshot.paused !== undefined && snapshot.paused !== null,
+    serial: snapshot.lanes.serial.map((operation) => runnerOperation(operation, host)),
+    deploy: watchOperations(snapshot.lanes.deploy).map((operation) =>
+      runnerOperation(operation, host),
+    ),
+    deploys,
   };
 }

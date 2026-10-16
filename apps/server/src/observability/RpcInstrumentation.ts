@@ -181,6 +181,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.vcsListRefs]: "vcs",
   [WS_METHODS.vcsSlipJayLandingLog]: "vcs",
   [WS_METHODS.vcsSlipJayLand]: "vcs",
+  [WS_METHODS.vcsSlipJayCancel]: "vcs",
+  [WS_METHODS.subscribeSlipJayRunner]: "vcs",
   [WS_METHODS.vcsCreateWorktree]: "vcs",
   [WS_METHODS.vcsRemoveWorktree]: "vcs",
   [WS_METHODS.vcsCreateRef]: "vcs",

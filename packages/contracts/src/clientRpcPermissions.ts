@@ -41,6 +41,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.vcsPull]: AuthSourceControlWriteScope,
   [WS_METHODS.gitRunStackedAction]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsSlipJayLand]: AuthSourceControlWriteScope,
+  [WS_METHODS.vcsSlipJayCancel]: AuthSourceControlWriteScope,
   [WS_METHODS.gitPreparePullRequestThread]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsCreateWorktree]: AuthSourceControlWriteScope,
   [WS_METHODS.vcsRemoveWorktree]: AuthSourceControlWriteScope,

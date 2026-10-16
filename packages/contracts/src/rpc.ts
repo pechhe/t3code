@@ -148,6 +148,9 @@ import {
   VcsInitInput,
   VcsListRefsInput,
   VcsListRefsResult,
+  SlipJayRunnerOverview,
+  VcsSlipJayCancelInput,
+  VcsSlipJayCancelResult,
   VcsSlipJayLandInput,
   VcsSlipJayLandResult,
   VcsSlipJayLandingLogInput,
@@ -458,6 +461,8 @@ export const WS_METHODS = {
   vcsInit: "vcs.init",
   vcsSlipJayLandingLog: "vcs.slipJayLandingLog",
   vcsSlipJayLand: "vcs.slipJayLand",
+  vcsSlipJayCancel: "vcs.slipJayCancel",
+  subscribeSlipJayRunner: "subscribeSlipJayRunner",
 
   gitRunStackedAction: "git.runStackedAction",
   gitResolvePullRequest: "git.resolvePullRequest",
@@ -1479,6 +1484,19 @@ const WsVcsSlipJayLandRpc = Rpc.make(WS_METHODS.vcsSlipJayLand, {
   error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVcsSlipJayCancelRpc = Rpc.make(WS_METHODS.vcsSlipJayCancel, {
+  payload: VcsSlipJayCancelInput,
+  success: VcsSlipJayCancelResult,
+  error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
+});
+
+const WsSubscribeSlipJayRunnerRpc = Rpc.make(WS_METHODS.subscribeSlipJayRunner, {
+  payload: Schema.Struct({}),
+  success: SlipJayRunnerOverview,
+  error: EnvironmentAuthorizationError,
+  stream: true,
+});
+
 const WsVcsSlipJayLandingLogRpc = Rpc.make(WS_METHODS.vcsSlipJayLandingLog, {
   payload: VcsSlipJayLandingLogInput,
   success: VcsSlipJayLandingLogResult,
@@ -2130,6 +2148,8 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsVcsListRefsRpc,
   WsVcsSlipJayLandingLogRpc,
   WsVcsSlipJayLandRpc,
+  WsVcsSlipJayCancelRpc,
+  WsSubscribeSlipJayRunnerRpc,
   WsVcsCreateWorktreeRpc,
   WsVcsRemoveWorktreeRpc,
   WsVcsCreateRefRpc,

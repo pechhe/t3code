@@ -10,6 +10,8 @@ import {
   parseLandingOutcome,
   parseWatchLine,
   resolveWorkspaceLanding,
+  runnerOverviewFromSnapshot,
+  submittingWorkspace,
   type LandingWatchState,
 } from "./slipJayLandingState.ts";
 
@@ -282,5 +284,129 @@ describe("slipJayLandingState", () => {
   it("skips lines that are not watch envelopes", () => {
     expect(Option.isNone(parseWatchLine("not json"))).toBe(true);
     expect(Option.isNone(parseWatchLine(JSON.stringify({ type: "unknown" })))).toBe(true);
+  });
+});
+
+describe("runnerOverviewFromSnapshot", () => {
+  const HOST = "henrys-mac.local";
+  const snapshotOf = (snapshot: object) => {
+    const envelope = Option.getOrThrow(
+      parseWatchLine(JSON.stringify({ version: 1, type: "snapshot", snapshot })),
+    );
+    if (envelope.type !== "snapshot") throw new Error("expected a snapshot");
+    return envelope.snapshot;
+  };
+
+  it("names this host's submitting workspace, by name or by path, and no other", () => {
+    expect(submittingWorkspace(`${HOST}:ys-calendar-fix`, HOST)).toBe("ys-calendar-fix");
+    expect(submittingWorkspace(`${HOST}:/Users/h/.slipjay/workspaces/ys-spare/`, HOST)).toBe(
+      "ys-spare",
+    );
+    expect(submittingWorkspace("other-host:ys-calendar-fix", HOST)).toBeUndefined();
+    expect(submittingWorkspace("promotion:op_1", HOST)).toBeUndefined();
+  });
+
+  it("keeps lane order and the latest deploys, and drops run details", () => {
+    const overview = runnerOverviewFromSnapshot(
+      snapshotOf({
+        seq: 9,
+        lanes: {
+          serial: [
+            {
+              id: "op_running",
+              kind: "landing",
+              repo: REPO,
+              changeId: "c1",
+              stage: "verifying",
+              status: "running",
+              position: 1,
+              submittedBy: `${HOST}:ys-one`,
+              runs: [{ command: "bun install", commandEvidence: { environmentNames: ["SECRET"] } }],
+            },
+            {
+              id: "op_queued",
+              kind: "landing",
+              repo: REPO,
+              changeId: "c2",
+              stage: "queued",
+              status: "queued",
+              position: 2,
+              submittedBy: "other-host:ys-two",
+            },
+          ],
+          deploy: [],
+        },
+        paused: null,
+        lastStagingDeploys: [
+          {
+            id: "op_staging",
+            kind: "deploy",
+            repo: REPO,
+            stage: "deploying",
+            status: "deployed",
+            environment: "staging",
+            commitId: "bbb",
+            finishedAt: "2026-10-16T12:30:00.000Z",
+          },
+        ],
+        recentProductionDeploys: [
+          {
+            id: "op_production",
+            kind: "deploy",
+            repo: REPO,
+            stage: "deploying",
+            status: "deployed",
+            environment: "production",
+            commitId: "aaa",
+            finishedAt: "2026-10-16T00:20:00.000Z",
+          },
+        ],
+      }),
+      HOST,
+    );
+    expect(overview.paused).toBe(false);
+    expect(
+      overview.serial.map((operation) => [operation.operationId, operation.workspaceName]),
+    ).toEqual([
+      ["op_running", "ys-one"],
+      ["op_queued", undefined],
+    ]);
+    expect(JSON.stringify(overview)).not.toContain("SECRET");
+    expect(overview.deploys.map((deploy) => [deploy.environment, deploy.commitId])).toEqual([
+      ["staging", "bbb"],
+      ["production", "aaa"],
+    ]);
+  });
+
+  it("skips a deploy entry it cannot read and keeps the rest of the snapshot", () => {
+    const overview = runnerOverviewFromSnapshot(
+      snapshotOf({
+        seq: 2,
+        lanes: { serial: [], deploy: [{ id: "op_bad" }] },
+        lastStagingDeploys: [
+          { id: "op_bad", environment: "staging" },
+          {
+            id: "op_staging",
+            repo: REPO,
+            stage: "deploying",
+            status: "deployed",
+            environment: "staging",
+            commitId: "bbb",
+          },
+        ],
+      }),
+      HOST,
+    );
+    expect(overview.deploy).toEqual([]);
+    expect(overview.deploys.map((deploy) => deploy.operationId)).toEqual(["op_staging"]);
+  });
+
+  it("reports a paused queue", () => {
+    const overview = runnerOverviewFromSnapshot(
+      snapshotOf({ seq: 1, lanes: { serial: [] }, paused: { by: "owner" } }),
+      HOST,
+    );
+    expect(overview.paused).toBe(true);
+    expect(overview.deploy).toEqual([]);
   });
 });

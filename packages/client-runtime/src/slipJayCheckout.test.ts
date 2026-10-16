@@ -1,11 +1,19 @@
-import type { VcsStatusResult, VcsStatusSlipJayLanding } from "@t3tools/contracts";
+import type {
+  SlipJayRunnerOperation,
+  SlipJayRunnerOverview,
+  VcsStatusResult,
+  VcsStatusSlipJayLanding,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   resolveSlipJayBaseLabel,
   resolveSlipJayCheckoutStatus,
   resolveSlipJayLandingLabel,
+  resolveSlipJayQueueLabel,
+  resolveSlipJayRunnerSummary,
   resolveSlipJayWorkspaceLabel,
+  slipJayWorkspaceName,
 } from "./slipJayCheckout.ts";
 
 const checkoutStatus = (overrides: Partial<VcsStatusResult>): VcsStatusResult => ({
@@ -131,5 +139,50 @@ describe("SlipJay checkout labels", () => {
       resolveSlipJayLandingLabel(landing({ status: "failed", stage: "gate", reason: "tests" })),
     ).toBe("Land failed: gate");
     expect(resolveSlipJayLandingLabel(landing({ status: "unknown" }))).toBe("Land outcome unknown");
+  });
+});
+
+describe("SlipJay runner", () => {
+  const operation = (overrides: Partial<SlipJayRunnerOperation>): SlipJayRunnerOperation => ({
+    operationId: "op_a",
+    kind: "landing",
+    repo: "pechhe/t3code",
+    status: "queued",
+    stage: "queued",
+    submittedBy: "host:t3-one",
+    ...overrides,
+  });
+  const overview = (overrides: Partial<SlipJayRunnerOverview>): SlipJayRunnerOverview => ({
+    connected: true,
+    paused: false,
+    serial: [],
+    deploy: [],
+    deploys: [],
+    ...overrides,
+  });
+
+  it("says how many wait ahead of a queued operation, and nothing once it runs", () => {
+    expect(resolveSlipJayQueueLabel(operation({ position: 1 }))).toBe("Queued · next");
+    expect(resolveSlipJayQueueLabel(operation({ position: 3 }))).toBe("Queued · 2 ahead");
+    expect(resolveSlipJayQueueLabel(operation({ status: "running", position: 1 }))).toBeNull();
+  });
+
+  it("summarises the lanes, and hides a runner this environment never reached", () => {
+    expect(resolveSlipJayRunnerSummary(overview({ connected: false }))).toBeNull();
+    expect(resolveSlipJayRunnerSummary(overview({}))?.label).toBe("SlipJay · idle");
+    expect(
+      resolveSlipJayRunnerSummary(
+        overview({
+          serial: [operation({ status: "running" }), operation({ operationId: "op_b" })],
+          deploy: [operation({ operationId: "op_c", kind: "deploy" })],
+        }),
+      )?.label,
+    ).toBe("SlipJay · 1 running · 2 queued");
+    expect(resolveSlipJayRunnerSummary(overview({ paused: true }))?.tone).toBe("attention");
+  });
+
+  it("names a thread's workspace after its directory", () => {
+    expect(slipJayWorkspaceName("/Users/h/.slipjay/workspaces/t3-one/")).toBe("t3-one");
+    expect(slipJayWorkspaceName(null)).toBeNull();
   });
 });

@@ -1,3 +1,5 @@
+import * as NodeOS from "node:os";
+
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
@@ -12,11 +14,15 @@ import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import {
   SlipJayCommandError,
+  type SlipJayRunnerOverview,
+  type VcsSlipJayCancelInput,
+  type VcsSlipJayCancelResult,
   type VcsSlipJayLandInput,
   type VcsSlipJayLandResult,
   type VcsSlipJayLandingLogInput,
@@ -29,12 +35,14 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import {
   applyLandingOutcome,
   applyWatchEnvelope,
+  emptyRunnerOverview,
   initialLandingWatchState,
   landingChanges,
   landingForOperation,
   parseLandingOutcome,
   parseWatchLine,
   resolveWorkspaceLanding,
+  runnerOverviewFromSnapshot,
   type LandingChange,
   type LandingOutcome,
   type LandingWatchState,
@@ -117,6 +125,24 @@ const decodeLandedRecord = Schema.decodeUnknownOption(
   ),
 );
 
+const decodeCancelRefusal = Schema.decodeUnknownOption(
+  Schema.fromJsonString(Schema.Struct({ operation: Schema.Struct({ status: Schema.String }) })),
+);
+
+/**
+ * `slipjay cancel`'s answer: cancelled, or refused because the operation is no longer
+ * queued, which the runner answers with the operation itself. Anything else is a failure.
+ */
+export function cancelResult(output: {
+  readonly stdout: string;
+  readonly code: number | null;
+}): VcsSlipJayCancelResult | undefined {
+  if (output.code === 0) return { cancelled: true };
+  return Option.isSome(decodeCancelRefusal(output.stdout.trim()))
+    ? { cancelled: false }
+    : undefined;
+}
+
 const LAND_OUTPUT_MAX_BYTES = 1024 * 1024;
 const LANDING_LOG_MAX_BYTES = 2 * 1024 * 1024;
 const WATCH_RESTART_DELAY = Duration.seconds(5);
@@ -163,6 +189,15 @@ export class SlipJayLandings extends Context.Service<
     readonly land: (
       input: VcsSlipJayLandInput,
     ) => Effect.Effect<VcsSlipJayLandResult, SlipJayCommandError>;
+    /**
+     * The runner's lanes and recent deploys, current value first. Following it starts the
+     * watch on a host with SlipJay installed; elsewhere it stays disconnected and empty.
+     */
+    readonly runner: Stream.Stream<SlipJayRunnerOverview>;
+    /** Withdraws a queued operation with `slipjay cancel`; the runner refuses a started one. */
+    readonly cancel: (
+      input: VcsSlipJayCancelInput,
+    ) => Effect.Effect<VcsSlipJayCancelResult, SlipJayCommandError>;
   }
 >()("t3/project/SlipJayLandings") {}
 
@@ -200,6 +235,19 @@ export const make = Effect.gen(function* () {
   const reconciling = yield* Ref.make(new Set<string>());
   // The landing each workspace root was seen submitting; see resolveWorkspaceLanding.
   const submittedFrom = yield* Ref.make(new Map<string, string>());
+  const overview = yield* SubscriptionRef.make(emptyRunnerOverview);
+  // SlipJay names a submitting workspace `<host>:<workspace>` with this host's name.
+  const host = NodeOS.hostname();
+  const setOverview = (next: (current: SlipJayRunnerOverview) => SlipJayRunnerOverview) =>
+    SubscriptionRef.get(overview).pipe(
+      Effect.flatMap((current) => {
+        const updated = next(current);
+        // The watch repeats an unchanged snapshot after every heartbeat.
+        return JSON.stringify(updated) === JSON.stringify(current)
+          ? Effect.void
+          : SubscriptionRef.set(overview, updated);
+      }),
+    );
 
   const transition = (next: (current: LandingWatchState) => LandingWatchState) =>
     Ref.modify(state, (current) => {
@@ -253,12 +301,22 @@ export const make = Effect.gen(function* () {
     Option.match(parseWatchLine(line), {
       onNone: () => Effect.void,
       onSome: (envelope) => {
+        const overviewUpdate =
+          envelope.type === "snapshot"
+            ? setOverview(() => runnerOverviewFromSnapshot(envelope.snapshot, host))
+            : envelope.type === "connection"
+              ? setOverview((current) => ({
+                  ...current,
+                  connected: envelope.state === "connected" && current.connected,
+                }))
+              : Effect.void;
         let vanished: ReadonlyArray<string> = [];
         return transition((current) => {
           const applied = applyWatchEnvelope(current, envelope);
           vanished = applied.vanished;
           return applied.state;
         }).pipe(
+          Effect.andThen(overviewUpdate),
           Effect.andThen(
             Effect.suspend(() =>
               Effect.forEach(vanished, (id) => Effect.forkIn(reconcile(id), scope), {
@@ -295,6 +353,7 @@ export const make = Effect.gen(function* () {
   const watchForever = watchOnce.pipe(
     Effect.catchCause((cause) => Effect.logDebug("SlipJay landing watch stopped", cause)),
     Effect.andThen(transition((current) => ({ ...current, connected: false }))),
+    Effect.andThen(setOverview((current) => ({ ...current, connected: false }))),
     Effect.andThen(Effect.sleep(WATCH_RESTART_DELAY)),
     Effect.forever,
   );
@@ -551,7 +610,70 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(landing);
   });
 
+  // A host without SlipJay has no runner to follow, so it never starts a watch to retry.
+  // Each new follower asks again until the watch starts, so installing SlipJay later works.
+  const slipJayInstalled = processes
+    .run({
+      command: "slipjay",
+      args: ["--version"],
+      timeout: "10 seconds",
+      maxOutputBytes: 4 * 1024,
+      outputMode: "truncate",
+    })
+    .pipe(
+      Effect.map((output) => output.code === 0),
+      Effect.orElseSucceed(() => false),
+    );
+  const runner: SlipJayLandings["Service"]["runner"] = Stream.unwrap(
+    Ref.get(started).pipe(
+      Effect.flatMap((watching) => (watching ? Effect.succeed(false) : slipJayInstalled)),
+      Effect.flatMap((installed) => (installed ? ensureWatching : Effect.void)),
+      Effect.as(SubscriptionRef.changes(overview)),
+    ),
+  );
+
+  const cancel: SlipJayLandings["Service"]["cancel"] = Effect.fn("SlipJayLandings.cancel")(
+    function* ({ operationId }) {
+      const failure = (
+        detail: string,
+        extra: { readonly exitCode?: number; readonly cause?: unknown } = {},
+      ) =>
+        new SlipJayCommandError({
+          operation: "SlipJayLandings.cancel",
+          command: "slipjay cancel",
+          cwd: "",
+          detail,
+          ...extra,
+        });
+      // Only an operation the overview shows queued: a client cannot name arbitrary ones.
+      const current = yield* SubscriptionRef.get(overview);
+      const queued = [...current.serial, ...current.deploy].some(
+        (operation) => operation.operationId === operationId && operation.status === "queued",
+      );
+      if (!queued) return yield* failure("This operation is no longer queued.");
+      const output = yield* processes
+        .run({
+          command: "slipjay",
+          args: ["cancel", operationId],
+          timeout: "30 seconds",
+          maxOutputBytes: 64 * 1024,
+          outputMode: "truncate",
+        })
+        .pipe(
+          Effect.mapError((cause) => failure("SlipJay could not be run to cancel.", { cause })),
+        );
+      const result = cancelResult(output);
+      if (result !== undefined) return result;
+      return yield* failure(
+        "SlipJay could not cancel. Run `slipjay cancel` on the server for details.",
+        output.code === null ? undefined : { exitCode: output.code },
+      );
+    },
+  );
+
   return SlipJayLandings.of({
+    runner,
+    cancel,
     land,
     landingFor,
     removedWorkspaceLanding,
@@ -570,6 +692,16 @@ export const layerNone = Layer.succeed(
     landingFor: () => Effect.succeed(undefined),
     removedWorkspaceLanding: () => Effect.succeed(undefined),
     changes: Stream.empty,
+    runner: Stream.make(emptyRunnerOverview),
+    cancel: () =>
+      Effect.fail(
+        new SlipJayCommandError({
+          operation: "SlipJayLandings.cancel",
+          command: "slipjay cancel",
+          cwd: "",
+          detail: "SlipJay is not available on this host.",
+        }),
+      ),
     repositoryOf: () => Effect.succeed(null),
     land: ({ cwd }) =>
       Effect.fail(

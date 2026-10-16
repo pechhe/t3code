@@ -222,6 +222,7 @@ import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts
 import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
+import * as SlipJayLandings from "./project/SlipJayLandings.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
@@ -1280,6 +1281,7 @@ const layerWsRpc = (
       const remoteOpenTargets = yield* RemoteOpenTargets.RemoteOpenTargets;
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
+      const slipJayLandings = yield* SlipJayLandings.SlipJayLandings;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -2777,6 +2779,8 @@ const layerWsRpc = (
         [WS_METHODS.vcsSlipJayLandingLog]: (input) => gitWorkflow.readSlipJayLandingLog(input),
         [WS_METHODS.vcsSlipJayLand]: (input) =>
           gitWorkflow.landSlipJay(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+        [WS_METHODS.vcsSlipJayCancel]: (input) => slipJayLandings.cancel(input),
+        [WS_METHODS.subscribeSlipJayRunner]: (_input) => slipJayLandings.runner,
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsRemoveWorktree]: (input) =>

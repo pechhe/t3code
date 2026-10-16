@@ -237,6 +237,68 @@ export const VcsSlipJayLandResult = Schema.Struct({
 });
 export type VcsSlipJayLandResult = typeof VcsSlipJayLandResult.Type;
 
+/** A queued SlipJay operation to withdraw with `slipjay cancel`. */
+export const VcsSlipJayCancelInput = Schema.Struct({
+  operationId: VcsSlipJayLandingLogInput.fields.operationId,
+});
+export type VcsSlipJayCancelInput = typeof VcsSlipJayCancelInput.Type;
+
+export const VcsSlipJayCancelResult = Schema.Struct({
+  /** False when the runner refused, most often because the operation already started. */
+  cancelled: Schema.Boolean,
+});
+export type VcsSlipJayCancelResult = typeof VcsSlipJayCancelResult.Type;
+
+/** An open operation in one of the runner's lanes, as `slipjay watch` reports it. */
+export const SlipJayRunnerOperation = Schema.Struct({
+  operationId: TrimmedNonEmptyStringSchema,
+  /** `landing`, `release`, `deploy` or `reset`. */
+  kind: Schema.String,
+  /** SlipJay's repository key, lowercase `owner/name`. */
+  repo: Schema.String,
+  /** `queued` or `running`. */
+  status: Schema.String,
+  stage: Schema.String,
+  /** 1-based place in its lane across repositories; 1 is running or next. */
+  position: Schema.optional(Schema.Number),
+  submittedAt: Schema.optional(Schema.String),
+  commitId: Schema.optional(Schema.String),
+  /** A deploy's environment, such as `staging`. */
+  environment: Schema.optional(Schema.String),
+  /** The SlipJay workspace on this server's host that submitted it; absent for any other submitter. */
+  workspaceName: Schema.optional(Schema.String),
+  /** SlipJay's submitter label, such as `host:workspace` or `slipjay-test:schedule`. */
+  submittedBy: Schema.String,
+});
+export type SlipJayRunnerOperation = typeof SlipJayRunnerOperation.Type;
+
+/** A completed deploy of a repository to one environment. */
+export const SlipJayRunnerDeploy = Schema.Struct({
+  operationId: TrimmedNonEmptyStringSchema,
+  repo: Schema.String,
+  environment: Schema.String,
+  commitId: Schema.String,
+  /** `deployed` or `failed`. */
+  status: Schema.String,
+  finishedAt: Schema.optional(Schema.String),
+});
+export type SlipJayRunnerDeploy = typeof SlipJayRunnerDeploy.Type;
+
+/** The runner this server follows, from the latest `slipjay watch --json` snapshot. */
+export const SlipJayRunnerOverview = Schema.Struct({
+  /** False until the watch connects, and while it is reconnecting: the rest is the last known state. */
+  connected: Schema.Boolean,
+  /** The queue takes no next operation until the owner resumes it. */
+  paused: Schema.Boolean,
+  /** Landings, releases and resets, in queue order. */
+  serial: Schema.Array(SlipJayRunnerOperation),
+  /** Deploys, in queue order. */
+  deploy: Schema.Array(SlipJayRunnerOperation),
+  /** The latest staging deploy of each repository and the recent production deploys, newest first. */
+  deploys: Schema.Array(SlipJayRunnerDeploy),
+});
+export type SlipJayRunnerOverview = typeof SlipJayRunnerOverview.Type;
+
 const VcsStatusChangeRequest = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyStringSchema,

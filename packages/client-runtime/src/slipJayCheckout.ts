@@ -1,4 +1,9 @@
-import type { VcsStatusResult, VcsStatusSlipJayLanding } from "@t3tools/contracts";
+import type {
+  SlipJayRunnerOperation,
+  SlipJayRunnerOverview,
+  VcsStatusResult,
+  VcsStatusSlipJayLanding,
+} from "@t3tools/contracts";
 
 /** Where a thread works in a SlipJay project, from the checkout's VCS status. */
 export interface SlipJayCheckout {
@@ -84,4 +89,85 @@ export function resolveSlipJayBaseLabel(status: SlipJayCheckout, isDraft: boolea
   if (!isDraft && status.changedFileCount > 0)
     parts.push(`${status.changedFileCount} ${status.changedFileCount === 1 ? "file" : "files"}`);
   return parts.join(" · ");
+}
+
+/** The SlipJay workspace a thread works in: SlipJay names it after its directory. */
+export function slipJayWorkspaceName(worktreePath: string | null): string | null {
+  if (worktreePath === null) return null;
+  const name = worktreePath
+    .replace(/[\\/]+$/, "")
+    .split(/[\\/]/)
+    .at(-1);
+  return name === undefined || name.length === 0 ? null : name;
+}
+
+/** An open operation in the runner's lanes by its id; null once it has left them. */
+export function findSlipJayRunnerOperation(
+  overview: SlipJayRunnerOverview | null | undefined,
+  operationId: string,
+): SlipJayRunnerOperation | null {
+  if (overview === null || overview === undefined) return null;
+  return (
+    [...overview.serial, ...overview.deploy].find(
+      (operation) => operation.operationId === operationId,
+    ) ?? null
+  );
+}
+
+/** Where a queued operation waits: `next`, or how many are ahead of it. Null once it runs. */
+export function resolveSlipJayQueueLabel(operation: SlipJayRunnerOperation): string | null {
+  if (operation.status !== "queued") return null;
+  if (operation.position === undefined) return "Queued";
+  const ahead = operation.position - 1;
+  return ahead <= 0 ? "Queued · next" : `Queued · ${ahead} ahead`;
+}
+
+/**
+ * The header's one-line summary of the runner, or null when this environment follows
+ * no SlipJay runner. Counts only what is open in the lanes.
+ */
+export function resolveSlipJayRunnerSummary(
+  overview: SlipJayRunnerOverview | null | undefined,
+): { label: string; tone: "idle" | "busy" | "attention" } | null {
+  if (overview === null || overview === undefined) return null;
+  const open = [...overview.serial, ...overview.deploy];
+  if (!overview.connected && open.length === 0 && overview.deploys.length === 0) return null;
+  if (!overview.connected) return { label: "SlipJay · reconnecting", tone: "attention" };
+  if (overview.paused) return { label: "SlipJay · paused", tone: "attention" };
+  const running = open.filter((operation) => operation.status === "running").length;
+  const queued = open.filter((operation) => operation.status === "queued").length;
+  const parts = [
+    ...(running > 0 ? [`${running} running`] : []),
+    ...(queued > 0 ? [`${queued} queued`] : []),
+  ];
+  return parts.length === 0
+    ? { label: "SlipJay · idle", tone: "idle" }
+    : { label: `SlipJay · ${parts.join(" · ")}`, tone: "busy" };
+}
+
+/** What a runner row is, in the words a lane shows it with. */
+export function resolveSlipJayOperationLabel(operation: SlipJayRunnerOperation): string {
+  const commit = operation.commitId === undefined ? "" : ` ${operation.commitId.slice(0, 7)}`;
+  switch (operation.kind) {
+    case "deploy":
+      return `Deploy${commit} to ${operation.environment ?? "an environment"}`;
+    case "release":
+      return `Release${commit}`;
+    case "reset":
+      return "Reset";
+    default:
+      return operation.workspaceName ?? `Landing${commit}`;
+  }
+}
+
+/**
+ * The composer prompt asking a thread's agent to fix its failed landing, in SlipJay's own
+ * words, so the agent can read the log and land again from the same workspace.
+ */
+export function resolveSlipJayFixPrompt(landing: VcsStatusSlipJayLanding): string {
+  const reason = landing.reason === undefined ? "" : `: ${landing.reason}`;
+  return [
+    `The SlipJay landing ${landing.operationId} failed at ${landing.stage}${reason}.`,
+    `Read its log with \`slipjay runner log ${landing.operationId}\`, fix the cause in this workspace, and land again.`,
+  ].join("\n");
 }

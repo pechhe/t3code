@@ -167,6 +167,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                     threadRef={activeThreadRef}
                     status={props.slipJayStatus}
                     isDraft={props.draftId !== undefined}
+                    onComposerFocusRequest={props.onComposerFocusRequest}
                   />
                 ) : null}
                 {props.activeProjectName ? (

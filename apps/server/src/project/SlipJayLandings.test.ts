@@ -9,7 +9,7 @@ import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
-import { landResult, make, SlipJayLandings } from "./SlipJayLandings.ts";
+import { cancelResult, landResult, make, SlipJayLandings } from "./SlipJayLandings.ts";
 
 interface Land {
   readonly stdout: string;
@@ -247,6 +247,36 @@ describe("SlipJayLandings.land", () => {
         }).pipe(Effect.provide(host.layer));
         assert.strictEqual((yield* Ref.get(host.runs)).length, 1);
         assert.deepStrictEqual(result.messages, ["failed at verifying: 2 tests failed"]);
+      }),
+    ),
+  );
+});
+
+describe("SlipJayLandings.cancel", () => {
+  it("tells the runner's refusal of a started operation from a failure", () => {
+    assert.deepStrictEqual(cancelResult({ stdout: '{"operation":{}}', code: 0 }), {
+      cancelled: true,
+    });
+    assert.deepStrictEqual(
+      cancelResult({ stdout: '{"operation":{"id":"op_a","status":"running"}}\n', code: 1 }),
+      { cancelled: false },
+    );
+    assert.strictEqual(
+      cancelResult({ stdout: '{"error":"Unknown operation"}', code: 1 }),
+      undefined,
+    );
+    assert.strictEqual(cancelResult({ stdout: "", code: 1 }), undefined);
+  });
+
+  it.effect("refuses an operation it does not show queued, without asking the runner", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const host = yield* landingHost({ stdout: "", stderr: "", code: 0 });
+        const error = yield* Effect.flatMap(SlipJayLandings, (landings) =>
+          landings.cancel({ operationId: "op_unknown" }),
+        ).pipe(Effect.provide(host.layer), Effect.flip);
+        assert.strictEqual(error._tag, "SlipJayCommandError");
+        assert.strictEqual(error.detail, "This operation is no longer queued.");
       }),
     ),
   );

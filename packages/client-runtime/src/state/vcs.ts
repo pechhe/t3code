@@ -305,6 +305,17 @@ export function createVcsEnvironmentAtoms<R, E>(
       tag: WS_METHODS.vcsSlipJayLand,
       onSettled: invalidateRefs,
     }),
+    // Withdraws a queued SlipJay operation; the runner refuses one that started.
+    slipJayCancel: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-cancel",
+      tag: WS_METHODS.vcsSlipJayCancel,
+    }),
+    // The SlipJay runner's lanes and deploys, shared by every SlipJay view of an environment.
+    slipJayRunner: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:vcs:slipjay-runner",
+      tag: WS_METHODS.subscribeSlipJayRunner,
+      idleTtlMs: VCS_STATUS_IDLE_TTL_MS,
+    }),
     refreshStatus: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:refresh-status",
       tag: WS_METHODS.vcsRefreshStatus,

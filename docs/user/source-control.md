@@ -269,6 +269,14 @@ To publish a thread's work, choose **Land** in the thread details card. T3 Code 
 - Land is not offered in the project's main checkout, and reads **Landing…** while the
   thread's change is landing. Mobile shows the workspace, its base and the landing, but has no
   Land.
+- While the landing waits in the runner's queue, the details card shows how many are ahead of
+  it and can cancel it. The runner refuses to cancel a landing that has started.
+- When a landing fails, **Ask agent to fix** fills the composer with the failure so you can
+  send it to the thread's agent.
+
+The **SlipJay** button at the top of a thread shows the runner this server follows: what is
+running and queued in each lane, and the latest staging and production deploys. Select an
+operation to open the thread whose workspace submitted it.
 
 ## Troubleshooting
 

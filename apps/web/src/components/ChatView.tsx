@@ -434,6 +434,7 @@ import { threadEnvironment } from "../state/threads";
 import { workspacePreparationRetryRunIds } from "@t3tools/client-runtime/state/turn-item-presentation";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
+import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
 import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
@@ -11055,6 +11056,12 @@ export default function ChatView(props: ChatViewProps) {
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}
           />
+          {isServerThread ? (
+            <SlipJayRunnerControl
+              environmentId={activeThread.environmentId}
+              onOpenThread={onOpenRelatedThreadStable}
+            />
+          ) : null}
         </header>
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
