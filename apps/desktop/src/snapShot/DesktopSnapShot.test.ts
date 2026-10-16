@@ -503,6 +503,7 @@ const layerTest = (
     Option.Option<ClientSettings>,
     DesktopClientSettings.DesktopClientSettingsReadError
   > = Effect.succeed(initialSettings),
+  desktopWindowOverrides: Partial<DesktopWindow.DesktopWindow["Service"]> = {},
 ) =>
   MacPermissions.layer.pipe(
     Layer.provideMerge(
@@ -528,9 +529,11 @@ const layerTest = (
           DesktopWindow.DesktopWindow,
           DesktopWindow.DesktopWindow.of({
             activate: Effect.void,
+            ...withoutSnapShotOverlay,
             prepareCaptureReveal: Effect.sync(prepareCaptureRevealMock),
             dispatchMenuAction: () => Effect.void,
             dispatchSnapShotEvent: () => Effect.void,
+            ...desktopWindowOverrides,
           } as unknown as DesktopWindow.DesktopWindow["Service"]),
         ),
         FileSystem.layerNoop(fileSystemOverrides),
@@ -702,6 +705,7 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
       DesktopWindow.DesktopWindow,
       DesktopWindow.DesktopWindow.of({
         activate: handoff,
+        ...withoutSnapShotOverlay,
         prepareCaptureReveal: Effect.sync(() => {
           state.preparations++;
           state.preparedWithoutOverlay &&= flashWindows.every((window) => window.destroyed);
@@ -771,6 +775,14 @@ function concurrentCaptureFixture(platform: NodeJS.Platform, animations: boolean
     },
   };
 }
+
+const withoutSnapShotOverlay = {
+  prepareSnapShotOverlay: Effect.void,
+  closeSnapShotOverlay: Effect.void,
+  hasSnapShotOverlay: Effect.succeed(false),
+  placeSnapShotOverlay: Effect.succeedNone,
+  showSnapShotOverlay: Effect.succeed(false),
+};
 
 it.effect("rejects desktop config changes outside Niri or Hyprland", () =>
   Effect.scoped(
@@ -935,6 +947,80 @@ it.effect.each([
     ).pipe(Effect.provide(layer));
   },
 );
+
+it.effect("shows the SnapShot overlay after the capture instead of raising the main window", () => {
+  registerShortcutMock.mockReset().mockReturnValue(true);
+  mediaAccessStatusMock.mockReturnValue("granted");
+  const bounds = { x: 10, y: 20, width: 800, height: 600 };
+  const overlayBounds = { x: 100, y: 80, width: 680, height: 480 };
+  const order: string[] = [];
+  activeWindowMock.mockReset().mockResolvedValue({
+    id: 7,
+    title: "Safari",
+    owner: { name: "Safari", processId: 99 },
+    bounds,
+    platform: "macos",
+  });
+  macCaptureMock.mockReset().mockImplementation(async () => {
+    order.push("capture");
+    return { source: { name: "Safari" }, png: Buffer.from([1, 2, 3]) };
+  });
+
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const service = yield* DesktopSnapShot.make;
+      yield* service.configure(
+        enabledSettings({
+          snapShotFlash: false,
+          snapShotAnimations: false,
+          snapShotShortcut: {
+            key: "2",
+            ctrlKey: true,
+            shiftKey: true,
+            altKey: false,
+            metaKey: false,
+            modKey: false,
+          },
+        }),
+      );
+      yield* Effect.promise(registerShortcutMock.mock.calls.at(-1)![1] as () => Promise<void>);
+
+      assert.deepEqual(order, ["prepare", "place", "capture", "show"]);
+      assert.equal((yield* service.state).overlay, true);
+    }),
+  ).pipe(
+    Effect.provide(
+      layerTest(
+        "darwin",
+        {
+          makeDirectory: () => Effect.void,
+          rename: () => Effect.void,
+          writeFile: () => Effect.void,
+          writeFileString: () => Effect.void,
+        },
+        Option.none(),
+        undefined,
+        {
+          activate: Effect.sync(() => {
+            order.push("activate");
+          }),
+          prepareSnapShotOverlay: Effect.sync(() => {
+            order.push("prepare");
+          }),
+          hasSnapShotOverlay: Effect.succeed(true),
+          placeSnapShotOverlay: Effect.sync(() => {
+            order.push("place");
+            return Option.some(overlayBounds);
+          }),
+          showSnapShotOverlay: Effect.sync(() => {
+            order.push("show");
+            return true;
+          }),
+        },
+      ),
+    ),
+  );
+});
 
 it.effect.each(["win32", "darwin", "linux"] as const)(
   "captures the foreground window in place from the shortcut on %s",

@@ -10,6 +10,7 @@ import {
   DesktopCaptureConfigRequest,
   DesktopCaptureConfigPreview,
   DesktopCaptureConfigApplied,
+  ScopedThreadRef,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -19,6 +20,7 @@ import type * as Electron from "electron";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 
@@ -31,17 +33,15 @@ class SnapShotIpcUnauthorizedSenderError extends Schema.TaggedError<SnapShotIpcU
   }
 }
 
+/** The main window or the SnapShot overlay window; returns the sender's window. */
 const ensureTrustedSnapShotSender = Effect.fn("desktop.ipc.snapShot.ensureTrustedSender")(
   function* (event: DesktopIpc.DesktopIpcInvokeEvent | undefined) {
+    if (event === undefined) return yield* new SnapShotIpcUnauthorizedSenderError();
     const main = yield* (yield* ElectronWindow.ElectronWindow).main;
-    if (
-      event === undefined ||
-      Option.isNone(main) ||
-      main.value.webContents.id !== event.sender.id
-    ) {
-      return yield* new SnapShotIpcUnauthorizedSenderError();
-    }
-    return main.value;
+    if (Option.isSome(main) && main.value.webContents.id === event.sender.id) return main.value;
+    const overlay = yield* (yield* DesktopWindow.DesktopWindow).snapShotOverlayFor(event.sender.id);
+    if (Option.isSome(overlay)) return overlay.value;
+    return yield* new SnapShotIpcUnauthorizedSenderError();
   },
 );
 
@@ -225,6 +225,26 @@ export const dismissSnapShotAnimation = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.snapShot.dismissAnimation")(function* (id, event) {
     yield* ensureTrustedSnapShotSender(event);
     yield* (yield* DesktopSnapShot.DesktopSnapShot).dismissAnimation(id);
+  }),
+});
+
+export const hideSnapShotOverlay = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.HIDE_SNAP_SHOT_OVERLAY_CHANNEL,
+  payload: Schema.Void,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.snapShot.hideOverlay")(function* (_, event) {
+    yield* ensureTrustedSnapShotSender(event);
+    yield* (yield* DesktopWindow.DesktopWindow).hideSnapShotOverlay;
+  }),
+});
+
+export const openThreadInMainWindow = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.OPEN_THREAD_IN_MAIN_WINDOW_CHANNEL,
+  payload: ScopedThreadRef,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.snapShot.openThreadInMainWindow")(function* (thread, event) {
+    yield* ensureTrustedSnapShotSender(event);
+    yield* (yield* DesktopWindow.DesktopWindow).openThreadInMain(thread).pipe(Effect.orDie);
   }),
 });
 

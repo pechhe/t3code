@@ -39,6 +39,7 @@ import * as Electron from "electron";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
+import { supportsSnapShotOverlay } from "../window/SnapShotOverlayWindow.ts";
 import { startGlobalShiftShortcutProcess } from "./GlobalShiftShortcutProcess.ts";
 import { startMacModifierPairShortcutProcess } from "./MacModifierPairShortcutProcess.ts";
 import { activeWindow, type ActiveWindow } from "./ActiveWindow.ts";
@@ -410,6 +411,7 @@ async function captureSource({
   regionSnapShotPool,
   prepareReveal,
   onLinuxFeedback,
+  overlayBounds,
 }: {
   mode: DesktopSnapShotState["mode"];
   captureId: string;
@@ -426,6 +428,8 @@ async function captureSource({
   regionSnapShotPool: RegionSnapShotPool;
   prepareReveal: () => Promise<void>;
   onLinuxFeedback: (feedback: LinuxCaptureFeedback) => void;
+  /** Where the SnapShot overlay will show, when captures open there. */
+  overlayBounds: Electron.Rectangle | undefined;
 }) {
   let active: ActiveWindow | undefined;
   let linuxWindow: LinuxWindowMetadata | undefined;
@@ -434,10 +438,12 @@ async function captureSource({
   const destinationWindow =
     Electron.BrowserWindow.getFocusedWindow() ??
     Electron.BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
-  const destinationWindowBounds = destinationWindow?.getBounds();
+  const destinationWindowBounds = overlayBounds ?? destinationWindow?.getBounds();
   {
     const revealPreparation =
-      platform === "win32" ? prepareReveal().catch(() => undefined) : Promise.resolve();
+      platform === "win32" && !overlayBounds
+        ? prepareReveal().catch(() => undefined)
+        : Promise.resolve();
     const captureStartedAt = performance.now();
     if (mode === "direct" && platform !== "darwin") {
       active = await activeWindow(platform);
@@ -720,6 +726,8 @@ export const make = Effect.gen(function* () {
   const permissions = yield* MacPermissions.MacPermissions;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
+  const overlayEnabled = (settings: ClientSettings) =>
+    settings.snapShotEnabled && supportsSnapShotOverlay(environment.platform);
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const crypto = yield* Crypto.Crypto;
@@ -883,6 +891,9 @@ export const make = Effect.gen(function* () {
       flash.dispose();
       transition.dispose();
       yield* fileSystem.makeDirectory(captureDirectory, { recursive: true });
+      const overlayBounds = overlayEnabled(settings)
+        ? yield* desktopWindow.placeSnapShotOverlay
+        : Option.none<Electron.Rectangle>();
       yield* emit({ type: "requested", id: id as DesktopSnapShotId });
       const snapshot = yield* Effect.tryPromise({
         try: () =>
@@ -904,6 +915,7 @@ export const make = Effect.gen(function* () {
             onLinuxFeedback: (feedback) => {
               linuxFeedback = { id, feedback };
             },
+            overlayBounds: Option.getOrUndefined(overlayBounds),
           }),
         catch: (cause) => captureFailure(cause, id),
       });
@@ -918,9 +930,12 @@ export const make = Effect.gen(function* () {
           snapshot.linuxActivationFailure.cause,
         );
       }
+      // The overlay shows once the pixels are read, so it is never in the capture.
+      const overlayShown =
+        Option.isSome(overlayBounds) && (yield* desktopWindow.showSnapShotOverlay);
       if (snapshot.animationStarted) {
         yield* emit({ type: "started", id: id as DesktopSnapShotId });
-      } else {
+      } else if (!overlayShown) {
         yield* desktopWindow.activate.pipe(Effect.ignoreCause);
       }
       return { id, capturedAt, ...snapshot };
@@ -1319,6 +1334,13 @@ export const make = Effect.gen(function* () {
 
   const configure = Effect.fn("desktop.snapShot.configure")(function* (settings: ClientSettings) {
     yield* configurationMutex.withPermits(1)(applySettings(settings, null));
+    yield* overlayEnabled(settings)
+      ? desktopWindow.prepareSnapShotOverlay.pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("Could not prepare the SnapShot overlay", error.message),
+          ),
+        )
+      : desktopWindow.closeSnapShotOverlay;
   });
 
   const requestPermissions = Effect.fn("desktop.snapShot.requestPermissions")(function* (
@@ -1633,6 +1655,7 @@ export const make = Effect.gen(function* () {
                 }
               : {}),
             shortcutVerified,
+            overlay: yield* desktopWindow.hasSnapShotOverlay,
           };
         }),
       ),

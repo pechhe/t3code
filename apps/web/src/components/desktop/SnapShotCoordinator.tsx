@@ -193,7 +193,25 @@ export async function deliverSnapShot(
   dispatchSnapShotComposerFocus();
 }
 
-export function SnapShotCoordinator() {
+/**
+ * In the SnapShot overlay a capture joins the open chat only while it is unsent; once sent, the
+ * next capture starts a fresh chat without a project. Elsewhere it joins the current chat.
+ */
+export function reusableSnapShotTarget(
+  target: CaptureTarget | null,
+  overlay: boolean,
+): CaptureTarget | null {
+  return overlay && typeof target !== "string" ? null : target;
+}
+
+export function SnapShotCoordinator({
+  overlay = false,
+  startOverlayDraft,
+}: {
+  readonly overlay?: boolean;
+  /** Starts the overlay's fresh chat; required with `overlay`. */
+  readonly startOverlayDraft?: () => Promise<DraftId | null>;
+} = {}) {
   const {
     activeDraftThread,
     activeThread,
@@ -220,12 +238,20 @@ export function SnapShotCoordinator() {
   const resolveTarget = useCallback(async (): Promise<CaptureTarget | null> => {
     const lastTarget = lastTargetRef.current;
     if (lastTarget) {
-      const existingTarget = resolveExistingSnapShotTarget(lastTarget, routeThreadRef);
+      const existingTarget = reusableSnapShotTarget(
+        resolveExistingSnapShotTarget(lastTarget, routeThreadRef),
+        overlay,
+      );
       if (existingTarget) {
         lastTargetRef.current = existingTarget;
         return existingTarget;
       }
       lastTargetRef.current = null;
+    }
+    if (overlay) {
+      const draftId = (await startOverlayDraft?.()) ?? null;
+      lastTargetRef.current = draftId;
+      return draftId;
     }
     const projectRef = resolveThreadActionProjectRef({
       activeDraftThread,
@@ -238,7 +264,15 @@ export function SnapShotCoordinator() {
     if (!created) return null;
     lastTargetRef.current = created.draftId;
     return created.draftId;
-  }, [activeDraftThread, activeThread, defaultProjectRef, handleNewThread, routeThreadRef]);
+  }, [
+    activeDraftThread,
+    activeThread,
+    defaultProjectRef,
+    handleNewThread,
+    overlay,
+    routeThreadRef,
+    startOverlayDraft,
+  ]);
 
   const resolveCaptureTarget = useCallback(
     () => resolveSnapShotTargetOnce(targetResolutionRef, resolveTarget),
@@ -267,6 +301,8 @@ export function SnapShotCoordinator() {
     const operation = (async () => {
       do {
         rerunRequestedRef.current = false;
+        // The overlay window takes captures when it exists; the main window leaves them to it.
+        if (!overlay && (await bridge.getSnapShotState()).overlay === true) return;
         const pending = await bridge.listPendingSnapShots();
         for (const item of pending) {
           playCaptureSound(item.id);
@@ -326,7 +362,7 @@ export function SnapShotCoordinator() {
       });
     drainingRef.current = operation;
     return operation;
-  }, [playCaptureSound, resolveCaptureTarget, routeThreadRef]);
+  }, [overlay, playCaptureSound, resolveCaptureTarget, routeThreadRef]);
 
   useEffect(() => {
     const bridge = getDesktopSnapShotBridge();
@@ -336,7 +372,10 @@ export function SnapShotCoordinator() {
       switch (event.type) {
         case "requested": {
           const current = lastTargetRef.current;
-          const target = current ? resolveExistingSnapShotTarget(current, routeThreadRef) : null;
+          const target = reusableSnapShotTarget(
+            current ? resolveExistingSnapShotTarget(current, routeThreadRef) : null,
+            overlay,
+          );
           // Creating a new draft would navigate the renderer before a self-capture finishes.
           if (target) {
             void resolveSnapShotDeliveryTarget(captureTargetsRef.current, event.id, () =>
@@ -386,7 +425,7 @@ export function SnapShotCoordinator() {
       }
     });
     return unsubscribe;
-  }, [animateCaptures, drain, playCaptureSound, resolveCaptureTarget, routeThreadRef]);
+  }, [animateCaptures, drain, overlay, playCaptureSound, resolveCaptureTarget, routeThreadRef]);
 
   useEffect(() => {
     const dismissOnBlur = () => {

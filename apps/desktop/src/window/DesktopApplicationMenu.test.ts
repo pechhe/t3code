@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 
 import type * as Electron from "electron";
@@ -85,6 +86,14 @@ const layerDesktopWindow = (selectedAction: Deferred.Deferred<string>) =>
     prepareCaptureReveal: Effect.void,
     dispatchMenuAction: (action) => Deferred.succeed(selectedAction, action).pipe(Effect.asVoid),
     dispatchSnapShotEvent: () => Effect.void,
+    prepareSnapShotOverlay: Effect.void,
+    closeSnapShotOverlay: Effect.void,
+    hasSnapShotOverlay: Effect.succeed(false),
+    placeSnapShotOverlay: Effect.succeed(Option.none()),
+    showSnapShotOverlay: Effect.succeed(false),
+    hideSnapShotOverlay: Effect.void,
+    snapShotOverlayFor: () => Effect.succeed(Option.none()),
+    openThreadInMain: () => Effect.void,
     zoomMain: (direction) =>
       Deferred.succeed(selectedAction, `zoom-${direction}`).pipe(Effect.asVoid),
     runMainContentsCommand: (command) =>

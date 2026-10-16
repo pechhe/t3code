@@ -8,6 +8,7 @@ import * as Option from "effect/Option";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as DesktopSnapShot from "../../snapShot/DesktopSnapShot.ts";
+import * as DesktopWindow from "../../window/DesktopWindow.ts";
 import {
   checkSnapShotShortcut,
   requestSnapShotPermissions,
@@ -19,6 +20,10 @@ import {
   snapShotScreenFrame,
   snapShotRelativeFrame,
 } from "./snapShot.ts";
+
+const layerWithoutOverlay = Layer.succeed(DesktopWindow.DesktopWindow, {
+  snapShotOverlayFor: () => Effect.succeed(Option.none()),
+} as unknown as DesktopWindow.DesktopWindow["Service"]);
 
 describe("window capture IPC", () => {
   const configPreview = {
@@ -50,9 +55,12 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeedSome({ webContents: { id: 7 } }),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          Layer.merge(
+            Layer.succeed(ElectronWindow.ElectronWindow, {
+              main: Effect.succeedSome({ webContents: { id: 7 } }),
+            } as ElectronWindow.ElectronWindow["Service"]),
+            layerWithoutOverlay,
+          ),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             previewConfig: () =>
               Effect.sync(() => {
@@ -86,9 +94,12 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeedSome({ webContents: { id: 7 } }),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          Layer.merge(
+            Layer.succeed(ElectronWindow.ElectronWindow, {
+              main: Effect.succeedSome({ webContents: { id: 7 } }),
+            } as ElectronWindow.ElectronWindow["Service"]),
+            layerWithoutOverlay,
+          ),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             state: Effect.succeed({
               linuxBackend: "niri",
@@ -119,9 +130,12 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeedSome({ webContents: { id: 7 } }),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          Layer.merge(
+            Layer.succeed(ElectronWindow.ElectronWindow, {
+              main: Effect.succeedSome({ webContents: { id: 7 } }),
+            } as ElectronWindow.ElectronWindow["Service"]),
+            layerWithoutOverlay,
+          ),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             state: Effect.succeed({ linuxBackend: "niri" }),
             previewConfig: (_: unknown, selected: string) =>
@@ -153,6 +167,7 @@ describe("window capture IPC", () => {
     let received: unknown;
     const webContents = { id: 7, getZoomFactor: () => 1.25 };
     const layer = Layer.mergeAll(
+      layerWithoutOverlay,
       Layer.succeed(
         ElectronWindow.ElectronWindow,
         ElectronWindow.ElectronWindow.of({
@@ -215,6 +230,7 @@ describe("window capture IPC", () => {
     let includeAccessibility: boolean | undefined;
     const webContents = { id: 7 };
     const layer = Layer.mergeAll(
+      layerWithoutOverlay,
       Layer.succeed(
         ElectronWindow.ElectronWindow,
         ElectronWindow.ElectronWindow.of({
@@ -258,6 +274,7 @@ describe("window capture IPC", () => {
         } as ElectronWindow.ElectronWindow["Service"]),
       ),
       Effect.provideService(DesktopSnapShot.DesktopSnapShot, null as never),
+      Effect.provide(layerWithoutOverlay),
     ),
   );
 
@@ -274,9 +291,12 @@ describe("window capture IPC", () => {
     }).pipe(
       Effect.provide(
         Layer.mergeAll(
-          Layer.succeed(ElectronWindow.ElectronWindow, {
-            main: Effect.succeedSome({ webContents: { id: 7 } }),
-          } as ElectronWindow.ElectronWindow["Service"]),
+          Layer.merge(
+            Layer.succeed(ElectronWindow.ElectronWindow, {
+              main: Effect.succeedSome({ webContents: { id: 7 } }),
+            } as ElectronWindow.ElectronWindow["Service"]),
+            layerWithoutOverlay,
+          ),
           Layer.succeed(DesktopSnapShot.DesktopSnapShot, {
             setup: (action: string) =>
               Effect.sync(() => {
@@ -290,6 +310,7 @@ describe("window capture IPC", () => {
 
   it.effect("checks shortcut availability for a trusted renderer", () => {
     const layer = Layer.mergeAll(
+      layerWithoutOverlay,
       Layer.succeed(
         ElectronWindow.ElectronWindow,
         ElectronWindow.ElectronWindow.of({
@@ -315,6 +336,7 @@ describe("window capture IPC", () => {
   it.effect("suppresses the active shortcut for a trusted renderer", () => {
     let suppressed = false;
     const layer = Layer.mergeAll(
+      layerWithoutOverlay,
       Layer.succeed(
         ElectronWindow.ElectronWindow,
         ElectronWindow.ElectronWindow.of({

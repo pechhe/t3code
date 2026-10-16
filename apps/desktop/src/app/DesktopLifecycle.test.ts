@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 
@@ -67,6 +68,7 @@ function layerElectronWindow(destroyAll: Effect.Effect<void> = Effect.void) {
     currentMainOrFirst: Effect.die("unexpected current window read"),
     focusedMainOrFirst: Effect.die("unexpected focused window read"),
     setMain: () => Effect.void,
+    markAuxiliary: () => Effect.void,
     clearMain: () => Effect.void,
     prepareReveal: () => Effect.succeed(false),
     reveal: () => Effect.void,
@@ -95,6 +97,14 @@ function layerDesktopWindow(
     prepareCaptureReveal: Effect.void,
     dispatchMenuAction: () => Effect.void,
     dispatchSnapShotEvent: () => Effect.void,
+    prepareSnapShotOverlay: Effect.void,
+    closeSnapShotOverlay: Effect.void,
+    hasSnapShotOverlay: Effect.succeed(false),
+    placeSnapShotOverlay: Effect.succeed(Option.none()),
+    showSnapShotOverlay: Effect.succeed(false),
+    hideSnapShotOverlay: Effect.void,
+    snapShotOverlayFor: () => Effect.succeed(Option.none()),
+    openThreadInMain: () => Effect.void,
     zoomMain: () => Effect.void,
     runMainContentsCommand: () => Effect.void,
     syncAppearance: Effect.void,

@@ -10,7 +10,7 @@ import type {
 } from "./browserImport.ts";
 import { AuthAccessTokenResult, AuthSessionState, AuthWebSocketTicketResult } from "./auth.ts";
 import { AdvertisedEndpoint } from "./remoteAccess.ts";
-import { ExecutionEnvironmentDescriptor } from "./environment.ts";
+import { ExecutionEnvironmentDescriptor, type ScopedThreadRef } from "./environment.ts";
 import { type ClientSettings, type QuitConfirmationMode, SnapShotShortcut } from "./settings.ts";
 import type { EditorId } from "./editor.ts";
 import type { PreviewForwardedShortcut } from "./keybindings.ts";
@@ -194,6 +194,8 @@ export const DesktopSnapShotState = Schema.Struct({
     Schema.Struct({ screenRecording: Schema.Boolean, accessibility: Schema.Boolean }),
   ),
   shortcutVerified: Schema.optional(Schema.Boolean),
+  /** Captures open in the SnapShot overlay window rather than the main window. */
+  overlay: Schema.optional(Schema.Boolean),
   message: Schema.NullOr(Schema.String),
 });
 export type DesktopSnapShotState = typeof DesktopSnapShotState.Type;
@@ -1068,6 +1070,12 @@ export interface DesktopBridge {
   ) => Promise<void>;
   dismissSnapShotAnimation?: (id: DesktopSnapShotId) => Promise<void>;
   acknowledgeSnapShot?: (id: string) => Promise<void>;
+  /** Hides the SnapShot overlay window; its chat and draft stay as they are. */
+  hideSnapShotOverlay?: () => Promise<void>;
+  /** Opens a thread in the main window, revealing it, and hides the SnapShot overlay. */
+  openThreadInMainWindow?: (thread: ScopedThreadRef) => Promise<void>;
+  /** The main window is asked to open a thread, for example from the SnapShot overlay. */
+  onOpenThread?: (listener: (thread: ScopedThreadRef) => void) => () => void;
   ensureSshEnvironment: (
     target: DesktopSshEnvironmentTarget,
     options?: { issuePairingToken?: boolean },

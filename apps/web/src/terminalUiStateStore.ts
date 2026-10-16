@@ -2,7 +2,7 @@ import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/e
 import { type ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { resolveStorage } from "./lib/storage";
+import { appLocalStorage } from "./lib/storage";
 import {
   DEFAULT_THREAD_TERMINAL_HEIGHT,
   DEFAULT_THREAD_TERMINAL_ID,
@@ -48,7 +48,7 @@ export function migratePersistedTerminalUiStateStoreState(
 }
 
 function createTerminalUiStateStorage() {
-  return resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined);
+  return appLocalStorage();
 }
 
 function normalizeTerminalIds(terminalIds: string[]): string[] {

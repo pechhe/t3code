@@ -116,6 +116,11 @@ export class ElectronWindow extends Context.Service<
     readonly currentMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly focusedMainOrFirst: Effect.Effect<Option.Option<Electron.BrowserWindow>>;
     readonly setMain: (window: Electron.BrowserWindow) => Effect.Effect<void>;
+    /**
+     * Keeps a window that is never the app's main window, such as the connecting
+     * splash or the SnapShot overlay, out of the main and fallback lookups.
+     */
+    readonly markAuxiliary: (window: Electron.BrowserWindow) => Effect.Effect<void>;
     readonly clearMain: (window: Option.Option<Electron.BrowserWindow>) => Effect.Effect<void>;
     readonly prepareReveal: (window: Electron.BrowserWindow) => Effect.Effect<boolean>;
     readonly reveal: (window: Electron.BrowserWindow) => Effect.Effect<void>;
@@ -142,6 +147,7 @@ export const make = Effect.gen(function* () {
   const captureRevealWindows = new Set<number>();
   yield* Effect.addFinalizer(() => Effect.sync(() => windowsForegroundFocus?.close()));
   const mainWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+  const auxiliaryWindows = new WeakSet<Electron.BrowserWindow>();
 
   const listWindows = Effect.try({
     try: () => Electron.BrowserWindow.getAllWindows(),
@@ -182,7 +188,9 @@ export const make = Effect.gen(function* () {
       return main;
     }
 
-    const first = Option.fromNullishOr((yield* listWindows)[0] ?? null);
+    const first = Option.fromNullishOr(
+      (yield* listWindows).find((window) => !auxiliaryWindows.has(window)) ?? null,
+    );
     if (Option.isNone(first) || (yield* isWindowDestroyed(first.value))) {
       return Option.none<Electron.BrowserWindow>();
     }
@@ -201,7 +209,11 @@ export const make = Effect.gen(function* () {
           cause,
         }),
     }).pipe(Effect.orDie);
-    if (Option.isSome(focused) && !(yield* isWindowDestroyed(focused.value))) {
+    if (
+      Option.isSome(focused) &&
+      !auxiliaryWindows.has(focused.value) &&
+      !(yield* isWindowDestroyed(focused.value))
+    ) {
       return focused;
     }
     return yield* currentMainOrFirst;
@@ -241,6 +253,7 @@ export const make = Effect.gen(function* () {
     currentMainOrFirst,
     focusedMainOrFirst,
     setMain: (window) => Ref.set(mainWindowRef, Option.some(window)),
+    markAuxiliary: (window) => Effect.sync(() => auxiliaryWindows.add(window)),
     clearMain: (window) =>
       Ref.update(mainWindowRef, (current) => {
         if (Option.isNone(current)) {

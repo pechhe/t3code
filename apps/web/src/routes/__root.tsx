@@ -26,8 +26,10 @@ import { ConnectOnboardingDialog } from "../components/cloud/ConnectOnboardingDi
 import { RelayClientInstallDialog } from "../components/cloud/RelayClientInstallDialog";
 import { SshPasswordPromptDialog } from "../components/desktop/SshPasswordPromptDialog";
 import { SnapShotCoordinator } from "../components/desktop/SnapShotCoordinator";
+import { SnapShotOverlayRoot } from "../components/snapShot/SnapShotOverlay";
 import { DesktopAppActivationCoordinator } from "../components/desktop/DesktopAppActivationCoordinator";
 import { DesktopWebLinkCoordinator } from "../components/desktop/DesktopWebLinkCoordinator";
+import { DesktopOpenThreadCoordinator } from "../components/desktop/DesktopOpenThreadCoordinator";
 import { RunningThreadKeepAlive } from "../components/desktop/RunningThreadKeepAlive";
 import { ProviderUpdateLaunchNotification } from "../components/ProviderUpdateLaunchNotification";
 import { DesktopUpdateLaunchNotice } from "../components/sidebar/updateEverythingRun";
@@ -83,6 +85,7 @@ import {
   type KeybindingsUpdateToastController,
 } from "../components/KeybindingsUpdateToast.logic";
 
+import { isSnapShotOverlaySurface } from "../lib/appSurface";
 import { getDesktopSnapShotBridge } from "../lib/desktopSnapShot";
 import { installDesktopPasteAsText } from "../lib/desktopPasteAsText";
 import { shouldResumeSnapShotSetupOnStartup } from "../lib/snapShotSetupResume";
@@ -109,6 +112,7 @@ export const Route = createRootRoute({
     const authGateState = await resolveInitialServerAuthGateState();
     if (
       authGateState.status === "authenticated" &&
+      !isSnapShotOverlaySurface &&
       getDesktopSnapShotBridge() &&
       shouldResumeSnapShotSetupOnStartup() &&
       location.pathname !== "/settings/snap-shot"
@@ -218,6 +222,25 @@ function RootRouteView() {
     );
   }
 
+  // The SnapShot overlay window shows only its prompt: no sidebar, palette or app-wide
+  // coordinators, which the main window already runs.
+  if (isSnapShotOverlaySurface && primaryEnvironmentAuthenticated) {
+    return (
+      <ToastProvider>
+        <AnchoredToastProvider>
+          <DocumentTitleSync />
+          <ContrastAppearanceSync />
+          <EnvironmentThemeSync />
+          <GlassAppearanceSync />
+          <FontAppearanceSync />
+          <EventRouter skipInitialBootstrapNavigation />
+          <ConfirmDialogHost />
+          <SnapShotOverlayRoot />
+        </AnchoredToastProvider>
+      </ToastProvider>
+    );
+  }
+
   const appShell = (
     <CommandPalette>
       <AppSidebarLayout>
@@ -243,6 +266,7 @@ function RootRouteView() {
           {primaryEnvironmentAuthenticated ? <AuthenticatedTracingBootstrap /> : null}
           {primaryEnvironmentAuthenticated ? <DesktopAppActivationCoordinator /> : null}
           {primaryEnvironmentAuthenticated ? <DesktopWebLinkCoordinator /> : null}
+          {primaryEnvironmentAuthenticated ? <DesktopOpenThreadCoordinator /> : null}
           {isElectron ? <RunningThreadKeepAlive /> : null}
           <RelayClientInstallDialog />
           <ConnectOnboardingDialog />

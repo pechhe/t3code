@@ -16,6 +16,7 @@ import {
   resolveExistingSnapShotTarget,
   resolveSnapShotTargetOnce,
   resolveSnapShotDeliveryTarget,
+  reusableSnapShotTarget,
 } from "./SnapShotCoordinator";
 import {
   beginSnapShotAnimation,
@@ -288,6 +289,15 @@ describe("window capture target resolution", () => {
     const routeThreadRef = scopeThreadRef(environmentId, ThreadId.make("snap-shot-routed-thread"));
 
     expect(resolveExistingSnapShotTarget(routeThreadRef, routeThreadRef)).toEqual(routeThreadRef);
+  });
+
+  it("starts a fresh overlay chat once the last one was sent", () => {
+    const draftId = DraftId.make("snap-shot-overlay-draft");
+    const sentRef = scopeThreadRef(environmentId, ThreadId.make("snap-shot-sent-thread"));
+
+    expect(reusableSnapShotTarget(draftId, true)).toBe(draftId);
+    expect(reusableSnapShotTarget(sentRef, true)).toBeNull();
+    expect(reusableSnapShotTarget(sentRef, false)).toEqual(sentRef);
   });
 });
 

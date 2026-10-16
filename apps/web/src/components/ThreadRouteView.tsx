@@ -7,6 +7,8 @@ import ChatView from "./ChatView";
 import { resolveDraftPromotionNavigationTarget, threadHasStarted } from "./ChatView.logic";
 import { waitForDraftHeroTransition } from "./chat/draftHeroTransition";
 import { SidebarInset } from "./ui/sidebar";
+import { SnapShotOverlayFrame } from "./snapShot/SnapShotOverlay";
+import { isSnapShotOverlaySurface } from "../lib/appSurface";
 import {
   finalizePromotedDraftThreadByRef,
   markPromotedDraftThreadByRef,
@@ -31,6 +33,8 @@ import {
  */
 export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
   const navigate = useNavigate();
+  // The SnapShot overlay has no home page; its start route opens a fresh chat.
+  const homePath = isSnapShotOverlaySurface ? "/snap-shot" : "/";
   const draftId = target.kind === "draft" ? target.draftId : null;
   const draftSession = useComposerDraftStore((store) =>
     draftId === null ? null : store.getDraftSession(draftId),
@@ -129,8 +133,8 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     if (target.kind !== "draft" || draftSession || canonicalThreadRef) {
       return;
     }
-    void navigate({ to: "/", replace: true });
-  }, [canonicalThreadRef, draftSession, navigate, target.kind]);
+    void navigate({ to: homePath, replace: true });
+  }, [canonicalThreadRef, draftSession, homePath, navigate, target.kind]);
 
   useEffect(() => {
     if (target.kind !== "server" || !bootstrapComplete) {
@@ -140,10 +144,10 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
       if (environmentHasAnyThreads) {
-        void navigate({ to: "/", replace: true });
+        void navigate({ to: homePath, replace: true });
       }
     }
-  }, [bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
+  }, [bootstrapComplete, environmentHasAnyThreads, homePath, navigate, renderState, target]);
 
   useEffect(() => {
     if (target.kind !== "server" || !serverThreadStarted || !draftThread) {
@@ -152,6 +156,15 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
     finalizePromotedDraftThreadByRef(target.threadRef);
   }, [draftThread, serverThreadStarted, target]);
 
+  const overlayProps = isSnapShotOverlaySurface
+    ? {
+        presentation: "overlay" as const,
+        // ⌘↵ starts the chat in the background: it opens in the main window, and the
+        // overlay keeps the fresh chat it moved to for the next capture.
+        onBackgroundThreadStarted: (threadRef: ScopedThreadRef) =>
+          void window.desktopBridge?.openThreadInMainWindow?.(threadRef),
+      }
+    : {};
   let view: React.ReactNode = null;
   if (target.kind === "draft") {
     if (draftSession) {
@@ -163,6 +176,7 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
           threadId={draftSession.threadId}
           routeKind="draft"
           forceExpandedMobileComposer
+          {...overlayProps}
         />
       );
     }
@@ -173,7 +187,16 @@ export function ThreadRouteView({ target }: { target: ThreadRouteTarget }) {
         environmentId={target.threadRef.environmentId}
         threadId={target.threadRef.threadId}
         routeKind="server"
+        {...overlayProps}
       />
+    );
+  }
+
+  if (isSnapShotOverlaySurface) {
+    return (
+      <SnapShotOverlayFrame threadRef={target.kind === "server" ? target.threadRef : null}>
+        {view}
+      </SnapShotOverlayFrame>
     );
   }
 

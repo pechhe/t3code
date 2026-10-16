@@ -1,5 +1,7 @@
 import { Debouncer } from "@tanstack/react-pacer";
 
+import { isSnapShotOverlaySurface } from "./appSurface";
+
 export interface StateStorage<R = unknown> {
   getItem: (name: string) => string | null | Promise<string | null>;
   setItem: (name: string, value: string) => R;
@@ -40,6 +42,21 @@ function isStateStorage(
 
 export function resolveStorage(storage: Partial<StateStorage> | null | undefined): StateStorage {
   return isStateStorage(storage) ? storage : createMemoryStorage();
+}
+
+/** Writes are dropped: the storage hydrates from what another window saved. */
+export function createReadOnlyStorage(storage: StateStorage): StateStorage {
+  return {
+    getItem: (name) => storage.getItem(name),
+    setItem: () => undefined,
+    removeItem: () => undefined,
+  };
+}
+
+/** The window's localStorage for persisted stores, read-only in the SnapShot overlay. */
+export function appLocalStorage(): StateStorage {
+  const storage = resolveStorage(typeof localStorage !== "undefined" ? localStorage : undefined);
+  return isSnapShotOverlaySurface ? createReadOnlyStorage(storage) : storage;
 }
 
 export function createDeferredStorage<TValue>(

@@ -111,6 +111,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     currentMainOrFirst: Effect.succeedNone,
     focusedMainOrFirst: Effect.succeedNone,
     setMain: () => Effect.void,
+    markAuxiliary: () => Effect.void,
     clearMain: () => Effect.void,
     prepareReveal: () => Effect.succeed(false),
     reveal: () => Effect.void,

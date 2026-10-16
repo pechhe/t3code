@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as UsageRouteImport } from './routes/usage'
+import { Route as SnapShotRouteImport } from './routes/snap-shot'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ScheduledRouteImport } from './routes/scheduled'
 import { Route as PairRouteImport } from './routes/pair'
@@ -47,6 +48,11 @@ const WelcomeRoute = WelcomeRouteImport.update({
 const UsageRoute = UsageRouteImport.update({
   id: '/usage',
   path: '/usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SnapShotRoute = SnapShotRouteImport.update({
+  id: '/snap-shot',
+  path: '/snap-shot',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -193,6 +199,7 @@ export interface FileRoutesByFullPath {
   '/pair': typeof PairRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/snap-shot': typeof SnapShotRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/new': typeof ChatNewRoute
@@ -222,6 +229,7 @@ export interface FileRoutesByTo {
   '/pair': typeof PairRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/snap-shot': typeof SnapShotRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/new': typeof ChatNewRoute
@@ -254,6 +262,7 @@ export interface FileRoutesById {
   '/pair': typeof PairRoute
   '/scheduled': typeof ScheduledRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/snap-shot': typeof SnapShotRoute
   '/usage': typeof UsageRoute
   '/welcome': typeof WelcomeRoute
   '/_chat/new': typeof ChatNewRoute
@@ -287,6 +296,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/scheduled'
     | '/settings'
+    | '/snap-shot'
     | '/usage'
     | '/welcome'
     | '/new'
@@ -316,6 +326,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/scheduled'
     | '/settings'
+    | '/snap-shot'
     | '/usage'
     | '/welcome'
     | '/new'
@@ -347,6 +358,7 @@ export interface FileRouteTypes {
     | '/pair'
     | '/scheduled'
     | '/settings'
+    | '/snap-shot'
     | '/usage'
     | '/welcome'
     | '/_chat/new'
@@ -379,6 +391,7 @@ export interface RootRouteChildren {
   PairRoute: typeof PairRoute
   ScheduledRoute: typeof ScheduledRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  SnapShotRoute: typeof SnapShotRoute
   UsageRoute: typeof UsageRoute
   WelcomeRoute: typeof WelcomeRoute
   ProjectsProjectKeyRoute: typeof ProjectsProjectKeyRoute
@@ -398,6 +411,13 @@ declare module '@tanstack/react-router' {
       path: '/usage'
       fullPath: '/usage'
       preLoaderRoute: typeof UsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/snap-shot': {
+      id: '/snap-shot'
+      path: '/snap-shot'
+      fullPath: '/snap-shot'
+      preLoaderRoute: typeof SnapShotRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -657,6 +677,7 @@ const rootRouteChildren: RootRouteChildren = {
   PairRoute: PairRoute,
   ScheduledRoute: ScheduledRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  SnapShotRoute: SnapShotRoute,
   UsageRoute: UsageRoute,
   WelcomeRoute: WelcomeRoute,
   ProjectsProjectKeyRoute: ProjectsProjectKeyRoute,

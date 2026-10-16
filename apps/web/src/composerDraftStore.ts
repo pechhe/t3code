@@ -77,7 +77,7 @@ import {
 import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 import { useShallow } from "zustand/react/shallow";
-import { createDeferredStorage, createMemoryStorage } from "./lib/storage";
+import { appLocalStorage, createDeferredStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import {
   replaceComposerContextReferences,
@@ -110,7 +110,7 @@ type ComposerPersistState =
   | PersistedComposerDraftStoreState;
 
 const composerDebouncedStorage = createDeferredStorage<StorageValue<ComposerPersistState>>(
-  typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
+  appLocalStorage(),
   (value) =>
     JSON.stringify({
       state:

@@ -2,6 +2,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
+import { isSnapShotOverlaySurface } from "./lib/appSurface";
 import type { ThemeAppearance, ThemeChoice } from "./themePalette";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
@@ -239,7 +240,7 @@ function sanitizePersistedThreadChangedFilesExpanded(
 }
 
 export function persistState(state: UiState): void {
-  if (typeof window === "undefined") {
+  if (typeof window === "undefined" || isSnapShotOverlaySurface) {
     return;
   }
   try {

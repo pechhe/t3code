@@ -284,6 +284,7 @@ function layerTest(input: {
         ? Ref.get(input.mainWindow)
         : Effect.succeedSome(input.focusedWindow),
     setMain: (window) => Ref.set(input.mainWindow, Option.some(window)),
+    markAuxiliary: () => Effect.void,
     clearMain: () => Ref.set(input.mainWindow, Option.none()),
     prepareReveal: () => Effect.succeed(false),
     reveal: (window) => Effect.sync(() => input.onReveal?.(window)),
@@ -357,13 +358,14 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       (window): window is Electron.BrowserWindow => window !== null,
     );
 
+    const auxiliaryWindows = new Set<unknown>();
     const currentMainOrFirst = Effect.gen(function* () {
       const registered = yield* Ref.get(mainWindow);
       if (Option.isSome(registered)) {
         return registered;
       }
       const created = yield* Ref.get(createdWindows);
-      return Option.fromNullishOr(created[0] ?? null);
+      return Option.fromNullishOr(created.find((window) => !auxiliaryWindows.has(window)) ?? null);
     });
 
     const electronWindowShape = {
@@ -404,6 +406,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
       currentMainOrFirst,
       focusedMainOrFirst: currentMainOrFirst,
       setMain: (window) => Ref.set(mainWindow, Option.some(window)),
+      markAuxiliary: (window) => Effect.sync(() => auxiliaryWindows.add(window)),
       clearMain: () => Ref.set(mainWindow, Option.none()),
       prepareReveal: () => Effect.succeed(false),
       reveal: (window) => Ref.update(revealedWindows, (windows) => [...windows, window]),

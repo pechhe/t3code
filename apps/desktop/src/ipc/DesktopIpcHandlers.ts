@@ -56,6 +56,8 @@ import {
 } from "./methods/window.ts";
 import {
   acknowledgeSnapShot,
+  hideSnapShotOverlay,
+  openThreadInMainWindow,
   checkSnapShotShortcut,
   dismissSnapShotAnimation,
   getSnapShotState,
@@ -116,6 +118,8 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(setSnapShotAnimationDestination);
   yield* ipc.handle(dismissSnapShotAnimation);
   yield* ipc.handle(acknowledgeSnapShot);
+  yield* ipc.handle(hideSnapShotOverlay);
+  yield* ipc.handle(openThreadInMainWindow);
   yield* ipc.handle(setConnectionCatalog);
   yield* ipc.handle(clearConnectionCatalog);
 

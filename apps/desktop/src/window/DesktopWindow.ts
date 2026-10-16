@@ -8,7 +8,11 @@ import * as Ref from "effect/Ref";
 
 import * as Electron from "electron";
 
-import { type DesktopSnapShotEvent, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
+import {
+  type DesktopSnapShotEvent,
+  type ScopedThreadRef,
+  DEFAULT_CLIENT_SETTINGS,
+} from "@t3tools/contracts";
 
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
@@ -20,6 +24,7 @@ import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import {
   MENU_ACTION_CHANNEL,
+  OPEN_THREAD_CHANNEL,
   QUIT_SHORTCUT_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
@@ -34,6 +39,11 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import {
+  snapShotOverlayBounds,
+  snapShotOverlayUrl,
+  snapShotOverlayWindowOptions,
+} from "./SnapShotOverlayWindow.ts";
 
 const TITLEBAR_HEIGHT = 40;
 // Matches --workspace-topbar-height in apps/web/src/index.css. Native macOS
@@ -104,6 +114,24 @@ export class DesktopWindow extends Context.Service<
       action: string,
       options?: { readonly reveal?: boolean },
     ) => Effect.Effect<void, DesktopWindowError>;
+    /** Creates the hidden SnapShot overlay window, so a capture can show it without a load. */
+    readonly prepareSnapShotOverlay: Effect.Effect<void, DesktopWindowError>;
+    readonly closeSnapShotOverlay: Effect.Effect<void>;
+    /** Whether the overlay window exists, so its renderer, not main's, takes captures. */
+    readonly hasSnapShotOverlay: Effect.Effect<boolean>;
+    /**
+     * Places the overlay on the display under the pointer, unless it is already
+     * showing, creating it first if it is missing; returns where it will show.
+     */
+    readonly placeSnapShotOverlay: Effect.Effect<Option.Option<Electron.Rectangle>>;
+    /** Shows the overlay over the front app; false when there is no overlay window. */
+    readonly showSnapShotOverlay: Effect.Effect<boolean>;
+    readonly hideSnapShotOverlay: Effect.Effect<void>;
+    /** The overlay window when these web contents are its renderer. */
+    readonly snapShotOverlayFor: (
+      webContentsId: number,
+    ) => Effect.Effect<Option.Option<Electron.BrowserWindow>>;
+    readonly openThreadInMain: (thread: ScopedThreadRef) => Effect.Effect<void, DesktopWindowError>;
     readonly dispatchSnapShotEvent: (
       event: DesktopSnapShotEvent,
     ) => Effect.Effect<void, DesktopWindowError>;
@@ -312,22 +340,16 @@ export const make = Effect.gen(function* () {
     }
   });
 
-  // currentMainOrFirst / focusedMainOrFirst fall back to "any first window",
-  // which during WSL-only boot is the connecting splash. The splash is never
-  // registered via setMain, so it must be treated as "no real main window" --
-  // otherwise ensureMain/activate/dispatchMenuAction latch onto it and never
-  // open (or retry) the real main.
-  const withoutSplash = (window: Option.Option<Electron.BrowserWindow>) =>
-    Ref.get(splashWindowRef).pipe(
-      Effect.map((splash) =>
-        Option.isSome(splash) && Option.isSome(window) && window.value === splash.value
-          ? Option.none<Electron.BrowserWindow>()
-          : window,
-      ),
-    );
+  const snapShotOverlayRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+  const liveSnapShotOverlay = Ref.get(snapShotOverlayRef).pipe(
+    Effect.map(Option.filter((window) => !window.isDestroyed())),
+  );
 
-  const currentMainWindow = electronWindow.currentMainOrFirst.pipe(Effect.flatMap(withoutSplash));
-  const focusedMainWindow = electronWindow.focusedMainOrFirst.pipe(Effect.flatMap(withoutSplash));
+  // The splash and the SnapShot overlay are auxiliary windows, so these never
+  // latch onto them and ensureMain/activate/dispatchMenuAction still open (or
+  // retry) the real main.
+  const currentMainWindow = electronWindow.currentMainOrFirst;
+  const focusedMainWindow = electronWindow.focusedMainOrFirst;
 
   const createWindow = Effect.fn("desktop.window.createWindow")(function* (): Effect.fn.Return<
     Electron.BrowserWindow,
@@ -809,6 +831,9 @@ export const make = Effect.gen(function* () {
       clearDevelopmentLoadRetry();
       clearBoundsPersist();
       void runPromise(electronWindow.clearMain(Option.some(window)));
+      // A hidden overlay would otherwise keep the app open after its last
+      // visible window closes on Windows and Linux.
+      if (environment.platform !== "darwin") void runPromise(closeSnapShotOverlay);
     });
 
     return window;
@@ -874,6 +899,7 @@ export const make = Effect.gen(function* () {
       },
     });
     yield* rendererHistory.register(splash.webContents, { surface: "splash" });
+    yield* electronWindow.markAuxiliary(splash);
     yield* Ref.set(splashWindowRef, Option.some(splash));
     splash.once("closed", () => {
       void runPromise(Ref.set(splashWindowRef, Option.none()));
@@ -915,6 +941,91 @@ export const make = Effect.gen(function* () {
     }
     yield* dispatch;
   });
+
+  const prepareSnapShotOverlay = Effect.gen(function* () {
+    if (Option.isSome(yield* liveSnapShotOverlay) || (yield* waitingForBackend)) return;
+    const window = yield* electronWindow.create(
+      snapShotOverlayWindowOptions({
+        platform: environment.platform,
+        preloadPath: environment.preloadPath,
+        title: `${environment.displayName} SnapShot`,
+      }),
+    );
+    yield* electronWindow.markAuxiliary(window);
+    yield* rendererHistory.register(window.webContents, { surface: "snap-shot-overlay" });
+    window.setAlwaysOnTop(true, "floating");
+    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    window.webContents.setWindowOpenHandler(({ url }) => {
+      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
+        void runPromise(electronShell.openExternal(url));
+      }
+      return { action: "deny" };
+    });
+    window.webContents.on("will-navigate", (event, url) => {
+      if (isSameOriginRendererNavigation({ applicationUrl, navigationUrl: url })) return;
+      event.preventDefault();
+      if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
+        void runPromise(electronShell.openExternal(url));
+      }
+    });
+    window.webContents.on("render-process-gone", (_event, details) => {
+      void runPromise(
+        logWindowWarning("SnapShot overlay render process gone", { reason: details.reason }),
+      );
+      if (!window.isDestroyed()) window.close();
+    });
+    window.on("closed", () => {
+      void runPromise(
+        Ref.update(snapShotOverlayRef, (current) =>
+          Option.isSome(current) && current.value === window ? Option.none() : current,
+        ),
+      );
+    });
+    yield* Ref.set(snapShotOverlayRef, Option.some(window));
+    void window.loadURL(snapShotOverlayUrl(applicationUrl)).catch(() => undefined);
+    yield* logWindowInfo("SnapShot overlay prepared");
+  }).pipe(Effect.withSpan("desktop.window.prepareSnapShotOverlay"));
+
+  const closeSnapShotOverlay = Effect.gen(function* () {
+    const window = yield* Ref.getAndSet(snapShotOverlayRef, Option.none());
+    if (Option.isSome(window) && !window.value.isDestroyed()) window.value.destroy();
+  }).pipe(Effect.withSpan("desktop.window.closeSnapShotOverlay"));
+
+  const placeSnapShotOverlay = Effect.gen(function* () {
+    yield* prepareSnapShotOverlay.pipe(
+      Effect.catch((error) =>
+        logWindowWarning("failed to prepare the SnapShot overlay", { message: error.message }),
+      ),
+    );
+    const overlay = yield* liveSnapShotOverlay;
+    if (Option.isNone(overlay)) return Option.none<Electron.Rectangle>();
+    const window = overlay.value;
+    if (!window.isVisible()) {
+      const display = Electron.screen.getDisplayNearestPoint(
+        Electron.screen.getCursorScreenPoint(),
+      );
+      window.setBounds(snapShotOverlayBounds(display.workArea));
+    }
+    return Option.some(window.getBounds());
+  }).pipe(Effect.withSpan("desktop.window.placeSnapShotOverlay"));
+
+  const showSnapShotOverlay = Effect.gen(function* () {
+    const overlay = yield* liveSnapShotOverlay;
+    if (Option.isNone(overlay)) return false;
+    const window = overlay.value;
+    if (environment.platform === "win32") {
+      yield* electronWindow.reveal(window).pipe(Effect.ignoreCause);
+    } else {
+      window.show();
+    }
+    window.webContents.focus();
+    return true;
+  }).pipe(Effect.withSpan("desktop.window.showSnapShotOverlay"));
+
+  const hideSnapShotOverlay = Effect.gen(function* () {
+    const overlay = yield* liveSnapShotOverlay;
+    if (Option.isSome(overlay) && overlay.value.isVisible()) overlay.value.hide();
+  }).pipe(Effect.withSpan("desktop.window.hideSnapShotOverlay"));
 
   return DesktopWindow.of({
     createMain,
@@ -959,11 +1070,36 @@ export const make = Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan({ action });
       yield* dispatchRendererEvent(MENU_ACTION_CHANNEL, action, options);
     }),
+    prepareSnapShotOverlay,
+    closeSnapShotOverlay,
+    hasSnapShotOverlay: liveSnapShotOverlay.pipe(Effect.map(Option.isSome)),
+    placeSnapShotOverlay,
+    showSnapShotOverlay,
+    hideSnapShotOverlay,
+    snapShotOverlayFor: (webContentsId) =>
+      liveSnapShotOverlay.pipe(
+        Effect.map(Option.filter((window) => window.webContents.id === webContentsId)),
+      ),
+    openThreadInMain: Effect.fn("desktop.window.openThreadInMain")(function* (thread) {
+      yield* dispatchRendererEvent(OPEN_THREAD_CHANNEL, thread);
+      yield* hideSnapShotOverlay;
+    }),
     dispatchSnapShotEvent: Effect.fn("desktop.window.dispatchSnapShotEvent")(function* (event) {
       yield* Effect.annotateCurrentSpan({
         event: event.type,
         captureId: "id" in event ? (event.id ?? null) : null,
       });
+      // With an overlay, captures go to it and the main window stays where it is.
+      const overlay = yield* liveSnapShotOverlay;
+      if (Option.isSome(overlay)) {
+        const contents = overlay.value.webContents;
+        const send = () => {
+          if (!contents.isDestroyed()) contents.send(SNAP_SHOT_EVENT_CHANNEL, event);
+        };
+        if (contents.isLoadingMainFrame()) contents.once("did-finish-load", send);
+        else send();
+        return;
+      }
       yield* dispatchRendererEvent(SNAP_SHOT_EVENT_CHANNEL, event, {
         reveal: event.type === "started",
       });

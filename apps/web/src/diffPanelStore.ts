@@ -3,7 +3,7 @@ import type { RunId, ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { resolveStorage } from "./lib/storage";
+import { appLocalStorage } from "./lib/storage";
 
 export type DiffPanelSelection =
   | { kind: "branch"; baseRef: string | null }
@@ -119,9 +119,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     {
       name: "t3code:diff-panel-state:v1",
       version: 2,
-      storage: createJSONStorage(() =>
-        resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
-      ),
+      storage: createJSONStorage(() => appLocalStorage()),
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,

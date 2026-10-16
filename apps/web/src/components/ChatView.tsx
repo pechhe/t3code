@@ -840,6 +840,12 @@ function isCompactCommandMessage(message: ChatMessage): boolean {
   return message.role === "user" && text === "/compact" && !message.attachments?.length;
 }
 
+/**
+ * `overlay` is the SnapShot overlay's compact chat: the timeline and composer only, without the
+ * header, side panels, terminal or draft hero.
+ */
+type ChatViewPresentation = "app" | "overlay";
+
 type ChatViewProps =
   | {
       environmentId: EnvironmentId;
@@ -847,6 +853,8 @@ type ChatViewProps =
       onDiffPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
+      presentation?: ChatViewPresentation;
+      onBackgroundThreadStarted?: (threadRef: ScopedThreadRef) => void;
       routeKind: "server";
       draftId?: never;
     }
@@ -856,6 +864,8 @@ type ChatViewProps =
       onDiffPanelOpen?: () => void;
       reserveTitleBarControlInset?: boolean;
       forceExpandedMobileComposer?: boolean;
+      presentation?: ChatViewPresentation;
+      onBackgroundThreadStarted?: (threadRef: ScopedThreadRef) => void;
       routeKind: "draft";
       draftId: DraftId;
     };
@@ -1674,7 +1684,10 @@ export default function ChatView(props: ChatViewProps) {
     onDiffPanelOpen,
     reserveTitleBarControlInset = true,
     forceExpandedMobileComposer = false,
+    presentation = "app",
+    onBackgroundThreadStarted,
   } = props;
+  const overlayPresentation = presentation === "overlay";
   const canOperateThread = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperateTerminal = useEnvironmentScope(environmentId, AuthTerminalOperateScope);
   const hasTerminalWriteAccess = () =>
@@ -2402,11 +2415,11 @@ export default function ChatView(props: ChatViewProps) {
         : randomUUID(),
     );
   const previewPanelOpen = activeRightPanelKind === "preview" && browserAvailable;
-  const rightPanelOpen = rightPanelState.isOpen;
+  const rightPanelOpen = !overlayPresentation && rightPanelState.isOpen;
   const { active: panelAnimationsActive, durationMs: panelAnimationDurationMs } =
     usePanelAnimationSettings();
   const activeTerminalDrawerPresence = usePanelPresence(
-    Boolean(activeThreadKey && terminalUiState.terminalOpen),
+    Boolean(!overlayPresentation && activeThreadKey && terminalUiState.terminalOpen),
     true,
     panelAnimationsActive,
     activeThreadKey,
@@ -4056,14 +4069,16 @@ export default function ChatView(props: ChatViewProps) {
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
   const draftHeroDockRequested =
     activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
-  const isDraftHeroState = resolveDraftHeroState({
-    isLocalDraftThread,
-    hasTimelineEntries: timelineEntries.length > 0,
-    isWorking,
-    draftHeroDockRequested,
-    backgroundSubmissionPending,
-    hasWorktreeSetupCard: worktreeSetup !== null,
-  });
+  const isDraftHeroState =
+    !overlayPresentation &&
+    resolveDraftHeroState({
+      isLocalDraftThread,
+      hasTimelineEntries: timelineEntries.length > 0,
+      isWorking,
+      draftHeroDockRequested,
+      backgroundSubmissionPending,
+      hasWorktreeSetupCard: worktreeSetup !== null,
+    });
   // The glide is part of the send motion: the first message lifts out as the composer docks.
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const sendMotionActive =
@@ -9750,7 +9765,9 @@ export default function ChatView(props: ChatViewProps) {
           } else {
             clearBackgroundDraftSubmissionByRef(backgroundThreadRef);
           }
-          if (backgroundDraftOpened) {
+          if (backgroundDraftOpened && onBackgroundThreadStarted) {
+            onBackgroundThreadStarted(backgroundThreadRef);
+          } else if (backgroundDraftOpened) {
             toastManager.add(
               stackedThreadToast({
                 type: "success",
@@ -11027,57 +11044,59 @@ export default function ChatView(props: ChatViewProps) {
         )}
         data-chat-column-maximized-away={rightPanelMaximized ? "true" : "false"}
       >
-        <header
-          ref={threadPanelPopoverAnchorRef}
-          data-chat-header
-          className={cn(
-            "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
-            isElectron
-              ? cn(
-                  "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
-                  reserveTitleBarControlInset &&
-                    !inlineRightPanelOwnsTitleBar &&
-                    "wco:pr-(--workspace-native-controls-inset)",
-                )
-              : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
-            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
-          )}
-        >
-          {isElectron && rightPanelControlsAtRoot ? (
-            <span
-              aria-hidden
-              className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
-            />
-          ) : null}
-          {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
-          {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
-          <ChatHeader
-            activeThreadEnvironmentId={activeThread.environmentId}
-            activeThreadId={activeThread.id}
-            isServerThread={isServerThread}
-            activeThreadTitle={activeThread.title}
-            activeProject={activeProject ?? null}
-            workflow={activeThreadShell?.workflow}
-            parentThreadLink={parentThreadLink}
-            onOpenThread={onOpenRelatedThreadStable}
-            rightPanelOpen={inlineRightPanelOwnsTitleBar}
-            onNewThreadInProject={handleNewThreadInActiveProjectStable}
-            {...(activeDraftLogicalProjectKey
-              ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
-              : {})}
-          />
-          {isServerThread ? (
-            <SlipJayRunnerControl
-              environmentId={activeThread.environmentId}
-              releaseProject={
-                isSlipJayProject && activeProject
-                  ? { cwd: activeProject.workspaceRoot, name: activeProject.title }
-                  : null
-              }
+        {overlayPresentation ? null : (
+          <header
+            ref={threadPanelPopoverAnchorRef}
+            data-chat-header
+            className={cn(
+              "relative bg-background [[data-panel-animations=true]_&]:motion-safe:transition-[padding-left] [[data-panel-animations=true]_&]:motion-safe:duration-(--panel-animation-duration) [[data-panel-animations=true]_&]:motion-safe:ease-out",
+              isElectron
+                ? cn(
+                    "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
+                    reserveTitleBarControlInset &&
+                      !inlineRightPanelOwnsTitleBar &&
+                      "wco:pr-(--workspace-native-controls-inset)",
+                  )
+                : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
+              COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            )}
+          >
+            {isElectron && rightPanelControlsAtRoot ? (
+              <span
+                aria-hidden
+                className="pointer-events-none fixed top-[var(--workspace-controls-top)] right-[var(--workspace-controls-right)] h-[var(--workspace-topbar-height)] w-28 [-webkit-app-region:no-drag]"
+              />
+            ) : null}
+            {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
+            {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
+            <ChatHeader
+              activeThreadEnvironmentId={activeThread.environmentId}
+              activeThreadId={activeThread.id}
+              isServerThread={isServerThread}
+              activeThreadTitle={activeThread.title}
+              activeProject={activeProject ?? null}
+              workflow={activeThreadShell?.workflow}
+              parentThreadLink={parentThreadLink}
               onOpenThread={onOpenRelatedThreadStable}
+              rightPanelOpen={inlineRightPanelOwnsTitleBar}
+              onNewThreadInProject={handleNewThreadInActiveProjectStable}
+              {...(activeDraftLogicalProjectKey
+                ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
+                : {})}
             />
-          ) : null}
-        </header>
+            {isServerThread ? (
+              <SlipJayRunnerControl
+                environmentId={activeThread.environmentId}
+                releaseProject={
+                  isSlipJayProject && activeProject
+                    ? { cwd: activeProject.workspaceRoot, name: activeProject.title }
+                    : null
+                }
+                onOpenThread={onOpenRelatedThreadStable}
+              />
+            ) : null}
+          </header>
+        )}
 
         <div className="relative flex min-h-0 min-w-0 flex-1">
           <ThreadFindCanvas
@@ -11297,20 +11316,24 @@ export default function ChatView(props: ChatViewProps) {
                   : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
               }
             >
-              <UsageCorner
-                overlay={composerOverlayElement}
-                above={
-                  activeThreadShell !== null && !activeThreadShell.sideChat && canOperateThread ? (
-                    <SideChatCard
-                      key={activeThreadShell.id}
-                      parent={activeThreadShell}
-                      cwd={gitCwd ?? undefined}
-                      instanceEntries={providerInstanceEntries}
-                      onUseInMain={insertSideChatAnswer}
-                    />
-                  ) : null
-                }
-              />
+              {overlayPresentation ? null : (
+                <UsageCorner
+                  overlay={composerOverlayElement}
+                  above={
+                    activeThreadShell !== null &&
+                    !activeThreadShell.sideChat &&
+                    canOperateThread ? (
+                      <SideChatCard
+                        key={activeThreadShell.id}
+                        parent={activeThreadShell}
+                        cwd={gitCwd ?? undefined}
+                        instanceEntries={providerInstanceEntries}
+                        onUseInMain={insertSideChatAnswer}
+                      />
+                    ) : null
+                  }
+                />
+              )}
               <div
                 ref={draftHeroTransition.transitionGroupRef}
                 className="chat-composer-lane w-full"
@@ -11631,7 +11654,8 @@ export default function ChatView(props: ChatViewProps) {
             {canOperatePreview && activeThreadRef && activeEnvironmentServerBrowser ? (
               <PreviewSessionSync threadRef={activeThreadRef} />
             ) : null}
-            {activeThreadRef &&
+            {!overlayPresentation &&
+            activeThreadRef &&
             activePreviewMiniPlayer &&
             previewMiniPlayerVisible &&
             (activePreviewMiniPlayer.source.kind === "device" || canOperatePreview) ? (
@@ -11694,24 +11718,26 @@ export default function ChatView(props: ChatViewProps) {
           </ThreadFindCanvas>
         </div>
 
-        {mountedTerminalThreadRefs.map(({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
-          <PersistentThreadTerminalDrawer
-            key={mountedThreadKey}
-            threadRef={mountedThreadRef}
-            threadId={mountedThreadRef.threadId}
-            active={mountedThreadKey === activeThreadKey}
-            launchContext={
-              mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
-            }
-            focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
-            splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
-            splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
-            newShortcutLabel={newTerminalShortcutLabel ?? undefined}
-            closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
-            keybindings={keybindings}
-            onAddTerminalContext={addTerminalContextToDraft}
-          />
-        ))}
+        {(overlayPresentation ? [] : mountedTerminalThreadRefs).map(
+          ({ key: mountedThreadKey, threadRef: mountedThreadRef }) => (
+            <PersistentThreadTerminalDrawer
+              key={mountedThreadKey}
+              threadRef={mountedThreadRef}
+              threadId={mountedThreadRef.threadId}
+              active={mountedThreadKey === activeThreadKey}
+              launchContext={
+                mountedThreadKey === activeThreadKey ? (activeTerminalLaunchContext ?? null) : null
+              }
+              focusRequestId={mountedThreadKey === activeThreadKey ? terminalFocusRequestId : 0}
+              splitShortcutLabel={splitTerminalShortcutLabel ?? undefined}
+              splitVerticalShortcutLabel={splitTerminalVerticalShortcutLabel ?? undefined}
+              newShortcutLabel={newTerminalShortcutLabel ?? undefined}
+              closeShortcutLabel={closeTerminalShortcutLabel ?? undefined}
+              keybindings={keybindings}
+              onAddTerminalContext={addTerminalContextToDraft}
+            />
+          ),
+        )}
       </div>
 
       {rightPanelPresent && !shouldUsePlanSidebarSheet && activeThreadRef ? (

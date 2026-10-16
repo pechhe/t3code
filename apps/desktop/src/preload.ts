@@ -134,6 +134,9 @@ contextBridge.exposeInMainWorld("desktopBridge", {
   dismissSnapShotAnimation: (id) =>
     ipcRenderer.invoke(IpcChannels.DISMISS_SNAP_SHOT_ANIMATION_CHANNEL, id),
   acknowledgeSnapShot: (id) => ipcRenderer.invoke(IpcChannels.ACKNOWLEDGE_SNAP_SHOT_CHANNEL, id),
+  hideSnapShotOverlay: () => ipcRenderer.invoke(IpcChannels.HIDE_SNAP_SHOT_OVERLAY_CHANNEL),
+  openThreadInMainWindow: (thread) =>
+    ipcRenderer.invoke(IpcChannels.OPEN_THREAD_IN_MAIN_WINDOW_CHANNEL, thread),
   getConnectionCatalog: () => ipcRenderer.invoke(IpcChannels.GET_CONNECTION_CATALOG_CHANNEL),
   setConnectionCatalog: (catalog) =>
     ipcRenderer.invoke(IpcChannels.SET_CONNECTION_CATALOG_CHANNEL, catalog),
@@ -225,6 +228,25 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.on(IpcChannels.SNAP_SHOT_EVENT_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(IpcChannels.SNAP_SHOT_EVENT_CHANNEL, wrappedListener);
+    };
+  },
+  onOpenThread: (listener) => {
+    const wrappedListener = (_event: Electron.IpcRendererEvent, thread: unknown) => {
+      if (
+        typeof thread !== "object" ||
+        thread === null ||
+        !("environmentId" in thread) ||
+        !("threadId" in thread) ||
+        typeof thread.environmentId !== "string" ||
+        typeof thread.threadId !== "string"
+      ) {
+        return;
+      }
+      listener(thread as Parameters<typeof listener>[0]);
+    };
+    ipcRenderer.on(IpcChannels.OPEN_THREAD_CHANNEL, wrappedListener);
+    return () => {
+      ipcRenderer.removeListener(IpcChannels.OPEN_THREAD_CHANNEL, wrappedListener);
     };
   },
   onQuitShortcut: (listener) => {
