@@ -375,6 +375,25 @@ export const OrchestrationV2RolloverHold = Schema.Union([
 export type OrchestrationV2RolloverHold = typeof OrchestrationV2RolloverHold.Type;
 
 /**
+ * The workflow governing a thread and whether it runs unattended, as the
+ * agent's own instructions define them. Absent or null means none recorded.
+ */
+export const OrchestrationV2ThreadWorkflowKind = Schema.Literals([
+  "lead",
+  "shape",
+  "solo",
+  "chat",
+  "worker",
+]);
+export type OrchestrationV2ThreadWorkflowKind = typeof OrchestrationV2ThreadWorkflowKind.Type;
+
+export const OrchestrationV2ThreadWorkflow = Schema.Struct({
+  kind: OrchestrationV2ThreadWorkflowKind,
+  unattended: Schema.Boolean,
+});
+export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;
+
+/**
  * One thread's own context rollover thresholds, in tokens, set by dragging the
  * composer's rollover band. Absent or null follows the server settings.
  */
@@ -441,6 +460,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
+  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
   // payloads from pre-reorder servers still decode.
@@ -605,6 +625,8 @@ export const OrchestrationV2Run = Schema.Struct({
   providerInstanceId: ProviderInstanceId,
   modelSelection: ModelSelection,
   providerThreadId: Schema.NullOr(ProviderThreadId),
+  /** The thread's governing workflow when this run started; absent before it started. */
+  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   userMessageId: MessageId,
   rootNodeId: Schema.NullOr(NodeId),
   activeAttemptId: Schema.NullOr(RunAttemptId),
@@ -2079,6 +2101,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
+  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   /** Slot in the user-arranged pinned order; omitted by pre-reorder servers. */
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2955,6 +2978,8 @@ export const OrchestrationV2Command = Schema.Union([
     linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
     /** Keep a side chat as an ordinary fork. A thread cannot become a side chat. */
     keepSideChat: Schema.optional(Schema.Literal(true)),
+    /** Set (object) or clear (null) the governing workflow; absent leaves it unchanged. */
+    workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),

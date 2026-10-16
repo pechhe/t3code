@@ -134,6 +134,8 @@ export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly regenerateTitle?: boolean;
   /** Link (object) or unlink (null) a pull request (#8160). */
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
+  /** Set (object) or clear (null) the thread's governing workflow. */
+  readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
   /** Apply only while no message or run has landed on the thread. */
   readonly expectedEmpty?: boolean;
 }
@@ -611,7 +613,8 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
       input.worktreePath !== undefined ||
       input.regenerateTitle !== undefined ||
       input.linkedPullRequest !== undefined ||
-      input.limitRecovery !== undefined
+      input.limitRecovery !== undefined ||
+      input.workflow !== undefined
     ) {
       result = yield* dispatch({
         type: "thread.metadata.update",
@@ -626,6 +629,7 @@ export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadM
         ...(input.linkedPullRequest === undefined
           ? {}
           : { linkedPullRequest: input.linkedPullRequest }),
+        ...(input.workflow === undefined ? {} : { workflow: input.workflow }),
       });
     }
     if (input.modelSelection !== undefined) {

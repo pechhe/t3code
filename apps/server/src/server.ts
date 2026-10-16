@@ -14,6 +14,7 @@ import * as Random from "effect/Random";
 import * as Semaphore from "effect/Semaphore";
 import * as StorageCleanup from "./storageCleanup.ts";
 import * as ContextRolloverReactor from "./orchestration-v2/ContextRolloverReactor.ts";
+import * as RunSetupRecorder from "./agents/RunSetupRecorder.ts";
 import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReactor.ts";
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
@@ -597,6 +598,16 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* service.start();
     }),
   ).pipe(Layer.provide(ContextRolloverReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* RunSetupRecorder.RunSetupRecorder).start();
+    }),
+  ).pipe(
+    Layer.provide(RunSetupRecorder.layer),
+    Layer.provide(ProjectionStoreV2.layer),
+    Layer.provide(ProjectStore.layer),
+    Layer.provide(ProcessRunner.layer),
+  ),
   Layer.effectDiscard(
     Effect.gen(function* () {
       const service = yield* PullRequestWatchReactor.PullRequestWatchReactor;

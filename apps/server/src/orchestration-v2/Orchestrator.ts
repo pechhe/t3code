@@ -3139,6 +3139,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(command.branch === undefined ? {} : { branch: command.branch }),
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
             ...(command.keepSideChat === true ? { sideChat: false } : {}),
+            ...(command.workflow === undefined ? {} : { workflow: command.workflow }),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {

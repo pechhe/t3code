@@ -46,6 +46,7 @@ import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
 import * as SecretRequests from "../../secrets/SecretRequests.ts";
 import * as ScheduledTaskService from "../../scheduledTasks/ScheduledTaskService.ts";
+import * as RunSetupRecorder from "../../agents/RunSetupRecorder.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import * as McpHttpServer from "../McpHttpServer.ts";
 import * as McpInvocationContext from "../McpInvocationContext.ts";
@@ -91,6 +92,7 @@ const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadR
 const layerThreadToolkit = McpHttpServer.layerThreadToolkit.pipe(
   Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
   Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+  Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
 );
 
 it("publishes unique tool names with reference-free object-root inputs", () => {
@@ -670,6 +672,7 @@ it.effect(
             }),
           ),
           Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
+          Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
           Layer.provideMerge(McpServer.McpServer.layer),
           Layer.provide(
             Layer.merge(

@@ -19,6 +19,7 @@ import {
   readThread,
   unavailable,
 } from "../../threadAccess.ts";
+import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -192,6 +193,22 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         modelSelection: thread.modelSelection,
         runtimeMode: thread.runtimeMode,
         interactionMode: thread.interactionMode,
+      };
+    }),
+  ),
+  t3_thread_setup: McpToolAccess.reads((input) =>
+    Effect.gen(function* () {
+      const { projection } = yield* readThread(input.threadId, ["turnItems"]);
+      const store = yield* RunSetupRecorder.RunSetupStore;
+      const records = yield* store
+        .list(projection.thread.id, input.limit ?? 10)
+        .pipe(Effect.mapError(unavailable));
+      return {
+        threadId: projection.thread.id,
+        runs: records.map((record) => ({
+          ...record,
+          invokedSkills: RunSetupRecorder.invokedSkills(projection.turnItems, record.runId),
+        })),
       };
     }),
   ),

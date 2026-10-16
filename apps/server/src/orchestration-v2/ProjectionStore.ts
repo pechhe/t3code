@@ -1618,6 +1618,7 @@ export function threadShellFromProjection(
     titleRegeneration: projection.thread.titleRegeneration ?? null,
     limitRecovery: projection.thread.limitRecovery ?? null,
     rolloverHold: projection.thread.rolloverHold ?? null,
+    workflow: projection.thread.workflow ?? null,
     rolloverThresholds: projection.thread.rolloverThresholds ?? null,
     deletedAt: projection.thread.deletedAt,
   };
@@ -1885,6 +1886,7 @@ function shellFromState(input: {
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
     limitRecovery: input.state.thread.limitRecovery ?? null,
     rolloverHold: input.state.thread.rolloverHold ?? null,
+    workflow: input.state.thread.workflow ?? null,
     rolloverThresholds: input.state.thread.rolloverThresholds ?? null,
     deletedAt: input.state.thread.deletedAt,
   };

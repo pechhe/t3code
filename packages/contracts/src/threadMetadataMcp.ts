@@ -8,6 +8,7 @@ import {
   ThreadId,
   TrimmedNonEmptyString,
 } from "./baseSchemas.ts";
+import { OrchestrationV2ThreadWorkflow } from "./orchestrationV2.ts";
 import { ThreadLinkedPullRequest } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
 
@@ -63,9 +64,10 @@ export const ThreadMetadataMcpAction = Schema.Literals([
   "regenerate_title",
   "link_pull_request",
   "unlink_pull_request",
+  "set_workflow",
 ]).annotate({
   description:
-    "Metadata mutation: rename, regenerate_title, link_pull_request, or unlink_pull_request.",
+    "Metadata mutation: rename, regenerate_title, link_pull_request, unlink_pull_request, or set_workflow.",
 });
 export type ThreadMetadataMcpAction = typeof ThreadMetadataMcpAction.Type;
 
@@ -87,9 +89,21 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   pullRequest: Schema.optional(ThreadMetadataMcpPullRequest).annotate({
     description: "Pull request to link. Required only when action is link_pull_request.",
   }),
+  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)).annotate({
+    description:
+      "Governing workflow (kind: lead, shape, solo, chat or worker) and whether it runs unattended. Required only when action is set_workflow; null clears it.",
+  }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
   Schema.makeFilter((input) => {
+    if (input.action === "set_workflow") {
+      return input.workflow !== undefined &&
+        input.title === undefined &&
+        input.pullRequest === undefined
+        ? true
+        : "set_workflow requires workflow (null to clear) and does not accept title or pullRequest.";
+    }
+    if (input.workflow !== undefined) return `${input.action} does not accept workflow.`;
     switch (input.action) {
       case "rename":
         return input.title !== undefined && input.pullRequest === undefined
@@ -117,6 +131,7 @@ export const ThreadMetadataMcpUpdateResult = Schema.Struct({
   title: Schema.String,
   titleRegeneration: Schema.NullOr(ThreadTitleRegeneration),
   linkedPullRequest: Schema.NullOr(ThreadLinkedPullRequest),
+  workflow: Schema.NullOr(OrchestrationV2ThreadWorkflow),
   updatedAt: IsoDateTime,
 });
 export type ThreadMetadataMcpUpdateResult = typeof ThreadMetadataMcpUpdateResult.Type;

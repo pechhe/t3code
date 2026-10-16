@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema";
 import {
   ContextRolloverNotes,
   ROLLOVER_NOTE_MAX_BYTES,
+  ROLLOVER_NOTE_RECIPE,
   assignedRolloverThresholds,
 } from "./ContextRollover.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
@@ -119,7 +120,7 @@ const make = Effect.gen(function* () {
             id: `rollover-note:${assignment.id}:${run.id}:${Buffer.from(digest).toString("hex")}`,
             assignmentId: assignment.id,
             episodeId: `rollover:${assignment.id}:${run.id}`,
-            recipeRevision: "rollover-v1",
+            recipeRevision: ROLLOVER_NOTE_RECIPE,
             runId: run.id,
             phase: "action",
             source: "agent",

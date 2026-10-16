@@ -18,11 +18,13 @@ import {
   RunId,
   NonNegativeInt,
   ProjectId,
+  RunSetupRecord,
 } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
+import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
@@ -190,6 +192,24 @@ const ThreadConfigurationTool = Tool.make("t3_thread_configuration", {
 })
   .annotate(Tool.Readonly, true)
   .annotate(Tool.Destructive, false);
+const ThreadSetupTool = Tool.make("t3_thread_setup", {
+  ...commandTool,
+  dependencies: [...commandTool.dependencies, RunSetupRecorder.RunSetupStore],
+  description:
+    "Read the setup a thread's recent runs started with: agent-config revision, instruction and skill hashes, policy, model and effective options, workflow, rollover settings and experiment assignments, plus the skills each run invoked. Omit threadId for this thread. Null means T3 could not observe it; runs from before capture have no record.",
+  parameters: Schema.Struct({
+    threadId: Schema.optional(ThreadId),
+    limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+  }),
+  success: Schema.Struct({
+    threadId: ThreadId,
+    runs: Schema.Array(
+      Schema.Struct({ ...RunSetupRecord.fields, invokedSkills: Schema.Array(Schema.String) }),
+    ),
+  }),
+})
+  .annotate(Tool.Readonly, true)
+  .annotate(Tool.Destructive, false);
 const ThreadConfigureTool = Tool.make("t3_thread_configure", {
   ...commandTool,
   description:
@@ -280,6 +300,7 @@ export const ThreadToolkit = Toolkit.make(
   ThreadMergeBackTool,
   ThreadTransfersTool,
   ThreadConfigurationTool,
+  ThreadSetupTool,
   ThreadConfigureTool,
   PendingRequestListTool,
   PendingRequestReadTool,

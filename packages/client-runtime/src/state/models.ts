@@ -136,6 +136,8 @@ export interface EnvironmentThreadShell {
   readonly pinnedAt: string | null;
   readonly autoSettleDisabledAt?: string | null;
   readonly rolloverHold?: import("@t3tools/contracts").OrchestrationV2RolloverHold | null;
+  /** Governing workflow and unattended stance the thread's agent last recorded. */
+  readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
   /** The thread's own rollover thresholds, set from its composer. */
   readonly rolloverThresholds?:
     | import("@t3tools/contracts").OrchestrationV2ThreadRolloverThresholds
@@ -292,6 +294,7 @@ export function presentThreadShell(
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
     rolloverHold: thread.rolloverHold ?? null,
+    workflow: thread.workflow ?? null,
     rolloverThresholds: thread.rolloverThresholds ?? null,
     pinOrderKey: thread.pinOrderKey ?? null,
     activeOrderKey: thread.activeOrderKey ?? null,

@@ -104,6 +104,13 @@ function metadataCommand(input: {
         threadId: input.threadId,
         linkedPullRequest: null,
       };
+    case "set_workflow":
+      return {
+        type: "thread.metadata.update",
+        commandId: input.commandId,
+        threadId: input.threadId,
+        workflow: input.update.workflow ?? null,
+      };
   }
 }
 
@@ -127,6 +134,7 @@ function resultFromThread(input: {
             startedAt: DateTime.formatIso(input.thread.titleRegeneration.startedAt),
           },
     linkedPullRequest: input.thread.linkedPullRequest ?? null,
+    workflow: input.thread.workflow ?? null,
     updatedAt: DateTime.formatIso(input.thread.updatedAt),
   };
 }

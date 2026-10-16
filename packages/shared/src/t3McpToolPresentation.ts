@@ -174,6 +174,16 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   ),
   t3_worktree_status: tool(["Get", "Getting", "Got", "thread worktree status"], "worktree-status"),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
+  preview_handoff: tool(
+    ["Hand over", "Handing over", "Handed over", "the preview browser"],
+    "browser",
+    "browser",
+  ),
+  preview_resume: tool(
+    ["Resume", "Resuming", "Resumed", "the preview browser"],
+    "browser",
+    "browser",
+  ),
   preview_open: tool(
     ["Open", "Opening", "Opened", "a page in the preview browser"],
     "browser",
@@ -302,6 +312,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     ["Read", "Reading", "Read", "thread configuration"],
     "thread-configuration",
   ),
+  t3_thread_setup: tool(["Read", "Reading", "Read", "run setup"], "thread-configuration"),
   t3_thread_configure: tool(["Set", "Setting", "Set", "thread model"], "thread-configure"),
   t3_thread_fork: tool(["Fork", "Forking", "Requested a fork of", "this thread"], "thread-fork"),
   t3_thread_merge_back: tool(

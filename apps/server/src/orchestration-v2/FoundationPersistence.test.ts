@@ -1679,6 +1679,84 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     }).pipe(Effect.provide(Layer.fresh(layerTest))),
   );
 
+  it.effect("stamps a starting run with the workflow in force at its start commit", () =>
+    Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread:foundation-run-workflow");
+      const runId = RunId.make("run:foundation-run-workflow");
+      const attemptId = RunAttemptId.make("run-attempt:foundation-run-workflow");
+      const thread: OrchestrationV2AppThread = {
+        ...makeThread(threadId, now),
+        workflow: { kind: "lead", unattended: false },
+      };
+      const startingRun: OrchestrationV2Run = {
+        id: runId,
+        threadId,
+        ordinal: 1,
+        providerInstanceId,
+        modelSelection,
+        providerThreadId: null,
+        userMessageId: MessageId.make("message:foundation-run-workflow"),
+        rootNodeId: null,
+        activeAttemptId: attemptId,
+        status: "starting",
+        queuePosition: null,
+        requestedAt: now,
+        startedAt: null,
+        completedAt: null,
+        checkpointId: null,
+        contextHandoffId: null,
+      };
+      yield* eventSink.write({
+        events: [
+          threadCreatedEvent({ id: "event:foundation-run-workflow:thread", thread, now }),
+          {
+            id: EventId.make("event:foundation-run-workflow:run"),
+            type: "run.created",
+            threadId,
+            runId,
+            providerInstanceId,
+            occurredAt: now,
+            payload: startingRun,
+          },
+          // The owner changes the workflow while the provider session is opening.
+          {
+            id: EventId.make("event:foundation-run-workflow:metadata"),
+            type: "thread.metadata-updated",
+            threadId,
+            providerInstanceId,
+            occurredAt: now,
+            payload: { ...thread, workflow: { kind: "shape", unattended: true } },
+          },
+        ],
+      });
+
+      const start = yield* eventSink.writeIfRunCurrent({
+        threadId,
+        runId,
+        activeAttemptId: attemptId,
+        expectedStatus: "starting",
+        events: [
+          {
+            id: EventId.make("event:foundation-run-workflow:running"),
+            type: "run.updated",
+            threadId,
+            runId,
+            providerInstanceId,
+            occurredAt: now,
+            payload: { ...startingRun, status: "running", startedAt: now },
+          },
+        ],
+      });
+
+      assert.isTrue(start.committed);
+      const projection = yield* projectionStore.getThreadProjection(threadId);
+      assert.deepEqual(projection.runs[0]?.workflow, { kind: "shape", unattended: true });
+    }).pipe(Effect.provide(Layer.fresh(layerTest))),
+  );
+
   it.effect("guards post-terminal provider-thread writes by attempt and run ordinal", () =>
     Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;

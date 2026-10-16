@@ -21,6 +21,7 @@ import * as PullRequestReviewGuideService from "../../../pullRequest/PullRequest
 import * as ProjectSetupScriptRunner from "../../../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
+import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import * as ServerSettings from "../../../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
@@ -44,6 +45,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ProviderRegistry.ProviderRegistry)({}),
   Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
   Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+  Layer.mock(RunSetupRecorder.RunSetupStore)({}),
   Layer.mock(SecretRequests.SecretRequests)({}),
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),

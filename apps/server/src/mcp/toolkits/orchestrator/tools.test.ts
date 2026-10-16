@@ -84,6 +84,7 @@ describe("orchestrator MCP tool guidance", () => {
       "action",
       "title",
       "pullRequest",
+      "workflow",
       "clientRequestId",
     ]);
     assert.include(ThreadUpdateTool.description ?? "", "Workspace and branch changes");

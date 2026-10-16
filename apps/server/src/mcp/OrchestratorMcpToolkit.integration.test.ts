@@ -31,6 +31,7 @@ import {
   ProviderThreadId,
   ProviderTurnId,
   type ScheduledTask,
+  RunId,
   RuntimeRequestId,
   ScheduledTaskId,
   type ScheduledTaskUpsertInput,
@@ -77,6 +78,7 @@ import {
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as RunSetupRecorder from "../agents/RunSetupRecorder.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -711,6 +713,21 @@ describe("orchestrator MCP toolkit", () => {
             Layer.provide(layerProviderRegistry),
             Layer.provide(ServerSettings.layerTest()),
             Layer.provide(layerScheduledTaskStub),
+            Layer.provide(
+              Layer.mock(RunSetupRecorder.RunSetupStore)({
+                list: (threadId) =>
+                  Effect.succeed([
+                    RunSetupRecorder.uncapturedRunSetup(
+                      {
+                        id: RunId.make("run:setup-read"),
+                        threadId,
+                        modelSelection: { instanceId: codexInstanceId, model: "gpt-5" },
+                      },
+                      "2026-10-16T00:00:00.000Z",
+                    ),
+                  ]),
+              }),
+            ),
             Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
             Layer.provide(
               Layer.mock(ProjectService.ProjectService)({
@@ -2338,6 +2355,49 @@ describe("orchestrator MCP toolkit", () => {
             );
             expect(unlinked.linkedPullRequest).toBeNull();
 
+            const setWorkflowCall = yield* invoke("t3_thread_update", {
+              threadId: emptyThread.threadId,
+              action: "set_workflow",
+              workflow: { kind: "lead", unattended: false },
+              clientRequestId: "metadata-workflow-set-1",
+            });
+            const workflowSet = yield* decodeThreadUpdateResult(
+              setWorkflowCall.structuredContent,
+            ).pipe(Effect.orDie);
+            expect(workflowSet.workflow).toEqual({ kind: "lead", unattended: false });
+            const changeWorkflowCall = yield* invoke("t3_thread_update", {
+              threadId: emptyThread.threadId,
+              action: "set_workflow",
+              workflow: { kind: "shape", unattended: true },
+              clientRequestId: "metadata-workflow-change-1",
+            });
+            const workflowChanged = yield* decodeThreadUpdateResult(
+              changeWorkflowCall.structuredContent,
+            ).pipe(Effect.orDie);
+            expect(workflowChanged.workflow).toEqual({ kind: "shape", unattended: true });
+            const changedShell = yield* orchestrator.getThreadShell(emptyThread.threadId);
+            expect(changedShell?.workflow).toEqual({ kind: "shape", unattended: true });
+            const clearWorkflowCall = yield* invoke("t3_thread_update", {
+              threadId: emptyThread.threadId,
+              action: "set_workflow",
+              workflow: null,
+              clientRequestId: "metadata-workflow-clear-1",
+            });
+            const workflowCleared = yield* decodeThreadUpdateResult(
+              clearWorkflowCall.structuredContent,
+            ).pipe(Effect.orDie);
+            expect(workflowCleared.workflow).toBeNull();
+            const setupCall = yield* invoke("t3_thread_setup", {
+              threadId: emptyThread.threadId,
+            });
+            expect(setupCall.structuredContent).toMatchObject({
+              threadId: emptyThread.threadId,
+              runs: [{ runId: "run:setup-read", agentConfig: null, invokedSkills: [] }],
+            });
+            expect(
+              (yield* orchestrator.getThreadProjection(emptyThread.threadId)).thread.workflow,
+            ).toBeNull();
+
             const regenerateCall = yield* invoke("t3_thread_update", {
               threadId: emptyThread.threadId,
               action: "regenerate_title",
@@ -3937,6 +3997,7 @@ describe("orchestrator MCP toolkit", () => {
           Layer.provide(layerProviderRegistry),
           Layer.provide(ServerSettings.layerTest()),
           Layer.provide(layerUnusedScheduledTaskStub),
+          Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
           Layer.provideMerge(
             SecretRequests.layer.pipe(
