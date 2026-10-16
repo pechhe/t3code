@@ -77,17 +77,28 @@ const Aliases = Schema.Array(Alias).check(
 );
 const BriefPath = TrimmedNonEmptyString.check(Schema.isPattern(/^roles\/[a-z][a-z0-9-]*\.md$/));
 const SourceAccess = Schema.Literals(["read-only", "scoped-write"]);
-/** `web-research` reads source like `source-reader` and may also search and fetch the web. */
+/**
+ * `web-research` reads source like `source-reader` and may also search and fetch the web.
+ * `phi` reads source and drives Phi; `implementation-phi` is a writer that also drives Phi.
+ */
 export const AgentToolProfile = Schema.Literals([
   "source-reader",
   "implementation",
   "phi",
+  "implementation-phi",
   "web-research",
 ]);
 export type AgentToolProfile = typeof AgentToolProfile.Type;
-/** The profile a role runs with when a task narrows it to read-only; web research already is. */
-export const readOnlyToolProfile = (profile: AgentToolProfile) =>
-  profile === "web-research" ? profile : "source-reader";
+/** Whether a task with this profile gets its own Phi browser endpoint. */
+export const usesPhi = (profile: AgentToolProfile | undefined) =>
+  profile === "phi" || profile === "implementation-phi";
+/** The profile a role runs with when a task narrows it to read-only: it loses writing, not Phi. */
+export const readOnlyToolProfile = (profile: AgentToolProfile): AgentToolProfile =>
+  profile === "implementation"
+    ? "source-reader"
+    : profile === "implementation-phi"
+      ? "phi"
+      : profile;
 const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
@@ -150,6 +161,12 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
   for (const [name, role] of Object.entries(roles)) {
     if (role === undefined) continue;
     if (role.toolProfile === "web-research" && role.sourceAccess !== "read-only") return false;
+    // Only UI work both writes source and drives a browser, to check what it built.
+    if (
+      role.toolProfile === "implementation-phi" &&
+      (name !== "ui-worker" || role.sourceAccess !== "scoped-write")
+    )
+      return false;
     const list = lists[role.list]?.map((entry) => entry.model);
     if (list === undefined || role.brief !== `roles/${name}.md`) return false;
     if (role.large !== undefined && !list.includes(role.large.model)) return false;

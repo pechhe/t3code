@@ -61,8 +61,12 @@ its revision and the role names, or the reason the policy is refused.
 - Claude reader roles use a restricted native tool list with no shell or T3
   tools. Claude writers require the destination owner's trusted-writer opt-in
   and a Full access child within the caller's permission ceiling. Codex writers
-  keep their workspace sandbox with network access disabled. The Phi-based
-  `browser` and `ui-verifier` roles remain unavailable.
+  keep their workspace sandbox with network access disabled.
+- The `phi` tool profile gives a reader its own browser endpoint serving only
+  Phi's operations on the task's own tabs; `implementation-phi` gives a writer
+  the same, and only `ui-worker` may hold it, to check what it built. Either
+  starts only once the project allows Phi and Phi answers. A read-only request
+  drops writing but never the browser, so `implementation-phi` narrows to `phi`.
 - The `web-research` tool profile, which only a read-only role may use, adds web
   search and page fetching to a reader: Claude's `WebSearch` and `WebFetch`, and
   Codex's live web search. Neither gains a shell or network access for commands.

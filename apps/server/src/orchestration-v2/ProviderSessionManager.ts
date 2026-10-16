@@ -13,6 +13,7 @@ import {
   ProviderSessionId,
   ThreadId,
   type ProviderThreadId,
+  usesPhi,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
@@ -381,7 +382,7 @@ export const layerWithOptions = (
             const settings = yield* serverSettings.value.getSettings;
             const thread = yield* projectionStore.getThread(threadId);
             // A Phi-pinned managed task reaches only its own narrow browser endpoint.
-            const managedBrowser = thread.agentTask?.toolProfile === "phi";
+            const managedBrowser = usesPhi(thread.agentTask?.toolProfile);
             const entries = Object.values(settings.projectSettingsOverrides);
             const browserOverridden = entries.some(
               (entry) => entry.enableAgentBrowserAccess !== undefined,

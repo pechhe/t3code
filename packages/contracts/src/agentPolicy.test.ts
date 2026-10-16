@@ -180,6 +180,23 @@ describe("AgentPolicyManifest", () => {
     ).toBe("Failure");
   });
 
+  it("lets only the UI worker write source and drive Phi", () => {
+    const manifest = encodeManifest(decodeManifest(legacy));
+    const withRole = (name: "ui-worker" | "implementation-worker" | "advisor", edit: object) =>
+      decodeManifestExit({
+        ...manifest,
+        roles: { ...manifest.roles, [name]: { ...manifest.roles[name], ...edit } },
+      })._tag;
+    expect(withRole("ui-worker", { toolProfile: "implementation-phi" })).toBe("Success");
+    expect(
+      withRole("ui-worker", { toolProfile: "implementation-phi", sourceAccess: "read-only" }),
+    ).toBe("Failure");
+    expect(withRole("implementation-worker", { toolProfile: "implementation-phi" })).toBe(
+      "Failure",
+    );
+    expect(withRole("advisor", { toolProfile: "implementation-phi" })).toBe("Failure");
+  });
+
   it("reads a stored version 1 snapshot with its reviewer brief for both reviewers", () => {
     const brief = { hash: "b".repeat(64), text: "Brief\n" };
     const snapshot = decodeSnapshot({

@@ -1078,11 +1078,73 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       // Discovery (browser and ui-verifier) reads the last answer; only a launch asks Phi now.
       expect(probes).toEqual([false, false, true]);
 
+      // A browser role already writes nothing, so a read-only request keeps its browser.
+      const readOnlyVerifier = yield* f
+        .prepare({
+          request: {
+            ...request({ role: "ui-verifier", taskClass: "ui", readOnly: true }),
+            workspacePath: f.workspacePath,
+          },
+          providers: [codex, claude],
+        })
+        .pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+      expect(readOnlyVerifier.binding.toolProfile).toBe("phi");
+
       // A running task is not stranded by a brief outage: resuming never probes or refuses.
       availability = "unreachable";
       probes.length = 0;
       yield* f.validate(accepted.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
       expect(probes).toEqual([]);
+    }).pipe(Effect.provide(Settings.layerTest())),
+  );
+
+  it.effect("lets a UI worker drive Phi to check its own work, and still writes", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const settings = yield* Settings.ServerSettingsService;
+      let availability: PhiBrowser.PhiAvailability = "available";
+      const phi = PhiBrowser.PhiBrowser.of({
+        hasTab: () => Effect.succeed(false),
+        invoke: () => Effect.die("unused"),
+        list: () => Effect.succeed([]),
+        releaseSession: () => Effect.void,
+        availability: () => Effect.sync(() => availability),
+      });
+      yield* f.writeManifest({
+        ...f.manifest,
+        roles: {
+          ...f.manifest.roles,
+          "ui-worker": { ...f.manifest.roles["ui-worker"], toolProfile: "implementation-phi" },
+        },
+      });
+      yield* settings.updateSettings({
+        agentBrowserBackends: { enabled: ["phi"], default: "phi" },
+        delegation: { allowTrustedClaudeWriters: true },
+      });
+      const launch = (readOnly: boolean) =>
+        f
+          .prepare({
+            request: {
+              ...request({ role: "ui-worker", taskClass: "ui", readOnly }),
+              workspacePath: f.workspacePath,
+            },
+          })
+          .pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+
+      const writer = yield* launch(false);
+      expect(writer.binding).toMatchObject({
+        sourceAccess: "scoped-write",
+        toolProfile: "implementation-phi",
+      });
+      // A read-only critique loses writing but can still look at the page.
+      expect((yield* launch(true)).binding).toMatchObject({
+        sourceAccess: "read-only",
+        toolProfile: "phi",
+      });
+      yield* f.validate(writer.binding).pipe(Effect.provideService(PhiBrowser.PhiBrowser, phi));
+
+      availability = "unreachable";
+      expect((yield* launch(false).pipe(Effect.flip)).message).toContain("phi-unreachable");
     }).pipe(Effect.provide(Settings.layerTest())),
   );
 

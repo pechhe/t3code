@@ -25,6 +25,8 @@ import {
   isReviewerRole,
   readOnlyToolProfile,
   REVIEWER_SCOPE,
+  usesPhi,
+  type AgentToolProfile,
 } from "@t3tools/contracts";
 import * as Config from "effect/Config";
 import * as Context from "effect/Context";
@@ -215,11 +217,11 @@ const make = Effect.gen(function* () {
    * resumed task is checked by its own tools on every call, so a brief outage cannot strand it.
    */
   const browserRoute = Effect.fn("ManagedAgentService.browserRoute")(function* (
-    toolProfile: string,
+    toolProfile: AgentToolProfile,
     projectId: ProjectId | undefined,
     when: "discovery" | "launch" | "resume",
   ) {
-    if (toolProfile !== "phi") return undefined;
+    if (!usesPhi(toolProfile)) return undefined;
     if (when === "resume") return { refusal: null };
     const settings = yield* Effect.serviceOption(Settings.ServerSettingsService);
     const configured = Option.isSome(settings)

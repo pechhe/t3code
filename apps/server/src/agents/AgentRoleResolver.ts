@@ -7,7 +7,7 @@ import type {
   ServerProvider,
   AgentPolicyPreview,
 } from "@t3tools/contracts";
-import { AgentPolicyCandidate, isReviewerRole, REVIEWER_SCOPE } from "@t3tools/contracts";
+import { AgentPolicyCandidate, isReviewerRole, REVIEWER_SCOPE, usesPhi } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -107,9 +107,9 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
           review.priorReview.sourceRevision === request.sourceRevision)))
   )
     return yield* new AgentRoleError({ reason: "review-scope-invalid" });
-  // A Phi role runs only over its pinned Phi endpoint, never a general shell or another
-  // browser, so it starts only once the caller has checked that route.
-  if (role.toolProfile === "phi") {
+  // A Phi role browses only over its pinned Phi endpoint, never another browser, so it starts
+  // only once the caller has checked that route.
+  if (usesPhi(role.toolProfile)) {
     if (input.browser === undefined)
       return yield* new AgentRoleError({ reason: "unsupported-tools" });
     if (input.browser.refusal !== null)

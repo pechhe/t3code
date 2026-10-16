@@ -1,4 +1,4 @@
-import { OrchestratorMcpFailure } from "@t3tools/contracts";
+import { OrchestratorMcpFailure, usesPhi } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -22,7 +22,7 @@ export const assertManagedBrowserCaller = Effect.fn("mcp.assertManagedBrowserCal
     if (scope.managedBrowser !== true || scope.thread === undefined)
       return yield* refuse("This tool is only available to a managed browser task.");
     const caller: Caller = yield* loadCaller();
-    if (caller.caller?.agentTask?.toolProfile !== "phi")
+    if (!usesPhi(caller.caller?.agentTask?.toolProfile))
       return yield* refuse("The calling thread is not a managed browser task.");
     if (!options.checkSettings) return caller;
     const settings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
