@@ -71,6 +71,7 @@ import * as ProcessRunner from "../processRunner.ts";
 import * as PortScanner from "../preview/PortScanner.ts";
 import * as NativeTelemetryClient from "../resourceTelemetry/NativeTelemetryClient.ts";
 import * as PtyAdapter from "@t3tools/shared/PtyAdapter";
+import { terminalOutputText } from "./OutputText.ts";
 
 export {
   TerminalCwdError,
@@ -178,6 +179,14 @@ export class TerminalManager extends Context.Service<
       readonly terminalId?: string;
     }) => Effect.Effect<void>;
 
+    /**
+     * Reads a thread's terminals without opening one. Without `terminalId`, reads
+     * the terminal that changed most recently.
+     */
+    readonly readThreadOutput: (
+      input: TerminalReadOutputInput,
+    ) => Effect.Effect<TerminalThreadOutput, TerminalSessionLookupError>;
+
     readonly subscribe: (
       listener: (event: TerminalEvent) => Effect.Effect<void>,
     ) => Effect.Effect<() => void>;
@@ -187,6 +196,19 @@ export class TerminalManager extends Context.Service<
     ) => Effect.Effect<() => void>;
   }
 >()("t3/terminal/Manager/TerminalManager") {}
+
+export interface TerminalReadOutputInput {
+  readonly threadId: string;
+  readonly terminalId?: string | undefined;
+  readonly maxLines: number;
+}
+
+export interface TerminalThreadOutput {
+  readonly terminals: ReadonlyArray<TerminalSummary>;
+  readonly terminal: TerminalSummary | null;
+  readonly output: string;
+  readonly truncated: boolean;
+}
 
 interface TerminalSubprocessInspectResult {
   readonly hasRunningSubprocess: boolean;
@@ -2728,6 +2750,33 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       Effect.map((session) => (Option.isSome(session) ? summary(session.value) : null)),
     );
 
+  const readThreadOutput: TerminalManager["Service"]["readThreadOutput"] = (input) =>
+    Effect.gen(function* () {
+      const state = yield* readManagerState;
+      const sessions = [...state.sessions.values()]
+        .filter((session) => session.threadId === input.threadId)
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      const selected =
+        input.terminalId === undefined
+          ? sessions[0]
+          : sessions.find((session) => session.terminalId === input.terminalId);
+      if (input.terminalId !== undefined && selected === undefined) {
+        return yield* new TerminalSessionLookupError({
+          threadId: input.threadId,
+          terminalId: input.terminalId,
+        });
+      }
+      const { text, truncated } = selected
+        ? terminalOutputText(selected.history.value(), input.maxLines)
+        : { text: "", truncated: false };
+      return {
+        terminals: sessions.map(summary),
+        terminal: selected ? summary(selected) : null,
+        output: text,
+        truncated,
+      };
+    });
+
   const subscribe: TerminalManager["Service"]["subscribe"] = (listener) =>
     Effect.sync(() => {
       terminalEventListeners.add(listener);
@@ -3121,6 +3170,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     restart,
     close,
     closeIdle,
+    readThreadOutput,
     subscribe,
     subscribeMetadata,
   });

@@ -826,6 +826,53 @@ it.layer(
     }),
   );
 
+  it.effect("reads a thread's terminal output as plain text without opening one", () =>
+    Effect.gen(function* () {
+      const { manager, ptyAdapter } = yield* createManager(100);
+      yield* manager.open(openInput({ terminalId: "default" }));
+      yield* manager.open(openInput({ terminalId: "term-2" }));
+      yield* manager.open(openInput({ threadId: "thread-2" }));
+      const [first, second, other] = ptyAdapter.processes;
+      if (!first || !second || !other) return assert.fail("expected three terminals");
+
+      const outputs = yield* Queue.unbounded<string>();
+      const unsubscribe = yield* manager.subscribe((event) =>
+        event.type === "output"
+          ? Queue.offer(outputs, event.terminalId).pipe(Effect.asVoid)
+          : Effect.void,
+      );
+      yield* Effect.addFinalizer(() => Effect.sync(unsubscribe));
+      first.emitData("\u001b[32mok\u001b[0m\n");
+      second.emitData("other tab\n");
+      other.emitData("another thread\n");
+      yield* Effect.replicateEffect(Queue.take(outputs), 3);
+
+      const read = yield* manager.readThreadOutput({
+        threadId: "thread-1",
+        terminalId: "default",
+        maxLines: 10,
+      });
+      expect(read.terminals.map((terminal) => terminal.terminalId).toSorted()).toEqual([
+        "default",
+        "term-2",
+      ]);
+      expect(read.terminal?.terminalId).toBe("default");
+      expect(read.output).toBe("ok");
+
+      const onlyTerminal = yield* manager.readThreadOutput({ threadId: "thread-2", maxLines: 10 });
+      expect(onlyTerminal.output).toBe("another thread");
+
+      const missing = yield* manager
+        .readThreadOutput({ threadId: "thread-2", terminalId: "term-2", maxLines: 10 })
+        .pipe(Effect.flip);
+      expect(missing._tag).toBe("TerminalSessionLookupError");
+
+      const none = yield* manager.readThreadOutput({ threadId: "thread-3", maxLines: 10 });
+      expect(none).toEqual({ terminals: [], terminal: null, output: "", truncated: false });
+      expect(ptyAdapter.spawnInputs).toHaveLength(3);
+    }),
+  );
+
   it.effect("clears transcript and emits cleared event", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter, logsDir, getEvents } = yield* createManager();

@@ -53,6 +53,8 @@ import {
 } from "./toolkits/preview/tools.ts";
 import * as RolloverHandlers from "./toolkits/rollover/handlers.ts";
 import { RolloverToolkit } from "./toolkits/rollover/tools.ts";
+import * as TerminalHandlers from "./toolkits/terminal/handlers.ts";
+import { TerminalToolkit } from "./toolkits/terminal/tools.ts";
 import * as WorktreeHandlers from "./toolkits/worktree/handlers.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
@@ -915,6 +917,7 @@ export const layer = Layer.mergeAll(
     Layer.provide(layerOrchestratorMcpService),
   ),
   layerRolloverToolkitRegistration,
+  toolkitRegistration(TerminalToolkit, TerminalHandlers.layer),
   layerPullRequestsToolkit,
   layerDeviceToolkit,
   layerHtmlToolkit,

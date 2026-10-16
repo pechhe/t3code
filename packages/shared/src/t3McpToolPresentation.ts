@@ -43,6 +43,7 @@ export type T3McpToolSummaryAction =
   | "worktree-handoff"
   | "worktree-list"
   | "worktree-status"
+  | "terminal-read"
   | "project-list"
   | "project-read"
   | "project-create"
@@ -173,6 +174,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "worktree-handoff",
   ),
   t3_worktree_status: tool(["Get", "Getting", "Got", "thread worktree status"], "worktree-status"),
+  t3_terminal_read: tool(["Read", "Reading", "Read", "the thread terminal"], "terminal-read"),
   preview_status: tool(["Get", "Getting", "Got", "preview browser status"], "browser", "browser"),
   preview_handoff: tool(
     ["Hand over", "Handing over", "Handed over", "the preview browser"],
