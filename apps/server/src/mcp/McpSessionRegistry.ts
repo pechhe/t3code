@@ -91,6 +91,12 @@ const getHttpMcpEndpointHost = (address: NetAddress.IpAddress): string =>
     ? "127.0.0.1"
     : NetAddress.formatUrlHostString(NetAddress.formatIp(address));
 
+/** The origin provider processes on this host use to reach the server's MCP endpoints. */
+export const mcpEndpointOrigin = (address: HttpServer.HttpServer["Service"]["address"]): string =>
+  NetAddress.isInetAddress(address)
+    ? `http://${getHttpMcpEndpointHost(address.address)}:${address.port}`
+    : "http://127.0.0.1";
+
 const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   options: McpSessionRegistryOptions = {},
 ) {
@@ -114,9 +120,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       : Effect.void;
   const currentTimeMillis = options.now ? Effect.sync(options.now) : Clock.currentTimeMillis;
   const livenessWindowMs = options.livenessWindowMs ?? DEFAULT_LIVENESS_WINDOW_MS;
-  const origin = NetAddress.isInetAddress(httpServer.address)
-    ? `http://${getHttpMcpEndpointHost(httpServer.address.address)}:${httpServer.address.port}`
-    : "http://127.0.0.1";
+  const origin = mcpEndpointOrigin(httpServer.address);
   const endpoint = `${origin}/mcp`;
   const managedBrowserEndpoint = `${origin}${MANAGED_BROWSER_MCP_PATH}`;
 

@@ -149,6 +149,7 @@ import {
   normalizeMcpText,
 } from "@t3tools/provider-core/server/mcpToolPresentation";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import * as HqAgentConnections from "../../hq/HqAgentConnections.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -1240,6 +1241,8 @@ export const CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS: ReadonlyArray<string> = [
 // above that and the server's own wait timeout is what ends a long call.
 export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
+export const CLAUDE_HQ_MCP_TOOL_WILDCARD = `mcp__${HqAgentConnections.HQ_MCP_SERVER_NAME}__*`;
+
 // The SDK's `allowedTools` only pre-approves tool calls; availability is the separate `tools`
 // option. Attaching the t3-code MCP server therefore always pre-approves its tools (headless
 // modes like `dontAsk` deny anything that is not pre-approved), but read-only sandboxes
@@ -1248,6 +1251,11 @@ export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
 export function claudeMcpQueryOverrides(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
+  /**
+   * The thread's YardSmith HQ connection. Every role attaches it, managed tasks and read-only
+   * sandboxes included: HQ itself limits each agent to its role's tools.
+   */
+  readonly hqConnection?: HqAgentConnections.HqMcpConnection | undefined;
   readonly readOnlySandbox: boolean;
   /**
    * A managed task is a leaf: no T3 tools, so an independent reviewer cannot read the author's
@@ -1262,25 +1270,48 @@ export function claudeMcpQueryOverrides(input: {
 } {
   const managedBrowser = input.mcpSession?.managedBrowser === true;
   const session = input.managedAgent === true && !managedBrowser ? undefined : input.mcpSession;
-  if (session === undefined) {
+  const hq = input.hqConnection;
+  if (session === undefined && hq === undefined) {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
   }
-  const mcpAllowedTools = managedBrowser
-    ? CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS
-    : input.readOnlySandbox
-      ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
-      : [CLAUDE_T3_MCP_TOOL_WILDCARD];
+  const mcpAllowedTools =
+    session === undefined
+      ? []
+      : managedBrowser
+        ? CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS
+        : input.readOnlySandbox
+          ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+          : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
-    allowedTools: Array.from(new Set([...(input.allowedTools ?? []), ...mcpAllowedTools])),
+    allowedTools: Array.from(
+      new Set([
+        ...(input.allowedTools ?? []),
+        ...mcpAllowedTools,
+        ...(hq === undefined ? [] : [CLAUDE_HQ_MCP_TOOL_WILDCARD]),
+      ]),
+    ),
     mcpServers: {
-      "t3-code": {
-        type: "http",
-        url: session.endpoint,
-        headers: {
-          Authorization: session.authorizationHeader,
-        },
-        timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
-      },
+      ...(session === undefined
+        ? {}
+        : {
+            "t3-code": {
+              type: "http" as const,
+              url: session.endpoint,
+              headers: {
+                Authorization: session.authorizationHeader,
+              },
+              timeout: CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
+            },
+          }),
+      ...(hq === undefined
+        ? {}
+        : {
+            [HqAgentConnections.HQ_MCP_SERVER_NAME]: {
+              type: "http" as const,
+              url: hq.endpoint,
+              headers: { Authorization: hq.authorizationHeader },
+            },
+          }),
     },
   };
 }
@@ -3424,6 +3455,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   adapterOptions: ClaudeAdapterV2Options,
 ) {
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const hqConnections = yield* Effect.serviceOption(HqAgentConnections.HqAgentConnections);
   const { attachmentsDir, fileSystem, path, crypto, idAllocator, queryRunner } = adapterOptions;
   const subagentModelCatalog = scopeClaudeModelCatalog(
     BUNDLED_CLAUDE_MODEL_CATALOG,
@@ -8098,6 +8130,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           });
           const mcpOverrides = claudeMcpQueryOverrides({
             mcpSession: yield* mcpSessions.read(turnInput.threadId),
+            hqConnection: Option.isNone(hqConnections)
+              ? undefined
+              : yield* hqConnections.value.connection(turnInput.threadId),
             managedAgent: turnInput.runtimePolicy.managedAgent === true,
             readOnlySandbox:
               sandboxPolicyKindForClaudeRuntimePolicy(turnInput.runtimePolicy) === "readOnly",

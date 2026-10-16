@@ -45,6 +45,7 @@ import {
 import { ProviderWorkspaceMissingError } from "../provider/Errors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as EventSink from "./EventSink.ts";
@@ -453,6 +454,32 @@ export const layerWithOptions = (
       const isMcpCredentialReserved = (threadId: ThreadId, mcpCredentialId: string) =>
         (mcpCredentialReservations.get(mcpReservationKey(threadId, mcpCredentialId)) ?? 0) > 0;
       const mcpPrepareLock = yield* KeyedLock.make<ThreadId>();
+      const hqConnections = yield* Effect.serviceOption(HqAgentConnections.HqAgentConnections);
+      /**
+       * Only the Claude and Codex adapters attach the connection this prepares. It runs on attach
+       * and before every turn, so a newly connected project or a changed model reaches the next
+       * turn: Claude reopens its process for a new MCP server, while a live Codex thread keeps the
+       * servers it started with until it is next started or resumed.
+       */
+      const prepareHqConnection = (threadId: ThreadId, model?: string) =>
+        Option.isNone(hqConnections)
+          ? Effect.void
+          : projectionStore.getThread(threadId).pipe(
+              Effect.flatMap((thread) =>
+                hqConnections.value.prepare({
+                  threadId,
+                  projectId: thread.projectId,
+                  role: thread.agentTask?.role ?? "lead",
+                  model: model ?? thread.modelSelection.model,
+                }),
+              ),
+              Effect.catchCause((cause) =>
+                Effect.logWarning("Could not prepare the thread's HQ connection", {
+                  threadId,
+                  cause: Cause.pretty(cause),
+                }),
+              ),
+            );
       /**
        * Serialized per thread so two concurrent prepares cannot interleave
        * their rotate steps and revoke each other's freshly minted credential.
@@ -1414,6 +1441,7 @@ export const layerWithOptions = (
             );
             if (attached !== undefined) {
               const prepared = yield* prepareMcpSession(input.threadId, input.providerInstanceId);
+              yield* prepareHqConnection(input.threadId);
               preparedForCleanup = prepared;
               if (prepared.mcpCredentialId !== undefined) {
                 const mcpCredentialId = prepared.mcpCredentialId;
@@ -1874,44 +1902,52 @@ export const layerWithOptions = (
               ),
             ),
           startTurn: (input) =>
-            observeActivity(
-              providerSessionId,
-              ensureThreadAttached({
-                providerSessionId,
-                threadId: input.threadId,
-                providerInstanceId: runtime.instanceId,
-              }),
-            ).pipe(
-              // A start that fails or is stopped may never emit turn.terminal,
-              // so it clears its own turn or the session never goes idle.
-              Effect.andThen(
-                holdThreadLoaded({
-                  providerSessionId,
-                  threadId: input.threadId,
-                  providerThread: input.providerThread,
-                }),
-              ),
-              Effect.andThen(
-                Effect.acquireUseRelease(
+            prepareHqConnection(input.threadId, input.modelSelection.model)
+              .pipe(
+                Effect.andThen(
                   observeActivity(
                     providerSessionId,
-                    markBusy(
+                    ensureThreadAttached({
                       providerSessionId,
-                      busyTurnKey(input.providerThread.id, input.runOrdinal),
-                    ),
+                      threadId: input.threadId,
+                      providerInstanceId: runtime.instanceId,
+                    }),
                   ),
-                  () =>
-                    runtime.startTurn(input).pipe(turnMetrics("send", input.modelSelection.model)),
-                  (_, exit) =>
-                    Exit.isFailure(exit)
-                      ? observeActivity(
-                          providerSessionId,
-                          markIdle(providerSessionId, input.providerThread.id, input.runOrdinal),
-                        )
-                      : Effect.void,
+                ),
+              )
+              .pipe(
+                // A start that fails or is stopped may never emit turn.terminal,
+                // so it clears its own turn or the session never goes idle.
+                Effect.andThen(
+                  holdThreadLoaded({
+                    providerSessionId,
+                    threadId: input.threadId,
+                    providerThread: input.providerThread,
+                  }),
+                ),
+                Effect.andThen(
+                  Effect.acquireUseRelease(
+                    observeActivity(
+                      providerSessionId,
+                      markBusy(
+                        providerSessionId,
+                        busyTurnKey(input.providerThread.id, input.runOrdinal),
+                      ),
+                    ),
+                    () =>
+                      runtime
+                        .startTurn(input)
+                        .pipe(turnMetrics("send", input.modelSelection.model)),
+                    (_, exit) =>
+                      Exit.isFailure(exit)
+                        ? observeActivity(
+                            providerSessionId,
+                            markIdle(providerSessionId, input.providerThread.id, input.runOrdinal),
+                          )
+                        : Effect.void,
+                  ),
                 ),
               ),
-            ),
           steerTurn: (input) =>
             observeActivity(providerSessionId, touchActivity(providerSessionId)).pipe(
               Effect.andThen(runtime.steerTurn(input).pipe(turnMetrics("steer"))),
@@ -2167,6 +2203,7 @@ export const layerWithOptions = (
                 input.threadId,
                 input.modelSelection.instanceId,
               );
+              yield* prepareHqConnection(input.threadId);
               const mcpCredentialId = prepared.mcpCredentialId;
               let reservationDropped = mcpCredentialId === undefined;
               const dropReservation = Effect.sync(() => {

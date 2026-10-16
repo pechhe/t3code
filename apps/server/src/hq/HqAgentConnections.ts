@@ -1,0 +1,474 @@
+/**
+ * Agents act in YardSmith HQ as themselves (pechhe/yardsmith#2478). A project connected to HQ
+ * keeps the person's HQ delegation in the server secret store. Each thread's agent reaches HQ
+ * through T3's own `/mcp/yardsmith-hq` endpoint, authenticated by a credential bound to that
+ * thread; T3 exchanges the delegation for the agent's HQ token, renews it, and presents it to
+ * HQ's `/api/mcp` on the agent's behalf. The delegation and the agent token therefore never
+ * leave this process: no provider config, argv, environment, workspace or prompt carries them,
+ * and a long-lived provider process (Codex keeps a thread's MCP headers for its lifetime) never
+ * holds a token that can expire.
+ */
+import type { ProjectId, ThreadId } from "@t3tools/contracts";
+import * as KeyedLock from "@t3tools/shared/KeyedLock";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { HttpClient, HttpClientRequest, HttpServer } from "effect/http";
+
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import { mcpEndpointOrigin } from "../mcp/McpSessionRegistry.ts";
+
+export const HQ_MCP_SERVER_NAME = "yardsmith-hq";
+export const HQ_MCP_PATH = "/mcp/yardsmith-hq";
+
+/** HQ tokens last at most 12 hours; renewing this early keeps a call from meeting an expired one. */
+const RENEW_BEFORE_EXPIRY_MS = 15 * 60 * 1_000;
+const HQ_REQUEST_TIMEOUT = "60 seconds";
+
+export interface HqAgent {
+  readonly threadId: ThreadId;
+  readonly projectId: ProjectId;
+  /** `lead` for a top-level thread, the canonical role of a delegated task. */
+  readonly role: string;
+  readonly model: string;
+}
+
+/** What an adapter injects as the `yardsmith-hq` MCP server. It carries no HQ credential. */
+export interface HqMcpConnection {
+  readonly endpoint: string;
+  readonly authorizationHeader: string;
+}
+
+interface HqForwardRequest {
+  readonly authorization: string | undefined;
+  readonly body: Uint8Array;
+  readonly contentType: string | undefined;
+  readonly accept: string | undefined;
+  readonly protocolVersion: string | undefined;
+}
+
+interface HqForwardResponse {
+  readonly status: number;
+  readonly contentType: string | undefined;
+  readonly body: Uint8Array;
+}
+
+export class HqConnectionError extends Schema.TaggedError<HqConnectionError>()(
+  "HqConnectionError",
+  { reason: Schema.Literals(["invalid_origin", "invalid_delegation", "store_failed"]) },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "invalid_origin":
+        return "The HQ origin must be an https URL (http only for localhost).";
+      case "invalid_delegation":
+        return "That is not an HQ delegation; create one in HQ Settings → Connections → T3 agents.";
+      case "store_failed":
+        return "T3 could not read or save the project's HQ connection.";
+    }
+  }
+}
+
+/** Why HQ would not let a thread's agent in. Each is reported to the agent and logged by code. */
+type HqRefusal =
+  | "not_connected"
+  | "invalid_delegation"
+  | "agent_revoked"
+  | "agent_invalid"
+  | "unauthorized"
+  | "unavailable";
+
+const refusalMessages: Record<HqRefusal, string> = {
+  not_connected: "This project is no longer connected to YardSmith HQ.",
+  invalid_delegation:
+    "HQ refused T3's delegation: it was revoked or has expired. Create a new one in HQ Settings → Connections → T3 agents and reconnect the project.",
+  agent_revoked:
+    "HQ refused this agent (agent_revoked): the person revoked it in HQ Settings → Connections. This thread can no longer act in HQ.",
+  agent_invalid: "HQ refused this agent's identity.",
+  unauthorized: "HQ refused this agent's token.",
+  unavailable: "YardSmith HQ is unreachable. Try again shortly.",
+};
+
+const StoredConnection = Schema.fromJsonString(
+  Schema.Struct({ origin: Schema.String, delegation: Schema.String }),
+);
+const encodeStored = Schema.encodeEffect(StoredConnection);
+const decodeStored = Schema.decodeUnknownOption(StoredConnection);
+
+const ExchangeResponse = Schema.Struct({ token: Schema.String, expiresAt: Schema.String });
+const decodeExchange = Schema.decodeUnknownOption(ExchangeResponse);
+const HqError = Schema.Struct({ error: Schema.String });
+const decodeHqError = Schema.decodeUnknownOption(HqError);
+
+const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
+
+/** HQ's origin, or null when it is not https (http is allowed only for a local HQ). */
+const normalizeHqOrigin = (input: string): string | null => {
+  try {
+    const url = new URL(input);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    return url.protocol === "https:" || (url.protocol === "http:" && local) ? url.origin : null;
+  } catch {
+    return null;
+  }
+};
+
+const bytesToHex = (bytes: Uint8Array): string =>
+  Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+
+interface StoredHqConnection {
+  readonly origin: string;
+  readonly delegation: string;
+}
+
+interface AgentToken {
+  readonly value: string;
+  readonly expiresAt: number;
+  readonly role: string;
+  readonly model: string;
+  /** The connection it was exchanged under, and so the only HQ it may be presented to. */
+  readonly origin: string;
+  readonly delegation: string;
+}
+
+interface ThreadConnection {
+  readonly credential: string;
+  readonly credentialHash: string;
+  agent: HqAgent;
+  token: AgentToken | undefined;
+}
+
+export class HqAgentConnections extends Context.Service<
+  HqAgentConnections,
+  {
+    readonly connect: (input: {
+      readonly projectId: ProjectId;
+      readonly origin: string;
+      readonly delegation: string;
+    }) => Effect.Effect<{ readonly origin: string }, HqConnectionError>;
+    readonly disconnect: (projectId: ProjectId) => Effect.Effect<void, HqConnectionError>;
+    readonly read: (
+      projectId: ProjectId,
+    ) => Effect.Effect<{ readonly origin: string } | null, HqConnectionError>;
+    /** Gives the thread's agent a connection when its project is connected to HQ, and none otherwise. */
+    readonly prepare: (agent: HqAgent) => Effect.Effect<void>;
+    readonly connection: (threadId: ThreadId) => Effect.Effect<HqMcpConnection | undefined>;
+    /** Serves one MCP request from a thread's agent by forwarding it to HQ as that agent. */
+    readonly forward: (request: HqForwardRequest) => Effect.Effect<HqForwardResponse>;
+    /** Ends the thread's HQ agent (never revokes it); its next HQ call starts a new agent. */
+    readonly end: (agent: Omit<HqAgent, "model">) => Effect.Effect<void>;
+    /** Ends the agent and drops the thread's connection, for a deleted thread. */
+    readonly forget: (agent: Omit<HqAgent, "model">) => Effect.Effect<void>;
+  }
+>()("t3/hq/HqAgentConnections") {}
+
+const make = Effect.gen(function* () {
+  const store = yield* ServerSecretStore.ServerSecretStore;
+  const crypto = yield* Crypto.Crypto;
+  const httpClient = yield* HttpClient.HttpClient;
+  const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
+  const endpoint = `${mcpEndpointOrigin((yield* HttpServer.HttpServer).address)}${HQ_MCP_PATH}`;
+  const threads = new Map<ThreadId, ThreadConnection>();
+  const threadByCredentialHash = new Map<string, ThreadId>();
+  const tokenLock = yield* KeyedLock.make<ThreadId>();
+
+  const digest = (value: string) =>
+    crypto
+      .digest("SHA-256", new TextEncoder().encode(value))
+      .pipe(Effect.map(bytesToHex), Effect.orDie);
+  // Project ids are not path-safe, and the store names its file after the entry.
+  const storeName = (projectId: ProjectId) =>
+    digest(projectId).pipe(Effect.map((hash) => `hq-connection-${hash.slice(0, 32)}`));
+  const storeFailed = () => new HqConnectionError({ reason: "store_failed" });
+
+  const readStored = (projectId: ProjectId) =>
+    storeName(projectId).pipe(
+      Effect.flatMap(store.get),
+      Effect.map(Option.flatMap((bytes) => decodeStored(new TextDecoder().decode(bytes)))),
+      Effect.mapError(storeFailed),
+    );
+
+  const dropToken = (threadId: ThreadId) => {
+    const connection = threads.get(threadId);
+    if (connection !== undefined) connection.token = undefined;
+  };
+
+  const agentRef = (threadId: ThreadId) => `${environmentId}/${threadId}`;
+
+  // Never pass an HTTP client error on: it carries the request, and so the bearer credential.
+  const postAgents = (
+    stored: { readonly origin: string; readonly delegation: string },
+    body: Record<string, string>,
+  ) =>
+    HttpClientRequest.post(`${stored.origin}/api/mcp/agents`).pipe(
+      HttpClientRequest.bearerToken(stored.delegation),
+      HttpClientRequest.bodyJsonUnsafe(body),
+      httpClient.execute,
+      Effect.flatMap((response) =>
+        response.json.pipe(Effect.map((json) => ({ status: response.status, json }))),
+      ),
+      Effect.timeout(HQ_REQUEST_TIMEOUT),
+      Effect.mapError(() => "unavailable" as const),
+    );
+
+  /**
+   * The thread's current HQ token for this stored connection, exchanged (or renewed) when it is
+   * missing, near expiry, or was exchanged under another origin or delegation.
+   */
+  const agentToken = (threadId: ThreadId, stored: StoredHqConnection) =>
+    tokenLock.withLock(
+      threadId,
+      Effect.gen(function* () {
+        const connection = threads.get(threadId);
+        if (connection === undefined) return yield* Effect.fail("unauthorized" as HqRefusal);
+        const { agent } = connection;
+        const now = yield* Clock.currentTimeMillis;
+        const cached = connection.token;
+        if (
+          cached !== undefined &&
+          cached.role === agent.role &&
+          cached.model === agent.model &&
+          cached.origin === stored.origin &&
+          cached.delegation === stored.delegation &&
+          cached.expiresAt - now > RENEW_BEFORE_EXPIRY_MS
+        )
+          return cached.value;
+        const { status, json } = yield* postAgents(stored, {
+          action: "exchange",
+          agentRef: agentRef(threadId),
+          role: agent.role,
+          model: agent.model,
+          harness: "t3",
+        });
+        const exchanged = status === 200 ? decodeExchange(json) : Option.none();
+        if (Option.isNone(exchanged)) {
+          const code = Option.getOrUndefined(decodeHqError(json))?.error;
+          return yield* Effect.fail<HqRefusal>(
+            status === 401
+              ? "invalid_delegation"
+              : code === "agent_revoked"
+                ? "agent_revoked"
+                : status === 400
+                  ? "agent_invalid"
+                  : "unavailable",
+          );
+        }
+        const token = {
+          value: exchanged.value.token,
+          expiresAt: Date.parse(exchanged.value.expiresAt),
+          role: agent.role,
+          model: agent.model,
+          origin: stored.origin,
+          delegation: stored.delegation,
+        };
+        connection.token = token;
+        return token.value;
+      }),
+    );
+
+  const callHq = (origin: string, token: string, request: HqForwardRequest) =>
+    HttpClientRequest.post(`${origin}/api/mcp`).pipe(
+      HttpClientRequest.bearerToken(token),
+      HttpClientRequest.setHeaders({
+        ...(request.accept === undefined ? {} : { accept: request.accept }),
+        ...(request.protocolVersion === undefined
+          ? {}
+          : { "mcp-protocol-version": request.protocolVersion }),
+      }),
+      HttpClientRequest.bodyUint8Array(request.body, request.contentType ?? "application/json"),
+      httpClient.execute,
+      Effect.flatMap((response) =>
+        response.arrayBuffer.pipe(
+          Effect.map((body): HqForwardResponse => ({
+            status: response.status,
+            contentType: response.headers["content-type"],
+            body: new Uint8Array(body),
+          })),
+        ),
+      ),
+      Effect.timeout(HQ_REQUEST_TIMEOUT),
+      Effect.mapError((): HqRefusal => "unavailable"),
+    );
+
+  /**
+   * A refusal answers each JSON-RPC request in the body with an error, so the agent sees why;
+   * an HTTP 401 would send MCP clients looking for OAuth instead.
+   */
+  const refusalResponse = (body: Uint8Array, refusal: HqRefusal): HqForwardResponse => {
+    const parsed = Option.getOrUndefined(decodeJson(new TextDecoder().decode(body)));
+    const error = (id: unknown) => ({
+      jsonrpc: "2.0",
+      id,
+      error: { code: -32001, message: refusalMessages[refusal], data: { reason: refusal } },
+    });
+    const ids = (Array.isArray(parsed) ? parsed : [parsed]).flatMap((message) =>
+      typeof message === "object" && message !== null && "id" in message ? [message.id] : [],
+    );
+    if (ids.length === 0) return { status: 202, contentType: undefined, body: new Uint8Array() };
+    const payload = Array.isArray(parsed) ? ids.map(error) : error(ids[0]);
+    return {
+      status: 200,
+      contentType: "application/json",
+      body: new TextEncoder().encode(encodeJson(payload)),
+    };
+  };
+
+  const forward: HqAgentConnections["Service"]["forward"] = Effect.fn("HqAgentConnections.forward")(
+    function* (request) {
+      const credential = request.authorization?.match(/^Bearer\s+(\S+)\s*$/)?.[1] ?? "";
+      const threadId =
+        credential === "" ? undefined : threadByCredentialHash.get(yield* digest(credential));
+      if (threadId === undefined)
+        return {
+          status: 401,
+          contentType: "application/json",
+          body: new TextEncoder().encode(encodeJson({ error: "unknown_credential" })),
+        };
+      const attempt = Effect.gen(function* () {
+        const connection = threads.get(threadId);
+        if (connection === undefined) return yield* Effect.fail("unauthorized" as HqRefusal);
+        const stored = yield* readStored(connection.agent.projectId).pipe(
+          Effect.mapError((): HqRefusal => "unavailable"),
+        );
+        if (Option.isNone(stored)) return yield* Effect.fail("not_connected" as HqRefusal);
+        // One read of the stored connection decides both the exchange and where the token goes.
+        const token = yield* agentToken(threadId, stored.value);
+        const response = yield* callHq(stored.value.origin, token, request);
+        if (response.status !== 401) return Option.some(response);
+        // HQ refuses a revoked agent or delegation on the next request; exchanging again
+        // learns which, or recovers from a token HQ no longer honours.
+        dropToken(threadId);
+        return Option.none<HqForwardResponse>();
+      });
+      return yield* attempt.pipe(
+        Effect.flatMap(
+          Option.match({
+            onSome: Effect.succeed,
+            onNone: () =>
+              attempt.pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onSome: Effect.succeed,
+                    onNone: () => Effect.fail("unauthorized" as HqRefusal),
+                  }),
+                ),
+              ),
+          }),
+        ),
+        Effect.catch((refusal: HqRefusal) =>
+          Effect.logWarning("YardSmith HQ refused a thread's agent", {
+            threadId,
+            reason: refusal,
+          }).pipe(Effect.as(refusalResponse(request.body, refusal))),
+        ),
+      );
+    },
+  );
+
+  const end: HqAgentConnections["Service"]["end"] = Effect.fn("HqAgentConnections.end")(
+    function* (agent) {
+      yield* tokenLock.withLock(
+        agent.threadId,
+        Effect.gen(function* () {
+          dropToken(agent.threadId);
+          const stored = yield* readStored(agent.projectId).pipe(
+            Effect.mapError((): HqRefusal => "unavailable"),
+          );
+          if (Option.isNone(stored)) return;
+          const { status } = yield* postAgents(stored.value, {
+            action: "end",
+            agentRef: agentRef(agent.threadId),
+            role: agent.role,
+          });
+          if (status !== 200) return yield* Effect.fail<HqRefusal>("unavailable");
+        }).pipe(
+          Effect.catch((reason: HqRefusal) =>
+            Effect.logWarning("Could not end a thread's YardSmith HQ agent", {
+              threadId: agent.threadId,
+              reason,
+            }),
+          ),
+        ),
+      );
+    },
+  );
+
+  return HqAgentConnections.of({
+    connect: Effect.fn("HqAgentConnections.connect")(function* (input) {
+      const origin = normalizeHqOrigin(input.origin);
+      if (origin === null) return yield* new HqConnectionError({ reason: "invalid_origin" });
+      const delegation = input.delegation.trim();
+      if (!DELEGATION_PATTERN.test(delegation))
+        return yield* new HqConnectionError({ reason: "invalid_delegation" });
+      const encoded = yield* encodeStored({ origin, delegation }).pipe(Effect.orDie);
+      yield* storeName(input.projectId).pipe(
+        Effect.flatMap((name) => store.set(name, new TextEncoder().encode(encoded))),
+        Effect.mapError(storeFailed),
+      );
+      // A new delegation or origin takes over at each thread's next exchange.
+      for (const connection of threads.values())
+        if (connection.agent.projectId === input.projectId) connection.token = undefined;
+      return { origin };
+    }),
+    disconnect: Effect.fn("HqAgentConnections.disconnect")(function* (projectId) {
+      yield* storeName(projectId).pipe(Effect.flatMap(store.remove), Effect.mapError(storeFailed));
+      for (const connection of threads.values())
+        if (connection.agent.projectId === projectId) connection.token = undefined;
+    }),
+    read: (projectId) =>
+      readStored(projectId).pipe(
+        Effect.map(Option.match({ onNone: () => null, onSome: ({ origin }) => ({ origin }) })),
+      ),
+    prepare: Effect.fn("HqAgentConnections.prepare")(function* (agent) {
+      const connected = yield* readStored(agent.projectId).pipe(
+        Effect.map(Option.isSome),
+        Effect.catch(() =>
+          Effect.logWarning("Could not read the project's HQ connection", {
+            projectId: agent.projectId,
+          }).pipe(Effect.as(false)),
+        ),
+      );
+      const existing = threads.get(agent.threadId);
+      if (!connected) return;
+      if (existing !== undefined) {
+        existing.agent = agent;
+        return;
+      }
+      const credential = yield* crypto.randomBytes(32).pipe(
+        Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
+        Effect.orDie,
+      );
+      const credentialHash = yield* digest(credential);
+      threads.set(agent.threadId, { credential, credentialHash, agent, token: undefined });
+      threadByCredentialHash.set(credentialHash, agent.threadId);
+    }),
+    // The credential stays stable for the thread's life: a live provider process keeps the
+    // headers it started with, and Claude reopens its process when its MCP config changes.
+    connection: (threadId) =>
+      Effect.sync(() => {
+        const connection = threads.get(threadId);
+        return connection === undefined
+          ? undefined
+          : { endpoint, authorizationHeader: `Bearer ${connection.credential}` };
+      }),
+    forward,
+    end,
+    forget: Effect.fn("HqAgentConnections.forget")(function* (agent) {
+      yield* end(agent);
+      const connection = threads.get(agent.threadId);
+      if (connection === undefined) return;
+      threads.delete(agent.threadId);
+      threadByCredentialHash.delete(connection.credentialHash);
+    }),
+  });
+});
+
+export const layer = Layer.effect(HqAgentConnections, make);

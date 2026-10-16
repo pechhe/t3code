@@ -1,0 +1,246 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import { assert } from "@effect/vitest";
+import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
+import * as NetAddress from "effect/net/NetAddress";
+import * as Option from "effect/Option";
+import * as Schema from "effect/Schema";
+import { HttpClient, HttpClientError, HttpClientResponse, HttpServer } from "effect/http";
+import { inspect } from "node:util";
+
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as HqAgentConnections from "./HqAgentConnections.ts";
+
+export const projectId = ProjectId.make("project-hq");
+export const leadThread = ThreadId.make("thread-lead");
+export const reviewerThread = ThreadId.make("thread-reviewer");
+export const delegation = `yshqd_${"d".repeat(43)}`;
+export const origin = "https://hq.example.test";
+export const otherDelegation = `yshqd_${"e".repeat(43)}`;
+export const otherOrigin = "https://hq-other.example.test";
+export const hqEndpoint = "http://127.0.0.1:43123/mcp/yardsmith-hq";
+export const hourMs = 60 * 60 * 1_000;
+const parseJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
+const stringifyJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const delegations = new Map([
+  [origin, delegation],
+  [otherOrigin, otherDelegation],
+]);
+
+/**
+ * HQ's exchange as `POST /api/mcp/agents` documents it: one live agent per reference and role,
+ * renewed by a new exchange, replaced after it ends, refused for ever once the person revokes it.
+ */
+const makeFakeHq = () => {
+  const agents: Array<{
+    id: string;
+    origin: string;
+    agentRef: string;
+    role: string;
+    model: string;
+    ended: boolean;
+    revoked: boolean;
+  }> = [];
+  const tokens = new Map<string, { agentId: string; expiresAt: number; origin: string }>();
+  const mcpCalls: Array<{
+    origin: string;
+    token: string;
+    agentId: string | undefined;
+    body: string;
+  }> = [];
+  const state = { unreachable: false, delegationRevoked: false };
+  let minted = 0;
+
+  const respond = (
+    request: Parameters<Parameters<typeof HttpClient.make>[0]>[0],
+    status: number,
+    body: unknown,
+  ) =>
+    HttpClientResponse.fromWeb(
+      request,
+      new Response(stringifyJson(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+  const client = HttpClient.make((request) =>
+    Effect.gen(function* () {
+      // The real client's error carries the request, bearer header included.
+      if (state.unreachable)
+        return yield* new HttpClientError.HttpClientError({
+          reason: new HttpClientError.TransportError({ request, description: "unreachable" }),
+        });
+      const now = yield* Clock.currentTimeMillis;
+      const bearer = request.headers.authorization?.replace(/^Bearer /, "") ?? "";
+      const body =
+        request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "";
+      const url = new URL(request.url);
+      const hqOrigin = url.origin;
+      if (url.pathname === "/api/mcp/agents") {
+        if (bearer !== delegations.get(hqOrigin) || state.delegationRevoked)
+          return respond(request, 401, { error: "invalid_delegation" });
+        const claim = parseJson(body) as Record<string, string>;
+        const forRef = agents.filter(
+          (a) => a.origin === hqOrigin && a.agentRef === claim.agentRef && a.role === claim.role,
+        );
+        if (claim.action === "end") {
+          const live = forRef.find((a) => !a.ended && !a.revoked);
+          if (live) live.ended = true;
+          return respond(request, 200, { ended: live !== undefined });
+        }
+        if (forRef.some((a) => a.revoked)) return respond(request, 403, { error: "agent_revoked" });
+        let agent = forRef.find((a) => !a.ended);
+        if (!agent) {
+          agent = {
+            id: `agent-${agents.length + 1}`,
+            origin: hqOrigin,
+            agentRef: claim.agentRef!,
+            role: claim.role!,
+            model: claim.model!,
+            ended: false,
+            revoked: false,
+          };
+          agents.push(agent);
+        }
+        agent.model = claim.model!;
+        const token = `yshqa_${String(++minted).padStart(43, "t")}`;
+        const expiresAt = now + 12 * hourMs;
+        tokens.set(token, { agentId: agent.id, expiresAt, origin: hqOrigin });
+        return respond(request, 200, {
+          token,
+          expiresAt: DateTime.formatIso(DateTime.makeUnsafe(expiresAt)),
+          agent: { executingAgentId: `agent:${agent.id}`, role: agent.role, model: agent.model },
+        });
+      }
+      if (url.pathname === "/api/mcp") {
+        // A token is honoured only by the HQ that issued it.
+        const record = tokens.get(bearer);
+        const agent = agents.find((a) => a.id === record?.agentId);
+        const valid =
+          record !== undefined &&
+          record.origin === hqOrigin &&
+          record.expiresAt > now &&
+          agent !== undefined &&
+          !agent.ended &&
+          !agent.revoked &&
+          !state.delegationRevoked;
+        mcpCalls.push({
+          origin: hqOrigin,
+          token: bearer,
+          agentId: valid ? agent.id : undefined,
+          body,
+        });
+        if (!valid) return respond(request, 401, { error: "invalid_token" });
+        const id = (parseJson(body) as { id: number }).id;
+        return respond(request, 200, { jsonrpc: "2.0", id, result: { agent: agent.id } });
+      }
+      return respond(request, 404, {});
+    }),
+  );
+  return { client, agents, tokens, mcpCalls, state };
+};
+
+/**
+ * The real HqAgentConnections against a fake HQ, with every log line captured, a lead and a
+ * spec-reviewer thread prepared in a connected project, and a check that no HQ credential
+ * (the delegations and every token HQ minted) reached what a test collected.
+ */
+export const makeHqHarness = Effect.gen(function* () {
+  const hq = makeFakeHq();
+  const stored = new Map<string, Uint8Array>();
+  const logs: Array<string> = [];
+  const store = ServerSecretStore.ServerSecretStore.of({
+    get: (name) => Effect.succeed(Option.fromNullishOr(stored.get(name))),
+    set: (name, value) => Effect.sync(() => void stored.set(name, value)),
+    create: (name, value) => Effect.sync(() => void stored.set(name, value)),
+    getOrCreateRandom: () => Effect.die("unused"),
+    remove: (name) => Effect.sync(() => void stored.delete(name)),
+  } as ServerSecretStore.ServerSecretStore["Service"]);
+  const connections = yield* Effect.service(HqAgentConnections.HqAgentConnections).pipe(
+    Effect.provide(
+      HqAgentConnections.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            NodeCrypto.layer,
+            Layer.succeed(ServerSecretStore.ServerSecretStore, store),
+            Layer.succeed(HttpClient.HttpClient, hq.client),
+            Layer.succeed(
+              ServerEnvironment.ServerEnvironment,
+              ServerEnvironment.ServerEnvironment.of({
+                getEnvironmentId: Effect.succeed(EnvironmentId.make("environment-hq")),
+              } as ServerEnvironment.ServerEnvironment["Service"]),
+            ),
+            Layer.succeed(
+              HttpServer.HttpServer,
+              HttpServer.HttpServer.of({
+                address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
+                serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+              }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  const logger = Logger.make(({ message }) => void logs.push(inspect(message, { depth: 10 })));
+  const logLayer = Logger.layer([logger], { mergeWithExisting: false });
+  const withLogs = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    effect.pipe(Effect.provide(logLayer));
+
+  let nextId = 0;
+  const call = (threadId: ThreadId) =>
+    Effect.gen(function* () {
+      const connection = yield* connections.connection(threadId);
+      assert.isDefined(connection);
+      const response = yield* withLogs(
+        connections.forward({
+          authorization: connection!.authorizationHeader,
+          body: new TextEncoder().encode(
+            stringifyJson({ jsonrpc: "2.0", id: ++nextId, method: "tools/list" }),
+          ),
+          contentType: "application/json",
+          accept: "application/json, text/event-stream",
+          protocolVersion: "2025-06-18",
+        }),
+      );
+      return {
+        status: response.status,
+        text: new TextDecoder().decode(response.body),
+        json: parseJson(new TextDecoder().decode(response.body)) as {
+          result?: { agent: string };
+          error?: { message: string; data: { reason: string } };
+        },
+      };
+    });
+
+  yield* connections.connect({ projectId, origin, delegation });
+  yield* connections.prepare({
+    threadId: leadThread,
+    projectId,
+    role: "lead",
+    model: "claude-opus-5-5",
+  });
+  yield* connections.prepare({
+    threadId: reviewerThread,
+    projectId,
+    role: "spec-reviewer",
+    model: "gpt-5.5",
+  });
+
+  /** No HQ credential may reach anything outside T3's own requests to HQ. */
+  const assertNoSecretsIn = (...surfaces: ReadonlyArray<unknown>) => {
+    const text = [...surfaces.map((surface) => inspect(surface, { depth: 20 })), ...logs].join(
+      "\n",
+    );
+    for (const secret of [...delegations.values(), ...hq.tokens.keys()])
+      assert.notInclude(text, secret);
+  };
+
+  return { hq, connections, call, logs, logLayer, stored, assertNoSecretsIn };
+});

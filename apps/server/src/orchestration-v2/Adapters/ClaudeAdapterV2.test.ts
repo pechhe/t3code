@@ -87,6 +87,8 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
+import * as HqAgentConnections from "../../hq/HqAgentConnections.ts";
+import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
@@ -1292,6 +1294,110 @@ describe("ClaudeAdapterV2 Auto-accept edits", () => {
         ),
       ),
     ),
+  );
+});
+
+describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
+  it.effect(
+    "launches with a yardsmith-hq server and no HQ credential, through renewal and reconnect failures",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const hq = yield* HqTestkit.makeHqHarness;
+          const threadId = ThreadId.make("thread-claude-hq");
+          yield* hq.connections.prepare({
+            threadId,
+            projectId: HqTestkit.projectId,
+            role: "lead",
+            model: CLAUDE_TEST_MODEL_SELECTION.model,
+          });
+          // An exchanged token, a renewal HQ cannot answer, then a revoked delegation.
+          yield* hq.call(threadId);
+          yield* TestClock.adjust(12 * HqTestkit.hourMs);
+          hq.hq.state.unreachable = true;
+          yield* hq.call(threadId);
+          hq.hq.state.unreachable = false;
+          hq.hq.state.delegationRevoked = true;
+          yield* hq.call(threadId);
+
+          const fileSystem = yield* FileSystem.FileSystem;
+          const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "t3-claude-hq-",
+          });
+          const opened: Array<unknown> = [];
+          const offered: Array<unknown> = [];
+          const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
+            instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
+            settings: DEFAULT_CLAUDE_SETTINGS,
+            environment: { PATH: "/usr/bin" },
+            attachmentsDir,
+            fileSystem,
+            path: yield* Path.Path,
+            crypto: yield* Crypto.Crypto,
+            idAllocator: yield* IdAllocator.IdAllocatorV2,
+            queryRunner: {
+              allocateSessionId: Effect.succeed("native-thread-claude-hq"),
+              open: (input) =>
+                Effect.sync(() => {
+                  opened.push(input);
+                  return {
+                    messages: Stream.never,
+                    offer: (message) => Effect.sync(() => void offered.push(message)),
+                    setModel: () => Effect.void,
+                    applyFlagSettings: () => Effect.void,
+                    setPermissionMode: () => Effect.void,
+                    backgroundTasks: () => Effect.succeed(false),
+                    stopTask: () => Effect.void,
+                    interrupt: Effect.void,
+                    close: Effect.void,
+                  };
+                }),
+              forkSession: () => Effect.die("unused"),
+              subagentLaunchToolUseId: () => Effect.succeed(null),
+              assertComplete: Effect.void,
+            },
+          }).pipe(Effect.provideService(HqAgentConnections.HqAgentConnections, hq.connections));
+          const runtime = yield* adapter.openSession({
+            threadId,
+            providerSessionId: ProviderSessionId.make("provider-session-claude-hq"),
+            modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+            runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
+          });
+          const providerThread = yield* runtime.ensureThread({
+            threadId,
+            modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+            runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
+          });
+          yield* runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId,
+              providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make("attempt-claude-hq"),
+              text: "Log a note in HQ.",
+              attachments: [],
+            }),
+          );
+
+          assert.lengthOf(opened, 1);
+          const options = (opened[0] as { options: ClaudeAdapterV2.ClaudeAgentSdkQueryOptions })
+            .options;
+          assert.deepEqual(options.mcpServers?.["yardsmith-hq"], {
+            type: "http",
+            url: HqTestkit.hqEndpoint,
+            headers: {
+              Authorization: (yield* hq.connections.connection(threadId))!.authorizationHeader,
+            },
+          });
+          assert.include(options.allowedTools ?? [], "mcp__yardsmith-hq__*");
+          // The whole launch: prompt, environment, argv, settings, MCP config and its log form.
+          hq.assertNoSecretsIn(opened, offered, ClaudeAdapterV2.loggedClaudeQueryOptions(options));
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+          ),
+        ),
+      ),
   );
 });
 

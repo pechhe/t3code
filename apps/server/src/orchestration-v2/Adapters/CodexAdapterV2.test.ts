@@ -64,6 +64,8 @@ import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
+import * as HqAgentConnections from "../../hq/HqAgentConnections.ts";
+import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { makeReplayServerConfig, withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
 import * as CodexAdapterV2Testkit from "./CodexAdapterV2.testkit.ts";
@@ -2383,6 +2385,102 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         );
         assert.equal(requests.filter((method) => method === "turn/start").length, 1);
         assert.isBelow(requests.indexOf("thread/inject_items"), requests.indexOf("turn/start"));
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+  );
+
+  it.effect(
+    "starts a thread with a yardsmith-hq server and no HQ credential, through renewal and reconnect failures",
+    () =>
+      Effect.gen(function* () {
+        const hq = yield* HqTestkit.makeHqHarness;
+        const scenario = "hq-connection";
+        const threadId = ThreadId.make(`thread-${scenario}`);
+        yield* hq.connections.prepare({
+          threadId,
+          projectId: HqTestkit.projectId,
+          role: "spec-reviewer",
+          model: "gpt-5.4",
+        });
+        // An exchanged token, a renewal HQ cannot answer, then a revoked delegation.
+        yield* hq.call(threadId);
+        yield* TestClock.adjust(12 * HqTestkit.hourMs);
+        hq.hq.state.unreachable = true;
+        yield* hq.call(threadId);
+        hq.hq.state.unreachable = false;
+        hq.hq.state.delegationRevoked = true;
+        yield* hq.call(threadId);
+        const connection = (yield* hq.connections.connection(threadId))!;
+
+        const nativeThreadId = "hq-thread";
+        const nativeTurnId = "hq-turn";
+        const prompt = "Record the review in HQ.";
+        const preamble = codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt });
+        const transcript = makeCodexReplayTranscript({
+          scenario,
+          entries: [
+            ...preamble.map((entry) =>
+              entry.type === "expect_outbound" && entry.label === "thread/start"
+                ? {
+                    ...entry,
+                    frame: {
+                      id: 2,
+                      method: "thread/start",
+                      params: {
+                        config: {
+                          ...CodexAdapterV2.CODEX_THREAD_CONFIG,
+                          mcp_servers: {
+                            "yardsmith-hq": {
+                              url: HqTestkit.hqEndpoint,
+                              http_headers: { Authorization: connection.authorizationHeader },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  }
+                : entry,
+            ),
+            {
+              type: "emit_inbound",
+              label: "done",
+              frame: {
+                method: "turn/completed",
+                params: {
+                  threadId: nativeThreadId,
+                  turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                },
+              },
+            },
+          ],
+        });
+        const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
+        const harness = yield* makeCodexReplayHarness(
+          transcript,
+          () => Effect.void,
+          (method, params) => Effect.sync(() => void requests.push({ method, params })),
+        ).pipe(Effect.provideService(HqAgentConnections.HqAgentConnections, hq.connections));
+        yield* harness.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("hq-attempt"),
+            text: prompt,
+          }),
+        );
+        yield* harness.firstTerminal;
+        assert.equal(harness.terminalEvents()[0]?.status, "completed");
+        assert.deepEqual(
+          requests.map(({ method }) => method),
+          ["initialize", "thread/start", "turn/start"],
+        );
+        // Every frame T3 sent Codex, the prompt included, and every event it reported.
+        hq.assertNoSecretsIn(requests, harness.events);
       }).pipe(
         Effect.scoped,
         Effect.provide(

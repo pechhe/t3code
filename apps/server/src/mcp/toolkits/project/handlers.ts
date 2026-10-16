@@ -9,6 +9,8 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
+import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
 import { ProjectToolkit } from "./tools.ts";
 
@@ -243,6 +245,38 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
       return yield* projects
         .update({ ...input, commandId: yield* newCommandId() })
         .pipe(Effect.mapError(projectFailure));
+    }),
+  ),
+  t3_project_hq_connection: McpToolAccess.writesEnvironment((input) =>
+    Effect.gen(function* () {
+      const context = yield* readCaller();
+      const projectId = yield* resolveProjectId(context, input.projectId);
+      const connections = yield* HqAgentConnections.HqAgentConnections;
+      const invalid = (message: string) =>
+        new OrchestratorMcpFailure({ code: "invalid_request", message });
+      const hqFailure = (error: HqAgentConnections.HqConnectionError) =>
+        error.reason === "store_failed" ? unavailable() : invalid(error.message);
+      if (input.action === "connect") {
+        const { origin: requestedOrigin, delegation: ref } = input;
+        if (requestedOrigin === undefined || ref === undefined)
+          return yield* invalid(
+            "Connecting needs origin and delegation, a secretRef from request_secret.",
+          );
+        const delegation = yield* SecretRequests.SecretRequests.pipe(
+          Effect.flatMap((secrets) => secrets.consume({ ref, projectId })),
+          Effect.mapError((error) => invalid(error.message)),
+        );
+        const { origin } = yield* connections
+          .connect({ projectId, origin: requestedOrigin, delegation })
+          .pipe(Effect.mapError(hqFailure));
+        return { connected: true, origin };
+      }
+      if (input.action === "disconnect") {
+        yield* connections.disconnect(projectId).pipe(Effect.mapError(hqFailure));
+        return { connected: false, origin: null };
+      }
+      const current = yield* connections.read(projectId).pipe(Effect.mapError(hqFailure));
+      return { connected: current !== null, origin: current?.origin ?? null };
     }),
   ),
   t3_project_delete: McpToolAccess.writesEnvironment((input) =>
