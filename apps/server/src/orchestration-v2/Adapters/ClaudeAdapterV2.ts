@@ -371,6 +371,9 @@ export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgent
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
 export const CLAUDE_WEB_RESEARCH_TOOLS = ["WebSearch", "WebFetch"] as const;
+// Claude Code defers MCP tool schemas only when ToolSearch is available. A restricted tool list
+// without it sends every schema up front: HQ alone added 50k+ tokens to each delegated session.
+export const CLAUDE_TOOL_SEARCH_TOOL = "ToolSearch";
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,
@@ -1920,11 +1923,12 @@ export function claudeRuntimeQueryPolicyForRuntimePolicy(
   const readOnly = sandboxPolicyKindForClaudeRuntimePolicy(runtimePolicy) === "readOnly";
   const webTools = readOnly && runtimePolicy.webResearch === true ? CLAUDE_WEB_RESEARCH_TOOLS : [];
   const readOnlyTools = readOnly ? CLAUDE_READ_ONLY_ALLOWED_TOOLS : undefined;
-  const tools =
+  const restrictedTools =
     (readOnlyTools && [...readOnlyTools, ...webTools]) ??
     (runtimePolicy.managedAgent === true
       ? ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]
       : undefined);
+  const tools = restrictedTools && [...restrictedTools, CLAUDE_TOOL_SEARCH_TOOL];
   // Web tools need permission, so a web-research agent must pre-approve them.
   const allowedTools =
     readOnlyTools !== undefined && readOnlyPolicyAllowsGlobalReads(runtimePolicy)

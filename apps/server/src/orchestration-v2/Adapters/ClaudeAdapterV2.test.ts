@@ -393,7 +393,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
 
     assert.deepEqual(queryPolicy, {
       permissionMode: "dontAsk",
-      tools: ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
+      tools: [...ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS, "ToolSearch"],
       allowedTools: ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
       installPermissionCallback: false,
     });
@@ -414,7 +414,12 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
 
     assert.deepEqual(queryPolicy, {
       permissionMode: "dontAsk",
-      tools: [...ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS, "WebSearch", "WebFetch"],
+      tools: [
+        ...ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
+        "WebSearch",
+        "WebFetch",
+        "ToolSearch",
+      ],
       allowedTools: ["WebSearch", "WebFetch"],
       installPermissionCallback: false,
     });
@@ -437,7 +442,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
 
     assert.deepEqual(queryPolicy, {
       permissionMode: "default",
-      tools: ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
+      tools: [...ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS, "ToolSearch"],
       allowedTools: ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
       installPermissionCallback: true,
     });
@@ -464,7 +469,7 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
 
     assert.deepEqual(queryPolicy, {
       permissionMode: "dontAsk",
-      tools: ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS,
+      tools: [...ClaudeAdapterV2.CLAUDE_READ_ONLY_ALLOWED_TOOLS, "ToolSearch"],
       installPermissionCallback: false,
     });
   });
@@ -815,7 +820,7 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
         hooks: { SessionStart: [{ hooks: [{ type: "command", command: "unsafe" }] }] },
       } as never,
     });
-    assert.deepEqual(options.tools, ["Read", "Glob", "Grep", "Write", "Edit", "Bash"]);
+    assert.deepEqual(options.tools, ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "ToolSearch"]);
     assert.notProperty(options.settings, "hooks");
     assert.equal(options.permissionMode, "bypassPermissions");
     assert.isTrue(options.allowDangerouslySkipPermissions);
@@ -883,7 +888,7 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
     assert.isTrue(options.strictMcpConfig);
     assert.equal(options.permissionMode, "dontAsk");
     assert.isUndefined(options.allowDangerouslySkipPermissions);
-    assert.deepEqual(options.tools, ["Read", "Glob", "Grep"]);
+    assert.deepEqual(options.tools, ["Read", "Glob", "Grep", "ToolSearch"]);
     assert.deepEqual(options.mcpServers, {});
     assert.isUndefined(options.extraArgs?.["permission-mode"]);
     assert.isUndefined(options.extraArgs?.["dangerously-skip-permissions"]);
