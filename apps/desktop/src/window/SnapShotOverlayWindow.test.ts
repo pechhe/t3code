@@ -15,21 +15,25 @@ describe("SnapShot overlay window", () => {
     expect(url.href).toBe("t3code://app/?surface=snap-shot-overlay#/snap-shot");
   });
 
-  it("sits centred near the top of the display under the pointer", () => {
-    expect(snapShotOverlayBounds({ x: 1440, y: 25, width: 1920, height: 1055 })).toEqual({
-      x: 1440 + 620,
-      y: 25 + 115,
-      width: 680,
-      height: 480,
+  it("sits on the bottom edge of the display, centred over the work area", () => {
+    // A secondary display with a menu bar above and a Dock below its work area.
+    const bounds = { x: 1440, y: 0, width: 1920, height: 1080 };
+    const workArea = { x: 1440, y: 25, width: 1920, height: 985 };
+    expect(snapShotOverlayBounds({ bounds, workArea })).toEqual({
+      x: 1440 + 560,
+      y: 1080 - 640,
+      width: 800,
+      height: 640,
     });
   });
 
   it("shrinks to fit a small display", () => {
-    expect(snapShotOverlayBounds({ x: 0, y: 0, width: 600, height: 400 })).toEqual({
+    const bounds = { x: 0, y: 0, width: 600, height: 400 };
+    expect(snapShotOverlayBounds({ bounds, workArea: { ...bounds, y: 25, height: 375 } })).toEqual({
       x: 0,
-      y: 0,
+      y: 25,
       width: 600,
-      height: 400,
+      height: 375,
     });
   });
 

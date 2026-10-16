@@ -1080,6 +1080,8 @@ export interface DesktopBridge {
   acknowledgeSnapShot?: (id: string) => Promise<void>;
   /** Hides the SnapShot overlay window; its chat and draft stay as they are. */
   hideSnapShotOverlay?: () => Promise<void>;
+  /** Lets the overlay take the pointer over its content; elsewhere clicks reach the app behind. */
+  setSnapShotOverlayInteractive?: (interactive: boolean) => Promise<void>;
   /** Opens a thread in the main window, revealing it, and hides the SnapShot overlay. */
   openThreadInMainWindow?: (thread: ScopedThreadRef) => Promise<void>;
   /** The main window is asked to open a thread, for example from the SnapShot overlay. */

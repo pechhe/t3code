@@ -3,10 +3,9 @@ import type * as Electron from "electron";
 /** Marks the renderer as the SnapShot overlay; read once by the web app at startup. */
 export const SNAP_SHOT_OVERLAY_SURFACE = "snap-shot-overlay";
 
-const OVERLAY_WIDTH = 680;
-const OVERLAY_HEIGHT = 480;
-// The overlay sits a little above the middle of the screen, like a launcher.
-const OVERLAY_TOP_FRACTION = 0.2;
+// Wide enough for the chat composer, tall enough for an answer above it.
+const OVERLAY_WIDTH = 800;
+const OVERLAY_HEIGHT = 640;
 
 /** Platforms where the overlay can sit over other apps without raising T3. */
 export function supportsSnapShotOverlay(platform: NodeJS.Platform): boolean {
@@ -59,13 +58,21 @@ export function snapShotOverlayWindowOptions(input: {
   };
 }
 
-/** Centred horizontally on the work area of the display under the pointer. */
-export function snapShotOverlayBounds(workArea: Electron.Rectangle): Electron.Rectangle {
+/**
+ * Centred along the bottom edge of the display under the pointer, where the main window's
+ * composer usually sits. It reaches the screen edge, under any Dock or taskbar, so the composer
+ * can slide in from it; the renderer keeps the composer itself above the work area.
+ */
+export function snapShotOverlayBounds(
+  display: Pick<Electron.Display, "bounds" | "workArea">,
+): Electron.Rectangle {
+  const { bounds, workArea } = display;
+  const bottom = bounds.y + bounds.height;
   const width = Math.min(OVERLAY_WIDTH, workArea.width);
-  const height = Math.min(OVERLAY_HEIGHT, workArea.height);
+  const height = Math.min(OVERLAY_HEIGHT, bottom - workArea.y);
   return {
     x: Math.round(workArea.x + (workArea.width - width) / 2),
-    y: Math.round(workArea.y + (workArea.height - height) * OVERLAY_TOP_FRACTION),
+    y: bottom - height,
     width,
     height,
   };

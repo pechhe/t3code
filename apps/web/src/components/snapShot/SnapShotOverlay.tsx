@@ -2,7 +2,14 @@ import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Outlet } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { DraftId } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
@@ -51,9 +58,21 @@ export function SnapShotOverlayStart() {
   return null;
 }
 
+/** How far the bottom of the overlay window reaches below the work area, over the Dock. */
+function measureBelowWorkArea(): number {
+  const { availHeight, availTop = 0 } = window.screen as Screen & { availTop?: number };
+  return Math.max(0, window.screenY + window.innerHeight - (availTop + availHeight));
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 /**
- * The overlay's card around its chat. The window is transparent, so the card is all the user
- * sees. Escape hides the overlay, keeping the chat for the next capture.
+ * The overlay's composer, floating where the main window's composer sits. The window reaches
+ * the bottom of the screen, so the composer slides up from the screen edge when the overlay
+ * shows and drops back down when Escape hides it, keeping the chat for the next capture. Only
+ * the composer and its menus take the pointer; elsewhere clicks reach the app behind.
  */
 export function SnapShotOverlayFrame({
   threadRef,
@@ -63,33 +82,98 @@ export function SnapShotOverlayFrame({
   readonly threadRef: ScopedThreadRef | null;
   readonly children: ReactNode;
 }) {
+  const [shown, setShown] = useState(false);
+  const [belowWorkArea, setBelowWorkArea] = useState(0);
+  const hidingRef = useRef(false);
+
+  useEffect(() => {
+    const slideIn = () => {
+      if (document.visibilityState !== "visible") return;
+      hidingRef.current = false;
+      setBelowWorkArea(measureBelowWorkArea());
+      // Paint the composer below the screen edge first, so it has somewhere to slide from.
+      requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") slideIn();
+      else setShown(false);
+    };
+    slideIn();
+    window.addEventListener("focus", slideIn);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", slideIn);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       // The composer and dialogs claim Escape first, for menus they close.
       if (event.key !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
-      void window.desktopBridge?.hideSnapShotOverlay?.();
+      if (prefersReducedMotion()) {
+        void window.desktopBridge?.hideSnapShotOverlay?.();
+        return;
+      }
+      hidingRef.current = true;
+      setShown(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  useEffect(() => {
+    let interactive = false;
+    const setInteractive = (next: boolean) => {
+      if (next === interactive) return;
+      interactive = next;
+      void window.desktopBridge?.setSnapShotOverlayInteractive?.(next);
+    };
+    // The window ignores the pointer but still reports its moves; take it over content only.
+    const onPointerMove = (event: MouseEvent) => {
+      const hit = document.elementFromPoint(event.clientX, event.clientY);
+      setInteractive(hit !== null && hit !== document.documentElement && hit !== document.body);
+    };
+    const onHidden = () => {
+      if (document.visibilityState !== "visible") setInteractive(false);
+    };
+    window.addEventListener("mousemove", onPointerMove);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("mousemove", onPointerMove);
+      document.removeEventListener("visibilitychange", onHidden);
+      setInteractive(false);
+    };
+  }, []);
+
   return (
-    <div className="flex h-svh min-h-0 p-3">
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-        <div className="drag-region flex h-9 shrink-0 items-center justify-end gap-1 px-2">
-          {threadRef ? (
-            <Button
-              size="xs"
-              variant="ghost"
-              className="[-webkit-app-region:no-drag]"
-              onClick={() => void window.desktopBridge?.openThreadInMainWindow?.(threadRef)}
-            >
-              <ExternalLinkIcon className="size-3.5" />
-              Open in T3
-            </Button>
-          ) : null}
-        </div>
+    <div
+      className="pointer-events-none flex h-svh min-h-0 overflow-hidden"
+      style={{ paddingBottom: belowWorkArea + 12 }}
+    >
+      <div
+        data-snap-shot-overlay-slide
+        data-snap-shot-overlay-shown={shown || undefined}
+        className="relative flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:duration-300 data-snap-shot-overlay-shown:ease-drawer motion-reduce:transition-none"
+        style={{ "--overlay-drop": `${belowWorkArea + 12}px` } as CSSProperties}
+        onTransitionEnd={(event) => {
+          if (event.target !== event.currentTarget || shown || !hidingRef.current) return;
+          hidingRef.current = false;
+          void window.desktopBridge?.hideSnapShotOverlay?.();
+        }}
+      >
+        {threadRef ? (
+          <Button
+            size="xs"
+            variant="glass"
+            className="pointer-events-auto absolute top-3 right-14 z-30"
+            onClick={() => void window.desktopBridge?.openThreadInMainWindow?.(threadRef)}
+          >
+            <ExternalLinkIcon className="size-3.5" />
+            Open in T3
+          </Button>
+        ) : null}
         <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
       </div>
     </div>

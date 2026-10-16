@@ -77,7 +77,8 @@ import {
 import { create } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 import { useShallow } from "zustand/react/shallow";
-import { appLocalStorage, createDeferredStorage } from "./lib/storage";
+import { isSnapShotOverlaySurface } from "./lib/appSurface";
+import { createDeferredStorage, resolveStorage } from "./lib/storage";
 import { getDefaultServerModel } from "./providerModels";
 import {
   replaceComposerContextReferences,
@@ -96,6 +97,14 @@ const isImageAnnotationMarks = Schema.is(ImageAnnotationMarks);
 const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
+/**
+ * The SnapShot overlay keeps its drafts apart from the main window's, so neither window
+ * overwrites the other's, and its first start takes only the main window's model choices.
+ */
+const SNAP_SHOT_OVERLAY_COMPOSER_DRAFT_STORAGE_KEY = "t3code:snap-shot-overlay:composer-drafts:v1";
+const composerDraftStorageKey = isSnapShotOverlaySurface
+  ? SNAP_SHOT_OVERLAY_COMPOSER_DRAFT_STORAGE_KEY
+  : COMPOSER_DRAFT_STORAGE_KEY;
 const COMPOSER_DRAFT_STORAGE_VERSION = 9;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
@@ -110,7 +119,7 @@ type ComposerPersistState =
   | PersistedComposerDraftStoreState;
 
 const composerDebouncedStorage = createDeferredStorage<StorageValue<ComposerPersistState>>(
-  appLocalStorage(),
+  resolveStorage(typeof localStorage !== "undefined" ? localStorage : undefined),
   (value) =>
     JSON.stringify({
       state:
@@ -122,11 +131,31 @@ const composerDebouncedStorage = createDeferredStorage<StorageValue<ComposerPers
   COMPOSER_PERSIST_DEBOUNCE_MS,
 );
 
+/** The main window's saved composer state without its drafts, for the overlay's first start. */
+function readMainWindowModelChoices(): StorageValue<ComposerPersistState> | null {
+  const raw = composerDebouncedStorage.getItem(COMPOSER_DRAFT_STORAGE_KEY);
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const value = JSON.parse(raw) as StorageValue<PersistedComposerDraftStoreState>;
+  return {
+    ...value,
+    state: {
+      ...value.state,
+      draftsByThreadKey: {},
+      draftThreadsByThreadKey: {},
+      logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+    },
+  };
+}
+
 const composerPersistStorage: PersistStorage<ComposerPersistState> = {
   getItem: (name) => {
     const raw = composerDebouncedStorage.getItem(name);
     if (typeof raw !== "string") {
-      return null;
+      return name === SNAP_SHOT_OVERLAY_COMPOSER_DRAFT_STORAGE_KEY
+        ? readMainWindowModelChoices()
+        : null;
     }
     return JSON.parse(raw) as StorageValue<ComposerPersistState>;
   },
@@ -2230,7 +2259,7 @@ function readPersistedAttachmentIdsFromStorage(threadKey: string): string[] {
   }
   try {
     const persisted = getLocalStorageItem(
-      COMPOSER_DRAFT_STORAGE_KEY,
+      composerDraftStorageKey,
       PersistedComposerDraftStoreStorage,
     );
     if (!persisted || persisted.version !== COMPOSER_DRAFT_STORAGE_VERSION) {
@@ -4199,7 +4228,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
       };
     },
     {
-      name: COMPOSER_DRAFT_STORAGE_KEY,
+      name: composerDraftStorageKey,
       version: COMPOSER_DRAFT_STORAGE_VERSION,
       storage: composerPersistStorage,
       migrate: migratePersistedComposerDraftStoreState,

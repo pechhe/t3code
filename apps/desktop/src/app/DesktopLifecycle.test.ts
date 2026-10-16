@@ -103,6 +103,7 @@ function layerDesktopWindow(
     placeSnapShotOverlay: Effect.succeed(Option.none()),
     showSnapShotOverlay: Effect.succeed(false),
     hideSnapShotOverlay: Effect.void,
+    setSnapShotOverlayInteractive: () => Effect.void,
     snapShotOverlayFor: () => Effect.succeed(Option.none()),
     openThreadInMain: () => Effect.void,
     zoomMain: () => Effect.void,

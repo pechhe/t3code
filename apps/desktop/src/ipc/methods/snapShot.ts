@@ -238,6 +238,16 @@ export const hideSnapShotOverlay = DesktopIpc.makeIpcMethod({
   }),
 });
 
+export const setSnapShotOverlayInteractive = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_SNAP_SHOT_OVERLAY_INTERACTIVE_CHANNEL,
+  payload: Schema.Boolean,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.snapShot.setOverlayInteractive")(function* (interactive, event) {
+    yield* ensureTrustedSnapShotSender(event);
+    yield* (yield* DesktopWindow.DesktopWindow).setSnapShotOverlayInteractive(interactive);
+  }),
+});
+
 export const openThreadInMainWindow = DesktopIpc.makeIpcMethod({
   channel: IpcChannels.OPEN_THREAD_IN_MAIN_WINDOW_CHANNEL,
   payload: ScopedThreadRef,

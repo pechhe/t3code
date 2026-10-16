@@ -11011,7 +11011,11 @@ export default function ChatView(props: ChatViewProps) {
   const content = (
     <div
       ref={setWorkspaceLayoutElement}
-      className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden bg-background"
+      className={cn(
+        "relative flex min-h-0 min-w-0 flex-1 overflow-hidden",
+        // The overlay window is transparent around its composer.
+        overlayPresentation ? "bg-transparent" : "bg-background",
+      )}
     >
       <Dialog
         open={
@@ -11155,7 +11159,16 @@ export default function ChatView(props: ChatViewProps) {
                 }}
               />
             </div>
-            <div className="relative flex min-h-0 flex-1 flex-col bg-background">
+            <div
+              className={cn(
+                "relative flex min-h-0 flex-1 flex-col bg-background",
+                // The overlay shows only its composer until the chat is sent.
+                overlayPresentation &&
+                  (isServerThread
+                    ? "pointer-events-auto overflow-hidden rounded-2xl border border-border shadow-xl"
+                    : "invisible"),
+              )}
+            >
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}

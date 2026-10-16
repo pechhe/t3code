@@ -135,6 +135,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.DISMISS_SNAP_SHOT_ANIMATION_CHANNEL, id),
   acknowledgeSnapShot: (id) => ipcRenderer.invoke(IpcChannels.ACKNOWLEDGE_SNAP_SHOT_CHANNEL, id),
   hideSnapShotOverlay: () => ipcRenderer.invoke(IpcChannels.HIDE_SNAP_SHOT_OVERLAY_CHANNEL),
+  setSnapShotOverlayInteractive: (interactive) =>
+    ipcRenderer.invoke(IpcChannels.SET_SNAP_SHOT_OVERLAY_INTERACTIVE_CHANNEL, interactive),
   openThreadInMainWindow: (thread) =>
     ipcRenderer.invoke(IpcChannels.OPEN_THREAD_IN_MAIN_WINDOW_CHANNEL, thread),
   getConnectionCatalog: () => ipcRenderer.invoke(IpcChannels.GET_CONNECTION_CATALOG_CHANNEL),

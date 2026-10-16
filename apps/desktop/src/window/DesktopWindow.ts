@@ -127,6 +127,8 @@ export class DesktopWindow extends Context.Service<
     /** Shows the overlay over the front app; false when there is no overlay window. */
     readonly showSnapShotOverlay: Effect.Effect<boolean>;
     readonly hideSnapShotOverlay: Effect.Effect<void>;
+    /** Takes the pointer while it is over the overlay's content; elsewhere clicks pass through. */
+    readonly setSnapShotOverlayInteractive: (interactive: boolean) => Effect.Effect<void>;
     /** The overlay window when these web contents are its renderer. */
     readonly snapShotOverlayFor: (
       webContentsId: number,
@@ -955,6 +957,8 @@ export const make = Effect.gen(function* () {
     yield* electronWindow.markAuxiliary(window);
     yield* rendererHistory.register(window.webContents, { surface: "snap-shot-overlay" });
     window.setAlwaysOnTop(true, "floating");
+    // Clicks pass through the transparent window except over its content.
+    window.setIgnoreMouseEvents(true, { forward: true });
     const applicationUrl = getDesktopUrl(environment.isDevelopment);
     window.webContents.setWindowOpenHandler(({ url }) => {
       if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
@@ -1005,7 +1009,7 @@ export const make = Effect.gen(function* () {
       const display = Electron.screen.getDisplayNearestPoint(
         Electron.screen.getCursorScreenPoint(),
       );
-      window.setBounds(snapShotOverlayBounds(display.workArea));
+      window.setBounds(snapShotOverlayBounds(display));
     }
     return Option.some(window.getBounds());
   }).pipe(Effect.withSpan("desktop.window.placeSnapShotOverlay"));
@@ -1027,6 +1031,15 @@ export const make = Effect.gen(function* () {
     const overlay = yield* liveSnapShotOverlay;
     if (Option.isSome(overlay) && overlay.value.isVisible()) overlay.value.hide();
   }).pipe(Effect.withSpan("desktop.window.hideSnapShotOverlay"));
+
+  const setSnapShotOverlayInteractive = Effect.fn("desktop.window.setSnapShotOverlayInteractive")(
+    function* (interactive: boolean) {
+      const overlay = yield* liveSnapShotOverlay;
+      if (Option.isSome(overlay)) {
+        overlay.value.setIgnoreMouseEvents(!interactive, { forward: true });
+      }
+    },
+  );
 
   return DesktopWindow.of({
     createMain,
@@ -1077,6 +1090,7 @@ export const make = Effect.gen(function* () {
     placeSnapShotOverlay,
     showSnapShotOverlay,
     hideSnapShotOverlay,
+    setSnapShotOverlayInteractive,
     snapShotOverlayFor: (webContentsId) =>
       liveSnapShotOverlay.pipe(
         Effect.map(Option.filter((window) => window.webContents.id === webContentsId)),

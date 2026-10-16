@@ -220,8 +220,9 @@ describe("window capture delivery", () => {
         item.id,
         {
           isConnected: true,
+          closest: () => null,
           getBoundingClientRect: () => ({ x: 0, y: 0, width: 208, height: 112 }),
-        } as HTMLElement,
+        } as unknown as HTMLElement,
         item.source,
       );
 
