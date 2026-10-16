@@ -357,8 +357,12 @@ export function DraftHeroHeadline({
             />
           </span>
         ) : (
-          <span ref={refFor(NO_PROJECT_KEY)} className="inline-block text-muted-foreground/50">
-            …
+          // The same dashed chip as in the row: a stand-in the user swaps for a project.
+          <span ref={refFor(NO_PROJECT_KEY)} className="inline-flex align-middle">
+            <span className="inline-flex h-8 items-center gap-1.5 rounded-md border border-dashed border-border px-2.5 font-semibold text-lg text-muted-foreground sm:h-9 sm:text-xl">
+              <MessageSquareDashedIcon aria-hidden className="size-4.5" />
+              No project
+            </span>
           </span>
         )}
         <span ref={refFor(SENTENCE_TAIL_KEY)} className="inline-block">
