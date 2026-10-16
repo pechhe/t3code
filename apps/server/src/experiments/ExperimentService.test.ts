@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, describe, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -55,8 +56,9 @@ const storeAsUnscopedLegacy = (experimentId: string) =>
     delete stored.eligibility.reviewScopes;
     yield* sql`UPDATE experiments SET definition_json = ${JSON.stringify(stored)} WHERE id = ${experimentId}`;
   });
+const layerExperiments = Experiments.layer.pipe(Layer.provide(NodeCrypto.layer));
 const dependencies = ProjectionStore.layer.pipe(Layer.provideMerge(Sqlite.layerMemory));
-const layer = Experiments.layer.pipe(Layer.provideMerge(dependencies));
+const layer = layerExperiments.pipe(Layer.provideMerge(dependencies));
 const modelSelection: ModelSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.4",
@@ -77,6 +79,25 @@ const definition = (id = "rollover"): ExperimentDefinition => ({
   stopConditions: ["Review constraint misses"],
   codeRevision: "commit:original",
   briefRevision: null,
+});
+const terse = {
+  sourcePath: "skills/lead/SKILL.md",
+  revision: "agent-config:abc123",
+  text: "Keep each reply under five lines.",
+  sha256: "9f2e399e91eddf0580cfa032b906deeb5cd0e1f966f6277c566fbe161f8b818c",
+};
+const thorough = {
+  ...terse,
+  text: "Explain each decision in full.",
+  sha256: "3e21fa350ebd30083dc279e80403a951c2a6e3e14b404a0d255f208b81edcfa2",
+};
+const instructionDefinition = (id = "instructions"): ExperimentDefinition => ({
+  ...definition(id),
+  lever: "instruction",
+  variants: [
+    { id: "terse", label: "Terse", instructions: terse },
+    { id: "thorough", label: "Thorough", instructions: thorough },
+  ],
 });
 const assignInput = (thread = "thread:1"): ExperimentAssignInput => ({
   threadId: ThreadId.make(thread),
@@ -321,14 +342,74 @@ describe("ExperimentService", () => {
         yield* service.transition({ experimentId: "rollover", status: "paused" });
         assert.deepStrictEqual(yield* service.assign(assignInput("new-while-paused")), []);
         // Rebuild the service over the same migrated DB, as after a server restart.
-        const resumed = yield* Experiments.ExperimentService.pipe(
-          Effect.provide(Experiments.layer),
-        );
+        const resumed = yield* Experiments.ExperimentService.pipe(Effect.provide(layerExperiments));
         assert.deepStrictEqual((yield* resumed.assign(assignInput()))[0], first);
         yield* service.transition({ experimentId: "rollover", status: "stopped" });
         assert.deepStrictEqual((yield* resumed.assign(assignInput()))[0], first);
         assert.deepStrictEqual(yield* resumed.assign(assignInput("new-while-stopped")), []);
       }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("assigns instruction variants per thread alongside a rollover experiment", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      // The hash names the text delivered, so a mismatch or another lever's variant is refused.
+      for (const variants of [
+        [
+          { id: "terse", label: "Terse", instructions: { ...terse, sha256: thorough.sha256 } },
+          { id: "thorough", label: "Thorough", instructions: thorough },
+        ],
+        [
+          { id: "terse", label: "Terse", instructions: terse },
+          { id: "model", label: "Model", modelSelection },
+        ],
+      ])
+        assert.strictEqual(
+          (yield* Effect.flip(service.create({ ...instructionDefinition("bad"), variants })))
+            .reason,
+          "invalid-definition",
+        );
+      yield* service.create(instructionDefinition());
+      yield* service.create(definition());
+      yield* service.transition({ experimentId: "instructions", status: "running" });
+      yield* service.transition({ experimentId: "rollover", status: "running" });
+      yield* service.create(instructionDefinition("overlapping"));
+      assert.strictEqual(
+        (yield* Effect.flip(service.transition({ experimentId: "overlapping", status: "running" })))
+          .reason,
+        "conflict",
+      );
+
+      const instruction = { ...assignInput(), threadLever: "instruction" as const };
+      const first = yield* service.assign(instruction);
+      assert.deepStrictEqual(
+        first.map((a) => a.experimentId),
+        ["instructions"],
+      );
+      const second = yield* service.assign({
+        ...assignInput("thread:2"),
+        threadLever: "instruction",
+      });
+      assert.deepStrictEqual(
+        [
+          first[0]?.variant.instructions?.sha256,
+          second[0]?.variant.instructions?.sha256,
+        ].toSorted(),
+        [terse.sha256, thorough.sha256].toSorted(),
+      );
+      // The rollover lever enrolls the same thread in its own experiment only, and neither
+      // enrollment moves the other.
+      const rollover = yield* service.assign({ ...assignInput(), threadLever: "rollover" });
+      assert.deepStrictEqual(
+        rollover.map((a) => a.experimentId),
+        ["rollover"],
+      );
+      assert.deepStrictEqual(yield* service.assign(instruction), first);
+      assert.strictEqual(
+        (yield* service.getRolloverAssignment(ThreadId.make("thread:1")))?.id,
+        rollover[0]?.id,
+      );
+    }).pipe(Effect.provide(layer)),
   );
 
   it.effect("enforces cap, time, eligibility and refusal of conflicting running experiments", () =>
@@ -1042,7 +1123,7 @@ describe("ExperimentService", () => {
 });
 
 describe("ExperimentService trial admission against the managed policy", () => {
-  const withPolicy = Experiments.layer.pipe(
+  const withPolicy = layerExperiments.pipe(
     Layer.provide(
       Layer.mock(ManagedAgent.ManagedAgentService)({
         snapshot: () => Effect.succeed(agentPolicySnapshot()),
@@ -1315,7 +1396,7 @@ describe("experiment evidence", () => {
             offset: 1,
             limit: 5,
           });
-        }).pipe(Effect.provide(Experiments.layer));
+        }).pipe(Effect.provide(layerExperiments));
         assert.lengthOf(recovered.captures, 2);
         assert.isFalse(recovered.hasMoreCaptures);
         const report = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;

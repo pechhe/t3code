@@ -730,6 +730,7 @@ export function buildCodexTurnStartParams(input: {
   readonly omitServiceTier?: boolean;
   /** What the thread's MCP Apps want the agent to know (`ui/update-model-context`). */
   readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
+  readonly instructionOverlay?: ProviderAdapter.ProviderAdapterV2TurnInput["instructionOverlay"];
 }) {
   return Effect.gen(function* () {
     const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
@@ -774,10 +775,22 @@ export function buildCodexTurnStartParams(input: {
             },
           )
         : undefined;
+    // Sent on every turn like T3's own context, so it survives compaction and a new session.
+    const overlay =
+      input.instructionOverlay === undefined
+        ? {}
+        : {
+            t3_instruction_experiment: {
+              kind: "application" as const,
+              value: input.instructionOverlay.text,
+            },
+          };
     const additionalContext =
-      t3Context === undefined && Object.keys(appContext).length === 0
+      t3Context === undefined &&
+      Object.keys(appContext).length === 0 &&
+      input.instructionOverlay === undefined
         ? undefined
-        : { ...t3Context, ...appContext };
+        : { ...t3Context, ...overlay, ...appContext };
     const collaborationMode: CodexSchema.ClientRequest__CollaborationMode | undefined =
       input.runtimePolicy.interactionMode !== "plan" && developerInstructions === undefined
         ? undefined
@@ -6337,6 +6350,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
+              ...(turnInput.instructionOverlay === undefined
+                ? {}
+                : { instructionOverlay: turnInput.instructionOverlay }),
             });
             yield* Ref.update(pendingRootTurns, (current) => {
               const updated = new Map(current);

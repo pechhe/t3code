@@ -17,6 +17,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Option from "effect/Option";
 import * as ExperimentService from "../experiments/ExperimentService.ts";
+import * as InstructionOverlay from "../experiments/InstructionOverlay.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
@@ -74,6 +75,7 @@ const capture = (
     rolloverSettings: rolloverOn,
     rollover: undefined,
     assignments: [{ experimentId: "trial", variantId: "a" }],
+    instructionOverlay: null,
     policy: () => Effect.succeed({ hash: "a".repeat(64), sourceRevision: "2026-10-15.4" }),
   }).pipe(
     Effect.provideService(
@@ -218,6 +220,7 @@ describe("RunSetupStore", () => {
 const recorderLayer = (
   getThread: ProjectionStore.ProjectionStoreV2["Service"]["getThread"],
   experiments: Partial<ExperimentService.ExperimentService["Service"]> = {},
+  overlay: InstructionOverlay.AssignedInstructionOverlay | null = null,
 ) =>
   Layer.effect(RunSetup.RunSetupRecorder, RunSetup.make).pipe(
     Layer.provide(
@@ -232,7 +235,14 @@ const recorderLayer = (
           ...experiments,
         }),
         Layer.mock(Policy.AgentPolicyService)({}),
-        Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          getProviders: Effect.succeed([
+            { instanceId: "codex", driver: "codex", models: [] },
+          ] as never),
+        }),
+        Layer.mock(InstructionOverlay.InstructionOverlay)({
+          forRun: (input) => Effect.succeed(input.driver === "codex" ? overlay : null),
+        }),
         ServerSettings.layerTest(),
       ),
     ),
@@ -267,9 +277,41 @@ describe("RunSetupRecorder.record", () => {
       assert.deepEqual(records[0]?.workflow, { kind: "lead", unattended: true });
       // The model has no provider snapshot here, so its options are unknown.
       assert.isNull(records[0]?.effectiveOptions);
+      assert.isNull(records[0]?.instructionOverlay);
     }).pipe(
       Effect.provide(
         recorderLayer(() => Effect.succeed({ ...thread, projectId: "project:setup" } as never)),
+      ),
+    ),
+  );
+
+  it.effect("names the instruction variant the run was delivered by its hash", () =>
+    Effect.gen(function* () {
+      const recorder = yield* RunSetup.RunSetupRecorder;
+      const store = yield* RunSetup.RunSetupStore;
+      yield* recorder.record(runAt(4), null);
+      const [record] = yield* store.list(threadId, 10);
+      assert.deepEqual(record?.instructionOverlay, {
+        experimentId: "instructions",
+        variantId: "terse",
+        sourcePath: "skills/lead/SKILL.md",
+        revision: "agent-config:abc123",
+        sha256: "b".repeat(64),
+      });
+    }).pipe(
+      Effect.provide(
+        recorderLayer(
+          () => Effect.succeed({ ...thread, projectId: "project:setup" } as never),
+          {},
+          {
+            experimentId: "instructions",
+            variantId: "terse",
+            sourcePath: "skills/lead/SKILL.md",
+            revision: "agent-config:abc123",
+            sha256: "b".repeat(64),
+            text: "Keep each reply under five lines.",
+          },
+        ),
       ),
     ),
   );

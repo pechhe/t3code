@@ -136,6 +136,8 @@ const DEFAULT_QUESTIONS: Readonly<Record<ExperimentDefinition["lever"], string>>
   delegation: "Which delegated model completes eligible tasks with less rework?",
   "orchestration-policy":
     "Does delegating bounded non-UI work earlier reduce total accepted-work usage without lowering independently verified completion?",
+  instruction:
+    "Does this instruction version improve verified completion without increasing rework?",
 };
 
 function ExperimentDraft({

@@ -30,6 +30,7 @@ import {
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 import * as ExperimentService from "../experiments/ExperimentService.ts";
+import * as InstructionOverlay from "../experiments/InstructionOverlay.ts";
 import {
   ROLLOVER_NOTE_RECIPE,
   assignedRolloverThresholds,
@@ -143,6 +144,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
     readonly experimentId: string;
     readonly variantId: string;
   }>;
+  readonly instructionOverlay: InstructionOverlay.AssignedInstructionOverlay | null;
   readonly policy: (root: string) => Effect.Effect<{ hash: string; sourceRevision: string } | null>;
 }) {
   const path = yield* Path.Path;
@@ -198,6 +200,16 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
             hardLimit: thresholds.hard,
             held: rolloverHeld(input.thread.rolloverHold, yield* Clock.currentTimeMillis),
             noteRecipe: ROLLOVER_NOTE_RECIPE,
+          },
+    instructionOverlay:
+      input.instructionOverlay === null
+        ? null
+        : {
+            experimentId: input.instructionOverlay.experimentId,
+            variantId: input.instructionOverlay.variantId,
+            sourcePath: input.instructionOverlay.sourcePath,
+            revision: input.instructionOverlay.revision,
+            sha256: input.instructionOverlay.sha256,
           },
     experimentAssignments: input.assignments,
   } satisfies RunSetupRecord;
@@ -325,6 +337,7 @@ export const make = Effect.gen(function* () {
   const experiments = yield* ExperimentService.ExperimentService;
   const policyService = yield* Policy.AgentPolicyService;
   const providers = yield* ProviderRegistry.ProviderRegistry;
+  const instructionOverlay = yield* InstructionOverlay.InstructionOverlay;
   const sql = yield* SqlClient.SqlClient;
   const context = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner | Crypto.Crypto
@@ -339,6 +352,19 @@ export const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const thread = yield* projections.getThread(run.threadId);
       const project = yield* projects.get(thread.projectId);
+      const provider = (yield* providers.getProviders).find(
+        (candidate) => candidate.instanceId === run.modelSelection.instanceId,
+      );
+      // The same per-run decision the provider turn reads, so the record names what was sent.
+      const overlay =
+        provider === undefined
+          ? null
+          : yield* instructionOverlay.forRun({
+              runId: run.id,
+              thread,
+              modelSelection: run.modelSelection,
+              driver: provider.driver,
+            });
       const assignments = yield* experiments.assignments({ threadId: run.threadId });
       const record = yield* captureRunSetup({
         run,
@@ -347,11 +373,11 @@ export const make = Effect.gen(function* () {
         workingDirectory:
           thread.worktreePath ?? Option.getOrNull(Option.map(project, (row) => row.workspaceRoot)),
         capabilities:
-          (yield* providers.getProviders)
-            .find((provider) => provider.instanceId === run.modelSelection.instanceId)
-            ?.models.find((model) => model.slug === run.modelSelection.model)?.capabilities ?? null,
+          provider?.models.find((model) => model.slug === run.modelSelection.model)?.capabilities ??
+          null,
         rolloverSettings: (yield* settingsService.getSettings).contextRollover,
         rollover: (yield* experiments.getRolloverAssignment(run.threadId))?.variant.rollover,
+        instructionOverlay: overlay,
         assignments: assignments.map((assignment) => ({
           experimentId: assignment.experimentId,
           variantId: assignment.variant.id,
@@ -475,4 +501,5 @@ export const make = Effect.gen(function* () {
   });
 });
 
+/** Needs the runtime's own `InstructionOverlay`, whose per-run decisions its runs delivered. */
 export const layer = Layer.effect(RunSetupRecorder, make).pipe(Layer.provide(Policy.layer));

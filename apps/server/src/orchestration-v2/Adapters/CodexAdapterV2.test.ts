@@ -491,6 +491,34 @@ describe("CodexAdapterV2 runtime policy", () => {
     }),
   );
 
+  it.effect("sends only the thread's own instruction variant as application context", () =>
+    Effect.gen(function* () {
+      const policy = { runtimeMode: "full-access", interactionMode: "default", cwd: null } as const;
+      const modelSelection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" };
+      const turn = (text?: string) =>
+        CodexAdapterV2.buildCodexTurnStartParams({
+          nativeThreadId: "native-instruction",
+          codexInput: [{ type: "text", text: "next step" }],
+          runtimePolicy: policy,
+          modelSelection,
+          hasT3Mcp: true,
+          ...(text === undefined ? {} : { instructionOverlay: { text, sha256: "a".repeat(64) } }),
+        });
+      const terse = yield* turn("Keep each reply under five lines.");
+      const thorough = yield* turn("Explain each decision in full.");
+      assert.deepEqual(terse.additionalContext?.["t3_instruction_experiment"], {
+        kind: "application",
+        value: "Keep each reply under five lines.",
+      });
+      assert.deepEqual(thorough.additionalContext?.["t3_instruction_experiment"], {
+        kind: "application",
+        value: "Explain each decision in full.",
+      });
+      assert.isDefined(terse.additionalContext?.["t3_code_runtime"]);
+      assert.isUndefined((yield* turn()).additionalContext?.["t3_instruction_experiment"]);
+    }),
+  );
+
   it.effect("adds default-mode developer instructions when the T3 MCP server is attached", () =>
     Effect.gen(function* () {
       const params = yield* CodexAdapterV2.buildCodexTurnStartParams({

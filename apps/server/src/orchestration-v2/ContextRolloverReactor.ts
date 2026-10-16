@@ -121,6 +121,7 @@ export const make = Effect.gen(function* () {
     )
       return null;
     yield* experiments.assignForThread({
+      threadLever: "rollover",
       threadId,
       projectId: thread.projectId,
       modelSelection: run.modelSelection,

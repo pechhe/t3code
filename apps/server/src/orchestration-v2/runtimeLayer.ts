@@ -3,6 +3,7 @@ import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as Layer from "effect/Layer";
 import * as OrchestrationCommandReceipts from "../persistence/OrchestrationCommandReceipts.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
+import * as InstructionOverlay from "../experiments/InstructionOverlay.ts";
 import * as McpAppModelContext from "../mcpApps/McpAppModelContext.ts";
 import * as McpAppRequests from "../mcpApps/McpAppRequests.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
@@ -339,7 +340,9 @@ const layerMcpAppRequestsProvided = McpAppRequests.layer.pipe(
   ),
 );
 
-export const layer = Layer.mergeAll(
+// Runs read their instruction experiment overlay; production supplies the experiment-backed
+// overlay and every other composition runs without instruction experiments.
+const layerWithoutInstructionOverlay = Layer.mergeAll(
   layerOrchestratorProvided,
   layerMcpAppRequestsProvided,
   layerThreadManagementProvided,
@@ -351,8 +354,12 @@ export const layer = Layer.mergeAll(
   layerLegacyV1ThreadImporterProvided,
 );
 
+export const layer = layerWithoutInstructionOverlay.pipe(
+  Layer.provide(InstructionOverlay.layerEmpty),
+);
+
 export const layerProduction = Layer.mergeAll(
-  layer.pipe(
+  layerWithoutInstructionOverlay.pipe(
     Layer.provide(layerProjectService),
     Layer.provide(
       ThreadLaunchService.layerReleasedWorkspacePreparation.pipe(
@@ -373,4 +380,9 @@ export const layerProduction = Layer.mergeAll(
   layerProviderContinuationWorkerProvided,
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
-).pipe(Layer.provide(Scheduler.layer), Layer.provideMerge(layerEventInfrastructure));
+).pipe(
+  Layer.provide(Scheduler.layer),
+  // Exported so the run setup recorder reads the same per-run decisions runs delivered.
+  Layer.provideMerge(InstructionOverlay.layer),
+  Layer.provideMerge(layerEventInfrastructure),
+);

@@ -426,6 +426,11 @@ export interface ProviderAdapterV2TurnInput {
    * application context; others never receive any.
    */
   readonly appContext?: ReadonlyArray<{ readonly key: string; readonly text: string }>;
+  /**
+   * The instruction experiment variant assigned to this thread, delivered on top of the
+   * agent's usual instructions. Only adapters that support an overlay receive one.
+   */
+  readonly instructionOverlay?: { readonly text: string; readonly sha256: string };
 }
 
 export interface ProviderAdapterV2SteerInput {

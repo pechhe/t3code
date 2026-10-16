@@ -20,6 +20,7 @@ export const ExperimentLever = Schema.Literals([
   "reviewer",
   "delegation",
   "orchestration-policy",
+  "instruction",
 ]);
 export type ExperimentLever = typeof ExperimentLever.Type;
 export const ExperimentRolloverPolicy = Schema.Struct({
@@ -37,10 +38,24 @@ export const ExperimentOrchestrationControls = Schema.Struct({
   concurrency: PositiveInt,
 });
 export type ExperimentOrchestrationControls = typeof ExperimentOrchestrationControls.Type;
+/**
+ * One version of a workflow skill or instruction section, delivered to an assigned thread
+ * as an overlay on top of its usual instructions. `sha256` is the hash of `text`.
+ */
+export const ExperimentInstructionVariant = Schema.Struct({
+  /** Where the text comes from, such as `skills/lead/SKILL.md` in agent-config. */
+  sourcePath: TrimmedNonEmptyString,
+  /** The agent-config revision the text was taken from. */
+  revision: TrimmedNonEmptyString,
+  sha256: Sha256,
+  text: TrimmedNonEmptyString.check(Schema.isMaxLength(16_000)),
+});
+export type ExperimentInstructionVariant = typeof ExperimentInstructionVariant.Type;
 export const ExperimentVariant = Schema.Struct({
   id: TrimmedNonEmptyString,
   label: TrimmedNonEmptyString,
   rollover: Schema.optional(ExperimentRolloverPolicy),
+  instructions: Schema.optional(ExperimentInstructionVariant),
   modelSelection: Schema.optional(ModelSelection),
   allocationPolicy: Schema.optional(ExperimentAllocationPolicy),
 });
@@ -194,6 +209,8 @@ export const ExperimentAssignInput = Schema.Struct({
   unitId: TrimmedNonEmptyString,
   taskCategory: Schema.optional(TrimmedNonEmptyString),
   taskLever: Schema.optional(Schema.Literals(["reviewer", "delegation"])),
+  /** For a thread, the one lever to enroll it in; each caller assigns only its own. */
+  threadLever: Schema.optional(Schema.Literals(["rollover", "instruction"])),
   enrollment: Schema.Literals(["new", "existing-boundary"]),
   unitCreatedAt: Schema.optional(Schema.String),
   boundaryRunId: Schema.optional(RunId),

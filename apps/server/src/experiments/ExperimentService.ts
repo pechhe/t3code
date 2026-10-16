@@ -39,6 +39,7 @@ import {
   isReviewerRole,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -260,6 +261,9 @@ function conflicts(a: Experiment, b: Experiment): boolean {
     (a.lever !== b.lever || overlaps(a.eligibility.taskCategories, b.eligibility.taskCategories))
   );
 }
+/** Levers assigned per thread rather than per delegated task. */
+const isThreadLever = (lever: ExperimentDefinition["lever"]) =>
+  lever === "rollover" || lever === "instruction";
 function validDefinition(input: ExperimentDefinition, now: string): boolean {
   // A new reviewer experiment says which review units it compares; other levers have none.
   if ((input.lever === "reviewer") !== (input.eligibility.reviewScopes !== undefined)) return false;
@@ -292,10 +296,17 @@ function validDefinition(input: ExperimentDefinition, now: string): boolean {
       input.lever === "rollover"
         ? v.rollover !== undefined &&
           v.rollover.softLimit < v.rollover.hardLimit &&
-          v.modelSelection === undefined
-        : v.modelSelection !== undefined && v.rollover === undefined,
+          v.modelSelection === undefined &&
+          v.instructions === undefined
+        : input.lever === "instruction"
+          ? v.instructions !== undefined &&
+            v.modelSelection === undefined &&
+            v.rollover === undefined
+          : v.modelSelection !== undefined &&
+            v.rollover === undefined &&
+            v.instructions === undefined,
     ) &&
-    (input.lever !== "rollover" || input.eligibility.taskCategories.length === 0)
+    (!isThreadLever(input.lever) || input.eligibility.taskCategories.length === 0)
   );
 }
 
@@ -341,6 +352,7 @@ const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const policyStore = yield* PolicyStore.AgentPolicyStore;
   const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+  const crypto = yield* Crypto.Crypto;
   const persist = <A, E>(operation: string, entityId: string, effect: Effect.Effect<A, E>) =>
     effect.pipe(
       Effect.mapError((cause) =>
@@ -437,6 +449,18 @@ const make = Effect.gen(function* () {
     );
     return input.variants.every((v) => !v.modelSelection || allowed.has(v.modelSelection.model));
   });
+  // A variant's hash is what run setup records name, so it must be the hash of the text sent.
+  const instructionHashesMatch = (input: ExperimentDefinition) =>
+    Effect.forEach(input.variants, (variant) =>
+      variant.instructions === undefined
+        ? Effect.succeed(true)
+        : crypto.digest("SHA-256", new TextEncoder().encode(variant.instructions.text)).pipe(
+            Effect.map(
+              (digest) => Buffer.from(digest).toString("hex") === variant.instructions?.sha256,
+            ),
+            Effect.orElseSucceed(() => false),
+          ),
+    ).pipe(Effect.map((matches) => matches.every(Boolean)));
   const create = Effect.fn("ExperimentService.create")(function* (input: ExperimentDefinition) {
     const now = yield* nowIso;
     if ((yield* list()).length >= 1000)
@@ -444,6 +468,8 @@ const make = Effect.gen(function* () {
     if (!isExperimentDefinition(input) || !validDefinition(input, now))
       return yield* fail("create", input.id, "invalid-definition");
     if (!(yield* armModelsAllowed(input)))
+      return yield* fail("create", input.id, "invalid-definition");
+    if (!(yield* instructionHashesMatch(input)))
       return yield* fail("create", input.id, "invalid-definition");
     const value: Experiment = {
       ...input,
@@ -544,7 +570,8 @@ const make = Effect.gen(function* () {
             (a) =>
               a.unitKind === input.unitKind &&
               a.unitId === input.unitId &&
-              a.assignmentMethod === "randomized",
+              a.assignmentMethod === "randomized" &&
+              (input.threadLever === undefined || a.lever === input.threadLever),
           );
           const experiments = yield* list();
           const reviewScope = input.agentTask?.review?.scope;
@@ -564,7 +591,8 @@ const make = Effect.gen(function* () {
             )
               continue;
             if (
-              (experiment.lever === "rollover") !== (input.unitKind === "thread") ||
+              isThreadLever(experiment.lever) !== (input.unitKind === "thread") ||
+              (input.threadLever !== undefined && experiment.lever !== input.threadLever) ||
               (input.unitKind === "task" && experiment.lever !== input.taskLever)
             )
               continue;
@@ -1891,7 +1919,7 @@ const make = Effect.gen(function* () {
               return yield* fail("import", input.unitId, "invalid-evidence");
             if ((yield* assignments({ experimentId: experiment.id })).length >= 1000)
               return yield* fail("import", input.unitId, "invalid-evidence");
-            const unitKind = experiment.lever === "rollover" ? "thread" : "task";
+            const unitKind = isThreadLever(experiment.lever) ? "thread" : "task";
             const existing = (yield* assignments({ experimentId: input.experimentId })).find(
               (a) => a.unitKind === unitKind && a.unitId === input.unitId,
             );

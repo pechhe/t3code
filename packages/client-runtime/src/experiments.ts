@@ -41,6 +41,8 @@ export function describeExperimentTreatment(variant: ExperimentVariant): string 
   if (variant.rollover)
     return `${variant.rollover.softLimit.toLocaleString()} soft / ${variant.rollover.hardLimit.toLocaleString()} hard`;
   if (variant.modelSelection) return describeModelSelection(variant.modelSelection);
+  if (variant.instructions)
+    return `${variant.instructions.sourcePath} at ${variant.instructions.revision} (${variant.instructions.sha256.slice(0, 12)})`;
   return "Unspecified treatment";
 }
 

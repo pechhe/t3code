@@ -230,6 +230,26 @@ describe("ClaudeAdapterV2 runtime query policy", () => {
     assert.include(options.settings, { showThinkingSummaries: true });
   });
 
+  it("appends only the thread's own instruction variant to the system prompt", () => {
+    const append = (instructionOverlay?: string) =>
+      (
+        ClaudeAdapterV2.makeClaudeQueryOptions({
+          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+          nativeThreadId: "instruction-thread",
+          resume: true,
+          cwd: "/workspace",
+          ...(instructionOverlay === undefined ? {} : { instructionOverlay }),
+        }).systemPrompt as { readonly append?: string }
+      ).append ?? "";
+    const terse = append("Keep each reply under five lines.");
+    const thorough = append("Explain each decision in full.");
+    assert.include(terse, "Keep each reply under five lines.");
+    assert.notInclude(terse, "Explain each decision in full.");
+    assert.include(thorough, "Explain each decision in full.");
+    assert.notInclude(thorough, "Keep each reply under five lines.");
+    assert.isTrue(terse.startsWith(append()));
+  });
+
   it("preserves an explicit omitted thinking display", () => {
     const options = ClaudeAdapterV2.makeClaudeQueryOptions({
       modelSelection: CLAUDE_TEST_MODEL_SELECTION,

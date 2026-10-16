@@ -67,6 +67,21 @@ export const RunSetupRecord = Schema.Struct({
       noteRecipe: TrimmedNonEmptyString,
     }),
   ),
+  /**
+   * The instruction experiment variant delivered to the run, named by its hash; null when
+   * the run received none, absent when unknown (capture failed or predates the lever).
+   */
+  instructionOverlay: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        experimentId: TrimmedNonEmptyString,
+        variantId: TrimmedNonEmptyString,
+        sourcePath: TrimmedNonEmptyString,
+        revision: TrimmedNonEmptyString,
+        sha256: Sha256,
+      }),
+    ),
+  ),
   experimentAssignments: Schema.NullOr(
     Schema.Array(
       Schema.Struct({

@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -32,10 +33,11 @@ import {
 } from "../agents/agentPolicy.testkit.ts";
 import * as Experiments from "./ExperimentService.ts";
 
+const layerExperiments = Experiments.layer.pipe(Layer.provide(NodeCrypto.layer));
 const dependencies = Layer.merge(ProjectionStore.layer, AgentPolicyStore.layer).pipe(
   Layer.provideMerge(Sqlite.layerMemory),
 );
-const layer = Experiments.layer.pipe(Layer.provideMerge(dependencies));
+const layer = layerExperiments.pipe(Layer.provideMerge(dependencies));
 const selection: ModelSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.4",
@@ -355,6 +357,62 @@ const addParentTurn = Effect.fn(function* (
   });
   return providerTurnId;
 });
+
+it.effect("keeps a thread's instruction assignment through a policy save and a later run", () =>
+  Effect.gen(function* () {
+    yield* savePolicySnapshot;
+    const service = yield* Experiments.ExperimentService;
+    const instructions = {
+      sourcePath: "skills/lead/SKILL.md",
+      revision: "agent-config:abc123",
+      text: "Keep each reply under five lines.",
+      sha256: "9f2e399e91eddf0580cfa032b906deeb5cd0e1f966f6277c566fbe161f8b818c",
+    };
+    yield* service.create({
+      ...policyDefinition("instructions"),
+      lever: "instruction",
+      variants: [
+        { id: "terse", label: "Terse", instructions },
+        {
+          id: "thorough",
+          label: "Thorough",
+          instructions: {
+            ...instructions,
+            text: "Explain each decision in full.",
+            sha256: "3e21fa350ebd30083dc279e80403a951c2a6e3e14b404a0d255f208b81edcfa2",
+          },
+        },
+      ],
+      eligibility: { projectIds: [], models: [], taskCategories: [] },
+      orchestrationControls: undefined,
+    });
+    yield* service.transition({ experimentId: "instructions", status: "running" });
+    const assign = service.assignForThread({
+      threadLever: "instruction",
+      threadId: parentThreadId,
+      projectId,
+      modelSelection: selection,
+      enrollment: "new",
+      unitCreatedAt: "2998-01-01T00:00:00Z",
+    });
+    const first = yield* assign;
+    expect(first).toHaveLength(1);
+    const policyStore = yield* AgentPolicyStore.AgentPolicyStore;
+    yield* policyStore.save({ ...policySnapshot(), hash: "f".repeat(64), sourceRevision: "newer" });
+    // Each run, a rollover run included, reads the assignment again; it never moves.
+    expect(yield* assign).toEqual(first);
+    expect(
+      yield* service.assignForThread({
+        threadLever: "instruction",
+        threadId: parentThreadId,
+        projectId,
+        modelSelection: changedSelection,
+        enrollment: "new",
+        unitCreatedAt: "2998-01-01T00:00:00Z",
+      }),
+    ).toEqual(first);
+  }).pipe(Effect.provide(layer)),
+);
 
 it.effect(
   "enrolls stable work before allocation and pins its policy assignment through retries",
