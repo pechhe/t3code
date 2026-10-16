@@ -1025,6 +1025,14 @@ export const DesktopPreviewRecordingSaveInputSchema = Schema.Struct({
 });
 
 export const SystemSettingsPaneSchema = Schema.Literals(["full-disk-access"]);
+
+/** Whether the desktop can let the user pick a screen or window for composer recording. */
+export const DesktopScreenRecordingSupport = Schema.Literals([
+  "supported",
+  "needs-newer-macos",
+  "unsupported",
+]);
+export type DesktopScreenRecordingSupport = typeof DesktopScreenRecordingSupport.Type;
 export type SystemSettingsPane = typeof SystemSettingsPaneSchema.Type;
 
 export interface DesktopBridge {
@@ -1118,6 +1126,7 @@ export interface DesktopBridge {
   openExternal: (url: string) => Promise<boolean>;
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
+  getScreenRecordingSupport?: () => Promise<DesktopScreenRecordingSupport>;
   /**
    * Optional: older desktop builds lack it; callers fall back to VS Code only.
    */

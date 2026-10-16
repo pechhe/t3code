@@ -216,7 +216,9 @@ const {
   webviewSend,
   writeFile,
   writeClipboard,
+  getDesktopCapturerSources,
 } = vi.hoisted(() => ({
+  getDesktopCapturerSources: vi.fn(async () => [{ id: "screen:1:0", name: "Entire Screen" }]),
   browserWindowConstructor: vi.fn(),
   clipboardItemConstructor: vi.fn(),
   createFromPath: vi.fn((): { readonly isEmpty: () => boolean; readonly toPNG: () => Buffer } => ({
@@ -255,6 +257,9 @@ vi.mock("electron", () => ({
   webContents: {
     fromId,
     getFocusedWebContents,
+  },
+  desktopCapturer: {
+    getSources: getDesktopCapturerSources,
   },
 }));
 
@@ -3088,9 +3093,60 @@ describe("PreviewManager", () => {
 
         takeGrant();
         expect(grants).toEqual([{ video: { routingId: Exit.isSuccess(exitA) ? 41 : 42 } }]);
-        expect(host.session.setDisplayMediaRequestHandler).toHaveBeenCalledOnce();
+        const installedHandlers = host.session.setDisplayMediaRequestHandler.mock.calls.map(
+          ([handler]) => handler,
+        );
+        expect(new Set(installedHandlers).size).toBe(1);
       }),
     ),
+  );
+
+  effectIt.effect(
+    "never picks a source for the main window when macOS's system picker is unavailable",
+    () =>
+      withManager((manager) =>
+        Effect.gen(function* () {
+          const { host, grants, takeGrant } = yield* setupRecordingRaceTabs(manager);
+          const mainWindow = {
+            isDestroyed: () => false,
+            once: vi.fn(),
+            webContents: {
+              setBackgroundThrottling: vi.fn(),
+              session: host.session,
+              mainFrame: host.mainFrame,
+            },
+          } as never;
+          yield* manager.setMainWindow(mainWindow);
+          yield* manager.installDisplayMediaHandler(mainWindow);
+          yield* manager.installDisplayMediaHandler(mainWindow);
+          const systemPickerCalls = () =>
+            host.session.setDisplayMediaRequestHandler.mock.calls.map(
+              ([, options]) => (options as { useSystemPicker: boolean }).useSystemPicker,
+            );
+          expect(systemPickerCalls()).toEqual([true]);
+
+          // On macOS the handler sees the composer only when the system picker is unavailable.
+          const composerGrant = yield* Effect.promise(
+            () =>
+              new Promise<{ video?: unknown }>((resolve) => {
+                host.displayMediaHandler()?.({ frame: host.mainFrame }, resolve);
+              }),
+          );
+          expect(composerGrant).toEqual({});
+          takeGrant({ frameTreeNodeId: 99 });
+          expect(grants).toEqual([{}]);
+
+          // A preview tab's request reaches the handler only while the system picker is off.
+          yield* manager.startRecording("tab_race_a");
+          expect(systemPickerCalls()).toEqual([true, false]);
+          takeGrant();
+          expect(grants).toEqual([{}, { video: { routingId: 41 } }]);
+          expect(systemPickerCalls()).toEqual([true, false, true]);
+          expect(getDesktopCapturerSources).not.toHaveBeenCalled();
+
+          yield* manager.stopRecording("tab_race_a");
+        }),
+      ),
   );
 
   effectIt.effect("releases an armed slot that the renderer never redeemed", () =>

@@ -186,6 +186,17 @@ import {
   shouldHandleComposerAttachmentPaste,
 } from "./composerAttachmentFiles";
 import {
+  browserComposerScreenRecorderHost,
+  createComposerScreenRecorder,
+  type ComposerScreenRecorder,
+  type ComposerScreenRecordingState,
+} from "./composerScreenRecording";
+import {
+  ComposerScreenRecordControl,
+  explainRefusedScreenRecording,
+  useComposerScreenRecordingAvailable,
+} from "./ComposerScreenRecordControl";
+import {
   readAttachmentUpload,
   releaseAttachmentUpload,
   releaseDraftAttachment,
@@ -2524,6 +2535,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     names: new Set(),
   });
   const attachmentInputRef = useRef<HTMLInputElement>(null);
+  const screenRecorderRef = useRef<ComposerScreenRecorder | null>(null);
+  const screenRecordingAvailable = useComposerScreenRecordingAvailable();
+  const [screenRecordingState, setScreenRecordingState] = useState<ComposerScreenRecordingState>({
+    phase: "idle",
+  });
+  // A capture belongs to the draft it started in; leaving that draft stops every track.
+  useEffect(() => () => screenRecorderRef.current?.discard(), [composerDraftTargetKey]);
   const composerFormRef = useRef<HTMLFormElement>(null);
   const composerSurfaceRef = useRef<HTMLDivElement>(null);
   const providerInputRejectedRef = useRef(false);
@@ -4206,6 +4224,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         type: "info",
         title: "Still compressing a pasted image.",
         description: "Send again once its thumbnail appears.",
+      });
+      return;
+    }
+    // The recording attaches only once it stops, so a send now would leave it behind.
+    if (screenRecorderRef.current) {
+      event?.preventDefault();
+      toastManager.add({
+        type: "info",
+        title: "Still recording your screen.",
+        description: "Stop the recording, then send once it's attached.",
       });
       return;
     }
@@ -6106,6 +6134,37 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
   });
 
+  const startScreenRecording = async () => {
+    if (fileStagingLimit === null || screenRecorderRef.current) return;
+    const recorder = createComposerScreenRecorder(
+      browserComposerScreenRecorderHost(fileStagingLimit),
+      setScreenRecordingState,
+    );
+    screenRecorderRef.current = recorder;
+    const outcome = await recorder.start();
+    if (screenRecorderRef.current === recorder) screenRecorderRef.current = null;
+    if (outcome?.type === "recorded") {
+      const inserted = await addComposerAttachments([outcome.file]);
+      if (!inserted) focusComposer();
+    } else if (outcome?.type === "busy") {
+      toastManager.add({
+        type: "info",
+        title: "A browser recording is in progress.",
+        description: "Stop it before recording your screen.",
+      });
+    } else if (outcome?.type === "not-allowed") {
+      await explainRefusedScreenRecording();
+    } else if (outcome?.type === "failed") {
+      toastManager.add({
+        type: "error",
+        title: "Couldn't record the screen",
+        description: outcome.error instanceof Error ? outcome.error.message : undefined,
+      });
+    }
+  };
+  const startScreenRecordingStable = useStableCallback(() => void startScreenRecording());
+  const stopScreenRecordingStable = useStableCallback(() => screenRecorderRef.current?.stop());
+
   const attachDroppedThreadFile = useEffectEvent((file: File) => addComposerAttachments([file]));
   const importDroppedThread = useEffectEvent(
     async (ref: ScopedThreadRef, isActive: () => boolean) => {
@@ -7614,6 +7673,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         <TooltipPopup>Attach files</TooltipPopup>
                       </Tooltip>
                     </>
+                  ) : null}
+                  {screenRecordingState.phase !== "idle" ||
+                  (showComposerAttachAction && screenRecordingAvailable) ? (
+                    <ComposerScreenRecordControl
+                      state={screenRecordingState}
+                      onStart={startScreenRecordingStable}
+                      onStop={stopScreenRecordingStable}
+                    />
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}

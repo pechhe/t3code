@@ -46,6 +46,7 @@ import {
   openExternal,
   openSystemSettings,
   checkSystemPermission,
+  getScreenRecordingSupport,
   pasteAsText,
   probeRemoteEditors,
   pickFolder,
@@ -153,6 +154,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(cancelProviderAuthCallback);
   yield* ipc.handle(openSystemSettings);
   yield* ipc.handle(checkSystemPermission);
+  yield* ipc.handle(getScreenRecordingSupport);
   yield* ipc.handle(pasteAsText);
   yield* ipc.handle(probeRemoteEditors);
   yield* ipc.handle(getUpdateState);

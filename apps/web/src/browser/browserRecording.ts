@@ -8,6 +8,12 @@ import { previewBridge } from "~/components/preview/previewBridge";
 import { ensureClientSettingsHydrated, getClientSettings } from "~/hooks/useSettings";
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 
+import {
+  createMediaRecorder,
+  recordedMimeType,
+  stopMediaRecorder,
+  stopMediaStream,
+} from "./mediaRecording";
 import { createRecordingCompositor } from "./recordingCompositor";
 
 import { acquireBrowserSurfaceActivity } from "./browserSurfaceStore";
@@ -238,30 +244,6 @@ export function findActiveBrowserRecordingRuntimeTabId(
   );
 }
 
-const preferredMimeTypes = [
-  "video/mp4;codecs=avc1",
-  "video/mp4;codecs=avc1.640028",
-  "video/mp4;codecs=avc1.42e01e",
-  "video/webm;codecs=vp9",
-  "video/webm;codecs=vp8",
-  "video/webm",
-] as const;
-
-const createMediaRecorder = (stream: MediaStream): MediaRecorder => {
-  const mimeType = preferredMimeTypes.find((candidate) => MediaRecorder.isTypeSupported(candidate));
-  const settings = stream.getVideoTracks()[0]?.getSettings();
-  const videoBitsPerSecond = Math.round(
-    Math.min(
-      50_000_000,
-      Math.max(
-        2_500_000,
-        (settings?.width ?? 1920) * (settings?.height ?? 1080) * (settings?.frameRate ?? 30) * 0.05,
-      ),
-    ),
-  );
-  return new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond });
-};
-
 const captureTabMediaStream = (frameRate: number): Promise<MediaStream> =>
   // The desktop main process routes this request to the tab that `startScreencast` armed, so the
   // stream already arrives at that tab's native size and needs no source or dimension constraints.
@@ -269,19 +251,6 @@ const captureTabMediaStream = (frameRate: number): Promise<MediaStream> =>
     audio: false,
     video: { frameRate: { ideal: frameRate, max: frameRate } },
   });
-
-const stopMediaRecorder = async (recorder: MediaRecorder | null): Promise<void> => {
-  if (!recorder || recorder.state === "inactive") return;
-  const stopped = new Promise<void>((resolve) =>
-    recorder.addEventListener("stop", () => resolve(), { once: true }),
-  );
-  recorder.stop();
-  await stopped;
-};
-
-const stopMediaStream = (stream: MediaStream | null): void => {
-  for (const track of stream?.getTracks() ?? []) track.stop();
-};
 
 interface PendingTabMediaCapture {
   readonly start: () => void;
@@ -709,9 +678,7 @@ const finalizeBrowserRecording = async (
       recording.compositor = null;
       stopMediaStream(recording.stream);
       recording.stream = null;
-      const mimeType =
-        recording.recorder.mimeType ||
-        recording.chunks.find((chunk) => chunk.type.length > 0)?.type;
+      const mimeType = recordedMimeType(recording.recorder, recording.chunks);
       if (!mimeType) {
         throw new BrowserRecordingFormatUnavailableError({ tabId });
       }

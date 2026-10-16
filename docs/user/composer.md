@@ -35,8 +35,11 @@ Attach up to 100 files per message. Each image can be up to 10 MiB, with at most
 80 MiB of images in one message. Other files, including videos, can be up to
 50 MiB each, subject to the environment's upload support and limit. The agent
 receives them on the environment's machine. Provider and model limits still
-apply, including images already in the conversation. A video attachment gives
-the agent a file path; it does not enable native video input.
+apply, including images already in the conversation. When the environment's
+machine has [ffmpeg](https://ffmpeg.org) installed, the agent also sees a video as
+up to 12 stills with timestamps, and can ask for more stills around a moment.
+Without ffmpeg it gets only the video's file path; install ffmpeg and restart
+T3 Code to change that.
 
 Uploads begin when you add an attachment. All uploads must finish before the
 message can send. Retry or remove a failed upload. On web and desktop, reloading
@@ -48,6 +51,19 @@ library; photos over the image limit are also resized to fit. On mobile, you can
 also send files to T3 Code through another app's system share sheet.
 
 See [images and videos](#images-and-videos-in-messages) for previewing and saving media.
+
+## Record your screen
+
+To show the agent behaviour rather than a still, choose the record button next
+to **Send**, pick a screen or window, and choose **Stop** when you are done. The
+recording is attached to your draft as a video. Recordings stop by themselves
+after 60 seconds and capture no audio. Sending waits until the recording is
+attached.
+
+Recording works in desktop browsers and in the desktop app on macOS 15 or later
+and Linux on Wayland. On macOS, allow T3 Code under **System Settings → Privacy
+& Security → Screen Recording**. On other systems, or on mobile, record with the
+system's own tools and attach the video.
 
 ## Send while the agent is working
 

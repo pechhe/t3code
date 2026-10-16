@@ -2,6 +2,7 @@ import {
   ContextMenuItemSchema,
   DesktopAppBrandingSchema,
   DesktopEnvironmentBootstrapSchema,
+  DesktopScreenRecordingSupport,
   DesktopThemeSchema,
   EDITORS,
   EditorId,
@@ -38,6 +39,7 @@ import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
+import { currentComposerScreenRecordingSupport } from "../../preview/ComposerDisplayMedia.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
 import {
@@ -388,6 +390,19 @@ export const pickThemeFiles = DesktopIpc.makeIpcMethod({
         return { name, size, text } satisfies PickedThemeFile;
       }).pipe(Effect.orElseSucceed((): PickedThemeFile => ({ name, size: 0, text: "" })));
     });
+  }),
+});
+
+export const getScreenRecordingSupport = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GET_SCREEN_RECORDING_SUPPORT_CHANNEL,
+  payload: Schema.Undefined,
+  result: DesktopScreenRecordingSupport,
+  handler: Effect.fn("desktop.ipc.window.getScreenRecordingSupport")(function* () {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    return currentComposerScreenRecordingSupport(
+      environment.platform,
+      yield* HostProcess.Environment,
+    );
   }),
 });
 

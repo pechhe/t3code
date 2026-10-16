@@ -33,7 +33,9 @@ import {
   BrowserWindow,
   ClipboardItem,
   app,
+  type DisplayMediaRequestHandlerHandlerRequest,
   type Session,
+  type Streams,
   clipboard,
   nativeImage,
   shell,
@@ -67,6 +69,10 @@ import { MENU_ACTION_CHANNEL, PREVIEW_PICTURE_IN_PICTURE_FRAME_CHANNEL } from ".
 import * as DesktopBrowserHost from "./DesktopBrowserHost.ts";
 import * as PreviewPasskeys from "./Passkeys.ts";
 import * as BrowserSession from "./BrowserSession.ts";
+import {
+  answerComposerDisplayMediaRequest,
+  electronComposerDisplayMediaHost,
+} from "./ComposerDisplayMedia.ts";
 import {
   ANNOTATION_CAPTURED_CHANNEL,
   ANNOTATION_SEND_ENABLED_CHANNEL,
@@ -578,7 +584,12 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   // `getMediaSourceId` + `chromeMediaSource: "tab"` capture path was removed upstream
   // (electron#44618) and now always rejects with NotAllowedError.
   let pendingRecording: PendingRecording | null = null;
-  const displayMediaHandlerSessions = new WeakSet<Session>();
+  // Sessions with the display-media handler installed, keyed to the `useSystemPicker` they last got.
+  const displayMediaHandlerSessions = new Map<Session, boolean>();
+  const composerDisplayMediaHost = electronComposerDisplayMediaHost(
+    hostPlatform,
+    yield* HostProcess.Environment,
+  );
   let frameCaptureWindowOpen = true;
   let currentMainWindow: BrowserWindow | undefined;
   let mainWindowCleanupFiber: Fiber.Fiber<void, never> | undefined;
@@ -816,7 +827,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   });
 
   const stopAllRecordings = Effect.fn("PreviewManager.stopAllRecordings")(function* () {
-    pendingRecording = null;
+    setPendingRecording(null);
     const sessions = yield* SynchronizedRef.get(frameCaptureSessionsRef);
     yield* Effect.forEach(sessions.keys(), (tabId) => stopFrameCapture(tabId, "recording"), {
       concurrency: "unbounded",
@@ -2997,7 +3008,7 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
   });
 
   const clearPendingRecording = (tabId: string) => {
-    if (pendingRecording?.tabId === tabId) pendingRecording = null;
+    if (pendingRecording?.tabId === tabId) setPendingRecording(null);
   };
 
   /**
@@ -3029,14 +3040,14 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
       requestingFrameTreeNodeId,
       armedAtMillis: now,
     };
-    pendingRecording = armed;
+    setPendingRecording(armed);
     // The handler callback is sync and cannot read a clock, so expiry is driven from here.
     // Identity compare: a re-arm replaces the object, and this fiber must not clobber it.
     yield* Effect.forkIn(
       Effect.sleep(RECORDING_ARM_GRACE_MS).pipe(
         Effect.andThen(
           Effect.sync(() => {
-            if (pendingRecording === armed) pendingRecording = null;
+            if (pendingRecording === armed) setPendingRecording(null);
           }),
         ),
       ),
@@ -3044,29 +3055,63 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     );
   });
 
-  // Installed once per session: answers the renderer's `getDisplayMedia()` with the tab that
-  // `startRecording` armed, and denies anything else so pages cannot capture on their own.
+  // Answers the renderer's `getDisplayMedia()` with the tab that `startRecording` armed. With
+  // nothing armed, only the main window's own top frame (the composer's Record control) may capture,
+  // so preview pages and embedded app frames cannot capture on their own.
+  const handleDisplayMediaRequest = (
+    request: DisplayMediaRequestHandlerHandlerRequest,
+    callback: (streams: Streams) => void,
+  ) => {
+    const armed = pendingRecording;
+    if (!armed) {
+      const mainWindow = currentMainWindow;
+      if (
+        mainWindow &&
+        !mainWindow.isDestroyed() &&
+        request.frame !== null &&
+        request.frame.frameTreeNodeId === mainWindow.webContents.mainFrame.frameTreeNodeId
+      ) {
+        void answerComposerDisplayMediaRequest(callback, composerDisplayMediaHost);
+        return;
+      }
+      callback({});
+      return;
+    }
+    if (armed.webContents.isDestroyed()) {
+      setPendingRecording(null);
+      callback({});
+      return;
+    }
+    if (request.frame?.frameTreeNodeId !== armed.requestingFrameTreeNodeId) {
+      callback({});
+      return;
+    }
+    setPendingRecording(null);
+    callback({ video: armed.webContents.mainFrame });
+  };
+
+  // macOS 15+ shows its system picker without invoking the handler while `useSystemPicker` is on,
+  // so it is off only while a preview tab is armed and the composer gets the picker otherwise.
+  const syncDisplayMediaSystemPicker = () => {
+    const useSystemPicker = pendingRecording === null;
+    for (const [session, applied] of displayMediaHandlerSessions) {
+      if (applied === useSystemPicker) continue;
+      displayMediaHandlerSessions.set(session, useSystemPicker);
+      session.setDisplayMediaRequestHandler(handleDisplayMediaRequest, { useSystemPicker });
+    }
+  };
+
+  function setPendingRecording(next: PendingRecording | null) {
+    pendingRecording = next;
+    syncDisplayMediaSystemPicker();
+  }
+
+  // Installed once per session; Electron keeps a single display-media handler per session.
   const installDisplayMediaRequestHandler = (session: Session) => {
     if (displayMediaHandlerSessions.has(session)) return;
-    displayMediaHandlerSessions.add(session);
-    session.setDisplayMediaRequestHandler((request, callback) => {
-      const armed = pendingRecording;
-      if (!armed) {
-        callback({});
-        return;
-      }
-      if (armed.webContents.isDestroyed()) {
-        pendingRecording = null;
-        callback({});
-        return;
-      }
-      if (request.frame?.frameTreeNodeId !== armed.requestingFrameTreeNodeId) {
-        callback({});
-        return;
-      }
-      pendingRecording = null;
-      callback({ video: armed.webContents.mainFrame });
-    });
+    const useSystemPicker = pendingRecording === null;
+    displayMediaHandlerSessions.set(session, useSystemPicker);
+    session.setDisplayMediaRequestHandler(handleDisplayMediaRequest, { useSystemPicker });
   };
 
   const startRecording = Effect.fn("PreviewManager.startRecording")(function* (
@@ -3337,6 +3382,8 @@ const makeNativeOperations = Effect.fn("PreviewManager.makeOperations")(function
     setAudioMuted,
     setColorScheme,
     setMainWindow,
+    installDisplayMediaHandler: (window: BrowserWindow) =>
+      Effect.sync(() => installDisplayMediaRequestHandler(window.webContents.session)),
     setForwardedShortcuts: (shortcuts: ReadonlyArray<PreviewForwardedShortcut>) =>
       Effect.sync(() => {
         forwardedShortcuts = shortcuts;
@@ -3502,6 +3549,8 @@ export class PreviewManager extends Context.Service<
   PreviewManager,
   {
     readonly setMainWindow: (window: BrowserWindow) => Effect.Effect<void, PreviewManagerError>;
+    /** Lets the window's own top frame call `getDisplayMedia()` for composer screen recording. */
+    readonly installDisplayMediaHandler: (window: BrowserWindow) => Effect.Effect<void>;
     readonly setForwardedShortcuts: (
       shortcuts: ReadonlyArray<PreviewForwardedShortcut>,
     ) => Effect.Effect<void>;
@@ -3653,6 +3702,7 @@ export const make = Effect.gen(function* PreviewManagerMake() {
 
   return PreviewManager.of({
     setMainWindow: operations.setMainWindow,
+    installDisplayMediaHandler: operations.installDisplayMediaHandler,
     setForwardedShortcuts: operations.setForwardedShortcuts,
     getBrowserSession: Effect.fn("PreviewManager.getBrowserSession")(
       function* (scope, persistent, namespace) {
