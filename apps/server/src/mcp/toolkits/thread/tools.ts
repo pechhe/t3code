@@ -25,6 +25,8 @@ import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
 
 import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
@@ -240,6 +242,30 @@ const ThreadForkTool = Tool.make("t3_thread_fork", {
   }),
   success: transferResult,
 }).annotate(Tool.Destructive, true);
+const projectMoveDependencies = [
+  ...commandTool.dependencies,
+  ProjectService.ProjectService,
+  ManagedProjectFolders.ManagedProjectFolders,
+];
+const ThreadSuggestProjectTool = Tool.make("t3_thread_suggest_project", {
+  ...commandTool,
+  description:
+    "Suggest moving this No project chat into one of the user's projects (see t3_project_list), when the conversation clearly belongs to that project's work. T3 shows the user one banner with Move and Keep; the chat moves only if they choose Move. Use it only in a No project thread and only when the fit is clear; a thread takes one suggestion, and a dismissed one is final. reason is one short line shown to the user.",
+  parameters: Schema.Struct({ projectId: ProjectId, reason: TrimmedNonEmptyString }),
+  dependencies: projectMoveDependencies,
+})
+  .annotate(Tool.Title, "Suggest a project for this chat")
+  .annotate(Tool.Destructive, false);
+const ThreadMoveToProjectTool = Tool.make("t3_thread_move_to_project", {
+  ...commandTool,
+  description:
+    "Move a No project thread into a project because the user asked for it: forks the conversation from its latest finished turn into the project, at the project's root, and archives the No project thread. Omit threadId for this thread. To propose a move instead, use t3_thread_suggest_project.",
+  parameters: Schema.Struct({ threadId: Schema.optional(ThreadId), projectId: ProjectId }),
+  success: transferResult,
+  dependencies: projectMoveDependencies,
+})
+  .annotate(Tool.Title, "Move a chat into a project")
+  .annotate(Tool.Destructive, true);
 const ThreadMergeBackTool = Tool.make("t3_thread_merge_back", {
   ...commandTool,
   description:
@@ -305,6 +331,8 @@ export const ThreadToolkit = Toolkit.make(
   ScheduledTaskRunTool,
   ThreadSearchTool,
   ThreadForkTool,
+  ThreadSuggestProjectTool,
+  ThreadMoveToProjectTool,
   ThreadMergeBackTool,
   ThreadTransfersTool,
   ThreadConfigurationTool,

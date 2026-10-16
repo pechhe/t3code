@@ -386,6 +386,27 @@ export const OrchestrationV2ThreadWorkflow = Schema.Struct({
 export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;
 
 /**
+ * A project an agent suggested for its own No project chat. The user moves the
+ * chat there or keeps it; a dismissed suggestion stays recorded so the chat is
+ * suggested at most once.
+ */
+export const OrchestrationV2ThreadProjectSuggestion = Schema.Struct({
+  projectId: ProjectId,
+  reason: TrimmedNonEmptyString,
+  suggestedAt: Schema.DateTimeUtc,
+  dismissedAt: Schema.NullOr(Schema.DateTimeUtc),
+});
+export type OrchestrationV2ThreadProjectSuggestion =
+  typeof OrchestrationV2ThreadProjectSuggestion.Type;
+
+export const OrchestrationV2ThreadProjectSuggestionJson =
+  OrchestrationV2ThreadProjectSuggestion.mapFields((fields) => ({
+    ...fields,
+    suggestedAt: Schema.DateTimeUtcFromString,
+    dismissedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
+  }));
+
+/**
  * One thread's own context rollover thresholds, in tokens, set by dragging the
  * composer's rollover band. Absent or null follows the server settings.
  */
@@ -449,6 +470,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
   workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
+  projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
   // payloads from pre-reorder servers still decode.
@@ -1946,6 +1968,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
   workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
+  projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   /** Slot in the user-arranged pinned order; omitted by pre-reorder servers. */
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2047,6 +2070,7 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
       }),
     ),
   ),
+  projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestionJson)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 }));
 export type OrchestrationV2AppThreadJson = typeof OrchestrationV2AppThreadJson.Type;
@@ -2469,6 +2493,7 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
       }),
     ),
   ),
+  projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestionJson)),
   deletedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
 }));
 export type OrchestrationV2ThreadShellJson = typeof OrchestrationV2ThreadShellJson.Type;
@@ -2798,6 +2823,13 @@ export const OrchestrationV2Command = Schema.Union([
     keepSideChat: Schema.optional(Schema.Literal(true)),
     /** Set (object) or clear (null) the governing workflow; absent leaves it unchanged. */
     workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
+    /** Record a suggested project, or dismiss the recorded one; absent leaves it unchanged. */
+    projectSuggestion: Schema.optional(
+      Schema.Union([
+        Schema.Struct({ projectId: ProjectId, reason: TrimmedNonEmptyString }),
+        Schema.Literal("dismissed"),
+      ]),
+    ),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pull-request.link"),
@@ -3040,6 +3072,8 @@ export const OrchestrationV2Command = Schema.Union([
     title: Schema.optional(TrimmedNonEmptyString),
     /** Open the fork as a side chat of the source thread. */
     sideChat: Schema.optional(Schema.Boolean),
+    /** Fork into this project, at its root, instead of the source's project and folder. */
+    projectId: Schema.optional(ProjectId),
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({

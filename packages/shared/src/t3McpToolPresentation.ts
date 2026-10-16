@@ -314,6 +314,14 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_thread_setup: tool(["Read", "Reading", "Read", "run setup"], "thread-configuration"),
   t3_thread_configure: tool(["Set", "Setting", "Set", "thread model"], "thread-configure"),
   t3_thread_fork: tool(["Fork", "Forking", "Requested a fork of", "this thread"], "thread-fork"),
+  t3_thread_suggest_project: tool(
+    ["Suggest", "Suggesting", "Suggested", "a project for this chat"],
+    "thread-update",
+  ),
+  t3_thread_move_to_project: tool(
+    ["Move", "Moving", "Moved", "this chat into a project"],
+    "thread-fork",
+  ),
   t3_thread_merge_back: tool(
     ["Merge", "Merging", "Requested a merge of", "thread context"],
     "thread-merge",

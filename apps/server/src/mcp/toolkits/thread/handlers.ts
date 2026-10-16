@@ -1,6 +1,7 @@
 import {
   type CommandId,
   type EnvironmentId,
+  type ProjectId,
   type RuntimeRequestId,
   ThreadId,
   type OrchestrationV2ThreadProjection,
@@ -9,6 +10,7 @@ import {
   type OrchestrationV2Command,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -20,6 +22,8 @@ import {
   unavailable,
 } from "../../threadAccess.ts";
 import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
+import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
+import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
@@ -52,6 +56,31 @@ const dispatch = Effect.fn("mcp.dispatchThreadCommand")(function* (
     .dispatch(command({ commandId: yield* newCommandId(), threadId: projection.thread.id }))
     .pipe(Effect.mapError(dispatchFailure));
   return { sequence: result.sequence };
+});
+
+const invalid = (message: string) =>
+  new OrchestratorMcpFailure({ code: "invalid_request", message });
+
+/** Refuses unless the thread is in No project and the target is another live project. */
+const assertMovableToProject = Effect.fn("mcp.assertMovableToProject")(function* (
+  threadProjectId: ProjectId,
+  targetProjectId: ProjectId,
+) {
+  const projects = yield* ProjectService.ProjectService;
+  const scratchRoot = yield* ManagedProjectFolders.ManagedProjectFolders.pipe(
+    Effect.flatMap((folders) => folders.scratchRoot),
+  );
+  const scratchProject = Option.isNone(scratchRoot)
+    ? undefined
+    : Option.getOrUndefined(
+        yield* projects.getByWorkspaceRoot(scratchRoot.value).pipe(Effect.mapError(unavailable)),
+      );
+  if (scratchProject?.id !== threadProjectId)
+    return yield* invalid("Only a No project thread can move into a project.");
+  if (targetProjectId === threadProjectId)
+    return yield* invalid("Choose a project other than No project.");
+  const target = yield* projects.getById(targetProjectId).pipe(Effect.mapError(unavailable));
+  if (Option.isNone(target)) return yield* invalid("The project was not found.");
 });
 
 const readQuestion = Effect.fn("mcp.readQuestion")(function* (input: {
@@ -146,6 +175,57 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
         })
         .pipe(Effect.mapError(dispatchFailure));
       return { sequence: result.sequence, targetThreadId };
+    }),
+  ),
+  t3_thread_suggest_project: writesThread(
+    (input: {
+      readonly projectId: ProjectId;
+      readonly reason: string;
+      readonly threadId?: never;
+    }) =>
+      Effect.gen(function* () {
+        const { threads, projection } = yield* readThread(undefined);
+        yield* assertMovableToProject(projection.thread.projectId, input.projectId);
+        if (projection.thread.projectSuggestion != null)
+          return yield* invalid("This thread already has a project suggestion.");
+        const result = yield* threads
+          .dispatch({
+            type: "thread.metadata.update",
+            commandId: yield* newCommandId(),
+            threadId: projection.thread.id,
+            projectSuggestion: { projectId: input.projectId, reason: input.reason },
+          })
+          .pipe(Effect.mapError(dispatchFailure));
+        return { sequence: result.sequence };
+      }),
+  ),
+  t3_thread_move_to_project: writesThread((input) =>
+    Effect.gen(function* () {
+      const { threads, projection } = yield* readThread(input.threadId);
+      yield* assertMovableToProject(projection.thread.projectId, input.projectId);
+      const commandId = yield* newCommandId();
+      const targetThreadId = ThreadId.make(`${commandId}:move`);
+      yield* threads
+        .dispatch({
+          type: "thread.fork",
+          commandId,
+          sourceThreadId: projection.thread.id,
+          targetThreadId,
+          sourcePoint: { type: "latest_finished" },
+          title: projection.thread.title,
+          projectId: input.projectId,
+          createdBy: "agent",
+          creationSource: "mcp",
+        })
+        .pipe(Effect.mapError(dispatchFailure));
+      const archived = yield* threads
+        .dispatch({
+          type: "thread.archive",
+          commandId: yield* newCommandId(),
+          threadId: projection.thread.id,
+        })
+        .pipe(Effect.mapError(dispatchFailure));
+      return { sequence: archived.sequence, targetThreadId };
     }),
   ),
   t3_thread_merge_back: McpToolAccess.writesThreads(

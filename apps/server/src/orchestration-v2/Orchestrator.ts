@@ -2600,6 +2600,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: `Thread ${command.threadId} branch changed before the metadata update could be applied.`,
       });
     }
+    if (
+      command.type === "thread.metadata.update" &&
+      typeof command.projectSuggestion === "object" &&
+      thread.projectSuggestion != null
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: `Thread ${command.threadId} already has a project suggestion.`,
+      });
+    }
     if (command.type === "thread.metadata.update" && command.expectedEmpty === true) {
       const records = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs"])
@@ -3087,6 +3098,19 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
             ...(command.keepSideChat === true ? { sideChat: false } : {}),
             ...(command.workflow === undefined ? {} : { workflow: command.workflow }),
+            ...(command.projectSuggestion === undefined
+              ? {}
+              : {
+                  projectSuggestion:
+                    command.projectSuggestion === "dismissed"
+                      ? thread.projectSuggestion
+                        ? {
+                            ...thread.projectSuggestion,
+                            dismissedAt: thread.projectSuggestion.dismissedAt ?? now,
+                          }
+                        : null
+                      : { ...command.projectSuggestion, suggestedAt: now, dismissedAt: null },
+                }),
             ...(command.linkedPullRequest === undefined
               ? {}
               : {
@@ -3705,6 +3729,23 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: forkableSourceRunStatusError(sourceRun),
       });
     }
+    if (command.projectId !== undefined) {
+      if (command.sideChat === true) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "A side chat stays in its parent's project.",
+        });
+      }
+      const project = yield* projects.get(command.projectId).pipe(mapDispatchError(command));
+      if (Option.isNone(project)) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Project ${command.projectId} was not found.`,
+        });
+      }
+    }
     const sourceProviderThread = providerThreadForRun(sourceProjection, sourceRun);
     const now = command.createdAt ?? (yield* DateTime.now);
     const emitEvent = emit(events, command);
@@ -3725,6 +3766,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         targetThreadId: command.targetThreadId,
         ...(command.title === undefined ? {} : { title: command.title }),
         ...(command.sideChat === true ? { sideChat: true } : {}),
+        ...(command.projectId === undefined ? {} : { projectId: command.projectId }),
         createdBy: command.createdBy,
         creationSource: command.creationSource,
         createdAt: now,

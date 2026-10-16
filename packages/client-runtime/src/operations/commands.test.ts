@@ -41,11 +41,13 @@ import {
   archiveThread,
   cancelQueuedRun,
   createProject,
+  dismissProjectSuggestion,
   dismissThreadUserInput,
   editQueuedRun,
   forkThreadFromRun,
   interruptThreadTurn,
   mergeThreadBack,
+  moveThreadToProject,
   promoteQueuedRun,
   reorderActiveThread,
   reorderQueuedRun,
@@ -790,6 +792,48 @@ describe("V2 environment commands", () => {
           commandId: "clear-workflow",
           threadId: v2ThreadId,
           workflow: null,
+        },
+      ]);
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect("moves a chat by forking it into the project, then archiving the original", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const targetThreadId = ThreadId.make("moved-thread");
+      const projectId = ProjectId.make("project-target");
+
+      yield* moveThreadToProject({
+        commandId: CommandId.make("move"),
+        sourceThreadId: v2ThreadId,
+        targetThreadId,
+        projectId,
+        title: "Chaser email",
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+      yield* dismissProjectSuggestion({
+        commandId: CommandId.make("keep"),
+        threadId: v2ThreadId,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        {
+          type: "thread.fork",
+          commandId: "move",
+          createdBy: "user",
+          creationSource: "web",
+          sourceThreadId: v2ThreadId,
+          targetThreadId,
+          sourcePoint: { type: "latest_finished" },
+          title: "Chaser email",
+          projectId,
+        },
+        { type: "thread.archive", commandId: "move:archive-source", threadId: v2ThreadId },
+        {
+          type: "thread.metadata.update",
+          commandId: "keep",
+          threadId: v2ThreadId,
+          projectSuggestion: "dismissed",
         },
       ]);
     }).pipe(Effect.provide(layerTestCrypto)),

@@ -1573,6 +1573,7 @@ export function threadShellFromProjection(
     limitRecovery: projection.thread.limitRecovery ?? null,
     rolloverHold: projection.thread.rolloverHold ?? null,
     workflow: projection.thread.workflow ?? null,
+    projectSuggestion: projection.thread.projectSuggestion ?? null,
     rolloverThresholds: projection.thread.rolloverThresholds ?? null,
     deletedAt: projection.thread.deletedAt,
   };
@@ -1830,6 +1831,7 @@ function shellFromState(input: {
     limitRecovery: input.state.thread.limitRecovery ?? null,
     rolloverHold: input.state.thread.rolloverHold ?? null,
     workflow: input.state.thread.workflow ?? null,
+    projectSuggestion: input.state.thread.projectSuggestion ?? null,
     rolloverThresholds: input.state.thread.rolloverThresholds ?? null,
     deletedAt: input.state.thread.deletedAt,
   };
@@ -4509,7 +4511,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           WHERE child_thread_id = ${childThreadId}
           LIMIT 1
         `;
-        return rows[0] === undefined ? undefined : yield* decodeSubagentPayload(rows[0].payload_json);
+        return rows[0] === undefined
+          ? undefined
+          : yield* decodeSubagentPayload(rows[0].payload_json);
       }).pipe(Effect.mapError(controlReadError(childThreadId)));
 
     const getProviderControlContext: ProjectionStoreV2Shape["getProviderControlContext"] = (

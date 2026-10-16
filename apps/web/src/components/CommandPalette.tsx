@@ -66,6 +66,7 @@ import {
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
+  FolderInputIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
   LinkIcon,
@@ -123,8 +124,10 @@ import { sourceControlEnvironment } from "../state/sourceControl";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
+import { useMoveThreadToProject } from "../hooks/useMoveThreadToProject";
 import { useNewProject } from "../hooks/useNewProject";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
+import { threadRuntimeIsActive } from "@t3tools/client-runtime/state/models";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
@@ -607,6 +610,7 @@ function OpenCommandPaletteDialog(props: {
     reportFailure: false,
   });
   const { scratchEnvironmentId, scratchWorkspaceRootFor, startScratchThread } = useScratchProject();
+  const moveThreadToProject = useMoveThreadToProject();
   const lookupRepository = useAtomQueryRunner(sourceControlEnvironment.repository, {
     reportFailure: false,
   });
@@ -1698,6 +1702,52 @@ function OpenCommandPaletteDialog(props: {
       shortcutCommand: "chat.newWithoutProject",
       run: () => startScratchThread(scratchTargetEnvironmentId),
     });
+  }
+
+  const activeThreadProject = activeThread
+    ? projects.find(
+        (project) =>
+          project.environmentId === activeThread.environmentId &&
+          project.id === activeThread.projectId,
+      )
+    : undefined;
+  if (
+    activeThread &&
+    activeThreadProject &&
+    isScratchProject(activeThreadProject, scratchWorkspaceRootFor(activeThread.environmentId))
+  ) {
+    const moveTargets = projects.filter(
+      (project) =>
+        project.environmentId === activeThread.environmentId &&
+        project.id !== activeThreadProject.id,
+    );
+    if (moveTargets.length > 0) {
+      actionItems.push({
+        kind: "submenu",
+        value: "action:move-thread-to-project",
+        searchTerms: ["move", "project", "no project", "scratch"],
+        title: "Move to project…",
+        icon: <FolderInputIcon className={ITEM_ICON_CLASS} />,
+        addonIcon: <FolderInputIcon className={ADDON_ICON_CLASS} />,
+        groups: [
+          {
+            value: "projects",
+            label: "Move to project",
+            items: moveTargets.map((project): CommandPaletteActionItem => ({
+              kind: "action",
+              value: `move-thread-to-project:${project.id}`,
+              title: project.title,
+              searchTerms: [project.title, "move", "project"],
+              icon: projectFaviconIcon(project),
+              disabled: threadRuntimeIsActive(activeThread.runtime),
+              run: async () => {
+                await moveThreadToProject(activeThread, project.id);
+              },
+            })),
+          },
+        ],
+      });
+    }
   }
 
   if (activeThreadId && supportsThreadFind) {

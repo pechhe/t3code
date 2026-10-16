@@ -25,6 +25,8 @@ import * as Schema from "effect/Schema";
 
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
+import * as ServerConfig from "../config.ts";
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -55,6 +57,13 @@ import {
 /** Sent with each side chat turn; the side chat card is narrow and meant for quick answers. */
 export const SIDE_CHAT_NOTE =
   "This is a side chat: the user is asking a quick question beside the main conversation. Be extra concise unless the user asks for more detail.";
+
+/**
+ * Sent with each turn of a No project chat until its agent suggests a project,
+ * so it can offer a better home for the chat once one is clear.
+ */
+export const NO_PROJECT_NOTE =
+  "This chat is in No project: it runs in its own scratch folder and cannot see project code. If the conversation clearly belongs to one of the user's projects (t3_project_list), call t3_thread_suggest_project once with that project and a one-line reason; the user then chooses Move or Keep. Do not suggest when the fit is unclear.";
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
@@ -99,6 +108,7 @@ export const layer: Layer.Layer<
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
   | RuntimePolicy.RuntimePolicyV2
+  | ServerConfig.ServerConfig
 > = Layer.effect(
   ProviderTurnStartServiceV2,
   Effect.gen(function* () {
@@ -114,6 +124,7 @@ export const layer: Layer.Layer<
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
     const runtimePolicy = yield* RuntimePolicy.RuntimePolicyV2;
+    const config = yield* ServerConfig.ServerConfig;
 
     // These callbacks outlive startup while a run drains background work. Build
     // them outside start's scope so they cannot retain its full thread history.
@@ -1166,10 +1177,24 @@ export const layer: Layer.Layer<
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
+          const offersProjectSuggestion =
+            projection.thread.sideChat !== true &&
+            projection.thread.projectSuggestion == null &&
+            (yield* projects.getById(projection.thread.projectId).pipe(
+              Effect.map(
+                Option.exists(
+                  (project) =>
+                    path.resolve(project.workspaceRoot) ===
+                    ManagedProjectFolders.scratchFolder(path, config.baseDir),
+                ),
+              ),
+              Effect.orElseSucceed(() => false),
+            ));
           const context = [
             delivery.context,
             restartNote,
             projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
+            offersProjectSuggestion ? NO_PROJECT_NOTE : "",
           ]
             .filter((part) => part !== "")
             .join("\n\n");

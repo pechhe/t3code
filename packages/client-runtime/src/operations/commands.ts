@@ -226,6 +226,15 @@ export interface OpenSideChatInput extends CommandMetadata {
 
 export type KeepSideChatInput = ThreadCommandInput;
 
+export interface MoveThreadToProjectInput extends CommandMetadata {
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  readonly projectId: ProjectId;
+  readonly title: string;
+}
+
+export type DismissProjectSuggestionInput = ThreadCommandInput;
+
 export interface MergeThreadBackInput extends CommandMetadata {
   readonly sourceThreadId: ThreadId;
   readonly targetThreadId: ThreadId;
@@ -1023,6 +1032,44 @@ export const keepSideChat = Effect.fn("EnvironmentCommands.keepSideChat")(functi
     keepSideChat: true,
   });
 });
+
+/**
+ * Moves a No project chat into a project: forks its latest finished turn into
+ * the project, at the project's root, then archives the original.
+ */
+export const moveThreadToProject = Effect.fn("EnvironmentCommands.moveThreadToProject")(function* (
+  input: MoveThreadToProjectInput,
+) {
+  const commandId = yield* allocateCommandId(input);
+  yield* dispatch({
+    type: "thread.fork",
+    commandId,
+    createdBy: "user",
+    creationSource: input.creationSource ?? "web",
+    sourceThreadId: input.sourceThreadId,
+    targetThreadId: input.targetThreadId,
+    sourcePoint: { type: "latest_finished" },
+    title: input.title,
+    projectId: input.projectId,
+  });
+  return yield* dispatch({
+    type: "thread.archive",
+    commandId: CommandId.make(`${commandId}:archive-source`),
+    threadId: input.sourceThreadId,
+  });
+});
+
+/** Keeps a No project chat where it is; the chat is not suggested a project again. */
+export const dismissProjectSuggestion = Effect.fn("EnvironmentCommands.dismissProjectSuggestion")(
+  function* (input: DismissProjectSuggestionInput) {
+    return yield* dispatch({
+      type: "thread.metadata.update",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
+      projectSuggestion: "dismissed",
+    });
+  },
+);
 
 export const mergeThreadBack = Effect.fn("EnvironmentCommands.mergeThreadBack")(function* (
   input: MergeThreadBackInput,

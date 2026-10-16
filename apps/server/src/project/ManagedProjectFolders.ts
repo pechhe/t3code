@@ -86,6 +86,9 @@ export class NamedProjectCreateError extends Schema.TaggedError<NamedProjectCrea
 
 export type NamedProjectError = NamedProjectFolderError | NamedProjectCreateError;
 
+/** The No project (Scratch) folder under the data dir, when Scratch is offered at all. */
+export const scratchFolder = (path: Path.Path, baseDir: string) => path.resolve(baseDir, "scratch");
+
 export class ManagedProjectFolders extends Context.Service<
   ManagedProjectFolders,
   {
@@ -246,7 +249,7 @@ const make = Effect.gen(function* () {
     gitWorkflow.isRepository(config.baseDir).pipe(
       Effect.catchIf(isGitMissing, () => Effect.succeed(false)),
       Effect.map((isRepository) =>
-        isRepository ? Option.none<string>() : Option.some(path.resolve(config.baseDir, "scratch")),
+        isRepository ? Option.none<string>() : Option.some(scratchFolder(path, config.baseDir)),
       ),
       Effect.catchCause((cause) =>
         Cause.hasInterrupts(cause) ? Effect.interrupt : Effect.succeed(Option.none<string>()),

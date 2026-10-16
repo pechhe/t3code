@@ -127,6 +127,13 @@ export interface EnvironmentThreadShell {
   readonly rolloverHold?: import("@t3tools/contracts").OrchestrationV2RolloverHold | null;
   /** Governing workflow and unattended stance the thread's agent last recorded. */
   readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
+  /** A project the thread's agent suggested for this No project chat. */
+  readonly projectSuggestion?: {
+    readonly projectId: import("@t3tools/contracts").ProjectId;
+    readonly reason: string;
+    readonly suggestedAt: string;
+    readonly dismissedAt: string | null;
+  } | null;
   /** The thread's own rollover thresholds, set from its composer. */
   readonly rolloverThresholds?:
     | import("@t3tools/contracts").OrchestrationV2ThreadRolloverThresholds
@@ -277,6 +284,14 @@ export function presentThreadShell(
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
     rolloverHold: thread.rolloverHold ?? null,
     workflow: thread.workflow ?? null,
+    projectSuggestion: thread.projectSuggestion
+      ? {
+          projectId: thread.projectSuggestion.projectId,
+          reason: thread.projectSuggestion.reason,
+          suggestedAt: iso(thread.projectSuggestion.suggestedAt),
+          dismissedAt: nullableIso(thread.projectSuggestion.dismissedAt),
+        }
+      : null,
     rolloverThresholds: thread.rolloverThresholds ?? null,
     pinOrderKey: thread.pinOrderKey ?? null,
     activeOrderKey: thread.activeOrderKey ?? null,

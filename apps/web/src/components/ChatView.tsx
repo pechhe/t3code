@@ -1,6 +1,7 @@
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
+import { useProjectSuggestionBannerItem } from "./chat/ProjectSuggestionBanner";
 import {
   resolveBackgroundDraftWorkspaceOptions,
   resolveDraftHeroState,
@@ -7486,8 +7487,14 @@ export default function ChatView(props: ChatViewProps) {
           },
         })
       : null;
+  const projectSuggestionBanner = useProjectSuggestionBannerItem(
+    activeThreadShell ?? null,
+    activeProjectIsScratch,
+  );
   const composerBannerItems = useMemo<ComposerBannerStackItem[]>(() => {
     const limitRecoveryItems = limitRecoveryBanner === null ? [] : [limitRecoveryBanner];
+    const projectSuggestionItems =
+      projectSuggestionBanner === null ? [] : [projectSuggestionBanner];
     const backgroundWorkItems = [
       childInputBannerItem,
       goalBannerItem,
@@ -7501,6 +7508,7 @@ export default function ChatView(props: ChatViewProps) {
         ...limitRecoveryItems,
         ...usageLimitsItems,
         ...projectCloneItems,
+        ...projectSuggestionItems,
         ...systemComposerBannerItems,
         ...backgroundWorkItems,
       ];
@@ -7510,6 +7518,7 @@ export default function ChatView(props: ChatViewProps) {
       ...limitRecoveryItems,
       ...usageLimitsItems,
       ...projectCloneItems,
+      ...projectSuggestionItems,
       ...systemComposerBannerItems,
       ...backgroundWorkItems,
       {
@@ -7566,6 +7575,7 @@ export default function ChatView(props: ChatViewProps) {
     goalBannerItem,
     localCheckoutBranchMismatch,
     projectCloneBannerItem,
+    projectSuggestionBanner,
     showBranchMismatchBanner,
     systemComposerBannerItems,
     usageLimitsBanner,
