@@ -82,7 +82,10 @@ function run() {
   console.log("ready");
   while (!request.includes("\\n")) {
     const data = input.availableData;
-    if (data.length === 0) return "";
+    // JXA bridges NSData.length as a string. Without the coercion EOF never
+    // matches, and a helper orphaned by quitting T3 spins forever, still
+    // registered as the app, so a relaunch only activates it.
+    if (Number(data.length) === 0) return "";
     request += $.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding).js;
   }
   const outputPath = request.slice(0, request.indexOf("\\n"));
