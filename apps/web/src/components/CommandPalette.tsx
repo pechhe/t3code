@@ -108,7 +108,11 @@ import {
 } from "./promptLinks/copyPromptLink";
 import { useClientSettings } from "../hooks/useSettings";
 import { useTheme } from "../hooks/useTheme";
-import { useActiveProjectKey } from "../hooks/useProjectTheme";
+import {
+  setProjectBaseTheme,
+  setProjectThemeHalf,
+  useActiveProjectKey,
+} from "../hooks/useProjectTheme";
 import { useThemeCards } from "../hooks/useThemeCards";
 import { getThemeDefinition } from "../themePalette";
 import { ThemePreviewCircle } from "./settings/ThemePreviewCircles";
@@ -699,6 +703,7 @@ function OpenCommandPaletteDialog(props: {
     setTheme,
     setThemeHalf,
     projectTheme,
+    activeTheme,
   } = useTheme();
   const themeCards = useThemeCards();
   // Inside a project with its own theme, picking a theme changes what is on
@@ -711,7 +716,7 @@ function OpenCommandPaletteDialog(props: {
   const currentThemeCardId =
     projectTheme === null
       ? (themeHalves?.[resolvedTheme] ?? getThemeDefinition(theme)?.id ?? null)
-      : (getThemeDefinition(projectTheme)?.id ?? null);
+      : (getThemeDefinition(activeTheme)?.id ?? null);
   const providers = useAtomValue(primaryServerProvidersAtom);
   const providerEntryByEnvironmentAndInstanceId = useMemo(() => {
     const map = new Map<string, ProviderInstanceEntry>();
@@ -2031,7 +2036,11 @@ function OpenCommandPaletteDialog(props: {
             ),
             run: async () => {
               if (themedProjectKey !== null) {
-                setProjectTheme(themedProjectKey, id ?? "system");
+                if (previews.length === 1 && id !== null) {
+                  setProjectThemeHalf(themedProjectKey, previews[0]!.mode, id);
+                } else {
+                  setProjectBaseTheme(themedProjectKey, id ?? appearanceMode);
+                }
                 return;
               }
               const saved =

@@ -79,6 +79,7 @@ import { useCustomThemes } from "../../hooks/useCustomThemes";
 import {
   readAppearanceModePreference,
   readThemeHalves,
+  readThemeHalvesRaw,
   readThemePreference,
   useTheme,
 } from "../../hooks/useTheme";
@@ -1236,6 +1237,7 @@ export function AppearanceSettingsPanel() {
             theme={theme}
             themeHalves={themeHalves}
             onImportOpenChange={setIsImportThemeOpen}
+            readThemeHalvesRaw={readThemeHalvesRaw}
           />
         </div>
       </SettingsSection>

@@ -6,8 +6,8 @@ import type * as React from "react";
 import { cn } from "~/lib/utils";
 
 export interface TintChipProps extends useRender.ComponentProps<"span"> {
-  /** The palette colour the chip is tinted with. */
-  tint: ProjectIconColor;
+  /** The palette colour the chip is tinted with, or any CSS colour, such as a theme's accent. */
+  tint: ProjectIconColor | { color: string };
   icon: React.ReactNode;
   label: React.ReactNode;
   /**
@@ -43,7 +43,7 @@ export function TintChip({
       className,
     ),
     style: {
-      "--tint-chip-accent": `var(--color-${tint}-500)`,
+      "--tint-chip-accent": typeof tint === "string" ? `var(--color-${tint}-500)` : tint.color,
       "--tint-chip-fill": `color-mix(in oklab, var(--tint-chip-accent) ${selected ? 38 : 24}%, transparent)`,
       "--tint-chip-border": `color-mix(in oklab, var(--tint-chip-accent) ${selected ? 90 : 45}%, transparent)`,
       "--tint-chip-ink": "color-mix(in oklab, var(--tint-chip-accent) 35%, var(--foreground))",

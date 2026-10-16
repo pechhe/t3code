@@ -235,12 +235,18 @@ describe("project themes", () => {
 
     expect(read()).toEqual(ownChoice);
 
-    setActiveProjectTheme("grove");
+    const wholeTheme = { theme: "grove" };
+    setActiveProjectTheme(wholeTheme);
     // The user's own choice is untouched, so Settings still edits it.
-    expect(read()).toEqual({ ...ownChoice, projectTheme: "grove", activeTheme: "grove" });
+    expect(read()).toEqual({ ...ownChoice, projectTheme: wholeTheme, activeTheme: "grove" });
+
+    // The project's own dark pick wins over its base, as the user's does.
+    const mixedTheme = { theme: "grove", dark: "ocean" };
+    setActiveProjectTheme(mixedTheme);
+    expect(read()).toEqual({ ...ownChoice, projectTheme: mixedTheme, activeTheme: "ocean" });
 
     // A theme this device no longer has must not leave the app unthemed.
-    setActiveProjectTheme("deleted-custom-theme");
+    setActiveProjectTheme({ theme: "deleted-custom-theme", dark: "ocean" });
     expect(read()).toEqual(ownChoice);
 
     setActiveProjectTheme(null);

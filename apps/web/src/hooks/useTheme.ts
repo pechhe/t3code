@@ -10,6 +10,7 @@ import {
   isKnownThemePreference,
   getThemePreferenceMode,
   parseThemeHalves,
+  pruneThemeHalves,
   resolveDesktopTheme,
   resolveThemeAppearance,
   resolveThemeHalf,
@@ -19,6 +20,7 @@ import {
   THEME_HALVES_STORAGE_KEY,
   ThemePreference,
   type ThemeAppearance,
+  type ThemeChoice,
   type ThemeHalves,
   type ThemePreferenceMode,
 } from "../themePalette";
@@ -26,8 +28,8 @@ import {
 type Theme = ThemePreference;
 type ThemeSnapshot = {
   theme: Theme;
-  /** The open project's own theme while it overrides `theme` and the mix. */
-  projectTheme: Theme | null;
+  /** The open project's own theme and mix while they override the user's. */
+  projectTheme: ThemeChoice | null;
   /** The theme actually painted for `resolvedTheme`, after any project or mix. */
   activeTheme: Theme;
   resolvedTheme: ThemeAppearance;
@@ -64,6 +66,11 @@ export function readThemeHalves(): ThemeHalves | null {
 export function readThemeHalvesRaw(): { light?: string; dark?: string } {
   if (typeof window === "undefined") return {};
   return readStoredThemeHalvesRaw();
+}
+
+/** The user's own theme and mix as one choice, the starting point for a project's own. */
+export function readUserThemeChoice(): ThemeChoice {
+  return { theme: getStored(), ...readThemeHalvesRaw() };
 }
 
 function readStoredThemeHalves(): ThemeHalves | null {
@@ -143,7 +150,7 @@ let lastAppliedTheme: Pick<
   "theme" | "systemDark" | "followSystem" | "appearanceMode" | "themeHalves"
 > | null = null;
 let themeStorageReadFailure: ThemeStorageError | null = null;
-let requestedProjectTheme: Theme | null = null;
+let requestedProjectTheme: ThemeChoice | null = null;
 
 function emitChange() {
   snapshotStale = true;
@@ -152,18 +159,20 @@ function emitChange() {
 
 /**
  * The base theme and mix to paint. An open project's theme replaces the
- * user's whole choice, mix included, so a project looks the same in either
- * appearance mode; one that does not resolve yet (a published theme still
- * streaming in) falls back to the user's choice.
+ * user's whole choice, mix included; one whose base does not resolve yet (a
+ * published theme still streaming in) falls back to the user's choice.
  */
 function paintedThemeChoice(storedTheme: Theme): {
   theme: Theme;
-  projectTheme: Theme | null;
+  projectTheme: ThemeChoice | null;
   themeHalves: ThemeHalves | null;
 } {
-  if (requestedProjectTheme !== null && isKnownThemePreference(requestedProjectTheme)) {
-    const projectTheme = canonicalThemePreference(requestedProjectTheme);
-    return { theme: projectTheme, projectTheme, themeHalves: null };
+  if (requestedProjectTheme !== null && isKnownThemePreference(requestedProjectTheme.theme)) {
+    return {
+      theme: canonicalThemePreference(requestedProjectTheme.theme),
+      projectTheme: requestedProjectTheme,
+      themeHalves: pruneThemeHalves(requestedProjectTheme),
+    };
   }
   return { theme: storedTheme, projectTheme: null, themeHalves: readStoredThemeHalves() };
 }
@@ -173,7 +182,7 @@ function paintedThemeChoice(storedTheme: Theme): {
  * own choice with null. The route sync calls this as the user moves between
  * projects, so the change crossfades.
  */
-export function setActiveProjectTheme(theme: Theme | null): void {
+export function setActiveProjectTheme(theme: ThemeChoice | null): void {
   if (requestedProjectTheme === theme) return;
   requestedProjectTheme = theme;
   applyTheme(getStored(), { animate: true });
@@ -589,6 +598,15 @@ function subscribe(listener: () => void): () => void {
       removeWindowListeners = null;
     }
   };
+}
+
+/** The painted appearance alone, for components rendered many times over. */
+export function useResolvedAppearance(): ThemeAppearance {
+  return useSyncExternalStore(
+    subscribe,
+    () => getSnapshot().resolvedTheme,
+    () => getServerSnapshot().resolvedTheme,
+  );
 }
 
 export function useTheme() {

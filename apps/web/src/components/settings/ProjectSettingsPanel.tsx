@@ -593,8 +593,8 @@ function ProjectDetail({
               </div>
             }
           />
-          <ProjectThemeSetting projectKey={group.projectKey} />
         </SettingsSection>
+        <ProjectThemeSetting projectKey={group.projectKey} />
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
         {hasMultipleCheckouts ? checkoutChoices : null}

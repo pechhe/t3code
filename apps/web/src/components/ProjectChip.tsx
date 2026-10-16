@@ -1,5 +1,6 @@
 import type { ProjectIconColor } from "@t3tools/contracts";
 
+import { useProjectThemeAccent } from "../hooks/useProjectTheme";
 import { deriveProjectIdentity } from "../projectIdentity";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { TintChip, type TintChipProps } from "./TintChip";
@@ -18,15 +19,16 @@ interface ProjectChipProps extends Omit<TintChipProps, "tint" | "icon" | "label"
 }
 
 /**
- * A project shown as a chip in its own colour. Used wherever a project labels something
- * else (a thread row, the header, a palette subtitle) and as the project choices on the
- * new-thread screen.
+ * A project shown as a chip in its own colour: its theme's accent when it has a theme of
+ * its own, else its icon colour. Used wherever a project labels something else (a thread
+ * row, the header, a palette subtitle) and as the project choices on the new-thread screen.
  */
 export function ProjectChip({ project, label, ...props }: ProjectChipProps) {
+  const themeAccent = useProjectThemeAccent(project);
   return (
     <TintChip
       data-slot="project-chip"
-      tint={projectTintColor(project)}
+      tint={themeAccent === null ? projectTintColor(project) : { color: themeAccent }}
       icon={<ProjectFavicon project={project} className="size-3 shrink-0" />}
       label={label ?? project.title}
       {...props}

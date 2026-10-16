@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { useEnvironmentThemeDefinitions } from "../../hooks/useEnvironmentTheme";
-import { readThemeHalvesRaw } from "../../hooks/useTheme";
 import { cn } from "../../lib/utils";
 import {
   getThemeDefinition,
@@ -433,7 +432,7 @@ function CustomThemeCollectionCard({
   onDuplicate: (theme: ThemeDefinition) => void;
   onEdit: (theme: ThemeDefinition) => void;
   onDownload: (theme: ThemeDefinition) => void;
-  onRemove: (theme: ThemeDefinition) => void;
+  onRemove?: ((theme: ThemeDefinition) => void) | undefined;
 }) {
   const [variantIndex, setVariantIndex] = useState(() => {
     const activeIndex = themes.findIndex((theme) => activeModesFor(theme.id).length > 0);
@@ -468,7 +467,7 @@ function CustomThemeCollectionCard({
       onDownload={() => onDownload(theme)}
       onDuplicate={() => onDuplicate(theme)}
       onEdit={() => onEdit(theme)}
-      onRemove={() => onRemove(theme)}
+      {...(onRemove ? { onRemove: () => onRemove(theme) } : {})}
       onUse={selectCollectionDefaults}
       onUseMode={(mode) => onUseMode(theme, mode)}
       theme={getThemeCardDefinition(theme)}
@@ -509,6 +508,8 @@ export function ThemeLibrary({
   onImportOpenChange,
   themeHalves,
   setThemeHalf,
+  readThemeHalvesRaw,
+  scope = "app",
 }: {
   theme: string;
   setTheme: (theme: string) => boolean;
@@ -521,6 +522,13 @@ export function ThemeLibrary({
   onImportOpenChange: (open: boolean) => void;
   themeHalves: ThemeHalves | null;
   setThemeHalf: (appearance: ThemeAppearance, themeId: string | null) => boolean;
+  /** The stored mix before pruning, so a rebuild keeps a half not resolvable yet. */
+  readThemeHalvesRaw: () => { light?: string; dark?: string };
+  /**
+   * A project's gallery picks only that project's theme: the appearance mode
+   * and removing a theme stay device-wide, so they live in the app gallery.
+   */
+  scope?: "app" | "project";
 }) {
   const openThemeEditor = useThemeEditorStore((store) => store.openThemeEditor);
   const environmentThemes = useEnvironmentThemeDefinitions();
@@ -669,13 +677,13 @@ export function ThemeLibrary({
   };
 
   // A light-only or dark-only theme paints just its own half, so using it from the other
-  // appearance would change nothing on screen. Using it also switches to its appearance.
+  // appearance would change nothing on screen. Using it also switches to its appearance,
+  // except for a project, which keeps the user's appearance mode.
   const pickSingleAppearanceTheme = (half: ThemeAppearance, themeId: string) => {
     assignHalf(half, themeId);
-    if (initialAppearance !== half) setMode(half);
+    if (scope === "app" && initialAppearance !== half) setMode(half);
   };
 
-  // ----- Wireframe tiles on top, two-ball cards below --------------------
   const handlePairPick = (cardId: string | null) => (mode: ThemeMode) => {
     if (mode === "system") return;
     assignHalf(mode, cardId);
@@ -849,7 +857,9 @@ export function ThemeLibrary({
                 initialAppearance,
               })
             }
-            onRemove={(customTheme) => handleRemoveTheme(customTheme, themes)}
+            onRemove={
+              scope === "app" ? (customTheme) => handleRemoveTheme(customTheme, themes) : undefined
+            }
             onUse={(customTheme) => {
               const modes = getThemeModes(customTheme);
               if (modes.length === 1) pickSingleAppearanceTheme(modes[0]!, customTheme.id);
@@ -865,14 +875,25 @@ export function ThemeLibrary({
 
   return (
     <div className="space-y-3">
-      <h3 className="px-3 text-sm font-normal text-foreground/70 sm:px-4">
-        {searchableSetting("color-scheme").title}
-      </h3>
-      {renderModeTiles()}
-      <div className="flex min-h-8 flex-wrap items-center justify-between gap-3 px-3 pt-2 sm:px-4">
-        <h3 className="text-sm font-normal text-foreground/70">
-          {searchableSetting("theme").title}
-        </h3>
+      {scope === "app" ? (
+        <>
+          <h3 className="px-3 text-sm font-normal text-foreground/70 sm:px-4">
+            {searchableSetting("color-scheme").title}
+          </h3>
+          {renderModeTiles()}
+        </>
+      ) : null}
+      <div
+        className={cn(
+          "flex min-h-8 flex-wrap items-center justify-between gap-3 px-3 sm:px-4",
+          scope === "app" ? "pt-2" : "justify-end",
+        )}
+      >
+        {scope === "app" ? (
+          <h3 className="text-sm font-normal text-foreground/70">
+            {searchableSetting("theme").title}
+          </h3>
+        ) : null}
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             size="xs"

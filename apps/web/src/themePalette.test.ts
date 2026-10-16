@@ -28,6 +28,7 @@ import {
   subscribeToThemePreview,
   subscribeToCustomThemes,
   themeAllowsSidebarArtwork,
+  themeChoiceAccent,
   T3_CHAT_THEME,
   EMBER_THEME,
   GROVE_THEME,
@@ -1147,6 +1148,22 @@ describe("stored theme preferences", () => {
 
     vi.unstubAllGlobals();
     invalidateCustomThemes();
+  });
+});
+
+describe("themeChoiceAccent", () => {
+  it("is the accent of the theme the choice paints in that appearance", () => {
+    const choice = { theme: GROVE_THEME.id, dark: OCEAN_THEME.id };
+    expect(themeChoiceAccent(choice, "light")).toBe(
+      getThemeColorsForMode(GROVE_THEME, "light")!.accent,
+    );
+    expect(themeChoiceAccent(choice, "dark")).toBe(
+      getThemeColorsForMode(OCEAN_THEME, "dark")!.accent,
+    );
+  });
+
+  it("is null for the standard look, so a chip keeps its own colour", () => {
+    expect(themeChoiceAccent({ theme: "system" }, "dark")).toBeNull();
   });
 });
 

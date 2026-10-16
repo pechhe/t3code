@@ -1549,24 +1549,43 @@ export function isKnownThemePreference(theme: string): boolean {
 
 export type ThemeHalves = Readonly<{ light?: string; dark?: string }>;
 
+/**
+ * A whole theme choice as a project stores it: the base theme plus the themes
+ * picked for light and dark, as the user's own choice is stored across its keys.
+ */
+export type ThemeChoice = Readonly<{ theme: string; light?: string; dark?: string }>;
+
 export function parseThemeHalves(raw: string | null): ThemeHalves | null {
   if (!raw) return null;
   try {
-    const value: unknown = JSON.parse(raw);
-    if (!isRecord(value)) return null;
-    const halves: { light?: string; dark?: string } = {};
-    for (const appearance of ["light", "dark"] as const) {
-      const themeId = value[appearance];
-      if (typeof themeId !== "string") continue;
-      const definition = getThemeDefinition(themeId);
-      if (definition && getThemeColorsForMode(definition, appearance) !== null) {
-        halves[appearance] = definition.id;
-      }
-    }
-    return halves.light !== undefined || halves.dark !== undefined ? halves : null;
+    return pruneThemeHalves(JSON.parse(raw));
   } catch {
     return null;
   }
+}
+
+/** The halves of a stored mix that name a theme this device has for that appearance. */
+export function pruneThemeHalves(value: unknown): ThemeHalves | null {
+  if (!isRecord(value)) return null;
+  const halves: { light?: string; dark?: string } = {};
+  for (const appearance of ["light", "dark"] as const) {
+    const themeId = value[appearance];
+    if (typeof themeId !== "string") continue;
+    const definition = getThemeDefinition(themeId);
+    if (definition && getThemeColorsForMode(definition, appearance) !== null) {
+      halves[appearance] = definition.id;
+    }
+  }
+  return halves.light !== undefined || halves.dark !== undefined ? halves : null;
+}
+
+/** The accent a theme choice paints in one appearance, or null for the standard look. */
+export function themeChoiceAccent(choice: ThemeChoice, appearance: ThemeAppearance): string | null {
+  const definition = getThemeDefinition(
+    resolveThemeHalf(choice.theme, pruneThemeHalves(choice), appearance),
+  );
+  if (!definition) return null;
+  return (getThemeColorsForMode(definition, appearance) ?? definition.colors).accent;
 }
 
 export function resolveThemeHalf(

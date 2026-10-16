@@ -13,6 +13,8 @@ import {
   resolveProjectExpanded,
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
+  setProjectTheme,
+  setProjectThemeHalf,
   setSidebarProjectScopeKey,
   setThreadChangedFilesExpanded,
   type UiState,
@@ -157,6 +159,26 @@ describe("uiStateStore pure functions", () => {
     expect(setSidebarProjectScopeKey(scoped, null).sidebarProjectScopeKey).toBeNull();
     expect(setSidebarProjectScopeKey(scoped, "").sidebarProjectScopeKey).toBeNull();
   });
+
+  it("starts a project's first light or dark pick from the user's own theme", () => {
+    const userChoice = { theme: "grove", dark: "t3-ocean" };
+    const picked = setProjectThemeHalf(makeUiState(), "logical", "light", "ember", userChoice);
+    expect(picked.projectThemeByKey.logical).toEqual({
+      theme: "grove",
+      light: "ember",
+      dark: "t3-ocean",
+    });
+
+    // Later picks build on the project's own theme, not the user's.
+    const cleared = setProjectThemeHalf(picked, "logical", "dark", null, { theme: "iris" });
+    expect(cleared.projectThemeByKey.logical).toEqual({ theme: "grove", light: "ember" });
+  });
+
+  it("keeps the state when a project theme is set to an equal choice", () => {
+    const themed = setProjectTheme(makeUiState(), "logical", { theme: "grove", dark: "ember" });
+    expect(setProjectTheme(themed, "logical", { theme: "grove", dark: "ember" })).toBe(themed);
+    expect(setProjectTheme(themed, "logical", null).projectThemeByKey).toEqual({});
+  });
 });
 
 describe("parsePersistedState", () => {
@@ -170,6 +192,21 @@ describe("parsePersistedState", () => {
 
     expect(parsed.pullRequestMergeMethod).toBe("squash");
     expect(invalid.pullRequestMergeMethod).toBe("merge");
+  });
+
+  it("reads a bare project theme id as a theme with no light or dark picks", () => {
+    const parsed = parsePersistedState({
+      projectThemeByKey: {
+        legacy: "ocean",
+        mixed: { theme: "system", light: "t3-ocean", dark: 7 } as never,
+        broken: { light: "t3-ocean" } as never,
+      },
+    });
+
+    expect(parsed.projectThemeByKey).toEqual({
+      legacy: { theme: "ocean" },
+      mixed: { theme: "system", light: "t3-ocean" },
+    });
   });
 
   it("hydrates raw UI-owned state without server entities", () => {
@@ -309,7 +346,7 @@ describe("uiStateStore persistence", () => {
         },
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
-      projectThemeByKey: { logical: "ocean" },
+      projectThemeByKey: { logical: { theme: "ocean", dark: "grove" } },
     });
 
     persistState(state);
@@ -327,7 +364,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       sidebarProjectScopeKey: null,
-      projectThemeByKey: { logical: "ocean" },
+      projectThemeByKey: { logical: { theme: "ocean", dark: "grove" } },
       threadChangedFilesExpansionVersion: 2,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {

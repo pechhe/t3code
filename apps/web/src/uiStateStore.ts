@@ -2,6 +2,7 @@ import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "./lib/projectPaths";
+import type { ThemeAppearance, ThemeChoice } from "./themePalette";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
@@ -27,7 +28,8 @@ export interface PersistedUiState {
   projectOrderCwds?: string[];
   defaultAdvertisedEndpointKey?: string | null;
   sidebarProjectScopeKey?: string | null;
-  projectThemeByKey?: Record<string, string>;
+  // Older builds stored a bare theme id; parsing reads it as a theme with no mix.
+  projectThemeByKey?: Record<string, ThemeChoice | string>;
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
@@ -37,9 +39,9 @@ export interface UiProjectState {
   projectExpandedById: Record<string, boolean>;
   projectOrder: string[];
   sidebarProjectScopeKey: string | null;
-  // Theme preference painted while a thread or draft of the logical project
-  // is open. Device-local, like the user's own theme choice.
-  projectThemeByKey: Record<string, string>;
+  // Theme painted while a thread or draft of the logical project is open,
+  // with its own light and dark picks. Device-local, like the user's own theme.
+  projectThemeByKey: Record<string, ThemeChoice>;
 }
 
 export interface UiThreadState {
@@ -103,15 +105,26 @@ function sanitizeOptionalKey(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function sanitizeStringRecord(value: unknown): Record<string, string> {
+function sanitizeThemeChoice(value: unknown): ThemeChoice | null {
+  if (typeof value === "string") return value.length > 0 ? { theme: value } : null;
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.theme !== "string" || record.theme.length === 0) return null;
+  const choice: { theme: string; light?: string; dark?: string } = { theme: record.theme };
+  if (typeof record.light === "string") choice.light = record.light;
+  if (typeof record.dark === "string") choice.dark = record.dark;
+  return choice;
+}
+
+function sanitizeThemeChoiceRecord(value: unknown): Record<string, ThemeChoice> {
   if (!value || typeof value !== "object") {
     return {};
   }
   return Object.fromEntries(
-    Object.entries(value).filter(
-      (entry): entry is [string, string] =>
-        entry[0].length > 0 && typeof entry[1] === "string" && entry[1].length > 0,
-    ),
+    Object.entries(value).flatMap(([key, entry]) => {
+      const choice = key.length > 0 ? sanitizeThemeChoice(entry) : null;
+      return choice ? [[key, choice] as const] : [];
+    }),
   );
 }
 
@@ -168,7 +181,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
         : {},
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     sidebarProjectScopeKey: sanitizeOptionalKey(parsed.sidebarProjectScopeKey),
-    projectThemeByKey: sanitizeStringRecord(parsed.projectThemeByKey),
+    projectThemeByKey: sanitizeThemeChoiceRecord(parsed.projectThemeByKey),
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
@@ -354,14 +367,46 @@ export function setSidebarProjectScopeKey(state: UiState, projectKey: string | n
 }
 
 /** Sets the theme a logical project paints, or null to follow the user's own theme. */
-export function setProjectTheme(state: UiState, projectKey: string, theme: string | null): UiState {
-  if ((state.projectThemeByKey[projectKey] ?? null) === theme) {
+export function setProjectTheme(
+  state: UiState,
+  projectKey: string,
+  theme: ThemeChoice | null,
+): UiState {
+  const current = state.projectThemeByKey[projectKey] ?? null;
+  if (
+    current === theme ||
+    (current !== null &&
+      theme !== null &&
+      current.theme === theme.theme &&
+      current.light === theme.light &&
+      current.dark === theme.dark)
+  ) {
     return state;
   }
   const projectThemeByKey = { ...state.projectThemeByKey };
   if (theme === null) delete projectThemeByKey[projectKey];
   else projectThemeByKey[projectKey] = theme;
   return { ...state, projectThemeByKey };
+}
+
+/**
+ * Picks a project's theme for one appearance, or clears that pick with null.
+ * A project without a theme of its own starts from `startingChoice`, the
+ * user's own, so the other appearance keeps looking as it did.
+ */
+export function setProjectThemeHalf(
+  state: UiState,
+  projectKey: string,
+  appearance: ThemeAppearance,
+  themeId: string | null,
+  startingChoice: ThemeChoice,
+): UiState {
+  const next: { theme: string; light?: string; dark?: string } = {
+    ...(state.projectThemeByKey[projectKey] ?? startingChoice),
+  };
+  if (themeId === null) delete next[appearance];
+  else next[appearance] = themeId;
+  return setProjectTheme(state, projectKey, next);
 }
 
 function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMethod): UiState {
@@ -453,7 +498,13 @@ interface UiStateStore extends UiState {
   setThreadChangedFilesExpanded: (threadId: string, turnId: string, expanded: boolean) => void;
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
-  setProjectTheme: (projectKey: string, theme: string | null) => void;
+  setProjectTheme: (projectKey: string, theme: ThemeChoice | null) => void;
+  setProjectThemeHalf: (
+    projectKey: string,
+    appearance: ThemeAppearance,
+    themeId: string | null,
+    startingChoice: ThemeChoice,
+  ) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
@@ -476,6 +527,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
   setProjectTheme: (projectKey, theme) => set((state) => setProjectTheme(state, projectKey, theme)),
+  setProjectThemeHalf: (projectKey, appearance, themeId, startingChoice) =>
+    set((state) => setProjectThemeHalf(state, projectKey, appearance, themeId, startingChoice)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),

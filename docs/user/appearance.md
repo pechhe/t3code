@@ -23,11 +23,16 @@ of the selected theme.
 
 ## Project themes
 
-On web and desktop, open **Project settings** from a project's gear in the sidebar and choose a
-**Theme** to give the project its own look. The theme applies while a thread or a new thread in that project is open; your
-own theme returns everywhere else. Choosing the project in the new-thread project picker switches
-to its theme straight away. A project theme replaces your light and dark mix but keeps your
-appearance mode, unless the theme only has one appearance.
+On web and desktop, open **Project settings** from a project's gear in the sidebar and pick a
+theme under **Theme** to give the project its own look. It works like the app theme gallery: pick a
+whole theme, or click a theme's light or dark circle to choose separately for each. Until you pick,
+the gallery shows your app theme. The reset button beside **Theme** returns the project to your app
+theme.
+
+The theme applies while a thread or a new thread in that project is open; your own theme returns
+everywhere else. Choosing the project in the new-thread project picker switches to its theme
+straight away. A project keeps your light, dark or system appearance mode, and its chip takes the
+theme's accent colour.
 
 While you are in a project with its own theme, **Change theme** in the command palette changes the
 project's theme; choose **App theme** there to remove it. Project themes are saved on each device.
