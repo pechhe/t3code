@@ -177,7 +177,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     "thread-interrupt",
   ),
   t3_worktree_handoff: tool(
-    ["Hand off", "Handing off", "Handed off", "thread to a git worktree"],
+    ["Hand off", "Handing off", "Handed off", "thread to another workspace"],
     "worktree-handoff",
   ),
   t3_worktree_status: tool(["Get", "Getting", "Got", "thread worktree status"], "worktree-status"),

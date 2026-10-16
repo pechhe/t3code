@@ -54,7 +54,7 @@ describe("resolveT3McpToolPresentation", () => {
 
   it("pretty prints worktree T3 MCP tool names", () => {
     expect(resolveT3McpToolPresentation("mcp__t3-code__t3_worktree_handoff")).toEqual({
-      displayName: "Hand off thread to a git worktree",
+      displayName: "Hand off thread to another workspace",
       logo: "t3-code",
     });
     expect(resolveT3McpToolPresentation("t3-code.t3_worktree_status")).toEqual({

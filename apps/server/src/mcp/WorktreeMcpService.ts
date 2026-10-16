@@ -80,8 +80,8 @@ const make = Effect.gen(function* () {
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
 
   // Serializes handoffs per thread: two concurrent calls could otherwise both
-  // pass the worktreePath === null check and each create a worktree, leaving
-  // one untracked on disk.
+  // pass the binding check and each create a worktree, leaving one untracked
+  // on disk.
   const handoffThreadsInFlight = new Set<string>();
 
   const requireThreadScope = (scope: McpInvocationScope) =>
@@ -159,16 +159,15 @@ const make = Effect.gen(function* () {
     scope: McpThreadInvocationScope,
     input: WorktreeMcpHandoffInput,
   ) {
-    const alreadyInWorktree = (worktreePath: string) =>
-      failure(
-        "already_in_worktree",
-        `Thread '${scope.thread.threadId}' is already attached to worktree '${worktreePath}'.`,
-      );
-
     const projection = yield* loadThread(scope);
-    if (projection.thread.worktreePath !== null) {
-      return yield* alreadyInWorktree(projection.thread.worktreePath);
-    }
+    // The binding the handoff replaces. A thread may leave any workspace,
+    // including one SlipJay has since released; the swap is compare-and-set
+    // so a concurrent re-point (for example from the UI) is not overwritten.
+    const previousWorktreePath = projection.thread.worktreePath;
+    const bindingChanged = failure(
+      "handoff_in_progress",
+      `Thread '${scope.thread.threadId}' moved to another workspace during the handoff; the handoff was rolled back.`,
+    );
     if (projection.thread.archivedAt !== null) {
       return yield* failure(
         "invalid_request",
@@ -179,6 +178,12 @@ const make = Effect.gen(function* () {
     const project = yield* loadProject(scope, projection.thread.projectId);
     const projectCwd = project.workspaceRoot;
 
+    if (input.worktreePath !== undefined && input.worktreePath === previousWorktreePath) {
+      return yield* failure(
+        "invalid_request",
+        `Thread '${scope.thread.threadId}' already works in '${input.worktreePath}'.`,
+      );
+    }
     if (input.path !== undefined && !path.isAbsolute(input.path)) {
       return yield* failure(
         "invalid_request",
@@ -188,10 +193,21 @@ const make = Effect.gen(function* () {
 
     // A SlipJay workspace starts from the integration branch and is named after
     // the requested branch; it has no git branch of its own to check or create.
-    const checkout =
-      (yield* workspaces.resolve(projectCwd)) === "slipjay"
-        ? slipjayCheckout(projectCwd, input.branch)
-        : yield* prepareGitCheckout(projectCwd, input);
+    const slipjay = (yield* workspaces.resolve(projectCwd)) === "slipjay";
+    const { branch } = input;
+    let checkout: CheckoutPlan;
+    if (input.worktreePath !== undefined) {
+      checkout = existingCheckout(projectCwd, input.worktreePath, slipjay);
+    } else if (branch === undefined) {
+      return yield* failure(
+        "invalid_request",
+        "Pass branch to create a workspace, or worktreePath to attach an existing one.",
+      );
+    } else {
+      checkout = slipjay
+        ? slipjayCheckout(projectCwd, branch)
+        : yield* prepareGitCheckout(projectCwd, { ...input, branch });
+    }
 
     const ids = yield* handoffIds(scope);
 
@@ -227,8 +243,8 @@ const make = Effect.gen(function* () {
           // attached the thread in the meantime. Re-check before committing so
           // the race cannot leave a second, untracked worktree.
           const recheck = yield* loadThread(scope);
-          if (recheck.thread.worktreePath !== null) {
-            return yield* alreadyInWorktree(recheck.thread.worktreePath);
+          if (recheck.thread.worktreePath !== previousWorktreePath) {
+            return yield* bindingChanged;
           }
           if (recheck.thread.archivedAt !== null) {
             return yield* failure(
@@ -243,7 +259,7 @@ const make = Effect.gen(function* () {
               threadId: scope.thread.threadId,
               branch: created.branch,
               worktreePath,
-              expectedWorktreePath: null,
+              expectedWorktreePath: previousWorktreePath,
             })
             .pipe(
               Effect.catchCause((cause) =>
@@ -302,7 +318,7 @@ const make = Effect.gen(function* () {
           .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
 
         let setupScript: WorktreeMcpSetupScriptStatus = { status: "skipped" };
-        if (input.runSetupScript ?? true) {
+        if (input.runSetupScript ?? input.worktreePath === undefined) {
           setupScript = yield* setupScriptRunner
             .runForThread({
               threadId: scope.thread.threadId,
@@ -348,7 +364,7 @@ const make = Effect.gen(function* () {
 
   const prepareGitCheckout = Effect.fn("WorktreeMcpService.prepareGitCheckout")(function* (
     projectCwd: string,
-    input: WorktreeMcpHandoffInput,
+    input: WorktreeMcpHandoffInput & { readonly branch: string },
   ) {
     // The repo check runs regardless of whether baseRef was supplied, so a
     // non-repository workspace fails with an actionable error instead of an
@@ -451,6 +467,32 @@ const make = Effect.gen(function* () {
           Effect.ignoreCause({ log: true }),
         ),
     } satisfies CheckoutPlan;
+  });
+
+  // An existing checkout already belongs to whoever made it, so a failed
+  // handoff leaves it in place.
+  const existingCheckout = (
+    projectCwd: string,
+    worktreePath: string,
+    slipjay: boolean,
+  ): CheckoutPlan => ({
+    baseRef: null,
+    startedFromOrigin: false,
+    create: Effect.gen(function* () {
+      if (!(yield* workspaces.contains(projectCwd, worktreePath))) {
+        return yield* failure(
+          "invalid_request",
+          `'${worktreePath}' is not a checkout of the project's repository.`,
+        );
+      }
+      // A SlipJay workspace has no branch of its own, like one allocated here.
+      if (slipjay) return { path: worktreePath, branch: null };
+      const status = yield* gitWorkflow
+        .localStatus({ cwd: worktreePath })
+        .pipe(asOperationFailed("Unable to read the worktree's status"));
+      return { path: worktreePath, branch: status.refName };
+    }),
+    remove: () => Effect.void,
   });
 
   const slipjayCheckout = (projectCwd: string, task: string): CheckoutPlan => ({

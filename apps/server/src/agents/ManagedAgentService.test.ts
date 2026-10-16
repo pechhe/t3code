@@ -829,6 +829,9 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         });
       const lead = yield* workspace("lead", store);
       const helper = yield* workspace("helper", store);
+      // The project's main checkout is a workspace of the same repository.
+      yield* f.fs.makeDirectory(`${f.workspacePath}/.jj`);
+      yield* f.fs.writeFileString(`${f.workspacePath}/.jj/repo`, store);
       const foreign = yield* workspace("foreign", otherStore);
       const nested = `${helper}/packages`;
       yield* f.fs.makeDirectory(nested);
@@ -923,6 +926,34 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         occupants: [{ ...writer, writes: false }],
       });
       expect(yield* refused({ request: reviewer, occupants: [writer] })).toBe("workspace");
+      // SlipJay released the lead's workspace while the lead still works from it: the
+      // project, not the emptied folder, decides which repository a pinned reader may read.
+      const released = `${f.root}/released`;
+      yield* f.fs.makeDirectory(released);
+      const pinnedReviewer = request({
+        workspacePath: helper,
+        role: "ticket-reviewer",
+        sourceRevision,
+        review: changeReview,
+      });
+      yield* f.prepare({
+        workspacePath: released,
+        projectRoot: f.workspacePath,
+        owner: "lead-thread",
+        request: pinnedReviewer,
+      });
+      // A refusal names the rule that failed.
+      const foreignReview = yield* f
+        .prepare({
+          workspacePath: released,
+          projectRoot: f.workspacePath,
+          owner: "lead-thread",
+          request: { ...pinnedReviewer, workspacePath: foreign },
+        })
+        .pipe(Effect.flip);
+      expect(foreignReview.message).toBe(
+        `Managed agent dispatch refused (workspace: ${foreign} is not a checkout of the project's repository).`,
+      );
       // The lead is always a live writer in its own checkout, and may still read it pinned.
       const leadThread = { ...writer, workspacePath: lead, workId: null, attemptId: null };
       yield* f.prepare({

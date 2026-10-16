@@ -1243,15 +1243,18 @@ const make = Effect.gen(function* () {
         thread === null ||
         thread.worktreePath === null ||
         thread.branch !== null ||
-        thread.agentTask !== undefined ||
-        (yield* fileSystem.exists(thread.worktreePath).pipe(Effect.orElseSucceed(() => true)))
+        thread.agentTask !== undefined
       ) {
         return false;
       }
       const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
+      // Released means no longer a checkout of the project: SlipJay may have
+      // removed or recycled the folder, and a shell left inside can recreate
+      // it empty, so the folder existing proves nothing.
       if (
         project === undefined ||
-        (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay"
+        (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay" ||
+        (yield* workspaces.contains(project.workspaceRoot, thread.worktreePath))
       ) {
         return false;
       }

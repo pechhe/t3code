@@ -8,9 +8,18 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
  * continues inside the worktree on the thread's next run.
  */
 export const WorktreeMcpHandoffInput = Schema.Struct({
-  branch: TrimmedNonEmptyString.annotate({
-    description: "Branch name to create for the worktree (e.g. 'feature/my-change').",
-  }),
+  branch: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        "Branch name to create for a new worktree (e.g. 'feature/my-change'); in a SlipJay project, the new workspace's task name. Required unless worktreePath is given.",
+    }),
+  ),
+  worktreePath: Schema.optional(
+    TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/)).annotate({
+      description:
+        "Absolute path of an existing checkout of the project's repository, such as a SlipJay workspace allocated with `slipjay start`, to attach instead of creating one. The other creation fields are ignored.",
+    }),
+  ),
   baseRef: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
@@ -32,7 +41,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   runSetupScript: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Run the project's configured setup script in the new worktree after handoff. Defaults to true.",
+        "Run the project's configured setup script in the worktree after handoff. Defaults to true for a new worktree and false for an existing one.",
     }),
   ),
   continuationPrompt: Schema.optional(
@@ -81,10 +90,11 @@ export type WorktreeMcpContinuationStatus = typeof WorktreeMcpContinuationStatus
 export const WorktreeMcpHandoffResult = Schema.Struct({
   worktreePath: TrimmedNonEmptyString,
   branch: Schema.NullOr(TrimmedNonEmptyString).annotate({
-    description: "The new worktree's branch; null for a SlipJay workspace, which has none.",
+    description: "The worktree's branch; null for a SlipJay workspace, which has none.",
   }),
   baseRef: Schema.NullOr(TrimmedNonEmptyString).annotate({
-    description: "The ref the worktree started from; null for a SlipJay workspace.",
+    description:
+      "The ref a new worktree started from; null for a SlipJay workspace or an existing worktree.",
   }),
   startedFromOrigin: Schema.Boolean,
   setupScript: WorktreeMcpSetupScriptStatus,
@@ -95,7 +105,7 @@ export type WorktreeMcpHandoffResult = typeof WorktreeMcpHandoffResult.Type;
 
 export const WorktreeMcpStatusResult = Schema.Struct({
   attached: Schema.Boolean.annotate({
-    description: "True when this thread is already attached to a git worktree.",
+    description: "True when this thread is attached to a worktree or SlipJay workspace.",
   }),
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   branch: Schema.NullOr(TrimmedNonEmptyString),
@@ -115,7 +125,6 @@ export class WorktreeMcpFailure extends Schema.TaggedError<WorktreeMcpFailure>()
       "capability_denied",
       "thread_not_found",
       "project_not_found",
-      "already_in_worktree",
       "handoff_in_progress",
       "invalid_request",
       "operation_failed",

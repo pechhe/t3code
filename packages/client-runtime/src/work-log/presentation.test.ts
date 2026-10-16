@@ -562,8 +562,8 @@ describe("resolveWorkEntryToolPresentation", () => {
     ["t3_thread_send", "Sending to a T3 thread", "Sent to a T3 thread"],
     [
       "t3_worktree_handoff",
-      "Handing off thread to a git worktree",
-      "Handed off thread to a git worktree",
+      "Handing off thread to another workspace",
+      "Handed off thread to another workspace",
     ],
   ])("preserves verb forms and the rest of %s's label", (tool, running, completed) => {
     const entry = { label: `t3-code.${tool}` };

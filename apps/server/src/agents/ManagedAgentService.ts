@@ -58,6 +58,8 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
   {
     reason: Schema.Literals(["policy", "workspace", "source", "selection", "revoked", "hard-link"]),
     path: Schema.optional(Schema.String),
+    /** Which workspace rule refused, so the caller can correct the request. */
+    detail: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -66,7 +68,9 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
       return `Managed writer refused: regular file has multiple hard links: ${this.path}.`;
     const detail = isAgentRoleError(this.cause)
       ? `: ${this.cause.reason}${this.cause.candidates === undefined ? "" : ` (${[...new Set(this.cause.candidates.map((candidate) => candidate.reason))].join(", ")})`}`
-      : "";
+      : this.detail === undefined
+        ? ""
+        : `: ${this.detail}`;
     const refusal = `Managed agent dispatch refused (${this.reason}${detail}).`;
     return this.reason === "source" ? `${refusal} ${sourceRevisionGuidance}` : refusal;
   }
@@ -253,7 +257,8 @@ const make = Effect.gen(function* () {
             : null,
     };
   });
-  const workspaceError = (cause: unknown) => new ManagedAgentError({ reason: "workspace", cause });
+  const refuse = (detail: string, cause?: unknown) =>
+    new ManagedAgentError({ reason: "workspace", detail, cause });
   const local = <A, E>(
     effect: Effect.Effect<A, E, FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner>,
   ) =>
@@ -281,15 +286,26 @@ const make = Effect.gen(function* () {
         ? authority.projectRoot
         : undefined);
     const expected = request.workspacePath;
-    if (lead === undefined || !path.isAbsolute(expected))
-      return yield* new ManagedAgentError({ reason: "workspace" });
+    if (!path.isAbsolute(expected))
+      return yield* refuse(`workspacePath must be absolute, got ${expected}`);
+    if (lead === undefined)
+      return yield* refuse(
+        'this thread has no workspace of its own for a writer to share; pass workspaceAssignment "isolated" with a separately allocated workspace',
+      );
+    const notInRepository = `${expected} is not a checkout of the project's repository`;
     const sameRepository = Effect.fn("ManagedAgentService.sameRepository")(function* () {
-      const [leadStore, childStore] = yield* local(
-        // The lead's own root may be a project registered in a repository subdirectory.
-        Effect.all([containingRepositoryStore(lead), repositoryStore(expected)]),
-      ).pipe(Effect.mapError(workspaceError));
-      if (leadStore !== childStore) return yield* new ManagedAgentError({ reason: "workspace" });
+      // The project, not the lead's current checkout, decides the repository: SlipJay may
+      // have released the lead's workspace while the lead still works from it.
+      const [projectStore, childStore] = yield* local(
+        // A project may be registered in a repository subdirectory.
+        Effect.all([
+          containingRepositoryStore(authority.projectRoot ?? lead),
+          repositoryStore(expected),
+        ]),
+      ).pipe(Effect.mapError((cause) => refuse(notInRepository, cause)));
+      if (projectStore !== childStore) return yield* refuse(notInRepository);
     });
+    const occupied = `another thread is working in ${expected}`;
     if (pinnedReader) {
       // In another workspace, a live writer would change the files under the reader after the
       // pin was checked. The lead's own checkout is always occupied by the lead, which may read
@@ -302,16 +318,21 @@ const make = Effect.gen(function* () {
               occupant.workspacePath === expected && occupant.running && occupant.writes,
           )
         )
-          return yield* new ManagedAgentError({ reason: "workspace" });
+          return yield* refuse(occupied);
       }
     } else if (assignment === "lead") {
-      if (expected !== lead) return yield* new ManagedAgentError({ reason: "workspace" });
+      if (expected !== lead)
+        return yield* refuse(
+          `a task sharing the lead's workspace must use ${lead}; pin sourceRevision for read-only work elsewhere, or pass workspaceAssignment "isolated" with a separately allocated workspace`,
+        );
     } else {
       // An isolated helper gets its own registered workspace of the lead's repository on
       // this host: never the lead's checkout, the main checkout, a subdirectory, another
       // repository, or a workspace another thread is already writing in.
+      const ownCheckout =
+        "an isolated task needs its own allocated workspace, not the lead's or the project's main checkout";
       if (expected === lead || expected === authority.projectRoot)
-        return yield* new ManagedAgentError({ reason: "workspace" });
+        return yield* refuse(ownCheckout);
       // A lead or project registered in a subdirectory still owns the checkout containing it.
       // A root in no resolvable checkout contains none; the repository check below still holds.
       const owned = yield* local(
@@ -320,7 +341,7 @@ const make = Effect.gen(function* () {
           (root) => checkoutRoot(root).pipe(Effect.orElseSucceed(() => undefined)),
         ),
       );
-      if (owned.includes(expected)) return yield* new ManagedAgentError({ reason: "workspace" });
+      if (owned.includes(expected)) return yield* refuse(ownCheckout);
       yield* sameRepository();
       // Only live work holds a workspace: SlipJay reassigns workspaces whose earlier threads
       // stay unarchived. Another lead's live thread keeps it; under this lead, only the same
@@ -335,23 +356,22 @@ const make = Effect.gen(function* () {
                 (occupant.workId !== request.workId || occupant.attemptId !== request.attemptId))),
         )
       )
-        return yield* new ManagedAgentError({ reason: "workspace" });
+        return yield* refuse(occupied);
     }
-    const actual = yield* fs.realPath(expected).pipe(Effect.mapError(workspaceError));
-    if (actual !== expected) return yield* new ManagedAgentError({ reason: "workspace" });
-    const stat = yield* fs
-      .stat(actual)
-      .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "workspace", cause })));
-    if (stat.type !== "Directory") return yield* new ManagedAgentError({ reason: "workspace" });
+    const missing = `${expected} does not exist`;
+    const actual = yield* fs
+      .realPath(expected)
+      .pipe(Effect.mapError((cause) => refuse(missing, cause)));
+    if (actual !== expected)
+      return yield* refuse(`workspacePath must be the real path ${actual}, without symlinks`);
+    const stat = yield* fs.stat(actual).pipe(Effect.mapError((cause) => refuse(missing, cause)));
+    if (stat.type !== "Directory") return yield* refuse(`${expected} is not a directory`);
     if (writes)
       yield* local(checkWriterWorkspace(actual)).pipe(
-        Effect.mapError(
-          (cause) =>
-            new ManagedAgentError({
-              reason: cause.reason === "hard-link" ? "hard-link" : "workspace",
-              path: cause.path,
-              cause,
-            }),
+        Effect.mapError((cause) =>
+          cause.reason === "hard-link"
+            ? new ManagedAgentError({ reason: "hard-link", path: cause.path, cause })
+            : refuse(`could not read ${cause.path} to check the workspace for a writer`, cause),
         ),
       );
     if (request.sourceRevision !== undefined) {

@@ -223,7 +223,7 @@ function makeHarness(options: HarnessOptions = {}) {
       resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
       allocate: allocateWorkspace,
       release: releaseWorkspace,
-      contains: () => Effect.succeed(true),
+      contains: (_, workspacePath) => Effect.succeed(!releasedPaths.has(workspacePath)),
       remove: removeWorktree,
     }),
     options.managedFolders ??
