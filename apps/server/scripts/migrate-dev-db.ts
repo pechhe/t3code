@@ -291,6 +291,9 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
 
   yield* sql.withTransaction(
     Effect.gen(function* () {
+      // Rows can reference a filtered-out thread's rows without a thread_id of their own,
+      // such as an experiment observation of an assignment; the checks run once, at the end.
+      yield* sql.unsafe("PRAGMA defer_foreign_keys = ON").unprepared;
       for (const table of tables) yield* sql.unsafe(table.sql).unprepared;
       if (filtered) {
         yield* sql`CREATE TEMP TABLE copied_threads (thread_id TEXT PRIMARY KEY)`;
@@ -315,6 +318,16 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
               : `WHERE thread_id IN (SELECT thread_id FROM copied_threads)${nullable ? " OR thread_id IS NULL" : ""}`;
         yield* sql.unsafe(`INSERT INTO main."${name}" SELECT * FROM src."${name}" ${filter}`)
           .unprepared;
+      }
+      // Drop rows whose parent the filter left out, repeating for rows that referenced them.
+      // An unfiltered copy keeps the source's own violations, so the commit reports them.
+      while (filtered) {
+        const orphans = yield* sql<{ table: string; rowid: number | null }>`
+          SELECT "table", rowid FROM pragma_foreign_key_check WHERE rowid IS NOT NULL`;
+        if (orphans.length === 0) break;
+        for (const orphan of orphans)
+          yield* sql.unsafe(`DELETE FROM main."${orphan.table}" WHERE rowid = ${orphan.rowid}`)
+            .unprepared;
       }
       // The source's AUTOINCREMENT high-water marks, so new events append after them.
       yield* sql`DELETE FROM main.sqlite_sequence`;

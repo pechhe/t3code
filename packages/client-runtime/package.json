@@ -7,6 +7,10 @@
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"
     },
+    "./thread-workflow": {
+      "types": "./src/threadWorkflow.ts",
+      "default": "./src/threadWorkflow.ts"
+    },
     "./experiments": {
       "types": "./src/experiments.ts",
       "default": "./src/experiments.ts"

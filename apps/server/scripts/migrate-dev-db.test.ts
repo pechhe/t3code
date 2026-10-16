@@ -86,6 +86,17 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
           created_at, updated_at, last_run_status, run_count)
         VALUES ('task-1', 'Nightly', 'Run it', 1, '{}', 'project-kept', '{}', '{}',
           'full-access', 'default', 'user', 'user', '2026-08-01', '2026-08-01', 'never', 0)`;
+      // An experiment observation of a settled thread's assignment has no thread_id itself.
+      yield* sql`INSERT INTO experiments (id, definition_json, status, created_at, updated_at)
+        VALUES ('experiment-1', '{}', 'running', '2026-08-01', '2026-08-01')`;
+      yield* sql`INSERT INTO experiment_assignments
+        (id, experiment_id, unit_kind, unit_id, thread_id, stratum, variant_id, assignment_method, payload_json)
+        VALUES
+        ('assignment-settled', 'experiment-1', 'thread', 'settled-thread', 'settled-thread', 's', 'a', 'randomized', '{}'),
+        ('assignment-kept', 'experiment-1', 'thread', 'stopped-thread', 'stopped-thread', 's', 'a', 'randomized', '{}')`;
+      yield* sql`INSERT INTO experiment_observations (id, assignment_id, payload_json)
+        VALUES ('observation-settled', 'assignment-settled', '{}'),
+          ('observation-kept', 'assignment-kept', '{}')`;
       yield* sql`INSERT INTO auth_sessions (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('session-1', 'user', '[]', 'pairing', '2026-08-01', '2027-08-01')`;
     }),
@@ -118,12 +129,14 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
             SELECT stream_id FROM orchestration_events ORDER BY stream_id`;
           const sessions = yield* sql<{ provider_session_id: string }>`
             SELECT provider_session_id FROM orchestration_v2_projection_provider_sessions`;
+          const observations = yield* sql<{ id: string }>`
+            SELECT id FROM experiment_observations ORDER BY id`;
           const [leftovers] = yield* sql<{ auth: number; tasks: number; transfers: number }>`
             SELECT
               (SELECT COUNT(*) FROM auth_sessions) AS auth,
               (SELECT COUNT(*) FROM scheduled_tasks) AS tasks,
               (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers`;
-          return { threads, events, sessions, leftovers };
+          return { threads, events, sessions, leftovers, observations };
         }),
       );
       assert.deepStrictEqual(
@@ -139,6 +152,10 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         ["session-shared"],
       );
       assert.deepStrictEqual(kept.leftovers, { auth: 0, tasks: 0, transfers: 0 });
+      assert.deepStrictEqual(
+        kept.observations.map((row) => row.id),
+        ["observation-kept"],
+      );
     }),
   );
 

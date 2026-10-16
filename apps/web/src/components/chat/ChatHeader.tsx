@@ -1,6 +1,7 @@
 import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
+  type OrchestrationV2ThreadWorkflow,
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
@@ -30,6 +31,7 @@ import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectChip } from "../ProjectChip";
+import { ThreadWorkflowMenu } from "./ThreadWorkflowMenu";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -47,6 +49,8 @@ interface ChatHeaderProps {
   /** Drafts have no server thread yet, so the title carries no action menu. */
   isServerThread: boolean;
   activeProject: EnvironmentProject | null;
+  /** The thread's governing workflow; unset or null when none is recorded. */
+  workflow?: OrchestrationV2ThreadWorkflow | null | undefined;
   parentThreadLink: { threadId: ThreadId; title: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
   rightPanelOpen: boolean;
@@ -78,6 +82,7 @@ export const ChatHeader = memo(function ChatHeader({
   activeThreadTitle,
   isServerThread,
   activeProject,
+  workflow,
   parentThreadLink,
   onOpenThread,
   rightPanelOpen,
@@ -327,6 +332,16 @@ export const ChatHeader = memo(function ChatHeader({
                 <TooltipPopup side="top">New thread in {activeProjectName}</TooltipPopup>
               </Tooltip>
             </WorkspaceBreadcrumbItem>
+            {isServerThread && parentThreadLink === null ? (
+              <WorkspaceBreadcrumbItem className="shrink-0">
+                <ThreadWorkflowMenu
+                  environmentId={activeThreadEnvironmentId}
+                  threadId={activeThreadId}
+                  workflow={workflow}
+                  canEdit={canOperateThread}
+                />
+              </WorkspaceBreadcrumbItem>
+            ) : null}
             <WorkspaceBreadcrumbSeparator>
               <WorkspaceBreadcrumbText>/</WorkspaceBreadcrumbText>
             </WorkspaceBreadcrumbSeparator>

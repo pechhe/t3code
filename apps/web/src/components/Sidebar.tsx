@@ -259,6 +259,8 @@ import {
 } from "./ThreadStatusIndicators";
 import { resolveSnoozePresets, snoozeWakeLabel, type SnoozePreset } from "./Sidebar.snooze";
 import { ProjectChip } from "./ProjectChip";
+import { ThreadWorkflowChip } from "./ThreadWorkflowChip";
+import { visibleThreadWorkflow } from "@t3tools/client-runtime/thread-workflow";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -1294,6 +1296,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
+  const workflowChip = visibleThreadWorkflow(thread.workflow);
   // Background work always recedes when it is not selected: an unread parent
   // completion must not pull a still-working thread back into the foreground.
   // Ready and action-required rows keep their unread and wake prominence.
@@ -2022,6 +2025,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 <span className="min-w-0 truncate text-secondary-label text-xs">
                   {props.projectDisplayName}
                 </span>
+              ) : null}
+              {workflowChip ? (
+                <ThreadWorkflowChip
+                  kind={workflowChip.kind}
+                  unattended={workflowChip.unattended}
+                  className={cn("shrink-0", shouldRecede && "opacity-70")}
+                />
               ) : null}
               <span className="flex-1" />
               {pinIndicator}

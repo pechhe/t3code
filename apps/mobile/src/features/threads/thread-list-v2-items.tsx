@@ -51,6 +51,7 @@ import {
   resolveThreadListV2SwipeActions,
   type ThreadListV2Status,
 } from "./threadListV2";
+import { ThreadWorkflowBadge } from "./ThreadWorkflowBadge";
 import { QueuedMessageIcon } from "./queued-message-icon";
 import { shouldRecedeThreadRow } from "./thread-row-emphasis";
 import { ThreadSearchMatchExcerpt } from "./thread-search-match";
@@ -997,6 +998,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         >
           {props.projectTitle ?? props.project?.title ?? ""}
         </Text>
+        <ThreadWorkflowBadge workflow={thread.workflow} />
         {props.hasQueuedMessages ? <QueuedMessageIcon selected={selected} /> : null}
         {pinnedRow ? (
           <SymbolView

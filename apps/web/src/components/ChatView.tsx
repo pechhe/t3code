@@ -11356,6 +11356,7 @@ export default function ChatView(props: ChatViewProps) {
             isServerThread={isServerThread}
             activeThreadTitle={activeThread.title}
             activeProject={activeProject ?? null}
+            workflow={activeThreadShell?.workflow}
             parentThreadLink={parentThreadLink}
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
