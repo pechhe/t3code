@@ -59,7 +59,8 @@ export function SubagentTooltipContent(props: {
   progress?: string | null | undefined;
 }) {
   const { modelLabel, workspace: metadata } = resolveSubagentMetadata(props);
-  const preview = subagentDetailPreview(props);
+  // A finished agent's result is already in the chat; the card keeps live progress and failures.
+  const preview = props.status === "completed" ? null : subagentDetailPreview(props);
   const model = props.model?.trim();
   const modelSlug = props.provider
     ? resolveSelectableModel(props.provider.driver, model, props.provider.models)
