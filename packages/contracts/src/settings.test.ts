@@ -24,11 +24,11 @@ const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
 describe("ServerSettings response streaming", () => {
-  it("defaults to paragraph buffering", () => {
-    expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");
+  it("defaults to live streaming", () => {
+    expect(decodeServerSettings({}).responseStreamingMode).toBe("live");
   });
 
-  it.each(["turn", "paragraph"])(
+  it.each(["turn", "paragraph", "live"])(
     "round-trips %s as an environment setting and project override",
     (responseStreamingMode) => {
       const input = {

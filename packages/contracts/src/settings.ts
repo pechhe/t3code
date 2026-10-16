@@ -876,7 +876,7 @@ export const BackgroundActivitySettings = Schema.Struct({
 }).pipe(Schema.withDecodingDefault(Effect.succeed({})));
 export type BackgroundActivitySettings = typeof BackgroundActivitySettings.Type;
 
-export const ResponseStreamingMode = Schema.Literals(["turn", "paragraph"]);
+export const ResponseStreamingMode = Schema.Literals(["turn", "paragraph", "live"]);
 export type ResponseStreamingMode = typeof ResponseStreamingMode.Type;
 
 const StorageRetentionDays = Schema.NullOr(
@@ -1154,7 +1154,7 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   responseStreamingMode: ResponseStreamingMode.pipe(
-    Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
+    Schema.withDecodingDefault(Effect.succeed("live" as const)),
   ),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(

@@ -52,6 +52,23 @@ const turnItem = (
 });
 
 describe("V2 assistant streaming", () => {
+  it.each([message, turnItem])(
+    "delivers growing live text without a paragraph boundary, caps bursts at 45ms, and flushes completion (%#)",
+    (update) => {
+      const filter = makeAssistantStreamingFilter("live");
+      const first = update("First");
+      expect(filter(first, 0)).toBe(first);
+      expect(filter(update("First sentence"), 1)).toBeNull();
+      expect(filter(update("First sentence grows"), 44)).toBeNull();
+      // Adapter batches arrive about every 50ms and all pass.
+      const grown = update("First sentence grows further");
+      expect(filter(grown, 50)).toBe(grown);
+      expect(filter(update("First sentence grows further still"), 60)).toBeNull();
+      const final = update("First sentence grows further still. Done.", false);
+      expect(filter(final, 60)).toBe(final);
+    },
+  );
+
   it("delivers completed paragraphs, coalesces rapid updates, and flushes final text", () => {
     const filter = makeAssistantStreamingFilter("paragraph");
     expect(filter(message("First"), 0)).toBeNull();

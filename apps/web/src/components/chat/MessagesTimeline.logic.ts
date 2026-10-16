@@ -478,6 +478,8 @@ export type MessagesTimelineRow = MessagesTimelineRowContent & {
   readonly continuesWorkLog?: boolean;
 };
 
+export type WorkingPhase = "Thinking" | "Running tools" | "Writing" | "Waiting for agent";
+
 type MessagesTimelineRowContent =
   | {
       kind: "worktree-setup";
@@ -503,12 +505,18 @@ type MessagesTimelineRowContent =
       groupId: string;
       expanded: boolean;
       active: boolean;
+      /** Whether `entry` is still running, so its label shimmers. */
+      running: boolean;
       thought?: WorkLogEntry;
     }
   | {
       kind: "working";
       id: string;
       createdAt: string | null;
+      /** What the agent is doing now, shown at the end of the status line. */
+      phase: WorkingPhase;
+      /** Subagents and tasks still working for this response. */
+      runningTasks: number;
     }
   | {
       kind: "thinking";
@@ -872,13 +880,18 @@ function timelineEntryFoldRunId(entry: TimelineEntry, runlessKey: RunId | null):
   return null;
 }
 
+/**
+ * Only a prompt starts a response. Steers and automatic wakes (a finished
+ * subagent, a monitor report, a context rollover) continue the request that
+ * started the work, so one request reads as one block however many runs it
+ * takes.
+ */
 function timelineEntryStartsResponse(entry: TimelineEntry): boolean {
   return (
-    (entry.kind === "message" &&
-      entry.message.role === "user" &&
-      entry.message.inputIntent !== "steer" &&
-      entry.message.inputIntent !== "promoted_queued_to_steer") ||
-    (entry.kind === "work" && entry.entry.itemType === "notification")
+    entry.kind === "message" &&
+    entry.message.role === "user" &&
+    entry.message.inputIntent !== "steer" &&
+    entry.message.inputIntent !== "promoted_queued_to_steer"
   );
 }
 
@@ -961,12 +974,7 @@ function deriveTurnFolds(input: {
   completeSupersededReplyEntryIds: ReadonlySet<string>;
 }): ReadonlyMap<string, TurnFold> {
   const interruptedRunIds = new Set<RunId>();
-  const promptIndexByRunId = new Map<RunId, number>();
-  for (const [index, entry] of input.timelineEntries.entries()) {
-    if (timelineEntryStartsResponse(entry)) {
-      const runId = responseBoundaryRunId(entry);
-      if (runId !== null && !promptIndexByRunId.has(runId)) promptIndexByRunId.set(runId, index);
-    }
+  for (const entry of input.timelineEntries) {
     if (
       entry.kind === "event" &&
       entry.projectedItem.item.runId !== null &&
@@ -988,6 +996,8 @@ function deriveTurnFolds(input: {
      */
     startBoundary: string | null;
     anchorEntryId: string;
+    /** The runs whose entries the group holds; a response can span several. */
+    ownRunIds: Set<RunId>;
   }
   const groupsByRunId = new Map<RunId, TurnGroup>();
   const runlessFailedKeys = new Set<RunId>();
@@ -1016,10 +1026,9 @@ function deriveTurnFolds(input: {
     // Resuming a subagent moves its item to the resuming run, but the item
     // keeps its place in the turn that started it. It folds with that turn,
     // so the later run's fold still opens under its own prompt.
-    const runId =
-      responseKey !== null && (promptIndexByRunId.get(ownRunId) ?? -1) > index
-        ? responseKey
-        : ownRunId;
+    // Every run after a prompt folds with it, including wakes and resumed
+    // subagents, so the request settles into a single "Worked for" line.
+    const runId = responseKey ?? ownRunId;
     if (runId === runlessKey && timelineEntryFailedItem(entry) !== null) {
       runlessFailedKeys.add(runId);
     }
@@ -1031,11 +1040,13 @@ function deriveTurnFolds(input: {
         hasStreamingMessage: false,
         startBoundary: pendingBoundary?.createdAt ?? null,
         anchorEntryId: pendingBoundary?.anchorEntryId ?? entry.id,
+        ownRunIds: new Set(),
       };
       pendingBoundary = null;
       groupsByRunId.set(runId, group);
     }
     group.entries.push(entry);
+    group.ownRunIds.add(ownRunId);
     if (entry.kind === "message") {
       if (input.terminalAssistantMessageIds.has(entry.message.id)) {
         group.terminalEntry = entry;
@@ -1048,9 +1059,12 @@ function deriveTurnFolds(input: {
 
   const foldsByAnchorEntryId = new Map<string, TurnFold>();
   for (const [runId, group] of groupsByRunId) {
+    // A response stays open while any run in it is open or was interrupted.
+    const holdsRun = (runIds: ReadonlySet<RunId>) =>
+      runIds.has(runId) || [...group.ownRunIds].some((ownRunId) => runIds.has(ownRunId));
     if (
-      input.unfoldedRunIds.has(runId) ||
-      interruptedRunIds.has(runId) ||
+      holdsRun(input.unfoldedRunIds) ||
+      holdsRun(interruptedRunIds) ||
       runlessFailedKeys.has(runId) ||
       (input.runlessWorkActive && runId === runlessKey)
     ) {
@@ -1083,7 +1097,6 @@ function deriveTurnFolds(input: {
       ) {
         continue;
       }
-      if (entry.kind === "work" && entry.entry.itemType === "notification") continue;
       hiddenEntryIds.add(entry.id);
     }
     if (hiddenEntryIds.size === 0) {
@@ -1468,6 +1481,7 @@ export function deriveMessagesTimelineRows(input: {
             groupId,
             expanded: input.expandedWorkGroupIds?.has(groupId) ?? false,
             active: latestToolKeepsActivityLive,
+            running: latestRunningToolEntry !== undefined,
             ...(latestThoughtEntry ? { thought: latestThoughtEntry.entry } : {}),
           };
         })()
@@ -1475,11 +1489,21 @@ export function deriveMessagesTimelineRows(input: {
   const activeWorkEntryIds = new Set(
     activeWorkRow !== null || latestToolFailed ? activeToolEntries.map((entry) => entry.id) : [],
   );
+  const workingPhase = (): WorkingPhase => {
+    const last = nextRows.at(-1);
+    if (last?.kind === "message" && last.message.role === "assistant" && last.message.streaming)
+      return "Writing";
+    if (hasActivityRow) return "Running tools";
+    if (liveSubagentEntryIds.size > 0) return "Waiting for agent";
+    return "Thinking";
+  };
   const appendWorkingRow = () => {
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
       createdAt: input.activeTurnStartedAt ?? null,
+      phase: workingPhase(),
+      runningTasks: liveSubagentEntryIds.size,
     });
   };
   let hasActivityRow = false;
@@ -1502,10 +1526,6 @@ export function deriveMessagesTimelineRows(input: {
     const timelineEntry = timelineEntries[index];
     if (!timelineEntry) {
       continue;
-    }
-
-    if (input.isWorking && index === activeTurnHeaderIndex) {
-      appendWorkingRow();
     }
 
     if (timelineEntry.id === activeWorkPlacementEntryId) {
@@ -1634,6 +1654,7 @@ export function deriveMessagesTimelineRows(input: {
             groupId,
             expanded,
             active: true,
+            running: true,
           });
           hasActivityRow = true;
           if (expanded) {
@@ -1850,6 +1871,8 @@ export function deriveMessagesTimelineRows(input: {
                 kind: "working",
                 id: "working-indicator-row",
                 createdAt: input.worktreeSetup.startedAt,
+                phase: "Thinking",
+                runningTasks: 0,
               } as const,
               setupRow,
             ]
@@ -1858,43 +1881,38 @@ export function deriveMessagesTimelineRows(input: {
     }
   }
 
-  const hasWorkingRow = nextRows.some((row) => row.kind === "working");
-  if (input.isWorking && !hasWorkingRow && activeTurnHeaderIndex === timelineEntries.length) {
-    appendWorkingRow();
-  }
+  // The status line closes the live response; a setup that owns the working
+  // slot already placed it above its stage card.
   if (
     input.isWorking &&
     !setupOwnsWorkingSlot &&
     !hasActiveCompaction &&
-    (!hasActivityRow || latestToolFailed)
+    latestToolFailed &&
+    activeWorkAnchor
   ) {
-    const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;
-    if (failedGroupAnchor) {
-      const groupId = workGroupId(failedGroupAnchor.id);
-      const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-        groupId,
-        expanded,
-      });
-      if (expanded) {
-        nextRows.push(
-          expandedWorkGroupRow(
-            groupId,
-            failedGroupAnchor.createdAt,
-            visibleActiveToolEntries.map((entry) => entry.entry),
-          ),
-        );
-      }
-    } else {
-      nextRows.push({
-        kind: "thinking",
-        id: LIVE_ACTIVITY_ROW_ID,
-        createdAt: input.activeTurnStartedAt ?? null,
-      });
+    // A failed latest tool leaves no live row, but its group stays reachable
+    // through the same disclosure the live row offers.
+    const groupId = workGroupId(activeWorkAnchor.id);
+    const expanded = input.expandedWorkGroupIds?.has(groupId) ?? false;
+    nextRows.push({
+      kind: "thinking",
+      id: LIVE_ACTIVITY_ROW_ID,
+      createdAt: input.activeTurnStartedAt ?? null,
+      groupId,
+      expanded,
+    });
+    if (expanded) {
+      nextRows.push(
+        expandedWorkGroupRow(
+          groupId,
+          activeWorkAnchor.createdAt,
+          visibleActiveToolEntries.map((entry) => entry.entry),
+        ),
+      );
     }
+  }
+  if (input.isWorking && !nextRows.some((row) => row.kind === "working")) {
+    appendWorkingRow();
   }
 
   const result = attachTrailingToolGroupsToAssistant(

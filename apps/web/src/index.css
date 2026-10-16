@@ -606,7 +606,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     transparent 100%
   );
   mask-repeat: no-repeat;
-  animation: live-activity-focus 2.2s steps(30) infinite;
+  animation: live-activity-focus 2.2s steps(66) infinite;
   animation-play-state: var(--visible-animation-state, paused);
   will-change: var(--visible-animation-will-change, auto);
 
@@ -619,7 +619,7 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
 @utility live-activity-focus-counter {
   width: 100%;
-  animation: live-activity-focus-counter 2.2s steps(30) infinite;
+  animation: live-activity-focus-counter 2.2s steps(66) infinite;
   animation-play-state: var(--visible-animation-state, paused);
   will-change: var(--visible-animation-will-change, auto);
 
@@ -632,6 +632,66 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 @utility live-activity-focus-aligned {
   width: calc(100% - var(--live-activity-focus-width) - var(--live-activity-focus-width));
   margin-left: var(--live-activity-focus-width);
+}
+
+/* A live tool row opens from zero height when it first appears, so the content
+   below slides down instead of jumping, and each new tool's label fades in.
+   Both run once on insertion; live rows only mount while a turn runs. */
+.timeline-row-expand {
+  display: grid;
+  grid-template-rows: 1fr;
+
+  > * {
+    min-height: 0;
+    overflow: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .timeline-row-expand {
+    transition:
+      grid-template-rows 220ms ease-out,
+      opacity 220ms ease-out;
+
+    @starting-style {
+      grid-template-rows: 0fr;
+      opacity: 0;
+    }
+  }
+
+  .live-activity-enter {
+    transition: opacity 200ms ease-out;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+
+@keyframes dot-matrix-sweep {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  14% {
+    opacity: 1;
+  }
+  30% {
+    opacity: 0.4;
+  }
+}
+
+/* Opacity only, stepped like the shimmer so a 120Hz display paints no more. */
+@utility dot-matrix-dot {
+  opacity: 0.55;
+  animation: dot-matrix-sweep 1.5s steps(24) infinite;
+  animation-delay: calc(var(--dot-delay, 0) * -1.5s);
+  animation-play-state: var(--visible-animation-state, paused);
+
+  /* Paused on its staggered frame, so reduced motion shows a still pattern. */
+  @media (prefers-reduced-motion: reduce), (forced-colors: active) {
+    animation-play-state: paused;
+  }
 }
 
 @property --assistant-citation-highlight-opacity {
@@ -2037,13 +2097,30 @@ code {
   background: transparent !important;
 }
 
-/* Paragraphs and code blocks arrive in chunks while a response streams. Fade
-   each new block in so the chunk does not pop. @starting-style only applies
-   when an element is first inserted, and the rule is gated on data-streaming,
-   so opening a finished thread never replays the fade. Opacity only, one
-   shot, no layout change. */
+/* While a response streams, it is revealed a sentence at a time (see
+   AssistantMessageText) and each revealed word fades in, so a sentence fades in
+   together. Blocks without words, such as code and tables, fade in whole.
+   @starting-style only applies when an element is first inserted, and the rules
+   are gated on data-streaming, so opening a finished thread never replays them.
+   Opacity only, one shot. The streaming message's height eases open to fit. */
+.chat-stream-height {
+  overflow: hidden;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .chat-markdown[data-streaming] > *,
+  .chat-stream-height {
+    transition: height 300ms cubic-bezier(0.25, 0.8, 0.3, 1);
+  }
+
+  .chat-markdown[data-streaming] .chat-stream-word {
+    transition: opacity 650ms ease-out;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+
+  .chat-markdown[data-streaming] > :not(p, ul, ol, blockquote, h1, h2, h3, h4, h5, h6),
   .chat-markdown[data-streaming] .chat-markdown-shiki {
     transition: opacity 600ms ease-out;
 

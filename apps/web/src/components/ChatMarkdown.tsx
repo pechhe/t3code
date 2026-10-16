@@ -1840,6 +1840,52 @@ function rehypeHeadingIds() {
   };
 }
 
+type StreamWordHastNode = {
+  type?: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: StreamWordHastNode[];
+};
+
+// Code, links and media keep their own rendering, so their words arrive whole.
+const STREAM_WORD_SKIP_TAGS = new Set(["pre", "code", "a", "img", "svg", "math"]);
+// Only the newest blocks can still be fading words in; earlier ones stay plain text.
+const STREAM_WORD_BLOCKS = 2;
+
+/**
+ * While a reply streams, wraps each word of its newest blocks in a span that fades in
+ * once when inserted. Words keep their position in the tree between updates, so React
+ * reuses their spans and only newly revealed words animate.
+ */
+function rehypeStreamWords() {
+  const words = (value: string): StreamWordHastNode[] =>
+    (value.match(/\s+|\S+/g) ?? []).map((part) =>
+      /^\s/.test(part)
+        ? { type: "text", value: part }
+        : {
+            type: "element",
+            tagName: "span",
+            properties: { className: ["chat-stream-word"] },
+            children: [{ type: "text", value: part }],
+          },
+    );
+  const wrap = (node: StreamWordHastNode) => {
+    if (!node.children) return;
+    node.children = node.children.flatMap((child) => {
+      if (child.type === "text" && child.value) return words(child.value);
+      if (child.type === "element" && !STREAM_WORD_SKIP_TAGS.has(child.tagName ?? "")) {
+        wrap(child);
+      }
+      return [child];
+    });
+  };
+  return (tree: StreamWordHastNode) => {
+    const blocks = tree.children?.filter((child) => child.type === "element") ?? [];
+    blocks.slice(-STREAM_WORD_BLOCKS).forEach(wrap);
+  };
+}
+
 // Heading ids are added after sanitizing, which would prefix them a second time.
 const CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS = [
   ...CHAT_MARKDOWN_REHYPE_PLUGINS,
@@ -3398,6 +3444,13 @@ function ChatMarkdown({
     [extraRemarkPlugins, incrementalParsing, lineBreaks],
   );
 
+  const rehypePlugins = useMemo(() => {
+    const base = parseRawHtml
+      ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
+      : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS;
+    return props.isStreaming ? [...base, rehypeStreamWords] : base;
+  }, [parseRawHtml, props.isStreaming]);
+
   return (
     <div
       ref={markdownRef}
@@ -3411,11 +3464,7 @@ function ChatMarkdown({
       <ChatMarkdownRendererContext value={componentState}>
         <ReactMarkdown
           remarkPlugins={remarkPlugins}
-          rehypePlugins={
-            parseRawHtml
-              ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
-              : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS
-          }
+          rehypePlugins={rehypePlugins}
           skipHtml={false}
           components={CHAT_MARKDOWN_COMPONENTS}
           urlTransform={markdownUrlTransform}

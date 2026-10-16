@@ -1,5 +1,7 @@
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
+import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { ActivityShimmerOverlay } from "./ActivityShimmer";
+import { DotMatrixSpinner } from "./DotMatrixSpinner";
 import { MarkdownFindContext, useFindRevealRef } from "./markdownFindContext";
 import { useChatCanvas } from "./ChatCanvasContext";
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./WorkLog";
@@ -276,7 +278,6 @@ import { createContextPresentationRegistry } from "../contextPresentationRegistr
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
-import { useMediaQuery } from "~/hooks/useMediaQuery";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
@@ -408,12 +409,11 @@ const TIMELINE_MAINTAIN_SCROLL_AT_END = {
     layout: true,
   },
 } as const satisfies MaintainScrollAtEndOptions;
+// While a turn runs, live follow eases toward the end with this time constant,
+// so it moves with the reply's eased growth instead of stepping per line.
+const TIMELINE_FOLLOW_EASE_MS = 90;
 const EMPTY_TIMELINE_RUNS: ReadonlyArray<HandoffTimelineRun> = [];
 const EMPTY_RUN_IDS: ReadonlySet<RunId> = new Set();
-const TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH = {
-  ...TIMELINE_MAINTAIN_SCROLL_AT_END,
-  animated: true,
-} as const satisfies MaintainScrollAtEndOptions;
 
 export interface MessagesTimelineHistoryControls {
   readonly hasMoreHistory: boolean;
@@ -615,7 +615,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
   const prefersReducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const listIdentityRef = useRef(listIdentityKey);
   const previousLatestRunRef = useRef(latestRun);
-  const [settlingListIdentity, setSettlingListIdentity] = useState<string | null>(listIdentityKey);
   let paintedExpandedRunIds = expandedRunIds;
   let paintedExpandedWorkGroupIds = expandedWorkGroupIds;
   let paintedExpandedAttemptIds = expandedAttemptIds;
@@ -623,7 +622,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     listIdentityRef.current = listIdentityKey;
     setPositionedThreadKey(null);
     previousLatestRunRef.current = latestRun;
-    setSettlingListIdentity(listIdentityKey);
     paintedExpandedRunIds = rememberedPosition?.disclosures?.runs ?? new Set();
     paintedExpandedWorkGroupIds = rememberedPosition?.disclosures?.workGroups ?? new Set();
     paintedExpandedAttemptIds = rememberedPosition?.disclosures?.attempts ?? new Set();
@@ -662,20 +660,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (settlingListIdentity === null) return;
-    let second: number | null = null;
-    const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => {
-        setSettlingListIdentity((current) => (current === settlingListIdentity ? null : current));
-      });
-    });
-    return () => {
-      cancelAnimationFrame(first);
-      if (second !== null) cancelAnimationFrame(second);
-    };
-  }, [settlingListIdentity]);
 
   const disclosurePinsEndRef = useRef(false);
   const disclosureCollapsedRef = useRef(false);
@@ -1092,13 +1076,49 @@ const ConversationTimeline = memo(function ConversationTimeline({
       ? { ...config, onReady: handleAnchorReady, onSizeChanged: handleAnchorSizeChanged }
       : undefined;
   }, [anchorMessageId, handleAnchorReady, handleAnchorSizeChanged, rows]);
+  // Whatever owns the scroll position (citation jump, restore, anchored turn,
+  // fullscreen, disclosure toggle, manual navigation) also stops end-pinning.
+  const endPinSuppressed =
+    citationPositioning ||
+    (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
+    anchoredEndSpace !== undefined ||
+    !liveFollowEnabled ||
+    fullscreenAppRowId !== null ||
+    disclosureToggleSettling;
+  // A streaming reply grows a line at a time, which the list's own pin turns
+  // into a visible tick per line. While a turn runs, the view eases instead.
+  const glidesToEnd = !endPinSuppressed && isWorking && !prefersReducedMotion;
+  useEffect(() => {
+    const node = listRef.current?.getScrollableNode();
+    if (!glidesToEnd || !(node instanceof HTMLElement)) return;
+    let frame = 0;
+    let last = performance.now();
+    const step = (now: number) => {
+      frame = requestAnimationFrame(step);
+      const dt = Math.min(50, now - last);
+      last = now;
+      const hidden = node.scrollHeight - node.clientHeight - node.scrollTop;
+      if (hidden < 0.5) return;
+      // More than a viewport out of view is a jump, such as a thread switch, not growth.
+      if (hidden > node.clientHeight) {
+        node.scrollTop = node.scrollHeight;
+        return;
+      }
+      node.scrollTop += hidden * (1 - Math.exp(-dt / TIMELINE_FOLLOW_EASE_MS));
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [glidesToEnd, listRef]);
   const maintainVisibleContentPosition = useMemo(
     () => ({
       data: true,
-      size: true,
+      // The list anchors on the first row whose top is on screen, which while
+      // a reply streams is the status line below it. Holding that line still
+      // would push the reply up a line at a time and undo the eased follow.
+      size: !glidesToEnd,
       shouldRestorePosition: shouldRestoreVisibleContentPosition,
     }),
-    [shouldRestoreVisibleContentPosition],
+    [glidesToEnd, shouldRestoreVisibleContentPosition],
   );
   const timelineListFooter = useMemo(
     () => (
@@ -1246,15 +1266,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     if (wasFollowing && !liveFollowEnabled) handleScroll();
   }, [handleScroll, liveFollowEnabled]);
 
-  // Whatever owns the scroll position (citation jump, restore, anchored turn,
-  // fullscreen, disclosure toggle, manual navigation) also stops end-pinning.
-  const endPinSuppressed =
-    citationPositioning ||
-    (restoringThreadPosition && rememberedPosition?.atEnd === false) ||
-    anchoredEndSpace !== undefined ||
-    !liveFollowEnabled ||
-    fullscreenAppRowId !== null ||
-    disclosureToggleSettling;
   const endPinSuppressedRef = useRef(endPinSuppressed);
   endPinSuppressedRef.current = endPinSuppressed || findActive;
 
@@ -1614,11 +1625,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
               {...(anchoredEndSpace ? { anchoredEndSpace } : {})}
               contentInsetEndAdjustment={anchoredEndSpace ? contentInsetEndAdjustment : 0}
               maintainScrollAtEnd={
-                endPinSuppressed
-                  ? false
-                  : isWorking && !prefersReducedMotion && settlingListIdentity === null
-                    ? TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH
-                    : TIMELINE_MAINTAIN_SCROLL_AT_END
+                endPinSuppressed || glidesToEnd ? false : TIMELINE_MAINTAIN_SCROLL_AT_END
               }
               maintainVisibleContentPosition={
                 findActive ||
@@ -2114,7 +2121,13 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
               displayLabel={row.displayLabel}
             />
           ) : null}
-          {row.kind === "work-live" ? <LiveWorkEntryTimelineRow row={row} /> : null}
+          {row.kind === "work-live" ? (
+            <div className="timeline-row-expand">
+              <div>
+                <LiveWorkEntryTimelineRow row={row} />
+              </div>
+            </div>
+          ) : null}
           {row.kind === "work-toggle" ? <WorkGroupToggleTimelineRow row={row} /> : null}
           {row.kind === "thinking" ? <ThinkingTimelineRow row={row} /> : null}
         </WorkLogBlock>
@@ -3725,35 +3738,45 @@ function toolIconAcceptsTint(toolIcon: ToolActivityIcon | undefined): boolean {
   return toolIcon === undefined;
 }
 
+/**
+ * The live response's one status line, at its foot:
+ * "⣿ 47s · 1 running task · Running tools…". It is the only animated row while a turn runs.
+ */
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
   const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
     use(TimelineRowActivityCtx);
-  const shimmer = isPreparingWorktree || isCompacting;
-  const label = isPreparingWorktree ? (
+  const phase = isPreparingWorktree ? (
     "Setting up worktree…"
   ) : isCompacting ? (
     <CompactingLabel />
-  ) : row.createdAt ? (
-    <>
-      Working for <WorkingTimer createdAt={row.createdAt} />
-    </>
   ) : (
-    "Working..."
+    `${row.phase}…`
   );
   return (
-    <div className="border-b border-border/60 pb-2 pt-1">
-      <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
-        <span
-          ref={shimmer ? observeVisibleAnimation : undefined}
-          className="relative shrink-0 overflow-hidden whitespace-nowrap"
-        >
-          {label}
-          {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
+    <div className="flex h-6 min-w-0 items-center gap-2 px-1 text-sm text-muted-foreground tabular-nums">
+      <span className="flex text-foreground/80">
+        <DotMatrixSpinner />
+      </span>
+      {row.createdAt ? (
+        <span className="shrink-0">
+          <WorkingTimer createdAt={row.createdAt} /> ·
         </span>
-        {backgroundWorktreeSetup ? (
-          <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
-        ) : null}
-      </div>
+      ) : null}
+      {row.runningTasks > 0 ? (
+        <span className="shrink-0">
+          {row.runningTasks} running {row.runningTasks === 1 ? "task" : "tasks"} ·
+        </span>
+      ) : null}
+      <span
+        ref={observeVisibleAnimation}
+        className="relative min-w-0 overflow-hidden whitespace-nowrap"
+      >
+        {phase}
+        <ActivityShimmerOverlay>{phase}</ActivityShimmerOverlay>
+      </span>
+      {backgroundWorktreeSetup ? (
+        <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+      ) : null}
     </div>
   );
 }
@@ -3843,7 +3866,7 @@ function LiveActivityRow({
   return (
     <div
       ref={animated ? observeVisibleAnimation : undefined}
-      className="relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed"
+      className="live-activity-enter relative min-h-6 w-fit max-w-full min-w-0 overflow-hidden rounded-md text-sm leading-relaxed"
     >
       <LiveActivityContent
         label={label}
@@ -4015,6 +4038,8 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
         />
       ) : null}
       <LiveActivityRow
+        // Each new tool remounts the line, so its label fades in rather than swapping.
+        key={row.entry.id}
         label={
           thoughtIsStatus ? (
             row.active ? (
@@ -4051,7 +4076,8 @@ function LiveWorkEntryTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "
         iconName={workEntryIconName(row.entry)}
         toolIcon={row.entry.toolIcon ?? row.entry.toolSource?.icon}
         failed={failed}
-        active={row.active}
+        active={row.running || (thoughtIsStatus && row.active)}
+        shimmer
       />
     </button>
   );

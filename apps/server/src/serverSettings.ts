@@ -272,7 +272,7 @@ const PersistedResponseStreamingMode = Schema.Union([
   Schema.decodeTo(
     ResponseStreamingMode,
     SchemaTransformation.transform({
-      decode: (mode) => (mode === "token" ? "paragraph" : mode),
+      decode: (mode) => (mode === "token" ? "live" : mode),
       encode: (mode) => mode,
     }),
   ),
@@ -281,7 +281,7 @@ const ServerSettingsJson = fromLenientJson(
   Schema.Struct({
     ...ServerSettings.fields,
     responseStreamingMode: PersistedResponseStreamingMode.pipe(
-      Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
+      Schema.withDecodingDefault(Effect.succeed("live" as const)),
     ),
     projectSettingsOverrides: Schema.Record(
       ProjectId,

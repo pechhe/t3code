@@ -1715,8 +1715,10 @@ describe("MessagesTimeline", () => {
     expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain("Superseded attempt");
     expect(markup).toContain("Cut off by a steer");
-    expect(markup).toContain("Current response remains visible");
-    expect(markup).not.toContain("Partial response from the old attempt");
+    // A streaming reply wraps each word for its fade-in, so compare the text alone.
+    const text = markup.replace(/<[^>]+>/g, "");
+    expect(text).toContain("Current response remains visible");
+    expect(text).not.toContain("Partial response from the old attempt");
   });
 
   it("exposes a per-response fork action for completed assistant items", async () => {

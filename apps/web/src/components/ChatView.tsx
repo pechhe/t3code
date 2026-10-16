@@ -554,7 +554,6 @@ import {
   shouldOpenProactivePullRequest,
   shouldRetargetThreadPullRequestPanel,
   shouldOpenProactiveTurnDiff,
-  shouldReleaseTimelineAnchorForToolActivity,
   shouldRenderPreviewMiniPlayer,
   getStartedThreadModelChangeBlockReason,
   LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
@@ -6487,8 +6486,18 @@ export default function ChatView(props: ChatViewProps) {
     requestAnimationFrame(() => positionAnchor(12));
   };
   const onTimelineAnchorReadyStable = useStableCallback(onTimelineAnchorReady);
-  const onTimelineAnchorSizeChanged = (messageId: MessageId) => {
+  const onTimelineAnchorSizeChanged = (messageId: MessageId, size: number) => {
     if (settledTimelineAnchorRef.current !== messageId) {
+      return;
+    }
+    // The reply has filled the space below the sent message down to the
+    // composer, text and tools alike. From here the view follows the live edge.
+    if (
+      size <= composerTimelineInset &&
+      timelineScrollModeRef.current === "anchoring-new-turn" &&
+      liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current
+    ) {
+      scrollToEndStable();
       return;
     }
     if (liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current) {
@@ -6563,26 +6572,6 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
   const onIsAtEndChangeStable = useStableCallback(onIsAtEndChange);
-
-  useLayoutEffect(() => {
-    if (timelineScrollModeRef.current !== "anchoring-new-turn") return;
-    if (
-      shouldReleaseTimelineAnchorForToolActivity({
-        anchorMessageId: timelineAnchorMessageId,
-        liveFollowEnabled: timelineLiveFollowEnabled,
-        runningTurnId: activeRunningTurnId,
-        timelineEntries,
-      })
-    ) {
-      scrollToEndStable();
-    }
-  }, [
-    activeRunningTurnId,
-    scrollToEndStable,
-    timelineAnchorMessageId,
-    timelineEntries,
-    timelineLiveFollowEnabled,
-  ]);
 
   useEffect(() => {
     setPullRequestDialogState(null);

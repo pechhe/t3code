@@ -119,6 +119,11 @@ const STREAMING_CHOICES: ReadonlyArray<{
     description: "Show the answer when the agent finishes.",
   },
   {
+    mode: "live",
+    label: "As it's written",
+    description: "Show text as the agent writes it.",
+  },
+  {
     mode: "paragraph",
     label: "Finished paragraphs",
     description: "Show each paragraph or code block as it completes.",

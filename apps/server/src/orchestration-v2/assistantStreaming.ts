@@ -108,6 +108,13 @@ export function makeAssistantStreamingFilter(mode: ResponseStreamingMode) {
     }
     if (mode === "turn") return null;
     const previous = delivered.get(key);
+    if (mode === "live") {
+      // The adapters already batch deltas, about every 50ms; this only caps a
+      // faster burst, and is short enough not to drop those batches.
+      if (previous && now - previous.at < 45) return null;
+      delivered.set(key, { text: message.text, at: now });
+      return event;
+    }
     if (previous && now - previous.at < 400) return null;
     const { ready } = splitBufferedAssistantText(message.text);
     if (!ready || ready === previous?.text) return null;

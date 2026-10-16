@@ -2780,10 +2780,17 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         runtimePolicy: CLAUDE_TEST_RUNTIME_POLICY,
       });
       const events: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
+      const assistantItemReceipts =
+        yield* Queue.unbounded<
+          Extract<ProviderAdapter.ProviderAdapterV2Event, { type: "turn_item.updated" }>["turnItem"]
+        >();
       yield* runtime.events.pipe(
         Stream.runForEach((event) =>
           Effect.gen(function* () {
             events.push(event);
+            if (event.type === "turn_item.updated" && event.turnItem.type === "assistant_message") {
+              yield* Queue.offer(assistantItemReceipts, event.turnItem);
+            }
             if (event.type === "subagent.updated") {
               yield* Queue.offer(subagentReceipts, event);
             }
@@ -2826,6 +2833,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         continuationRequests,
         continuationReceipts,
         events,
+        assistantItemReceipts,
         terminalReceipts,
         subagentReceipts,
         systemNoticeReceipts,
@@ -2835,6 +2843,336 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+
+  it.effect.each([1, 2])(
+    "streams and completes %i text blocks under the same message and item IDs",
+    (blockCount) =>
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("streamed-text-attempt"),
+            text: "Explain the result",
+            attachments: [],
+          }),
+        );
+        const stream = (event: unknown) =>
+          harness.offerAndWait(
+            claudeSdkFrame({
+              type: "stream_event",
+              event,
+              parent_tool_use_id: null,
+              session_id: WAKE_NATIVE_SESSION,
+              uuid: "text-stream-frame",
+            }),
+          );
+        const nextAssistantItem = () =>
+          Queue.take(harness.assistantItemReceipts).pipe(
+            Effect.map((item) => {
+              assert.equal(item.type, "assistant_message");
+              if (item.type !== "assistant_message") throw new Error("Expected assistant item");
+              return item;
+            }),
+          );
+        yield* stream({ type: "message_start", message: { id: "streamed-message" } });
+        const runningItems = [];
+        for (let index = 0; index < blockCount; index++) {
+          // Native indices also count thinking/tool blocks; text identity counts text blocks.
+          const nativeIndex = index * 2 + 1;
+          yield* stream({
+            type: "content_block_start",
+            index: nativeIndex,
+            content_block: { type: "text", text: `Block ${index}: ` },
+          });
+          yield* stream({
+            type: "content_block_delta",
+            index: nativeIndex,
+            delta: { type: "text_delta", text: "growing" },
+          });
+          yield* Effect.yieldNow;
+          yield* TestClock.adjust("50 millis");
+          assert.isTrue(
+            harness.events.some(
+              (event) =>
+                event.type === "turn_item.updated" &&
+                event.turnItem.type === "assistant_message" &&
+                event.turnItem.text === `Block ${index}: growing`,
+            ),
+          );
+          const item = yield* nextAssistantItem();
+          assert.equal(item.text, `Block ${index}: growing`);
+          assert.equal(item.status, "running");
+          assert.isTrue(item.streaming);
+          assert.equal(item.nativeItemRef?.nativeId, `streamed-message:text:${index}`);
+          const message = harness.events.find(
+            (event) => event.type === "message.updated" && event.message.id === item.messageId,
+          );
+          assert.isDefined(message);
+          if (message?.type === "message.updated") {
+            assert.equal(message.message.text, item.text);
+            assert.isTrue(message.message.streaming);
+          }
+          runningItems.push(item);
+          yield* stream({ type: "content_block_stop", index: nativeIndex });
+        }
+        for (let index = 0; index < blockCount; index++) {
+          // The SDK emits one completed assistant snapshot per text block.
+          const snapshot = makeAssistantTextFrame({
+            uuid: `text-snapshot-${index}`,
+            text: `Block ${index}: growing and complete`,
+          });
+          assert.equal(snapshot.type, "assistant");
+          if (snapshot.type !== "assistant") throw new Error("Expected assistant snapshot");
+          yield* harness.offerAndWait({
+            ...snapshot,
+            message: { ...snapshot.message, id: "streamed-message" },
+          });
+          const completed = yield* nextAssistantItem();
+          assert.equal(completed.id, runningItems[index]!.id);
+          assert.equal(completed.messageId, runningItems[index]!.messageId);
+          assert.equal(completed.status, "completed");
+          assert.isFalse(completed.streaming);
+          assert.equal(completed.text, `Block ${index}: growing and complete`);
+          // A late delta cannot reopen or overwrite the completed snapshot.
+          yield* stream({
+            type: "content_block_delta",
+            index: index * 2 + 1,
+            delta: { type: "text_delta", text: " stale delta" },
+          });
+        }
+        yield* TestClock.adjust("50 millis");
+        yield* harness.offerAndWait(makeResultFrame({ uuid: "streamed-text-result", result: "" }));
+        yield* Queue.take(harness.terminalReceipts);
+        const messages = new Map(
+          harness.events.flatMap((event) =>
+            event.type === "message.updated" && event.message.role === "assistant"
+              ? [[event.message.id, event.message] as const]
+              : [],
+          ),
+        );
+        const items = new Map(
+          harness.events.flatMap((event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "assistant_message"
+              ? [[event.turnItem.id, event.turnItem] as const]
+              : [],
+          ),
+        );
+        assert.equal(messages.size, blockCount);
+        assert.equal(items.size, blockCount);
+        assert.equal(new Set(runningItems.map((item) => item.id)).size, blockCount);
+        for (const [index, running] of runningItems.entries()) {
+          assert.lengthOf(
+            harness.events.filter(
+              (event) => event.type === "message.updated" && event.message.id === running.messageId,
+            ),
+            2,
+          );
+          assert.lengthOf(
+            harness.events.filter(
+              (event) => event.type === "turn_item.updated" && event.turnItem.id === running.id,
+            ),
+            2,
+          );
+          const message = messages.get(running.messageId);
+          assert.equal(message?.text, `Block ${index}: growing and complete`);
+          assert.equal(message?.streaming, false);
+          assert.equal(items.get(running.id)?.status, "completed");
+          assert.equal(items.get(running.id)?.streaming, false);
+        }
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+  );
+
+  it.effect("matches a streamed block to its snapshot when an empty text block came first", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("empty-block-attempt"),
+          text: "Explain the result",
+          attachments: [],
+        }),
+      );
+      const stream = (event: unknown) =>
+        harness.offerAndWait(
+          claudeSdkFrame({
+            type: "stream_event",
+            event,
+            parent_tool_use_id: null,
+            session_id: WAKE_NATIVE_SESSION,
+            uuid: "empty-block-frame",
+          }),
+        );
+      yield* stream({ type: "message_start", message: { id: "empty-block-message" } });
+      yield* stream({
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text", text: "" },
+      });
+      yield* stream({ type: "content_block_stop", index: 0 });
+      yield* stream({
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "text", text: "Real " },
+      });
+      yield* stream({
+        type: "content_block_delta",
+        index: 1,
+        delta: { type: "text_delta", text: "text" },
+      });
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("50 millis");
+      const running = yield* Queue.take(harness.assistantItemReceipts);
+      const snapshot = makeAssistantTextFrame({
+        uuid: "empty-block-snapshot",
+        text: "Real text, final",
+      });
+      if (snapshot.type !== "assistant") throw new Error("Expected assistant snapshot");
+      yield* harness.offerAndWait({
+        ...snapshot,
+        message: { ...snapshot.message, id: "empty-block-message" },
+      });
+      const completed = yield* Queue.take(harness.assistantItemReceipts);
+      assert.equal(completed.id, running.id);
+      assert.equal(completed.status, "completed");
+      assert.equal(
+        completed.type === "assistant_message" ? completed.text : null,
+        "Real text, final",
+      );
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("completes a streamed text block when the turn ends before its snapshot", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("unfinished-text-attempt"),
+          text: "Explain the result",
+          attachments: [],
+        }),
+      );
+      const stream = (event: unknown) =>
+        harness.offerAndWait(
+          claudeSdkFrame({
+            type: "stream_event",
+            event,
+            parent_tool_use_id: null,
+            session_id: WAKE_NATIVE_SESSION,
+            uuid: "unfinished-text-frame",
+          }),
+        );
+      yield* stream({ type: "message_start", message: { id: "unfinished-message" } });
+      yield* stream({
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text", text: "Half of " },
+      });
+      yield* stream({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "an answer" },
+      });
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("50 millis");
+      const running = yield* Queue.take(harness.assistantItemReceipts);
+      assert.isTrue(running.type === "assistant_message" && running.streaming);
+      yield* TestClock.adjust("2 seconds");
+
+      yield* harness.offerAndWait(makeResultFrame({ uuid: "unfinished-text-result", result: "" }));
+      yield* Queue.take(harness.terminalReceipts);
+
+      const items = harness.events.flatMap((event) =>
+        event.type === "turn_item.updated" && event.turnItem.type === "assistant_message"
+          ? [event.turnItem]
+          : [],
+      );
+      const final = items.at(-1);
+      assert.equal(new Set(items.map((item) => item.id)).size, 1);
+      assert.equal(final?.id, running.id);
+      assert.equal(final?.status, "completed");
+      assert.isFalse(final?.type === "assistant_message" && final.streaming);
+      assert.equal(final?.type === "assistant_message" ? final.text : null, "Half of an answer");
+      // The completed block keeps the time it started streaming.
+      assert.equal(String(final?.startedAt), String(running.startedAt));
+      const messages = harness.events.flatMap((event) =>
+        event.type === "message.updated" && event.message.role === "assistant"
+          ? [event.message]
+          : [],
+      );
+      assert.equal(new Set(messages.map((message) => message.id)).size, 1);
+      assert.equal(String(messages.at(-1)?.createdAt), String(messages[0]?.createdAt));
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("does not stream text from subagent stream events", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("subagent-text-stream-attempt"),
+          text: "Delegate the check",
+          attachments: [],
+        }),
+      );
+      for (const event of [
+        { type: "message_start", message: { id: "child-message" } },
+        { type: "content_block_start", index: 0, content_block: { type: "text", text: "Child " } },
+        { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "narration" } },
+      ]) {
+        yield* harness.offerAndWait(
+          claudeSdkFrame({
+            type: "stream_event",
+            event,
+            parent_tool_use_id: "child-tool",
+            session_id: WAKE_NATIVE_SESSION,
+            uuid: "child-text-stream-frame",
+          }),
+        );
+      }
+      yield* TestClock.adjust("50 millis");
+      yield* harness.offerAndWait(makeResultFrame({ uuid: "child-stream-result", result: "" }));
+      yield* Queue.take(harness.terminalReceipts);
+      assert.isFalse(
+        harness.events.some(
+          (event) =>
+            (event.type === "message.updated" && event.message.role === "assistant") ||
+            (event.type === "turn_item.updated" && event.turnItem.type === "assistant_message"),
+        ),
+      );
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
 
   it.effect.each([
     { isError: false, title: "Check weather" },
