@@ -428,7 +428,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
   lineage: OrchestrationV2AppThreadLineage,
-  /** A fork the user opened as a side chat above the parent's composer. Thread
+  /** A fork the user opened as a side chat beside the parent thread. Thread
       lists hide it; it becomes an ordinary fork when the user keeps it. */
   sideChat: Schema.optional(Schema.Boolean),
   forkedFrom: Schema.NullOr(

@@ -1943,13 +1943,14 @@ describe("ClaudeAdapterV2 native fork", () => {
         const forkCalls: Array<{
           readonly sessionId: string;
           readonly options: unknown;
+          readonly environment: NodeJS.ProcessEnv;
           readonly threadId: ThreadId;
           readonly providerSessionId: ProviderSessionId;
         }> = [];
         const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
           instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
           settings: DEFAULT_CLAUDE_SETTINGS,
-          environment: {},
+          environment: { CLAUDE_CONFIG_DIR: "/accounts/work" },
           attachmentsDir,
           fileSystem,
           path: yield* Path.Path,
@@ -2041,6 +2042,8 @@ describe("ClaudeAdapterV2 native fork", () => {
               dir: "/workspace",
               upToMessageId: "assistant-message-cursor",
             },
+            // The session lives in the instance's Claude home.
+            environment: { CLAUDE_CONFIG_DIR: "/accounts/work" },
             threadId: targetThreadId,
             providerSessionId,
           },

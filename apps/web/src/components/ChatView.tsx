@@ -635,6 +635,7 @@ const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
 const EMPTY_USAGE_LIMIT_SOURCES: UsageLimitSourceSnapshots = [];
 import type { CodexArtifactTemplate } from "@t3tools/shared/codexArtifactTemplates";
 import { UsageCorner } from "./usage/UsageCorner";
+import { SideChatCard } from "./chat/SideChatCard";
 
 const TIMELINE_SCROLL_CANCEL_SENTINEL = Object.freeze({});
 const EMPTY_FEEDBACK_SUBMISSIONS: ReadonlyArray<CodexFeedbackSubmission> = [];
@@ -4689,6 +4690,9 @@ export default function ChatView(props: ChatViewProps) {
     });
   };
   const scheduleComposerFocusStable = useStableCallback(scheduleComposerFocus);
+  const insertSideChatAnswer = useStableCallback((text: string) => {
+    composerRef.current?.insertTextAtEnd(text, { ensureLeadingBoundary: true });
+  });
   const useArtifactTemplate = (template: CodexArtifactTemplate) => {
     const composer = composerRef.current;
     if (!composer) return;
@@ -11587,7 +11591,20 @@ export default function ChatView(props: ChatViewProps) {
                   : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
               }
             >
-              <UsageCorner overlay={composerOverlayElement} />
+              <UsageCorner
+                overlay={composerOverlayElement}
+                above={
+                  activeThreadShell !== null && !activeThreadShell.sideChat && canOperateThread ? (
+                    <SideChatCard
+                      key={activeThreadShell.id}
+                      parent={activeThreadShell}
+                      cwd={gitCwd ?? undefined}
+                      instanceEntries={providerInstanceEntries}
+                      onUseInMain={insertSideChatAnswer}
+                    />
+                  ) : null
+                }
+              />
               <div
                 ref={draftHeroTransition.transitionGroupRef}
                 className="chat-composer-lane w-full"

@@ -1,37 +1,111 @@
-import { forkSession, getSessionMessages } from "@anthropic-ai/claude-agent-sdk";
+import {
+  forkSession,
+  type ForkSessionOptions,
+  type ForkSessionResult,
+  getSubagentMessages,
+  type SessionMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+import { type SelfInvocation, selfInvocationArgs } from "@t3tools/shared/nodeRuntime";
 import * as Schema from "effect/Schema";
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- spawns the worker with a provider's environment.
+import * as NodeChildProcess from "node:child_process";
 
-// A separate process gives SDK history helpers the provider's environment without
+// The SDK's session helpers find transcripts through `CLAUDE_CONFIG_DIR` in
+// `process.env`. A separate process gives them a provider's environment without
 // mutating the server's environment. `claude-history-worker.ts` is the
 // standalone entry bundled beside the server for npm installs; the
 // single-executable hosts the same function as its `__claude-history`
 // subcommand, which has no Node to run a sibling script. Nothing here may run
 // on import: inside the executable `import.meta.main` is true for the whole
 // bundle.
-const decodeHistoryOptions = Schema.decodeSync(
-  Schema.fromJsonString(
-    Schema.Struct({
-      dir: Schema.optionalKey(Schema.String),
-      includeSystemMessages: Schema.optionalKey(Schema.Boolean),
-      upToMessageId: Schema.optionalKey(Schema.String),
-    }),
-  ),
-);
+const HistoryOptions = Schema.Struct({
+  dir: Schema.optionalKey(Schema.String),
+  upToMessageId: Schema.optionalKey(Schema.String),
+  agentId: Schema.optionalKey(Schema.String),
+  limit: Schema.optionalKey(Schema.Number),
+});
+type HistoryOptions = typeof HistoryOptions.Type;
+const decodeHistoryOptions = Schema.decodeSync(Schema.fromJsonString(HistoryOptions));
+
+const runHistory = (method: string | undefined, sessionId: string, options: HistoryOptions) => {
+  const { agentId, ...rest } = options;
+  if (method === "forkSession") return forkSession(sessionId, rest);
+  if (method === "getSubagentMessages" && agentId !== undefined) {
+    return getSubagentMessages(sessionId, agentId, rest);
+  }
+  throw new Error("Unknown Claude history operation.");
+};
 
 export async function runClaudeHistoryWorker(
   method: string | undefined,
   sessionId: string | undefined,
   rawOptions: string | undefined,
 ): Promise<void> {
-  const options = decodeHistoryOptions(rawOptions ?? "{}");
   if (!sessionId) throw new Error("Claude history session id is required.");
-  const result =
-    method === "getSessionMessages"
-      ? await getSessionMessages(sessionId, options)
-      : method === "forkSession"
-        ? await forkSession(sessionId, options)
-        : (() => {
-            throw new Error("Unknown Claude history operation.");
-          })();
+  const result = await runHistory(method, sessionId, decodeHistoryOptions(rawOptions ?? "{}"));
   process.stdout.write(JSON.stringify(result));
 }
+
+/**
+ * Runs a session helper against the Claude home in `environment`: in this
+ * process when it is the server's own, otherwise through the `__claude-history`
+ * subcommand of this T3 install.
+ */
+async function runClaudeHistory(
+  method: "forkSession" | "getSubagentMessages",
+  sessionId: string,
+  options: HistoryOptions,
+  environment: NodeJS.ProcessEnv,
+  self: SelfInvocation,
+): Promise<unknown> {
+  // The SDK finds the Claude home from CLAUDE_CONFIG_DIR, else HOME.
+  if (
+    environment.CLAUDE_CONFIG_DIR === process.env.CLAUDE_CONFIG_DIR &&
+    environment.HOME === process.env.HOME
+  ) {
+    return runHistory(method, sessionId, options);
+  }
+  const stdout = await new Promise<string>((resolve, reject) => {
+    NodeChildProcess.execFile(
+      self.command,
+      selfInvocationArgs(self, ["__claude-history", method, sessionId, JSON.stringify(options)]),
+      // Desktop runs the server under Electron, which needs this to act as Node.
+      { env: { ...environment, ELECTRON_RUN_AS_NODE: "1" }, timeout: 30_000 },
+      (error, out, stderr) =>
+        error === null ? resolve(out) : reject(new Error(stderr.trim() || error.message)),
+    );
+  });
+  return JSON.parse(stdout);
+}
+
+export const forkClaudeSession = (
+  sessionId: string,
+  options: ForkSessionOptions,
+  environment: NodeJS.ProcessEnv,
+  self: SelfInvocation,
+) =>
+  runClaudeHistory(
+    "forkSession",
+    sessionId,
+    {
+      ...(options.dir === undefined ? {} : { dir: options.dir }),
+      ...(options.upToMessageId === undefined ? {} : { upToMessageId: options.upToMessageId }),
+    },
+    environment,
+    self,
+  ) as Promise<ForkSessionResult>;
+
+export const readClaudeSubagentMessages = (
+  sessionId: string,
+  agentId: string,
+  options: { readonly dir?: string; readonly limit?: number },
+  environment: NodeJS.ProcessEnv,
+  self: SelfInvocation,
+) =>
+  runClaudeHistory(
+    "getSubagentMessages",
+    sessionId,
+    { ...options, agentId },
+    environment,
+    self,
+  ) as Promise<ReadonlyArray<SessionMessage>>;

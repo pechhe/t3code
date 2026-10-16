@@ -100,7 +100,7 @@ export interface EnvironmentThreadShell {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly lineage: OrchestrationV2ThreadShell["lineage"];
-  /** Shown in its parent's composer, never in thread lists. */
+  /** Shown in its parent's side chat card, never in thread lists. */
   readonly sideChat: boolean;
   readonly forkedFrom: OrchestrationV2ThreadShell["forkedFrom"];
   readonly activeProviderThreadId: OrchestrationV2ThreadShell["activeProviderThreadId"];

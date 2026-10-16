@@ -10,7 +10,7 @@ import {
   remainingPercent,
 } from "@t3tools/shared/usageLimits";
 import { useNavigate } from "@tanstack/react-router";
-import { Fragment, useLayoutEffect, useState } from "react";
+import { Fragment, type ReactNode, useLayoutEffect, useState } from "react";
 
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { observeResize } from "../../lib/observeResize";
@@ -19,8 +19,12 @@ import { providerClients } from "../settings/providerDriverMeta";
 import { ArrowRightIcon } from "lucide-react";
 
 import { ThreadDetailsControl } from "../chat/ThreadDetailsControl";
-import { THREAD_DETAILS_CARD_GAP, THREAD_DETAILS_CARD_WIDTH } from "../chat/threadDetailsCardLayout";
+import {
+  THREAD_DETAILS_CARD_GAP,
+  THREAD_DETAILS_CARD_WIDTH,
+} from "../chat/threadDetailsCardLayout";
 import { ThreadDetailsSection } from "../chat/ThreadDetailsSection";
+import { useChatCanvas } from "../chat/ChatCanvasContext";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { barColor } from "./UsageLimits";
 
@@ -62,24 +66,36 @@ function windowLabel(window: LimitPoolWindow): string {
 }
 
 /**
- * Where the card sits in the composer overlay: in the gutter right of the centred composer,
- * level with its bottom edge, or nowhere when the gutter is too narrow to hold it.
+ * Where the column sits in the composer overlay: in the gutter right of the centred composer,
+ * level with its bottom edge, or nowhere when the gutter is too narrow to hold it. `top` is
+ * the column's bottom edge measured from the chat canvas top, which bounds how tall it grows.
  */
-function useGutterPlacement(overlay: HTMLElement | null): number | null {
-  const [bottom, setBottom] = useState<number | null>(null);
+function useGutterPlacement(
+  overlay: HTMLElement | null,
+): { readonly bottom: number; readonly top: number } | null {
+  const [placement, setPlacement] = useState<{ bottom: number; top: number } | null>(null);
   useLayoutEffect(() => {
     const stack = overlay?.querySelector<HTMLElement>("[data-chat-composer-stack]");
     if (!overlay || !stack) return;
+    const canvas = overlay.closest<HTMLElement>("[data-chat-canvas]");
     const measure = () => {
       const lane = overlay.getBoundingClientRect();
       const composer = stack.getBoundingClientRect();
       const fits = lane.right - composer.right >= CARD_WIDTH_PX + GUTTER_MARGIN_PX * 2;
-      setBottom(fits ? Math.max(0, Math.round(lane.bottom - composer.bottom)) : null);
+      const bottom = Math.max(0, Math.round(lane.bottom - composer.bottom));
+      const top = Math.round(lane.bottom - bottom - (canvas?.getBoundingClientRect().top ?? 0));
+      setPlacement((current) =>
+        !fits
+          ? null
+          : current?.bottom === bottom && current.top === top
+            ? current
+            : { bottom, top },
+      );
     };
     measure();
-    return observeResize([overlay, stack], measure);
+    return observeResize(canvas ? [overlay, stack, canvas] : [overlay, stack], measure);
   }, [overlay]);
-  return bottom;
+  return placement;
 }
 
 /**
@@ -87,32 +103,63 @@ function useGutterPlacement(overlay: HTMLElement | null): number | null {
  * bar of account segments sized by plan capacity, so the filled area is what is left across
  * the pool. Hover a segment for that account.
  */
-export function UsageCorner({ overlay }: { readonly overlay: HTMLElement | null }) {
-  const bottom = useGutterPlacement(overlay);
+export function UsageCorner({
+  overlay,
+  above,
+}: {
+  readonly overlay: HTMLElement | null;
+  /** A card stacked above usage in the same column, such as the side chat. */
+  readonly above?: ReactNode;
+}) {
+  const placement = useGutterPlacement(overlay);
+  const canvas = useChatCanvas();
+  // Below the inline details card, else below the find bar when it is open.
+  const columnTop = canvas?.detailsCardBottom ?? canvas?.detailsCardTopInset ?? 0;
   const presentations = useAtomValue(environmentPresentations.presentationsAtom);
   // The minute clock keeps the reset countdowns true without a render per second.
   const now = Date.parse(`${useNowMinute()}:00.000Z`);
   const navigate = useNavigate();
-  if (bottom === null) return null;
+  if (placement === null) return null;
   const rows = collectLimitPools(collectLimitAccounts(presentations), now).flatMap((pool) =>
     cornerWindows(pool).map((window) => ({ pool, window })),
   );
-  if (rows.length === 0) return null;
+  if (rows.length === 0 && !above) return null;
+  const maxHeight = Math.max(0, placement.top - columnTop - GUTTER_MARGIN_PX);
   return (
     <div
-      className="dropdown-glass pointer-events-auto absolute overflow-hidden rounded-3xl text-xs"
-      style={{ bottom, right: GUTTER_MARGIN_PX, width: CARD_WIDTH_PX }}
+      className="pointer-events-none absolute flex flex-col justify-end gap-2"
+      style={{
+        bottom: placement.bottom,
+        right: GUTTER_MARGIN_PX,
+        width: CARD_WIDTH_PX,
+        height: maxHeight,
+      }}
     >
+      {above}
+      {rows.length === 0 ? null : (
+        <UsageCard rows={rows} now={now} onOpenUsage={() => void navigate({ to: "/usage" })} />
+      )}
+    </div>
+  );
+}
+
+function UsageCard({
+  rows,
+  now,
+  onOpenUsage,
+}: {
+  readonly rows: ReadonlyArray<{ readonly pool: LimitPool; readonly window: LimitPoolWindow }>;
+  readonly now: number;
+  readonly onOpenUsage: () => void;
+}) {
+  return (
+    <div className="dropdown-glass pointer-events-auto flex-none overflow-hidden rounded-3xl text-xs">
       <ThreadDetailsSection
         headingId="usage-corner-heading"
         title="Usage left"
         separated={false}
         actions={
-          <ThreadDetailsControl
-            part="icon"
-            aria-label="Open Usage"
-            onClick={() => void navigate({ to: "/usage" })}
-          >
+          <ThreadDetailsControl part="icon" aria-label="Open Usage" onClick={onOpenUsage}>
             <ArrowRightIcon className="size-3.5 text-muted-foreground" />
           </ThreadDetailsControl>
         }

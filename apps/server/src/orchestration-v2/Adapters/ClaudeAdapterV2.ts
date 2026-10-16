@@ -16,13 +16,13 @@ import {
 
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
 import { normalizeClaudeTurnTokenUsage } from "../../provider/ClaudeTurnTokenUsage.ts";
+import { forkClaudeSession, readClaudeSubagentMessages } from "../../claudeHistoryWorker.ts";
+import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
   type CanUseTool,
-  forkSession as forkClaudeSession,
   type EffortLevel,
   type ForkSessionOptions,
   type ForkSessionResult,
-  getSubagentMessages,
   query,
   type Options as ClaudeQueryOptions,
   type PermissionMode,
@@ -483,6 +483,8 @@ export class ClaudeAgentSdkQueryRunner extends Context.Service<
 export interface ClaudeAgentSdkSessionForkInput {
   readonly sessionId: string;
   readonly options: ForkSessionOptions;
+  /** The instance's environment, whose `CLAUDE_CONFIG_DIR` holds the session. */
+  readonly environment: NodeJS.ProcessEnv;
   readonly threadId: ThreadId;
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
 }
@@ -491,6 +493,7 @@ export interface ClaudeAgentSdkSubagentLookupInput {
   readonly sessionId: string;
   readonly agentId: string;
   readonly dir: string | null;
+  readonly environment: NodeJS.ProcessEnv;
   readonly threadId: ThreadId;
   readonly providerSessionId: OrchestrationV2ProviderSession["id"];
 }
@@ -721,7 +724,7 @@ export function makeClaudeAgentSdkProtocolLogger(input: {
 export const layerQueryRunner: Layer.Layer<
   ClaudeAgentSdkQueryRunner,
   never,
-  Crypto.Crypto | ProviderEventLoggers.ProviderEventLoggers
+  Crypto.Crypto | Path.Path | ProviderEventLoggers.ProviderEventLoggers
 > = Layer.effect(
   ClaudeAgentSdkQueryRunner,
   Effect.gen(function* () {
@@ -729,6 +732,7 @@ export const layerQueryRunner: Layer.Layer<
     const { native: nativeEventLogger } = yield* ProviderEventLoggers.ProviderEventLoggers;
     const agentScope = yield* AgentScope;
     const platform = yield* HostProcess.Platform;
+    const self = yield* resolveSelfInvocation();
 
     return ClaudeAgentSdkQueryRunner.of({
       allocateSessionId: crypto
@@ -998,7 +1002,7 @@ export const layerQueryRunner: Layer.Layer<
           },
         });
         const result = yield* Effect.tryPromise({
-          try: () => forkClaudeSession(input.sessionId, input.options),
+          try: () => forkClaudeSession(input.sessionId, input.options, input.environment, self),
           catch: (cause) => queryRunnerError(cause, "forkSession"),
         });
         yield* logProtocolEvent({
@@ -1033,10 +1037,13 @@ export const layerQueryRunner: Layer.Layer<
           // tool call that launched it; one message is enough.
           const messages = yield* Effect.tryPromise({
             try: () =>
-              getSubagentMessages(input.sessionId, input.agentId, {
-                ...(input.dir === null ? {} : { dir: input.dir }),
-                limit: 1,
-              }),
+              readClaudeSubagentMessages(
+                input.sessionId,
+                input.agentId,
+                { ...(input.dir === null ? {} : { dir: input.dir }), limit: 1 },
+                input.environment,
+                self,
+              ),
             catch: (cause) => queryRunnerError(cause, "getSubagentMessages"),
           });
           const toolUseId = messages[0]?.parent_tool_use_id ?? null;
@@ -4631,6 +4638,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               sessionId: resume.nativeThreadId,
               agentId: resume.taskId,
               dir: resume.context.input.runtimePolicy.cwd,
+              environment: adapterOptions.environment,
               threadId: resume.context.input.threadId,
               providerSessionId: input.providerSessionId,
             })
@@ -9700,6 +9708,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               const forked = yield* queryRunner.forkSession({
                 sessionId: sourceNativeThreadId,
                 options: forkOptions,
+                environment: adapterOptions.environment,
                 threadId: forkInput.targetThreadId,
                 providerSessionId: input.providerSessionId,
               });

@@ -143,7 +143,7 @@ export function createEnvironmentThreadShellAtoms(input: {
     ).pipe(Atom.withLabel(`environment-threads:${environmentId}`)),
   );
 
-  // Every list reads this: side chats show only in their parent's composer,
+  // Every list reads this: side chats show only in their parent's side chat card,
   // so they are reachable by id but never listed.
   const environmentListedThreadsAtom = Atom.family((environmentId: EnvironmentId) => {
     let previous: ReadonlyArray<OrchestrationV2ThreadShell> = EMPTY_THREADS;
