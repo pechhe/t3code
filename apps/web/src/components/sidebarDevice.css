@@ -1,6 +1,6 @@
 /*
  * The machined sidebar: the composer's brushed metal (anodized black in dark
- * mode) as the rail's body, with engraved ink and an amber lit selection.
+ * mode) as the rail's body, with engraved ink and a raised card for the selection.
  * Ported from peach-pi. The chassis follows the same rule as the composer, so
  * a composer finish (lib/composerFinish.ts) tints both. Desktop rail only; the
  * mobile sheet keeps the stock look.
@@ -14,7 +14,9 @@
   --rail-metal-c: oklch(0.92 0.002 250);
   --rail-ink: oklch(0.2 0.005 250);
   --rail-ink-muted: oklch(0.38 0.005 250);
-  --rail-lit: var(--engrave-active, oklch(0.74 0.185 52));
+  --rail-card: oklch(0.985 0.002 250);
+  --rail-card-tint: 10%;
+  --rail-card-catch: oklch(1 0 0 / 0.8);
   --engrave-lip: 0 1px 0 oklch(1 0.002 250 / 0.55);
   --rail-catch: oklch(1 0.002 250 / 0.26);
   --rail-grain: oklch(0.35 0.004 250 / 0.06);
@@ -27,6 +29,9 @@
   --rail-metal-c: oklch(0.235 0.004 265);
   --rail-ink: oklch(0.84 0.004 265);
   --rail-ink-muted: oklch(0.6 0.004 265);
+  --rail-card: oklch(0.29 0.005 265);
+  --rail-card-tint: 12%;
+  --rail-card-catch: oklch(1 0 0 / 0.07);
   --engrave-lip: 0 -1px 0 oklch(0 0 0 / 0.6);
   --rail-catch: oklch(0.62 0.004 265 / 0.22);
   --rail-grain: oklch(0.7 0.004 265 / 0.04);
@@ -147,16 +152,33 @@
   filter: drop-shadow(var(--engrave-lip));
 }
 
-/* The selected thread lights up in the composer's amber instead of filling a pill. */
+/* The selected thread lifts off the metal as a small card, like the main view,
+   tinted with the theme's primary. Its text keeps the rail's ink and the chips
+   keep their own colours, so it reads on every theme and finish. The shadow
+   stays within the row's 2px gutter: content-visibility clips anything past it,
+   and gives way to the keyboard focus ring, which is also a box-shadow. */
 [data-slot="sidebar-inner"][data-sidebar="sidebar"]
   [data-thread-item]
-  [aria-current]:not([aria-current="false"]),
+  [aria-current]:not([aria-current="false"]) {
+  background: color-mix(in oklab, var(--rail-card), var(--primary) var(--rail-card-tint));
+}
+[data-slot="sidebar-inner"][data-sidebar="sidebar"]
+  [data-thread-item]
+  [aria-current]:not([aria-current="false"]):not(:focus-visible) {
+  box-shadow:
+    inset 0 1px 0 var(--rail-card-catch),
+    0 1px 2px oklch(0 0 0 / 0.22),
+    0 0 0 0.5px oklch(0 0 0 / 0.1);
+}
 [data-slot="sidebar-inner"][data-sidebar="sidebar"]
   [data-thread-item]
   [aria-current]:not([aria-current="false"])
-  :is(span, svg) {
-  color: var(--rail-lit);
-  text-shadow:
-    var(--engrave-lip),
-    0 0 6px color-mix(in srgb, var(--rail-lit) 55%, transparent);
+  :is(span, a, button, p) {
+  text-shadow: none;
+}
+[data-slot="sidebar-inner"][data-sidebar="sidebar"]
+  [data-thread-item]
+  [aria-current]:not([aria-current="false"])
+  svg {
+  filter: none;
 }
