@@ -634,7 +634,7 @@ import { useAssetUrls } from "../assets/assetUrls";
 import { ATTACHMENT_ONLY_BOOTSTRAP_PROMPT } from "@t3tools/shared/composerContextReferences";
 import { recallableComposerPrompt } from "./chat/composerPromptHistory";
 import { observeResize } from "~/lib/observeResize";
-import { useDockedDraftHeroStore } from "~/lib/draftHeroDock";
+import { useBottomDraftHeroStore } from "~/lib/draftHeroAtBottom";
 import { useReportMainComposerFrame } from "./snapShot/useReportMainComposerFrame";
 
 const EMPTY_PROVIDERS: ServerProvider[] = [];
@@ -4070,11 +4070,11 @@ export default function ChatView(props: ChatViewProps) {
     };
   }, [activeThreadRef, storeEnsureTerminal, worktreeSetup]);
   const [dockedDraftHeroThreadKey, setDockedDraftHeroThreadKey] = useState<string | null>(null);
-  const handedOverDocked = useDockedDraftHeroStore(
+  const draftHeroAtBottom = useBottomDraftHeroStore(
     (state) => activeThreadKey !== null && state.threadKeys.has(activeThreadKey),
   );
   const draftHeroDockRequested =
-    activeThreadKey !== null && (dockedDraftHeroThreadKey === activeThreadKey || handedOverDocked);
+    activeThreadKey !== null && dockedDraftHeroThreadKey === activeThreadKey;
   const isDraftHeroState =
     !overlayPresentation &&
     resolveDraftHeroState({
@@ -11331,7 +11331,10 @@ export default function ChatView(props: ChatViewProps) {
               data-draft-hero={isDraftHeroState || undefined}
               className={
                 isDraftHeroState
-                  ? "pointer-events-none absolute inset-0 z-20 flex items-center"
+                  ? cn(
+                      "pointer-events-none absolute inset-0 z-20 flex",
+                      draftHeroAtBottom ? "items-end" : "items-center",
+                    )
                   : "pointer-events-none absolute inset-x-0 bottom-0 z-20 pt-1.5 sm:pt-2"
               }
             >
@@ -11718,7 +11721,7 @@ export default function ChatView(props: ChatViewProps) {
               </AlertDialogPopup>
             </AlertDialog>
 
-            <ThreadDetailsPanel {...threadDetailsPanelProps} />
+            {overlayPresentation ? null : <ThreadDetailsPanel {...threadDetailsPanelProps} />}
 
             {pullRequestDialogState ? (
               <PullRequestThreadDialog

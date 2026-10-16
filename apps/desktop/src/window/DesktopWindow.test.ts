@@ -162,6 +162,7 @@ const layerDesktopClientSettings = Layer.mock(DesktopClientSettings.DesktopClien
 
 const layerElectronApp = Layer.mock(ElectronApp.ElectronApp)({
   quit: Effect.void,
+  on: () => Effect.void,
 });
 
 const layerDesktopAssets = Layer.succeed(DesktopAssets.DesktopAssets, {

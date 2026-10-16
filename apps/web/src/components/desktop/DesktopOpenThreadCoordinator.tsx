@@ -6,13 +6,14 @@ import { useEffect } from "react";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { dispatchSnapShotComposerFocus } from "../../lib/desktopSnapShot";
-import { requestDraftHeroDock } from "../../lib/draftHeroDock";
+import { placeDraftHeroAtBottom } from "../../lib/draftHeroAtBottom";
 import { dataUrlToFile } from "../../lib/imageCompression";
 import { buildThreadRouteParams } from "../../threadRoutes";
 
 /**
  * Puts the SnapShot overlay's unsent chat in the main window's composer for its project,
- * docked where the overlay's composer was, after anything already drafted there.
+ * on its new-chat page with the composer where the overlay's was, after anything already
+ * drafted there.
  */
 export async function receiveSnapShotDraft(
   draft: DesktopSnapShotDraftHandoff,
@@ -21,7 +22,7 @@ export async function receiveSnapShotDraft(
   const opened = await openProjectDraft(draft.projectRef);
   if (!opened) return;
   const { draftId } = opened;
-  requestDraftHeroDock(
+  placeDraftHeroAtBottom(
     scopedThreadKey(scopeThreadRef(draft.projectRef.environmentId, opened.threadId)),
   );
   const store = useComposerDraftStore.getState();

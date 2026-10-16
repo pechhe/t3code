@@ -7,7 +7,7 @@ import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { DraftId, useComposerDraftStore } from "../../composerDraftStore";
-import { useDockedDraftHeroStore } from "../../lib/draftHeroDock";
+import { useBottomDraftHeroStore } from "../../lib/draftHeroAtBottom";
 import { receiveSnapShotDraft } from "./DesktopOpenThreadCoordinator";
 
 vi.mock("../../lib/desktopSnapShot", () => ({ dispatchSnapShotComposerFocus: vi.fn() }));
@@ -36,10 +36,10 @@ describe("receiving the SnapShot overlay's chat in the main window", () => {
       draftThreadsByThreadKey: {},
       logicalProjectDraftThreadKeyByLogicalProjectKey: {},
     });
-    useDockedDraftHeroStore.setState({ threadKeys: new Set() });
+    useBottomDraftHeroStore.setState({ threadKeys: new Set() });
   });
 
-  it("carries the prompt and captures into the project's draft, docked", async () => {
+  it("carries the prompt and captures into the project's draft, composer at the bottom", async () => {
     await receiveSnapShotDraft(
       { projectRef, prompt: "what is this?", images: [capture] },
       openProjectDraft,
@@ -49,7 +49,7 @@ describe("receiving the SnapShot overlay's chat in the main window", () => {
     expect(draft?.prompt).toBe("what is this?");
     expect(draft?.images.map(({ id }) => id)).toEqual(["capture-1"]);
     expect(
-      useDockedDraftHeroStore
+      useBottomDraftHeroStore
         .getState()
         .threadKeys.has(scopedThreadKey(scopeThreadRef(environmentId, threadId))),
     ).toBe(true);

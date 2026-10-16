@@ -11,6 +11,11 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <script>
+      if (new URLSearchParams(location.search).get("surface") === "snap-shot-overlay") {
+        document.documentElement.dataset.surface = "snap-shot-overlay";
+      }
+    </script>
+    <script>
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";
         const DARK_BACKGROUND = "#0a0a0a";
@@ -435,6 +440,13 @@
       html[data-theme-selected="true"] #boot-shell {
         background: var(--boot-background);
         color: var(--boot-foreground);
+      }
+
+      /* The SnapShot overlay window shows only its composer over the screen behind it. */
+      html[data-surface="snap-shot-overlay"],
+      html[data-surface="snap-shot-overlay"] body,
+      html[data-surface="snap-shot-overlay"] #boot-shell {
+        background: transparent !important;
       }
 
       #boot-shell-card {

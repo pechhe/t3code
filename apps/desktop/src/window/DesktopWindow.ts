@@ -369,6 +369,10 @@ export const make = Effect.gen(function* () {
     if (Option.isNone(overlay) || !overlay.value.isVisible()) return;
     overlay.value.webContents.send(SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL);
   });
+  // Switching into the app by ⌘-Tab or the Dock leaves the overlay as the key window, so the
+  // main window gets no focus event. The overlay is a non-activating panel: showing or typing
+  // in it never activates the app by itself.
+  yield* electronApp.on("did-become-active", () => void runPromise(requestSnapShotOverlayHandoff));
 
   // The splash and the SnapShot overlay are auxiliary windows, so these never
   // latch onto them and ensureMain/activate/dispatchMenuAction still open (or

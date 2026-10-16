@@ -61,13 +61,16 @@ function snapShotDraftHandoff(draftId: DraftId): DesktopSnapShotDraftHandoff | n
 
 /**
  * When the main window takes focus while the overlay is up, the overlay's chat moves there:
- * an unsent one into the main window's composer, a sent one by opening it.
+ * an unsent one onto the main window's new-chat page, a sent one by opening it.
  */
 function useSnapShotOverlayHandoff() {
   const router = useRouter();
   useEffect(() => {
     const bridge = window.desktopBridge;
+    // Activating the app and focusing the main window can both ask; the chat moves once.
+    let handingOff = false;
     return bridge?.onSnapShotOverlayHandoffRequest?.(() => {
+      if (handingOff) return;
       const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
       const draftId = route?.kind === "draft" ? route.draftId : null;
       const threadRef = route?.kind === "server" ? route.threadRef : null;
@@ -83,9 +86,13 @@ function useSnapShotOverlayHandoff() {
         void bridge.hideSnapShotOverlay?.();
         return;
       }
-      void bridge.handOffSnapShotDraft?.(draft).then(() => {
-        useComposerDraftStore.getState().clearComposerPromptAndImages(draftId);
-      });
+      handingOff = true;
+      void bridge
+        .handOffSnapShotDraft?.(draft)
+        .then(() => useComposerDraftStore.getState().clearComposerPromptAndImages(draftId))
+        .finally(() => {
+          handingOff = false;
+        });
     });
   }, [router]);
 }
