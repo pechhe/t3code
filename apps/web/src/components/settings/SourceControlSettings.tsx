@@ -51,6 +51,7 @@ import { GitHubAccountSettings } from "./GitHubAccountSettings";
 import { GitHubTokenSettings } from "./GitHubTokenSettings";
 import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SourceControlWritingSettingsSection } from "./SourceControlWritingSettings";
+import { SlipJayMachineSettings } from "./SlipJayMachineSettings";
 import {
   PolicyTooltip,
   SettingResetButton,
@@ -642,6 +643,9 @@ export function SourceControlSettingsPanel() {
         />
       )}
 
+      {environmentId === null ? null : (
+        <SlipJayMachineSettings key={environmentId} environmentId={environmentId} />
+      )}
       <SourceControlWritingSettingsSection />
     </SettingsPageContainer>
   );

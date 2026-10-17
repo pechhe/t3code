@@ -993,6 +993,22 @@ export const SETTINGS_SEARCH_ITEMS = [
     scope: "project-defaults",
   },
   {
+    id: "slipjay-policy",
+    title: "SlipJay policy",
+    to: "/settings/projects",
+    searchTerms: [
+      "slipjay spares spare workspaces process level light standard landing checks verification runner policy",
+    ],
+  },
+  {
+    id: "slipjay-runner",
+    title: "SlipJay runner",
+    to: "/settings/source-control",
+    scope: "environment-defaults",
+    environmentOnly: true,
+    searchTerms: ["slipjay runner location ssh land landing queue pause resume"],
+  },
+  {
     id: "project-actions",
     title: "Actions",
     to: "/settings/projects",

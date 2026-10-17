@@ -226,6 +226,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as SlipJayLandings from "./project/SlipJayLandings.ts";
 import * as SlipJayReleases from "./project/SlipJayReleases.ts";
+import * as SlipJaySettings from "./project/SlipJaySettings.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
@@ -1289,6 +1290,7 @@ const layerWsRpc = (
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const slipJayLandings = yield* SlipJayLandings.SlipJayLandings;
       const slipJayReleases = yield* SlipJayReleases.SlipJayReleases;
+      const slipJaySettings = yield* SlipJaySettings.SlipJaySettings;
       const review = yield* ReviewService.ReviewService;
       const vcsProvisioning = yield* VcsProvisioningService.VcsProvisioningService;
       const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
@@ -2807,6 +2809,12 @@ const layerWsRpc = (
         [WS_METHODS.vcsSlipJayCancel]: (input) => slipJayLandings.cancel(input),
         [WS_METHODS.vcsSlipJayPromotionPlan]: (input) => slipJayReleases.plan(input),
         [WS_METHODS.vcsSlipJayPromote]: (input) => slipJayReleases.promote(input),
+        [WS_METHODS.vcsSlipJayProjectSettings]: (input) => slipJaySettings.project(input),
+        [WS_METHODS.vcsSlipJaySetPolicy]: (input) => slipJaySettings.setPolicy(input),
+        [WS_METHODS.vcsSlipJaySetSpareLimit]: (input) => slipJaySettings.setSpareLimit(input),
+        [WS_METHODS.vcsSlipJayMachineSettings]: (_input) => slipJaySettings.machine,
+        [WS_METHODS.vcsSlipJaySetRunner]: (input) => slipJaySettings.setRunner(input),
+        [WS_METHODS.vcsSlipJayRunnerControl]: (input) => slipJaySettings.controlRunner(input),
         [WS_METHODS.subscribeSlipJayRunner]: (_input) => slipJayLandings.runner,
         [WS_METHODS.vcsCreateWorktree]: (input) =>
           gitWorkflow.createWorktree(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),

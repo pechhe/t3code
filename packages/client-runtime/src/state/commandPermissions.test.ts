@@ -110,6 +110,10 @@ describe("command permissions", () => {
     WS_METHODS.vcsSlipJayLand,
     WS_METHODS.vcsSlipJayCancel,
     WS_METHODS.vcsSlipJayPromote,
+    WS_METHODS.vcsSlipJaySetPolicy,
+    WS_METHODS.vcsSlipJaySetSpareLimit,
+    WS_METHODS.vcsSlipJaySetRunner,
+    WS_METHODS.vcsSlipJayRunnerControl,
   ])("requires the destination source control grant for %s", (method) =>
     Effect.scoped(
       Effect.gen(function* () {

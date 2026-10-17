@@ -289,6 +289,34 @@ describe("applyGitStatusStreamEvent", () => {
       pr: null,
     });
   });
+
+  it("keeps a Jujutsu checkout's SlipJay state through a remote update", () => {
+    const current: VcsStatusResult = {
+      isRepo: false,
+      otherVcsKind: "jj",
+      hasPrimaryRemote: true,
+      isDefaultRef: false,
+      refName: "main",
+      hasWorkingTreeChanges: false,
+      workingTree: { files: [], insertions: 0, deletions: 0 },
+      slipJay: { integration: "main", hasReleaseBranch: false },
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 0,
+      pr: null,
+    };
+    const remote: VcsStatusRemoteResult = {
+      hasUpstream: false,
+      aheadCount: 0,
+      behindCount: 3,
+      pr: null,
+    };
+
+    expect(applyGitStatusStreamEvent(current, { _tag: "remoteUpdated", remote })).toEqual({
+      ...current,
+      behindCount: 3,
+    });
+  });
 });
 
 describe("sanitizeFeatureBranchName", () => {

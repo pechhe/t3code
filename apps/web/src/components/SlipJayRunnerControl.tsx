@@ -147,6 +147,8 @@ export function SlipJayRunnerControl({
                     ? "Runner connected"
                     : "Reconnecting to the runner"}
               </span>
+              {/* Shown while reconnecting too: a runner paused before the watch dropped can still be resumed. */}
+              <SlipJayPauseButton environmentId={environmentId} paused={overview.paused} />
             </div>
             <RunnerLane
               title="Landing"
@@ -377,6 +379,60 @@ function RunnerOperationRow({
         </span>
       ) : null}
     </SlipJayTicket>
+  );
+}
+
+/**
+ * Pauses or resumes the runner's queue with `slipjay runner pause|resume`. It is the
+ * runner's queue, so it holds landings from every machine, not only this one.
+ */
+export const slipJayPauseTitle = (paused: boolean) =>
+  paused
+    ? "Let the runner take the next queued operation from every machine"
+    : "Hold queued operations from every machine; a running one finishes";
+
+export function useSlipJayRunnerPause(environmentId: EnvironmentId) {
+  const canControl = useAtomValue(
+    vcsEnvironment.slipJayRunnerControl.permissionAtom(environmentId),
+  );
+  const command = useAtomCommand(vcsEnvironment.slipJayRunnerControl, { reportFailure: false });
+  const [busy, setBusy] = useState(false);
+  const control = async (action: "pause" | "resume") => {
+    setBusy(true);
+    const result = await command({ environmentId, input: { action } });
+    setBusy(false);
+    if (result._tag === "Failure") {
+      const error = squashAtomCommandFailure(result);
+      toastManager.add({
+        type: "error",
+        title: action === "pause" ? "Could not pause the runner" : "Could not resume the runner",
+        description: error instanceof Error ? error.message : "SlipJay could not be run.",
+      });
+    }
+  };
+  return { canControl, busy, control };
+}
+
+function SlipJayPauseButton({
+  environmentId,
+  paused,
+}: {
+  environmentId: EnvironmentId;
+  paused: boolean;
+}) {
+  const { canControl, busy, control } = useSlipJayRunnerPause(environmentId);
+  if (!canControl) return null;
+  return (
+    <Button
+      size="xs"
+      variant="ghost"
+      className="shrink-0"
+      disabled={busy}
+      title={slipJayPauseTitle(paused)}
+      onClick={() => void control(paused ? "resume" : "pause")}
+    >
+      {paused ? "Resume" : "Pause"}
+    </Button>
   );
 }
 

@@ -6,6 +6,7 @@ import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Exit from "effect/Exit";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -194,6 +195,11 @@ export class SlipJayLandings extends Context.Service<
      * watch on a host with SlipJay installed; elsewhere it stays disconnected and empty.
      */
     readonly runner: Stream.Stream<SlipJayRunnerOverview>;
+    /**
+     * Follows the runner this machine's location now names: the watch restarts from the start
+     * of that runner's ledger, and landings seen on the previous runner are forgotten.
+     */
+    readonly followRunnerChange: Effect.Effect<void>;
     /** Withdraws a queued operation with `slipjay cancel`; the runner refuses a started one. */
     readonly cancel: (
       input: VcsSlipJayCancelInput,
@@ -357,9 +363,29 @@ export const make = Effect.gen(function* () {
     Effect.andThen(Effect.sleep(WATCH_RESTART_DELAY)),
     Effect.forever,
   );
+  const watching = yield* Ref.make<Fiber.Fiber<unknown, unknown> | undefined>(undefined);
   const ensureWatching = Ref.getAndSet(started, true).pipe(
-    Effect.flatMap((already) => (already ? Effect.void : Effect.forkIn(watchForever, scope))),
+    Effect.flatMap((already) =>
+      already
+        ? Effect.void
+        : Effect.forkIn(watchForever, scope).pipe(
+            Effect.flatMap((fiber) => Ref.set(watching, fiber)),
+          ),
+    ),
     Effect.asVoid,
+  );
+  // A cursor is a position in one runner's ledger, so a new runner is watched from its start.
+  const followRunnerChange = Ref.get(watching).pipe(
+    Effect.flatMap((fiber) =>
+      fiber === undefined
+        ? Effect.void
+        : Fiber.interrupt(fiber).pipe(
+            Effect.andThen(transition(() => initialLandingWatchState)),
+            Effect.andThen(setOverview(() => emptyRunnerOverview)),
+            Effect.andThen(Ref.set(started, false)),
+            Effect.andThen(ensureWatching),
+          ),
+    ),
   );
 
   // The Jujutsu driver owns how a workspace is read; this service only follows SlipJay.
@@ -673,6 +699,7 @@ export const make = Effect.gen(function* () {
 
   return SlipJayLandings.of({
     runner,
+    followRunnerChange,
     cancel,
     land,
     landingFor,
@@ -693,6 +720,7 @@ export const layerNone = Layer.succeed(
     removedWorkspaceLanding: () => Effect.succeed(undefined),
     changes: Stream.empty,
     runner: Stream.make(emptyRunnerOverview),
+    followRunnerChange: Effect.void,
     cancel: () =>
       Effect.fail(
         new SlipJayCommandError({

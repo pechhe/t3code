@@ -362,6 +362,138 @@ export const VcsSlipJayPromoteResult = Schema.Struct({
 });
 export type VcsSlipJayPromoteResult = typeof VcsSlipJayPromoteResult.Type;
 
+/** A landing check in a SlipJay project's policy: one command the runner runs before landing. */
+export const SlipJayLandingCheck = Schema.Struct({
+  executable: TrimmedNonEmptyStringSchema,
+  args: Schema.Array(Schema.String),
+  /** Repository-relative directory it runs in. */
+  cwd: Schema.optional(Schema.String),
+  /** Runs alongside the checks before it that are also concurrent. */
+  concurrent: Schema.optional(Schema.Boolean),
+  /** Settings T3 does not edit, kept as declared so saving another field does not drop them. */
+  baseline: Schema.optional(Schema.Unknown),
+  capability: Schema.optional(Schema.Unknown),
+});
+export type SlipJayLandingCheck = typeof SlipJayLandingCheck.Type;
+
+/** How much process agents follow on a project: `light` skips reviews, Spec challenges and Tickets. */
+export const SlipJayProcessLevel = Schema.Literals(["standard", "light"]);
+export type SlipJayProcessLevel = typeof SlipJayProcessLevel.Type;
+
+/** A SlipJay project checkout whose settings to read or change. */
+export const VcsSlipJayProjectSettingsInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsSlipJayProjectSettingsInput = typeof VcsSlipJayProjectSettingsInput.Type;
+
+/**
+ * A SlipJay project's committed policy as `slipjay policy show` reads it from the integration
+ * branch, which every machine and agent shares, and this machine's spare limit for it.
+ */
+export const VcsSlipJayProjectSettings = Schema.Struct({
+  integrationBranch: Schema.String,
+  /** The integration commit the policy was read from: the base a change must name. */
+  revision: Schema.String,
+  spares: Schema.Number,
+  process: SlipJayProcessLevel,
+  requiredLandingVerification: Schema.Array(SlipJayLandingCheck),
+  /** Shown only; changed in the file. */
+  releaseBranch: Schema.NullOr(Schema.String),
+  sharedPaths: Schema.Array(Schema.String),
+  generatedPaths: Schema.Array(Schema.String),
+  tracker: Schema.String,
+  /** This machine's spares for the project: the declared count, lowered by its limit. */
+  machineSpares: Schema.Struct({
+    machineLimit: Schema.NullOr(Schema.Number),
+    effective: Schema.Number,
+  }),
+});
+export type VcsSlipJayProjectSettings = typeof VcsSlipJayProjectSettings.Type;
+
+/** A change to the shared policy, landed by `slipjay policy set` without the landing checks. */
+export const VcsSlipJaySetPolicyInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  /** The `revision` the change was made from; a policy that moved since is refused as stale. */
+  base: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/)),
+  spares: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 8 }))),
+  process: Schema.optional(SlipJayProcessLevel),
+  requiredLandingVerification: Schema.optional(Schema.Array(SlipJayLandingCheck)),
+});
+export type VcsSlipJaySetPolicyInput = typeof VcsSlipJaySetPolicyInput.Type;
+
+/**
+ * `slipjay policy set`'s outcome: `refused` (nothing submitted), `rejected` (nothing changed),
+ * `failed-after-integration` (the runner retries publishing) or `uncertain` (saving again reattaches).
+ */
+export const SlipJayPolicySetPhase = Schema.Literals([
+  "landed",
+  "already-applied",
+  "refused",
+  "rejected",
+  "failed-after-integration",
+  "uncertain",
+]);
+export type SlipJayPolicySetPhase = typeof SlipJayPolicySetPhase.Type;
+
+export const VcsSlipJayPolicyOutcome = Schema.Struct({
+  phase: SlipJayPolicySetPhase,
+  /** The integration commit carrying the change, once landed. */
+  revision: Schema.NullOr(Schema.String),
+  /** Why it did not land. */
+  reason: Schema.NullOr(Schema.String),
+});
+export type VcsSlipJayPolicyOutcome = typeof VcsSlipJayPolicyOutcome.Type;
+
+/**
+ * A save returns as soon as the runner has the change, with the operation to follow in the
+ * runner's queue; asking again with the same change then waits for its outcome.
+ */
+export const VcsSlipJayPolicyFollowing = Schema.Struct({
+  phase: Schema.Literal("following"),
+  operationId: TrimmedNonEmptyStringSchema,
+});
+
+export const VcsSlipJaySetPolicyResult = Schema.Union([
+  VcsSlipJayPolicyFollowing,
+  VcsSlipJayPolicyOutcome,
+]);
+export type VcsSlipJaySetPolicyResult = typeof VcsSlipJaySetPolicyResult.Type;
+
+/** This machine's spare limit for a project; null removes it. Only lowers the declared count. */
+export const VcsSlipJaySetSpareLimitInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+  limit: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 8 }))),
+});
+export type VcsSlipJaySetSpareLimitInput = typeof VcsSlipJaySetSpareLimitInput.Type;
+
+/** The runner this machine lands through, as `slipjay config` reports it. */
+export const VcsSlipJayMachineSettings = Schema.Struct({
+  /** False on a host without SlipJay: the rest is empty. */
+  available: Schema.Boolean,
+  /** The location in force, such as `ssh://peach-box` or `http://127.0.0.1:7787`. */
+  runner: Schema.NullOr(Schema.String),
+  /** The location in SlipJay's machine config file. */
+  runnerInFile: Schema.NullOr(Schema.String),
+  /** `SLIPJAY_RUNNER` in the server's environment overrides the file. */
+  overriddenByEnvironment: Schema.Boolean,
+});
+export type VcsSlipJayMachineSettings = typeof VcsSlipJayMachineSettings.Type;
+
+/** A runner over SSH, or one on this machine's loopback; null removes the location. */
+export const SlipJayRunnerLocation = Schema.String.check(
+  Schema.isPattern(/^(ssh:\/\/[A-Za-z0-9][A-Za-z0-9.@_-]*|http:\/\/127\.0\.0\.1:\d{1,5})$/),
+);
+export const VcsSlipJaySetRunnerInput = Schema.Struct({
+  location: Schema.NullOr(SlipJayRunnerLocation),
+});
+export type VcsSlipJaySetRunnerInput = typeof VcsSlipJaySetRunnerInput.Type;
+
+/** Pauses or resumes the runner's queue, for every machine that lands through it. */
+export const VcsSlipJayRunnerControlInput = Schema.Struct({
+  action: Schema.Literals(["pause", "resume"]),
+});
+export type VcsSlipJayRunnerControlInput = typeof VcsSlipJayRunnerControlInput.Type;
+
 const VcsStatusChangeRequest = Schema.Struct({
   number: PositiveInt,
   title: TrimmedNonEmptyStringSchema,

@@ -333,19 +333,17 @@ function toRemoteStatusPart(status: VcsStatusResult): VcsStatusRemoteResult {
   };
 }
 
+// Strips only the remote fields, so a local field added later survives a remote update.
 function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
-  return {
-    isRepo: status.isRepo,
-    ...(status.sourceControlProvider
-      ? { sourceControlProvider: status.sourceControlProvider }
-      : {}),
-    hasPrimaryRemote: status.hasPrimaryRemote,
-    isDefaultRef: status.isDefaultRef,
-    refName: status.refName,
-    hasWorkingTreeChanges: status.hasWorkingTreeChanges,
-    workingTree: status.workingTree,
-    ...(status.branchChanges ? { branchChanges: status.branchChanges } : {}),
-  };
+  const {
+    hasUpstream: _hasUpstream,
+    aheadCount: _aheadCount,
+    behindCount: _behindCount,
+    aheadOfDefaultCount: _aheadOfDefaultCount,
+    pr: _pr,
+    ...local
+  } = status;
+  return local;
 }
 
 export function applyGitStatusStreamEvent(

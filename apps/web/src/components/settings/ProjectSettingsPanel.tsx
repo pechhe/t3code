@@ -45,6 +45,7 @@ import {
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
+import { SlipJayPolicySettings } from "./SlipJayPolicySettings";
 import { ProjectThemeSetting } from "./ProjectThemeSetting";
 import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
@@ -570,6 +571,10 @@ function ProjectDetail({
         </SettingsSection>
         <ProjectThemeSetting projectKey={group.projectKey} />
         <ProjectDefaultsSettings category="project" />
+        <SlipJayPolicySettings
+          environmentId={representative.environmentId}
+          cwd={representative.workspaceRoot}
+        />
         <ProjectActionsSettings />
         {hasMultipleCheckouts ? checkoutChoices : null}
         <SettingsSection title="Danger">

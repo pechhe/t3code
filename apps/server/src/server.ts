@@ -4,6 +4,7 @@ import * as AdvisorIdleCloseReactor from "./orchestration-v2/AdvisorIdleCloseRea
 import * as WorkspaceProvider from "./project/WorkspaceProvider.ts";
 import * as SlipJayLandings from "./project/SlipJayLandings.ts";
 import * as SlipJayReleases from "./project/SlipJayReleases.ts";
+import * as SlipJaySettings from "./project/SlipJaySettings.ts";
 import * as ExternalWork from "./agents/ExternalAgentWorkService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
@@ -377,6 +378,8 @@ const layerGit = Layer.empty.pipe(
 
 const layerGitWorkflow = GitWorkflowService.layer.pipe(
   Layer.provide(WorkspaceProvider.layer),
+  // Settings follow a runner change through the landing watch below.
+  Layer.provideMerge(SlipJaySettings.layer),
   // One landing watch per server, shared by status and the landing log RPC.
   Layer.provideMerge(SlipJayLandings.layer),
   Layer.provideMerge(SlipJayReleases.layer),

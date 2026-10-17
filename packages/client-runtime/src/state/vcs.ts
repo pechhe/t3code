@@ -321,6 +321,36 @@ export function createVcsEnvironmentAtoms<R, E>(
       label: "environment-data:vcs:slipjay-promote",
       tag: WS_METHODS.vcsSlipJayPromote,
     }),
+    // A SlipJay project's shared policy and this machine's spares for it.
+    slipJayProjectSettings: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:slipjay-project-settings",
+      tag: WS_METHODS.vcsSlipJayProjectSettings,
+      staleTimeMs: 0,
+    }),
+    // Lands a policy change through the runner without its landing checks.
+    slipJaySetPolicy: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-set-policy",
+      tag: WS_METHODS.vcsSlipJaySetPolicy,
+    }),
+    slipJaySetSpareLimit: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-set-spare-limit",
+      tag: WS_METHODS.vcsSlipJaySetSpareLimit,
+    }),
+    // The runner this environment's machine lands through.
+    slipJayMachineSettings: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:slipjay-machine-settings",
+      tag: WS_METHODS.vcsSlipJayMachineSettings,
+      staleTimeMs: 0,
+    }),
+    slipJaySetRunner: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-set-runner",
+      tag: WS_METHODS.vcsSlipJaySetRunner,
+    }),
+    // Pauses or resumes the runner's queue for every machine that lands through it.
+    slipJayRunnerControl: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:vcs:slipjay-runner-control",
+      tag: WS_METHODS.vcsSlipJayRunnerControl,
+    }),
     // The SlipJay runner's lanes and deploys, shared by every SlipJay view of an environment.
     slipJayRunner: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:slipjay-runner",
