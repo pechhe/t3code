@@ -1135,6 +1135,7 @@ import {
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useDelayedStatus } from "../../hooks/useDelayedStatus";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
+import { useNowMinute } from "../../hooks/useNowMinute";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { usePanelAnimationSettings } from "../../panelAnimations";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -1908,10 +1909,6 @@ function useComposerProviderState(input: Parameters<typeof getComposerProviderSt
   return getComposerProviderState(input);
 }
 
-// --------------------------------------------------------------------------
-// Component
-// --------------------------------------------------------------------------
-
 /** Opens the annotator on the clean original with the image's marks editable. */
 function imageAnnotatorSession(image: ComposerImageAttachment) {
   return {
@@ -2494,12 +2491,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
   // Opened by Enter on a bare `/rollover`; its options stand in for the trigger's items.
+  const nowMinute = useNowMinute();
   const [isRolloverMenuOpen, setIsRolloverMenuOpen] = useState(false);
-  const isRolloverMenuOpenRef = useRef(false);
-  isRolloverMenuOpenRef.current = isRolloverMenuOpen;
-  useEffect(() => {
-    if (!isBareRolloverCommand(prompt)) setIsRolloverMenuOpen(false);
-  }, [prompt]);
+  if (isRolloverMenuOpen && !isBareRolloverCommand(prompt)) setIsRolloverMenuOpen(false);
   const composerSuggestionId = useId();
   const composerSuggestionListId = `${composerSuggestionId}-${encodeURIComponent(draftId ?? activeThreadId ?? "new")}-suggestions`;
   const promptHistoryPositionRef = useRef<{
@@ -2913,7 +2907,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
 
   const composerMenuOpen = Boolean(composerTrigger) || isRolloverMenuOpen;
   const rolloverMenuDescription = isRolloverMenuOpen
-    ? describeRolloverMenuState(props.activeThreadShell?.rolloverHold, Date.now())
+    ? describeRolloverMenuState(
+        props.activeThreadShell?.rolloverHold,
+        Date.parse(`${nowMinute}:00.000Z`),
+      )
     : null;
   const composerMenuSearchKey = isRolloverMenuOpen
     ? `${composerSuggestionListId}:rollover`
@@ -4380,7 +4377,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       !isLiteralPendingAnswer && (composerMenuOpenRef.current || trigger !== null);
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
-      if (isRolloverMenuOpenRef.current) setIsRolloverMenuOpen(false);
+      if (isRolloverMenuOpen) setIsRolloverMenuOpen(false);
       dismissComposerTrigger(trigger);
       composerMenuOpenRef.current = false;
       return true;
@@ -4391,7 +4388,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       onRolloverCommand &&
       rolloverHoldSupported &&
       !isLiteralPendingAnswer &&
-      !isRolloverMenuOpenRef.current &&
+      !isRolloverMenuOpen &&
       isBareRolloverCommand(promptRef.current) &&
       (submissionIntent === "foreground" || (submissionIntent === null && menuIsActive))
     ) {
@@ -5933,45 +5930,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return true;
   };
 
-  const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
-    const files = Array.from(event.clipboardData.files);
-    const plainText = event.clipboardData.getData("text/plain");
-    const bypassAutoAttachment = consumePasteAsTextShortcut(pasteAsTextShortcutUntilRef);
-    if (
-      files.length > 0 &&
-      activeThreadId &&
-      shouldHandleComposerAttachmentPaste({ files, plainText })
-    ) {
-      event.preventDefault();
-      event.stopPropagation();
-      void addComposerAttachments(files, { skipImageInlineChip: bypassAutoAttachment });
-      return;
-    }
-
-    // A copied thread id (the thread menu's "Copy thread ID") becomes a thread chip.
-    const pastedThreads = resolvePastedThreadIds(plainText, environmentId);
-    if (pastedThreads !== null) {
-      event.preventDefault();
-      event.stopPropagation();
-      attachThreadContexts(
-        pastedThreads,
-        () => attachmentTargetKeyRef.current === attachmentTargetKey,
-      );
-      return;
-    }
-
-    // Copied T3 chips need the structured importer to bring their records and files along.
-    if ((readPastedComposerContext(event.clipboardData)?.records.length ?? 0) > 0) return;
-    if (!foldPastedText(plainText, bypassAutoAttachment)) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-  };
   // The editor is memoized; fresh closures here re-render it on every parent
   // render, which during a stream is every delta.
-  const onComposerPasteStable = useStableCallback(onComposerPaste);
   const onComposerCommandKeyStable = useStableCallback(onComposerCommandKey);
   const isPathQueryActiveStable = useStableCallback(
     () => resolveActiveComposerTrigger().trigger?.kind === "path",
@@ -6219,6 +6179,47 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       addComposerDraftThreadContexts(composerDraftTarget, records);
     }
   };
+
+  const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
+    const files = Array.from(event.clipboardData.files);
+    const plainText = event.clipboardData.getData("text/plain");
+    const bypassAutoAttachment = consumePasteAsTextShortcut(pasteAsTextShortcutUntilRef);
+    if (
+      files.length > 0 &&
+      activeThreadId &&
+      shouldHandleComposerAttachmentPaste({ files, plainText })
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      void addComposerAttachments(files, { skipImageInlineChip: bypassAutoAttachment });
+      return;
+    }
+
+    // A copied thread id (the thread menu's "Copy thread ID") becomes a thread chip.
+    const pastedThreads = resolvePastedThreadIds(plainText, environmentId);
+    if (pastedThreads !== null) {
+      event.preventDefault();
+      event.stopPropagation();
+      attachThreadContexts(
+        pastedThreads,
+        () => attachmentTargetKeyRef.current === attachmentTargetKey,
+      );
+      return;
+    }
+
+    // Copied T3 chips need the structured importer to bring their records and files along.
+    if ((readPastedComposerContext(event.clipboardData)?.records.length ?? 0) > 0) return;
+    if (!foldPastedText(plainText, bypassAutoAttachment)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  // The editor is memoized; fresh closures here re-render it on every parent
+  // render, which during a stream is every delta.
+  const onComposerPasteStable = useStableCallback(onComposerPaste);
 
   useThreadContextDrop(composerFormRef, environmentId, attachmentTargetKey, attachThreadContexts);
 

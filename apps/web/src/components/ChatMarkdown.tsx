@@ -1303,11 +1303,10 @@ function CopyableInlineCode({
   children,
   ...props
 }: React.ComponentProps<"code"> & { text: string }) {
-  const { copyToClipboard, isCopied } = useCopyToClipboard({ target: "code", timeout: 1200 });
+  const { copyToClipboard } = useCopyToClipboard({ target: "code", timeout: 1200 });
   return (
     <code
       {...props}
-      title={isCopied ? "Copied" : "Click to copy"}
       className={cn(props.className, "cursor-pointer")}
       onClick={(event) => {
         if (window.getSelection()?.toString()) return;

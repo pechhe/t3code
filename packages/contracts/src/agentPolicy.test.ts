@@ -152,7 +152,7 @@ describe("AgentPolicyManifest", () => {
     const researcher = (edit: object) =>
       decodeManifestExit({
         ...manifest,
-        lists: { ...manifest.lists, researcher: [{ model: "haiku", effort: "high" }] },
+        lists: { ...decodeManifest(legacy).lists, researcher: [{ model: "haiku", effort: "high" }] },
         roles: {
           ...manifest.roles,
           researcher: {

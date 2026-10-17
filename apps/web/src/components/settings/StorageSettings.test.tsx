@@ -78,6 +78,7 @@ vi.mock("./settingsLayout", () => ({
     </div>
   ),
   SettingResetButton: () => null,
+  useInSettingsSearchResults: () => false,
   useRelativeTimeTick: () => undefined,
   useSettingsSearchTargetId: () => null,
   useSettingsSearchTarget: () => undefined,

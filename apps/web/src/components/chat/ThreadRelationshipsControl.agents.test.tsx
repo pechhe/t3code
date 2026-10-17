@@ -462,7 +462,7 @@ it("groups and counts a workflow by its run status instead of its coordinator ch
   expect(text()).toContain("Previous agents");
   expect(renderer.root.findAllByProps({ "aria-label": "Open Checker chat" })).toHaveLength(0);
   expect(renderer.root.findByProps({ "aria-label": "Expand Checkout review" })).toBeDefined();
-  expect(text()).toContain("Workflow checks complete");
+  expect(text()).not.toContain("Workflow checks complete");
   expect(text()).toContain("10m");
 });
 

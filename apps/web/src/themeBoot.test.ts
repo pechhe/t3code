@@ -22,7 +22,8 @@ const THEME_STORAGE_KEY = "t3code:theme";
 const DEFAULT_DARK_CHROME = getDefaultThemeColors("dark").chrome;
 
 const bootScript = (() => {
-  const match = indexHtml.match(/<script>([\s\S]*?)<\/script>/);
+  const scripts = [...indexHtml.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+  const match = scripts.find((script) => script[1]?.includes("THEME_HALVES_STORAGE_KEY"));
   if (!match?.[1]) throw new Error("Could not find the inline boot script in index.html");
   return match[1];
 })();

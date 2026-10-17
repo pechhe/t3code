@@ -277,6 +277,7 @@ import { ContextChip, ContextChipLabel, type ContextChipKind } from "../ContextC
 import { createContextPresentationRegistry } from "../contextPresentationRegistry";
 import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { useClientSettings } from "~/hooks/useSettings";
+import { useStableCallback } from "~/hooks/useStableCallback";
 import type { ChatMarkdownContextReference } from "../ChatMarkdown";
 import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
@@ -1200,8 +1201,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     if (wasFollowing && !liveFollowEnabled) handleScroll();
   }, [handleScroll, liveFollowEnabled]);
 
-  const endPinSuppressedRef = useRef(endPinSuppressed);
-  endPinSuppressedRef.current = endPinSuppressed || findActive;
+  const isEndPinSuppressed = useStableCallback(() => endPinSuppressed || findActive);
 
   // The final rows of a run (summary, footer) settle after the last follow
   // scroll, and the "at end" tolerance hides a short gap from live-follow, so
@@ -1216,14 +1216,14 @@ const ConversationTimeline = memo(function ConversationTimeline({
     let innerFrame: number | null = null;
     const outerFrame = requestAnimationFrame(() => {
       innerFrame = requestAnimationFrame(() => {
-        if (!endPinSuppressedRef.current) void listRef.current?.scrollToEnd?.({ animated: false });
+        if (!isEndPinSuppressed()) void listRef.current?.scrollToEnd?.({ animated: false });
       });
     });
     return () => {
       cancelAnimationFrame(outerFrame);
       if (innerFrame !== null) cancelAnimationFrame(innerFrame);
     };
-  }, [isWorking, listRef]);
+  }, [isEndPinSuppressed, isWorking, listRef]);
 
   useEffect(() => {
     if (!timelineViewportElement) {

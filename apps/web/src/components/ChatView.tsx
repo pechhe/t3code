@@ -5440,7 +5440,7 @@ export default function ChatView(props: ChatViewProps) {
     serverProjection,
     composerSelectedModelSelection ?? activeThread?.modelSelection,
     providerStatuses,
-    Date.now(),
+    Date.parse(`${nowMinute}:00.000Z`),
   );
   const compactThreadUnavailable =
     !canOperateThread ||
@@ -6146,7 +6146,7 @@ export default function ChatView(props: ChatViewProps) {
   };
 
   /** Runs a `/rollover` command for the active thread, whether typed or picked from the menu. */
-  const runRolloverCommand = async (command: RolloverCommand) => {
+  const runRolloverCommand = useStableCallback(async (command: RolloverCommand) => {
     if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
     if (!isServerThread || !activeThreadRef) {
       toastManager.add(
@@ -6197,7 +6197,7 @@ export default function ChatView(props: ChatViewProps) {
         title: describeRolloverHold(hold, nowMs) ?? "Rollover on",
       }),
     );
-  };
+  });
 
   const onSend = async (
     e?: { preventDefault: () => void },
