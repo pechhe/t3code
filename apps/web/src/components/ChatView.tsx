@@ -8217,7 +8217,6 @@ export default function ChatView(props: ChatViewProps) {
                         ? {
                             cwd: activeProject.workspaceRoot,
                             name: activeProject.title,
-                            hasRelease: gitStatusQuery.data?.slipJay?.hasReleaseBranch !== false,
                           }
                         : null
                     }

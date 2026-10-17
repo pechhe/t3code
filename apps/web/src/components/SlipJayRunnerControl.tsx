@@ -54,7 +54,7 @@ export function SlipJayRunnerControl({
 }: {
   environmentId: EnvironmentId;
   /** The active thread's SlipJay project, which the popover offers to release. */
-  releaseProject: { cwd: string; name: string; hasRelease: boolean } | null;
+  releaseProject: { cwd: string; name: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -64,6 +64,14 @@ export function SlipJayRunnerControl({
     vcsEnvironment.slipJayRunner({ environmentId, input: {} }),
   );
   const [open, setOpen] = useState(false);
+  // Whether a release is possible belongs to the project, not the thread's checkout,
+  // which SlipJay removes once it lands. Asked only while the popover is open.
+  const { data: releaseStatus } = useEnvironmentQuery(
+    open && release !== null
+      ? vcsEnvironment.status({ environmentId, input: { cwd: release.cwd } })
+      : null,
+  );
+  const hasRelease = releaseStatus?.slipJay?.hasReleaseBranch !== false;
   const threadShells = useThreadShells(open);
   const threadsByWorkspace = useMemo(() => {
     const threads = new Map<string, { id: ThreadId; title: string }>();
@@ -163,13 +171,13 @@ export function SlipJayRunnerControl({
                     size="xs"
                     variant="outline"
                     className="mx-2 mt-1 self-start"
-                    disabled={!release.hasRelease}
+                    disabled={releaseStatus == null || !hasRelease}
                     onClick={() => {
                       setOpen(false);
                       setReleaseOpen(true);
                     }}
                   >
-                    {release.hasRelease ? `Release ${release.name}…` : "Nothing to release"}
+                    {hasRelease ? `Release ${release.name}…` : "Nothing to release"}
                   </Button>
                 ) : null}
               </RunnerSection>

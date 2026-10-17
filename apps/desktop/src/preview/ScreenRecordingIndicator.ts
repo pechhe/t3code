@@ -153,6 +153,17 @@ body[data-paused] #resume { display: grid; }
 
 const OWNER_GONE_EVENTS = ["destroyed", "did-navigate", "render-process-gone"] as const;
 
+// The pill never takes focus, so Stop must activate T3 Code itself to bring the user back to the
+// thread the recording attaches to.
+const revealOwner = (owner: Electron.WebContents) => {
+  const window = Electron.BrowserWindow.fromWebContents(owner);
+  if (!window || window.isDestroyed()) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  Electron.app.focus({ steal: true });
+  window.focus();
+};
+
 class IndicatorWindow {
   private window: Electron.BrowserWindow | undefined;
   private owner: Electron.WebContents | undefined;
@@ -163,11 +174,12 @@ class IndicatorWindow {
     if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "discard")
       return;
     const owner = this.owner;
-    if (owner && !owner.isDestroyed())
-      owner.send(
-        SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL,
-        action satisfies DesktopScreenRecordingIndicatorAction,
-      );
+    if (!owner || owner.isDestroyed()) return;
+    owner.send(
+      SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL,
+      action satisfies DesktopScreenRecordingIndicatorAction,
+    );
+    if (action === "stop") revealOwner(owner);
   };
   private readonly onOwnerGone = () => this.close();
 
