@@ -3196,8 +3196,9 @@ export default function ChatView(props: ChatViewProps) {
           reportedModelSelection,
         );
   // SlipJay assigns the workspace and its base, so the strip has no Git context to offer;
-  // the thread details card shows the workspace and its landing.
-  const composerShowsGitControls = isGitRepo && !isSlipJayProject;
+  // the thread details card shows the workspace and its landing. Only a status that says
+  // the checkout is not SlipJay shows Git controls, so a loading thread never flashes them.
+  const composerShowsGitControls = isGitRepo && liveIsSlipJay === false;
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
     persistInActiveThreads: settings.persistComposerContextStrip,
