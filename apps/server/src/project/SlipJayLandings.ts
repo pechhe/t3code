@@ -13,6 +13,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -375,6 +376,8 @@ export const make = Effect.gen(function* () {
     Effect.asVoid,
   );
   // A cursor is a position in one runner's ledger, so a new runner is watched from its start.
+  // One change at a time, so two at once cannot each start a watch and orphan one.
+  const runnerChangeLock = yield* Semaphore.make(1);
   const followRunnerChange = Ref.get(watching).pipe(
     Effect.flatMap((fiber) =>
       fiber === undefined
@@ -386,6 +389,7 @@ export const make = Effect.gen(function* () {
             Effect.andThen(ensureWatching),
           ),
     ),
+    runnerChangeLock.withPermits(1),
   );
 
   // The Jujutsu driver owns how a workspace is read; this service only follows SlipJay.

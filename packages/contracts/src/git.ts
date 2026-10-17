@@ -376,6 +376,12 @@ export const SlipJayLandingCheck = Schema.Struct({
 });
 export type SlipJayLandingCheck = typeof SlipJayLandingCheck.Type;
 
+/** SlipJay keeps at most this many spare workspaces per project. */
+export const SLIPJAY_MAX_SPARES = 8;
+const SlipJaySpareCount = Schema.Int.check(
+  Schema.isBetween({ minimum: 0, maximum: SLIPJAY_MAX_SPARES }),
+);
+
 /** How much process agents follow on a project: `light` skips reviews, Spec challenges and Tickets. */
 export const SlipJayProcessLevel = Schema.Literals(["standard", "light"]);
 export type SlipJayProcessLevel = typeof SlipJayProcessLevel.Type;
@@ -415,7 +421,7 @@ export const VcsSlipJaySetPolicyInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   /** The `revision` the change was made from; a policy that moved since is refused as stale. */
   base: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/)),
-  spares: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 8 }))),
+  spares: Schema.optional(SlipJaySpareCount),
   process: Schema.optional(SlipJayProcessLevel),
   requiredLandingVerification: Schema.optional(Schema.Array(SlipJayLandingCheck)),
 });
@@ -462,7 +468,7 @@ export type VcsSlipJaySetPolicyResult = typeof VcsSlipJaySetPolicyResult.Type;
 /** This machine's spare limit for a project; null removes it. Only lowers the declared count. */
 export const VcsSlipJaySetSpareLimitInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
-  limit: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 8 }))),
+  limit: Schema.NullOr(SlipJaySpareCount),
 });
 export type VcsSlipJaySetSpareLimitInput = typeof VcsSlipJaySetSpareLimitInput.Type;
 
@@ -480,9 +486,13 @@ export const VcsSlipJayMachineSettings = Schema.Struct({
 export type VcsSlipJayMachineSettings = typeof VcsSlipJayMachineSettings.Type;
 
 /** A runner over SSH, or one on this machine's loopback; null removes the location. */
+const LOCAL_RUNNER_PATTERN = /^http:\/\/127\.0\.0\.1:\d{1,5}$/;
 export const SlipJayRunnerLocation = Schema.String.check(
   Schema.isPattern(/^(ssh:\/\/[A-Za-z0-9][A-Za-z0-9.@_-]*|http:\/\/127\.0\.0\.1:\d{1,5})$/),
 );
+/** A runner on this machine's loopback, rather than one reached over SSH. */
+export const isLocalSlipJayRunner = (location: string | null): boolean =>
+  location !== null && LOCAL_RUNNER_PATTERN.test(location);
 export const VcsSlipJaySetRunnerInput = Schema.Struct({
   location: Schema.NullOr(SlipJayRunnerLocation),
 });

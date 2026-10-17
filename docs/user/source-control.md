@@ -262,8 +262,10 @@ open the landing log.
 To publish a thread's work, choose **Land** in the thread details card. T3 Code runs
 `slipjay land` in the thread's workspace and reports SlipJay's verdict when it finishes.
 
-- Land needs SlipJay on the machine running your T3 Code server, with a runner location:
-  `SLIPJAY_RUNNER` in the server's environment, or `"runner"` in `~/.slipjay/config.json`.
+- Land needs SlipJay on the machine running your T3 Code server, with a runner location. Set it in
+  **Settings → Source control → SlipJay runner**: **Remote runner** with an `ssh://<host>`
+  location, or **This machine** for a runner on the server's own machine. If nothing answers there,
+  the setting says how to start one. `SLIPJAY_RUNNER` in the server's environment overrides it.
 - A successful land removes the landed workspace unless another process still uses it. The
   card keeps showing the landed commit, and the thread's next message gets a fresh workspace.
 - Land is not offered in the project's main checkout, and reads **Landing…** while the
@@ -276,7 +278,9 @@ To publish a thread's work, choose **Land** in the thread details card. T3 Code 
 
 The **SlipJay** button at the top of a thread shows the runner this server follows: what is
 running and queued in each lane, and the latest staging and production deploys. Select an
-operation to open the thread whose workspace submitted it.
+operation to open the thread whose workspace submitted it. **Pause** holds the runner's queue
+for every machine that lands through it, and **Resume** releases it; a running operation
+finishes either way. Both are also in **Settings → Source control → SlipJay runner**.
 
 In a SlipJay project, **Release <project>…** in that menu shows what promoting would release,
 or SlipJay's reason it will not: the commit staging deployed, its changes, the production

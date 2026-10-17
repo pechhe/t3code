@@ -241,6 +241,24 @@ When no image is found, web and desktop show a two-character monogram with a col
 from the icon palette, derived from the saved project name. For example, `Nebula` becomes `NA`,
 `Silver Orchard` becomes `SO`, and `M7 Forge` becomes `M7`.
 
+## SlipJay policy
+
+In a SlipJay project, select the project and open Project to see **SlipJay policy**: the settings
+committed to the project's integration branch, which every machine and agent uses.
+
+- Change the spare workspace count, the process level (**Standard** or **Light**) or the landing
+  checks, then choose **Save**. Saving lands one change through the runner without running the
+  landing checks; the section shows its place in the queue, then its landing, then the outcome.
+- If someone changed the policy since you opened it, the save is refused as stale and the section
+  shows the policy now in force. A check whose command does not exist on the runner is refused too,
+  with SlipJay's reason, and nothing changes.
+- **This machine's spares** lowers the spare count on the machine running your T3 Code server only.
+  Choose **At most 0** to keep no spares there.
+- The release branch, tracker, shared paths and generated paths are shown but are changed in
+  `slipjay.json`.
+
+Saving needs SlipJay 3.27.0 or later on the machine running your T3 Code server.
+
 ## Keep the default branch current
 
 In Source Control, enable **Automatically pull** to keep the default-branch checkout up to date

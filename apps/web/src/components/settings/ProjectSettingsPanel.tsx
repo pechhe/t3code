@@ -179,6 +179,13 @@ function ProjectDetail({
     group.memberProjects.find(
       (member) => environmentById.get(member.environmentId)?.serverConfig != null,
     ) ?? group.memberProjects[0]!;
+  // SlipJay's machine settings belong to one host, so prefer the one this client runs on.
+  const slipJayMember =
+    group.memberProjects.find(
+      (member) =>
+        member.environmentId === primaryEnvironmentId &&
+        environmentById.get(member.environmentId)?.serverConfig != null,
+    ) ?? representative;
   const threads = useThreadShells();
   const updateProject = useOrchestrationCommand(projectEnvironment.update, {
     reportFailure: false,
@@ -572,8 +579,9 @@ function ProjectDetail({
         <ProjectThemeSetting projectKey={group.projectKey} />
         <ProjectDefaultsSettings category="project" />
         <SlipJayPolicySettings
-          environmentId={representative.environmentId}
-          cwd={representative.workspaceRoot}
+          environmentId={slipJayMember.environmentId}
+          cwd={slipJayMember.workspaceRoot}
+          machineLabel={hasMultipleCheckouts ? (slipJayMember.environmentLabel ?? null) : null}
         />
         <ProjectActionsSettings />
         {hasMultipleCheckouts ? checkoutChoices : null}

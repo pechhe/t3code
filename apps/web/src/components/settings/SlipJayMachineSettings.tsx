@@ -1,6 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { SlipJayRunnerLocation, type EnvironmentId } from "@t3tools/contracts";
+import {
+  isLocalSlipJayRunner,
+  SlipJayRunnerLocation,
+  type EnvironmentId,
+} from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useState } from "react";
 
@@ -42,7 +46,7 @@ export function SlipJayMachineSettings({ environmentId }: { environmentId: Envir
       {machine.runner !== null ? (
         <RunnerQueueRow
           environmentId={environmentId}
-          local={machine.runner === LOCAL_RUNNER_LOCATION}
+          local={isLocalSlipJayRunner(machine.runner)}
         />
       ) : null}
     </SettingsSection>
@@ -67,13 +71,18 @@ function RunnerLocationRow({
   const canEdit = useAtomValue(vcsEnvironment.slipJaySetRunner.permissionAtom(environmentId));
   const setRunner = useAtomCommand(vcsEnvironment.slipJaySetRunner, { reportFailure: false });
   const [choice, setChoice] = useState<RunnerChoice>(
-    runnerInFile === LOCAL_RUNNER_LOCATION ? "local" : "remote",
+    isLocalSlipJayRunner(runnerInFile) ? "local" : "remote",
   );
   const [remoteDraft, setRemoteDraft] = useState(
-    runnerInFile === LOCAL_RUNNER_LOCATION ? "" : (runnerInFile ?? ""),
+    isLocalSlipJayRunner(runnerInFile) ? "" : (runnerInFile ?? ""),
   );
   const [saving, setSaving] = useState(false);
-  const location = choice === "local" ? LOCAL_RUNNER_LOCATION : remoteDraft.trim();
+  // A runner already set on another local port keeps it; otherwise SlipJay's default port.
+  const localLocation =
+    runnerInFile !== null && isLocalSlipJayRunner(runnerInFile)
+      ? runnerInFile
+      : LOCAL_RUNNER_LOCATION;
+  const location = choice === "local" ? localLocation : remoteDraft.trim();
   const valid = location === "" || isRunnerLocation(location);
   const changed = location !== (runnerInFile ?? "");
 

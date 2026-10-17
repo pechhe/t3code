@@ -1,10 +1,13 @@
 import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import type {
-  EnvironmentId,
-  SlipJayProcessLevel,
-  VcsSlipJayProjectSettings,
+import {
+  SLIPJAY_MAX_SPARES,
+  SlipJayCommandError,
+  type EnvironmentId,
+  type SlipJayProcessLevel,
+  type VcsSlipJayProjectSettings,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -32,8 +35,6 @@ import {
   type SlipJayPolicyDraft,
 } from "./SlipJaySettings.logic";
 
-const MAX_SPARES = 8;
-
 const PROCESS_LEVELS = {
   standard: "Standard",
   light: "Light",
@@ -54,25 +55,37 @@ const NO_LIMIT = "none";
 export function SlipJayPolicySettings({
   environmentId,
   cwd,
+  machineLabel,
 }: {
   environmentId: EnvironmentId;
   cwd: string;
+  /** The environment whose spares the machine row changes, named when the project spans several. */
+  machineLabel: string | null;
 }) {
   const { data: status } = useEnvironmentQuery(
     vcsEnvironment.status({ environmentId, input: { cwd } }),
   );
   if (!status?.slipJay) return null;
   return (
-    <SlipJayPolicySection key={`${environmentId}:${cwd}`} environmentId={environmentId} cwd={cwd} />
+    <SlipJayPolicySection
+      key={`${environmentId}:${cwd}`}
+      environmentId={environmentId}
+      cwd={cwd}
+      machineLabel={machineLabel}
+    />
   );
 }
+
+const isSlipJayCommandError = Schema.is(SlipJayCommandError);
 
 function SlipJayPolicySection({
   environmentId,
   cwd,
+  machineLabel,
 }: {
   environmentId: EnvironmentId;
   cwd: string;
+  machineLabel: string | null;
 }) {
   const query = useEnvironmentQuery(
     vcsEnvironment.slipJayProjectSettings({ environmentId, input: { cwd } }),
@@ -80,6 +93,8 @@ function SlipJayPolicySection({
   const settings = query.data;
   // Outlives the form, which starts again when a save or a stale refusal moves the revision.
   const [outcome, setOutcome] = useState<PolicyOutcome | null>(null);
+  // A server older than these settings cannot answer; only SlipJay's own failure is worth showing.
+  if (!settings && query.error && !isSlipJayCommandError(query.failure)) return null;
   return (
     <SettingsSection {...searchableSetting("slipjay-policy")} title="SlipJay policy">
       {settings ? (
@@ -89,6 +104,7 @@ function SlipJayPolicySection({
           environmentId={environmentId}
           cwd={cwd}
           settings={settings}
+          machineLabel={machineLabel}
           outcome={outcome}
           onOutcome={setOutcome}
           onSaved={query.refresh}
@@ -116,6 +132,7 @@ function PolicyForm({
   environmentId,
   cwd,
   settings,
+  machineLabel,
   outcome,
   onOutcome,
   onSaved,
@@ -123,6 +140,7 @@ function PolicyForm({
   environmentId: EnvironmentId;
   cwd: string;
   settings: VcsSlipJayProjectSettings;
+  machineLabel: string | null;
   outcome: PolicyOutcome | null;
   onOutcome: (outcome: PolicyOutcome | null) => void;
   onSaved: () => void;
@@ -223,7 +241,7 @@ function PolicyForm({
           <NumberField
             value={draft.spares}
             min={0}
-            max={MAX_SPARES}
+            max={SLIPJAY_MAX_SPARES}
             size="sm"
             className="w-auto"
             disabled={!canEdit || saving}
@@ -281,6 +299,7 @@ function PolicyForm({
         environmentId={environmentId}
         cwd={cwd}
         settings={settings}
+        machineLabel={machineLabel}
         onSaved={onSaved}
       />
       <SettingsRow
@@ -303,11 +322,13 @@ function MachineSparesRow({
   environmentId,
   cwd,
   settings,
+  machineLabel,
   onSaved,
 }: {
   environmentId: EnvironmentId;
   cwd: string;
   settings: VcsSlipJayProjectSettings;
+  machineLabel: string | null;
   onSaved: () => void;
 }) {
   const canEdit = useAtomValue(vcsEnvironment.slipJaySetSpareLimit.permissionAtom(environmentId));
@@ -333,8 +354,8 @@ function MachineSparesRow({
 
   return (
     <SettingsRow
-      title="This machine's spares"
-      description={`Lowers the shared count of ${settings.spares} on this machine only, so it keeps ${effective} ready.`}
+      title={machineLabel === null ? "This machine's spares" : `Spares on ${machineLabel}`}
+      description={`Lowers the shared count of ${settings.spares} on ${machineLabel ?? "this machine"} only, so it keeps ${effective} ready.`}
       control={
         <Select
           value={machineLimit === null ? NO_LIMIT : String(machineLimit)}
@@ -350,7 +371,7 @@ function MachineSparesRow({
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
             <SelectItem value={NO_LIMIT}>No limit</SelectItem>
-            {Array.from({ length: MAX_SPARES + 1 }, (_, count) => (
+            {Array.from({ length: SLIPJAY_MAX_SPARES + 1 }, (_, count) => (
               <SelectItem key={count} value={String(count)}>
                 At most {count}
               </SelectItem>

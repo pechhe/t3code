@@ -9,6 +9,7 @@ import {
   GitRunStackedActionInput,
   GitResolvePullRequestResult,
   VcsStatusLocalResult,
+  isLocalSlipJayRunner,
 } from "./git.ts";
 
 const decodeCreateWorktreeInput = Schema.decodeUnknownSync(VcsCreateWorktreeInput);
@@ -231,5 +232,14 @@ describe("GitRunStackedActionResult", () => {
     if (parsed.toast.cta.kind === "run_action") {
       expect(parsed.toast.cta.action.kind).toBe("create_pr");
     }
+  });
+});
+
+describe("isLocalSlipJayRunner", () => {
+  it("treats any loopback port as this machine and SSH as another", () => {
+    expect(isLocalSlipJayRunner("http://127.0.0.1:7787")).toBe(true);
+    expect(isLocalSlipJayRunner("http://127.0.0.1:7788")).toBe(true);
+    expect(isLocalSlipJayRunner("ssh://peach-box")).toBe(false);
+    expect(isLocalSlipJayRunner(null)).toBe(false);
   });
 });
