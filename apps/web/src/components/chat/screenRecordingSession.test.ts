@@ -22,7 +22,7 @@ vi.mock("./composerScreenRecording", async (importOriginal) => ({
   }),
 }));
 
-const { startScreenRecording } = await import("./screenRecordingSession");
+const { screenRecordingControls, startScreenRecording } = await import("./screenRecordingSession");
 
 const environmentId = EnvironmentId.make("environment-1");
 const started = { environmentId, threadId: ThreadId.make("thread-started") };
@@ -56,4 +56,25 @@ it("attaches the recording to the thread it started in, not the one open when it
   expect(draft?.prompt.length).toBeGreaterThan("Look at this glitch".length);
   expect(store.getComposerDraft(visited)?.files ?? []).toEqual([]);
   expect(store.getComposerDraft(visited)?.prompt).toBe("Unrelated draft");
+});
+
+const recordAndFinish = async (stopFirst: boolean) => {
+  const open = vi.fn();
+  useComposerDraftStore.getState().setPrompt(started, "Look at this glitch");
+  const recording = startScreenRecording({ target: started, title: "Glitch", open }, 1_000_000);
+  if (stopFirst) screenRecordingControls.stop();
+  finish.current?.({
+    type: "recorded",
+    file: new File(["frames"], "Screen recording.webm", { type: "video/webm" }),
+  });
+  await recording;
+  return open;
+};
+
+it("opens the recording's thread when the user presses Stop", async () => {
+  expect(await recordAndFinish(true)).toHaveBeenCalledOnce();
+});
+
+it("stays put when the time limit ends the recording", async () => {
+  expect(await recordAndFinish(false)).not.toHaveBeenCalled();
 });

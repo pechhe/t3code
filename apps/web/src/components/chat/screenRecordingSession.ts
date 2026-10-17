@@ -41,6 +41,8 @@ let snapshot: ScreenRecordingSnapshot = {
 const listeners = new Set<() => void>();
 let indicatorRevision = 0;
 let indicatorActionsSubscribed = false;
+// Pressing Stop takes the user back to the recording's thread; the time limit stopping it does not.
+let stopRequested = false;
 
 const publish = (next: Partial<ScreenRecordingSnapshot>) => {
   snapshot = { ...snapshot, ...next };
@@ -86,7 +88,11 @@ const onStateChange = (state: ComposerScreenRecordingState) => {
 export const screenRecordingControls = {
   pause: () => recorder?.pause(),
   resume: () => recorder?.resume(),
-  stop: () => recorder?.stop(),
+  stop: () => {
+    if (!recorder) return;
+    stopRequested = true;
+    recorder.stop();
+  },
   discard: () => recorder?.discard(),
 };
 
@@ -138,6 +144,15 @@ const attach = (origin: ScreenRecordingOrigin, file: File, maxFileBytes: number)
     );
     return;
   }
+  if (stopRequested) {
+    origin.open();
+    toastManager.add({
+      type: "success",
+      title: "Recording attached",
+      description: `Added to the draft in "${origin.title}".`,
+    });
+    return;
+  }
   const id = toastManager.add({
     type: "success",
     title: "Recording attached",
@@ -186,6 +201,7 @@ export async function startScreenRecording(
     onStateChange,
   );
   recorder = current;
+  stopRequested = false;
   publish({ origin });
   const outcome = await current.start();
   if (recorder === current) recorder = null;
