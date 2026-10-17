@@ -66,7 +66,7 @@ import {
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import { pickPoolMember } from "@t3tools/shared/providerPools";
+import { needsUsageRefresh, pickPoolMember } from "@t3tools/shared/providerPools";
 
 export type ThreadManagementSendMode = "auto" | "queue" | "steer" | "restart";
 
@@ -718,13 +718,33 @@ const make = Effect.gen(function* () {
         threadId === undefined
           ? undefined
           : (yield* orchestrator.getThreadShell(threadId))?.modelSelection.instanceId;
-      const member =
+      const pick = (candidates: typeof providers, nowMs: number) =>
         pickPoolMember({
           pool: { driver: pool.driver, members },
-          providers,
-          nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+          providers: candidates,
+          nowMs,
           current,
-        }) ?? members[0];
+        });
+      let candidates = providers;
+      let member = pick(candidates, DateTime.toEpochMillis(yield* DateTime.now));
+      // A reading near its limit and a minute old may hide exhaustion, so re-read the chosen
+      // member before the turn commits to it, and again for each member a refresh moves it to.
+      // Each member is re-read at most once; a refresh that fails keeps the cached reading.
+      const refreshed = new Set<string>();
+      while (true) {
+        const chosen = candidates.find((provider) => provider.instanceId === member);
+        if (
+          chosen === undefined ||
+          refreshed.has(chosen.instanceId) ||
+          !needsUsageRefresh(chosen, DateTime.toEpochMillis(yield* DateTime.now))
+        ) {
+          break;
+        }
+        refreshed.add(chosen.instanceId);
+        candidates = yield* providerRegistry.value.refreshInstanceUsage(chosen.instanceId);
+        member = pick(candidates, DateTime.toEpochMillis(yield* DateTime.now));
+      }
+      member ??= members[0];
       return member === undefined ? selection : { ...selection, instanceId: member };
     });
 

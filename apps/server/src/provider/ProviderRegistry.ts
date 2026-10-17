@@ -7,11 +7,14 @@ import {
   type ServerProviderUpdateState,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -42,9 +45,16 @@ import {
   type ProviderMaintenanceCapabilities,
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import type { ProviderSnapshotSource } from "./builtInProviderCatalog.ts";
-import { withPoolSnapshots, type ProviderPool } from "@t3tools/shared/providerPools";
+import {
+  USAGE_REFRESH_STALE_MS,
+  withPoolSnapshots,
+  type ProviderPool,
+} from "@t3tools/shared/providerPools";
 
 export type ProviderMaintenanceActionKind = "update";
+
+/** Short so a turn waits little for a read that is only a refinement of the cached one. */
+export const USAGE_REFRESH_TIMEOUT = Duration.seconds(8);
 
 export class ProviderRegistry extends Context.Service<
   ProviderRegistry,
@@ -61,6 +71,17 @@ export class ProviderRegistry extends Context.Service<
      * transport layers don't have to special-case unknowns.
      */
     readonly refreshInstance: (
+      instanceId: ProviderInstanceId,
+    ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
+
+    /**
+     * Re-reads one instance's usage limits, nothing else, for a caller about to route a turn to
+     * it. Resolves with the cached list when the instance cannot refresh usage, the read fails,
+     * or it outlasts `USAGE_REFRESH_TIMEOUT`: the cached reading and status are never replaced
+     * by a failed one. Concurrent calls for an instance share one read, and an instance is
+     * attempted at most once per `USAGE_REFRESH_STALE_MS`, whatever the outcome.
+     */
+    readonly refreshInstanceUsage: (
       instanceId: ProviderInstanceId,
     ) => Effect.Effect<ReadonlyArray<ServerProvider>>;
 
@@ -676,6 +697,80 @@ export const layer = Layer.effect(
       return yield* refreshOneSource(providerSource);
     });
 
+    // One state, so claiming a read and recording its attempt happen in a single step.
+    const usageRefreshesRef = yield* Ref.make<{
+      readonly inFlight: ReadonlyMap<ProviderInstanceId, Deferred.Deferred<void>>;
+      readonly attemptedAt: ReadonlyMap<ProviderInstanceId, number>;
+    }>({ inFlight: new Map(), attemptedAt: new Map() });
+
+    const refreshInstanceUsage = Effect.fn("refreshInstanceUsage")(function* (
+      instanceId: ProviderInstanceId,
+    ) {
+      const instance = (yield* Ref.get(liveSubsRef)).get(instanceId);
+      if (instance?.refreshUsage === undefined) {
+        return yield* Ref.get(providersRef);
+      }
+      const refreshUsage = instance.refreshUsage;
+      // Detached so an interrupted first caller cannot cancel the read others await. The
+      // driver publishes only a completed read, so timing out here leaves the snapshot as is.
+      const read = (completion: Deferred.Deferred<void>) =>
+        refreshUsage.pipe(
+          Effect.timeoutOption(USAGE_REFRESH_TIMEOUT),
+          Effect.flatMap((completed) =>
+            Option.isSome(completed)
+              ? buildSnapshotSource(instance).getSnapshot.pipe(
+                  Effect.flatMap((provider) =>
+                    correlateSnapshotWithSource(buildSnapshotSource(instance), provider),
+                  ),
+                  Effect.flatMap(syncProvider),
+                  Effect.asVoid,
+                )
+              : Effect.void,
+          ),
+          Effect.ignoreCause({ log: true }),
+          Effect.onExit((exit) =>
+            Ref.update(usageRefreshesRef, (state) => {
+              const inFlight = new Map(state.inFlight);
+              inFlight.delete(instanceId);
+              return { ...state, inFlight };
+            }).pipe(Effect.andThen(Deferred.done(completion, Exit.asVoid(exit)))),
+          ),
+          Effect.forkDetach,
+        );
+      // Failed and timed-out reads leave the reading stale, so attempts are limited by when
+      // they started, not by what they found: at most one per instance per stale window.
+      // Claiming and forking are uninterruptible, or a caller interrupted in between would
+      // leave a claim that no read ever completes.
+      const completion = yield* Effect.uninterruptible(
+        Effect.gen(function* () {
+          const nowMs = yield* Clock.currentTimeMillis;
+          const claimed = yield* Ref.modify(usageRefreshesRef, (state) => {
+            const existing = state.inFlight.get(instanceId);
+            if (existing !== undefined) return [{ owner: false, completion: existing }, state];
+            const lastAttemptMs = state.attemptedAt.get(instanceId);
+            if (lastAttemptMs !== undefined && nowMs - lastAttemptMs < USAGE_REFRESH_STALE_MS) {
+              return [undefined, state];
+            }
+            const completion = Deferred.makeUnsafe<void>();
+            return [
+              { owner: true, completion },
+              {
+                inFlight: new Map(state.inFlight).set(instanceId, completion),
+                attemptedAt: new Map(state.attemptedAt).set(instanceId, nowMs),
+              },
+            ];
+          });
+          if (claimed?.owner) yield* read(claimed.completion);
+          return claimed?.completion;
+        }),
+      );
+      if (completion === undefined) {
+        return yield* Ref.get(providersRef);
+      }
+      yield* Deferred.await(completion);
+      return yield* Ref.get(providersRef);
+    });
+
     const getProviderMaintenanceCapabilitiesForInstance = Effect.fn(
       "getProviderMaintenanceCapabilitiesForInstance",
     )(function* (
@@ -958,6 +1053,8 @@ export const layer = Layer.effect(
           Effect.catchCause(recoverRefreshFailure),
           Effect.flatMap(withPools),
         ),
+      refreshInstanceUsage: (instanceId: ProviderInstanceId) =>
+        refreshInstanceUsage(instanceId).pipe(Effect.flatMap(withPools)),
       refreshWorkspaceSnapshot: (input) =>
         refreshWorkspaceSnapshot(input).pipe(
           Effect.catchCause(recoverRefreshFailure),

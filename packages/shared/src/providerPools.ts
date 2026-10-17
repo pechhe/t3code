@@ -41,6 +41,29 @@ export const isProviderUsageExhausted = (provider: ServerProvider, nowMs: number
       (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
   ) === true;
 
+/** A reading older than this is re-read before a turn trusts it near a limit. */
+export const USAGE_REFRESH_STALE_MS = 60_000;
+
+/** A window this used is close enough to its limit for a stale reading to hide exhaustion. */
+export const USAGE_REFRESH_NEAR_LIMIT_PERCENT = 95;
+
+/**
+ * Whether a turn about to use this account should re-read its usage first:
+ * the reading is stale and a window is nearly used up with its reset still
+ * ahead. Away from the limit a stale reading cannot hide exhaustion.
+ */
+export const needsUsageRefresh = (provider: ServerProvider, nowMs: number): boolean => {
+  const usage = provider.usageLimits;
+  if (usage === undefined || nowMs - Date.parse(usage.checkedAt) < USAGE_REFRESH_STALE_MS) {
+    return false;
+  }
+  return usage.windows.some(
+    (window) =>
+      window.usedPercent >= USAGE_REFRESH_NEAR_LIMIT_PERCENT &&
+      (window.resetsAt === undefined || Date.parse(window.resetsAt) > nowMs),
+  );
+};
+
 const soonestResetMs = (windows: ReadonlyArray<ServerProviderUsageWindow>, nowMs: number) => {
   let soonest = Number.POSITIVE_INFINITY;
   for (const window of windows) {

@@ -8,6 +8,7 @@ import {
 } from "@t3tools/contracts";
 
 import {
+  needsUsageRefresh,
   pickPoolFailoverMember,
   pickPoolMember,
   withPoolSnapshots,
@@ -62,6 +63,45 @@ const pool: ProviderPool = {
     ProviderInstanceId.make("c"),
   ],
 };
+
+describe("needsUsageRefresh", () => {
+  const read = (
+    checkedAtHours: number,
+    usedPercent: number,
+    resetsAt: string | undefined = at(2),
+  ) =>
+    ({
+      ...account("a", [{ usedPercent, resetsAt }]),
+      usageLimits: {
+        checkedAt: at(checkedAtHours),
+        windows: [{ id: "w", kind: "session", label: "Session", usedPercent, resetsAt }],
+      },
+    }) as ServerProvider;
+  const SECOND = 1 / 3600;
+
+  it("refreshes a stale reading at or above 95%", () => {
+    expect(needsUsageRefresh(read(0, 95), NOW + 2 * 60_000)).toBe(true);
+    expect(needsUsageRefresh(read(0, 100), NOW + 2 * 60_000)).toBe(true);
+  });
+
+  it("leaves a stale reading below 95% alone", () => {
+    expect(needsUsageRefresh(read(0, 94), NOW + 2 * 60_000)).toBe(false);
+  });
+
+  it("leaves a fresh reading alone", () => {
+    expect(needsUsageRefresh(read(-30 * SECOND, 99), NOW)).toBe(false);
+    expect(needsUsageRefresh(read(-60 * SECOND, 99), NOW)).toBe(true);
+  });
+
+  it("ignores a near-limit window whose reset has passed", () => {
+    expect(needsUsageRefresh(read(-1, 99, at(-0.5)), NOW)).toBe(false);
+  });
+
+  it("has nothing to refresh without a reading", () => {
+    const { usageLimits: _usageLimits, ...bare } = account("a", []);
+    expect(needsUsageRefresh(bare, NOW)).toBe(false);
+  });
+});
 
 describe("pickPoolMember", () => {
   it("picks the member with allowance whose usage resets soonest", () => {

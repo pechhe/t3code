@@ -5,6 +5,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, it, assert, expect } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Path from "effect/Path";
 import * as Exit from "effect/Exit";
@@ -1234,6 +1235,7 @@ it.layer(
               refresh: Ref.get(nextProvider),
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,
+              replaceUsageLimits: () => Effect.void,
             },
             orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
@@ -1610,6 +1612,7 @@ it.layer(
             ),
             streamChanges: Stream.empty,
             applyUsageLimits: () => Effect.void,
+            replaceUsageLimits: () => Effect.void,
           },
           orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
           textGeneration: {} as ProviderInstance["textGeneration"],
@@ -1715,6 +1718,7 @@ it.layer(
             refresh: Effect.succeed(provider),
             streamChanges: Stream.empty,
             applyUsageLimits: () => Effect.void,
+            replaceUsageLimits: () => Effect.void,
           },
           snapshotForCwd,
           invalidateCaches: Ref.update(cacheInvalidations, (count) => count + 1),
@@ -1983,6 +1987,7 @@ it.layer(
               ),
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,
+              replaceUsageLimits: () => Effect.void,
             },
             orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2010,6 +2015,7 @@ it.layer(
               ),
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,
+              replaceUsageLimits: () => Effect.void,
             },
             orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2187,6 +2193,7 @@ it.layer(
               }),
               streamChanges: Stream.empty,
               applyUsageLimits: () => Effect.void,
+              replaceUsageLimits: () => Effect.void,
             },
             orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2293,6 +2300,7 @@ it.layer(
             refresh: Effect.succeed(refreshedProvider),
             streamChanges: Stream.fromPubSub(changes),
             applyUsageLimits: () => Effect.void,
+            replaceUsageLimits: () => Effect.void,
           },
           orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
           textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2422,6 +2430,7 @@ it.layer(
               refresh: Effect.succeed(authoritativeProvider),
               streamChanges: Stream.fromPubSub(changes),
               applyUsageLimits: () => Effect.void,
+              replaceUsageLimits: () => Effect.void,
             },
             orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
             textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2526,6 +2535,7 @@ it.layer(
             refresh: Effect.die(new Error("simulated refresh failure")),
             streamChanges: Stream.empty,
             applyUsageLimits: () => Effect.void,
+            replaceUsageLimits: () => Effect.void,
           },
           orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
           textGeneration: {} as ProviderInstance["textGeneration"],
@@ -2571,6 +2581,143 @@ it.layer(
           assert.deepStrictEqual(yield* registry.refreshInstance(codexInstanceId), [
             withBundledCompatibility(cachedProvider),
           ]);
+        }).pipe(Effect.provide(runtimeServices));
+      }),
+    );
+
+    it.effect("shares one usage refresh per instance and keeps the cache when it times out", () =>
+      Effect.gen(function* () {
+        const claudeDriver = ProviderDriverKind.make("claudeAgent");
+        const claudeInstanceId = ProviderInstanceId.make("claudeAgent");
+        const cachedProvider = {
+          instanceId: claudeInstanceId,
+          driver: claudeDriver,
+          status: "ready",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          checkedAt: "2026-04-29T10:00:00.000Z",
+          version: "1.0.0",
+          models: [],
+          slashCommands: [],
+          skills: [],
+        } as const satisfies ServerProvider;
+        const refreshes = yield* Ref.make(0);
+        const refreshTime = yield* Ref.make(Duration.seconds(1));
+        const instance = {
+          instanceId: claudeInstanceId,
+          driverKind: claudeDriver,
+          continuationIdentity: {
+            driverKind: claudeDriver,
+            continuationKey: "claudeAgent:instance:claudeAgent",
+          },
+          displayName: undefined,
+          enabled: true,
+          snapshot: {
+            resolveMaintenance: () =>
+              Effect.succeed(
+                makeManualOnlyProviderMaintenanceCapabilities({
+                  provider: claudeDriver,
+                  packageName: null,
+                }),
+              ),
+            getSnapshot: Effect.succeed(cachedProvider),
+            refresh: Effect.die(new Error("usage refresh must not run the whole probe")),
+            streamChanges: Stream.empty,
+            applyUsageLimits: () => Effect.void,
+            replaceUsageLimits: () => Effect.void,
+          },
+          refreshUsage: Ref.update(refreshes, (count) => count + 1).pipe(
+            Effect.andThen(Ref.get(refreshTime)),
+            Effect.flatMap(Effect.sleep),
+          ),
+          orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
+          textGeneration: {} as ProviderInstance["textGeneration"],
+        } satisfies ProviderInstance;
+        const layerInstanceRegistry = Layer.succeed(
+          ProviderInstanceRegistry.ProviderInstanceRegistry,
+          {
+            getInstance: (instanceId) =>
+              Effect.succeed(instanceId === claudeInstanceId ? instance : undefined),
+            listInstances: Effect.succeed([instance]),
+            listUnavailable: Effect.succeed([]),
+            listPools: Effect.succeed([]),
+            streamChanges: Stream.empty,
+            subscribeChanges: Effect.flatMap(PubSub.unbounded<void>(), (pubsub) =>
+              PubSub.subscribe(pubsub),
+            ),
+          },
+        );
+        const scope = yield* Scope.make();
+        yield* Effect.addFinalizer(() => Scope.close(scope, Exit.void));
+        const runtimeServices = yield* Layer.build(
+          ProviderRegistry.layer.pipe(
+            Layer.provideMerge(layerInstanceRegistry),
+            Layer.provideMerge(
+              ServerConfig.layerTest(process.cwd(), {
+                prefix: "t3-provider-registry-usage-refresh-",
+              }),
+            ),
+            Layer.provideMerge(layerBackgroundPolicyAlwaysRun),
+            Layer.provideMerge(NodeServices.layer),
+          ),
+        ).pipe(Scope.provide(scope));
+
+        yield* Effect.gen(function* () {
+          const registry = yield* ProviderRegistry.ProviderRegistry;
+          const cached = [withBundledCompatibility(cachedProvider)];
+
+          const concurrent = yield* Effect.all(
+            [
+              registry.refreshInstanceUsage(claudeInstanceId),
+              registry.refreshInstanceUsage(claudeInstanceId),
+            ],
+            { concurrency: "unbounded" },
+          ).pipe(Effect.forkChild);
+          yield* TestClock.adjust(Duration.seconds(1));
+          yield* Fiber.join(concurrent);
+          assert.strictEqual(yield* Ref.get(refreshes), 1);
+
+          yield* TestClock.adjust(Duration.minutes(1));
+          yield* Ref.set(refreshTime, Duration.hours(1));
+          const slow = yield* registry
+            .refreshInstanceUsage(claudeInstanceId)
+            .pipe(Effect.forkChild);
+          yield* TestClock.adjust(ProviderRegistry.USAGE_REFRESH_TIMEOUT);
+          assert.deepStrictEqual(yield* Fiber.join(slow), cached);
+          assert.deepStrictEqual(yield* registry.getProviders, cached);
+          assert.strictEqual(yield* Ref.get(refreshes), 2);
+
+          // The timed-out read no longer holds the slot, but it counts as an attempt: calls
+          // within the minute start nothing, and the first call after it reads again.
+          yield* Ref.set(refreshTime, Duration.zero);
+          yield* registry.refreshInstanceUsage(claudeInstanceId);
+          assert.strictEqual(yield* Ref.get(refreshes), 2);
+          yield* TestClock.adjust(Duration.seconds(50));
+          yield* registry.refreshInstanceUsage(claudeInstanceId);
+          assert.strictEqual(yield* Ref.get(refreshes), 2);
+          yield* TestClock.adjust(Duration.seconds(10));
+          yield* registry.refreshInstanceUsage(claudeInstanceId);
+          assert.strictEqual(yield* Ref.get(refreshes), 3);
+
+          // A caller interrupted while it waits doesn't strand the read: it finishes, frees
+          // the slot, and the next window's call reads again.
+          yield* TestClock.adjust(Duration.minutes(1));
+          yield* Ref.set(refreshTime, Duration.seconds(1));
+          const interrupted = yield* registry
+            .refreshInstanceUsage(claudeInstanceId)
+            .pipe(Effect.forkChild);
+          const waiting = yield* registry
+            .refreshInstanceUsage(claudeInstanceId)
+            .pipe(Effect.forkChild);
+          yield* Fiber.interrupt(interrupted);
+          yield* TestClock.adjust(Duration.seconds(1));
+          assert.deepStrictEqual(yield* Fiber.join(waiting), cached);
+          assert.strictEqual(yield* Ref.get(refreshes), 4);
+          yield* TestClock.adjust(Duration.minutes(1));
+          yield* Ref.set(refreshTime, Duration.zero);
+          yield* registry.refreshInstanceUsage(claudeInstanceId);
+          assert.strictEqual(yield* Ref.get(refreshes), 5);
         }).pipe(Effect.provide(runtimeServices));
       }),
     );
@@ -2628,6 +2775,7 @@ it.layer(
             refresh: Effect.succeed(provider),
             streamChanges: Stream.empty,
             applyUsageLimits: () => Effect.void,
+            replaceUsageLimits: () => Effect.void,
           },
           orchestrationAdapter: {} as ProviderInstance["orchestrationAdapter"],
           textGeneration: {} as ProviderInstance["textGeneration"],

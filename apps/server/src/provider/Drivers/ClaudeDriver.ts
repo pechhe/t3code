@@ -2,6 +2,7 @@ import { ClaudeSettings, ProviderDriverKind } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Duration from "effect/Duration";
 import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -21,7 +22,7 @@ import {
 } from "../../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { claudeUsageReader } from "./claudeUsage.ts";
-import { makeClaudeScopedLimitNames } from "../claudeUsageLimits.ts";
+import { makeClaudeScopedLimitNames, recordClaudeUsageResponse } from "../claudeUsageLimits.ts";
 import * as ClaudeResetCredits from "../claudeResetCredits.ts";
 import * as ResetCreditCoordinator from "../resetCreditCoordinator.ts";
 import {
@@ -270,6 +271,23 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
         ),
       );
 
+      // Starts the CLI without touching the capabilities cache, and publishes only a completed
+      // read: a probe that fails or lacks usage leaves the cached snapshot as it was.
+      const refreshUsage = Effect.gen(function* () {
+        const probe = yield* probeClaudeCapabilities(effectiveConfig, processEnv, stateDir);
+        if (!probe?.usage) return;
+        const checkedAt = DateTime.formatIso(yield* DateTime.now);
+        const limits = yield* recordClaudeUsageResponse(scopedLimitNames, {
+          response: probe.usage,
+          checkedAt,
+        });
+        yield* snapshot.replaceUsageLimits(limits);
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fileSystem),
+        Effect.provideService(Path.Path, path),
+        Effect.ignoreCause({ log: true }),
+      );
+
       // Same rules as Codex: serialised on the config directory that holds the
       // login, one request id kept until Claude answers (a cooldown or rate
       // limit is an answer), then a re-probe.
@@ -342,6 +360,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeSettings, ClaudeDriverEnv, Path.
         enabled,
         snapshot,
         invalidateCaches: Cache.invalidateAll(capabilitiesProbeCache),
+        refreshUsage,
         snapshotForCwd: (cwd: string) =>
           snapshot.getSnapshot.pipe(
             Effect.flatMap((machineSnapshot) =>

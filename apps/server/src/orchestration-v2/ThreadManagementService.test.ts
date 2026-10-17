@@ -1,4 +1,4 @@
-import { expect, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import {
   CommandId,
   EnvironmentId,
@@ -43,6 +43,7 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";
 import { DispatchModeLimit, type DispatchModeRefusal } from "./DispatchModeLimit.ts";
 
@@ -523,6 +524,187 @@ it.effect("routes a pooled selection to a member account before the orchestrator
     // Both keep the thread on its member, which still has allowance.
     expect(selections).toEqual([later, later]);
   }).pipe(Effect.provide(layerTest));
+});
+
+describe("pooled routing refreshes the chosen member's usage near its limit", () => {
+  const projectId = ProjectId.make("project:thread-management:pool-refresh");
+  const threadId = ThreadId.make("thread:thread-management:pool-refresh");
+  const pool = ProviderInstanceId.make("claude_pool");
+  const current = ProviderInstanceId.make("claude_current");
+  const other = ProviderInstanceId.make("claude_other");
+  const now = Date.parse("2026-10-15T12:00:00.000Z");
+  const iso = (offsetMs: number) => DateTime.formatIso(DateTime.makeUnsafe(now + offsetMs));
+  const member = (
+    instanceId: ProviderInstanceId,
+    usedPercent: number,
+    readAgoMs: number,
+  ): ServerProvider => ({
+    instanceId,
+    driver: ProviderDriverKind.make("claudeAgent"),
+    enabled: true,
+    installed: true,
+    version: "1.0.0",
+    status: "ready",
+    auth: { status: "authenticated" },
+    checkedAt: iso(-readAgoMs),
+    models: [],
+    slashCommands: [],
+    skills: [],
+    usageLimits: {
+      checkedAt: iso(-readAgoMs),
+      windows: [
+        {
+          id: "five_hour",
+          kind: "session",
+          label: "Session",
+          usedPercent,
+          resetsAt: iso(3_600_000),
+        },
+      ],
+    },
+  });
+
+  // Routes one message on `current` and reports the member it landed on and how many
+  // refreshes the registry was asked for. `refreshedUsedPercent` is what a refresh finds.
+  const route = (input: {
+    readonly usedPercent: number;
+    readonly readAgoMs: number;
+    readonly refreshedUsedPercent: number;
+    /** The other member's reading, by default fresh and well within allowance. */
+    readonly other?: { readonly usedPercent: number; readonly readAgoMs: number };
+  }) => {
+    const dispatched: Array<OrchestrationV2ServerCommand> = [];
+    const refreshed: Array<ProviderInstanceId> = [];
+    return Effect.gen(function* () {
+      yield* TestClock.setTime(now);
+      const providers = yield* Ref.make<ReadonlyArray<ServerProvider>>([
+        member(current, input.usedPercent, input.readAgoMs),
+        member(other, input.other?.usedPercent ?? 10, input.other?.readAgoMs ?? 0),
+        { ...member(other, 10, 0), instanceId: pool, poolMembers: [current, other] },
+      ]);
+      const registry = Layer.mock(ProviderRegistry.ProviderRegistry)({
+        getProviders: Ref.get(providers),
+        refreshInstanceUsage: (instanceId) =>
+          Effect.sync(() => refreshed.push(instanceId)).pipe(
+            Effect.andThen(
+              Ref.updateAndGet(providers, (all) =>
+                all.map((provider) =>
+                  provider.instanceId === instanceId
+                    ? member(instanceId, input.refreshedUsedPercent, 0)
+                    : provider,
+                ),
+              ),
+            ),
+          ),
+      });
+      const layerTest = ThreadManagementService.layer.pipe(
+        Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+        Layer.provide(
+          Layer.mock(Orchestrator.OrchestratorV2)({
+            getThreadRecords: () =>
+              Effect.succeed({
+                thread: { id: threadId, projectId, deletedAt: null },
+              } as unknown as OrchestrationV2ThreadProjection),
+            getThreadShell: () =>
+              Effect.succeed({
+                modelSelection: { instanceId: current, model: "claude-test" },
+              } as unknown as OrchestrationV2ThreadShell),
+            dispatch: (command) =>
+              Effect.sync(() => {
+                dispatched.push(command);
+                return { sequence: 1, storedEvents: [] } as never;
+              }),
+          }),
+        ),
+        Layer.provide(registry),
+        Layer.provide(
+          ServerSettings.layerTest({
+            providerInstances: {
+              [current]: { driver: ProviderDriverKind.make("claudeAgent") },
+              [other]: { driver: ProviderDriverKind.make("claudeAgent") },
+            },
+          }),
+        ),
+        Layer.provide(layerReceiptsTest),
+      );
+      yield* Effect.gen(function* () {
+        const threads = yield* ThreadManagementService.ThreadManagementService;
+        yield* threads.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("command:thread-management:pool-refresh"),
+          threadId,
+          messageId: MessageId.make("message:thread-management:pool-refresh"),
+          text: "Carry on.",
+          attachments: [],
+          modelSelection: { instanceId: pool, model: "claude-test" },
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "user",
+          creationSource: "web",
+        });
+      }).pipe(Effect.provide(layerTest));
+      const [command] = dispatched;
+      return {
+        member: command && "modelSelection" in command ? command.modelSelection?.instanceId : null,
+        refreshed,
+      };
+    });
+  };
+
+  it.effect("refreshes a stale reading at 95% and moves off a member it finds exhausted", () =>
+    Effect.gen(function* () {
+      const result = yield* route({
+        usedPercent: 96,
+        readAgoMs: 120_000,
+        refreshedUsedPercent: 100,
+      });
+      expect(result).toEqual({ member: other, refreshed: [current] });
+    }),
+  );
+
+  it.effect("keeps the member when the refresh finds allowance left", () =>
+    Effect.gen(function* () {
+      const result = yield* route({
+        usedPercent: 96,
+        readAgoMs: 120_000,
+        refreshedUsedPercent: 97,
+      });
+      expect(result).toEqual({ member: current, refreshed: [current] });
+    }),
+  );
+
+  it.effect("refreshes the member a refresh moves it to, each member at most once", () =>
+    Effect.gen(function* () {
+      const result = yield* route({
+        usedPercent: 96,
+        readAgoMs: 120_000,
+        refreshedUsedPercent: 100,
+        other: { usedPercent: 97, readAgoMs: 120_000 },
+      });
+      expect(result.refreshed).toEqual([current, other]);
+    }),
+  );
+
+  it.effect("does not refresh a stale reading below 95%", () =>
+    Effect.gen(function* () {
+      const result = yield* route({
+        usedPercent: 94,
+        readAgoMs: 120_000,
+        refreshedUsedPercent: 100,
+      });
+      expect(result).toEqual({ member: current, refreshed: [] });
+    }),
+  );
+
+  it.effect("does not refresh a reading under a minute old", () =>
+    Effect.gen(function* () {
+      const result = yield* route({
+        usedPercent: 99,
+        readAgoMs: 30_000,
+        refreshedUsedPercent: 100,
+      });
+      expect(result).toEqual({ member: current, refreshed: [] });
+    }),
+  );
 });
 
 it.effect(

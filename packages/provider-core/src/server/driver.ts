@@ -52,6 +52,11 @@ export interface ProviderInstance {
   ) => Effect.Effect<ProviderWorkspaceSnapshot, ProviderDriverError>;
   readonly refreshModels?: () => Effect.Effect<void, ProviderDriverError>;
   readonly invalidateCaches?: Effect.Effect<void>;
+  /**
+   * Re-reads usage limits alone, leaving status, auth and models as cached. A read that fails
+   * changes nothing, so a slow or broken probe never marks the account unavailable.
+   */
+  readonly refreshUsage?: Effect.Effect<void>;
   readonly consumeResetCredit?: () => Effect.Effect<
     ProviderConsumeResetCreditOutcome,
     ProviderDriverError

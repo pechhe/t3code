@@ -22,4 +22,12 @@ export interface ManagedServerProvider {
   readonly applyUsageLimits: (
     update: ProviderUsageLimitsUpdate & { readonly checkedAt: string },
   ) => Effect.Effect<void>;
+  /**
+   * A complete read from a usage-only refresh: replaces the published
+   * windows and `checkedAt` even when the numbers are unchanged, so the
+   * reading counts as fresh. Reset credits stay.
+   */
+  readonly replaceUsageLimits: (
+    usageLimits: NonNullable<ServerProvider["usageLimits"]>,
+  ) => Effect.Effect<void>;
 }
