@@ -44,11 +44,9 @@ it("keeps machine choices usable when the combined row's workspace is locked", a
     await act(async () => {
       root.render(
         <BranchToolbar
-          layout="panel"
           panelSection="workspace"
           environmentId={EnvironmentId.make("local")}
           threadId={ThreadId.make("thread")}
-          showGitControls
           envMode="local"
           envLocked={false}
           startFromOrigin={false}
@@ -104,11 +102,9 @@ it.each([
       await act(async () => {
         root.render(
           <BranchToolbar
-            layout="panel"
             panelSection="workspace"
             environmentId={EnvironmentId.make("local")}
             threadId={ThreadId.make("thread")}
-            showGitControls
             envMode={envMode}
             envLocked={false}
             startFromOrigin={false}

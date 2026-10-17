@@ -372,11 +372,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["composer metal chassis silver anodized black screen colour color skin peach"],
   },
   {
-    id: "composer-context",
-    title: "Composer context",
-    to: "/settings/appearance",
-  },
-  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

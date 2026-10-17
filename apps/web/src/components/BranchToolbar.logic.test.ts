@@ -27,8 +27,6 @@ import {
   resolveSlipJayLandToast,
   sanitizeNewRefName,
   shouldIncludeBranchPickerItem,
-  shouldShowComposerContextStrip,
-  shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
 
 const localEnvironmentId = EnvironmentId.make("environment-local");
@@ -517,115 +515,6 @@ describe("resolveEnvironmentOptionLabel", () => {
         savedLabel: "Build box",
       }),
     ).toBe("Build box");
-  });
-});
-
-describe("shouldShowEnvironmentIndicator", () => {
-  it("shows the indicator whenever multiple environments are pickable", () => {
-    expect(
-      shouldShowEnvironmentIndicator({
-        activeEnvironment: { isPrimary: true },
-        canPickEnvironment: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("shows a sole remote environment so the user knows where the project runs", () => {
-    expect(
-      shouldShowEnvironmentIndicator({
-        activeEnvironment: { isPrimary: false },
-        canPickEnvironment: false,
-      }),
-    ).toBe(true);
-  });
-
-  it("hides a sole primary (this-device) environment", () => {
-    expect(
-      shouldShowEnvironmentIndicator({
-        activeEnvironment: { isPrimary: true },
-        canPickEnvironment: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("hides the indicator when the active environment is unknown", () => {
-    expect(
-      shouldShowEnvironmentIndicator({
-        activeEnvironment: null,
-        canPickEnvironment: false,
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("shouldShowComposerContextStrip", () => {
-  it.each([false, true])(
-    "honors the active-thread preference with resting controls %s",
-    (hostsRestingComposerControls) => {
-      const input = {
-        isDraftHeroState: false,
-        hasActiveProject: true,
-        isGitRepo: true,
-        showEnvironmentIndicator: true,
-        hostsRestingComposerControls,
-      };
-      expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: false })).toBe(
-        false,
-      );
-      expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: true })).toBe(true);
-    },
-  );
-
-  it("keeps the environment indicator visible for a non-Git project", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        persistInActiveThreads: false,
-        hasActiveProject: true,
-        isGitRepo: false,
-        showEnvironmentIndicator: true,
-        hostsRestingComposerControls: false,
-      }),
-    ).toBe(true);
-  });
-
-  it("hides the strip when a non-Git project has nothing to show", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        persistInActiveThreads: false,
-        hasActiveProject: true,
-        isGitRepo: false,
-        showEnvironmentIndicator: false,
-        hostsRestingComposerControls: false,
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps the strip for visible resting composer controls in a non-Git thread", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        persistInActiveThreads: false,
-        hasActiveProject: true,
-        isGitRepo: false,
-        showEnvironmentIndicator: false,
-        hostsRestingComposerControls: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("shows Git controls without requiring an environment indicator", () => {
-    expect(
-      shouldShowComposerContextStrip({
-        isDraftHeroState: true,
-        persistInActiveThreads: false,
-        hasActiveProject: true,
-        isGitRepo: true,
-        showEnvironmentIndicator: false,
-        hostsRestingComposerControls: false,
-      }),
-    ).toBe(true);
   });
 });
 

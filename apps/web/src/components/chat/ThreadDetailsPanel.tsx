@@ -73,7 +73,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
   );
   const activeThreadRef = { environmentId: props.environmentId, threadId: props.threadId };
   const branchToolbarProps = {
-    showGitControls: props.isGitRepo,
     slipJayStatus: props.slipJayStatus,
     environmentId: props.environmentId,
     threadId: props.threadId,
@@ -114,7 +113,6 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             <div className="flex flex-col">
               {density === "full" ? (
                 <BranchToolbar
-                  layout="panel"
                   panelSection="workspace"
                   availableEnvironments={props.availableEnvironments}
                   onEnvironmentChange={props.onEnvironmentChange}
@@ -159,7 +157,7 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
             >
               <div className="flex flex-col">
                 {props.isGitRepo || props.slipJayStatus ? (
-                  <BranchToolbar layout="panel" panelSection="branch" {...branchToolbarProps} />
+                  <BranchToolbar panelSection="branch" {...branchToolbarProps} />
                 ) : null}
                 {props.slipJayStatus ? (
                   <SlipJayLandControl

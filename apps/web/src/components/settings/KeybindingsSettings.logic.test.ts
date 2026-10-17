@@ -25,12 +25,8 @@ describe("KeybindingsSettings.logic", () => {
       "composer.sendBackground",
       "thread.steerQueuedMessage",
       "thread.editQueuedMessage",
-      "composer.host",
       "composer.effort",
       "composer.mode",
-      "composer.workspace",
-      "composer.branch",
-      "composer.previousWorktree",
       "modelPicker.previousProvider",
       "modelPicker.nextProvider",
       "thread.copyReference",
@@ -72,7 +68,7 @@ describe("KeybindingsSettings.logic", () => {
     ]);
     const composer = groups.find((group) => group.id === "composer");
     expect(composer?.rows.map((row) => row.command)).toEqual(
-      expect.arrayContaining(["composer.host", "modelPicker.toggle"]),
+      expect.arrayContaining(["composer.effort", "modelPicker.toggle"]),
     );
     expect(groupKeybindingRows(buildKeybindingRows(DEFAULT_RESOLVED_KEYBINDINGS, "split"))).toEqual(
       [expect.objectContaining({ id: "terminal" })],

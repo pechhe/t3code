@@ -65,11 +65,7 @@ function controlBlockWidths(block: HTMLElement): { natural: number; iconOnly: nu
   return { natural, iconOnly: Math.min(natural, iconOnly) };
 }
 
-/**
- * Both the composer (deciding which blocks move into overflow) and the
- * context strip (deciding whether its labels may expand) read the same
- * numbers, so neither decision depends on what the other one hid last render.
- */
+/** The natural widths the composer decides overflow from, independent of what it hid last render. */
 export function measureRestingComposerControls(
   controls: HTMLElement,
 ): RestingComposerControlsMeasurement | null {

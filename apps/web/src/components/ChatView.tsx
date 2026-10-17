@@ -266,7 +266,6 @@ import { useDeviceState } from "~/state/device";
 import { DeviceSetup } from "./device/DeviceSetup";
 import { Dialog } from "./ui/dialog";
 import { WizardPopup } from "./ui/wizard";
-import { BranchToolbar, type BranchToolbarHandle } from "./BranchToolbar";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
@@ -282,6 +281,7 @@ import {
   GitBranchIcon,
   ShieldQuestionIcon,
   TargetIcon,
+  TriangleAlertIcon,
   WifiOffIcon,
 } from "lucide-react";
 import { cn, randomUUID } from "~/lib/utils";
@@ -431,8 +431,6 @@ import {
   type EnvironmentOption,
   resolveEffectiveEnvMode,
   resolveLocalCheckoutBranchMismatch,
-  shouldShowComposerContextStrip,
-  shouldShowEnvironmentIndicator,
 } from "./BranchToolbar.logic";
 import {
   getProviderStatusBannerKey,
@@ -1287,7 +1285,6 @@ export default function ChatView(props: ChatViewProps) {
   const composerImagesRef = useRef<ComposerImageAttachment[]>([]);
   const composerFilesRef = useRef<ComposerFileAttachment[]>([]);
   const composerTerminalContextsRef = useRef<TerminalContextDraft[]>([]);
-  const branchToolbarRef = useRef<BranchToolbarHandle>(null);
   const pasteAsTextShortcutUntilRef = useRef(0);
   const [restingComposerControlsHost, setRestingComposerControlsHost] =
     useState<HTMLDivElement | null>(null);
@@ -2118,14 +2115,6 @@ export default function ChatView(props: ChatViewProps) {
   })();
   const hasMultipleEnvironments = logicalProjectEnvironments.length > 1;
   const canAutoBalanceEnvironments = hasMultipleEnvironments && !activeProjectIsScratch;
-  const activeEnvironmentOption =
-    logicalProjectEnvironments.find(
-      (environment) => environment.environmentId === activeThread?.environmentId,
-    ) ?? null;
-  const showComposerEnvironmentIndicator = shouldShowEnvironmentIndicator({
-    activeEnvironment: activeEnvironmentOption,
-    canPickEnvironment: hasMultipleEnvironments,
-  });
   const openPullRequestDialog = (reference?: string) => {
     if (!canCheckoutPullRequestIntoThread) {
       return;
@@ -3164,9 +3153,18 @@ export default function ChatView(props: ChatViewProps) {
     }
   }, [activeProjectId, environmentId, liveIsSlipJay]);
   const isSlipJayProject = liveIsSlipJay ?? recallSlipJayProject(environmentId, activeProjectId);
-  // When context is enabled, keep a hidden, off-flow strip mounted so the composer
-  // can measure whether its relocated controls fit. The visible chrome remains
-  // content-driven: Git/environment context or controls that actually fit.
+  // Only a status that says the checkout is not SlipJay warns, so a loading thread never flashes it.
+  const gitProjectBannerItem: ComposerBannerStackItem | null =
+    liveIsGitRepo === true && liveIsSlipJay === false
+      ? {
+          id: "git-project",
+          variant: "warning",
+          priority: "notice",
+          icon: <TriangleAlertIcon />,
+          title: "This is a Git project",
+          description: "We are converting everything to Jujutsu with SlipJay.",
+        }
+      : null;
   // A provider-native subagent cannot take messages: a status bar replaces the
   // composer and its strips. Its approvals and questions are asked on the
   // top-level parent thread.
@@ -3195,28 +3193,7 @@ export default function ChatView(props: ChatViewProps) {
           providerSubagentModels,
           reportedModelSelection,
         );
-  // SlipJay assigns the workspace and its base, so the strip has no Git context to offer;
-  // the thread details card shows the workspace and its landing. Only a status that says
-  // the checkout is not SlipJay shows Git controls, so a loading thread never flashes them.
-  const composerShowsGitControls = isGitRepo && liveIsSlipJay === false;
-  const mountComposerContextStrip = shouldShowComposerContextStrip({
-    isDraftHeroState,
-    persistInActiveThreads: settings.persistComposerContextStrip,
-    hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo: composerShowsGitControls,
-    showEnvironmentIndicator: showComposerEnvironmentIndicator,
-    hostsRestingComposerControls: routeKind === "server",
-  });
-  const showComposerContextStrip = shouldShowComposerContextStrip({
-    isDraftHeroState,
-    persistInActiveThreads: settings.persistComposerContextStrip,
-    hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo: composerShowsGitControls,
-    showEnvironmentIndicator: showComposerEnvironmentIndicator,
-    hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
-  });
-  const mountComposerModelStrip =
-    routeKind === "server" && !mountComposerContextStrip && !showProviderSubagentBar;
+  const mountComposerModelStrip = routeKind === "server" && !showProviderSubagentBar;
   const showComposerModelStrip = mountComposerModelStrip && restingComposerControlsVisible;
   const terminalShortcutLabelOptions = {
     context: {
@@ -5577,6 +5554,7 @@ export default function ChatView(props: ChatViewProps) {
     ].filter((item) => item !== null);
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];
+    const gitProjectItems = gitProjectBannerItem === null ? [] : [gitProjectBannerItem];
     if (!localCheckoutBranchMismatch || !showBranchMismatchBanner || !activeBranchMismatchKey) {
       return [
         ...feedbackBannerItems,
@@ -5585,6 +5563,7 @@ export default function ChatView(props: ChatViewProps) {
         ...projectCloneItems,
         ...projectSuggestionItems,
         ...systemComposerBannerItems,
+        ...gitProjectItems,
         ...backgroundWorkItems,
       ];
     }
@@ -5595,6 +5574,7 @@ export default function ChatView(props: ChatViewProps) {
       ...projectCloneItems,
       ...projectSuggestionItems,
       ...systemComposerBannerItems,
+      ...gitProjectItems,
       ...backgroundWorkItems,
       {
         id: `branch-mismatch:${activeBranchMismatchKey}`,
@@ -5804,10 +5784,8 @@ export default function ChatView(props: ChatViewProps) {
       "modelPicker.toggle": ({ event }) => {
         if (!event.repeat) composerRef.current?.toggleModelPicker();
       },
-      "composer.host": openComposerControl("composer.host"),
       "composer.effort": openComposerControl("composer.effort"),
       "composer.mode": openComposerControl("composer.mode"),
-      "composer.workspace": openComposerControl("composer.workspace"),
       "composer.modelSlot.1": ({ event }) => {
         if (!event.repeat) composerRef.current?.selectModelSlot(0);
       },
@@ -5831,12 +5809,6 @@ export default function ChatView(props: ChatViewProps) {
         );
         const next = logicalProjectEnvironments[(index + 1) % logicalProjectEnvironments.length];
         if (next) onEnvironmentChangeStable(next.environmentId);
-      },
-      "composer.branch": ({ event }) => {
-        if (!event.repeat) branchToolbarRef.current?.openBranchPicker();
-      },
-      "composer.previousWorktree": ({ event }) => {
-        if (!event.repeat) branchToolbarRef.current?.usePreviousWorktree();
       },
       "thread.steerQueuedMessage": ({ event }) =>
         routeKind !== "draft" && queuedRunsControlRef.current?.steerNext(event.repeat) === true,
@@ -8572,9 +8544,7 @@ export default function ChatView(props: ChatViewProps) {
                         : undefined
                     }
                   >
-                    <ComposerSurface.Shell
-                      contextStrip={showComposerContextStrip || showComposerModelStrip}
-                    >
+                    <ComposerSurface.Shell contextStrip={showComposerModelStrip}>
                       <ComposerSurface.Host
                         inert={queuedRunEdit.isSaving}
                         aria-busy={queuedRunEdit.isSaving}
@@ -8723,10 +8693,6 @@ export default function ChatView(props: ChatViewProps) {
                               }
                               threadPullRequests={(activeThreadShell ?? activeThread)?.pullRequests}
                               restingControlsHost={restingComposerControlsHost}
-                              restingControlsHaveLeadingContext={
-                                mountComposerContextStrip &&
-                                (composerShowsGitControls || showComposerEnvironmentIndicator)
-                              }
                               onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                               getTimelineScrollableNode={getTimelineScrollableNodeStable}
                               isTimelineAtLogicalEnd={isTimelineAtLogicalEndStable}
@@ -8800,50 +8766,6 @@ export default function ChatView(props: ChatViewProps) {
                               />
                             </ComposerSurface.ContextStrip>
                           ) : null}
-                          {mountComposerContextStrip && (
-                            <div className="pointer-events-auto">
-                              <BranchToolbar
-                                forceNewWorktree={multipleModelSelections !== null}
-                                ref={branchToolbarRef}
-                                environmentId={activeThread.environmentId}
-                                threadId={activeThread.id}
-                                showGitControls={composerShowsGitControls}
-                                {...(routeKind === "draft" && draftId ? { draftId } : {})}
-                                onEnvModeChange={onEnvModeChangeStable}
-                                startFromOrigin={startFromOrigin}
-                                onStartFromOriginChange={onStartFromOriginChange}
-                                envMode={envMode}
-                                {...(canOverrideServerThreadEnvMode
-                                  ? {
-                                      activeThreadBranchOverride: activeThreadBranch,
-                                      onActiveThreadBranchOverrideChange:
-                                        setPendingServerThreadBranch,
-                                    }
-                                  : {})}
-                                envLocked={envLocked}
-                                onComposerFocusRequest={scheduleComposerFocusStable}
-                                {...(canCheckoutPullRequestIntoThread
-                                  ? { onCheckoutPullRequestRequest: openPullRequestDialogStable }
-                                  : {})}
-                                {...(hasMultipleEnvironments
-                                  ? { onEnvironmentChange: onEnvironmentChangeStable }
-                                  : {})}
-                                autoEnvironmentLabel={autoEnvironmentLabel}
-                                onAutoEnvironment={
-                                  draftId &&
-                                  !envLocked &&
-                                  canAutoBalanceEnvironments &&
-                                  loadBalancingSettings.loadBalancingEnabled
-                                    ? onAutoEnvironmentStable
-                                    : undefined
-                                }
-                                availableEnvironments={logicalProjectEnvironments}
-                                hideEnvironment={switchEnvironments !== null}
-                                composerControlsHostRef={setRestingComposerControlsHost}
-                                contextStripVisible={showComposerContextStrip}
-                              />
-                            </div>
-                          )}
                         </div>
                       </div>
                     </ComposerSurface.Shell>

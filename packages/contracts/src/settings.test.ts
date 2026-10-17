@@ -398,15 +398,6 @@ describe("ClientSettings load balancing", () => {
   });
 });
 
-describe("ClientSettings composer context strip", () => {
-  it("defaults to draft-only and accepts a persistent strip preference", () => {
-    expect(decodeClientSettings({}).persistComposerContextStrip).toBe(false);
-    expect(
-      decodeClientSettingsPatch({ persistComposerContextStrip: true }).persistComposerContextStrip,
-    ).toBe(true);
-  });
-});
-
 describe("ClientSettings word wrap", () => {
   it("defaults word wrap on", () => {
     expect(decodeClientSettings({}).wordWrap).toBe(true);

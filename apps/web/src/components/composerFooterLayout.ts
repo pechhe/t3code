@@ -130,18 +130,6 @@ function restingComposerControlsWidth(
   );
 }
 
-/**
- * The context strip reserves this much for the composer before deciding whether its own labels
- * may expand. Judging against the currently visible controls instead lets the strip expand into
- * space the composer just gave up, which shrinks the host, hides the controls again, and
- * repeats.
- */
-export function resolveRestingComposerControlsNaturalWidth(
-  input: RestingComposerControlsMeasurement,
-): number {
-  return restingComposerControlsWidth(input, 0);
-}
-
 const RESTING_CONTROLS_SLACK_PX = 1;
 
 export function resolveRestingComposerControlsLayout(

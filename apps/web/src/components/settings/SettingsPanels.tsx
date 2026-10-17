@@ -609,10 +609,6 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.composerFinish !== DEFAULT_UNIFIED_SETTINGS.composerFinish
       ? ["Composer finish"]
       : []),
-    ...(settings.persistComposerContextStrip !==
-    DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip
-      ? ["Composer context"]
-      : []),
     ...getChangedTypographySettingLabels(settings),
     ...(settings.diffFilesCollapsed !== DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed
       ? ["Default diff file state"]
@@ -748,7 +744,6 @@ export function useSettingsRestore(onRestored?: () => void) {
       queueSound: DEFAULT_UNIFIED_SETTINGS.queueSound,
       settleSound: DEFAULT_UNIFIED_SETTINGS.settleSound,
       composerFinish: DEFAULT_UNIFIED_SETTINGS.composerFinish,
-      persistComposerContextStrip: DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
       diffFilesCollapsed: DEFAULT_UNIFIED_SETTINGS.diffFilesCollapsed,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       diffLayout: DEFAULT_UNIFIED_SETTINGS.diffLayout,
@@ -1340,34 +1335,6 @@ export function AppearanceSettingsPanel() {
                 </SelectPopup>
               </Select>
             </div>
-          }
-        />
-
-        <SettingsRow
-          {...searchableSetting("composer-context")}
-          description="Keep branch and worktree controls below the composer after a thread starts."
-          resetAction={
-            settings.persistComposerContextStrip !==
-            DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip ? (
-              <SettingResetButton
-                label="composer context"
-                onClick={() =>
-                  updateSettings({
-                    persistComposerContextStrip:
-                      DEFAULT_UNIFIED_SETTINGS.persistComposerContextStrip,
-                  })
-                }
-              />
-            ) : null
-          }
-          control={
-            <Switch
-              checked={settings.persistComposerContextStrip}
-              onCheckedChange={(checked) =>
-                updateSettings({ persistComposerContextStrip: Boolean(checked) })
-              }
-              aria-label="Keep composer context visible in active threads"
-            />
           }
         />
 

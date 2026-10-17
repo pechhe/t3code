@@ -909,9 +909,9 @@ function useComposerRestingTransition(
     const requestId = transitionLayoutRequestRef.current + 1;
     transitionLayoutRequestRef.current = requestId;
     const stateChanged = previousCollapsedRef.current !== isCollapsed;
-    // A non-Git context strip enters or leaves flow through ChatView state in
-    // an earlier layout effect. Let React flush that parent update before the
-    // FLIP reads its destination geometry, while still running before paint.
+    // The model strip enters or leaves flow through ChatView state in an earlier
+    // layout effect. Let React flush that parent update before the FLIP reads its
+    // destination geometry, while still running before paint.
     queueMicrotask(() => {
       if (transitionLayoutRequestRef.current !== requestId) return;
       transitionToCurrentGeometry(stateChanged);
@@ -1629,7 +1629,6 @@ export interface ChatComposerProps {
   pullRequestRepository: string | null;
   threadPullRequests: ReadonlyArray<ThreadPullRequestLink> | undefined;
   restingControlsHost: HTMLDivElement | null;
-  restingControlsHaveLeadingContext: boolean;
   onRestingControlsVisibilityChange: (visible: boolean) => void;
   getTimelineScrollableNode: () => HTMLElement | null;
   isTimelineAtLogicalEnd: () => boolean;
@@ -1988,7 +1987,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     pullRequestRepository,
     threadPullRequests,
     restingControlsHost,
-    restingControlsHaveLeadingContext,
     onRestingControlsVisibilityChange,
     getTimelineScrollableNode,
     isTimelineAtLogicalEnd,
@@ -5439,15 +5437,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     </>
   ) : (
     <>
-      {composerControlsCollapsed &&
-      restingControlsHost !== null &&
-      restingControlsHaveLeadingContext ? (
-        <ComposerControlSeparator
-          size="xs"
-          className="@max-[400px]/composer-surface:hidden"
-          data-resting-controls-separator="true"
-        />
-      ) : null}
       {renderProviderModelPicker()}
 
       <>
