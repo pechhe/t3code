@@ -1,8 +1,11 @@
 import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  formatSlipJayDuration,
   resolveSlipJayOperationLabel,
   resolveSlipJayQueueLabel,
   resolveSlipJayRunnerSummary,
+  SLIPJAY_LANDING_STAGES,
   slipJayWorkspaceName,
 } from "@t3tools/client-runtime/slipjay-checkout";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -14,6 +17,7 @@ import type {
 } from "@t3tools/contracts";
 import { useMemo, useState, type ReactNode } from "react";
 
+import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
 import { toastManager } from "~/components/ui/toast";
@@ -24,12 +28,13 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { SlipJayReleaseDialog } from "./SlipJayReleaseDialog";
-
-const TONE_DOT_CLASS = {
-  idle: "bg-muted-foreground/50",
-  busy: "bg-info",
-  attention: "bg-warning",
-} as const;
+import {
+  SlipJayMark,
+  SlipJayStageDots,
+  SlipJayTicket,
+  useSlipJaySpec,
+  useNow,
+} from "./SlipJayTicket";
 
 /** The latest deploy of each repository to each environment, newest first. */
 function latestDeploys(deploys: ReadonlyArray<SlipJayRunnerDeploy>) {
@@ -101,42 +106,67 @@ export function SlipJayRunnerControl({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger
           render={
-            <Button
-              size="xs"
-              variant="ghost"
-              className="shrink-0 [-webkit-app-region:no-drag]"
-              aria-label={summary.label}
+            <button
+              type="button"
+              className="shrink-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-ring [-webkit-app-region:no-drag]"
+              aria-label={`SlipJay: ${summary.label}`}
             />
           }
         >
-          <span aria-hidden className={cn("size-1.5 rounded-full", TONE_DOT_CLASS[summary.tone])} />
-          <span className="max-sm:hidden">{summary.label}</span>
+          <SlipJayTicket
+            tone={summary.tone === "busy" ? "running" : "waiting"}
+            className="h-6 text-xs"
+            stub={<SlipJayMark />}
+          >
+            <span
+              className={cn(
+                "pe-2 font-mono max-sm:hidden",
+                summary.tone === "attention" && "text-warning",
+              )}
+            >
+              {summary.label}
+            </span>
+          </SlipJayTicket>
         </PopoverTrigger>
         <PopoverPopup side="bottom" align="end" width="md" padding="compact">
           <div className="flex flex-col gap-3 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">
-                {overview.connected ? "Runner connected" : "Reconnecting to the runner"}
+            <div className="flex items-center gap-2 border-b pb-2">
+              <SlipJayMark className="size-4 text-foreground [--jay-beak:var(--color-slipjay)] [--jay-eye:var(--popover)]" />
+              <span className="font-mono font-semibold text-xs">slipjay</span>
+              <span
+                aria-hidden
+                className={cn(
+                  "size-1.5 rounded-full",
+                  overview.connected ? "bg-slipjay-mint" : "bg-warning",
+                )}
+              />
+              <span className="ms-auto text-muted-foreground text-xs">
+                {overview.paused
+                  ? "Paused"
+                  : overview.connected
+                    ? "Runner connected"
+                    : "Reconnecting to the runner"}
               </span>
-              {overview.paused ? <span className="text-warning text-xs">Paused</span> : null}
             </div>
             <RunnerLane
-              title="Serial lane"
+              title="Landing"
               environmentId={environmentId}
               operations={overview.serial}
               threadsByWorkspace={threadsByWorkspace}
               showRepository={showRepository}
+              open={open}
               onOpenThread={(threadId) => {
                 setOpen(false);
                 onOpenThread(threadId);
               }}
             />
             <RunnerLane
-              title="Deploy lane"
+              title="Deploys"
               environmentId={environmentId}
               operations={overview.deploy}
               threadsByWorkspace={threadsByWorkspace}
               showRepository={showRepository}
+              open={open}
               onOpenThread={(threadId) => {
                 setOpen(false);
                 onOpenThread(threadId);
@@ -145,10 +175,12 @@ export function SlipJayRunnerControl({
             {overview.deploys.length > 0 || release !== null ? (
               <RunnerSection title="Environments">
                 {latestDeploys(overview.deploys).map((deploy) => (
-                  <div key={deploy.operationId} className="flex min-w-0 items-baseline gap-2 px-2">
+                  <div key={deploy.operationId} className="flex min-w-0 items-baseline gap-2 px-1">
                     <span className="min-w-0 flex-1 truncate">
-                      <span className="capitalize">{deploy.environment}</span>{" "}
-                      <span className="font-mono text-xs">{deploy.commitId.slice(0, 8)}</span>
+                      <span className="font-medium capitalize">{deploy.environment}</span>{" "}
+                      <span className="font-mono text-muted-foreground text-xs">
+                        {deploy.commitId.slice(0, 7)}
+                      </span>
                       {showRepository ? (
                         <span className="text-muted-foreground"> · {deploy.repo}</span>
                       ) : null}
@@ -170,7 +202,7 @@ export function SlipJayRunnerControl({
                   <Button
                     size="xs"
                     variant="outline"
-                    className="mx-2 mt-1 self-start"
+                    className="mx-1 mt-1 self-start"
                     disabled={releaseStatus == null || !hasRelease}
                     onClick={() => {
                       setOpen(false);
@@ -199,8 +231,10 @@ export function SlipJayRunnerControl({
 
 function RunnerSection({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="flex flex-col gap-1">
-      <h3 className="px-2 text-muted-foreground text-xs">{title}</h3>
+    <section className="flex flex-col gap-1.5">
+      <h3 className="px-1 font-mono font-semibold text-2xs text-muted-foreground uppercase tracking-widest">
+        {title}
+      </h3>
       {children}
     </section>
   );
@@ -212,6 +246,7 @@ function RunnerLane({
   operations,
   threadsByWorkspace,
   showRepository,
+  open,
   onOpenThread,
 }: {
   title: string;
@@ -219,12 +254,14 @@ function RunnerLane({
   operations: ReadonlyArray<SlipJayRunnerOperation>;
   threadsByWorkspace: ReadonlyMap<string, { id: ThreadId; title: string }>;
   showRepository: boolean;
+  open: boolean;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
+  const now = useNow(open && operations.length > 0);
   return (
     <RunnerSection title={title}>
       {operations.length === 0 ? (
-        <span className="px-2 text-muted-foreground">Idle</span>
+        <span className="px-1 text-muted-foreground text-xs">Idle</span>
       ) : (
         operations.map((operation) => (
           <RunnerOperationRow
@@ -237,6 +274,7 @@ function RunnerLane({
                 : threadsByWorkspace.get(operation.workspaceName)
             }
             showRepository={showRepository}
+            now={now}
             onOpenThread={onOpenThread}
           />
         ))
@@ -245,59 +283,100 @@ function RunnerLane({
   );
 }
 
+/**
+ * One operation as a ticket. A landing leads with the Spec it delivers, read from the
+ * submitting thread's Build link; without one it shows the thread's title.
+ */
 function RunnerOperationRow({
   environmentId,
   operation,
   thread,
   showRepository,
+  now,
   onOpenThread,
 }: {
   environmentId: EnvironmentId;
   operation: SlipJayRunnerOperation;
   thread: { id: ThreadId; title: string } | undefined;
   showRepository: boolean;
+  now: number;
   onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const label = thread?.title ?? resolveSlipJayOperationLabel(operation);
+  const isLanding = operation.kind === "landing";
+  const spec = useSlipJaySpec(
+    isLanding && thread !== undefined ? scopeThreadRef(environmentId, thread.id) : null,
+  );
+  const running = operation.status === "running";
+  const stage = SLIPJAY_LANDING_STAGES.indexOf(
+    operation.stage as (typeof SLIPJAY_LANDING_STAGES)[number],
+  );
+  const title = isLanding
+    ? (spec?.title ?? thread?.title ?? resolveSlipJayOperationLabel(operation))
+    : resolveSlipJayOperationLabel(operation);
   const detail = [
     resolveSlipJayQueueLabel(operation) ?? operation.stage,
+    ...(running && operation.submittedAt !== undefined
+      ? [formatSlipJayDuration(now - Date.parse(operation.submittedAt))]
+      : []),
     ...(thread === undefined && operation.workspaceName === undefined
       ? [operation.submittedBy]
       : []),
     ...(showRepository ? [operation.repo] : []),
   ].join(" · ");
-  const body = (
-    <>
-      <span
-        aria-hidden
-        className={cn(
-          "mt-1.5 size-1.5 shrink-0 rounded-full",
-          operation.status === "running" ? "bg-info" : "bg-warning",
-        )}
-      />
-      <span className="flex min-w-0 flex-1 flex-col text-left">
-        <span className="truncate">{label}</span>
-        <span className="truncate text-muted-foreground text-xs">{detail}</span>
-      </span>
-    </>
+  const heading = (
+    <span className="flex min-w-0 items-center gap-1.5">
+      {/* Without the workspace's attached Issue a row cannot say there is no Spec. */}
+      {spec === null ? null : (
+        <span className="shrink-0 font-mono text-muted-foreground text-xs">#{spec.number}</span>
+      )}
+      <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+      {spec?.held ? (
+        <Badge size="sm" variant="warning">
+          Held
+        </Badge>
+      ) : spec?.status ? (
+        <Badge size="sm" variant="secondary">
+          {spec.status}
+        </Badge>
+      ) : null}
+    </span>
   );
   return (
-    <div className="flex min-w-0 items-start gap-1">
-      {thread === undefined ? (
-        <div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1">{body}</div>
-      ) : (
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 rounded-md px-2 py-1 hover:bg-accent"
-          onClick={() => onOpenThread(thread.id)}
-        >
-          {body}
-        </button>
-      )}
+    <SlipJayTicket
+      tone={running ? "running" : "waiting"}
+      className="min-h-12"
+      stub={
+        <span className="flex w-5 flex-col items-center gap-0.5">
+          <SlipJayMark />
+          {operation.position === undefined ? null : <span>{operation.position}</span>}
+        </span>
+      }
+    >
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-1.5">
+        {thread === undefined ? (
+          heading
+        ) : (
+          <button
+            type="button"
+            className="min-w-0 cursor-pointer rounded-sm text-start hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+            onClick={() => onOpenThread(thread.id)}
+          >
+            {heading}
+          </button>
+        )}
+        <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+          {isLanding && stage >= 0 ? (
+            <SlipJayStageDots tone="running" completed={stage} current={stage} />
+          ) : null}
+          <span className="min-w-0 truncate font-mono">{detail}</span>
+        </span>
+      </span>
       {operation.status === "queued" ? (
-        <SlipJayCancelButton environmentId={environmentId} operationId={operation.operationId} />
+        <span className="shrink-0 pe-1">
+          <SlipJayCancelButton environmentId={environmentId} operationId={operation.operationId} />
+        </span>
       ) : null}
-    </div>
+    </SlipJayTicket>
   );
 }
 

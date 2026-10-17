@@ -262,6 +262,10 @@ export const SlipJayRunnerOperation = Schema.Struct({
   /** 1-based place in its lane across repositories; 1 is running or next. */
   position: Schema.optional(Schema.Number),
   submittedAt: Schema.optional(Schema.String),
+  /** When the operation entered its current `stage`. */
+  stageStartedAt: Schema.optional(Schema.String),
+  /** The runner's median duration of `stage` for this kind of operation; absent without samples. */
+  stageMedianMs: Schema.optional(Schema.Number),
   commitId: Schema.optional(Schema.String),
   /** A deploy's environment, such as `staging`. */
   environment: Schema.optional(Schema.String),

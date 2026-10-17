@@ -375,6 +375,7 @@ import {
 import { threadEnvironment } from "../state/threads";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
+import { SlipJayLandingChip } from "./SlipJayLandingChip";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
@@ -8534,6 +8535,17 @@ export default function ChatView(props: ChatViewProps) {
                         />
                       </div>
                     </div>
+                  ) : null}
+                  {!isDraftHeroState &&
+                  isServerThread &&
+                  activeThreadRef !== null &&
+                  slipJayStatus !== null ? (
+                    <SlipJayLandingChip
+                      environmentId={activeThreadRef.environmentId}
+                      threadRef={activeThreadRef}
+                      status={slipJayStatus}
+                      onComposerFocusRequest={focusComposerStable}
+                    />
                   ) : null}
                   <div
                     ref={draftHeroComposerAnchorRef}

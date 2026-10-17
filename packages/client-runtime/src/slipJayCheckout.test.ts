@@ -7,8 +7,11 @@ import type {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  formatSlipJayDuration,
   resolveSlipJayBaseLabel,
   resolveSlipJayCheckoutStatus,
+  resolveSlipJayLandingChip,
+  resolveSlipJayStageProgress,
   resolveSlipJayLandingLabel,
   resolveSlipJayQueueLabel,
   resolveSlipJayRunnerSummary,
@@ -169,7 +172,7 @@ describe("SlipJay runner", () => {
 
   it("summarises the lanes, and hides a runner this environment never reached", () => {
     expect(resolveSlipJayRunnerSummary(overview({ connected: false }))).toBeNull();
-    expect(resolveSlipJayRunnerSummary(overview({}))?.label).toBe("SlipJay · idle");
+    expect(resolveSlipJayRunnerSummary(overview({}))?.label).toBe("idle");
     expect(
       resolveSlipJayRunnerSummary(
         overview({
@@ -177,12 +180,121 @@ describe("SlipJay runner", () => {
           deploy: [operation({ operationId: "op_c", kind: "deploy" })],
         }),
       )?.label,
-    ).toBe("SlipJay · 1 running · 2 queued");
+    ).toBe("1 running · 2 queued");
     expect(resolveSlipJayRunnerSummary(overview({ paused: true }))?.tone).toBe("attention");
   });
 
   it("names a thread's workspace after its directory", () => {
     expect(slipJayWorkspaceName("/Users/h/.slipjay/workspaces/t3-one/")).toBe("t3-one");
     expect(slipJayWorkspaceName(null)).toBeNull();
+  });
+});
+
+describe("SlipJay landing chip", () => {
+  const NOW = Date.parse("2026-10-17T15:10:00.000Z");
+  const landing = (overrides: Partial<VcsStatusSlipJayLanding>): VcsStatusSlipJayLanding => ({
+    operationId: "op_a",
+    status: "active",
+    stage: "verifying",
+    live: true,
+    ...overrides,
+  });
+  const operation = (overrides: Partial<SlipJayRunnerOperation>): SlipJayRunnerOperation => ({
+    operationId: "op_a",
+    kind: "landing",
+    repo: "pechhe/t3code",
+    status: "running",
+    stage: "verifying",
+    submittedBy: "host:t3-one",
+    submittedAt: "2026-10-17T15:08:24.000Z",
+    ...overrides,
+  });
+
+  it("formats durations as seconds, then minutes and hours", () => {
+    expect(formatSlipJayDuration(42_400)).toBe("42s");
+    expect(formatSlipJayDuration(96_000)).toBe("1:36");
+    expect(formatSlipJayDuration(3_725_000)).toBe("1:02:05");
+    expect(formatSlipJayDuration(-5)).toBe("0s");
+  });
+
+  it("counts the stages a landing finished, and where it stopped", () => {
+    expect(resolveSlipJayStageProgress(landing({ stage: "verifying" }))).toEqual({
+      completed: 3,
+      current: 3,
+    });
+    expect(resolveSlipJayStageProgress(landing({ status: "landed", stage: "publishing" }))).toEqual(
+      {
+        completed: 7,
+        current: null,
+      },
+    );
+    expect(resolveSlipJayStageProgress(landing({ stage: "queued" }))).toEqual({
+      completed: 0,
+      current: null,
+    });
+  });
+
+  it("says where a waiting landing is in the queue and how long it has waited", () => {
+    expect(
+      resolveSlipJayLandingChip(
+        landing({ stage: "queued" }),
+        operation({ status: "queued", stage: "queued", position: 3 }),
+        NOW,
+      ),
+    ).toEqual({ tone: "waiting", label: "waiting", detail: "2 ahead", elapsed: "1:36" });
+    expect(
+      resolveSlipJayLandingChip(
+        landing({ stage: "queued" }),
+        operation({ status: "queued", position: 1 }),
+        NOW,
+      ).detail,
+    ).toBe("next");
+  });
+
+  it("treats a landing as running once its own stage moves on, whatever a stale overview says", () => {
+    expect(
+      resolveSlipJayLandingChip(
+        landing({ stage: "verifying" }),
+        operation({ status: "queued", stage: "queued", position: 2 }),
+        NOW,
+      ),
+    ).toMatchObject({ tone: "running", label: "verifying" });
+  });
+
+  it("estimates what is left of the running stage from the runner's median", () => {
+    const running = operation({
+      stageStartedAt: "2026-10-17T15:09:00.000Z",
+      stageMedianMs: 77_000,
+    });
+    expect(resolveSlipJayLandingChip(landing({}), running, NOW)).toEqual({
+      tone: "running",
+      label: "verifying",
+      detail: "~17s left",
+      elapsed: "1:36",
+    });
+    expect(resolveSlipJayLandingChip(landing({}), running, NOW + 60_000).detail).toBe(
+      "slower than usual",
+    );
+    // The overview has not caught up with the landing's newer stage, so its timing is stale.
+    expect(
+      resolveSlipJayLandingChip(landing({ stage: "integrating" }), running, NOW).detail,
+    ).toBeNull();
+    expect(resolveSlipJayLandingChip(landing({ live: false }), null, NOW)).toMatchObject({
+      label: "verifying · reconnecting",
+      elapsed: null,
+    });
+  });
+
+  it("names the outcome once the landing ends", () => {
+    expect(
+      resolveSlipJayLandingChip(landing({ status: "landed", commitId: "3bf779b4d356" }), null, NOW),
+    ).toEqual({ tone: "landed", label: "landed", detail: "3bf779b", elapsed: null });
+    expect(resolveSlipJayLandingChip(landing({ status: "failed" }), null, NOW)).toMatchObject({
+      tone: "failed",
+      label: "failed at verifying",
+    });
+    expect(resolveSlipJayLandingChip(landing({ status: "cancelled" }), null, NOW).tone).toBe(
+      "ended",
+    );
   });
 });

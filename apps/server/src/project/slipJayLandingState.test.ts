@@ -401,6 +401,45 @@ describe("runnerOverviewFromSnapshot", () => {
     expect(overview.deploys.map((deploy) => deploy.operationId)).toEqual(["op_staging"]);
   });
 
+  it("carries when the running stage started and its median, without the rest of the timing", () => {
+    const overview = runnerOverviewFromSnapshot(
+      snapshotOf({
+        seq: 3,
+        lanes: {
+          serial: [
+            {
+              id: "op_running",
+              repo: REPO,
+              changeId: "c1",
+              stage: "verifying",
+              status: "running",
+              stageStartedAt: "2026-10-17T15:00:00.000Z",
+              timing: { state: "normal", medianMs: 77_000, amberAfterMs: 154_000, samples: 85 },
+              submittedBy: `${HOST}:ys-one`,
+            },
+            {
+              id: "op_queued",
+              repo: REPO,
+              changeId: "c2",
+              stage: "queued",
+              status: "queued",
+              timing: { state: "unknown", medianMs: null, samples: 0 },
+              submittedBy: `${HOST}:ys-two`,
+            },
+          ],
+        },
+      }),
+      HOST,
+    );
+    expect(
+      overview.serial.map(({ stageStartedAt, stageMedianMs }) => [stageStartedAt, stageMedianMs]),
+    ).toEqual([
+      ["2026-10-17T15:00:00.000Z", 77_000],
+      [undefined, undefined],
+    ]);
+    expect(JSON.stringify(overview)).not.toContain("amberAfterMs");
+  });
+
   it("reports a paused queue", () => {
     const overview = runnerOverviewFromSnapshot(
       snapshotOf({ seq: 1, lanes: { serial: [] }, paused: { by: "owner" } }),

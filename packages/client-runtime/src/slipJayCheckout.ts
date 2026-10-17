@@ -123,8 +123,8 @@ export function resolveSlipJayQueueLabel(operation: SlipJayRunnerOperation): str
 }
 
 /**
- * The header's one-line summary of the runner, or null when this environment follows
- * no SlipJay runner. Counts only what is open in the lanes.
+ * The header's one-line summary of the runner, such as `1 running · 2 queued`, or null
+ * when this environment follows no SlipJay runner. Counts only what is open in the lanes.
  */
 export function resolveSlipJayRunnerSummary(
   overview: SlipJayRunnerOverview | null | undefined,
@@ -132,8 +132,8 @@ export function resolveSlipJayRunnerSummary(
   if (overview === null || overview === undefined) return null;
   const open = [...overview.serial, ...overview.deploy];
   if (!overview.connected && open.length === 0 && overview.deploys.length === 0) return null;
-  if (!overview.connected) return { label: "SlipJay · reconnecting", tone: "attention" };
-  if (overview.paused) return { label: "SlipJay · paused", tone: "attention" };
+  if (!overview.connected) return { label: "reconnecting", tone: "attention" };
+  if (overview.paused) return { label: "paused", tone: "attention" };
   const running = open.filter((operation) => operation.status === "running").length;
   const queued = open.filter((operation) => operation.status === "queued").length;
   const parts = [
@@ -141,8 +141,8 @@ export function resolveSlipJayRunnerSummary(
     ...(queued > 0 ? [`${queued} queued`] : []),
   ];
   return parts.length === 0
-    ? { label: "SlipJay · idle", tone: "idle" }
-    : { label: `SlipJay · ${parts.join(" · ")}`, tone: "busy" };
+    ? { label: "idle", tone: "idle" }
+    : { label: parts.join(" · "), tone: "busy" };
 }
 
 /** What a runner row is, in the words a lane shows it with. */
@@ -170,4 +170,109 @@ export function resolveSlipJayFixPrompt(landing: VcsStatusSlipJayLanding): strin
     `The SlipJay landing ${landing.operationId} failed at ${landing.stage}${reason}.`,
     `Read its log with \`slipjay runner log ${landing.operationId}\`, fix the cause in this workspace, and land again.`,
   ].join("\n");
+}
+
+/** A landing's stages after the queue, in the order the runner moves through them. */
+export const SLIPJAY_LANDING_STAGES = [
+  "fetching",
+  "rebasing",
+  "installing",
+  "verifying",
+  "integrating",
+  "finalizing",
+  "publishing",
+] as const;
+
+/**
+ * How far a landing got through `SLIPJAY_LANDING_STAGES`: how many it finished and the one
+ * it is in, or stopped in when it failed. A stage SlipJay adds later counts as none.
+ */
+export function resolveSlipJayStageProgress(landing: VcsStatusSlipJayLanding): {
+  completed: number;
+  current: number | null;
+} {
+  if (landing.status === "landed")
+    return { completed: SLIPJAY_LANDING_STAGES.length, current: null };
+  const index = SLIPJAY_LANDING_STAGES.indexOf(
+    landing.stage as (typeof SLIPJAY_LANDING_STAGES)[number],
+  );
+  return index < 0 ? { completed: 0, current: null } : { completed: index, current: index };
+}
+
+/** `42s`, `1:36` or `1:02:05`. */
+export function formatSlipJayDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = String(total % 60).padStart(2, "0");
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`
+    : `${minutes}:${seconds}`;
+}
+
+export type SlipJayLandingChipTone = "waiting" | "running" | "failed" | "landed" | "ended";
+
+/**
+ * What a thread's landing chip says about its landing. `operation` is the landing's row in
+ * the runner's lanes, read for its queue place and timing; the overview can trail the
+ * landing's own stage, so its timing counts only while both name the same stage.
+ */
+export function resolveSlipJayLandingChip(
+  landing: VcsStatusSlipJayLanding,
+  operation: SlipJayRunnerOperation | null,
+  now: number,
+): { tone: SlipJayLandingChipTone; label: string; detail: string | null; elapsed: string | null } {
+  const elapsed =
+    landing.status === "active" && operation?.submittedAt !== undefined
+      ? formatSlipJayDuration(now - Date.parse(operation.submittedAt))
+      : null;
+  switch (landing.status) {
+    case "active": {
+      // The landing's own stage is current; the overview only adds its queue place.
+      if (landing.stage === "queued") {
+        const ahead =
+          operation?.status !== "queued" || operation.position === undefined
+            ? null
+            : operation.position - 1;
+        return {
+          tone: "waiting",
+          label: "waiting",
+          detail: ahead === null ? null : ahead <= 0 ? "next" : `${ahead} ahead`,
+          elapsed,
+        };
+      }
+      const timing = operation?.stage === landing.stage ? operation : null;
+      const left =
+        timing?.stageStartedAt === undefined || timing.stageMedianMs === undefined
+          ? null
+          : timing.stageMedianMs - (now - Date.parse(timing.stageStartedAt));
+      return {
+        tone: "running",
+        label: landing.live ? landing.stage : `${landing.stage} · reconnecting`,
+        detail:
+          left === null
+            ? null
+            : left > 0
+              ? `~${formatSlipJayDuration(left)} left`
+              : "slower than usual",
+        elapsed,
+      };
+    }
+    case "landed":
+      return {
+        tone: "landed",
+        label: "landed",
+        detail: landing.commitId === undefined ? null : landing.commitId.slice(0, 7),
+        elapsed: null,
+      };
+    case "failed":
+      return { tone: "failed", label: `failed at ${landing.stage}`, detail: null, elapsed: null };
+    case "cancelled":
+      return { tone: "ended", label: "cancelled", detail: null, elapsed: null };
+    case "declined":
+      return { tone: "ended", label: "declined", detail: null, elapsed: null };
+    case "unknown":
+      return { tone: "ended", label: "outcome unknown", detail: null, elapsed: null };
+  }
 }

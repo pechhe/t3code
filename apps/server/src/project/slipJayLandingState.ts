@@ -81,6 +81,10 @@ const WatchOperation = Schema.Struct({
   position: Schema.optional(Schema.Number),
   submittedAt: Schema.optional(Schema.String),
   finishedAt: Schema.optional(Schema.String),
+  stageStartedAt: Schema.optional(Schema.String),
+  timing: Schema.optional(
+    Schema.Struct({ medianMs: Schema.optional(Schema.NullOr(Schema.Number)) }),
+  ),
   commitId: Schema.optional(Schema.String),
   submittedBy: Schema.optional(Schema.String),
   environment: Schema.optional(Schema.String),
@@ -428,6 +432,10 @@ const runnerOperation = (operation: WatchOperation, host: string): SlipJayRunner
     submittedBy: operation.submittedBy ?? "",
     ...(operation.position === undefined ? {} : { position: operation.position }),
     ...(operation.submittedAt === undefined ? {} : { submittedAt: operation.submittedAt }),
+    ...(operation.stageStartedAt === undefined ? {} : { stageStartedAt: operation.stageStartedAt }),
+    ...(typeof operation.timing?.medianMs === "number"
+      ? { stageMedianMs: operation.timing.medianMs }
+      : {}),
     ...(operation.commitId === undefined ? {} : { commitId: operation.commitId }),
     ...(operation.environment === undefined ? {} : { environment: operation.environment }),
     ...(workspaceName === undefined ? {} : { workspaceName }),
