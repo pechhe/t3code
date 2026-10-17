@@ -5,7 +5,17 @@ import {
   type PointerEventHandler,
   useRef,
 } from "react";
-import { CheckIcon, ChevronDownIcon, ChevronLeftIcon, Minimize2Icon, PlayIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  ChevronLeftIcon,
+  ChevronsRightIcon,
+  MessageSquarePlusIcon,
+  Minimize2Icon,
+  PencilIcon,
+  PlayIcon,
+} from "lucide-react";
 import { CornerUpRight, ListPlus } from "lucide";
 import { MorphIcon } from "~/components/MorphIcon";
 import { useEnvironmentIdentificationMode } from "~/hooks/useSettings";
@@ -19,6 +29,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { Spinner } from "../ui/spinner";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { composerFloatingLayerProps } from "./composerEventScope";
+import { DeviceUnit } from "./device/DeviceUnit";
 import {
   alternateComposerDispatchAction,
   resolveComposerDispatchMode,
@@ -173,7 +184,9 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
             type="button"
             className={
               device
-                ? "send-dial send-dial--stop"
+                ? insidePendingAction
+                  ? "device-cap device-cap--stop"
+                  : "send-dial send-dial--stop"
                 : cn(
                     "flex shrink-0 cursor-pointer items-center justify-center rounded-full bg-destructive/90 text-white shadow-xs shadow-destructive/24 inset-shadow-control-highlight transition-colors duration-150 hover:bg-destructive active:inset-shadow-control-pressed active:shadow-none [&_svg]:pointer-events-none",
                     insidePendingAction ? "size-8 sm:size-7" : "size-8 sm:h-8 sm:w-8",
@@ -197,6 +210,68 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   );
 
   if (pendingAction) {
+    if (device) {
+      const submitDisabled =
+        !canOperateThread ||
+        isEnvironmentUnavailable ||
+        pendingAction.isResponding ||
+        (pendingAction.isLastQuestion ? !pendingAction.isComplete : !pendingAction.canAdvance);
+      return (
+        <div className="device-actions">
+          {canInterrupt ? (
+            <DeviceUnit caption="Stop" lit>
+              {renderStopGenerationButton(true)}
+            </DeviceUnit>
+          ) : null}
+          {pendingAction.questionIndex > 0 ? (
+            <DeviceUnit caption="Prev">
+              <button
+                type="button"
+                className="device-cap"
+                {...pointerFocusProps}
+                onClick={onPreviousPendingQuestion}
+                disabled={pendingAction.isResponding}
+                aria-label="Previous question"
+              >
+                <ChevronLeftIcon aria-hidden="true" />
+              </button>
+            </DeviceUnit>
+          ) : null}
+          <DeviceUnit
+            caption={
+              pendingAction.isResponding
+                ? "Sending"
+                : pendingAction.isLastQuestion
+                  ? "Submit"
+                  : `Next · ${pendingAction.questionIndex + 1}`
+            }
+            lit
+          >
+            <button
+              type="submit"
+              className="send-dial"
+              data-has-input={submitDisabled ? undefined : ""}
+              {...pointerPropsFor(() => dialClicks(false))}
+              disabled={submitDisabled}
+              aria-label={formatPendingPrimaryActionLabel({
+                compact: false,
+                isLastQuestion: pendingAction.isLastQuestion,
+                isResponding: pendingAction.isResponding,
+                questionIndex: pendingAction.questionIndex,
+              })}
+            >
+              {pendingAction.isResponding ? (
+                <Spinner size="sm" aria-hidden="true" />
+              ) : pendingAction.isLastQuestion ? (
+                <CheckIcon aria-hidden="true" />
+              ) : (
+                <ArrowRightIcon aria-hidden="true" />
+              )}
+            </button>
+          </DeviceUnit>
+        </div>
+      );
+    }
     return (
       <div className={cn("flex items-center justify-end", compact ? "gap-1.5" : "gap-2")}>
         {canInterrupt ? renderStopGenerationButton(true) : null}
@@ -247,13 +322,68 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (showPlanFollowUpPrompt && (promptHasText || !canResume)) {
+    const planDisabled = isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable;
+    if (device) {
+      const sending = isConnecting || isSendBusy;
+      const dial = (
+        <button
+          type="submit"
+          className="send-dial"
+          data-has-input={planDisabled ? undefined : ""}
+          {...pointerPropsFor(() => dialClicks(false))}
+          disabled={planDisabled}
+          aria-label={promptHasText ? "Refine plan" : "Implement plan"}
+        >
+          {sending ? (
+            <Spinner size="sm" aria-hidden="true" />
+          ) : promptHasText ? (
+            <PencilIcon aria-hidden="true" />
+          ) : (
+            <ChevronsRightIcon aria-hidden="true" />
+          )}
+        </button>
+      );
+      return (
+        <div className="device-actions">
+          {promptHasText ? null : (
+            <DeviceUnit caption="New thread">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="device-cap"
+                      {...pointerFocusProps}
+                      disabled={planDisabled}
+                      onClick={() => {
+                        if (canOperateThread) onImplementPlanInNewThread();
+                      }}
+                      aria-label="Implement in a new thread"
+                    />
+                  }
+                >
+                  <MessageSquarePlusIcon aria-hidden="true" />
+                </TooltipTrigger>
+                <TooltipPopup>Implement in a new thread</TooltipPopup>
+              </Tooltip>
+            </DeviceUnit>
+          )}
+          <DeviceUnit
+            caption={sending ? "Sending" : promptHasText ? "Refine" : "Implement"}
+            lit={!planDisabled}
+          >
+            {dial}
+          </DeviceUnit>
+        </div>
+      );
+    }
     if (promptHasText) {
       return (
         <button
           type="submit"
           className={cn(messageActionPillClassName, "h-9 sm:h-8", compact ? "px-3" : "px-4")}
           {...pointerPropsFor(() => dialClicks(false))}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+          disabled={planDisabled}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Refine"}
         </button>
@@ -266,7 +396,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           type="submit"
           className={cn(messageActionPillClassName, "h-9 rounded-r-none px-4 sm:h-8")}
           {...pointerPropsFor(() => dialClicks(false))}
-          disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+          disabled={planDisabled}
         >
           {isConnecting || isSendBusy ? "Sending..." : "Implement"}
         </button>
@@ -281,7 +411,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
                 )}
                 aria-label="Implementation actions"
                 {...pointerFocusProps}
-                disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+                disabled={planDisabled}
               />
             }
           >
@@ -289,7 +419,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
           </MenuTrigger>
           <MenuPopup align="end" side="top" {...composerFloatingLayerProps}>
             <MenuItem
-              disabled={isSendBusy || isSendDisabled || isConnecting || isEnvironmentUnavailable}
+              disabled={planDisabled}
               onClick={() => {
                 if (canOperateThread) onImplementPlanInNewThread();
               }}
@@ -303,7 +433,13 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   }
 
   if (canInterrupt && !hasSendableContent && !isEditingQueuedMessage) {
-    return renderStopGenerationButton(false);
+    return device ? (
+      <DeviceUnit caption="Stop" lit>
+        {renderStopGenerationButton(false)}
+      </DeviceUnit>
+    ) : (
+      renderStopGenerationButton(false)
+    );
   }
 
   const showResume = canResume && !hasSendableContent && !isEditingQueuedMessage;
@@ -345,6 +481,26 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         ? `Click to ${followUpBehavior}, Ctrl/⌘-click${alternateShortcutLabel ? ` or ${alternateShortcutLabel}` : ""} to ${alternateAction}`
         : submitLabel);
 
+  const deviceCaption = isEnvironmentUnavailable
+    ? "Offline"
+    : isConnecting
+      ? "Connecting"
+      : isPreparingWorktree
+        ? "Worktree"
+        : isSendBusy
+          ? "Sending"
+          : showResume
+            ? "Resume"
+            : isEditingQueuedMessage
+              ? "Update"
+              : compactsBeforeSend
+                ? "Compact + send"
+                : isQueuing
+                  ? "Queue"
+                  : isRunning
+                    ? "Steer"
+                    : "Send";
+
   const sendButton = (
     <button
       key={device ? sendPressKey : undefined}
@@ -352,7 +508,11 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       data-has-input={device && (hasSendableContent || showResume || isRunning) ? "" : undefined}
       className={
         device
-          ? cn("send-dial", sendPressKey > 0 && "send-dial--pressed")
+          ? cn(
+              "send-dial",
+              sendPressKey > 0 && "send-dial--pressed",
+              compactsBeforeSend && submitStatus === null && "send-dial--compact",
+            )
           : cn(
               "relative isolate flex h-9 w-9 items-center justify-center overflow-hidden rounded-full shadow-xs transition-all duration-150 enabled:cursor-pointer enabled:inset-shadow-control-highlight hover:scale-105 active:inset-shadow-control-pressed active:shadow-none disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none disabled:hover:scale-100 sm:h-8 sm:w-8 [&_svg]:pointer-events-none",
               stageBackdropVariant
@@ -384,6 +544,16 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         <CheckIcon className="size-4" aria-hidden="true" />
       ) : isRunning ? (
         <MorphIcon className="size-4" icon={isQueuing ? ListPlus : CornerUpRight} />
+      ) : device && compactsBeforeSend && submitStatus === null ? (
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+          <path
+            d="M7 12.5V5.5M7 5.5L3.5 9M7 5.5L10.5 9M2.5 2h9"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
       ) : (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
           <path
@@ -404,6 +574,17 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
       <TooltipPopup>{submitTooltip}</TooltipPopup>
     </Tooltip>
   );
+  // The device shows compact-on-send as a flag on its screen, so the dial only mirrors it.
+  if (device) {
+    return (
+      <DeviceUnit
+        caption={deviceCaption}
+        lit={deviceCaption !== "Send" && deviceCaption !== "Offline"}
+      >
+        {submit}
+      </DeviceUnit>
+    );
+  }
   if (compactTokens === null) return submit;
 
   return (

@@ -117,6 +117,18 @@
     oklch(0.08 0.004 250 / 0.86),
     oklch(0.38 0.004 250 / 0.62)
   );
+
+  /* Milled channels: the slider rail and machine switch are cut into the chassis metal,
+     with a dark guide slot down the middle. */
+  --mill-bg: linear-gradient(
+    180deg,
+    color-mix(in oklch, var(--crt-body-bottom), black 8%),
+    color-mix(in oklch, var(--crt-body), white 6%)
+  );
+  --mill-shadow:
+    inset 0 2px 3px oklch(0 0 0 / 0.32), inset 0 0 0 1px oklch(0.5 0.004 250 / 0.42),
+    0 1px 0 oklch(1 0.002 250 / 0.8);
+  --mill-slot: oklch(0.2 0.004 250);
 }
 
 .composer-device {
@@ -178,6 +190,11 @@
     0 1px 0 1px oklch(0 0 0 / 0.55), 0 2px 3px 1px oklch(0 0 0 / 0.55),
     0 7px 14px -4px oklch(0 0 0 / 0.55);
   --knob-needle: linear-gradient(180deg, oklch(0.92 0.004 265 / 0.9), oklch(0.62 0.004 265 / 0.7));
+
+  --mill-shadow:
+    inset 0 2px 4px oklch(0 0 0 / 0.72), inset 0 0 0 1px oklch(0 0 0 / 0.6),
+    0 1px 0 oklch(0.6 0.004 265 / 0.24);
+  --mill-slot: oklch(0.05 0.004 265);
 }
 
 /* The device brings its own body, so drop the composer's glass, outline and shadow. */
@@ -488,6 +505,41 @@
   opacity: 0.5;
 }
 
+/* Compact on send: a lit tag while armed, a dashed prompt once disarmed. */
+.device-context__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 6px;
+  border: 1px dashed color-mix(in oklch, var(--cream-ink) 34%, transparent);
+  border-radius: 3px;
+  background: none;
+  color: var(--cream-ink-muted);
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.device-context__flag:hover:not(:disabled) {
+  color: var(--cream-ink);
+}
+.device-context__flag:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.device-context__flag[aria-pressed="true"] {
+  border: 1px solid transparent;
+  background: var(--crt-amber);
+  color: oklch(1 0 0);
+  box-shadow: 0 0 8px oklch(0.78 0.18 58 / 0.35);
+}
+.device-context__flag-off {
+  padding-left: 6px;
+  border-left: 1px solid oklch(1 0 0 / 0.45);
+  opacity: 0.85;
+}
+
 /* ---------------- Controls strip ---------------- */
 .composer-device [data-chat-composer-footer] {
   min-height: 100px;
@@ -504,6 +556,7 @@
 
 .composer-device [data-chat-composer-actions="right"] {
   gap: 10px;
+  padding-right: 6px;
 }
 
 /* ---------------- Model slider ---------------- */
@@ -518,35 +571,37 @@
   height: 80px;
 }
 
-/* A recessed black capsule with a lit silver lip, like the screen's. */
+.device-slider {
+  --light: var(--provider-light, var(--crt-amber));
+}
+
 .device-slider__track {
   position: absolute;
   left: var(--slider-inset);
   right: var(--slider-inset);
-  top: 30px;
-  height: 13px;
-  overflow: hidden;
+  top: 29px;
+  height: 16px;
   border-radius: 999px;
-  background:
-    linear-gradient(180deg, oklch(1 0.002 250 / 0.08), transparent 38%),
-    linear-gradient(180deg, oklch(0.026 0.004 250), oklch(0.006 0.002 250) 78%);
-  box-shadow:
-    inset 0 3px 8px oklch(0 0 0 / 0.88),
-    inset 0 -1px 4px oklch(0 0 0 / 0.46),
-    inset 0 0 0 1px oklch(0 0 0 / 0.86),
-    0 0 0 1.25px oklch(0.34 0.004 250 / 0.72),
-    0 1px 2px 1px oklch(0.98 0.002 250 / 0.72),
-    0 0 4px 2px oklch(0.96 0.002 250 / 0.38),
-    0 3px 7px -2px oklch(0 0 0 / 0.28);
+  background: var(--mill-bg);
+  box-shadow: var(--mill-shadow);
+}
+.device-slider__track::before {
+  content: "";
+  position: absolute;
+  inset: 6px 10px;
+  border-radius: 2px;
+  background: var(--mill-slot);
+  box-shadow: inset 0 1px 1px oklch(0 0 0 / 0.6);
 }
 
-/* Amber lamp lit under the thumb: a soft halo behind a solid core, clipped by the track. */
+/* The provider's light glows in the slot under the thumb: a white-hot core, its colour
+   around it, and a bloom spilling onto the metal. */
 .device-slider__glow {
   position: absolute;
-  top: 0.5px;
+  top: 6px;
   left: calc(100% * (var(--slider-position) + 0.5) / var(--slider-detents));
-  width: 104px;
-  height: 12px;
+  width: 92px;
+  height: 4px;
   transform: translateX(-50%);
   transition: left 260ms cubic-bezier(0.2, 0.78, 0.25, 1);
 }
@@ -557,31 +612,28 @@
   border-radius: 999px;
 }
 .device-slider__glow::before {
-  inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    oklch(0.78 0.2 52 / 0.28) 12%,
-    oklch(0.84 0.22 57 / 0.5) 26%,
-    oklch(0.86 0.23 59 / 0.58) 50%,
-    oklch(0.84 0.22 57 / 0.5) 74%,
-    oklch(0.78 0.2 52 / 0.28) 88%,
+  inset: -9px -6px;
+  background: radial-gradient(
+    ellipse 50% 50% at 50% 50%,
+    color-mix(in oklch, var(--light) 70%, transparent),
+    color-mix(in oklch, var(--light) 22%, transparent) 55%,
     transparent 100%
   );
-  filter: blur(3.4px);
+  filter: blur(5px);
 }
 .device-slider__glow::after {
-  inset: 2px 11px;
+  inset: 0 8px;
   background: linear-gradient(
-    180deg,
-    oklch(0.84 0.18 55) 0%,
-    oklch(0.72 0.2 49) 48%,
-    oklch(0.58 0.17 44) 100%
+    90deg,
+    transparent,
+    var(--light) 18%,
+    color-mix(in oklch, var(--light), white 55%) 50%,
+    var(--light) 82%,
+    transparent
   );
   box-shadow:
-    0 0 7px oklch(0.84 0.22 58 / 0.42),
-    inset 0 1px 0 oklch(1 0.002 250 / 0.42),
-    inset 0 -1px 0 oklch(0.3 0.08 42 / 0.56);
+    0 0 3px 0.5px var(--light),
+    0 0 9px 1px color-mix(in oklch, var(--light) 65%, transparent);
 }
 
 .device-slider__thumb {
@@ -642,8 +694,7 @@
 }
 
 /* Engraved into the chassis: solid machined ink and a crisp, unblurred lip. */
-.device-slider__label,
-.device-dial__setting {
+.device-slider__label {
   color: var(--crt-ink);
   font-family: var(--crt-mono);
   font-weight: 700;
@@ -652,11 +703,27 @@
   text-shadow: var(--engrave-shadow);
 }
 
-.device-slider__label--menu {
+/* Unselected models sit a shade lighter than the chosen one. */
+.device-slider__label:not([aria-pressed="true"]) {
   color: var(--crt-ink-muted);
-  font-size: 16px;
-  line-height: 0.8;
-  letter-spacing: 0;
+}
+.device-slider__label[aria-pressed="true"] {
+  color: var(--light);
+  text-shadow:
+    var(--engrave-shadow),
+    0 0 6px color-mix(in oklch, var(--light) 45%, transparent);
+}
+
+/* The overflow is a menu, not a model: an engraved tag, naming the model once one is chosen. */
+.device-slider__menu-tag {
+  margin-top: -3px;
+  padding: 2px 4px;
+  border: 1px solid color-mix(in oklch, var(--crt-ink-muted) 70%, transparent);
+  border-radius: 3px;
+}
+.device-slider__label--menu[aria-pressed="true"] .device-slider__menu-tag {
+  border-color: color-mix(in oklch, var(--light) 80%, transparent);
+  box-shadow: 0 0 6px color-mix(in oklch, var(--light) 30%, transparent);
 }
 
 .device-slider__label:is(:disabled, [aria-disabled]) {
@@ -672,80 +739,162 @@
 }
 
 /* ---------------- Reasoning dial ---------------- */
-/*
- * Each setting's lamp sits on a circle --dial-r from the knob's centre, its
- * label pointing away from the knob so long names never run into it.
- */
+/* A knob ringed by one tick per setting, and a small screen naming the chosen one in
+   its tone: cool to hot as effort climbs, violet for ultrathink, iridescent for ultracode. */
 .device-dial {
-  --dial-size: 68px;
-  --dial-r: 42px;
-  --dial-cy: 54px;
+  --dial-size: 60px;
+  --dial-r: 41px;
+  --tone: var(--crt-amber);
   position: relative;
+  display: flex;
   flex: none;
-  width: 256px;
+  align-items: center;
+  gap: 10px;
   height: 100px;
   margin-left: auto;
 }
+.device-dial[data-tone="off"] {
+  --tone: oklch(0.6 0.03 250);
+}
+.device-dial[data-tone="low"] {
+  --tone: oklch(0.64 0.13 230);
+}
+.device-dial[data-tone="medium"] {
+  --tone: oklch(0.72 0.16 75);
+}
+.device-dial[data-tone="high"] {
+  --tone: oklch(0.69 0.18 52);
+}
+.device-dial[data-tone="xhigh"] {
+  --tone: oklch(0.64 0.21 36);
+}
+.device-dial[data-tone="max"] {
+  --tone: oklch(0.6 0.23 22);
+}
+.device-dial[data-tone="ultra"] {
+  --tone: oklch(0.6 0.22 300);
+}
+.device-dial[data-tone="ultracode"] {
+  --tone: oklch(0.7 0.2 320);
+}
 
-.device-dial__setting {
+.device-dial__face {
+  position: relative;
+  flex: none;
+  width: 100px;
+  height: 100px;
+}
+
+/* Each tick is a radial hit area turned to its setting's angle. */
+.device-dial__tick {
   position: absolute;
-  left: calc(50% + var(--ux) * var(--dial-r));
-  top: calc(var(--dial-cy) + var(--uy) * var(--dial-r));
-  z-index: 3;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 3px;
-  transform: translate(-100%, -50%);
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  width: 16px;
+  height: 14px;
+  padding: 0;
   border: 0;
   background: transparent;
-  font-size: 9px;
-  line-height: 1;
-  white-space: nowrap;
+  transform: translate(-50%, -50%) rotate(var(--tick-angle)) translateX(var(--dial-r));
   cursor: pointer;
 }
-.device-dial__setting--right {
-  flex-direction: row-reverse;
-  transform: translate(0, -50%);
+.device-dial__tick::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 2px;
+  border-radius: 1px;
+  transform: translate(-50%, -50%);
+  background: color-mix(in oklch, var(--crt-ink) 50%, transparent);
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
 }
-/* Unselected settings and models sit a shade lighter than the chosen one. */
-.device-dial__setting:not(.device-dial__setting--active),
-.device-slider__label:not([aria-pressed="true"]) {
-  color: var(--crt-ink-muted);
+.device-dial__tick:hover:not(:disabled)::before {
+  background: var(--crt-ink);
+}
+.device-dial__tick[aria-pressed="true"]::before {
+  width: 10px;
+  height: 3px;
+  background: var(--tone);
+  box-shadow:
+    0 0 4px var(--tone),
+    0 0 9px color-mix(in oklch, var(--tone) 60%, transparent);
 }
 
-.device-dial__light {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: radial-gradient(
-    circle at 36% 32%,
-    oklch(0.82 0.01 250),
-    oklch(0.18 0.005 250) 55%,
-    oklch(0.04 0.005 250) 100%
-  );
-  box-shadow:
-    inset 0 0 0 1px oklch(0 0 0 / 0.62),
-    0 1px 0 oklch(1 0.002 250 / 0.34);
+.device-dial__readout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
 }
-.device-dial__setting--active .device-dial__light {
-  background: radial-gradient(
-    circle at 34% 28%,
-    oklch(1 0.13 78),
-    oklch(0.83 0.18 63) 38%,
-    oklch(0.54 0.18 49) 72%,
-    oklch(0.18 0.05 45) 100%
-  );
+.device-dial__caption {
+  color: var(--crt-ink-muted);
+  font-family: var(--crt-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-shadow: var(--engrave-shadow);
+}
+.device-dial__screen {
+  min-width: 96px;
+  max-width: 124px;
+  overflow: hidden;
+  padding: 5px 8px;
+  border-radius: 4px;
+  color: var(--tone);
+  font-family: var(--crt-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.1em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 0 6px color-mix(in oklch, var(--tone) 45%, transparent);
+  background: linear-gradient(180deg, var(--cream-bg-lo), var(--cream-bg));
   box-shadow:
-    inset 0 0 0 1px oklch(0.42 0.11 45 / 0.72),
-    0 0 4px oklch(0.84 0.17 66 / 0.86),
-    0 0 10px oklch(0.82 0.18 60 / 0.42);
+    inset 0 2px 4px oklch(0.4 0.02 82 / 0.35),
+    inset 0 0 0 1px oklch(0.78 0.015 90 / 0.55),
+    0 1px 0 oklch(1 0.002 250 / 0.7);
+  transition: color 160ms ease;
+}
+
+/* Ultracode: black glass with iridescent lettering, every tick lit, a halo on the knob. */
+.device-dial[data-tone="ultracode"] .device-dial__screen {
+  color: transparent;
+  text-shadow: none;
+  background:
+    linear-gradient(90deg, oklch(0.82 0.13 200), oklch(0.74 0.2 300), oklch(0.78 0.19 350)) text,
+    linear-gradient(180deg, oklch(0.21 0.03 295), oklch(0.13 0.02 290));
+  box-shadow:
+    inset 0 2px 4px oklch(0 0 0 / 0.6),
+    inset 0 0 0 1px oklch(0.55 0.17 300 / 0.7),
+    0 0 10px oklch(0.65 0.2 310 / 0.35),
+    0 1px 0 oklch(1 0.002 250 / 0.5);
+}
+.device-dial[data-tone="ultracode"] .device-dial__tick::before {
+  background: linear-gradient(90deg, oklch(0.8 0.14 200), oklch(0.72 0.2 300));
+}
+.device-dial[data-tone="ultracode"] .device-dial__tick[aria-pressed="true"]::before {
+  background: linear-gradient(90deg, oklch(0.86 0.13 200), oklch(0.78 0.2 330));
+}
+.device-dial[data-tone="ultracode"] .device-dial__knob {
+  box-shadow:
+    var(--knob-shadow),
+    0 0 0 2px oklch(0.75 0.15 300 / 0.55),
+    0 0 16px 3px oklch(0.7 0.2 320 / 0.35);
 }
 
 .device-dial__knob {
   position: absolute;
   left: 50%;
-  top: var(--dial-cy);
+  top: 50%;
   z-index: 1;
   width: var(--dial-size);
   height: var(--dial-size);
@@ -802,7 +951,7 @@
 }
 
 /* ---------------- Machine switch ---------------- */
-/* A vertical lever: the upper machine's name, a ribbed slot, the lower one's. */
+/* A vertical lever: the upper machine's name, a milled slot, the lower one's. */
 .device-switch {
   position: relative;
   display: flex;
@@ -860,20 +1009,26 @@
     0 0 7px oklch(0.64 0.2 305 / 0.16);
 }
 
-/* A narrow ribbed slot; the knob overhangs it, as on peach-pi's mode switch. */
+/* A milled channel with a guide slot; the knob overhangs it, as on peach-pi's mode switch. */
 .device-switch__track {
   position: relative;
-  width: 28px;
+  width: 24px;
   height: 60px;
-  border-radius: 16px;
-  background:
-    repeating-linear-gradient(90deg, oklch(0.1 0.004 250) 0 1.5px, oklch(0.3 0.004 250) 1.5px 3px),
-    oklch(0.18 0.004 250);
-  box-shadow:
-    inset 0 2px 3px oklch(0 0 0 / 0.7),
-    inset 0 -1px 1px oklch(1 0.002 250 / 0.12),
-    0 0 0 0.5px oklch(0.9 0.002 250 / 0.5),
-    0 1px 0 0.5px oklch(0.46 0.004 250 / 0.42);
+  border-radius: 14px;
+  background: var(--mill-bg);
+  box-shadow: var(--mill-shadow);
+}
+.device-switch__track::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 9px;
+  bottom: 9px;
+  width: 4px;
+  border-radius: 2px;
+  transform: translateX(-50%);
+  background: var(--mill-slot);
+  box-shadow: inset 0 1px 1px oklch(0 0 0 / 0.6);
 }
 
 .device-switch__thumb {
@@ -936,7 +1091,6 @@
   justify-content: center;
   width: 56px;
   height: 56px;
-  margin-right: 6px;
   padding: 0;
   overflow: hidden;
   border: 0;
@@ -1010,6 +1164,120 @@
     transform: translateY(2px);
     box-shadow: var(--cap-pressed-shadow);
   }
+}
+
+/* Compact on send is armed: an amber ring, so the dial says it at the moment you send. */
+.send-dial--compact {
+  box-shadow:
+    var(--cap-shadow),
+    0 0 0 2.5px oklch(0.74 0.185 52 / 0.6),
+    0 0 12px 2px oklch(0.78 0.19 58 / 0.35);
+}
+
+/* ---------------- Captioned controls ---------------- */
+.device-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Every unit is the dial's height with its control at the bottom, so captions line up. */
+.device-unit {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: flex-end;
+  height: 56px;
+}
+.device-unit__caption {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--crt-ink-muted);
+  font-family: var(--crt-mono);
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: var(--engrave-shadow);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.device-unit__caption[data-lit] {
+  color: oklch(0.64 0.17 52);
+  text-shadow:
+    var(--engrave-shadow),
+    0 0 6px oklch(0.8 0.18 60 / 0.35);
+}
+
+/* A small round cap, the send dial's sibling, for secondary actions. */
+.device-cap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: var(--cap-ink);
+  background: linear-gradient(var(--metal-wash), var(--metal-wash)), var(--cap-bg);
+  box-shadow: var(--cap-shadow);
+  cursor: pointer;
+  transition:
+    transform 80ms ease,
+    box-shadow 80ms ease;
+}
+.device-cap svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  filter: var(--cap-glyph-shadow);
+}
+.device-cap--stop {
+  color: var(--crt-amber);
+}
+.device-cap--stop svg {
+  width: 11px;
+  height: 11px;
+}
+.device-cap:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--cap-pressed-shadow);
+}
+.device-cap:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.device-cap:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.device-cap__lamp {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle at 34% 28%,
+    oklch(0.9 0.1 30),
+    oklch(0.62 0.22 27) 45%,
+    oklch(0.4 0.17 27) 80%,
+    oklch(0.2 0.06 27) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px oklch(0.3 0.1 27 / 0.7),
+    0 1px 0 oklch(1 0.002 250 / 0.5);
+}
+.device-cap--record[data-recording] {
+  opacity: 1;
+}
+.device-cap--record[data-recording] .device-cap__lamp {
+  box-shadow:
+    inset 0 0 0 1px oklch(0.3 0.1 27 / 0.7),
+    0 0 6px oklch(0.7 0.22 27 / 0.8),
+    0 0 12px oklch(0.7 0.22 27 / 0.4);
 }
 
 /* An empty composer leaves the cap at full brightness, just without the glow. */

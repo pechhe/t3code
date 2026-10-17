@@ -10,6 +10,7 @@ import {
   type ComposerScreenRecordingState,
   screenRecordingElapsedMs,
 } from "./composerScreenRecording";
+import { DeviceUnit } from "./device/DeviceUnit";
 import { screenRecordingControls, useScreenRecording } from "./screenRecordingSession";
 
 // The desktop's answer is fixed for the life of the app, so every composer shares one read.
@@ -76,11 +77,41 @@ function RecordingElapsed({
 
 export function ComposerScreenRecordControl({
   busy,
+  device = false,
   onStart,
 }: {
   readonly busy: boolean;
+  /** Render as the machined composer's small round cap with a red lamp. */
+  readonly device?: boolean;
   readonly onStart: () => void;
 }) {
+  const tooltip = busy
+    ? "A recording is in progress"
+    : "Record a screen or window (up to 1 minute)";
+  if (device) {
+    return (
+      <DeviceUnit caption="Rec">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className="device-cap device-cap--record"
+                data-recording={busy || undefined}
+                disabled={busy}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={onStart}
+                aria-label="Record screen"
+              />
+            }
+          >
+            <span className="device-cap__lamp" aria-hidden="true" />
+          </TooltipTrigger>
+          <TooltipPopup>{tooltip}</TooltipPopup>
+        </Tooltip>
+      </DeviceUnit>
+    );
+  }
   return (
     <Tooltip>
       <TooltipTrigger
@@ -98,9 +129,7 @@ export function ComposerScreenRecordControl({
       >
         <ScreenShareIcon />
       </TooltipTrigger>
-      <TooltipPopup>
-        {busy ? "A recording is in progress" : "Record a screen or window (up to 1 minute)"}
-      </TooltipPopup>
+      <TooltipPopup>{tooltip}</TooltipPopup>
     </Tooltip>
   );
 }

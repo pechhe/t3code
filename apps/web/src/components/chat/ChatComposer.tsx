@@ -314,6 +314,7 @@ import { ComposerImageThumbnail } from "./ComposerImageThumbnail";
 import { ComposerPrimaryActions } from "./ComposerPrimaryActions";
 import { dialClicks, playDispatchCue, pressClick } from "~/lib/interfaceSounds";
 import { recordSendOrigin } from "~/lib/sendMotion";
+import { compactOnSendTokens } from "./compactOnSend.logic";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
 import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
@@ -3056,6 +3057,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     : null;
   const showResumeAction =
     canResume && !composerDraftHasUserContent(composerDraft) && !isEditingQueuedMessage;
+  const compactOnSend = compactOnSendTokens({
+    resumeCompactionTokens: props.resumeCompactionTokens,
+    answeringQuestion: pendingPrimaryAction !== null,
+    showingPlanFollowUp: showPlanFollowUpPrompt,
+    showingResume: showResumeAction,
+    editingQueuedMessage: isEditingQueuedMessage,
+  });
   const collapsedComposerPrimaryActionDisabled =
     phase === "running" ||
     isSendBusy ||
@@ -7522,6 +7530,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   }
                   compactDisabledReason={resolvedCompactDisabledReason}
                   {...(compactCommandAvailable ? { onCompact: compactThreadContext } : {})}
+                  compactBeforeSendTokens={compactOnSend}
+                  keepFullHistory={props.keepFullHistory}
+                  onToggleKeepFullHistory={props.onToggleKeepFullHistory}
+                  canOperateThread={canOperateThread}
                 />
               ) : null}
             </div>
@@ -7608,6 +7620,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   screenRecordingAvailable ? (
                     <ComposerScreenRecordControl
                       busy={screenRecording.state.phase !== "idle"}
+                      device={deviceComposer}
                       onStart={startScreenRecordingStable}
                     />
                   ) : null}
@@ -7662,7 +7675,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onPreviousPendingQuestion={onPreviousActivePendingUserInputQuestion}
                     onInterrupt={handleInterruptPrimaryActionStable}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryActionStable}
-                    compactBeforeSendTokens={props.resumeCompactionTokens}
+                    compactBeforeSendTokens={compactOnSend}
                     keepFullHistory={props.keepFullHistory}
                     onToggleKeepFullHistory={props.onToggleKeepFullHistory}
                     compactDisabled={

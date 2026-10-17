@@ -2,7 +2,6 @@ import { forwardRef, useImperativeHandle, type CSSProperties } from "react";
 import type { ProviderOptionDescriptor } from "@t3tools/contracts";
 
 import { playRotary } from "~/lib/interfaceSounds";
-import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { useTraitsControls } from "../TraitsPicker";
 import { resolveTraitsControlProps, type TraitsRenderInput } from "../composerProviderState";
@@ -18,19 +17,28 @@ const SHORT_LABELS: Readonly<Record<string, string>> = {
   none: "OFF",
   off: "OFF",
   minimal: "MIN",
-  low: "LOW",
-  medium: "MED",
-  high: "HIGH",
-  xhigh: "XHIGH",
-  max: "MAX",
-  ultra: "ULTRA",
-  ultracode: "ULTRACODE",
-  ultrathink: "ULTRATHINK",
+  medium: "MEDIUM",
+  xhigh: "X-HIGH",
 };
 
 function shortLabel(option: EffortOption): string {
   return SHORT_LABELS[option.id.toLowerCase()] ?? option.label.toUpperCase();
 }
+
+/** Each setting's lamp colour, cool to hot as effort climbs; ultra modes stand apart. */
+const EFFORT_TONES: Readonly<Record<string, string>> = {
+  none: "off",
+  off: "off",
+  minimal: "off",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
+  ultra: "ultra",
+  ultrathink: "ultra",
+  ultracode: "ultracode",
+};
 
 // Settings sit a detent apart, clockwise, on an arc centred at half past one; a
 // full set spans nine o'clock (180°) to half past four (405°).
@@ -45,9 +53,9 @@ function clockAngle(index: number, count: number): number {
 }
 
 /**
- * The reasoning knob: one stop per effort the selected model offers. Clicking a
- * label selects it, clicking the knob turns it up a stop (wrapping at the top),
- * and ⌘↑/⌘↓ step it through the handle.
+ * The reasoning knob: one tick per effort the selected model offers, and a readout
+ * naming the chosen one in its colour. Clicking a tick selects it, clicking the knob
+ * turns it up a stop (wrapping at the top), and ⌘↑/⌘↓ step it through the handle.
  */
 export const DeviceReasoningDial = forwardRef<DeviceReasoningDialHandle, TraitsRenderInput>(
   function DeviceReasoningDial(input, ref) {
@@ -85,61 +93,71 @@ const ReasoningDial = forwardRef<
 
   if (!descriptor) return null;
 
-  const stops = options.map((option, index) => {
-    const clock = clockAngle(index, options.length);
-    const radians = (clock * Math.PI) / 180;
-    return { option, clock, ux: Math.cos(radians), uy: Math.sin(radians) };
-  });
-  const angle = (stops[activeIndex]?.clock ?? 180) - 270;
-  const activeLabel = options[activeIndex]?.label ?? "";
+  const angles = options.map((_, index) => clockAngle(index, options.length));
+  const angle = (angles[activeIndex] ?? 180) - 270;
+  const active = options[activeIndex];
+  const activeLabel = active?.label ?? "";
+  const tone = active ? (EFFORT_TONES[active.id.toLowerCase()] ?? "medium") : "medium";
 
   return (
     <div
       className="device-dial"
       role="group"
       aria-label="Reasoning"
+      data-tone={tone}
       style={{ "--dial-angle": `${angle}deg` } as CSSProperties}
     >
-      {stops.map((stop, index) => (
-        <button
-          key={stop.option.id}
-          type="button"
-          disabled={disabled}
-          aria-pressed={index === activeIndex}
-          aria-label={`Reasoning ${stop.option.label}`}
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => select(index)}
-          className={cn(
-            "device-dial__setting",
-            stop.ux > -0.01 && "device-dial__setting--right",
-            index === activeIndex && "device-dial__setting--active",
-          )}
-          style={{ "--ux": stop.ux, "--uy": stop.uy } as CSSProperties}
-        >
-          <span>{shortLabel(stop.option)}</span>
-          <span className="device-dial__light" aria-hidden="true" />
-        </button>
-      ))}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <button
-              type="button"
-              className="device-dial__knob"
-              aria-disabled={disabled || undefined}
-              data-composer-shortcut="composer.effort"
-              aria-label={`Reasoning ${activeLabel}; turn up`}
-              onPointerDown={(event) => event.preventDefault()}
-              onClick={() => select((activeIndex + 1) % options.length)}
+      <div className="device-dial__face">
+        {options.map((option, index) => (
+          <Tooltip key={option.id}>
+            <TooltipTrigger
+              render={
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-pressed={index === activeIndex}
+                  aria-label={`Reasoning ${option.label}`}
+                  onPointerDown={(event) => event.preventDefault()}
+                  onClick={() => select(index)}
+                  className="device-dial__tick"
+                  style={{ "--tick-angle": `${angles[index]}deg` } as CSSProperties}
+                />
+              }
             />
-          }
-        />
-        <TooltipPopup side="top">
-          {controls.ultrathinkInBodyText
-            ? 'Your prompt contains "ultrathink". Remove it to change reasoning.'
-            : `Reasoning ${activeLabel} · ⌘↑ ⌘↓`}
-        </TooltipPopup>
-      </Tooltip>
+            <TooltipPopup side="top">{option.label}</TooltipPopup>
+          </Tooltip>
+        ))}
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <button
+                type="button"
+                className="device-dial__knob"
+                aria-disabled={disabled || undefined}
+                data-composer-shortcut="composer.effort"
+                aria-label={`Reasoning ${activeLabel}; turn up`}
+                onPointerDown={(event) => event.preventDefault()}
+                onClick={() => select((activeIndex + 1) % options.length)}
+              />
+            }
+          />
+          <TooltipPopup side="top">
+            {controls.ultrathinkInBodyText
+              ? 'Your prompt contains "ultrathink". Remove it to change reasoning.'
+              : `Reasoning ${activeLabel} · ⌘↑ ⌘↓`}
+          </TooltipPopup>
+        </Tooltip>
+      </div>
+      <div className="device-dial__readout" aria-hidden="true">
+        <span className="device-dial__caption">Reasoning</span>
+        <span className="device-dial__screen">
+          {tone === "ultracode" ? "✦ " : ""}
+          {active ? shortLabel(active) : ""}
+        </span>
+        <span className="device-dial__caption">
+          {activeIndex + 1} / {options.length}
+        </span>
+      </div>
     </div>
   );
 });

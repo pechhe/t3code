@@ -16,7 +16,6 @@ import {
   useUpdateClientSettings,
 } from "~/hooks/useSettings";
 import { playRotary } from "~/lib/interfaceSounds";
-import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
 import { providerModelKey } from "../../../modelOrdering";
 import type { ProviderInstanceEntry } from "../../../providerInstances";
@@ -26,6 +25,20 @@ import { getTriggerDisplayModelName, type ModelEsque } from "../providerIconUtil
 /** Favourite slots before the overflow detent. */
 const FAVORITE_SLOTS = 4;
 const DETENTS = FAVORITE_SLOTS + 1;
+
+/**
+ * The light under the thumb takes the provider's colour, so the rail shows which
+ * provider is on at a glance. A provider's accent colour from Settings wins.
+ */
+const PROVIDER_LIGHTS: Readonly<Record<string, string>> = {
+  claudeAgent: "oklch(0.7 0.17 42)",
+  claude: "oklch(0.7 0.17 42)",
+  codex: "oklch(0.72 0.14 165)",
+  cursor: "oklch(0.66 0.19 290)",
+  grok: "oklch(0.66 0.2 15)",
+  opencode: "oklch(0.74 0.16 115)",
+  antigravity: "oklch(0.66 0.17 255)",
+};
 
 const selectModelSlotLabels = (settings: ClientSettings) => settings.modelSlotLabels;
 
@@ -147,13 +160,23 @@ export function DeviceModelSlider(props: {
   };
   const position = activeIndex >= 0 ? activeIndex : FAVORITE_SLOTS;
   const overflowLabel = activeIndex < 0 && active ? active.label : null;
+  const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
+  const providerLight = activeEntry
+    ? (activeEntry.accentColor ?? PROVIDER_LIGHTS[activeEntry.driverKind])
+    : undefined;
 
   return (
     <div
       className="device-slider"
       role="group"
       aria-label="Model"
-      style={{ "--slider-position": position, "--slider-detents": DETENTS } as CSSProperties}
+      style={
+        {
+          "--slider-position": position,
+          "--slider-detents": DETENTS,
+          ...(providerLight ? { "--provider-light": providerLight } : {}),
+        } as CSSProperties
+      }
     >
       <span className="device-slider__ticks" aria-hidden="true">
         {Array.from({ length: DETENTS }, (_, index) => (
@@ -212,16 +235,13 @@ export function DeviceModelSlider(props: {
       {props.renderOverflow(
         <button
           type="button"
-          className={cn(
-            "device-slider__label",
-            overflowLabel === null && "device-slider__label--menu",
-          )}
+          className="device-slider__label device-slider__label--menu"
           style={{ "--slot": FAVORITE_SLOTS } as CSSProperties}
           disabled={props.disabled}
           aria-label={overflowLabel === null ? "All models" : `${overflowLabel}, all models`}
           aria-pressed={overflowLabel !== null}
         >
-          {overflowLabel ?? "•••"}
+          <span className="device-slider__menu-tag">{overflowLabel ?? "More"} ▾</span>
         </button>,
       )}
     </div>

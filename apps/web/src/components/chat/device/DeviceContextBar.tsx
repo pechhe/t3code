@@ -32,6 +32,11 @@ export function DeviceContextBar(props: {
   onCompact?: (() => void) | undefined;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
+  /** History the next send would summarise first; null when it sends as is. */
+  compactBeforeSendTokens: number | null;
+  keepFullHistory: boolean;
+  onToggleKeepFullHistory: () => void;
+  canOperateThread: boolean;
 }) {
   const { usage } = props;
   const used = clampPercent(usage?.usedPercentage ?? 0);
@@ -103,7 +108,14 @@ export function DeviceContextBar(props: {
             <TooltipPopup side="top">Use the rollover settings again for this thread</TooltipPopup>
           </Tooltip>
         ) : null}
-        {props.onCompact && usage && used > 0 ? (
+        {props.compactBeforeSendTokens !== null ? (
+          <CompactOnSendFlag
+            tokens={props.compactBeforeSendTokens}
+            armed={!props.keepFullHistory}
+            disabled={!props.canOperateThread}
+            onToggle={props.onToggleKeepFullHistory}
+          />
+        ) : props.onCompact && usage && used > 0 ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -129,6 +141,49 @@ export function DeviceContextBar(props: {
         ) : null}
       </span>
     </div>
+  );
+}
+
+/**
+ * Whether the next send summarises the history first. Armed, it is a lit tag whose ✕
+ * keeps the full history; disarmed, a dashed prompt to arm it again.
+ */
+function CompactOnSendFlag(props: {
+  tokens: number;
+  armed: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const tokens = formatContextWindowTokens(props.tokens);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className="device-context__flag"
+            aria-pressed={props.armed}
+            disabled={props.disabled}
+            aria-label={`Compact ${tokens} tokens of history before sending`}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={props.onToggle}
+          />
+        }
+      >
+        {props.armed ? (
+          <>
+            ▸ compacts on send<span className="device-context__flag-off">✕</span>
+          </>
+        ) : (
+          "compact on send?"
+        )}
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        {props.armed
+          ? `Next send summarises ${tokens} tokens first. Click to keep the full history`
+          : `Next send keeps all ${tokens} tokens. Click to compact first`}
+      </TooltipPopup>
+    </Tooltip>
   );
 }
 
