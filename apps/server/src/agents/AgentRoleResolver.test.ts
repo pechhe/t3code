@@ -710,8 +710,17 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect(kept).toMatchObject({ model: claudeModel, instanceId: spare.instanceId });
 
       // With every account out, the one resetting soonest serves rather than refusing.
-      const allOut = yield* resolve(input({ request: review(), providers: [codexOut, claudeOut] }));
-      expect(allOut.model).toBe(codexModel);
+      const allOut = yield* resolver.preview(
+        input({ request: review(), providers: [codexOut, claudeOut] }),
+      );
+      expect(allOut.refusal).toBeNull();
+      expect(allOut.selection?.model).toBe(codexModel);
+      expect(allOut.candidates).toContainEqual(
+        expect.objectContaining({ alias: "sol", reason: "selected" }),
+      );
+      expect(allOut.candidates).toContainEqual(
+        expect.objectContaining({ alias: "sonnet", reason: "usage-limited" }),
+      );
 
       // Allowance outranks a reviewer's preference against the author's model.
       const authorOnly = yield* resolve(

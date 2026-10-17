@@ -288,14 +288,13 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       .map(({ provider }) => provider.instanceId),
   );
   const limited = (candidate: { readonly provider: ServerProvider }) =>
-    Number(limitedInstances.has(candidate.provider.instanceId));
+    limitedInstances.has(candidate.provider.instanceId);
   candidates.sort(
     (a, b) =>
       // An account out of allowance serves only when every candidate is, so the work moves
       // down the list instead of failing at once; then the soonest reset serves first.
-      limited(a) - limited(b) ||
-      (limited(a) === 1 ? byUsageReset(a.provider, b.provider) : 0) ||
-      // A reviewer never defaults to the model that wrote the work.
+      (limited(a) || limited(b) ? byUsageReset(a.provider, b.provider) : 0) ||
+      // Among accounts with allowance, a reviewer never defaults to the model that wrote the work.
       (reviewer
         ? Number(a.selection.model === request.authorModel) -
           Number(b.selection.model === request.authorModel)
@@ -323,14 +322,13 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         ? candidate
         : {
             ...candidate,
-            // `selection` names the choice; a limited one says the task will wait for a reset.
             reason:
-              candidate.providerInstanceId !== undefined &&
-              limitedInstances.has(candidate.providerInstanceId)
-                ? "usage-limited"
-                : candidate.alias === chosen.alias &&
-                    candidate.providerInstanceId === chosen.provider.instanceId
-                  ? "selected"
+              candidate.alias === chosen.alias &&
+              candidate.providerInstanceId === chosen.provider.instanceId
+                ? "selected"
+                : candidate.providerInstanceId !== undefined &&
+                    limitedInstances.has(candidate.providerInstanceId)
+                  ? "usage-limited"
                   : "lower-preference",
           },
     ),

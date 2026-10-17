@@ -98,7 +98,10 @@ its revision and the role names, or the reason the policy is refused.
   requires the lead's explicit workspace binding.
 - The pin matches the workspace's working copy, or, in jj, the single parent of
   an empty working copy such as the one `jj commit` leaves.
-- A role uses the first available model in its list. A large (`demanding`) task
+- A role uses the first available model in its list. An account at a usage
+  limit is passed over for the next listed model with allowance, and
+  `agent_roles` names it in `usageLimited`; only when every candidate is limited
+  does the one resetting soonest serve, and the task continues after the reset. A large (`demanding`) task
   starts with the role's `large` model, and a caller whose model has a `callers`
   entry starts with that model instead; the rest of the list follows. A caller
   may name any listed model with `target.model`. `agent_roles` resolves for the
@@ -113,8 +116,8 @@ its revision and the role names, or the reason the policy is refused.
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.
 - Reviews always use fresh independent context and enforced read-only source
-  access. Keep `authorModel` truthful: the default never picks the author's model
-  first, and `preferOtherAuthorProvider` moves other providers ahead, but an
+  access. Keep `authorModel` truthful: among accounts with allowance the default
+  never picks the author's model first, and `preferOtherAuthorProvider` moves other providers ahead, but an
   explicit `target.model` may select the author's model when the reviewer list,
   task classification, tools, source binding and caller permissions allow it.
   Check the choice with `agent_roles` using `model` and `authorModel`. After a
