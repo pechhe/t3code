@@ -3752,6 +3752,25 @@ it.effect("refreshes pull requests after a provider stream exits with an error",
   }),
 );
 
+it.effect("settles the run as interrupted when its session is detached on purpose", () =>
+  Effect.gen(function* () {
+    const { written, observed } = yield* captureRootRunTermination({
+      key: "stream-error:detached",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: () =>
+        Stream.fail(
+          new ProviderAdapter.ProviderSessionDetachedError({
+            driver,
+            providerSessionId: ProviderSessionId.make("session:detached"),
+            detail: "Workspace changed.",
+          }),
+        ),
+    });
+    assert.deepEqual(observed, ["run:interrupted", "pull-requests-refreshed"]);
+    assert.isUndefined(written.find((item) => item.type === "error"));
+  }),
+);
+
 it.effect("fails the run when its event stream ends without a root terminal", () =>
   Effect.gen(function* () {
     const { observed, finalEvents } = yield* captureRootRunTermination({

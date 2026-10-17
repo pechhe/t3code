@@ -512,6 +512,14 @@ export class RunExecutionIngestError extends Schema.TaggedError<RunExecutionInge
   }
 }
 
+const isRunExecutionIngestError = Schema.is(RunExecutionIngestError);
+const isProviderSessionDetachedError = Schema.is(ProviderAdapter.ProviderSessionDetachedError);
+
+function isDeliberateDetach(cause: Cause.Cause<unknown>): boolean {
+  const error = Cause.squash(cause);
+  return isRunExecutionIngestError(error) && isProviderSessionDetachedError(error.cause);
+}
+
 export const RunExecutionServiceV2Error = Schema.Union([
   RunExecutionStartError,
   RunExecutionIngestError,
@@ -1334,13 +1342,31 @@ export const layer: Layer.Layer<
                                             expectedStatus: "running",
                                           },
                                           openRunOwnedSubagents: openSubagents,
-                                          terminal: makeFailedTerminalEvent(
-                                            makeProviderFailure({
-                                              cause: Cause.squash(cause),
-                                              class: "unknown",
-                                            }),
-                                            latestItemOrdinal + 1,
-                                          ),
+                                          // A deliberate detach (workspace handoff) ends
+                                          // the turn on purpose; it is not a failure.
+                                          terminal: isDeliberateDetach(cause)
+                                            ? {
+                                                type: "turn.terminal",
+                                                driver: input.providerThread.driver,
+                                                providerThreadId: input.providerThread.id,
+                                                providerTurnId:
+                                                  input.attempt.providerTurnId ??
+                                                  idAllocator.derive.providerTurn({
+                                                    driver: input.providerThread.driver,
+                                                    nativeTurnId: `detached:${input.attempt.id}`,
+                                                  }),
+                                                runOrdinal: input.run.ordinal,
+                                                status: "interrupted",
+                                                failure: null,
+                                                threadDisposition: "reusable",
+                                              }
+                                            : makeFailedTerminalEvent(
+                                                makeProviderFailure({
+                                                  cause: Cause.squash(cause),
+                                                  class: "unknown",
+                                                }),
+                                                latestItemOrdinal + 1,
+                                              ),
                                           failureItemPersisted: false,
                                           refreshAfterTurn,
                                         }),

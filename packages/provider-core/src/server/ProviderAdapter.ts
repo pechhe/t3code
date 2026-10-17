@@ -377,6 +377,21 @@ export class ProviderAdapterEventStreamError extends Schema.TaggedError<Provider
   }
 }
 
+// A deliberate detach (workspace handoff, archive) ends the session under a live
+// run. Subscribers settle that run as interrupted; it is not a stream failure.
+export class ProviderSessionDetachedError extends Schema.TaggedError<ProviderSessionDetachedError>()(
+  "ProviderSessionDetachedError",
+  {
+    driver: ProviderDriverKind,
+    providerSessionId: ProviderSessionId,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export class ProviderAdapterProtocolError extends Schema.TaggedError<ProviderAdapterProtocolError>()(
   "ProviderAdapterProtocolError",
   {
@@ -406,6 +421,7 @@ export const ProviderAdapterV2Error = Schema.Union([
   ProviderAdapterInterruptError,
   ProviderAdapterRuntimeRequestResponseError,
   ProviderAdapterEventStreamError,
+  ProviderSessionDetachedError,
   ProviderAdapterProtocolError,
 ]);
 export type ProviderAdapterV2Error = typeof ProviderAdapterV2Error.Type;

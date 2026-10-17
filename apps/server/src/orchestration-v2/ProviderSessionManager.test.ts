@@ -1802,6 +1802,54 @@ it.effect("ProviderSessionManagerV2 interrupts event subscriptions on server shu
   }),
 );
 
+it.effect(
+  "ProviderSessionManagerV2 fails a live subscriber with a detach error when a thread detaches",
+  () =>
+    Effect.gen(function* () {
+      const state = yield* Ref.make(emptyState);
+      const effect = Effect.gen(function* () {
+        const eventSink = yield* EventSink.EventSinkV2;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const manager = yield* ProviderSessionManager.ProviderSessionManagerV2;
+        const now = yield* DateTime.now;
+        const threadId = ThreadId.make("thread-provider-session-manager-detach-subscriber");
+        const providerSessionId = yield* idAllocator.allocate.providerSession({
+          providerInstanceId: modelSelection.instanceId,
+          threadId,
+        });
+        yield* eventSink.write({
+          events: [yield* makeThreadCreatedEvent({ idAllocator, threadId, now })],
+        });
+        const runtime = yield* manager.open({
+          threadId,
+          providerSessionId,
+          modelSelection,
+          runtimePolicy,
+        });
+        const subscription = yield* runtime.subscribeEvents!;
+        const collected = yield* subscription.events.pipe(
+          Stream.runCollect,
+          Effect.exit,
+          Effect.forkScoped,
+        );
+        yield* manager.detach({ providerSessionId, threadId, detail: "Workspace changed." });
+
+        const exit = yield* Fiber.join(collected);
+        assert.isTrue(Exit.isFailure(exit));
+        assert.instanceOf(
+          Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined,
+          ProviderAdapter.ProviderSessionDetachedError,
+        );
+      });
+
+      yield* effect.pipe(
+        Effect.provide(
+          layerTest({ state, idleTimeoutMs: 60_000, capabilities: ExclusiveCapabilities }),
+        ),
+      );
+    }),
+);
+
 it.effect("ProviderSessionManagerV2 drains subscribers when the provider stops", () =>
   Effect.gen(function* () {
     const state = yield* Ref.make(emptyState);
