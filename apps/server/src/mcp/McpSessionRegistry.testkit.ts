@@ -23,6 +23,7 @@ export const layer = Layer.succeed(
     touch: () => Effect.void,
     revokeProviderSession: () => Effect.void,
     revokeThread: () => Effect.void,
+    releaseThreadBrowser: () => Effect.void,
     revokeAll: Effect.void,
   }),
 );

@@ -46,6 +46,11 @@ export interface McpSessionRegistryShape {
   readonly touch: (threadId: ThreadId) => Effect.Effect<void>;
   readonly revokeProviderSession: (providerSessionId: string) => Effect.Effect<void>;
   readonly revokeThread: (threadId: ThreadId) => Effect.Effect<void>;
+  /**
+   * Closes the browser tabs a thread's sessions opened and leaves its credentials valid, so the
+   * thread's next browser call opens a fresh tab.
+   */
+  readonly releaseThreadBrowser: (threadId: ThreadId) => Effect.Effect<void>;
   readonly revokeAll: Effect.Effect<void>;
 }
 
@@ -268,6 +273,16 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     revokeThread: Effect.fn("McpSessionRegistry.revokeThread")(function* (threadId) {
       yield* revokeWhere((record) => record.scope.thread.threadId === threadId);
     }),
+    releaseThreadBrowser: Effect.fn("McpSessionRegistry.releaseThreadBrowser")(
+      function* (threadId) {
+        const { records } = yield* SynchronizedRef.get(state);
+        yield* releasePhiSessions(
+          Array.from(records.values())
+            .filter((record) => record.scope.thread.threadId === threadId)
+            .map((record) => record.scope.thread.providerSessionId),
+        );
+      },
+    ),
     revokeAll: revokeWhere(() => true),
   });
 });

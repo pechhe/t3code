@@ -286,3 +286,40 @@ it.effect("mints a managed browser credential for the narrow endpoint, pinned to
     expect(resolved?.browserBackends).toEqual({ enabled: ["phi"], default: "phi" });
   }),
 );
+
+it.effect("closes a thread's browser tabs and leaves its credential valid", () =>
+  Effect.gen(function* () {
+    const released: Array<string> = [];
+    const releasedOnce = yield* Deferred.make<void>();
+    const phi = PhiBrowser.PhiBrowser.of({
+      availability: () => Effect.succeed("available"),
+      hasTab: () => Effect.succeed(false),
+      invoke: () => Effect.die("unused"),
+      list: () => Effect.succeed([]),
+      releaseSession: (id) =>
+        Effect.sync(() => void released.push(id)).pipe(
+          Effect.andThen(Deferred.succeed(releasedOnce, undefined)),
+        ),
+    });
+    const registry = yield* makeRegistry(() => 1_000).pipe(
+      Effect.provideService(PhiBrowser.PhiBrowser, phi),
+    );
+    const issue = (threadId: ThreadId) =>
+      registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        capabilities: new Set(["preview"]),
+      });
+    const task = yield* issue(ThreadId.make("phi-release-task"));
+    yield* issue(ThreadId.make("phi-release-other"));
+
+    yield* registry.releaseThreadBrowser(ThreadId.make("phi-release-task"));
+    // Cleanup runs off the request path, so wait for it rather than assume it already ran.
+    yield* Deferred.await(releasedOnce);
+
+    expect(released).toEqual([task.config.providerSessionId]);
+    expect(
+      yield* registry.resolve(task.config.authorizationHeader.replace(/^Bearer\s+/, "")),
+    ).toBeDefined();
+  }),
+);

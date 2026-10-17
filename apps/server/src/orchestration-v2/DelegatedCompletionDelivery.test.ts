@@ -21,6 +21,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
 
@@ -37,6 +38,7 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
+import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import { continueRestartedRun } from "./RestartContinuation.ts";
@@ -106,7 +108,11 @@ const layerTestProviderInstanceRegistry = Layer.succeed(
   },
 );
 
-const layerTest = Layer.mergeAll(RuntimeLayer.layer, RuntimeLayer.layerEventSink).pipe(
+const layerTest = Layer.mergeAll(
+  RuntimeLayer.layer,
+  RuntimeLayer.layerEventSink,
+  EffectOutbox.layer,
+).pipe(
   Layer.provideMerge(RuntimeLayer.layerProjectService),
   Layer.provide(
     Layer.mock(WorkspacePaths.WorkspacePaths)({
@@ -1800,6 +1806,99 @@ it.layer(layerTest)("delegated tasks across a server restart", (it) => {
         ],
       );
     }),
+  );
+
+  it.effect(
+    "queues a managed task's browser release at once when cancelled, after a grace period when completed, and for no other subagent",
+    () =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const outbox = yield* EffectOutbox.EffectOutboxV2;
+        const now = yield* DateTime.now;
+        const threadId = ThreadId.make("thread:browser-release-parent");
+        const projectId = ProjectId.make("project:browser-release-parent");
+        const runId = RunId.make("run:browser-release-parent");
+        const rootNodeId = NodeId.make("node:browser-release-parent-root");
+        yield* seedParentWithTerminalTask({
+          threadId,
+          projectId,
+          runId,
+          rootNodeId,
+          taskId: NodeId.make("node:browser-release-parent-settled"),
+          deliveryState: "delivered",
+          now,
+        });
+        const seedChild = (name: string, runStatus: "cancelled" | "completed", managed: boolean) =>
+          Effect.gen(function* () {
+            const child = yield* seedRestartCancelledChild({
+              parentThreadId: threadId,
+              projectId,
+              parentRunId: runId,
+              rootNodeId,
+              name,
+              completionWake: "always",
+              continuationPending: false,
+              runStatus,
+              now,
+            });
+            if (!managed) return child;
+            const { thread } = yield* orchestrator.getThreadProjection(child.childThreadId);
+            yield* eventSink.write({
+              commandId: reconcileCommandId(`${name}-pin`),
+              events: [
+                {
+                  id: EventId.make(`event:${name}-pin`),
+                  type: "thread.metadata-updated",
+                  threadId: thread.id,
+                  occurredAt: now,
+                  payload: {
+                    ...thread,
+                    agentTask: {
+                      role: "ui-verifier",
+                      taskClass: "ui",
+                      workId: `${name}-work`,
+                      attemptId: "1",
+                      workspacePath: "/fixture/verifier",
+                      sourceRevision: "revision-one",
+                      requestFingerprint: "a".repeat(64),
+                      policyHash: "b".repeat(64),
+                      policyRevision: "test",
+                      briefHash: "c".repeat(64),
+                      sourceAccess: "read-only",
+                      toolProfile: "phi",
+                      requested: thread.modelSelection,
+                      assigned: null,
+                      effective: thread.modelSelection,
+                    },
+                  },
+                },
+              ],
+            });
+            return child;
+          });
+        const completed = yield* seedChild("browser-release-completed", "completed", true);
+        const cancelled = yield* seedChild("browser-release-cancelled", "cancelled", true);
+        const plain = yield* seedChild("browser-release-plain", "completed", false);
+
+        yield* orchestrator.recoverDelegatedTasks;
+
+        const release = (child: { readonly childRunId: RunId }) =>
+          outbox.get(`effect:system:browser-sessions.release:${child.childRunId}`);
+        const availableInMinutes = (queued: Option.Option<EffectOutbox.OrchestrationEffectV2>) =>
+          Option.match(queued, {
+            onNone: () => undefined,
+            onSome: (effect) =>
+              (DateTime.toEpochMillis(DateTime.makeUnsafe(effect.availableAt)) -
+                DateTime.toEpochMillis(now)) /
+              60_000,
+          });
+        const afterCompletion = availableInMinutes(yield* release(completed));
+        assert.isTrue(afterCompletion !== undefined && afterCompletion > 5);
+        const afterCancel = availableInMinutes(yield* release(cancelled));
+        assert.isTrue(afterCancel !== undefined && afterCancel < 1);
+        assert.isTrue(Option.isNone(yield* release(plain)));
+      }),
   );
 
   it.effect("settles a child whose provider failure holds its queued wakes", () =>

@@ -502,6 +502,26 @@ export const layerExecutor: Layer.Layer<
                   }),
               ),
             );
+          case "browser-sessions.release": {
+            const sourceRunId = effect.request.sourceRunId;
+            return threads.getThreadRecords(effect.threadId, ["runs"]).pipe(
+              Effect.flatMap(({ runs }) => {
+                const source = runs.find((run) => run.id === sourceRunId);
+                // A later run is a follow-up that now owns the thread's tabs.
+                return source !== undefined && runs.some((run) => run.ordinal > source.ordinal)
+                  ? Effect.void
+                  : resourceCleanup.releaseBrowserSessions(effect.threadId);
+              }),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
+          }
           case "attachment.cleanup":
             return resourceCleanup.cleanupAttachments(effect.request.attachmentIds).pipe(
               Effect.mapError(

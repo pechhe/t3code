@@ -24,6 +24,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
 import * as EffectOutbox from "./EffectOutbox.ts";
 import * as EffectWorker from "./EffectWorker.ts";
+import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RunFinalizationService from "./RunFinalizationService.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderTurnControlService from "./ProviderTurnControlService.ts";
@@ -970,4 +971,57 @@ it.effect.each(["confirmed", "unconfirmed", "failed"] as const)(
         outcome === "confirmed" ? ["stop-child", "settle-child"] : ["stop-child"],
       );
     }),
+);
+
+it.effect.each([
+  { name: "a follow-up has not started", laterRun: false, released: ["released"] },
+  { name: "a follow-up has started", laterRun: true, released: [] },
+])("releases a finished task's browser tabs only when $name", ({ laterRun, released }) =>
+  Effect.gen(function* () {
+    const now = yield* DateTime.now;
+    const timestamp = DateTime.formatIso(now);
+    const events = yield* Ref.make<ReadonlyArray<string>>([]);
+    const sourceRunId = RunId.make("run:browser-release-source");
+    const run = (id: RunId, ordinal: number) => ({ id, ordinal }) as never;
+    const layer = layerExecutorFor({
+      events,
+      threads: {
+        getThreadRecords: () =>
+          Effect.succeed({
+            runs: [
+              run(sourceRunId, 1),
+              ...(laterRun ? [run(RunId.make("run:browser-release-followup"), 2)] : []),
+            ],
+          } as never),
+      },
+    }).pipe(
+      Layer.provideMerge(
+        Layer.succeed(ResourceCleanupService.ResourceCleanupService, {
+          cleanupTerminals: () => Effect.void,
+          cleanupPreviews: () => Effect.void,
+          cleanupAttachments: () => Effect.void,
+          releaseBrowserSessions: () => Ref.update(events, (current) => [...current, "released"]),
+        }),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+      yield* executor.execute({
+        id: "effect:browser-release",
+        commandId: CommandId.make("command:browser-release"),
+        threadId,
+        request: { type: "browser-sessions.release", sourceRunId },
+        status: "running",
+        attemptCount: 1,
+        availableAt: timestamp,
+        leaseOwner: "test-worker",
+        leaseExpiresAt: timestamp,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        completedAt: null,
+        lastError: null,
+      });
+    }).pipe(Effect.provide(layer));
+    assert.deepEqual(yield* Ref.get(events), released);
+  }),
 );

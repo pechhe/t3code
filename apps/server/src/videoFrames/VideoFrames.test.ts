@@ -14,6 +14,7 @@ import * as VideoFrames from "./VideoFrames.ts";
 import * as ResourceCleanup from "../orchestration-v2/ResourceCleanupService.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 import * as PreviewManager from "../preview/Manager.ts";
+import * as McpSessionRegistryTestkit from "../mcp/McpSessionRegistry.testkit.ts";
 
 const video = (i = 0): ChatAttachment => ({
   type: "file",
@@ -222,6 +223,7 @@ it.effect("regenerates an incomplete cache and removes it through attachment cle
           Layer.mergeAll(
             Layer.mock(TerminalManager.TerminalManager)({}),
             Layer.mock(PreviewManager.PreviewManager)({}),
+            McpSessionRegistryTestkit.layer,
           ),
         ),
         Layer.provideMerge(h.layer),

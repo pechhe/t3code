@@ -388,6 +388,9 @@ export interface OrchestratorV2Shape {
   readonly streamDomainEvents: Stream.Stream<OrchestrationV2DomainEvent, OrchestratorV2Error>;
 }
 
+/** How long a finished managed task keeps its browser tabs for a follow-up to continue in. */
+const MANAGED_TAB_FOLLOWUP_GRACE_MINUTES = 10;
+
 export class OrchestratorV2 extends Context.Service<OrchestratorV2, OrchestratorV2Shape>()(
   "t3/orchestration-v2/Orchestrator/OrchestratorV2",
 ) {}
@@ -10835,108 +10838,127 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         consumedAt: now,
       };
 
-      yield* writeSystemEvents([
-        {
-          type: "subagent.updated",
-          threadId: parentThreadId,
-          ...(task.runId === null ? {} : { runId: task.runId }),
-          nodeId: task.id,
-          driver: task.driver,
-          occurredAt: now,
-          payload: completionPlan.task,
-        },
-        ...(completionPlan.parentRun === undefined
-          ? []
-          : [
-              {
-                type: "run.updated" as const,
-                threadId: parentThreadId,
-                runId: completionPlan.parentRun.id,
-                ...(completionPlan.parentRun.rootNodeId === null
-                  ? {}
-                  : { nodeId: completionPlan.parentRun.rootNodeId }),
-                providerInstanceId: completionPlan.parentRun.providerInstanceId,
-                occurredAt: now,
-                payload: completionPlan.parentRun,
-              },
-            ]),
-        ...(completionPlan.message === undefined
-          ? []
-          : [
-              {
-                type: "message.updated" as const,
-                threadId: parentThreadId,
-                ...(completionPlan.message.runId === null
-                  ? {}
-                  : { runId: completionPlan.message.runId }),
-                ...(completionPlan.message.nodeId === null
-                  ? {}
-                  : { nodeId: completionPlan.message.nodeId }),
-                providerInstanceId:
-                  completionPlan.parentRun?.providerInstanceId ??
-                  parentProjection.thread.providerInstanceId,
-                occurredAt: now,
-                payload: completionPlan.message,
-              },
-            ]),
-        ...(parentNode === undefined
-          ? []
-          : [
-              {
-                type: "node.updated" as const,
-                threadId: parentThreadId,
-                ...(parentNode.runId === null ? {} : { runId: parentNode.runId }),
-                nodeId: parentNode.id,
-                driver: task.driver,
-                occurredAt: now,
-                payload: {
-                  ...parentNode,
-                  status: terminalStatus,
-                  providerThreadId: childRun.providerThreadId,
-                  completedAt: now,
+      yield* writeSystemEvents(
+        [
+          {
+            type: "subagent.updated",
+            threadId: parentThreadId,
+            ...(task.runId === null ? {} : { runId: task.runId }),
+            nodeId: task.id,
+            driver: task.driver,
+            occurredAt: now,
+            payload: completionPlan.task,
+          },
+          ...(completionPlan.parentRun === undefined
+            ? []
+            : [
+                {
+                  type: "run.updated" as const,
+                  threadId: parentThreadId,
+                  runId: completionPlan.parentRun.id,
+                  ...(completionPlan.parentRun.rootNodeId === null
+                    ? {}
+                    : { nodeId: completionPlan.parentRun.rootNodeId }),
+                  providerInstanceId: completionPlan.parentRun.providerInstanceId,
+                  occurredAt: now,
+                  payload: completionPlan.parentRun,
                 },
-              },
-            ]),
-        ...(parentTurnItem === undefined
-          ? []
-          : [
-              {
-                type: "turn-item.updated" as const,
-                threadId: parentThreadId,
-                ...(parentTurnItem.runId === null ? {} : { runId: parentTurnItem.runId }),
-                ...(parentTurnItem.nodeId === null ? {} : { nodeId: parentTurnItem.nodeId }),
-                driver: task.driver,
-                occurredAt: now,
-                payload: {
-                  ...parentTurnItem,
-                  status: terminalStatus,
-                  result: result.text,
-                  completedAt: now,
-                  updatedAt: now,
+              ]),
+          ...(completionPlan.message === undefined
+            ? []
+            : [
+                {
+                  type: "message.updated" as const,
+                  threadId: parentThreadId,
+                  ...(completionPlan.message.runId === null
+                    ? {}
+                    : { runId: completionPlan.message.runId }),
+                  ...(completionPlan.message.nodeId === null
+                    ? {}
+                    : { nodeId: completionPlan.message.nodeId }),
+                  providerInstanceId:
+                    completionPlan.parentRun?.providerInstanceId ??
+                    parentProjection.thread.providerInstanceId,
+                  occurredAt: now,
+                  payload: completionPlan.message,
                 },
-              },
-            ]),
-        ...(resultHandoff === null
+              ]),
+          ...(parentNode === undefined
+            ? []
+            : [
+                {
+                  type: "node.updated" as const,
+                  threadId: parentThreadId,
+                  ...(parentNode.runId === null ? {} : { runId: parentNode.runId }),
+                  nodeId: parentNode.id,
+                  driver: task.driver,
+                  occurredAt: now,
+                  payload: {
+                    ...parentNode,
+                    status: terminalStatus,
+                    providerThreadId: childRun.providerThreadId,
+                    completedAt: now,
+                  },
+                },
+              ]),
+          ...(parentTurnItem === undefined
+            ? []
+            : [
+                {
+                  type: "turn-item.updated" as const,
+                  threadId: parentThreadId,
+                  ...(parentTurnItem.runId === null ? {} : { runId: parentTurnItem.runId }),
+                  ...(parentTurnItem.nodeId === null ? {} : { nodeId: parentTurnItem.nodeId }),
+                  driver: task.driver,
+                  occurredAt: now,
+                  payload: {
+                    ...parentTurnItem,
+                    status: terminalStatus,
+                    result: result.text,
+                    completedAt: now,
+                    updatedAt: now,
+                  },
+                },
+              ]),
+          ...(resultHandoff === null
+            ? []
+            : [
+                {
+                  type: "context-handoff.updated" as const,
+                  threadId: parentThreadId,
+                  ...(parentRun === undefined ? {} : { runId: parentRun.id }),
+                  providerInstanceId: childRun.providerInstanceId,
+                  occurredAt: now,
+                  payload: resultHandoff,
+                },
+              ]),
+          {
+            type: "context-transfer.created",
+            threadId: parentThreadId,
+            ...(parentRun === undefined ? {} : { runId: parentRun.id }),
+            providerInstanceId: childRun.providerInstanceId,
+            occurredAt: now,
+            payload: resultTransfer,
+          },
+        ],
+        // A managed task's browser tabs close when it ends: at once if it was cancelled, else
+        // after a grace period in which a follow-up can pick them up. The worker skips the
+        // release when a later run has started.
+        childControls.thread.agentTask === undefined
           ? []
           : [
               {
-                type: "context-handoff.updated" as const,
-                threadId: parentThreadId,
-                ...(parentRun === undefined ? {} : { runId: parentRun.id }),
-                providerInstanceId: childRun.providerInstanceId,
-                occurredAt: now,
-                payload: resultHandoff,
+                id: `effect:system:browser-sessions.release:${childRun.id}`,
+                commandId: CommandId.make(`command:system:browser-sessions.release:${childRun.id}`),
+                threadId: childThreadId,
+                request: { type: "browser-sessions.release", sourceRunId: childRun.id },
+                availableAt:
+                  terminalStatus === "cancelled" || terminalStatus === "interrupted"
+                    ? now
+                    : DateTime.add(now, { minutes: MANAGED_TAB_FOLLOWUP_GRACE_MINUTES }),
               },
-            ]),
-        {
-          type: "context-transfer.created",
-          threadId: parentThreadId,
-          ...(parentRun === undefined ? {} : { runId: parentRun.id }),
-          providerInstanceId: childRun.providerInstanceId,
-          occurredAt: now,
-          payload: resultTransfer,
-        },
-      ]);
+            ],
+      );
 
       if (completionPlan.offer && completionPlan.parentRun !== undefined) {
         yield* offerDelegatedCompletionDelivery(parentThreadId, completionPlan.parentRun.id);

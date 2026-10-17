@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 
 import { parseAttachmentUuid, resolveAttachmentPathById } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as McpSessionRegistry from "../mcp/McpSessionRegistry.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as TerminalManager from "../terminal/Manager.ts";
 
@@ -24,6 +25,11 @@ export class ResourceCleanupError extends Schema.TaggedError<ResourceCleanupErro
 export class ResourceCleanupService extends Context.Reference<{
   readonly cleanupTerminals: (threadId: string) => Effect.Effect<void, ResourceCleanupError>;
   readonly cleanupPreviews: (threadId: string) => Effect.Effect<void, ResourceCleanupError>;
+  /**
+   * Closes the browser tabs a thread's MCP sessions opened. A tab handed to a person stays
+   * open: Phi refuses to close it.
+   */
+  readonly releaseBrowserSessions: (threadId: string) => Effect.Effect<void>;
   readonly cleanupAttachments: (
     attachmentIds: ReadonlyArray<string>,
   ) => Effect.Effect<void, ResourceCleanupError>;
@@ -31,6 +37,7 @@ export class ResourceCleanupService extends Context.Reference<{
   defaultValue: () => ({
     cleanupTerminals: () => Effect.void,
     cleanupPreviews: () => Effect.void,
+    releaseBrowserSessions: () => Effect.void,
     cleanupAttachments: () => Effect.void,
   }),
 }) {}
@@ -40,6 +47,7 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const terminals = yield* TerminalManager.TerminalManager;
     const previews = yield* PreviewManager.PreviewManager;
+    const mcpSessions = yield* McpSessionRegistry.McpSessionRegistry;
     const fileSystem = yield* FileSystem.FileSystem;
     const config = yield* ServerConfig.ServerConfig;
     const paths = yield* Path.Path;
@@ -60,6 +68,8 @@ export const layer = Layer.effect(
               (cause) => new ResourceCleanupError({ operation: "preview", threadId, cause }),
             ),
           ),
+      releaseBrowserSessions: (threadId: string) =>
+        mcpSessions.releaseThreadBrowser(ThreadId.make(threadId)),
       cleanupAttachments: (attachmentIds: ReadonlyArray<string>) =>
         Effect.forEach(
           attachmentIds,
