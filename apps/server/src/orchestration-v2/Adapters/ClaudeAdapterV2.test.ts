@@ -5308,12 +5308,19 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       > => event.type === "provider_thread.updated",
     );
 
+  const publishedTaskIds = (events: ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>) =>
+    (providerThreadRosterEvents(events).at(-1)?.providerThread.pendingBackgroundTasks ?? []).map(
+      (task) => task.taskId,
+    );
+
   it.effect(
     "uses task_started as an incremental roster fallback and clears on empty snapshot",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
-          const harness = yield* makeWakeHarness;
+          const harness = yield* makeWakeHarnessWithOptions({
+            close: (sdkMessages) => Queue.shutdown(sdkMessages),
+          });
           const now = yield* DateTime.now;
           const emptyRoster = claudeSdkFrame({
             type: "system",
@@ -5374,6 +5381,20 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           );
 
           yield* Queue.offer(harness.sdkMessages, emptyRoster);
+          // The root's own task ended while idle, so it reads as pending until a wake turn runs or
+          // a Stop clears it. The subagent's shell never wakes the root.
+          yield* awaitUntil(
+            () => !publishedTaskIds(harness.events).includes("subagent-shell"),
+            "subagent shell cleared",
+          );
+          assert.deepEqual(publishedTaskIds(harness.events), [WAKE_TASK_ID]);
+          yield* harness.runtime.interruptTurn({
+            providerThread:
+              providerThreadRosterEvents(harness.events).at(-1)?.providerThread ??
+              harness.providerThread,
+            providerTurnId: harness.terminalEvents()[0]!.providerTurnId,
+            requestRuntimeRestart: true,
+          });
           yield* awaitUntil(
             () =>
               providerThreadRosterEvents(harness.events).some(
@@ -6903,6 +6924,104 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         assert.lengthOf(harness.continuationRequests, 1);
         assert.lengthOf(harness.terminalEvents(), 1);
         assert.isTrue(yield* harness.hasPendingBackgroundWork);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("keeps a finished background task pending until its wake turn runs", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const now = yield* DateTime.now;
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-wake-owed-1"),
+            text: "Run the build in the background.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(harness.sdkMessages, wakeTaskStarted);
+        yield* Queue.offer(harness.sdkMessages, turnOneResult);
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "first turn terminal");
+
+        // Between the task ending and its wake run, the thread must not read as finished, or a
+        // watch on it would quote the turn before the wake.
+        yield* harness.offerAndWait(wakeNotification);
+        assert.deepEqual(publishedTaskIds(harness.events), [WAKE_TASK_ID]);
+        yield* harness.offerAndWait(wakeTurnInit);
+        assert.lengthOf(harness.continuationRequests, 1);
+        assert.deepEqual(publishedTaskIds(harness.events), [WAKE_TASK_ID]);
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-wake-owed-2"),
+            text: "Background task completed.",
+            attachments: [],
+            providerTurnOrdinal: 2,
+            messageCreatedBy: "agent",
+            messageCreationSource: "provider",
+          }),
+        );
+        yield* harness.offerAndWait(wakeAssistant);
+        yield* harness.offerAndWait(wakeResult);
+        yield* awaitUntil(() => harness.terminalEvents().length === 2, "wake run terminal");
+        const wakeTerminal = harness.events.indexOf(harness.terminalEvents()[1]!);
+        assert.deepEqual(publishedTaskIds(harness.events.slice(0, wakeTerminal)), []);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("a Stop releases a finished background task Claude never wakes for", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarnessWithOptions({
+          close: (sdkMessages) => Queue.shutdown(sdkMessages),
+        });
+        const now = yield* DateTime.now;
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-wake-owed-unwoken"),
+            text: "Run the build in the background.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(harness.sdkMessages, wakeTaskStarted);
+        yield* Queue.offer(harness.sdkMessages, turnOneResult);
+        yield* awaitUntil(() => harness.terminalEvents().length === 1, "first turn terminal");
+        yield* harness.offerAndWait(wakeNotification);
+        assert.deepEqual(publishedTaskIds(harness.events), [WAKE_TASK_ID]);
+
+        yield* harness.runtime.interruptTurn({
+          providerThread:
+            providerThreadRosterEvents(harness.events).at(-1)?.providerThread ??
+            harness.providerThread,
+          providerTurnId: harness.terminalEvents()[0]!.providerTurnId,
+          requestRuntimeRestart: true,
+        });
+        yield* awaitUntil(
+          () => publishedTaskIds(harness.events).length === 0,
+          "Stop releases the owed task",
+        );
+        assert.lengthOf(harness.continuationRequests, 0);
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),

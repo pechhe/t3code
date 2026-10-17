@@ -3601,6 +3601,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const opaqueBackgroundTaskReplayTombstonesByNativeThread = yield* Ref.make(
           new Map<string, Set<string>>(),
         );
+        // Tasks that ended while the root was idle and will wake it. They stay on the published
+        // roster until a turn is active, so the thread never looks finished in the moment between
+        // the task ending and its wake turn starting. Only evidence releases them: a turn, the
+        // CLI process ending, or a Stop; never elapsed time, which cannot tell a slow wake apart.
+        const wakeOwedBackgroundTasksByNativeThread = new Map<
+          string,
+          Map<string, OrchestrationV2PendingBackgroundTask>
+        >();
         const lastProviderThreadByNativeThread = yield* Ref.make(
           new Map<string, OrchestrationV2ProviderThread>(),
         );
@@ -3981,10 +3989,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           readonly providerThread: OrchestrationV2ProviderThread;
           readonly status?: OrchestrationV2ProviderThread["status"];
         }) {
-          const roster = rosterForNativeThread(
-            yield* Ref.get(pendingBackgroundTasksByNativeThread),
-            input.nativeThreadId,
-          );
+          const roster = new Map([
+            ...rosterForNativeThread(
+              yield* Ref.get(pendingBackgroundTasksByNativeThread),
+              input.nativeThreadId,
+            ),
+            ...(wakeOwedBackgroundTasksByNativeThread.get(input.nativeThreadId) ?? []),
+          ]);
           const now = yield* DateTime.now;
           const providerThread: OrchestrationV2ProviderThread = {
             ...input.providerThread,
@@ -4106,6 +4117,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
 
         const clearPendingBackgroundTasksForNativeThread = (nativeThreadId: string) =>
           Effect.gen(function* () {
+            wakeOwedBackgroundTasksByNativeThread.delete(nativeThreadId);
             yield* Ref.update(pendingBackgroundTasksByNativeThread, (current) => {
               if (!current.has(nativeThreadId)) {
                 return current;
@@ -5998,6 +6010,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 const nativeThreadId =
                   input.context.input.providerThread.nativeThreadRef?.nativeId ?? null;
                 if (nativeThreadId !== null) {
+                  wakeOwedBackgroundTasksByNativeThread.delete(nativeThreadId);
                   if (input.status !== "completed") {
                     yield* clearPendingBackgroundTasksForNativeThread(nativeThreadId);
                     yield* clearNativeThreadTaskIdSet(
@@ -6444,6 +6457,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         }) {
           const message = input.message;
           let rosterChanged = false;
+          const before = rosterForNativeThread(
+            yield* Ref.get(pendingBackgroundTasksByNativeThread),
+            input.nativeThreadId,
+          );
+          const wakeEligibleBefore = taskIdSetForNativeThread(
+            yield* Ref.get(wakeEligibleBackgroundTasksByNativeThread),
+            input.nativeThreadId,
+          );
 
           if (isClaudeBackgroundTasksChangedMessage(message)) {
             const roster = Reflect.get(message, "tasks");
@@ -6508,6 +6529,36 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
 
           if (!rosterChanged) {
             return false;
+          }
+
+          if (input.activeContext === null) {
+            const after = rosterForNativeThread(
+              yield* Ref.get(pendingBackgroundTasksByNativeThread),
+              input.nativeThreadId,
+            );
+            const bufferedNotifications = new Set(
+              ((yield* Ref.get(wakeBuffers)).get(input.nativeThreadId)?.messages ?? []).flatMap(
+                (entry) =>
+                  entry.type === "system" && entry.subtype === "task_notification"
+                    ? [entry.task_id]
+                    : [],
+              ),
+            );
+            const owed = new Map(wakeOwedBackgroundTasksByNativeThread.get(input.nativeThreadId));
+            for (const [taskId, task] of before) {
+              // A subagent's own task reports to that subagent and never wakes the root.
+              if (
+                !after.has(taskId) &&
+                task.parentTaskId === undefined &&
+                (wakeEligibleBefore.has(taskId) || bufferedNotifications.has(taskId))
+              ) {
+                owed.set(taskId, task);
+              }
+            }
+            if (owed.size > 0)
+              wakeOwedBackgroundTasksByNativeThread.set(input.nativeThreadId, owed);
+          } else {
+            wakeOwedBackgroundTasksByNativeThread.delete(input.nativeThreadId);
           }
 
           const baseThread =
