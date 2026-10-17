@@ -110,7 +110,6 @@ const {
     scripts: Array<string>;
     capturedRegions: Array<Electron.Rectangle>;
     showCount: number;
-    hideCount: number;
     resizeCount: number;
     alwaysOnTopCalls: Array<[boolean, string | undefined]>;
   }>,
@@ -323,7 +322,6 @@ vi.mock("electron", () => {
         scripts: [],
         capturedRegions: [],
         showCount: 0,
-        hideCount: 0,
         resizeCount: 0,
         alwaysOnTopCalls: [],
       };
@@ -355,10 +353,6 @@ vi.mock("electron", () => {
 
     setAlwaysOnTop(flag: boolean, level?: string) {
       this.state.alwaysOnTopCalls.push([flag, level]);
-    }
-
-    hide() {
-      this.state.hideCount += 1;
     }
 
     showInactive() {
@@ -2544,12 +2538,17 @@ it("keeps flying on the destination display when the capture display fails", asy
   }
 });
 
-it("reuses a ready surface for the next capture instead of opening another", async () => {
+it("gives the next capture a fresh surface, made before the used one closes", async () => {
   flashWindows.length = 0;
+  let used: (typeof flashWindows)[number] | undefined;
+  const usedOpenAsReplaced: Array<boolean> = [];
   const created: Array<Electron.BrowserWindow> = [];
   const transition = new SnapShotTransition({
     boundOverlayToCaptureDisplays: true,
-    onWindowCreated: (window) => created.push(window),
+    onWindowCreated: (window) => {
+      created.push(window);
+      if (used) usedOpenAsReplaced.push(!used.destroyed);
+    },
   });
   const source = { x: 100, y: 50, width: 900, height: 600 };
 
@@ -2557,22 +2556,48 @@ it("reuses a ready surface for the next capture instead of opening another", asy
     transition.warm();
     assert.lengthOf(flashWindows, 2);
     await transition.begin("capture-1", source, "data:image/png;base64,", true, source);
+    used = flashWindows.find((window) => window.showCount > 0);
     transition.dispose();
-    await transition.begin("capture-2", source, "data:image/png;base64,", true, source);
 
-    assert.lengthOf(flashWindows, 2);
+    assert.isTrue(used?.destroyed);
+    assert.deepEqual(usedOpenAsReplaced, [true]);
+
+    await transition.begin("capture-2", source, "data:image/png;base64,", true, source);
+    // A surface that was shown is never shown again: once hidden, its page stops painting.
+    const shown = flashWindows.filter((window) => window.showCount > 0);
+    assert.lengthOf(shown, 2);
+    assert.isTrue(shown.every((window) => window.showCount === 1));
     // Each surface is reported, so the app can keep it apart from its own windows.
-    assert.lengthOf(created, 2);
-    const surface = flashWindows.find((window) => window.showCount > 0);
-    assert.isFalse(surface?.destroyed);
-    assert.strictEqual(surface?.showCount, 2);
-    assert.strictEqual(surface?.hideCount, 1);
-    // Each capture starts on a freshly loaded page.
-    assert.strictEqual(surface?.loadCount, 2);
+    assert.lengthOf(created, 3);
   } finally {
     transition.cool();
   }
   assert.isTrue(flashWindows.every((window) => window.destroyed));
+});
+
+it("frees the capture when its surface stops answering", async () => {
+  flashWindows.length = 0;
+  transitionSnapshotMock.mockImplementationOnce(() => new Promise<void>(() => undefined));
+  const transition = new SnapShotTransition({ boundOverlayToCaptureDisplays: true });
+  const source = { x: 100, y: 50, width: 900, height: 600 };
+
+  try {
+    const begun = transition.begin("capture-1", source, "data:image/png;base64,", true, source);
+    await vi.waitFor(() =>
+      assert.isTrue(
+        flashWindows.some((window) =>
+          window.scripts.some((script) => script.startsWith("window.setCaptureSnapshot")),
+        ),
+      ),
+    );
+    // As the transition's timeout does.
+    transition.dismiss("capture-1");
+
+    await begun;
+    assert.isTrue(flashWindows.every((window) => window.destroyed));
+  } finally {
+    transition.cool();
+  }
 });
 
 it("settles the wait for a capture's flight as the flight starts", async () => {

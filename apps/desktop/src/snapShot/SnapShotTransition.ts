@@ -56,6 +56,8 @@ type ActiveTransition = {
   flight?: Promise<void> | undefined;
   /** Settles as the flight starts playing, or as the transition ends without one. */
   readonly flightStarted: PromiseWithResolvers<void>;
+  /** Settles as the transition ends. */
+  readonly ended: PromiseWithResolvers<void>;
 };
 
 /** A hidden surface with the transition page loaded, waiting for the next capture. */
@@ -333,6 +335,7 @@ export class SnapShotTransition {
       snapshotDataUrl,
       overlays: [],
       flightStarted: Promise.withResolvers<void>(),
+      ended: Promise.withResolvers<void>(),
     };
     active.timer = Effect.runFork(
       Effect.sleep(TIMEOUT_MS).pipe(
@@ -345,7 +348,8 @@ export class SnapShotTransition {
     );
     this.active = active;
     try {
-      await this.showOverlays(active, requestedBounds, flash);
+      // A surface's page can stop answering, so the transition's timeout still frees the capture.
+      await Promise.race([this.showOverlays(active, requestedBounds, flash), active.ended.promise]);
     } catch (error) {
       if (this.active === active) this.dispose();
       throw error;
@@ -549,27 +553,13 @@ export class SnapShotTransition {
     if (!active) return;
     active.timer?.interruptUnsafe();
     active.flightStarted.resolve();
-    const wanted = this.warmed ? this.surfaceBounds() : [];
-    for (const overlay of active.overlays) {
-      if (overlay.window.isDestroyed()) continue;
-      const reusable =
-        wanted.some((bounds) => sameRectangle(bounds, overlay.requestedBounds)) &&
-        !this.ready.some((surface) =>
-          sameRectangle(surface.requestedBounds, overlay.requestedBounds),
-        );
-      if (!reusable) {
-        overlay.window.destroy();
-        continue;
-      }
-      // Reloading resets the page for the next capture while the surface is out of sight.
-      overlay.window.hide();
-      this.ready.push({
-        window: overlay.window,
-        requestedBounds: overlay.requestedBounds,
-        loaded: loadTransitionPage(overlay.window),
-      });
-    }
-    // Displays may have changed since the surfaces were made.
+    active.ended.resolve();
+    // A shown surface is never reused: once hidden, its page stops decoding and painting, so
+    // the next capture would wait on it forever. Its replacement is made first, because a
+    // surface made just after the last one closes can fail to load its page.
     if (this.warmed) this.warm();
+    for (const overlay of active.overlays) {
+      if (!overlay.window.isDestroyed()) overlay.window.destroy();
+    }
   }
 }

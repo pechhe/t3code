@@ -155,6 +155,13 @@ it("rejects modifier pairs on Wayland but accepts the next key chord", async () 
   render().input.props.onKeyDown(event("y", "KeyY", { ctrlKey: true, altKey: true }));
   expect(recorded).toHaveBeenCalledOnce();
 });
+it("records macOS Option+Space as Space, not the no-break space it types", async () => {
+  const recorder = await start();
+  recorder.input.props.onKeyDown(event("\u00a0", "Space", { altKey: true }));
+  expect(recorded).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ key: " ", altKey: true }),
+  );
+});
 it("preserves native modifier-pair recording and tracks released keys", async () => {
   const recorder = await start(true);
   recorder.input.props.onKeyDown(event("Shift", "ShiftLeft", { shiftKey: true }));
