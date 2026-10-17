@@ -370,6 +370,8 @@ export const make = Effect.gen(function* () {
   );
   const mainComposerFrameRef = yield* Ref.make<Option.Option<DesktopViewportFrame>>(Option.none());
   const snapShotOverlayBottomInsetRef = yield* Ref.make(0);
+  // Asked for before the backend was ready; made as soon as it is.
+  const snapShotOverlayWantedRef = yield* Ref.make(false);
 
   // Switching to the main window while the overlay is up carries its chat over, so the
   // main window shows the same composer in the same place.
@@ -991,6 +993,7 @@ export const make = Effect.gen(function* () {
   });
 
   const prepareSnapShotOverlay = Effect.gen(function* () {
+    yield* Ref.set(snapShotOverlayWantedRef, true);
     if (Option.isSome(yield* liveSnapShotOverlay) || (yield* waitingForBackend)) return;
     const window = yield* electronWindow.create(
       snapShotOverlayWindowOptions({
@@ -1037,6 +1040,7 @@ export const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("desktop.window.prepareSnapShotOverlay"));
 
   const closeSnapShotOverlay = Effect.gen(function* () {
+    yield* Ref.set(snapShotOverlayWantedRef, false);
     const window = yield* Ref.getAndSet(snapShotOverlayRef, Option.none());
     if (Option.isSome(window) && !window.value.isDestroyed()) window.value.destroy();
   }).pipe(Effect.withSpan("desktop.window.closeSnapShotOverlay"));
@@ -1160,6 +1164,13 @@ export const make = Effect.gen(function* () {
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
       yield* createMainIfBackendReady;
+      if (yield* Ref.get(snapShotOverlayWantedRef)) {
+        yield* prepareSnapShotOverlay.pipe(
+          Effect.catch((error) =>
+            logWindowWarning("failed to prepare the SnapShot overlay", { message: error.message }),
+          ),
+        );
+      }
     }),
     handleBackendNotReady: Ref.set(backendReadyRef, false).pipe(
       Effect.withSpan("desktop.window.handleBackendNotReady"),
