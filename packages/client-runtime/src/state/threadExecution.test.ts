@@ -537,6 +537,35 @@ describe("presentPendingBackgroundWork", () => {
     ]);
   });
 
+  it("says Watching, with each watch's target, when only watches hold the thread", () => {
+    const worker = ThreadId.make("thread:worker");
+    const threadWatch = {
+      taskId: "thread-watch:1",
+      kind: "monitor" as const,
+      description: "Watching thread Worker",
+      watching: { kind: "thread" as const, threadId: worker },
+    };
+    const pullRequestWatch = {
+      taskId: "pull-request-watch:github.com/pechhe/t3code#98",
+      kind: "monitor" as const,
+      description: "Watching pull request #98",
+      watching: { kind: "pull_request" as const, url: "https://github.com/pechhe/t3code/pull/98" },
+    };
+    expect(presentPendingBackgroundWork([threadWatch])).toMatchObject({
+      title: "Watching thread Worker",
+      items: [{ label: "Watching thread Worker", watching: threadWatch.watching }],
+    });
+    expect(presentPendingBackgroundWork([threadWatch, pullRequestWatch])?.title).toBe(
+      "Watching 1 thread and 1 pull request",
+    );
+    expect(
+      presentPendingBackgroundWork([
+        threadWatch,
+        { taskId: "dev", kind: "command", description: "vp dev" },
+      ])?.title,
+    ).toBe("Waiting on 1 command and 1 monitor");
+  });
+
   it("names a single piece of work by kind", () => {
     expect(
       presentPendingBackgroundWork([

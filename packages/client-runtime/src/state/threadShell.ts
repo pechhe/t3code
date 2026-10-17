@@ -26,6 +26,9 @@ import {
   threadKey,
   threadRefsEqual,
 } from "./entities.ts";
+import { threadWatchers } from "./shellThreadWatches.ts";
+
+export type ThreadWatcher = Pick<OrchestrationV2ThreadShell, "id" | "title">;
 
 const EMPTY_THREADS: ReadonlyArray<OrchestrationV2ThreadShell> = Object.freeze([]);
 const EMPTY_SCOPED_THREAD_REFS: ReadonlyArray<ScopedThreadRef> = Object.freeze([]);
@@ -295,6 +298,27 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-child-thread-inputs:${key}`));
   });
 
+  // Who watches a thread, read from the watchers' shells. Only ids and titles,
+  // so other shell updates do not re-render the thread that shows them.
+  const threadWatchersAtomFamily = Atom.family((key: string) => {
+    const ref = parseThreadKey(key);
+    let previous: ReadonlyArray<ThreadWatcher> = [];
+    return Atom.make((get) => {
+      const next = threadWatchers(get(environmentThreadsAtom(ref.environmentId)), ref.threadId);
+      if (
+        previous.length === next.length &&
+        previous.every(
+          (watcher, index) =>
+            watcher.id === next[index]?.id && watcher.title === next[index]?.title,
+        )
+      ) {
+        return previous;
+      }
+      previous = next.map(({ id, title }) => ({ id, title }));
+      return previous;
+    }).pipe(Atom.withLabel(`environment-thread-watchers:${key}`));
+  });
+
   // The newest open side chat of a thread. An id, so other shell updates do
   // not re-render the composer that hosts it.
   const sideChatThreadIdAtomFamily = Atom.family((key: string) => {
@@ -408,5 +432,6 @@ export function createEnvironmentThreadShellAtoms(input: {
     threadShellAtom: (ref: ScopedThreadRef) => threadShellAtomFamily(threadKey(ref)),
     childThreadInputsAtom: (ref: ScopedThreadRef) => childThreadInputsAtomFamily(threadKey(ref)),
     sideChatThreadIdAtom: (ref: ScopedThreadRef) => sideChatThreadIdAtomFamily(threadKey(ref)),
+    threadWatchersAtom: (ref: ScopedThreadRef) => threadWatchersAtomFamily(threadKey(ref)),
   };
 }

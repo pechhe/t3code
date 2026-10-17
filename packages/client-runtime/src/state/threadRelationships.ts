@@ -3,6 +3,7 @@ import type {
   OrchestrationV2ThreadShell,
   ThreadId,
 } from "@t3tools/contracts";
+import { backgroundWorkIsOnlyWatches } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as DateTime from "effect/DateTime";
 
 export type ThreadRelationshipKind = "parent" | "fork" | "subagent" | "transfer";
@@ -200,6 +201,7 @@ export function threadRelationshipRowStatus(
     return row.edge.status;
   }
   const thread = graph.nodes.get(row.threadId)?.thread;
+  if (backgroundWorkIsOnlyWatches(thread?.pendingBackgroundTasks ?? [])) return "watching";
   return thread?.activityRunStatus ?? thread?.status ?? null;
 }
 

@@ -66,6 +66,13 @@ export function ownBackgroundWork<Task extends Pick<PendingBackgroundWorkTask, "
   );
 }
 
+/** A thread parked only on watches reads as Watching rather than Waiting. */
+export function backgroundWorkIsOnlyWatches(
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "taskId">>,
+): boolean {
+  return tasks.length > 0 && ownBackgroundWork(tasks).length === 0;
+}
+
 /** How a person or agent is told which background work stops. */
 export function backgroundWorkName(
   task: Pick<PendingBackgroundWorkTask, "description" | "kind">,
@@ -222,7 +229,7 @@ export function derivePendingBackgroundWork(input: {
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
   /** Omitted by the finished rule: waiting on another thread is not this thread's own work. */
   readonly threadWatches?:
-    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "title">>
+    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "threadId" | "title">>
     | undefined;
 }): ReadonlyArray<PendingBackgroundWorkTask> {
   const hasActiveRun =
@@ -282,7 +289,7 @@ export function derivePendingBackgroundWork(input: {
 function watchTasks(input: {
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
   readonly threadWatches?:
-    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "title">>
+    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "threadId" | "title">>
     | undefined;
 }): Array<PendingBackgroundWorkTask> {
   return [
@@ -291,6 +298,7 @@ function watchTasks(input: {
       taskId: `${THREAD_WATCH_TASK_PREFIX}${watch.id}`,
       description: `Watching thread ${watch.title}`,
       kind: "monitor" as const,
+      watching: { kind: "thread" as const, threadId: watch.threadId },
     })),
   ];
 }
@@ -306,6 +314,7 @@ function pullRequestWatchTasks(
             taskId: `${PULL_REQUEST_WATCH_TASK_PREFIX}${threadPullRequestKeyOf(link)}`,
             description: `Watching pull request #${link.number}`,
             kind: "monitor" as const,
+            watching: { kind: "pull_request" as const, url: link.url },
           },
         ],
   );

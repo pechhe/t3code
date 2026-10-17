@@ -17,6 +17,8 @@ export function threadRelationshipStatusLabel(status: string | null): string {
     case "waiting":
     case "blocked":
       return "Waiting";
+    case "watching":
+      return "Watching";
     case "completed":
       return "Done";
     case "failed":

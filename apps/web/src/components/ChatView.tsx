@@ -108,6 +108,7 @@ import {
   deriveLatestThreadRun,
   deriveThreadRuntime,
   presentPendingBackgroundWork,
+  type PendingBackgroundWorkItem,
   presentProviderGoal,
 } from "@t3tools/client-runtime/state/thread-execution";
 import { threadSupportsProviderHandoff } from "@t3tools/client-runtime/state/thread-workflows";
@@ -388,12 +389,14 @@ import {
   useThreadStatus,
   useThreadHistory,
   useThreadShell,
+  useThreadWatchers,
   useChildThreadInputs,
   useThreadRefs,
   useThreadVisibleTurnItems,
   waitForThreadShell,
 } from "../state/entities";
 import { environmentShell } from "../state/shell";
+import { useOpenPrLink } from "~/lib/openPullRequestLink";
 import { ChatComposer, type ChatComposerHandle } from "./chat/ChatComposer";
 import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
@@ -5169,6 +5172,8 @@ export default function ChatView(props: ChatViewProps) {
     });
   };
   const onOpenRelatedThreadStable = useStableCallback(onOpenRelatedThread);
+  const openPrLink = useOpenPrLink(activeThreadRef ?? undefined);
+  const openPrLinkStable = useStableCallback(openPrLink);
   const childThreadInputs = useChildThreadInputs(activeThreadRef);
   const childInputBannerItem = (() => {
     const first = childThreadInputs[0];
@@ -5300,11 +5305,51 @@ export default function ChatView(props: ChatViewProps) {
     };
   })() as ComposerBannerStackItem | null;
 
+  const backgroundWorkItemLink = (item: PendingBackgroundWorkItem) => {
+    const { childThreadId, watching } = item;
+    if (childThreadId !== undefined) {
+      return (
+        <InlineButton
+          tone="muted"
+          aria-label={`Open subagent ${item.label}`}
+          onClick={() => onOpenRelatedThreadStable(childThreadId)}
+        >
+          {item.label}
+        </InlineButton>
+      );
+    }
+    if (watching?.kind === "thread") {
+      return (
+        <InlineButton
+          tone="muted"
+          aria-label={`Open watched thread ${item.label}`}
+          onClick={() => onOpenRelatedThreadStable(watching.threadId)}
+        >
+          {item.label}
+        </InlineButton>
+      );
+    }
+    if (watching?.kind === "pull_request") {
+      return (
+        <InlineButton
+          tone="muted"
+          aria-label={`Open watched pull request ${item.label}`}
+          onClick={(event) => openPrLinkStable(event, watching.url)}
+        >
+          {item.label}
+        </InlineButton>
+      );
+    }
+    return null;
+  };
   const backgroundWorkBannerItem = (() => {
     const presentation = presentPendingBackgroundWork(activeBackgroundTasks);
     if (presentation === null || !activeThread) {
       return null;
     }
+    const [onlyItem] = presentation.items;
+    const loneWatch =
+      presentation.items.length === 1 && onlyItem?.watching !== undefined ? onlyItem : undefined;
     return {
       id: `background-work:${activeThread.id}`,
       variant: "default",
@@ -5318,30 +5363,28 @@ export default function ChatView(props: ChatViewProps) {
           aria-hidden="true"
         />
       ),
-      title: presentation.title,
+      // A lone watch's label is the whole title, so the title itself is the link.
+      title:
+        loneWatch === undefined
+          ? presentation.title
+          : (backgroundWorkItemLink(loneWatch) ?? presentation.title),
       description:
         presentation.items.length === 1 && presentation.items[0]?.childThreadId === undefined
           ? undefined
           : presentation.items.map((item, index) => {
-              const childThreadId = item.childThreadId;
               const separator = index < presentation.items.length - 1 ? "," : null;
+              const link = backgroundWorkItemLink(item);
               return (
                 <Fragment key={item.taskId}>
                   {index > 0 ? " " : null}
-                  {childThreadId === undefined ? (
+                  {link === null ? (
                     <>
                       {item.label}
                       {separator}
                     </>
                   ) : (
                     <span className="whitespace-nowrap">
-                      <InlineButton
-                        tone="muted"
-                        aria-label={`Open subagent ${item.label}`}
-                        onClick={() => onOpenRelatedThreadStable(childThreadId)}
-                      >
-                        {item.label}
-                      </InlineButton>
+                      {link}
                       {separator}
                     </span>
                   )}
@@ -5358,6 +5401,27 @@ export default function ChatView(props: ChatViewProps) {
           {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
         </Button>
       ),
+    };
+  })() as ComposerBannerStackItem | null;
+  const watchers = useThreadWatchers(isServerThread ? activeThreadRef : null);
+  const watchedByBannerItem = (() => {
+    if (!activeThread || watchers.length === 0) return null;
+    return {
+      id: `watched-by:${activeThread.id}`,
+      variant: "default",
+      icon: null,
+      title: "Watched by",
+      description: watchers.map((watcher, index) => (
+        <Fragment key={watcher.id}>
+          {index > 0 ? " " : null}
+          <span className="whitespace-nowrap">
+            <InlineButton tone="muted" onClick={() => onOpenRelatedThreadStable(watcher.id)}>
+              {watcher.title}
+            </InlineButton>
+            {index < watchers.length - 1 ? "," : null}
+          </span>
+        </Fragment>
+      )),
     };
   })() as ComposerBannerStackItem | null;
   // The relative times read the clock; nowMinute re-renders them on the minute.
@@ -5508,6 +5572,7 @@ export default function ChatView(props: ChatViewProps) {
       childInputBannerItem,
       goalBannerItem,
       backgroundWorkBannerItem,
+      watchedByBannerItem,
     ].filter((item) => item !== null);
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];

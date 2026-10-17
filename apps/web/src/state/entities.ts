@@ -8,6 +8,7 @@ import {
   EMPTY_THREAD_HISTORY_META,
   type EnvironmentThreadStatus,
   type ThreadHistoryMeta,
+  type ThreadWatcher,
 } from "@t3tools/client-runtime/state/threads";
 import type { ScopedProjectRef, ScopedThreadRef, ServerConfig } from "@t3tools/contracts";
 import type { EnvironmentId, OrchestrationV2ProjectedTurnItem, ThreadId } from "@t3tools/contracts";
@@ -118,6 +119,16 @@ export function useThreadShell(ref: ScopedThreadRef | null): EnvironmentThreadSh
 export function useChildThreadInputs(ref: ScopedThreadRef | null) {
   return useAtomValue(
     ref === null ? EMPTY_THREAD_SHELLS_ATOM : environmentThreadShells.childThreadInputsAtom(ref),
+  );
+}
+
+const EMPTY_THREAD_WATCHERS_ATOM = Atom.make<ReadonlyArray<ThreadWatcher>>(Object.freeze([])).pipe(
+  Atom.withLabel("web-thread-watchers:empty"),
+);
+
+export function useThreadWatchers(ref: ScopedThreadRef | null) {
+  return useAtomValue(
+    ref === null ? EMPTY_THREAD_WATCHERS_ATOM : environmentThreadShells.threadWatchersAtom(ref),
   );
 }
 

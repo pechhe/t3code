@@ -22,7 +22,9 @@ describe("ownBackgroundWork", () => {
         },
       ],
       turnItems: [],
-      threadWatches: [{ id: "thread-watch:1" as never, title: "Worker" }],
+      threadWatches: [
+        { id: "thread-watch:1" as never, threadId: "thread:worker" as never, title: "Worker" },
+      ],
       pullRequests: [
         {
           host: "github.com",
@@ -637,6 +639,7 @@ describe("derivePendingBackgroundWork kinds", () => {
           taskId: "pull-request-watch:github.com/acme/app#1",
           description: "Watching pull request #1",
           kind: "monitor",
+          watching: { kind: "pull_request", url: "https://github.com/acme/app/pull/1" },
         },
       ]);
       expect(backgroundWorkHoldsCompletion(tasks)).toBe(true);

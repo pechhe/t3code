@@ -383,3 +383,45 @@ describe("v2 thread shell lists", () => {
     }
   });
 });
+
+describe("thread watchers", () => {
+  it("follows watches as they start and end, and ignores other shell updates", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const watched = v2ThreadShell;
+    const watcher = {
+      ...v2ThreadShell,
+      id: ThreadId.make("watcher"),
+      title: "Watcher",
+      threadWatches: [
+        {
+          id: "thread-watch:watcher:0",
+          threadId: watched.id,
+          title: watched.title,
+          startedAt: "2026-06-20T00:00:00.000Z",
+        },
+      ],
+    };
+    const watchers = threads.threadWatchersAtom({ environmentId, threadId: watched.id });
+    const dispose = registry.mount(watchers);
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [watched, watcher] });
+    const before = registry.get(watchers);
+    expect(before).toEqual([{ id: watcher.id, title: "Watcher" }]);
+
+    registry.set(snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [
+        { ...watched, title: "Renamed" },
+        { ...watcher, status: "running" as const },
+      ],
+    });
+    expect(registry.get(watchers)).toBe(before);
+
+    registry.set(snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [watched, { ...watcher, threadWatches: [] }],
+    });
+    expect(registry.get(watchers)).toEqual([]);
+    dispose();
+    registry.dispose();
+  });
+});

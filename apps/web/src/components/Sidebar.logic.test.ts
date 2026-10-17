@@ -1290,6 +1290,32 @@ describe("resolveThreadStatusPill", () => {
     });
   });
 
+  it("shows watching while only watches hold the thread, and waiting once work joins them", () => {
+    const idle = { ...baseThread.runtime, status: "idle" as const, activeRunId: null };
+    const watch = {
+      taskId: "thread-watch:1",
+      description: "Watching thread Worker",
+      kind: "monitor" as const,
+    };
+    expect(
+      resolveThreadStatusPill({
+        thread: { ...baseThread, pendingBackgroundTasks: [watch], runtime: idle },
+      }),
+    ).toMatchObject({ label: "Watching", colorClass: "text-sidebar-muted-foreground" });
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          pendingBackgroundTasks: [
+            watch,
+            { taskId: "bg-1", description: "sleep 20", kind: "command" },
+          ],
+          runtime: idle,
+        },
+      }),
+    ).toMatchObject({ label: "Waiting" });
+  });
+
   it("keeps an active turn working when background tasks are also present", () => {
     expect(
       resolveThreadStatusPill({

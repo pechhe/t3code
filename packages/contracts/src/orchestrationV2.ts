@@ -954,7 +954,17 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
       childThreadId: Schema.optional(ThreadId),
     }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("command") }),
-    Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("monitor") }),
+    Schema.Struct({
+      ...PendingBackgroundTaskFields,
+      kind: Schema.Literal("monitor"),
+      /** What a watch task waits on, so a client can link to it. Absent from older servers. */
+      watching: Schema.optional(
+        Schema.Union([
+          Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+          Schema.Struct({ kind: Schema.Literal("pull_request"), url: TrimmedNonEmptyString }),
+        ]),
+      ),
+    }),
     Schema.Struct({ ...PendingBackgroundTaskFields, kind: Schema.Literal("background_task") }),
   ],
   (kind) => Schema.Struct({ ...PendingBackgroundTaskFields, kind }),

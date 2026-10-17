@@ -19,6 +19,7 @@ import {
 } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
+  backgroundWorkIsOnlyWatches,
   derivePendingBackgroundWork,
 } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { getProviderOptionCurrentLabel, getProviderOptionDescriptors } from "@t3tools/shared/model";
@@ -276,7 +277,13 @@ export interface PendingBackgroundWorkItem {
   readonly kind: BackgroundWorkKind;
   readonly label: string;
   readonly childThreadId: ThreadId | undefined;
+  /** The thread or pull request a watch waits on, for a link. */
+  readonly watching: WatchTarget | undefined;
 }
+
+export type WatchTarget = NonNullable<
+  Extract<OrchestrationV2PendingBackgroundTask, { readonly kind: "monitor" }>["watching"]
+>;
 
 export interface PendingBackgroundWorkPresentation {
   readonly title: string;
@@ -309,6 +316,7 @@ export function presentPendingBackgroundWork(
             ? BACKGROUND_WORK_KINDS[task.kind].singular
             : label,
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
+        watching: task.kind === "monitor" ? task.watching : undefined,
       };
     })
     // `map` returned a new array; Hermes has no `toSorted`.
@@ -328,6 +336,17 @@ export function presentPendingBackgroundWork(
         ? `Running: ${only.label}`
         : `Running a ${noun}`;
     return { title, items, waiting };
+  }
+  if (backgroundWorkIsOnlyWatches(tasks)) {
+    const threads = items.filter((item) => item.watching?.kind !== "pull_request").length;
+    const pullRequests = items.length - threads;
+    const groups = [
+      ...(threads === 0 ? [] : [`${threads} ${threads === 1 ? "thread" : "threads"}`]),
+      ...(pullRequests === 0
+        ? []
+        : [`${pullRequests} ${pullRequests === 1 ? "pull request" : "pull requests"}`]),
+    ];
+    return { title: `Watching ${joinWithAnd(groups)}`, items, waiting };
   }
   const counts = new Map<BackgroundWorkKind, number>();
   for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
