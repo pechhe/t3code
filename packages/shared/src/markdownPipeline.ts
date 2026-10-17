@@ -177,12 +177,18 @@ export const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS: PluggableList = [
   remarkNormalizeLinksAndTagInlineCode,
 ];
 
-export const CHAT_MARKDOWN_REHYPE_PLUGINS: PluggableList = [
-  rehypePreserveBareAnchorPlaceholders,
-  rehypeRaw,
-  rehypePreserveImageSourceMeta,
-  [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
-];
+/** `afterRaw` runs once raw HTML is parsed and before sanitizing, so it sees the final elements. */
+export function createChatMarkdownRehypePlugins(afterRaw: PluggableList = []): PluggableList {
+  return [
+    rehypePreserveBareAnchorPlaceholders,
+    rehypeRaw,
+    ...afterRaw,
+    rehypePreserveImageSourceMeta,
+    [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
+  ];
+}
+
+export const CHAT_MARKDOWN_REHYPE_PLUGINS: PluggableList = createChatMarkdownRehypePlugins();
 
 type MarkdownAstNode = {
   type?: string;

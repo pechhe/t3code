@@ -17,7 +17,7 @@ import { AuthFilesystemReadScope, AuthOrchestrationOperateScope } from "@t3tools
 import {
   CHAT_MARKDOWN_REMARK_PLUGINS,
   CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS,
-  CHAT_MARKDOWN_REHYPE_PLUGINS,
+  createChatMarkdownRehypePlugins,
 } from "@t3tools/shared/markdownPipeline";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -112,7 +112,7 @@ import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
 import { buildItemNumberFromUrl } from "@t3tools/shared/buildLinks";
 import { useThreadBuildOrigin } from "~/state/buildWorkItems";
 import { BuildMentionChip } from "./buildItem/BuildMentionChip";
-import { remarkBuildMentions } from "./buildItem/buildMentionMarkdown";
+import { rehypeBuildMentions } from "@t3tools/shared/buildLinks";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import {
   artifactTemplateFromHastProperties,
@@ -1891,12 +1891,7 @@ function rehypeStreamWords() {
   };
 }
 
-// Heading ids are added after sanitizing, which would prefix them a second time.
-const CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS = [
-  ...CHAT_MARKDOWN_REHYPE_PLUGINS,
-  rehypeHeadingIds,
-] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
-
+const EMPTY_REHYPE_PLUGINS: NonNullable<ReactMarkdownOptions["rehypePlugins"]> = [];
 const CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS = [rehypeHeadingIds] satisfies NonNullable<
   ReactMarkdownOptions["rehypePlugins"]
 >;
@@ -3509,22 +3504,22 @@ function ChatMarkdown({
     () => [
       ...(lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS),
       ...extraRemarkPlugins,
-      ...(buildOrigin === null
-        ? EMPTY_REMARK_PLUGINS
-        : ([[remarkBuildMentions, { origin: buildOrigin }]] satisfies NonNullable<
-            ReactMarkdownOptions["remarkPlugins"]
-          >)),
       ...(incrementalParsing ? [createIncrementalMarkdownPlugin()] : []),
     ],
-    [buildOrigin, extraRemarkPlugins, incrementalParsing, lineBreaks],
+    [extraRemarkPlugins, incrementalParsing, lineBreaks],
   );
 
   const rehypePlugins = useMemo(() => {
+    const mentions: NonNullable<ReactMarkdownOptions["rehypePlugins"]> =
+      buildOrigin === null
+        ? EMPTY_REHYPE_PLUGINS
+        : [[rehypeBuildMentions, { origin: buildOrigin }]];
     const base = parseRawHtml
-      ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
-      : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS;
+      ? // Heading ids are added after sanitizing, which would prefix them a second time.
+        [...createChatMarkdownRehypePlugins(mentions), rehypeHeadingIds]
+      : [...mentions, ...CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS];
     return props.isStreaming ? [...base, rehypeStreamWords] : base;
-  }, [parseRawHtml, props.isStreaming]);
+  }, [buildOrigin, parseRawHtml, props.isStreaming]);
 
   return (
     <div

@@ -137,3 +137,53 @@ export function labelBuildMentions(
   }
   return markdown;
 }
+
+type HastNode = {
+  type: string;
+  tagName?: string;
+  value?: string;
+  properties?: Record<string, unknown>;
+  children?: HastNode[];
+};
+
+/** A mention never shows as a chip in code, a link or text the browser doesn't render. */
+const IGNORED_TAGS = new Set(["a", "code", "pre", "script", "style"]);
+
+/**
+ * Turns `#<number>` into a link to the item on the project's HQ, marked so the anchor can show
+ * it as written when Build doesn't know the number. It runs on the HTML tree after raw HTML is
+ * parsed, so `<code>` and `<a>` written as HTML leave mentions as written, like markdown code
+ * and links. Build links already written stay as they are.
+ */
+export function rehypeBuildMentions(options: { readonly origin: string }) {
+  const visit = (node: HastNode) => {
+    if (!node.children) return;
+    node.children = node.children.flatMap((child): HastNode[] => {
+      if (child.type === "element") {
+        if (!IGNORED_TAGS.has(child.tagName ?? "")) visit(child);
+        return [child];
+      }
+      if (child.type !== "text" || child.value === undefined) return [child];
+      const parts: HastNode[] = [];
+      let last = 0;
+      for (const match of child.value.matchAll(BUILD_MENTION_PATTERN)) {
+        if (match.index > last)
+          parts.push({ type: "text", value: child.value.slice(last, match.index) });
+        parts.push({
+          type: "element",
+          tagName: "a",
+          properties: {
+            href: buildItemUrl(options.origin, Number(match[1])),
+            dataBuildMention: "reference",
+          },
+          children: [{ type: "text", value: match[0] }],
+        });
+        last = match.index + match[0].length;
+      }
+      if (parts.length === 0) return [child];
+      if (last < child.value.length) parts.push({ type: "text", value: child.value.slice(last) });
+      return parts;
+    });
+  };
+  return visit;
+}

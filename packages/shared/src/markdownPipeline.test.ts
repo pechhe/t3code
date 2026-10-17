@@ -29,15 +29,16 @@ it("preserves in-app thread links through the shared Markdown sanitizer", () => 
 });
 
 it("keeps the marks autolink plugins put on links through the sanitizer", () => {
-  const markLinks = () => (tree: { children: Array<{ type: string; data?: unknown }> }) => {
-    for (const paragraph of tree.children)
-      for (const child of (paragraph as { children?: Array<{ type: string; data?: unknown }> })
-        .children ?? [])
-        if (child.type === "link")
-          child.data = {
-            hProperties: { dataBuildMention: "reference", dataPullRequestAutolink: "reference" },
-          };
-  };
+  const markLinks =
+    () => (tree: { type: string; children?: Array<{ type: string; data?: unknown }> }) => {
+      for (const paragraph of tree.children ?? [])
+        for (const child of (paragraph as { children?: Array<{ type: string; data?: unknown }> })
+          .children ?? [])
+          if (child.type === "link")
+            child.data = {
+              hProperties: { dataBuildMention: "reference", dataPullRequestAutolink: "reference" },
+            };
+    };
   const processor = unified()
     .use(remarkParse)
     .use(CHAT_MARKDOWN_REMARK_PLUGINS)
