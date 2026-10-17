@@ -28,6 +28,33 @@ it("preserves in-app thread links through the shared Markdown sanitizer", () => 
   expect(JSON.stringify(tree)).not.toContain("javascript:");
 });
 
+it("keeps the marks autolink plugins put on links through the sanitizer", () => {
+  const markLinks = () => (tree: { children: Array<{ type: string; data?: unknown }> }) => {
+    for (const paragraph of tree.children)
+      for (const child of (paragraph as { children?: Array<{ type: string; data?: unknown }> })
+        .children ?? [])
+        if (child.type === "link")
+          child.data = {
+            hProperties: { dataBuildMention: "reference", dataPullRequestAutolink: "reference" },
+          };
+  };
+  const processor = unified()
+    .use(remarkParse)
+    .use(CHAT_MARKDOWN_REMARK_PLUGINS)
+    .use(markLinks)
+    .use(remarkRehype, { allowDangerousHtml: true })
+    .use(CHAT_MARKDOWN_REHYPE_PLUGINS);
+  const tree = processor.runSync(processor.parse("[#1000123](https://hq.example/build/1000123)"));
+  expect(tree.children[0]).toMatchObject({
+    children: [
+      {
+        tagName: "a",
+        properties: { dataBuildMention: "reference", dataPullRequestAutolink: "reference" },
+      },
+    ],
+  });
+});
+
 it("links inline code that is exactly a web URL", () => {
   const processor = unified()
     .use(remarkParse)

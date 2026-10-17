@@ -36,3 +36,18 @@ export function useProjectBuildConnected(
     ).data?.connected === true
   );
 }
+
+/** The HQ whose Build links the thread's messages show as live items; null without one. */
+export function useThreadBuildOrigin(threadRef: ScopedThreadRef | null | undefined): string | null {
+  const projectId = useThreadShell(threadRef ?? null)?.projectId ?? null;
+  return (
+    useEnvironmentQuery(
+      threadRef == null || projectId === null
+        ? null
+        : buildWorkItems.connection({
+            environmentId: threadRef.environmentId,
+            input: { projectId },
+          }),
+    ).data?.origin ?? null
+  );
+}

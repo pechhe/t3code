@@ -24,3 +24,7 @@ export function buildWorkItemSubtitle(item: BuildWorkItemPresentation): string {
     .filter(Boolean)
     .join(" · ");
 }
+
+/** A Build item mentioned in a message, inline in its text: glyph, title and status in words. */
+export const buildMentionLabel = (item: BuildWorkItemPresentation): string =>
+  [`${item.glyph} ${item.title}`, item.statusLabel].filter(Boolean).join(" · ");

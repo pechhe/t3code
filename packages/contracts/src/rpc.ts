@@ -195,6 +195,8 @@ import {
   BuildWorkItemReadInput,
   BuildWorkItemCardInput,
   BuildWorkItemCardResult,
+  BuildWorkItemMentionsInput,
+  BuildWorkItemMentionsResult,
   BuildWorkItemReadResult,
 } from "./buildWorkItem.ts";
 import {
@@ -569,6 +571,7 @@ export const WS_METHODS = {
   buildConnectionRead: "build.connection.read",
   buildWorkItemRead: "build.workItem.read",
   buildWorkItemCard: "build.workItem.card",
+  buildWorkItemMentions: "build.workItem.mentions",
   buildWorkItemLink: "build.workItem.link",
 
   scheduledTasksList: "scheduledTasks.list",
@@ -1938,6 +1941,12 @@ const WsBuildWorkItemCardRpc = Rpc.make(WS_METHODS.buildWorkItemCard, {
   error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
 });
 
+const WsBuildWorkItemMentionsRpc = Rpc.make(WS_METHODS.buildWorkItemMentions, {
+  payload: BuildWorkItemMentionsInput,
+  success: BuildWorkItemMentionsResult,
+  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+});
+
 const WsBuildWorkItemLinkRpc = Rpc.make(WS_METHODS.buildWorkItemLink, {
   payload: BuildWorkItemLinkInput,
   success: BuildWorkItemLinkResult,
@@ -2154,6 +2163,7 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsBuildConnectionReadRpc,
   WsBuildWorkItemReadRpc,
   WsBuildWorkItemCardRpc,
+  WsBuildWorkItemMentionsRpc,
   WsBuildWorkItemLinkRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,

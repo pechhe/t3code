@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./buildLinks": {
+      "types": "./src/buildLinks.ts",
+      "import": "./src/buildLinks.ts"
+    },
     "./githubMarkdownLinks": {
       "types": "./src/githubMarkdownLinks.ts",
       "import": "./src/githubMarkdownLinks.ts"

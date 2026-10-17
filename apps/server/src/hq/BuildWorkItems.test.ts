@@ -479,6 +479,64 @@ it.effect(
 );
 
 it.effect(
+  "card sessions stay in the current generation and prefer open activity to ended history",
+  () =>
+    Effect.gen(function* () {
+      const { service, add, sessions } = yield* makeHarness;
+      const spec = item(1_000_078, "spec", "Spec", "in_progress");
+      const ticket = { ...item(1_000_082, "ticket", "Ticket", "ready"), parentId: spec.id };
+      add(spec, ticket);
+
+      for (const parentSessionId of [null, "lead"]) {
+        const role = parentSessionId === null ? "lead" : "worker";
+        for (const [suffix, lastActivityAt, endedAt, currentGeneration] of [
+          ["older-open", "2026-10-16T08:00:00.000Z", null, true],
+          ["open", "2026-10-16T09:00:00.000Z", null, true],
+          ["older-ended", "2026-10-16T11:00:00.000Z", "2026-10-16T10:00:00.000Z", true],
+          ["ended", "2026-10-16T10:00:00.000Z", "2026-10-16T11:00:00.000Z", true],
+          ["old-generation", "2026-10-16T12:00:00.000Z", "2026-10-16T12:00:00.000Z", false],
+        ] as const) {
+          sessions.push(
+            session({
+              sessionRef: `env/${role}-${suffix}`,
+              parentSessionId,
+              ticketIds: parentSessionId === null ? [] : [ticket.id],
+              lastActivityAt,
+              endedAt,
+              currentGeneration,
+            }),
+          );
+        }
+      }
+
+      const expectSessions = (suffix: string | null, open: string) =>
+        Effect.gen(function* () {
+          const specCard = yield* service.card({ threadId, itemId: spec.id, open });
+          const ticketCard = yield* service.card({ threadId, itemId: ticket.id, open });
+          assert.strictEqual(specCard?.detail.kind, "spec");
+          assert.strictEqual(ticketCard?.detail.kind, "ticket");
+          if (specCard?.detail.kind !== "spec" || ticketCard?.detail.kind !== "ticket") return;
+          for (const [role, selected] of [
+            ["lead", specCard.detail.lead],
+            ["worker", ticketCard.detail.worker],
+          ] as const) {
+            assert.strictEqual(
+              selected?.sessionRef ?? null,
+              suffix === null ? null : `env/${role}-${suffix}`,
+            );
+            if (suffix === "ended") assert.strictEqual(selected?.activity, "ended");
+          }
+        });
+
+      yield* expectSessions("open", "open-1");
+      sessions.splice(0, sessions.length, ...sessions.filter((entry) => entry.endedAt !== null));
+      yield* expectSessions("ended", "open-2");
+      sessions.splice(0, sessions.length, ...sessions.filter((entry) => !entry.currentGeneration));
+      yield* expectSessions(null, "open-3");
+    }),
+);
+
+it.effect(
   "a card reads at once, re-reads at most once a minute and keeps the last card when HQ fails",
   () =>
     Effect.gen(function* () {
@@ -562,5 +620,103 @@ it.effect("keeps the last known state of only the most recently asked-for cards"
       .card({ threadId, itemId: specs[0]!.id, open: "b" })
       .pipe(Effect.flip);
     assert.strictEqual(evicted.reason, "unavailable");
+  }),
+);
+
+it.effect("reads the items chat mentions by number, leaving out ones Build doesn't know", () =>
+  Effect.gen(function* () {
+    const { service, add, connections } = yield* makeHarness;
+    add(
+      item(1_000_078, "spec", "Show the Build item", "in_progress"),
+      item(1_000_081, "ticket", "Chat chips", "ready"),
+      item(1_000_001, "decision", "Use Build", "accepted"),
+    );
+    assert.strictEqual((yield* service.connected(projectId)).origin, origin);
+
+    const { items } = yield* service.mentions({
+      threadId,
+      numbers: [1_000_081, 1_000_078, 1_000_404, 1_000_001, 1_000_078],
+    });
+    assert.deepStrictEqual(
+      items.map((found) => [found.number, found.itemId, found.item?.title, found.url]),
+      [
+        [1_000_081, "item-1000081", "Chat chips", `${origin}/build/1000081`],
+        [1_000_078, "item-1000078", "Show the Build item", `${origin}/build/1000078`],
+      ],
+    );
+    assert.notInclude(JSON.stringify(items), "A body summary");
+    assert.notInclude(JSON.stringify(items), BODY);
+
+    yield* connections.disconnect(projectId);
+    assert.deepStrictEqual(yield* service.mentions({ threadId, numbers: [1_000_078] }), {
+      items: [],
+    });
+    assert.isNull((yield* service.connected(projectId)).origin);
+  }),
+);
+
+it.effect("re-reads mentioned items once a minute, sharing the linked item's reads", () =>
+  Effect.gen(function* () {
+    const { hq, service, add, buildReads } = yield* makeHarness;
+    const spec = item(1_000_078, "spec", "Show the Build item", "in_progress");
+    add(spec);
+    const numberReads = () => hq.toolCalls.filter((call) => call.args.number !== undefined).length;
+
+    yield* service.mentions({ threadId, numbers: [1_000_078, 1_000_404] });
+    assert.deepStrictEqual([numberReads(), buildReads()], [2, 2]);
+    // The thread's own link to the same item reads nothing more.
+    yield* service.link({ threadId, reference: "#1000078" });
+    const linkReads = numberReads();
+    assert.strictEqual((yield* service.view(threadId))?.item?.title, "Show the Build item");
+    assert.strictEqual(buildReads(), 2);
+
+    // Another chip, or another client, within the minute reads nothing.
+    spec.title = "Renamed";
+    yield* TestClock.adjust(30_000);
+    const repeated = yield* service.mentions({ threadId, numbers: [1_000_078, 1_000_404] });
+    assert.strictEqual(repeated.items[0]?.item?.title, "Show the Build item");
+    assert.deepStrictEqual([numberReads(), buildReads()], [linkReads, 2]);
+
+    // A minute on, the item is re-read and the unknown number asked once more; a known number
+    // stays resolved.
+    add(item(1_000_404, "ticket", "Now known", "ready"));
+    yield* TestClock.adjust(30_000);
+    const fresh = yield* service.mentions({ threadId, numbers: [1_000_078, 1_000_404] });
+    assert.deepStrictEqual(
+      fresh.items.map((found) => found.item?.title),
+      ["Renamed", "Now known"],
+    );
+    assert.deepStrictEqual([numberReads(), buildReads()], [linkReads + 1, 6]);
+  }),
+);
+
+it.effect("resolves mentions on the project's current HQ, never by number alone", () =>
+  Effect.gen(function* () {
+    const { hq, service, add, connections } = yield* makeHarness;
+    add(item(1_000_078, "spec", "Show the Build item", "in_progress"));
+    const numberReads = () => hq.toolCalls.filter((call) => call.args.number !== undefined).length;
+    yield* service.mentions({ threadId, numbers: [1_000_078] });
+    yield* connections.connect({
+      projectId,
+      origin: otherOrigin,
+      delegation: `yshqd_${"e".repeat(43)}`,
+    });
+    const moved = yield* service.mentions({ threadId, numbers: [1_000_078] });
+    assert.strictEqual(numberReads(), 2);
+    assert.strictEqual(moved.items[0]?.url, `${otherOrigin}/build/1000078`);
+  }),
+);
+
+it.effect("a mention HQ can't answer is left out without caching it as unknown", () =>
+  Effect.gen(function* () {
+    const { hq, service, add } = yield* makeHarness;
+    add(item(1_000_078, "spec", "Show the Build item", "in_progress"));
+    hq.state.unreachable = true;
+    assert.deepStrictEqual(yield* service.mentions({ threadId, numbers: [1_000_078] }), {
+      items: [],
+    });
+    hq.state.unreachable = false;
+    const { items } = yield* service.mentions({ threadId, numbers: [1_000_078] });
+    assert.strictEqual(items[0]?.item?.title, "Show the Build item");
   }),
 );

@@ -1,3 +1,4 @@
+import { buildSessionThreadLink } from "@t3tools/client-runtime/build-session-thread-link";
 import {
   type BuildStatusTone,
   buildKindGlyph,
@@ -12,6 +13,7 @@ import type { ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { MarkdownThreadLink } from "../chat/MarkdownThreadLink";
 
 const DOT_CLASSES: Record<BuildStatusTone, string> = {
   "not-started": "border border-muted-foreground/70",
@@ -92,6 +94,7 @@ export function BuildWorkItemCard(props: { card: BuildWorkItemCardData }) {
   const { item, detail } = card;
   const waits = item.waits.map(describeBuildWait);
   const session = detail.kind === "spec" ? detail.lead : detail.worker;
+  const threadLink = buildSessionThreadLink(session);
 
   return (
     <div className="min-w-0">
@@ -135,11 +138,23 @@ export function BuildWorkItemCard(props: { card: BuildWorkItemCardData }) {
 
       <div className="mt-3 flex min-w-0 items-center gap-1.5 border-t pt-2 text-2xs text-muted-foreground">
         <span className="min-w-0 truncate">
-          {session
-            ? `${detail.kind === "spec" ? "Lead" : "Worker"}: ${buildSessionLabel(session)}`
-            : detail.kind === "spec"
-              ? "No lead thread"
-              : "No thread working on it"}
+          {session ? (
+            <>
+              {detail.kind === "spec" ? "Lead" : "Worker"}:{" "}
+              {threadLink ? (
+                <>
+                  <MarkdownThreadLink {...threadLink} label="T3 thread" foreign />
+                  {` · ${session.activity}`}
+                </>
+              ) : (
+                buildSessionLabel(session)
+              )}
+            </>
+          ) : detail.kind === "spec" ? (
+            "No lead thread"
+          ) : (
+            "No thread working on it"
+          )}
         </span>
         <span className="ms-auto shrink-0">
           {card.unavailable

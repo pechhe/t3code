@@ -151,8 +151,28 @@ export type BuildWorkItemCardResult = typeof BuildWorkItemCardResult.Type;
 /** Whether a project is connected to YardSmith HQ, so its threads can link Build items. */
 export const BuildConnectionReadInput = Schema.Struct({ projectId: ProjectId });
 export type BuildConnectionReadInput = typeof BuildConnectionReadInput.Type;
-export const BuildConnectionReadResult = Schema.Struct({ connected: Schema.Boolean });
+export const BuildConnectionReadResult = Schema.Struct({
+  connected: Schema.Boolean,
+  /**
+   * The HQ whose Build links chat shows as live items; null when not connected. Optional, so a
+   * client still reads an older server, whose chat then shows Build links as ordinary links.
+   */
+  origin: Schema.optional(Schema.NullOr(Schema.String)),
+});
 export type BuildConnectionReadResult = typeof BuildConnectionReadResult.Type;
+
+/** Build items mentioned in a thread's messages, read from the thread's project HQ. */
+export const BuildWorkItemMentionsInput = Schema.Struct({
+  threadId: ThreadId,
+  numbers: Schema.Array(PositiveInt).check(Schema.isMinLength(1), Schema.isMaxLength(50)),
+});
+export type BuildWorkItemMentionsInput = typeof BuildWorkItemMentionsInput.Type;
+
+/** Only the items Build knows: a number it doesn't is absent, and its mention stays as written. */
+export const BuildWorkItemMentionsResult = Schema.Struct({
+  items: Schema.Array(BuildWorkItemView),
+});
+export type BuildWorkItemMentionsResult = typeof BuildWorkItemMentionsResult.Type;
 
 export const BuildWorkItemLinkInput = Schema.Struct({
   threadId: ThreadId,

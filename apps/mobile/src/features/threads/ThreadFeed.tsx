@@ -33,6 +33,7 @@ import {
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import { parseThreadLink } from "@t3tools/shared/threadLinks";
+import { buildItemNumberFromUrl } from "@t3tools/shared/buildLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
 import {
   parseComposerContextHref,
@@ -212,6 +213,7 @@ import {
 import { useAtomQueryRunner } from "../../state/use-atom-query-runner";
 import { usePreparedConnection } from "../../state/session";
 import { useLiveThreadLinkLabels } from "../../state/entities";
+import { useLiveBuildMentions, useThreadBuildOrigin } from "./useBuildMentions";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { composerDocumentAttachmentRecord } from "../../lib/composerContext";
 import * as Option from "effect/Option";
@@ -797,13 +799,18 @@ function ArtifactTemplateCard(props: {
 const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly markdown: string;
   readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
   readonly markdownStyles: MarkdownStyleSet;
   readonly linkHandlers: MarkdownLinkHandlers;
   readonly onUseArtifactTemplate?: ((template: CodexArtifactTemplate) => void) | undefined;
   readonly renderImage: MarkdownImageRenderer;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
-  const liveMarkdown = useLiveThreadLinkLabels(props.markdown, props.environmentId);
+  const liveMarkdown = useLiveBuildMentions(
+    useLiveThreadLinkLabels(props.markdown, props.environmentId),
+    props.environmentId,
+    props.threadId,
+  );
   const segments = useMemo(() => splitCodexArtifactTemplateMarkdown(liveMarkdown), [liveMarkdown]);
 
   return segments.map((segment) => {
@@ -1272,6 +1279,7 @@ function renderFeedEntry(
                 <UserMessageContent
                   text={renderedText}
                   environmentId={props.environmentId}
+                  threadId={props.threadId}
                   context={message.context}
                   markdownStyles={styles}
                   reviewCommentColors={props.reviewCommentColors}
@@ -1372,6 +1380,7 @@ function renderFeedEntry(
             <AssistantMarkdownContent
               markdown={renderedText}
               environmentId={props.environmentId}
+              threadId={props.threadId}
               markdownStyles={styles}
               linkHandlers={props.markdownLinkHandlers}
               onUseArtifactTemplate={props.onUseArtifactTemplate}
@@ -1455,6 +1464,7 @@ function renderFeedEntry(
 type UserMessageContentProps = {
   readonly text: string;
   readonly environmentId: EnvironmentId;
+  readonly threadId: ThreadId;
   readonly context?: OrchestrationMessageContext;
   readonly markdownStyles: MarkdownStyleSet;
   readonly reviewCommentColors: ReviewCommentColors;
@@ -1467,7 +1477,11 @@ function UserMessageContent(props: UserMessageContentProps) {
   const [selected, setSelected] = useState<{ contextId: string; label: string } | null>(null);
   const navigation = useNavigation();
   const { selectedThread } = useThreadSelection();
-  const liveText = useLiveThreadLinkLabels(props.text, props.environmentId);
+  const liveText = useLiveBuildMentions(
+    useLiveThreadLinkLabels(props.text, props.environmentId),
+    props.environmentId,
+    props.threadId,
+  );
   const text = replaceComposerContextReferences(liveText, (ref) => {
     const available = props.context?.records.some((record) => record.contextId === ref.contextId);
     return `[${ref.label}${available ? "" : " (unavailable)"}](t3-context://v1/${ref.kind}/${ref.contextId})`;
@@ -1780,8 +1794,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const iconSubtleColor = theme["--color-icon-subtle"];
   const screenColor = theme["--color-screen"];
   const userBubbleColor = theme["--color-user-bubble"];
+  const buildOrigin = useThreadBuildOrigin(props.environmentId, props.threadId);
   const onMarkdownLinkPress = useCallback(
     (href: string, imageEmbed = false) => {
+      const buildNumber = buildOrigin === null ? null : buildItemNumberFromUrl(href, buildOrigin);
+      if (buildNumber !== null) {
+        void Haptics.selectionAsync();
+        navigation.navigate("ThreadBuildItem", {
+          environmentId: props.environmentId,
+          threadId: props.threadId,
+          number: buildNumber,
+          url: href,
+        });
+        return;
+      }
       // A thread link names a thread in this feed's environment. One qualified with another
       // environment shows its label here but is not opened.
       const threadLink = parseThreadLink(href);
@@ -1849,7 +1875,14 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         void openPullRequest(presentation.href);
       }
     },
-    [props.environmentId, props.threadId, props.workspaceRoot, navigation, openPullRequest],
+    [
+      buildOrigin,
+      props.environmentId,
+      props.threadId,
+      props.workspaceRoot,
+      navigation,
+      openPullRequest,
+    ],
   );
   const resolveImageSource = useMarkdownImageSource({
     environmentId: props.environmentId,
@@ -1979,6 +2012,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       <AssistantMarkdownContent
         markdown={text}
         environmentId={props.environmentId}
+        threadId={props.threadId}
         markdownStyles={markdownStyles.assistant}
         linkHandlers={markdownLinkHandlers}
         renderImage={renderMarkdownImage}
@@ -1991,6 +2025,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       renderMarkdownImage,
       props.skills,
       props.environmentId,
+      props.threadId,
     ],
   );
   const reviewCommentColors = useReviewCommentColors();

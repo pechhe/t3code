@@ -32,6 +32,13 @@ export function createBuildWorkItemAtoms<R, E>(
       staleTimeMs: 60_000,
       refreshIntervalMs: 60_000,
     }),
+    /** Mounted only while a mention is on screen; the same item in many chips is one query. */
+    mentions: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:build:mentions",
+      tag: WS_METHODS.buildWorkItemMentions,
+      staleTimeMs: 60_000,
+      refreshIntervalMs: 60_000,
+    }),
     connection: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:build:connection",
       tag: WS_METHODS.buildConnectionRead,

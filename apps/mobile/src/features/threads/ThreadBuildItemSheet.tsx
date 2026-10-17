@@ -1,3 +1,4 @@
+import { buildSessionThreadLink } from "@t3tools/client-runtime/build-session-thread-link";
 import {
   type BuildStatusTone,
   buildKindGlyph,
@@ -8,6 +9,7 @@ import {
   presentSpecTickets,
 } from "@t3tools/client-runtime/state/build-work-items";
 import type { BuildWorkItemCard, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { type ReactNode, useState } from "react";
 import { Linking, Platform, ScrollView, View } from "react-native";
@@ -24,15 +26,20 @@ import { uuidv4 } from "../../lib/uuid";
 import { useUniwindTheme } from "../../lib/useUniwindTheme";
 import { NativeStackScreenOptions, nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { buildWorkItems } from "../../state/build-work-items";
+import { useThreadShell } from "../../state/entities";
+import { useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
+import { SelectableMarkdownText } from "../../native/SelectableMarkdownText";
+import { useMarkdownPreviewStyles } from "../files/FileMarkdownPreview";
 import { useAdaptiveWorkspaceLayout } from "../layout/AdaptiveWorkspaceLayout";
 
 const HEADER_SCROLL_EDGE_EFFECTS = nativeHeaderScrollEdgeEffects(Platform.OS, Platform.Version);
 
+/** The thread's own link, or an item its chat mentions, which carries no `itemId` until read. */
 type BuildItemTarget = {
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
-  readonly itemId: string;
+  readonly itemId?: string;
   readonly number: number;
   readonly url: string;
 };
@@ -101,11 +108,50 @@ function Banner(props: { tone: "held" | "blocked" | "accepted"; children: string
   );
 }
 
+function SessionThreadLink(props: {
+  link: NonNullable<ReturnType<typeof buildSessionThreadLink>>;
+  role: string;
+  activity: string;
+}) {
+  const navigation = useNavigation();
+  const { presentationById } = useEnvironments();
+  const thread = useThreadShell(props.link);
+  const styles = useMarkdownPreviewStyles();
+  const theme = useUniwindTheme();
+  const label = thread?.title.trim() || "T3 thread";
+  if (!presentationById.has(props.link.environmentId)) {
+    return (
+      <Text className="text-xs text-foreground-muted">
+        {`${props.role}: ${label} (environment ${props.link.environmentId}) · ${props.activity}`}
+      </Text>
+    );
+  }
+  return (
+    <SelectableMarkdownText
+      markdown={`${props.role}: ${formatThreadLink(props.link.threadId, label, props.link.environmentId)} · ${props.activity}`}
+      textStyle={{
+        ...styles.nativeTextStyle,
+        color: theme["--color-foreground-muted"],
+        fontSize: 12,
+        lineHeight: 16,
+      }}
+      marginBottom={0}
+      onLinkPress={() =>
+        navigation.navigate("Thread", {
+          environmentId: String(props.link.environmentId),
+          threadId: String(props.link.threadId),
+        })
+      }
+    />
+  );
+}
+
 function CardBody(props: { card: BuildWorkItemCard }) {
   const { card } = props;
   const { item, detail } = card;
   const waits = item.waits.map(describeBuildWait);
   const session = detail.kind === "spec" ? detail.lead : detail.worker;
+  const threadLink = buildSessionThreadLink(session);
   const tickets = detail.kind === "spec" ? presentSpecTickets(detail) : null;
 
   return (
@@ -205,13 +251,21 @@ function CardBody(props: { card: BuildWorkItemCard }) {
       ) : null}
 
       <View className="mt-5 border-t border-border pt-3">
-        <Text className="text-xs text-foreground-muted">
-          {session
-            ? `${detail.kind === "spec" ? "Lead" : "Worker"}: ${buildSessionLabel(session)}`
-            : detail.kind === "spec"
-              ? "No lead thread"
-              : "No thread working on it"}
-        </Text>
+        {session && threadLink ? (
+          <SessionThreadLink
+            link={threadLink}
+            role={detail.kind === "spec" ? "Lead" : "Worker"}
+            activity={session.activity}
+          />
+        ) : (
+          <Text className="text-xs text-foreground-muted">
+            {session
+              ? `${detail.kind === "spec" ? "Lead" : "Worker"}: ${buildSessionLabel(session)}`
+              : detail.kind === "spec"
+                ? "No lead thread"
+                : "No thread working on it"}
+          </Text>
+        )}
         <Text className="mt-1 text-xs text-foreground-muted">
           {card.unavailable
             ? `Build couldn't be reached · updated ${relativeTime(card.readAt)} ago`
@@ -234,11 +288,25 @@ export function ThreadBuildItemSheet({ route }: StaticScreenProps<BuildItemTarge
   const theme = useUniwindTheme();
   // One opening per time the sheet is shown, so showing it reads Build at once.
   const [opening] = useState(uuidv4);
+  // A mention's chat text already read this, so it answers from the same query at once.
+  const mention = useEnvironmentQuery(
+    target.itemId === undefined
+      ? buildWorkItems.mentions({
+          environmentId: target.environmentId,
+          input: { threadId: target.threadId, numbers: [target.number] },
+        })
+      : null,
+  );
+  const itemId =
+    target.itemId ?? mention.data?.items.find((found) => found.number === target.number)?.itemId;
+  const unknown = target.itemId === undefined && mention.data !== null && itemId === undefined;
   const cardQuery = useEnvironmentQuery(
-    buildWorkItems.card({
-      environmentId: target.environmentId,
-      input: { threadId: target.threadId, itemId: target.itemId, open: opening },
-    }),
+    itemId === undefined
+      ? null
+      : buildWorkItems.card({
+          environmentId: target.environmentId,
+          input: { threadId: target.threadId, itemId, open: opening },
+        }),
   );
   const title = `Build #${target.number}`;
 
@@ -253,7 +321,11 @@ export function ThreadBuildItemSheet({ route }: StaticScreenProps<BuildItemTarge
         <CardBody card={cardQuery.data} />
       ) : (
         <Text className="pt-6 text-center text-sm text-foreground-muted">
-          {cardQuery.error !== null ? "Build couldn't be reached." : "Reading Build…"}
+          {cardQuery.error !== null || mention.error !== null
+            ? "Build couldn't be reached."
+            : unknown
+              ? `Build has no item #${target.number} you can see.`
+              : "Reading Build…"}
         </Text>
       )}
       <View className="mt-6">

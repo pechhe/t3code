@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./build-session-thread-link": {
+      "types": "./src/buildSessionThreadLink.ts",
+      "default": "./src/buildSessionThreadLink.ts"
+    },
     "./composerThreadItems": {
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"

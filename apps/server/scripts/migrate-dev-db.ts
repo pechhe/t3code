@@ -101,6 +101,16 @@ export class MigrateDevDbSlotCollisionError extends Schema.TaggedError<MigrateDe
   }
 }
 
+/** Rows still break a foreign key after a pass that resolved nothing. */
+export class MigrateDevDbUnresolvedForeignKeysError extends Schema.TaggedError<MigrateDevDbUnresolvedForeignKeysError>()(
+  "MigrateDevDbUnresolvedForeignKeysError",
+  { tables: Schema.Array(Schema.String) },
+) {
+  override get message(): string {
+    return `Foreign key violations remain that removing orphans cannot resolve: ${this.tables.join(", ")}`;
+  }
+}
+
 export class MigrateDevDbPhaseError extends Schema.TaggedError<MigrateDevDbPhaseError>()(
   "MigrateDevDbPhaseError",
   {
@@ -224,6 +234,75 @@ const rootIsVisible = (sql: SqlClient.SqlClient) => sql`
   AND json_extract(root.payload_json, '$.settledAt') IS NULL
   AND json_extract(root.payload_json, '$.settledOverride') IS NOT 'settled'`;
 
+const quoteIdentifier = (name: string) => `"${name.replaceAll('"', '""')}"`;
+
+/**
+ * Resolves rows whose parent the filter left out the way the schema says a deleted parent would:
+ * SET NULL references are nulled and every other row is deleted, repeating for rows that
+ * referenced those. Fails instead of looping if a pass resolves nothing.
+ */
+const deleteForeignKeyOrphans = Effect.fn("deleteDevDbForeignKeyOrphans")(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  while (true) {
+    const violations = yield* sql<{ table: string; fkid: number }>`
+      SELECT DISTINCT "table", fkid FROM pragma_foreign_key_check`;
+    if (violations.length === 0) return;
+    const [before] = yield* sql<{ changes: number }>`SELECT total_changes() AS changes`;
+    for (const violation of violations) {
+      const columns = yield* sql<{
+        seq: number;
+        table: string;
+        from: string;
+        to: string | null;
+        on_delete: string;
+      }>`
+        SELECT seq, "table", "from", "to", on_delete FROM pragma_foreign_key_list(${violation.table})
+        WHERE id = ${violation.fkid} ORDER BY seq`;
+      const parent = columns[0]!.table;
+      // REFERENCES parent without named columns targets its primary key in key order.
+      const primaryKey = yield* sql<{ name: string }>`
+        SELECT name FROM pragma_table_info(${parent}) WHERE pk > 0 ORDER BY pk`;
+      const nonNull = columns
+        .map((column) => `child.${quoteIdentifier(column.from)} IS NOT NULL`)
+        .join(" AND ");
+      const matches = columns
+        .map(
+          (column) =>
+            `parent.${quoteIdentifier(column.to ?? primaryKey[column.seq]!.name)} = child.${quoteIdentifier(column.from)}`,
+        )
+        .join(" AND ");
+      const orphaned = `${nonNull} AND NOT EXISTS (
+           SELECT 1 FROM ${quoteIdentifier(parent)} AS parent WHERE ${matches}
+         )`;
+      const table = `${quoteIdentifier(violation.table)} AS child`;
+      yield* sql.unsafe(
+        columns[0]!.on_delete === "SET NULL"
+          ? `UPDATE ${table} SET ${columns
+              .map((column) => `${quoteIdentifier(column.from)} = NULL`)
+              .join(", ")} WHERE ${orphaned}`
+          : `DELETE FROM ${table} WHERE ${orphaned}`,
+      ).unprepared;
+    }
+    const [after] = yield* sql<{ changes: number }>`SELECT total_changes() AS changes`;
+    if (after?.changes === before?.changes)
+      return yield* new MigrateDevDbUnresolvedForeignKeysError({
+        tables: violations.map((violation) => violation.table),
+      });
+  }
+});
+
+// Filtering is confined to the disposable copy. Disable enforcement outside the
+// transaction so RESTRICT, CASCADE and SET NULL cannot interfere with selection;
+// remove missing-parent rows transitively before committing, without relying on rowids.
+const withFilteredTransaction = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql.unsafe("PRAGMA foreign_keys = OFF").unprepared;
+    return yield* sql
+      .withTransaction(effect.pipe(Effect.tap(() => deleteForeignKeyOrphans())))
+      .pipe(Effect.ensuring(sql.unsafe("PRAGMA foreign_keys = ON").unprepared.pipe(Effect.orDie)));
+  });
+
 /**
  * One transaction reads the source, so the copy is consistent while the real server writes.
  */
@@ -240,11 +319,8 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
   const tables = schema.filter((entry) => entry.type === "table");
   const filtered = tables.some((table) => table.name === "orchestration_v2_projection_threads");
 
-  yield* sql.withTransaction(
+  yield* withFilteredTransaction(
     Effect.gen(function* () {
-      // Rows can reference a filtered-out thread's rows without a thread_id of their own,
-      // such as an experiment observation of an assignment; the checks run once, at the end.
-      yield* sql.unsafe("PRAGMA defer_foreign_keys = ON").unprepared;
       for (const table of tables) yield* sql.unsafe(table.sql).unprepared;
       if (filtered) {
         yield* sql`CREATE TEMP TABLE copied_threads (thread_id TEXT PRIMARY KEY)`;
@@ -269,16 +345,6 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
               : `WHERE thread_id IN (SELECT thread_id FROM copied_threads)${nullable ? " OR thread_id IS NULL" : ""}`;
         yield* sql.unsafe(`INSERT INTO main."${name}" SELECT * FROM src."${name}" ${filter}`)
           .unprepared;
-      }
-      // Drop rows whose parent the filter left out, repeating for rows that referenced them.
-      // An unfiltered copy keeps the source's own violations, so the commit reports them.
-      while (filtered) {
-        const orphans = yield* sql<{ table: string; rowid: number | null }>`
-          SELECT "table", rowid FROM pragma_foreign_key_check WHERE rowid IS NOT NULL`;
-        if (orphans.length === 0) break;
-        for (const orphan of orphans)
-          yield* sql.unsafe(`DELETE FROM main."${orphan.table}" WHERE rowid = ${orphan.rowid}`)
-            .unprepared;
       }
       // The source's AUTOINCREMENT high-water marks, so new events append after them.
       yield* sql`DELETE FROM main.sqlite_sequence`;
@@ -364,7 +430,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
     WHERE m.type = 'table' AND c.name = 'thread_id'
       AND m.name <> ${PROVIDER_SESSIONS_TABLE}`;
 
-  yield* sql.withTransaction(
+  yield* withFilteredTransaction(
     Effect.gen(function* () {
       yield* sql`DELETE FROM projection_projects
         WHERE project_id NOT IN (SELECT project_id FROM kept_projects)`;

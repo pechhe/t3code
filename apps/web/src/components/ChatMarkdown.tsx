@@ -109,6 +109,10 @@ import { parseComposerContextHref } from "@t3tools/shared/composerContextReferen
 import { parseThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
+import { buildItemNumberFromUrl } from "@t3tools/shared/buildLinks";
+import { useThreadBuildOrigin } from "~/state/buildWorkItems";
+import { BuildMentionChip } from "./buildItem/BuildMentionChip";
+import { remarkBuildMentions } from "./buildItem/buildMentionMarkdown";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import {
   artifactTemplateFromHastProperties,
@@ -2373,6 +2377,7 @@ function useChatMarkdownState({
     reportFailure: false,
   });
   const pullRequestLinking = usePullRequestLinking(threadRef?.environmentId);
+  const buildOrigin = useThreadBuildOrigin(threadRef);
   const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperatePreview = useEnvironmentScope(environmentId, AuthPreviewOperateScope);
@@ -2747,6 +2752,7 @@ function useChatMarkdownState({
 
   const componentState = useMemo(
     () => ({
+      buildOrigin,
       canOperateHost,
       canOperatePreview,
       cwd,
@@ -2779,6 +2785,7 @@ function useChatMarkdownState({
       updateThreadPullRequestLink,
     }),
     [
+      buildOrigin,
       canOperateHost,
       canOperatePreview,
       cwd,
@@ -2812,6 +2819,7 @@ function useChatMarkdownState({
     ],
   );
   return {
+    buildOrigin,
     componentState,
     handleCopy,
     markdownRef,
@@ -2938,8 +2946,16 @@ const CHAT_MARKDOWN_COMPONENTS = {
       />
     );
   },
-  a: function MarkdownAnchor({ node, href, children, title: _title, ...props }) {
+  a: function MarkdownAnchor({
+    node,
+    href,
+    children,
+    title: _title,
+    "data-build-fallback": buildFallback,
+    ...props
+  }: React.ComponentProps<"a"> & ReactMarkdownExtraProps & { "data-build-fallback"?: boolean }) {
     const {
+      buildOrigin,
       canOperateHost,
       canOperatePreview,
       cwd,
@@ -2978,6 +2994,31 @@ const CHAT_MARKDOWN_COMPONENTS = {
         />
       ) : (
         <span>{label}</span>
+      );
+    }
+    // A Build item on the project's HQ is a live chip. Until Build answers, or when it doesn't
+    // know the number, a `#<number>` stays text and a written link stays an ordinary link.
+    const buildNumber =
+      href && buildOrigin !== null && threadRef && buildFallback !== true
+        ? buildItemNumberFromUrl(href, buildOrigin)
+        : null;
+    if (buildNumber !== null && threadRef) {
+      const reference = (props as Record<string, unknown>)["data-build-mention"] === "reference";
+      return (
+        <BuildMentionChip
+          threadRef={threadRef}
+          number={buildNumber}
+          copy={reference ? `#${buildNumber}` : (href ?? "")}
+          fallback={
+            reference ? (
+              <>{children}</>
+            ) : (
+              <MarkdownAnchor node={node} href={href} data-build-fallback {...props}>
+                {children}
+              </MarkdownAnchor>
+            )
+          }
+        />
       );
     }
     const contextReference = href ? parseComposerContextHref(href) : null;
@@ -3452,6 +3493,7 @@ function ChatMarkdown({
   ...props
 }: ChatMarkdownProps) {
   const {
+    buildOrigin,
     componentState,
     handleCopy,
     markdownRef,
@@ -3467,9 +3509,14 @@ function ChatMarkdown({
     () => [
       ...(lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS),
       ...extraRemarkPlugins,
+      ...(buildOrigin === null
+        ? EMPTY_REMARK_PLUGINS
+        : ([[remarkBuildMentions, { origin: buildOrigin }]] satisfies NonNullable<
+            ReactMarkdownOptions["remarkPlugins"]
+          >)),
       ...(incrementalParsing ? [createIncrementalMarkdownPlugin()] : []),
     ],
-    [extraRemarkPlugins, incrementalParsing, lineBreaks],
+    [buildOrigin, extraRemarkPlugins, incrementalParsing, lineBreaks],
   );
 
   const rehypePlugins = useMemo(() => {

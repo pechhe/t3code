@@ -9,6 +9,8 @@ import {
   type BuildWorkItemCardInput,
   type BuildWorkItemCardResult,
   BuildWorkItemError,
+  type BuildWorkItemMentionsInput,
+  type BuildWorkItemMentionsResult,
   BuildWorkItemSummary,
   type BuildWorkItemReadResult,
   type BuildWorkItemSession,
@@ -16,7 +18,9 @@ import {
   type OrchestrationV2ThreadWorkItem,
   type ProjectId,
   type ThreadId,
+  type BuildWorkItemView,
 } from "@t3tools/contracts";
+import { buildItemUrl, parseBuildReference } from "@t3tools/shared/buildLinks";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -145,7 +149,7 @@ const pickSession = (
   sessions: ReadonlyArray<typeof BuildSession.Type>,
   matches: (session: typeof BuildSession.Type) => boolean,
 ): BuildWorkItemSession | null => {
-  const candidates = sessions.filter(matches);
+  const candidates = sessions.filter((session) => session.currentGeneration && matches(session));
   const latest = (
     pool: ReadonlyArray<typeof BuildSession.Type>,
     at: (session: typeof BuildSession.Type) => string,
@@ -174,22 +178,6 @@ const latestOf = (dates: ReadonlyArray<string | null | undefined>) =>
     .toSorted()
     .at(-1);
 
-/** A Build URL on any HQ, `#<number>` or a bare number. */
-export const parseBuildReference = (
-  reference: string,
-): { readonly number: number; readonly origin: string | null } | null => {
-  const trimmed = reference.trim();
-  const bare = /^#?(\d+)$/.exec(trimmed);
-  if (bare) return { number: Number(bare[1]), origin: null };
-  try {
-    const url = new URL(trimmed);
-    const path = /^\/build\/(?:specs\/)?(\d+)\/?$/.exec(url.pathname);
-    return path ? { number: Number(path[1]), origin: url.origin } : null;
-  } catch {
-    return null;
-  }
-};
-
 /** A card as Build answered it, before T3 adds where and when it was read. */
 type FreshCard = Omit<BuildWorkItemCard, "url" | "updatedAt" | "readAt" | "unavailable"> & {
   readonly updatedAt: string | undefined;
@@ -215,6 +203,25 @@ interface CachedItem {
   readonly unavailable: boolean;
 }
 
+/** Items kept for their last known summary, and numbers kept resolved, per HQ connection. */
+export const ITEM_CACHE_LIMIT = 1024;
+
+/** A number resolved on one HQ: its item, or null while Build doesn't know it. */
+interface CachedNumber {
+  readonly itemId: string | null;
+  readonly attemptedAt: number;
+}
+
+/** Map order is recency: re-inserting marks an entry used, and the least recent goes first. */
+const remember = <V>(map: Map<string, V>, key: string, value: V, limit: number) => {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > limit) {
+    const oldest = map.keys().next();
+    if (!oldest.done) map.delete(oldest.value);
+  }
+};
+
 export class BuildWorkItems extends Context.Service<
   BuildWorkItems,
   {
@@ -230,10 +237,20 @@ export class BuildWorkItems extends Context.Service<
     readonly card: (
       input: BuildWorkItemCardInput,
     ) => Effect.Effect<BuildWorkItemCardResult, BuildWorkItemError>;
+    /**
+     * Items mentioned in the thread's messages, by number on its project HQ, as clients show
+     * them. Shares the linked item's cache and cadence; a number Build doesn't know is absent.
+     */
+    readonly mentions: (
+      input: BuildWorkItemMentionsInput,
+    ) => Effect.Effect<BuildWorkItemMentionsResult, BuildWorkItemError>;
     /** Whether the project's threads can link Build items at all. */
     readonly connected: (
       projectId: ProjectId,
-    ) => Effect.Effect<{ readonly connected: boolean }, BuildWorkItemError>;
+    ) => Effect.Effect<
+      { readonly connected: boolean; readonly origin: string | null },
+      BuildWorkItemError
+    >;
     /**
      * Links the thread to the item a reference names, replacing any earlier link, or unlinks it
      * for null. The one way people, agents and scheduled tasks set the link.
@@ -260,6 +277,7 @@ const make = Effect.gen(function* () {
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const crypto = yield* Crypto.Crypto;
   const cache = new Map<string, CachedItem>();
+  const numberCache = new Map<string, CachedNumber>();
   const cardCache = new Map<string, CachedCard>();
   const readLock = yield* KeyedLock.make<string>();
 
@@ -300,30 +318,26 @@ const make = Effect.gen(function* () {
       Effect.map(Option.flatten),
     );
 
-  const view: BuildWorkItems["Service"]["view"] = Effect.fn("BuildWorkItems.view")(
-    function* (threadId) {
-      const shell = yield* shellOf(threadId);
-      const connection = yield* connectionOf(shell.projectId);
-      if (connection === null) return null;
-      const workItem = shell.workItem ?? null;
-      if (workItem === null) return null;
-      const base = {
-        itemId: workItem.itemId,
-        number: workItem.number,
-        url: `${workItem.origin}/build/${workItem.number}`,
-      };
-      // Never resolved against another HQ: the same number there is a different item.
-      if (connection.origin !== workItem.origin)
-        return { ...base, item: null, unavailable: true, readAt: null };
-      const key = `${connection.connection}\n${workItem.itemId}`;
+  type Connection = { readonly origin: string; readonly connection: string };
+
+  /** An item as clients show it, read from Build at most once a minute however many ask. */
+  const summaryView = (
+    projectId: ProjectId,
+    connection: Connection,
+    target: { readonly itemId: string; readonly number: number },
+  ) =>
+    Effect.gen(function* () {
+      const key = `${connection.connection}\n${target.itemId}`;
       const cached = yield* readLock.withLock(
         key,
         Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
           const previous = cache.get(key);
-          if (previous !== undefined && now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS)
+          if (previous !== undefined && now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS) {
+            remember(cache, key, previous, ITEM_CACHE_LIMIT);
             return previous;
-          const read = yield* readSummary(shell.projectId, workItem.itemId);
+          }
+          const read = yield* readSummary(projectId, target.itemId);
           const next: CachedItem = Option.match(read, {
             onSome: (item) => ({ item, readAt: now, attemptedAt: now, unavailable: false }),
             onNone: () => ({
@@ -334,21 +348,104 @@ const make = Effect.gen(function* () {
             }),
           });
           if (Option.isNone(read))
-            yield* Effect.logWarning("Could not read a thread's Build item", {
-              threadId,
-              itemId: workItem.itemId,
-            });
-          cache.set(key, next);
+            yield* Effect.logWarning("Could not read a Build item", { itemId: target.itemId });
+          remember(cache, key, next, ITEM_CACHE_LIMIT);
           return next;
         }),
       );
       return {
-        ...base,
+        itemId: target.itemId,
+        number: target.number,
+        url: buildItemUrl(connection.origin, target.number),
         item: cached.item,
         unavailable: cached.unavailable,
         readAt:
           cached.readAt === null ? null : DateTime.formatIso(DateTime.makeUnsafe(cached.readAt)),
-      };
+      } satisfies BuildWorkItemView;
+    });
+
+  const view: BuildWorkItems["Service"]["view"] = Effect.fn("BuildWorkItems.view")(
+    function* (threadId) {
+      const shell = yield* shellOf(threadId);
+      const connection = yield* connectionOf(shell.projectId);
+      if (connection === null) return null;
+      const workItem = shell.workItem ?? null;
+      if (workItem === null) return null;
+      // Never resolved against another HQ: the same number there is a different item.
+      if (connection.origin !== workItem.origin)
+        return {
+          itemId: workItem.itemId,
+          number: workItem.number,
+          url: buildItemUrl(workItem.origin, workItem.number),
+          item: null,
+          unavailable: true,
+          readAt: null,
+        };
+      return yield* summaryView(shell.projectId, connection, workItem);
+    },
+  );
+
+  /**
+   * The item a number names on this HQ. A known number stays resolved, since Build never reuses
+   * one; an unknown one is asked again at most once a minute, and a failed read is not cached.
+   */
+  const itemIdOf = (projectId: ProjectId, connection: Connection, number: number) =>
+    Effect.gen(function* () {
+      const key = `${connection.connection}\n#${number}`;
+      return yield* readLock.withLock(
+        key,
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          const previous = numberCache.get(key);
+          if (
+            previous !== undefined &&
+            (previous.itemId !== null || now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS)
+          ) {
+            remember(numberCache, key, previous, ITEM_CACHE_LIMIT);
+            return Option.some(previous.itemId);
+          }
+          const read = yield* hq.observe(projectId, "hq_build_read", { number }).pipe(
+            Effect.map((result) =>
+              Option.match(decodeBuildRead(result.value), {
+                onNone: () => Option.none<string | null>(),
+                onSome: (found) =>
+                  Option.some(found.kind === "spec" || found.kind === "ticket" ? found.id : null),
+              }),
+            ),
+            // Build answers `failed` for a number it doesn't know or this observer can't see.
+            Effect.catch((cause) =>
+              Effect.succeed(
+                cause.reason === "failed" ? Option.some<string | null>(null) : Option.none(),
+              ),
+            ),
+          );
+          if (Option.isSome(read))
+            remember(numberCache, key, { itemId: read.value, attemptedAt: now }, ITEM_CACHE_LIMIT);
+          return read;
+        }),
+      );
+    });
+
+  const mentions: BuildWorkItems["Service"]["mentions"] = Effect.fn("BuildWorkItems.mentions")(
+    function* (input) {
+      const shell = yield* shellOf(input.threadId);
+      const connection = yield* connectionOf(shell.projectId);
+      if (connection === null) return { items: [] };
+      const views = yield* Effect.forEach(
+        [...new Set(input.numbers)],
+        (number) =>
+          itemIdOf(shell.projectId, connection, number).pipe(
+            Effect.flatMap((itemId) =>
+              Option.isSome(itemId) && itemId.value !== null
+                ? summaryView(shell.projectId, connection, { itemId: itemId.value, number }).pipe(
+                    Effect.map(Option.some),
+                  )
+                : Effect.succeed(Option.none<BuildWorkItemView>()),
+            ),
+          ),
+        { concurrency: 4 },
+      );
+      return { items: views.flatMap((found) => (Option.isSome(found) ? [found.value] : [])) };
     },
   );
 
@@ -540,8 +637,7 @@ const make = Effect.gen(function* () {
             previous.opens.includes(input.open) &&
             now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS
           ) {
-            cardCache.delete(key);
-            cardCache.set(key, previous);
+            remember(cardCache, key, previous, CARD_CACHE_LIMIT);
             return previous;
           }
           const opens = [
@@ -553,7 +649,7 @@ const make = Effect.gen(function* () {
             onSome: (fresh) => ({
               card: {
                 ...fresh,
-                url: `${connection.origin}/build/${fresh.number}`,
+                url: buildItemUrl(connection.origin, fresh.number),
                 updatedAt: fresh.updatedAt ?? DateTime.formatIso(DateTime.makeUnsafe(now)),
                 readAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
               },
@@ -572,13 +668,7 @@ const make = Effect.gen(function* () {
             yield* Effect.logWarning("Could not read a Build item's card", {
               itemId: input.itemId,
             });
-          cardCache.delete(key);
-          cardCache.set(key, next);
-          // Map order is recency: drop the card asked for least recently.
-          if (cardCache.size > CARD_CACHE_LIMIT) {
-            const oldest = cardCache.keys().next();
-            if (!oldest.done) cardCache.delete(oldest.value);
-          }
+          remember(cardCache, key, next, CARD_CACHE_LIMIT);
           return next;
         }),
       );
@@ -591,10 +681,14 @@ const make = Effect.gen(function* () {
   return BuildWorkItems.of({
     view,
     card,
+    mentions,
     link,
     connected: (projectId) =>
       connectionOf(projectId).pipe(
-        Effect.map((connection) => ({ connected: connection !== null })),
+        Effect.map((connection) => ({
+          connected: connection !== null,
+          origin: connection?.origin ?? null,
+        })),
       ),
   });
 });

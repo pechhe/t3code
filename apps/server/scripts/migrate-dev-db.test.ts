@@ -99,6 +99,79 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
 });
 
 it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
+  it.effect.each([
+    { phase: "snapshot", removedThread: "settled-thread" },
+    { phase: "prune", removedThread: "running-thread" },
+  ])(
+    "drops transitive foreign-key children during $phase, including WITHOUT ROWID",
+    ({ removedThread }) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-fk-src-" });
+        const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-fk-dest-" });
+        const source = yield* createFixtureSource(sourceDir);
+        yield* withDatabase(
+          source,
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            yield* sql`CREATE TABLE fixture_parents (
+            id TEXT, kind TEXT, thread_ref TEXT REFERENCES orchestration_v2_projection_threads(thread_id) ON DELETE RESTRICT,
+            project_ref TEXT REFERENCES projection_projects(project_id) ON DELETE SET NULL,
+            PRIMARY KEY (id, kind)
+          ) WITHOUT ROWID`;
+            yield* sql`CREATE TABLE fixture_children (
+            id TEXT PRIMARY KEY, parent_id TEXT, parent_kind TEXT,
+            FOREIGN KEY (parent_id, parent_kind) REFERENCES fixture_parents ON DELETE CASCADE
+          ) WITHOUT ROWID`;
+            yield* sql`CREATE TABLE fixture_grandchildren (
+            id TEXT PRIMARY KEY, child_ref TEXT REFERENCES fixture_children(id)
+          )`;
+            for (const [id, thread, project] of [
+              ["kept", "stopped-thread", "project-kept"],
+              ["removed-thread", removedThread, "project-kept"],
+              ["removed-project", null, "project-deleted"],
+            ] as const) {
+              yield* sql`INSERT INTO fixture_parents VALUES (${id}, 'kind', ${thread}, ${project})`;
+              yield* sql`INSERT INTO fixture_children VALUES (${id}, ${id}, 'kind')`;
+              yield* sql`INSERT INTO fixture_grandchildren VALUES (${id}, ${id})`;
+            }
+            // SQLite exempts composite references with any NULL component.
+            yield* sql`INSERT INTO fixture_children VALUES ('nullable', 'missing', NULL)`;
+            assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+          }),
+        );
+
+        const result = yield* runMigrateDevDb(
+          { baseDir: destDir, source, projects: 5, threadsPerProject: 100 },
+          { sharedHome: sourceDir },
+        );
+        yield* withDatabase(
+          result.databasePath,
+          Effect.gen(function* () {
+            const sql = yield* SqlClient.SqlClient;
+            // A SET NULL reference to a removed project is nulled, as deleting it would have.
+            assert.deepStrictEqual(
+              yield* sql`SELECT id, project_ref FROM fixture_parents ORDER BY id`,
+              [
+                { id: "kept", project_ref: "project-kept" },
+                { id: "removed-project", project_ref: null },
+              ],
+            );
+            assert.deepStrictEqual(yield* sql`SELECT id FROM fixture_children ORDER BY id`, [
+              { id: "kept" },
+              { id: "nullable" },
+              { id: "removed-project" },
+            ]);
+            assert.deepStrictEqual(yield* sql`SELECT id FROM fixture_grandchildren ORDER BY id`, [
+              { id: "kept" },
+              { id: "removed-project" },
+            ]);
+            assert.deepStrictEqual(yield* sql`PRAGMA foreign_key_check`, []);
+          }),
+        );
+      }),
+  );
+
   it.effect("keeps stopped thread families from live projects and clears pending work", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

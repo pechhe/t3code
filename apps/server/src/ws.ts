@@ -2063,6 +2063,10 @@ const layerWsRpc = (
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(buildWorkItems.card(input)),
           ),
+        [WS_METHODS.buildWorkItemMentions]: (input) =>
+          Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
+            Effect.andThen(buildWorkItems.mentions(input)),
+          ),
         [WS_METHODS.buildWorkItemLink]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(buildWorkItems.link(input)),
