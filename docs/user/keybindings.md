@@ -25,6 +25,11 @@ Use `mod+shift+m` to choose a model, `mod+shift+e` for effort and `mod+shift+a` 
 To step a new thread to the next machine, bind **Composer: Cycle Host** in Keybindings. It has no
 default shortcut.
 
+To change effort one step without opening the picker, bind
+**Composer: Increase Effort** and **Composer: Decrease Effort** in Keybindings.
+Both are unbound by default. Increase wraps from the highest level to the
+lowest, and decrease wraps from the lowest level to the highest.
+
 In the model picker, press Left in an empty search field or Shift+Tab to reach
 the provider list. Use Up/Down to move and Enter to choose. Right returns to
 model search. `mod+shift+up` and `mod+shift+down` switch providers directly and clear the

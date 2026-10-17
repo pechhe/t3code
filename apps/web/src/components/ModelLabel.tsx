@@ -4,7 +4,7 @@ import { useMemo } from "react";
 
 import { cn } from "~/lib/utils";
 import { deriveProviderInstanceEntries } from "~/providerInstances";
-import { useEnvironments } from "~/state/environments";
+import { useEnvironmentProviders } from "~/state/environments";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getDisplayModelName, getProviderRowLabel } from "./chat/providerIconUtils";
 
@@ -24,10 +24,9 @@ export function ModelLabel(props: {
   variant?: "full" | "chip";
   className?: string | undefined;
 }) {
-  const { environments } = useEnvironments();
+  const providersByEnvironment = useEnvironmentProviders();
   const providers =
-    environments.find((environment) => environment.environmentId === props.environmentId)
-      ?.serverConfig?.providers ?? null;
+    props.environmentId === null ? null : (providersByEnvironment.get(props.environmentId) ?? null);
   const entry = useMemo(() => {
     const entries = deriveProviderInstanceEntries(providers ?? []);
     return (

@@ -74,6 +74,7 @@ import Migration0068 from "./Migrations/068_ExperimentEvidence.ts";
 import Migration0069 from "./Migrations/069_ScheduledTaskGroupsAndRoles.ts";
 import Migration0070 from "./Migrations/070_AgentTaskHandoffs.ts";
 import Migration0071 from "./Migrations/071_RunSetupRecords.ts";
+import Migration0072 from "./Migrations/072_DropUnusedV1Projections.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -148,6 +149,7 @@ export const migrationEntries = [
   [69, "ScheduledTaskGroupsAndRoles", Migration0069],
   [70, "AgentTaskHandoffs", Migration0070],
   [71, "RunSetupRecords", Migration0071],
+  [72, "DropUnusedV1Projections", Migration0072],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

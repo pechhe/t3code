@@ -115,7 +115,7 @@ export function UsageCorner({
   const canvas = useChatCanvas();
   // Below the inline details card, else below the find bar when it is open.
   const columnTop = canvas?.detailsCardBottom ?? canvas?.detailsCardTopInset ?? 0;
-  const presentations = useAtomValue(environmentPresentations.presentationsAtom);
+  const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   // The minute clock keeps the reset countdowns true without a render per second.
   const now = Date.parse(`${useNowMinute()}:00.000Z`);
   const navigate = useNavigate();

@@ -126,7 +126,8 @@ import {
   hydrateImagesFromPersisted,
   useComposerDraftStore,
   useComposerThreadDraft,
-  useEffectiveComposerModelState,
+  deriveEffectiveComposerModelState,
+  useComposerDraftModelState,
 } from "../../composerDraftStore";
 import {
   MAX_STASH_ENTRIES,
@@ -1824,22 +1825,37 @@ function useProviderWorkspaceSnapshotRefresh(input: {
   );
 }
 
+const NO_PROVIDER_MODELS: ServerProvider["models"] = [];
+
 /**
- * The provider instances the composer offers and which one is selected.
- * A hook so its results reach the composer frozen: they are passed to plain
- * functions across later hook calls, which would otherwise keep the compiler
- * from caching them.
+ * The provider instances the composer offers, which one is selected, and the model and options
+ * the draft resolves to on it. The draft store is read first so every derivation follows the only
+ * hook here; in the composer body they would straddle its later hooks and lose their cache.
  */
-function useComposerProviderSelection(
+function useComposerProviderModel(
   input: Omit<Parameters<typeof resolveComposerProviderSelection>[0], "entries"> & {
     readonly providerStatuses: ReadonlyArray<ServerProvider>;
     readonly settings: UnifiedSettings;
     readonly activeProjectId: ProjectId | null;
+    readonly threadRef: ScopedThreadRef | DraftId;
+    readonly threadModelSelection: ModelSelection | null | undefined;
+    readonly projectModelSelection: ModelSelection | null | undefined;
+    readonly promptInjectionState: ReturnType<typeof getComposerPromptInjectionState>;
   },
 ) {
-  // Calls no hooks, so the compiler needs the directive to memoize it.
-  "use memo";
-  const { providerStatuses, settings, activeProjectId, ...selection } = input;
+  const {
+    providerStatuses,
+    settings,
+    activeProjectId,
+    threadRef,
+    threadModelSelection,
+    projectModelSelection,
+    promptInjectionState,
+    candidateInstanceIds,
+    lockedProvider,
+    lockedInstanceId,
+  } = input;
+  const draftModelState = useComposerDraftModelState(threadRef);
   const providerInstanceEntries: ReadonlyArray<ProviderInstanceEntry> = sortProviderInstanceEntries(
     applyProviderInstanceSettings(
       deriveProviderInstanceEntries(providerStatuses),
@@ -1847,43 +1863,60 @@ function useComposerProviderSelection(
       activeProjectId,
     ),
   );
+  const selection = resolveComposerProviderSelection({
+    entries: providerInstanceEntries,
+    candidateInstanceIds,
+    lockedProvider,
+    lockedInstanceId,
+  });
+  const selectedInstanceId =
+    selection.selectedProviderEntry?.instanceId ?? NO_PROVIDER_MODEL_SELECTION.instanceId;
+  const selectedProvider: ProviderDriverKind =
+    selection.selectedProviderEntry?.driverKind ?? selection.requestedDriverKind;
+  const modelState = deriveEffectiveComposerModelState({
+    draft: draftModelState,
+    providers: providerStatuses,
+    selectedProvider,
+    selectedInstanceId,
+    threadModelSelection,
+    projectModelSelection,
+    settings,
+  });
+  const selectedProviderModels = selection.selectedProviderEntry?.models ?? NO_PROVIDER_MODELS;
+  const composerProviderState = getComposerProviderState({
+    provider: selectedProvider,
+    model: modelState.selectedModel,
+    models: selectedProviderModels,
+    promptInjectionState,
+    modelOptions: modelState.modelOptions?.[selectedInstanceId],
+    planModeEnabled: settings.planModeEnabled,
+  });
   return {
     providerInstanceEntries,
-    ...resolveComposerProviderSelection({ ...selection, entries: providerInstanceEntries }),
+    ...selection,
+    selectedInstanceId,
+    selectedProvider,
+    selectedProviderModels,
+    composerModelOptions: modelState.modelOptions,
+    selectedModel: modelState.selectedModel,
+    composerProviderState,
   };
 }
 
-function useModelOptionsByInstance(
-  settings: UnifiedSettings,
-  entries: ReadonlyArray<ProviderInstanceEntry>,
-  selectedInstanceId: ProviderInstanceId,
-  selectedModel: string | null,
-): ReadonlyMap<ProviderInstanceId, ReadonlyArray<AppModelOption>> {
-  // Calls no hooks, so the compiler needs the directive to memoize it.
-  "use memo";
-  const out = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
-  for (const entry of entries) {
-    out.set(
-      entry.instanceId,
-      getAppModelOptionsForInstance(
-        settings,
-        entry,
-        entry.instanceId === selectedInstanceId ? selectedModel : null,
-      ),
-    );
-  }
-  return out;
-}
-
-/** Splits the draft's images into pending SnapShots and standalone images. */
+/**
+ * Follows the SnapShots still animating into this draft and splits the draft's images into
+ * pending SnapShots and standalone images.
+ */
 function useComposerImageGroups(
-  pendingSnapShotAnimations: ReturnType<typeof getPendingSnapShotAnimations>,
   composerDraftTarget: ScopedThreadRef | DraftId,
   composerImages: ReadonlyArray<ComposerImageAttachment>,
   composerPreviewAnnotations: ReadonlyArray<{ readonly id: string }>,
 ) {
-  // Calls no hooks, so the compiler needs the directive to memoize it.
-  "use memo";
+  const pendingSnapShotAnimations = useSyncExternalStore(
+    subscribeToPendingSnapShotAnimations,
+    getPendingSnapShotAnimations,
+    getPendingSnapShotAnimations,
+  );
   const pendingSnapShotIds = pendingSnapShotAnimationIdsForTarget(
     pendingSnapShotAnimations,
     composerDraftTarget,
@@ -1892,6 +1925,7 @@ function useComposerImageGroups(
     composerPreviewAnnotations.map((annotation) => annotation.id),
   );
   return {
+    pendingSnapShotAnimations,
     pendingSnapShotIds,
     pendingSnapShotIdSet: new Set(pendingSnapShotIds),
     uncommittedSnapShotIds: pendingSnapShotIds.filter(
@@ -1903,12 +1937,6 @@ function useComposerImageGroups(
 
 const NO_PROVIDER_SKILLS: ServerProvider["skills"] = [];
 const NO_PROVIDER_SLASH_COMMANDS: ServerProvider["slashCommands"] = [];
-
-function useComposerProviderState(input: Parameters<typeof getComposerProviderState>[0]) {
-  // Calls no hooks, so the compiler needs the directive to memoize it.
-  "use memo";
-  return getComposerProviderState(input);
-}
 
 /** Opens the annotator on the clean original with the image's marks editable. */
 function imageAnnotatorSession(image: ComposerImageAttachment) {
@@ -2099,22 +2127,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const composerPreviewAnnotations = composerDraft.previewAnnotations;
   const composerReviewComments = composerDraft.reviewComments;
   const composerThreadContexts = attachmentDraft.threadContexts;
-  const pendingSnapShotAnimations = useSyncExternalStore(
-    subscribeToPendingSnapShotAnimations,
-    getPendingSnapShotAnimations,
-    getPendingSnapShotAnimations,
-  );
   const {
+    pendingSnapShotAnimations,
     pendingSnapShotIds,
     pendingSnapShotIdSet,
     uncommittedSnapShotIds,
     standaloneComposerImages,
-  } = useComposerImageGroups(
-    pendingSnapShotAnimations,
-    composerDraftTarget,
-    composerImages,
-    composerPreviewAnnotations,
-  );
+  } = useComposerImageGroups(composerDraftTarget, composerImages, composerPreviewAnnotations);
   const nonPersistedComposerImageIds = attachmentDraft.nonPersistedImageIds;
   const uploadsByImageId = useAttachmentUploadStore((state) => state.uploadsByImageId);
   const openPrLink = useOpenPrLink(routeThreadRef);
@@ -2345,13 +2364,22 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const {
     providerInstanceEntries,
     selectedProviderEntry,
-    requestedDriverKind,
     lockedContinuationGroupKey,
     unavailableProviderInstanceId,
-  } = useComposerProviderSelection({
+    selectedInstanceId,
+    selectedProvider,
+    selectedProviderModels,
+    composerModelOptions,
+    selectedModel,
+    composerProviderState,
+  } = useComposerProviderModel({
     providerStatuses,
     settings,
     activeProjectId,
+    threadRef: composerDraftTarget,
+    threadModelSelection: activeThreadModelSelection,
+    projectModelSelection: activeProjectDefaultModelSelection,
+    promptInjectionState: getComposerPromptInjectionState(prompt),
     candidateInstanceIds: [
       composerDraft.activeProvider ?? null,
       activeThread?.runtime?.providerInstanceId,
@@ -2362,8 +2390,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     lockedInstanceId:
       activeThread?.runtime?.providerInstanceId ?? activeThreadModelSelection?.instanceId,
   });
-  const selectedInstanceId =
-    selectedProviderEntry?.instanceId ?? NO_PROVIDER_MODEL_SELECTION.instanceId;
   const noProviderAvailable =
     selectedProviderEntry === undefined && multipleModelSelections === null;
   const providerCatalogPending = noProviderAvailable && !providerCatalogKnown;
@@ -2376,8 +2402,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     : undefined;
   const resolvedCompactDisabledReason =
     compactDisabledReason ?? (noProviderAvailable ? "Compacting is unavailable right now" : null);
-  const selectedProvider: ProviderDriverKind =
-    selectedProviderEntry?.driverKind ?? requestedDriverKind;
   const supportedRuntimeModes = selectedProviderEntry?.snapshot.supportedRuntimeModes;
   const compatibleRuntimeModeOptions =
     supportedRuntimeModes && supportedRuntimeModes.length > 0
@@ -2389,15 +2413,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ? runtimeMode
     : (compatibleRuntimeModeOptions[0]?.mode ?? runtimeMode);
 
-  const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
-    threadRef: composerDraftTarget,
-    providers: providerStatuses,
-    selectedProvider,
-    selectedInstanceId,
-    threadModelSelection: activeThreadModelSelection,
-    projectModelSelection: activeProjectDefaultModelSelection,
-    settings,
-  });
   const providerSendBlockReason = getAntigravitySendBlockReason(
     selectedProviderEntry?.snapshot,
     selectedModel,
@@ -2422,19 +2437,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     gitCwd,
     selectedProviderEntry,
-    selectedProviderStatus,
-  });
-  const selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]> =
-    selectedProviderEntry?.models ?? [];
-
-  const composerPromptInjectionState = getComposerPromptInjectionState(prompt);
-  const composerProviderState = useComposerProviderState({
-    provider: selectedProvider,
-    model: selectedModel,
-    models: selectedProviderModels,
-    promptInjectionState: composerPromptInjectionState,
-    modelOptions: composerModelOptions?.[selectedInstanceId],
-    planModeEnabled: settings.planModeEnabled,
+    selectedProviderStatus: selectedProviderStatus,
   });
 
   const selectedPromptEffort = composerProviderState.promptEffort;
@@ -2451,12 +2454,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedModelOptionsForDispatch,
   );
   const selectedModelForPicker = selectedModel;
-  const modelOptionsByInstance = useModelOptionsByInstance(
-    settings,
-    providerInstanceEntries,
-    selectedInstanceId,
-    selectedModelForPicker,
-  );
+  const modelOptionsByInstance = new Map<ProviderInstanceId, ReadonlyArray<AppModelOption>>();
+  for (const entry of providerInstanceEntries) {
+    modelOptionsByInstance.set(
+      entry.instanceId,
+      getAppModelOptionsForInstance(
+        settings,
+        entry,
+        entry.instanceId === selectedInstanceId ? selectedModelForPicker : null,
+      ),
+    );
+  }
+
   const selectedModelForPickerWithCustomFallback = (() => {
     const currentOptions = modelOptionsByInstance.get(selectedInstanceId) ?? [];
     return currentOptions.some((option) => option.slug === selectedModelForPicker)
@@ -6544,6 +6553,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       addComposerAttachments,
       foldPastedText,
       composerDraftTarget,
+      composerModelOptions,
+      isEditingQueuedMessage,
       composerCursor,
       activePendingProgress,
       composerTerminalContexts,
@@ -6572,6 +6583,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       resetComposerTrigger,
       setComposerTrigger,
       selectedModel,
+      selectedInstanceId,
+      reportedModelSelection,
+      settings.planModeEnabled,
       selectedModelOptionsForDispatch,
       selectedModelSelection,
       multipleModelSelections,

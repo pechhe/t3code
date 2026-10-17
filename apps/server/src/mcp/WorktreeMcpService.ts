@@ -15,7 +15,6 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as Path from "effect/Path";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -70,7 +69,6 @@ const asOperationFailed = (prefix: string) =>
 
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
-  const path = yield* Path.Path;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* ProjectService.ProjectService;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
@@ -184,13 +182,6 @@ const make = Effect.gen(function* () {
         `Thread '${scope.thread.threadId}' already works in '${input.worktreePath}'.`,
       );
     }
-    if (input.path !== undefined && !path.isAbsolute(input.path)) {
-      return yield* failure(
-        "invalid_request",
-        `path must be an absolute filesystem path, got '${input.path}'. A relative path would be created relative to the project workspace but stored verbatim as the thread's worktree binding.`,
-      );
-    }
-
     // A SlipJay workspace starts from the integration branch and is named after
     // the requested branch; it has no git branch of its own to check or create.
     const slipjay = (yield* workspaces.resolve(projectCwd)) === "slipjay";
@@ -445,7 +436,7 @@ const make = Effect.gen(function* () {
           refName: worktreeBaseRef,
           newRefName: input.branch,
           baseRefName: baseRef,
-          path: input.path ?? null,
+          path: null,
         })
         .pipe(
           Effect.map(({ worktree }) => ({ path: worktree.path, branch: worktree.refName })),
@@ -565,7 +556,6 @@ export const layer: Layer.Layer<
   WorktreeMcpService,
   never,
   | Crypto.Crypto
-  | Path.Path
   | ThreadManagementService.ThreadManagementService
   | ProjectService.ProjectService
   | ServerSettings.ServerSettingsService
