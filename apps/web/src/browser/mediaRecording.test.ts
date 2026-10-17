@@ -31,6 +31,12 @@ describe("createMediaRecorder", () => {
     expect(constructed[0]?.mimeType).toBe("video/mp4;codecs=avc1.42e01e");
   });
 
+  it("prefers in-band H.264 parameter sets so a capture can change size", () => {
+    stubMediaRecorder(["video/mp4;codecs=avc1", "video/mp4;codecs=avc3"]);
+    createMediaRecorder(streamOf({}));
+    expect(constructed[0]?.mimeType).toBe("video/mp4;codecs=avc3");
+  });
+
   it("lets the browser choose when no preferred type is supported", () => {
     stubMediaRecorder([]);
     createMediaRecorder(streamOf({}));

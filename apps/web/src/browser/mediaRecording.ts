@@ -1,4 +1,8 @@
+// avc3 repeats the H.264 parameter sets in the stream. Chromium's avc1 muxer keeps only the first
+// frame's, so a capture that changes size mid-recording (a resized window, or a screen capture whose
+// first frame arrives small) becomes undecodable after the change.
 const preferredMimeTypes = [
+  "video/mp4;codecs=avc3",
   "video/mp4;codecs=avc1",
   "video/mp4;codecs=avc1.640028",
   "video/mp4;codecs=avc1.42e01e",

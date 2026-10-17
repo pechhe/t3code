@@ -60,16 +60,17 @@ function run() {
 }`;
 
 const readScreenNotches = () =>
-  new Promise<ReadonlyArray<ScreenNotch>>((resolve) => {
+  new Promise<ReadonlyArray<ScreenNotch>>((resolve, reject) => {
     NodeChildProcess.execFile(
       "/usr/bin/osascript",
       ["-l", "JavaScript", "-e", NOTCH_SCRIPT],
       { timeout: 2_000 },
       (error, stdout) => {
         try {
-          resolve(error ? [] : decodeScreenNotches(stdout.trim()));
-        } catch {
-          resolve([]);
+          if (error) throw error;
+          resolve(decodeScreenNotches(stdout.trim()));
+        } catch (cause) {
+          reject(cause);
         }
       },
     );
@@ -169,6 +170,9 @@ class IndicatorWindow {
   private owner: Electron.WebContents | undefined;
   private state: DesktopScreenRecordingIndicatorState | null = null;
   private generation = 0;
+  private notches:
+    | { readonly layout: string; readonly read: Promise<ReadonlyArray<ScreenNotch>> }
+    | undefined;
   private readonly onPillAction = (event: Electron.IpcMainEvent, action: unknown) => {
     if (!this.window || event.sender !== this.window.webContents) return;
     if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "discard")
@@ -188,6 +192,22 @@ class IndicatorWindow {
   constructor(preload: string) {
     this.preload = preload;
     Electron.ipcMain.on(SCREEN_RECORDING_INDICATOR_PILL_CHANNEL, this.onPillAction);
+    void Electron.app.whenReady().then(() => this.screenNotches());
+  }
+
+  // The lookup spawns osascript, which would hold the pill back a few hundred milliseconds, so it
+  // runs ahead of the first recording and again only when the displays change.
+  private screenNotches(): Promise<ReadonlyArray<ScreenNotch>> {
+    const layout = JSON.stringify(
+      Electron.screen.getAllDisplays().map(({ id, bounds }) => [id, bounds]),
+    );
+    if (this.notches?.layout === layout) return this.notches.read;
+    const read = readScreenNotches().catch(() => {
+      if (this.notches?.read === read) this.notches = undefined;
+      return [];
+    });
+    this.notches = { layout, read };
+    return read;
   }
 
   async set(
@@ -215,7 +235,7 @@ class IndicatorWindow {
     const display = ownerWindow
       ? Electron.screen.getDisplayMatching(ownerWindow.getBounds())
       : Electron.screen.getPrimaryDisplay();
-    const notch = (await readScreenNotches()).find(
+    const notch = (await this.screenNotches()).find(
       (candidate) =>
         candidate.x === display.bounds.x &&
         candidate.y === display.bounds.y &&
