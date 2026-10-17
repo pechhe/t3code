@@ -403,6 +403,12 @@ import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
 import { createPageScrollController, type PageScrollKey } from "./chat/pageScrollController";
 import { isTimelineScrollTarget } from "./chat/timelineScrollTarget";
 import { DraftHeroHeadline } from "./chat/DraftHeroHeadline";
+import {
+  SNAP_SHOT_DOCK_CLASS_NAME,
+  SnapShotOverlayAbove,
+  SnapShotOverlayDockPill,
+} from "./snapShot/SnapShotOverlayChat";
+import { useSnapShotOverlayDock } from "./snapShot/snapShotOverlayDock";
 import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import type { AssistantCitationRequest } from "./chat/AssistantCitationSource";
@@ -2941,6 +2947,7 @@ export default function ChatView(props: ChatViewProps) {
   const timelineMessages = timelineEntries.flatMap((entry) =>
     entry.kind === "message" ? [entry.message] : [],
   );
+  const overlayDock = useSnapShotOverlayDock(timelineMessages, isWorking);
   const displayedTimeline = resolveThreadSwitchTimeline({
     loading: timelineEntries.length === 0 && threadSyncPhase !== null,
     activeThreadKey,
@@ -3428,6 +3435,12 @@ export default function ChatView(props: ChatViewProps) {
     composerRef.current?.focusAtEnd();
   };
   const focusComposerStable = useStableCallback(focusComposer);
+  // The overlay's composer comes back from its dock ready for a follow-up.
+  const overlayComposerRaised =
+    overlayPresentation && overlayDock.prompt !== null && !overlayDock.docked;
+  useEffect(() => {
+    if (overlayComposerRaised) focusComposerStable();
+  }, [focusComposerStable, overlayComposerRaised]);
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
   const onInterrupt = async () => {
@@ -8516,8 +8529,23 @@ export default function ChatView(props: ChatViewProps) {
               >
                 <div
                   data-chat-composer-stack="true"
-                  className="group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)"
+                  data-snap-shot-docked={(overlayPresentation && overlayDock.docked) || undefined}
+                  inert={overlayPresentation && overlayDock.docked}
+                  className={cn(
+                    "group/composer-stack pointer-events-auto relative z-10 mx-auto w-full max-w-(--chat-content-max-width)",
+                    overlayPresentation && SNAP_SHOT_DOCK_CLASS_NAME,
+                  )}
                 >
+                  {overlayPresentation ? (
+                    <SnapShotOverlayAbove
+                      dock={overlayDock}
+                      draftId={draftId}
+                      projectRef={activeProjectRef}
+                      projectTitle={activeProject?.title ?? null}
+                      threadRef={isServerThread ? activeThreadRef : null}
+                      cwd={gitCwd ?? undefined}
+                    />
+                  ) : null}
                   {isDraftHeroState ? (
                     <div className="absolute inset-x-0 bottom-full">
                       <div
@@ -8788,6 +8816,7 @@ export default function ChatView(props: ChatViewProps) {
                   </div>
                 </div>
               </div>
+              {overlayPresentation ? <SnapShotOverlayDockPill dock={overlayDock} /> : null}
             </div>
 
             {canOperatePreview && activeThreadRef && activeEnvironmentServerBrowser ? (

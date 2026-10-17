@@ -147,7 +147,7 @@ export function SnapShotOverlayStart() {
 
 /** Layers that close on Escape before the overlay does. */
 const OPEN_LAYER_SELECTOR =
-  '[data-composer-drawer-layer], [data-slot$="-popup"]:not([data-closed]), [role="dialog"]';
+  '[data-composer-drawer-layer], [data-slot$="-popup"]:not([data-closed]), [role="dialog"], [data-snap-shot-project-row]';
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
