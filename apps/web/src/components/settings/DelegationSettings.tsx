@@ -37,6 +37,9 @@ import {
   setCaller,
   setEntryEffort,
   setLarge,
+  offersFast,
+  runsFast,
+  setModelFast,
   setPreferOtherAuthorProvider,
   splitGroup,
   isUiOnly,
@@ -501,6 +504,21 @@ function JobRow({
                         onChange(setEntryEffort(manifest, group.list, entry.model, effort))
                       }
                     />
+                    {offersFast(binding, providers) ? (
+                      <label
+                        className="flex shrink-0 items-center gap-1.5 text-xs"
+                        title="Runs this model on the fast service tier in every job that lists it"
+                      >
+                        <Switch
+                          checked={runsFast(binding)}
+                          disabled={disabled}
+                          onCheckedChange={(fast) =>
+                            onChange(setModelFast(manifest, entry.model, fast))
+                          }
+                        />
+                        Fast
+                      </label>
+                    ) : null}
                     <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
                     <Button
                       size="icon-xs"

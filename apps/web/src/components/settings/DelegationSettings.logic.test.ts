@@ -7,10 +7,13 @@ import {
   ensureModel,
   isUiOnly,
   listModel,
+  offersFast,
   removeEntry,
   replaceEntry,
   roleGroups,
+  runsFast,
   setCaller,
+  setModelFast,
   splitGroup,
   unavailableReason,
 } from "./DelegationSettings.logic";
@@ -160,6 +163,43 @@ describe("delegation settings", () => {
     // A model already in the list is not listed twice.
     const sol = { ...model!, binding: manifest().models.sol! };
     expect(replaceEntry(manifest(), "advisor", "opus", sol, "high")).toEqual(manifest());
+  });
+
+  it("turns fast on and off for a model without leaving an empty options map", () => {
+    const fast = setModelFast(manifest(), "sol", true);
+    expect(fast.models["sol"]!.options).toEqual({ serviceTier: "fast" });
+    expect(runsFast(fast.models["sol"])).toBe(true);
+    expect(setModelFast(fast, "sol", false).models["sol"]).toEqual(manifest().models["sol"]);
+  });
+
+  it("offers fast only when the account's model has the fast tier", () => {
+    const tiered = provider({
+      driver: "codex",
+      models: [
+        {
+          slug: "gpt-sol",
+          name: "Sol",
+          isCustom: false,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "serviceTier",
+                label: "Service Tier",
+                type: "select",
+                options: [
+                  { id: "default", label: "Standard" },
+                  { id: "fast", label: "Fast" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const sol = manifest().models["sol"];
+    expect(offersFast(sol, [tiered])).toBe(true);
+    expect(offersFast(sol, [])).toBe(false);
+    expect(offersFast(manifest().models["opus"], [tiered])).toBe(false);
   });
 
   it("lists a large-task or per-agent choice the job did not list yet, last", () => {

@@ -217,6 +217,46 @@ export function setEntryEffort(manifest: Manifest, list: string, model: string, 
   );
 }
 
+/** The service tier that makes a model faster; a model that offers it can run fast by policy. */
+const FAST_OPTION = { id: "serviceTier", value: "fast" } as const;
+
+export function offersFast(
+  binding: Binding | undefined,
+  providers: ReadonlyArray<ServerProvider>,
+): boolean {
+  if (binding === undefined) return false;
+  return providers
+    .filter((provider) => provider.driver === binding.driverKind)
+    .flatMap((provider) => provider.models.filter((model) => model.slug === binding.model))
+    .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
+    .some(
+      (option) =>
+        option.id === FAST_OPTION.id &&
+        option.type === "select" &&
+        option.options.some((choice) => choice.id === FAST_OPTION.value),
+    );
+}
+
+export function runsFast(binding: Binding | undefined): boolean {
+  return binding?.options?.[FAST_OPTION.id] === FAST_OPTION.value;
+}
+
+/** Fast belongs to the model, so every job that lists it follows the switch. */
+export function setModelFast(manifest: Manifest, alias: string, fast: boolean): Manifest {
+  const binding = manifest.models[alias];
+  if (binding === undefined) return manifest;
+  const { [FAST_OPTION.id]: _, ...others } = binding.options ?? {};
+  const options = fast ? { ...others, [FAST_OPTION.id]: FAST_OPTION.value } : others;
+  const { options: __, ...rest } = binding;
+  return {
+    ...manifest,
+    models: {
+      ...manifest.models,
+      [alias]: Object.keys(options).length > 0 ? { ...rest, options } : rest,
+    },
+  };
+}
+
 export function addEntry(manifest: Manifest, list: string, entry: AgentListEntry) {
   return withList(manifest, list, [...(manifest.lists[list] ?? []), entry]);
 }
