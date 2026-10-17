@@ -5351,6 +5351,16 @@ it.layer(layerTest)("usage-limit recovery", (it) => {
               },
             },
           },
+          // Releasing or failing a prepared run ends its workspace preparation; this fails it directly.
+          ...projection.turnItems
+            .filter((item) => item.runId === run.id && item.type === "command_execution")
+            .map((item) => ({
+              id: EventId.make(`recovery:preparation:${scenario}:${item.id}`),
+              type: "turn-item.updated" as const,
+              threadId,
+              occurredAt: now,
+              payload: { ...item, status: "failed" as const, completedAt: now, updatedAt: now },
+            })),
         ],
       });
       if (scenario === "queued-resume") {

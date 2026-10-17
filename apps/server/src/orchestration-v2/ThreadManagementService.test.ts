@@ -5,6 +5,7 @@ import {
   MessageId,
   NodeId,
   type OrchestrationV2Command,
+  type OrchestrationV2PendingBackgroundTask,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
@@ -1319,10 +1320,13 @@ it.effect.each([
           getThreadEventSequence: () => Effect.succeed(0),
           restartContinuationPending: () => Effect.succeed(false),
           getThreadRecords: () =>
-            Effect.succeed({
-              thread: { id: threadId, projectId, deletedAt: null },
-              runs: [{ id: runId, status }],
-            } as unknown as OrchestrationV2ThreadProjection),
+            Effect.succeed(
+              settleAfterRunState({
+                projectId,
+                threadId,
+                runs: [settleAfterRunRun(runId, 1, status)],
+              }),
+            ),
           dispatch: (command) =>
             Effect.sync(() => {
               dispatched.push(command.type);
@@ -1342,3 +1346,124 @@ it.effect.each([
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
 );
+
+it.effect("settleAfterRun waits for the turn's background work and the turn it wakes", () =>
+  Effect.gen(function* () {
+    const projectId = ProjectId.make("project:thread-management:settle-after-work");
+    const threadId = ThreadId.make("thread:thread-management:settle-after-work");
+    const runId = RunId.make("run:thread-management:settle-after-work");
+    const wokenRunId = RunId.make("run:thread-management:settle-after-work:woken");
+    const dispatched: Array<string> = [];
+    const pending = [{ taskId: "b7", description: "Wait 240 seconds", kind: "command" as const }];
+    let state = settleAfterRunState({
+      projectId,
+      threadId,
+      runs: [settleAfterRunRun(runId, 1, "completed")],
+      pendingBackgroundTasks: pending,
+    });
+    const events = yield* Queue.unbounded<OrchestrationV2StoredEvent>();
+    const subscribed = yield* Deferred.make<void>();
+    const changed = (next: typeof state) =>
+      Effect.gen(function* () {
+        state = next;
+        yield* Queue.offer(events, {
+          sequence: 1,
+          event: { type: "provider-thread.updated" },
+        } as unknown as OrchestrationV2StoredEvent);
+      });
+    const layerTest = ThreadManagementService.layer.pipe(
+      Layer.provide(Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({})),
+      Layer.provide(
+        Layer.mock(Orchestrator.OrchestratorV2)({
+          getThreadEventSequence: () => Effect.succeed(0),
+          restartContinuationPending: () => Effect.succeed(false),
+          getThreadRecords: () => Effect.sync(() => state),
+          streamStoredEventsFrom: () =>
+            Stream.unwrap(
+              Deferred.succeed(subscribed, undefined).pipe(Effect.as(Stream.fromQueue(events))),
+            ),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              dispatched.push(command.type);
+              return { sequence: 1, storedEvents: [] } as never;
+            }),
+        }),
+      ),
+      Layer.provide(ServerSettings.layerTest()),
+      Layer.provide(layerReceiptsTest),
+    );
+    const service = yield* ThreadManagementService.ThreadManagementService.pipe(
+      Effect.provide(layerTest),
+    );
+
+    const settling = yield* service
+      .settleAfterRun({ projectId, threadId, runId })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(subscribed);
+    expect(dispatched).toEqual([]);
+
+    // The command finished and woke the agent: its new turn is still the thread's work.
+    yield* changed(
+      settleAfterRunState({
+        projectId,
+        threadId,
+        runs: [
+          settleAfterRunRun(runId, 1, "completed"),
+          settleAfterRunRun(wokenRunId, 2, "running"),
+        ],
+      }),
+    );
+    yield* changed(
+      settleAfterRunState({
+        projectId,
+        threadId,
+        runs: [
+          settleAfterRunRun(runId, 1, "completed"),
+          settleAfterRunRun(wokenRunId, 2, "completed"),
+        ],
+      }),
+    );
+    yield* Fiber.join(settling);
+    expect(dispatched).toEqual(["thread.settle"]);
+  }),
+);
+
+function settleAfterRunRun(id: RunId, ordinal: number, status: OrchestrationV2Run["status"]) {
+  const at = DateTime.makeUnsafe(`2026-10-17T09:0${ordinal}:00.000Z`);
+  return {
+    id,
+    ordinal,
+    status,
+    requestedAt: at,
+    startedAt: at,
+    completedAt: status === "running" ? null : at,
+  };
+}
+
+function settleAfterRunState(input: {
+  readonly projectId: ProjectId;
+  readonly threadId: ThreadId;
+  readonly runs: ReadonlyArray<ReturnType<typeof settleAfterRunRun>>;
+  readonly pendingBackgroundTasks?: ReadonlyArray<OrchestrationV2PendingBackgroundTask>;
+}) {
+  return {
+    thread: {
+      id: input.threadId,
+      projectId: input.projectId,
+      deletedAt: null,
+      archivedAt: null,
+      activeProviderThreadId: null,
+    },
+    runs: input.runs,
+    messages: [],
+    subagents: [],
+    turnItems: [],
+    runtimeRequests: [],
+    providerThreads: [
+      {
+        id: "provider-thread:settle-after-work",
+        pendingBackgroundTasks: input.pendingBackgroundTasks ?? [],
+      },
+    ],
+  } as unknown as OrchestrationV2ThreadProjection;
+}

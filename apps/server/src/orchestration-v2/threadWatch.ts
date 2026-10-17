@@ -122,6 +122,14 @@ const OUTCOME: Record<ThreadWatchDecision["kind"], OrchestrationV2Notification["
   finished: "completed",
 };
 
+const WORK_NAME_LENGTH = 200;
+
+/** A name the watched agent gave its work, shown as code so it cannot read as T3 Code's words. */
+function workName(name: string): string {
+  const line = name.replaceAll("`", "'").replaceAll(/\s+/g, " ").trim();
+  return `\`${line.length > WORK_NAME_LENGTH ? `${line.slice(0, WORK_NAME_LENGTH)}…` : line}\``;
+}
+
 function quote(text: string, threadId: string): string {
   const trimmed = text.trim();
   const cut = trimmed.length > QUOTE_LENGTH;
@@ -162,8 +170,14 @@ export function threadWatchWake(input: {
       }
       case "failed":
         return `Thread ${link} failed.${said("Its error:")}`;
-      case "stopped":
-        return `Thread ${link} was stopped before it finished.${said("Its last message, in that thread's own words:")}`;
+      case "stopped": {
+        const work = decision.resultRun.stoppedBackgroundWork ?? [];
+        const cut =
+          work.length === 0
+            ? ""
+            : ` Its background work was stopped with it: ${work.map(workName).join(", ")}.`;
+        return `Thread ${link} was stopped before it finished.${cut}${said("Its last message, in that thread's own words:")}`;
+      }
       case "finished":
         return `Thread ${link} has finished.${said("Its final message, in that thread's own words:")}`;
     }
