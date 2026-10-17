@@ -17,6 +17,7 @@ import {
 import { useNavigate } from "@tanstack/react-router";
 import {
   CalendarClockIcon,
+  ChevronRightIcon,
   InboxIcon,
   LinkIcon,
   LockIcon,
@@ -57,6 +58,7 @@ import { useRelativeTimeTick } from "../settings/settingsLayout";
 import { AgentRoleChip } from "../AgentRoleChip";
 import { ModelLabel } from "../ModelLabel";
 import { ProjectChip } from "../ProjectChip";
+import { TintChip } from "../TintChip";
 import { ROLE_DESCRIPTIONS } from "../settings/DelegationSettings.logic";
 import {
   WebhookDeliveriesDialog,
@@ -667,28 +669,38 @@ function TaskDetail(props: {
         />
       ) : null}
       <ChipRow label="On" locked={bound}>
-        {machines.map((machine) => (
-          <Toggle
-            key={machine.environmentId}
-            size="sm"
-            variant="outline"
-            disabled={bound}
-            pressed={draft.machines.includes(machine.environmentId)}
-            onPressedChange={(pressed) =>
-              update({
-                machines: pressed
-                  ? [...draft.machines, machine.environmentId]
-                  : draft.machines.filter((id) => id !== machine.environmentId),
-              })
-            }
-          >
-            <EnvironmentMachineIcon
-              kind={resolveEnvironmentMachineKind(machine.serverConfig)}
-              className="size-3.5"
+        {machines.map((machine) => {
+          const pressed = draft.machines.includes(machine.environmentId);
+          return (
+            <TintChip
+              key={machine.environmentId}
+              tint={{ color: "var(--primary)" }}
+              icon={
+                <EnvironmentMachineIcon
+                  kind={resolveEnvironmentMachineKind(machine.serverConfig)}
+                  className="size-3 shrink-0"
+                />
+              }
+              label={machine.label}
+              selected={pressed}
+              className="h-7 px-2 text-xs"
+              render={
+                <button
+                  type="button"
+                  aria-pressed={pressed}
+                  disabled={bound}
+                  onClick={() =>
+                    update({
+                      machines: pressed
+                        ? draft.machines.filter((id) => id !== machine.environmentId)
+                        : [...draft.machines, machine.environmentId],
+                    })
+                  }
+                />
+              }
             />
-            {machine.label}
-          </Toggle>
-        ))}
+          );
+        })}
       </ChipRow>
       <ChipRow label="In" locked={bound}>
         {projectChoices.map((choice) => {
@@ -840,74 +852,79 @@ function TaskDetail(props: {
       {group ? (
         <div className="flex flex-col gap-1.5">
           <Label>Runs</Label>
-          {group.members.map((member) => (
-            <div
-              key={`${member.environmentId}:${member.task.id}`}
-              className="flex flex-wrap items-center gap-2 text-xs"
-            >
-              <span className="font-medium">{machineLabel(member.environmentId)}</span>
-              <RunProjectLabel
-                choice={projectChoices.find(
-                  (choice) =>
-                    choice.key === projectKeyOf(member.environmentId, member.task.projectId),
+          {group.members.map((member) => {
+            const runThreadId = member.task.lastRunThreadId;
+            const summary = (
+              <>
+                <span className="font-medium">{machineLabel(member.environmentId)}</span>
+                <RunProjectLabel
+                  choice={projectChoices.find(
+                    (choice) =>
+                      choice.key === projectKeyOf(member.environmentId, member.task.projectId),
+                  )}
+                  fallback={member.task.projectId}
+                />
+                <FixedModelLabel
+                  environmentId={member.environmentId}
+                  selection={member.task.modelSelection}
+                />
+                {member.task.lastRunStatus === "never" ? (
+                  <span className="text-muted-foreground">not run yet</span>
+                ) : (
+                  <>
+                    <Badge variant={statusVariant(member.task.lastRunStatus)}>
+                      {member.task.lastRunStatus}
+                    </Badge>
+                    <span className="text-muted-foreground">
+                      {relativeLabel(member.task.lastRunAt)}
+                    </span>
+                  </>
                 )}
-                fallback={member.task.projectId}
-              />
-              <FixedModelLabel
-                environmentId={member.environmentId}
-                selection={member.task.modelSelection}
-              />
-              {member.task.lastRunStatus === "never" ? (
-                <span className="text-muted-foreground">not run yet</span>
-              ) : (
-                <>
-                  <Badge variant={statusVariant(member.task.lastRunStatus)}>
-                    {member.task.lastRunStatus}
-                  </Badge>
+                {member.task.enabled && member.task.nextRunAt ? (
                   <span className="text-muted-foreground">
-                    {relativeLabel(member.task.lastRunAt)}
+                    next {relativeLabel(member.task.nextRunAt)}
                   </span>
-                </>
-              )}
-              {member.task.enabled && member.task.nextRunAt ? (
-                <span className="text-muted-foreground">
-                  next {relativeLabel(member.task.nextRunAt)}
-                </span>
-              ) : null}
-              {member.task.lastRunThreadId ? (
-                <Button
-                  size="xs"
-                  variant="ghost-muted"
-                  onClick={() =>
-                    void navigate({
-                      to: "/$environmentId/$threadId",
-                      params: {
-                        environmentId: member.environmentId,
-                        threadId: member.task.lastRunThreadId as NonNullable<
-                          typeof member.task.lastRunThreadId
-                        >,
-                      },
-                    })
-                  }
-                >
-                  Open thread
-                </Button>
-              ) : null}
-              {member.task.schedule.type === "webhook" ? (
-                <Button
-                  size="xs"
-                  variant="ghost-muted"
-                  onClick={() => setDeliveriesFor(member.environmentId)}
-                >
-                  <InboxIcon />
-                  Deliveries
-                </Button>
-              ) : null}
-              {member.task.lastRunError ? (
-                <span className="w-full text-destructive">{member.task.lastRunError}</span>
-              ) : null}
-            </div>
-          ))}
+                ) : null}
+              </>
+            );
+            return (
+              <div
+                key={`${member.environmentId}:${member.task.id}`}
+                className="flex flex-wrap items-center gap-2 text-xs"
+              >
+                {runThreadId ? (
+                  <button
+                    type="button"
+                    className="-mx-1.5 flex cursor-pointer flex-wrap items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                    onClick={() =>
+                      void navigate({
+                        to: "/$environmentId/$threadId",
+                        params: { environmentId: member.environmentId, threadId: runThreadId },
+                      })
+                    }
+                  >
+                    {summary}
+                    <ChevronRightIcon aria-hidden className="size-3.5 text-muted-foreground" />
+                  </button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2 py-1">{summary}</div>
+                )}
+                {member.task.schedule.type === "webhook" ? (
+                  <Button
+                    size="xs"
+                    variant="ghost-muted"
+                    onClick={() => setDeliveriesFor(member.environmentId)}
+                  >
+                    <InboxIcon />
+                    Deliveries
+                  </Button>
+                ) : null}
+                {member.task.lastRunError ? (
+                  <span className="w-full text-destructive">{member.task.lastRunError}</span>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       ) : null}
       {group && deliveriesFor !== null
