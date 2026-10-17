@@ -14,6 +14,8 @@ import {
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
+  ProviderThreadId,
+  ProviderTurnId,
   RunId,
   RuntimeRequestId,
   ThreadId,
@@ -267,6 +269,102 @@ const seedRun = (
               },
             ]),
         ...(input.extra ?? []),
+      ],
+    });
+  });
+
+/** A Claude background command: the turn ended, and the provider still lists the command. */
+const seedBackgroundCommand = (worker: ThreadId) =>
+  Effect.gen(function* () {
+    const eventSink = yield* EventSink.EventSinkV2;
+    const providerThreadId = ProviderThreadId.make(`provider-thread:${worker}`);
+    const seeded = { ...run(worker, 1, "completed"), providerThreadId };
+    const scope = {
+      threadId: worker,
+      runId: seeded.id,
+      nodeId: rootNodeId,
+      providerInstanceId: modelSelection.instanceId,
+      occurredAt: now,
+    };
+    return yield* eventSink.write({
+      commandId: CommandId.make(`command:background-seed:${worker}`),
+      events: [
+        {
+          ...scope,
+          id: EventId.make(`event:background-seed:${worker}:provider-thread`),
+          type: "provider-thread.updated",
+          driver,
+          payload: {
+            id: providerThreadId,
+            driver,
+            providerInstanceId: modelSelection.instanceId,
+            providerSessionId: null,
+            appThreadId: worker,
+            ownerNodeId: null,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: 1,
+            lastRunOrdinal: 1,
+            handoffIds: [],
+            forkedFrom: null,
+            pendingBackgroundTasks: [
+              {
+                taskId: "b7mkuzve3",
+                description: "Wait 240 seconds in background",
+                kind: "command",
+              },
+            ],
+            contextUsage: null,
+            nativeMetadata: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          ...scope,
+          id: EventId.make(`event:background-seed:${worker}:node`),
+          type: "node.updated",
+          payload: {
+            id: rootNodeId,
+            threadId: worker,
+            runId: seeded.id,
+            parentNodeId: null,
+            rootNodeId,
+            kind: "root_turn",
+            status: "completed",
+            countsForRun: true,
+            providerThreadId,
+            providerTurnId: null,
+            nativeItemRef: null,
+            runtimeRequestId: null,
+            checkpointScopeId: null,
+            startedAt: now,
+            completedAt: now,
+          },
+        },
+        {
+          ...scope,
+          id: EventId.make(`event:background-seed:${worker}:provider-turn`),
+          type: "provider-turn.updated",
+          payload: {
+            id: ProviderTurnId.make(`provider-turn:${worker}`),
+            providerThreadId,
+            nodeId: rootNodeId,
+            runAttemptId: null,
+            nativeTurnRef: null,
+            ordinal: 1,
+            status: "completed",
+            startedAt: now,
+            completedAt: now,
+          },
+        },
+        {
+          ...scope,
+          id: EventId.make(`event:background-seed:${worker}:run`),
+          type: "run.updated",
+          payload: seeded,
+        },
       ],
     });
   });
@@ -703,6 +801,63 @@ it.layer(layerTest)("thread watches", (it) => {
       for (const ending of ["unwatch", "stop", "archive", "settle"]) {
         assert.lengthOf(yield* wakes(ThreadId.make(`thread:end-lead-${ending}`)), 0);
       }
+    }),
+  );
+
+  it.effect("settles over background work only for a person, and tells watchers it stopped", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const lead = yield* createThread("settle-stops-lead");
+      const worker = yield* createThread("settle-stops-worker", "Sleeper");
+      yield* watch(lead, worker);
+      yield* observe(yield* seedBackgroundCommand(worker));
+      assert.lengthOf(yield* wakes(lead), 0);
+
+      // An agent, or automatic settlement, is refused and told which work would stop.
+      const refused = yield* orchestrator
+        .dispatch({
+          type: "thread.settle",
+          commandId: CommandId.make("command:settle-stops-refused"),
+          threadId: worker,
+        })
+        .pipe(Effect.flip);
+      assert.include(String(refused.cause), "Wait 240 seconds in background");
+      assert.isNull((yield* orchestrator.getThreadShell(worker))?.settledAt ?? null);
+
+      // A person who confirmed it stops the work, and the stop is what the watcher hears.
+      const settled = yield* orchestrator.dispatch({
+        type: "thread.settle",
+        commandId: CommandId.make("command:settle-stops-confirmed"),
+        threadId: worker,
+        stopBackgroundWork: true,
+      });
+      yield* observe(settled.storedEvents);
+      const { runs } = yield* orchestrator.getThreadRecords(worker, ["runs"]);
+      assert.deepEqual(runs[0]?.stoppedBackgroundWork, ["Wait 240 seconds in background"]);
+      assert.isNotNull((yield* orchestrator.getThreadShell(worker))?.settledAt ?? null);
+      const [wake, ...rest] = yield* wakes(lead);
+      assert.lengthOf(rest, 0);
+      assert.equal(wake?.notification?.outcome, "cancelled");
+      assert.equal(wake?.notification?.summary, "Stopped: Sleeper");
+      assert.include(
+        wake?.text ?? "",
+        "Its background work was stopped with it: `Wait 240 seconds in background`.",
+      );
+    }),
+  );
+
+  it.effect("records the stop when archiving cuts a thread's background work short", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* createThread("archive-stops-worker");
+      yield* seedBackgroundCommand(worker);
+      yield* orchestrator.dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make("command:archive-stops"),
+        threadId: worker,
+      });
+      const { runs } = yield* orchestrator.getThreadRecords(worker, ["runs"]);
+      assert.deepEqual(runs[0]?.stoppedBackgroundWork, ["Wait 240 seconds in background"]);
     }),
   );
 

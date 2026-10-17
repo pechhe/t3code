@@ -16,6 +16,7 @@ import {
   restartCancelledBackgroundWorkNote,
   restartContinuationNote,
   mergeRestartCancelledBackgroundWork,
+  runOutcome,
 } from "./RestartBackgroundNote.ts";
 
 const claudeThread = ProviderThreadId.make("provider-thread:claude");
@@ -42,6 +43,20 @@ const turnFor = (source: OrchestrationV2Run) => ({
   runAttemptId: source.activeAttemptId,
   providerThreadId: source.providerThreadId!,
   status: "completed" as const,
+});
+
+it("counts a completed run whose background work a Stop cut short as interrupted", () => {
+  assert.equal(runOutcome(run(1, claudeThread, { status: "completed" })), "completed");
+  assert.equal(
+    runOutcome(
+      run(1, claudeThread, { status: "completed", stoppedBackgroundWork: ["Wait 240 seconds"] }),
+    ),
+    "interrupted",
+  );
+  assert.equal(
+    runOutcome(run(1, claudeThread, { status: "failed", stoppedBackgroundWork: ["vp dev"] })),
+    "failed",
+  );
 });
 
 it("keeps the note for the provider thread that lost the work across a provider switch", () => {

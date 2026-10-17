@@ -2,6 +2,10 @@ import type { ThreadMoveDestination } from "../threads/threadOrder";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import { canSnooze, effectiveSnoozed } from "@t3tools/client-runtime/state/thread-settled";
 import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import {
+  backgroundWorkName,
+  ownBackgroundWork,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Cause from "effect/Cause";
 import * as Haptics from "expo-haptics";
 import { useCallback, useRef } from "react";
@@ -126,7 +130,11 @@ function useThreadActionExecutor(
   const inFlightThreadKeys = useRef(new Set<string>());
 
   const executeAction = useCallback(
-    async (action: ThreadListAction, thread: EnvironmentThreadShell) => {
+    async (
+      action: ThreadListAction,
+      thread: EnvironmentThreadShell,
+      options: { readonly stopBackgroundWork?: true } = {},
+    ) => {
       if (!checkThreadOperationPermission(thread, actionFailureTitle(action))) return false;
       const key = scopedThreadKey(thread.environmentId, thread.id);
       if (inFlightThreadKeys.current.has(key)) {
@@ -173,7 +181,7 @@ function useThreadActionExecutor(
                         : deleteMutation
                 )({
                   environmentId: thread.environmentId,
-                  input: { threadId: thread.id },
+                  input: { threadId: thread.id, ...options },
                 }),
           (result) => result._tag === "Success",
         );
@@ -266,7 +274,27 @@ export function useThreadListActions(): {
     [executeAction],
   );
   const settleThread = useCallback(
-    async (thread: EnvironmentThreadShell) => (await executeAction("settle", thread)) === true,
+    async (thread: EnvironmentThreadShell) => {
+      // Settling ends the provider session, so the person is told which work stops with it.
+      const work = ownBackgroundWork(thread.pendingBackgroundTasks ?? []);
+      if (work.length === 0) return (await executeAction("settle", thread)) === true;
+      const confirmed = await new Promise<boolean>((resolve) => {
+        Dialog.confirm({
+          title: "Settle thread?",
+          message: [
+            `Settling “${thread.title}” stops its background work:`,
+            ...work.map((task) => `• ${backgroundWorkName(task)}`),
+          ].join("\n"),
+          confirmText: "Settle",
+          destructive: true,
+          onConfirm: () => resolve(true),
+          onCancel: () => resolve(false),
+        });
+      });
+      return (
+        confirmed && (await executeAction("settle", thread, { stopBackgroundWork: true })) === true
+      );
+    },
     [executeAction],
   );
   const snoozeThread = useCallback(

@@ -1,4 +1,5 @@
 import type {
+  OrchestrationV2DomainEvent,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
 } from "@t3tools/contracts";
@@ -38,6 +39,7 @@ import {
   type TurnItemId,
 } from "@t3tools/contracts";
 import { threadTranscriptHeader } from "@t3tools/shared/threadTranscript";
+import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
@@ -56,6 +58,11 @@ import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 import { DispatchModeLimit, exceededDispatchModeLimit } from "./DispatchModeLimit.ts";
 import { projectTurnItemForDetail } from "./WireProjection.ts";
+import {
+  decideThreadWatch,
+  type ThreadWatchDecision,
+  watchedThreadRecords,
+} from "./threadWatch.ts";
 import * as LegacyV1ThreadImporter from "./legacy/LegacyV1ThreadImporter.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -404,9 +411,10 @@ export interface ThreadManagementServiceShape {
   ) => Effect.Effect<ThreadManagementWaitResult, ThreadManagementError>;
   /**
    * Settling stops the provider session, so an agent that settles its own
-   * thread uses this to wait for its turn to end. A run that ends any other
-   * way leaves the thread active, as does anything `thread.settle` refuses
-   * then, such as a queued message.
+   * thread uses this to wait for its turn to end, and then for the thread to
+   * finish: the background work it left running and the turn that work wakes.
+   * A thread that ends any other way stays active, as does anything
+   * `thread.settle` refuses then, such as a queued message.
    */
   readonly settleAfterRun: (input: {
     readonly projectId: ProjectId;
@@ -512,6 +520,23 @@ function latestSteerableRun(
 }
 
 const SETTLE_AFTER_RUN_WAIT_MS = 24 * 60 * 60 * 1_000;
+
+/** The events after which a thread's work may have ended. Streamed text cannot end it. */
+function canEndThreadWork(event: OrchestrationV2DomainEvent): boolean {
+  switch (event.type) {
+    case "run.updated":
+    case "provider-thread.updated":
+    case "subagent.updated":
+    case "runtime-request.updated":
+    case "thread.archived":
+    case "thread.deleted":
+      return true;
+    case "turn-item.updated":
+      return turnItemUpdateCanEndBackgroundWork(event.payload);
+    default:
+      return false;
+  }
+}
 
 const make = Effect.gen(function* () {
   const threadDispatch = yield* ThreadCommandExecutor.ThreadCommandExecutor;
@@ -1036,6 +1061,34 @@ const make = Effect.gen(function* () {
   )(function* (input) {
     const { run } = yield* waitForThread({ ...input, timeoutMs: SETTLE_AFTER_RUN_WAIT_MS });
     if (run?.status !== "completed") return;
+    // Settling stops the background work the turn left running, so the thread waits for that
+    // work and the turn it wakes to end too: the finished rule its watchers use.
+    const afterSequence = yield* orchestrator.getThreadEventSequence(input.threadId);
+    const outcome = orchestrator
+      .getThreadRecords(input.threadId, watchedThreadRecords.fields, watchedThreadRecords.filter)
+      .pipe(
+        // Settling ends the thread's own pull request watches; they do not hold it open.
+        Effect.map((state) =>
+          decideThreadWatch({ ...state, thread: { ...state.thread, pullRequests: [] } }),
+        ),
+      );
+    const settles = (decision: ThreadWatchDecision | undefined) =>
+      decision !== undefined && decision.kind !== "needs-input";
+    const initial = yield* outcome;
+    const decided = settles(initial)
+      ? Option.some(initial)
+      : Option.flatten(
+          yield* orchestrator
+            .streamStoredEventsFrom({ threadId: input.threadId, afterSequence })
+            .pipe(
+              Stream.filter(({ event }) => canEndThreadWork(event)),
+              Stream.mapEffect(() => outcome),
+              Stream.filter(settles),
+              Stream.runHead,
+              Effect.timeoutOption(Duration.millis(SETTLE_AFTER_RUN_WAIT_MS)),
+            ),
+        );
+    if (Option.isNone(decided) || decided.value?.kind !== "finished") return;
     yield* dispatch({
       type: "thread.settle",
       commandId: CommandId.make(`server:settle-after-run:${input.runId}`),

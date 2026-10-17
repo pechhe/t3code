@@ -17,6 +17,10 @@ import {
   ThreadId,
   sessionGrantsScope,
 } from "@t3tools/contracts";
+import {
+  backgroundWorkName,
+  ownBackgroundWork,
+} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { resolveWorktreeCleanup } from "@t3tools/shared/projectSettings";
 import * as Cause from "effect/Cause";
 import * as Schema from "effect/Schema";
@@ -200,6 +204,18 @@ export async function requestThreadUnpinConfirmation(input: {
       ].join("\n"),
     ),
   );
+}
+
+/** Settling ends the provider session, so the person is told which of the thread's work stops. */
+export function threadSettleStopsWorkMessage(input: {
+  readonly title: string;
+  readonly work: ReadonlyArray<string>;
+}): string {
+  return [
+    `Settle thread "${input.title}"?`,
+    "Its background work will stop:",
+    ...input.work.map((name) => `• ${name}`),
+  ].join("\n");
 }
 
 export async function navigateAfterThreadDeletion(navigate: () => Promise<void>) {
@@ -796,6 +812,23 @@ export function useThreadActions() {
         );
       }
       const resolved = resolveThreadTarget(target);
+      const backgroundWork = ownBackgroundWork(resolved?.thread.pendingBackgroundTasks ?? []);
+      const localApi = readLocalApi();
+      let stopBackgroundWork = false;
+      if (backgroundWork.length > 0 && localApi) {
+        const confirmation = await settlePromise(() =>
+          localApi.dialogs.confirm(
+            threadSettleStopsWorkMessage({
+              title: resolved?.thread.title ?? "this thread",
+              work: backgroundWork.map(backgroundWorkName),
+            }),
+            { variant: "destructive" },
+          ),
+        );
+        if (confirmation._tag === "Failure") return confirmation;
+        if (!confirmation.value) return AsyncResult.failure(Cause.interrupt());
+        stopBackgroundWork = true;
+      }
       const wokeAt = resolved
         ? threadWokeAt(resolved.thread, { now: new Date().toISOString() })
         : null;
@@ -811,7 +844,7 @@ export function useThreadActions() {
       const action = ThreadUndo.begin("settle", scopedThreadKey(target));
       const result = await settleThreadMutation({
         environmentId: target.environmentId,
-        input: { threadId: target.threadId },
+        input: { threadId: target.threadId, ...(stopBackgroundWork ? { stopBackgroundWork } : {}) },
       });
       if (result._tag !== "Success") {
         action.finish();

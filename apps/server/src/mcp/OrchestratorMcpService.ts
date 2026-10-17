@@ -390,7 +390,12 @@ function invalidOptionSelections(
 }
 
 function taskStatusForRun(
-  run: Pick<OrchestrationV2Run, "status" | "restartCancelledBackgroundWork"> | undefined,
+  run:
+    | Pick<
+        OrchestrationV2Run,
+        "status" | "restartCancelledBackgroundWork" | "stoppedBackgroundWork"
+      >
+    | undefined,
 ): OrchestratorMcpDelegateTaskResult["status"] {
   switch (run === undefined ? undefined : runOutcome(run)) {
     case "queued":

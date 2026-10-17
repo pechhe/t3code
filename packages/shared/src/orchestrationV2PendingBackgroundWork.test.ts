@@ -3,8 +3,39 @@ import type { OrchestrationV2PendingBackgroundTask } from "@t3tools/contracts";
 import {
   backgroundWorkHoldsCompletion,
   derivePendingBackgroundWork,
+  ownBackgroundWork,
   turnItemUpdateCanEndBackgroundWork,
 } from "./orchestrationV2PendingBackgroundWork.ts";
+
+describe("ownBackgroundWork", () => {
+  it("leaves out the thread's watches, which settling ends rather than stops", () => {
+    const tasks = derivePendingBackgroundWork({
+      latestRun: { id: "run-1" as never, ordinal: 1, status: "completed" },
+      providerThreads: [
+        {
+          id: "pt-1" as never,
+          pendingBackgroundTasks: [{ taskId: "b7", description: "vp dev", kind: "command" }],
+        },
+      ],
+      turnItems: [],
+      threadWatches: [{ id: "thread-watch:1" as never, title: "Worker" }],
+      pullRequests: [
+        {
+          host: "github.com",
+          repository: "pechhe/t3code",
+          number: 97,
+          url: "https://github.com/pechhe/t3code/pull/97",
+          source: "agent",
+          watch: { startedAt: "2026-10-17T09:00:00.000Z" },
+        } as never,
+      ],
+    });
+    expect(tasks).toHaveLength(3);
+    expect(ownBackgroundWork(tasks)).toEqual([
+      { taskId: "b7", description: "vp dev", kind: "command" },
+    ]);
+  });
+});
 
 describe("turnItemUpdateCanEndBackgroundWork", () => {
   it.each([

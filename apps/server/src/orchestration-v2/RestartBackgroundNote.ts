@@ -123,11 +123,16 @@ export function isAwaitedWork(work: Pick<Work, "kind">): boolean {
   return work.kind !== "shell";
 }
 
+/** A run whose background work a restart or a Stop cut short did not finish, whatever its turn did. */
 export function runOutcome(
-  run: Pick<OrchestrationV2Run, "status" | "restartCancelledBackgroundWork">,
+  run: Pick<
+    OrchestrationV2Run,
+    "status" | "restartCancelledBackgroundWork" | "stoppedBackgroundWork"
+  >,
 ): OrchestrationV2Run["status"] {
   return (run.status === "completed" || run.status === "cancelled") &&
-    (run.restartCancelledBackgroundWork ?? []).some(isAwaitedWork)
+    ((run.restartCancelledBackgroundWork ?? []).some(isAwaitedWork) ||
+      (run.stoppedBackgroundWork?.length ?? 0) > 0)
     ? "interrupted"
     : run.status;
 }
