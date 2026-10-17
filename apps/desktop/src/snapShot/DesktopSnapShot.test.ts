@@ -438,7 +438,6 @@ vi.mock("electron", () => {
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
-import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopSnapShot from "./DesktopSnapShot.ts";
 import * as SnapShotAccessibility from "./SnapShotAccessibility.ts";
@@ -537,7 +536,6 @@ const layerTest = (
             ...desktopWindowOverrides,
           } as unknown as DesktopWindow.DesktopWindow["Service"]),
         ),
-        Layer.mock(ElectronWindow.ElectronWindow)({ markAuxiliary: () => Effect.void }),
         FileSystem.layerNoop(fileSystemOverrides),
         Path.layer,
         Layer.succeed(
@@ -1024,7 +1022,7 @@ it.effect("shows the SnapShot overlay after the capture instead of raising the m
   );
 });
 
-it.effect("shows the SnapShot overlay as the capture's flight starts", () => {
+it.effect("flashes the captured window and shows the SnapShot overlay without a flight", () => {
   registerShortcutMock.mockReset().mockReturnValue(true);
   mediaAccessStatusMock.mockReturnValue("granted");
   animationSettingsMock.mockReturnValue({
@@ -1035,7 +1033,7 @@ it.effect("shows the SnapShot overlay as the capture's flight starts", () => {
   const bounds = { x: 10, y: 20, width: 800, height: 600 };
   const overlayBounds = { x: 100, y: 80, width: 680, height: 480 };
   const order: string[] = [];
-  const started: string[] = [];
+  const events: string[] = [];
   activeWindowMock.mockReset().mockResolvedValue({
     id: 7,
     title: "Safari",
@@ -1053,7 +1051,7 @@ it.effect("shows the SnapShot overlay as the capture's flight starts", () => {
       const service = yield* DesktopSnapShot.make;
       yield* service.configure(
         enabledSettings({
-          snapShotFlash: false,
+          snapShotFlash: true,
           snapShotShortcut: {
             key: "2",
             ctrlKey: true,
@@ -1066,18 +1064,12 @@ it.effect("shows the SnapShot overlay as the capture's flight starts", () => {
       );
       yield* Effect.promise(registerShortcutMock.mock.calls.at(-1)![1] as () => Promise<void>);
 
-      // The composer waits to rise with the capture flying towards it.
-      assert.deepEqual(order, ["prepare", "place", "capture"]);
-      assert.lengthOf(started, 1);
-      yield* service.setAnimationDestination(started[0]!, {
-        frame: { x: 600, y: 400, width: 208, height: 112 },
-        backgroundColor: "#fff",
-        borderColor: "#ccc",
-        borderWidth: 1,
-        cornerRadius: 8,
-        scaleFactor: 1,
-      });
-      yield* Effect.promise(() => vi.waitFor(() => assert.include(order, "show")));
+      assert.deepEqual(order, ["prepare", "place", "capture", "show"]);
+      const flashes = flashWindows.filter((window) => window.showCount > 0);
+      assert.lengthOf(flashes, 1);
+      assert.strictEqual(flashes[0]?.kind, "base");
+      assert.deepEqual(flashes[0]?.bounds, bounds);
+      assert.notInclude(events, "started");
     }),
   ).pipe(
     Effect.provide(
@@ -1106,14 +1098,13 @@ it.effect("shows the SnapShot overlay as the capture's flight starts", () => {
           }),
           dispatchSnapShotEvent: (event) =>
             Effect.sync(() => {
-              if (event.type === "started") started.push(event.id);
+              events.push(event.type);
             }),
         },
       ),
     ),
   );
 });
-
 it.effect.each(["win32", "darwin", "linux"] as const)(
   "captures the foreground window in place from the shortcut on %s",
   (platform) => {
@@ -2538,100 +2529,6 @@ it("keeps flying on the destination display when the capture display fails", asy
   }
 });
 
-it("gives the next capture a fresh surface, made before the used one closes", async () => {
-  flashWindows.length = 0;
-  let used: (typeof flashWindows)[number] | undefined;
-  const usedOpenAsReplaced: Array<boolean> = [];
-  const created: Array<Electron.BrowserWindow> = [];
-  const transition = new SnapShotTransition({
-    boundOverlayToCaptureDisplays: true,
-    onWindowCreated: (window) => {
-      created.push(window);
-      if (used) usedOpenAsReplaced.push(!used.destroyed);
-    },
-  });
-  const source = { x: 100, y: 50, width: 900, height: 600 };
-
-  try {
-    transition.warm();
-    assert.lengthOf(flashWindows, 2);
-    await transition.begin("capture-1", source, "data:image/png;base64,", true, source);
-    used = flashWindows.find((window) => window.showCount > 0);
-    transition.dispose();
-
-    assert.isTrue(used?.destroyed);
-    assert.deepEqual(usedOpenAsReplaced, [true]);
-
-    await transition.begin("capture-2", source, "data:image/png;base64,", true, source);
-    // A surface that was shown is never shown again: once hidden, its page stops painting.
-    const shown = flashWindows.filter((window) => window.showCount > 0);
-    assert.lengthOf(shown, 2);
-    assert.isTrue(shown.every((window) => window.showCount === 1));
-    // Each surface is reported, so the app can keep it apart from its own windows.
-    assert.lengthOf(created, 3);
-  } finally {
-    transition.cool();
-  }
-  assert.isTrue(flashWindows.every((window) => window.destroyed));
-});
-
-it("frees the capture when its surface stops answering", async () => {
-  flashWindows.length = 0;
-  transitionSnapshotMock.mockImplementationOnce(() => new Promise<void>(() => undefined));
-  const transition = new SnapShotTransition({ boundOverlayToCaptureDisplays: true });
-  const source = { x: 100, y: 50, width: 900, height: 600 };
-
-  try {
-    const begun = transition.begin("capture-1", source, "data:image/png;base64,", true, source);
-    await vi.waitFor(() =>
-      assert.isTrue(
-        flashWindows.some((window) =>
-          window.scripts.some((script) => script.startsWith("window.setCaptureSnapshot")),
-        ),
-      ),
-    );
-    // As the transition's timeout does.
-    transition.dismiss("capture-1");
-
-    await begun;
-    assert.isTrue(flashWindows.every((window) => window.destroyed));
-  } finally {
-    transition.cool();
-  }
-});
-
-it("settles the wait for a capture's flight as the flight starts", async () => {
-  flashWindows.length = 0;
-  const transition = new SnapShotTransition({ boundOverlayToCaptureDisplays: true });
-  const source = { x: 100, y: 50, width: 900, height: 600 };
-
-  try {
-    await transition.begin("capture-1", source, "data:image/png;base64,", false, source);
-    let started = false;
-    const flight = transition.waitForFlight("capture-1").then(() => {
-      started = true;
-    });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    assert.isFalse(started);
-
-    transition.animateTo("capture-1", {
-      frame: { x: 600, y: 400, width: 208, height: 112 },
-      backgroundColor: "#fff",
-      borderColor: "#ccc",
-      borderWidth: 1,
-      cornerRadius: 8,
-      scaleFactor: 1,
-    });
-    await flight;
-
-    assert.isTrue(
-      flashWindows.some((window) => window.scripts.includes("window.playCaptureTransition()")),
-    );
-  } finally {
-    transition.dispose();
-  }
-});
-
 it("keeps same-display motion inside one stable surface", async () => {
   flashWindows.length = 0;
   const transition = new SnapShotTransition({
@@ -3302,7 +3199,7 @@ it("uses native opacity for a short-lived flash", async () => {
     assert.deepEqual(flashWindows[0]?.bounds, bounds);
     assert.strictEqual(flashWindows[0]?.showCount, 1);
     assert.lengthOf(flashWindows[0]?.scripts ?? [], 0);
-    await vi.advanceTimersByTimeAsync(180);
+    await vi.advanceTimersByTimeAsync(360);
     assert.isTrue(flashWindows[0]?.destroyed);
     assert.isAbove(flashWindows[0]?.opacities.length ?? 0, 1);
     assert.strictEqual(vi.getTimerCount(), 0);

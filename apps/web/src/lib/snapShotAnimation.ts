@@ -111,11 +111,6 @@ export function setSnapShotAnimationDestination(
   if (typeof bridge?.setSnapShotAnimationDestination !== "function") return;
   const frame = target.getBoundingClientRect();
   if (frame.width <= 0 || frame.height <= 0) return;
-  // The SnapShot overlay's composer may still be sliding in; aim for where it comes to rest.
-  const slide = target.closest<HTMLElement>("[data-snap-shot-overlay-slide]");
-  const slideOffsetY = slide
-    ? new DOMMatrixReadOnly(window.getComputedStyle(slide).transform).m42
-    : 0;
   const style = window.getComputedStyle(target);
   const cornerRadius = Number.parseFloat(style.borderTopLeftRadius);
   const borderWidth = Number.parseFloat(style.borderTopWidth);
@@ -124,7 +119,7 @@ export function setSnapShotAnimationDestination(
       id,
       viewportFrame: {
         x: frame.x,
-        y: frame.y - slideOffsetY,
+        y: frame.y,
         width: frame.width,
         height: frame.height,
       },

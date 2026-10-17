@@ -38,7 +38,6 @@ import * as Electron from "electron";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
-import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import { supportsSnapShotOverlay } from "../window/SnapShotOverlayWindow.ts";
 import { startGlobalShiftShortcutProcess } from "./GlobalShiftShortcutProcess.ts";
@@ -102,10 +101,12 @@ const MAX_CAPTURE_HEIGHT = 1_600;
 const SHORTCUT_COOLDOWN_NS = 200_000_000n;
 const WAYLAND_MODIFIER_PAIR_UNAVAILABLE_MESSAGE =
   "Modifier-pair shortcuts aren't available in this Wayland session. Choose another shortcut or use Take snapshot from the command palette.";
-const FLASH_ANIMATION_DURATION_MS = 180;
+const FLASH_ANIMATION_DURATION_MS = 360;
 const FLASH_STATIC_DURATION_MS = 60;
 const FLASH_FRAME_INTERVAL_MS = 16;
-const FLASH_PEAK_OPACITY = 0.08;
+const FLASH_ANIMATED_PEAK_OPACITY = 0.7;
+// Without motion the flash is a brief tint rather than a bright blink.
+const FLASH_STATIC_OPACITY = 0.08;
 const MAC_SCREEN_CAPTURE_SETTINGS_URL = MAC_PERMISSION_SETTINGS_URLS["screen-recording"];
 const MAC_SCREEN_CAPTURE_PERMISSION_MESSAGE =
   "Allow Screen Recording in System Settings, then restart T3 Code.";
@@ -412,7 +413,7 @@ async function captureSource({
   regionSnapShotPool,
   prepareReveal,
   onLinuxFeedback,
-  overlayBounds,
+  overlay,
 }: {
   mode: DesktopSnapShotState["mode"];
   captureId: string;
@@ -429,8 +430,8 @@ async function captureSource({
   regionSnapShotPool: RegionSnapShotPool;
   prepareReveal: () => Promise<void>;
   onLinuxFeedback: (feedback: LinuxCaptureFeedback) => void;
-  /** Where the SnapShot overlay will show, when captures open there. */
-  overlayBounds: Electron.Rectangle | undefined;
+  /** Whether the capture opens in the SnapShot overlay. */
+  overlay: boolean;
 }) {
   let active: ActiveWindow | undefined;
   let linuxWindow: LinuxWindowMetadata | undefined;
@@ -438,15 +439,11 @@ async function captureSource({
   let linuxActivationFailure: { readonly cause: unknown } | undefined;
   const destinationWindow =
     Electron.BrowserWindow.getFocusedWindow() ??
-    Electron.BrowserWindow.getAllWindows().find(
-      (window) => !window.isDestroyed() && !transition.owns(window),
-    );
-  const destinationWindowBounds = overlayBounds ?? destinationWindow?.getBounds();
+    Electron.BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
+  const destinationWindowBounds = destinationWindow?.getBounds();
   {
     const revealPreparation =
-      platform === "win32" && !overlayBounds
-        ? prepareReveal().catch(() => undefined)
-        : Promise.resolve();
+      platform === "win32" && !overlay ? prepareReveal().catch(() => undefined) : Promise.resolve();
     const captureStartedAt = performance.now();
     if (mode === "direct" && platform !== "darwin") {
       active = await activeWindow(platform);
@@ -512,6 +509,9 @@ async function captureSource({
       }
     }
     const captureMs = performance.now() - captureStartedAt;
+    // The overlay's composer shows the capture itself, so the flash is its only cue, played as
+    // soon as the pixels are read.
+    if (overlay) void playCaptureFlash(flash, settings, snapShotFlashBounds(active, platform));
     const accessibleIdentity = active
       ? { ...active, bounds: snapShotFlashBounds(active, platform) }
       : linuxWindow?.processId
@@ -548,17 +548,18 @@ async function captureSource({
       });
     }
     const animationStarted =
-      linuxFeedback?.animationStarted ??
-      (await showCaptureFeedback(
-        transition,
-        flash,
-        captureId,
-        `data:image/png;base64,${png.toString("base64")}`,
-        settings,
-        active,
-        platform,
-        destinationWindowBounds,
-      ));
+      !overlay &&
+      (linuxFeedback?.animationStarted ??
+        (await showCaptureFeedback(
+          transition,
+          flash,
+          captureId,
+          `data:image/png;base64,${png.toString("base64")}`,
+          settings,
+          active,
+          platform,
+          destinationWindowBounds,
+        )));
     return {
       timings: { captureMs, feedbackMs: performance.now() - feedbackStartedAt },
       source,
@@ -573,7 +574,10 @@ async function captureSource({
   }
 }
 
-function createSnapShotFlashWindow(bounds: Electron.Rectangle): Electron.BaseWindow {
+function createSnapShotFlashWindow(
+  bounds: Electron.Rectangle,
+  opacity: number,
+): Electron.BaseWindow {
   const window = new Electron.BaseWindow({
     ...bounds,
     alwaysOnTop: true,
@@ -584,7 +588,7 @@ function createSnapShotFlashWindow(bounds: Electron.Rectangle): Electron.BaseWin
     show: false,
     skipTaskbar: true,
     backgroundColor: "#ffffff",
-    opacity: FLASH_PEAK_OPACITY,
+    opacity,
     transparent: false,
   });
   window.setIgnoreMouseEvents(true);
@@ -604,11 +608,11 @@ export class SnapShotFlash {
   }
 
   showAnimated(bounds: Electron.Rectangle): Promise<void> {
-    return this.show(bounds, true, FLASH_ANIMATION_DURATION_MS);
+    return this.show(bounds, FLASH_ANIMATED_PEAK_OPACITY, true, FLASH_ANIMATION_DURATION_MS);
   }
 
   showStatic(bounds: Electron.Rectangle): Promise<void> {
-    return this.show(bounds, false, FLASH_STATIC_DURATION_MS);
+    return this.show(bounds, FLASH_STATIC_OPACITY, false, FLASH_STATIC_DURATION_MS);
   }
 
   dispose(): void {
@@ -622,22 +626,20 @@ export class SnapShotFlash {
 
   private async show(
     bounds: Electron.Rectangle,
+    peakOpacity: number,
     animated: boolean,
     durationMs: number,
   ): Promise<void> {
     this.dispose();
-    const window = createSnapShotFlashWindow(bounds);
+    const window = createSnapShotFlashWindow(bounds, peakOpacity);
     this.flashWindow = window;
     if (window.isDestroyed()) return;
     this.showWindow(window);
     if (animated) {
-      let opacity = FLASH_PEAK_OPACITY;
+      let opacity = peakOpacity;
       this.animationTimer = setInterval(() => {
         if (window.isDestroyed()) return this.dispose();
-        opacity = Math.max(
-          0,
-          opacity - (FLASH_PEAK_OPACITY * FLASH_FRAME_INTERVAL_MS) / durationMs,
-        );
+        opacity = Math.max(0, opacity - (peakOpacity * FLASH_FRAME_INTERVAL_MS) / durationMs);
         window.setOpacity(opacity);
       }, FLASH_FRAME_INTERVAL_MS);
     }
@@ -670,10 +672,7 @@ async function showCaptureFeedback(
   // Wayland does not let this client position overlays on another app's window.
   if (platform === "linux") return false;
   const bounds = snapShotFlashBounds(active, platform);
-  const animationsEnabled =
-    settings.snapShotAnimations &&
-    shouldAnimateSnapShot(Electron.systemPreferences.getAnimationSettings());
-  if (animationsEnabled) {
+  if (snapShotAnimationsEnabled(settings)) {
     try {
       await transition.begin(
         captureId,
@@ -687,10 +686,27 @@ async function showCaptureFeedback(
       transition.dispose();
     }
   }
-  if (!settings.snapShotFlash) return false;
-  const playback = animationsEnabled ? flash.showAnimated(bounds) : flash.showStatic(bounds);
-  await playback.catch(() => undefined);
+  await playCaptureFlash(flash, settings, bounds);
   return false;
+}
+
+function playCaptureFlash(
+  flash: SnapShotFlash,
+  settings: ClientSettings,
+  bounds: Electron.Rectangle,
+): Promise<void> {
+  if (!settings.snapShotFlash) return Promise.resolve();
+  const playback = snapShotAnimationsEnabled(settings)
+    ? flash.showAnimated(bounds)
+    : flash.showStatic(bounds);
+  return playback.catch(() => undefined);
+}
+
+function snapShotAnimationsEnabled(settings: ClientSettings): boolean {
+  return (
+    settings.snapShotAnimations &&
+    shouldAnimateSnapShot(Electron.systemPreferences.getAnimationSettings())
+  );
 }
 
 function observedPairMessage(
@@ -729,7 +745,6 @@ export const make = Effect.gen(function* () {
   const permissions = yield* MacPermissions.MacPermissions;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
-  const electronWindow = yield* ElectronWindow.ElectronWindow;
   const overlayEnabled = (settings: ClientSettings) =>
     settings.snapShotEnabled && supportsSnapShotOverlay(environment.platform);
   const fileSystem = yield* FileSystem.FileSystem;
@@ -809,7 +824,6 @@ export const make = Effect.gen(function* () {
     // Transparent Windows surfaces must not resize while their compositor animation is running.
     boundOverlayToCaptureDisplays: environment.platform !== "linux",
     alwaysOnTopLevel: environment.platform === "linux" ? undefined : "pop-up-menu",
-    onWindowCreated: (window) => Effect.runSync(electronWindow.markAuxiliary(window)),
   });
   let linuxFeedback: { id: string; feedback: LinuxCaptureFeedback } | undefined;
   const closeLinuxFeedback = (id?: string) => {
@@ -920,7 +934,7 @@ export const make = Effect.gen(function* () {
             onLinuxFeedback: (feedback) => {
               linuxFeedback = { id, feedback };
             },
-            overlayBounds: Option.getOrUndefined(overlayBounds),
+            overlay: Option.isSome(overlayBounds),
           }),
         catch: (cause) => captureFailure(cause, id),
       });
@@ -935,15 +949,9 @@ export const make = Effect.gen(function* () {
           snapshot.linuxActivationFailure.cause,
         );
       }
-      // The overlay shows once the pixels are read, so it is never in the capture. With the
-      // capture flying in, it shows as the flight starts, so its composer rises to meet it.
+      // The overlay shows once the pixels are read, so it is never in the capture.
       if (snapshot.animationStarted) {
         yield* emit({ type: "started", id: id as DesktopSnapShotId });
-        if (Option.isSome(overlayBounds)) {
-          void transition
-            .waitForFlight(id)
-            .then(() => runPromise(desktopWindow.showSnapShotOverlay));
-        }
       } else if (!(Option.isSome(overlayBounds) && (yield* desktopWindow.showSnapShotOverlay))) {
         yield* desktopWindow.activate.pipe(Effect.ignoreCause);
       }
@@ -1143,11 +1151,8 @@ export const make = Effect.gen(function* () {
       flash.dispose();
     }
     if (!settings.snapShotEnabled || !settings.snapShotAnimations || mode === "unavailable") {
-      transition.cool();
+      transition.dispose();
       closeLinuxFeedback();
-    } else if (environment.platform === "darwin") {
-      // Elsewhere hidden surfaces would count as open windows and keep the app running.
-      transition.warm();
     }
     // Every client-settings save lands here. Only the fields that decide which
     // shortcut listener runs may tear it down; a font-size change must not
@@ -1499,7 +1504,7 @@ export const make = Effect.gen(function* () {
     Effect.sync(() => {
       releaseShortcut();
       flash.dispose();
-      transition.cool();
+      transition.dispose();
       closeLinuxFeedback();
       accessibilityProcessPool.close();
       macSnapShotPool.close();

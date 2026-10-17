@@ -238,10 +238,11 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
       className="pointer-events-none flex h-svh min-h-0 overflow-hidden"
       style={{ paddingBottom: belowWorkArea }}
     >
+      {/* Sliding in plays the slide out backwards: the same duration and the reversed curve. */}
       <div
         data-snap-shot-overlay-slide
         data-snap-shot-overlay-shown={shown || undefined}
-        className="relative flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:duration-300 data-snap-shot-overlay-shown:ease-drawer motion-reduce:transition-none"
+        className="relative flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:ease-in-reversed motion-reduce:transition-none"
         style={{ "--overlay-drop": `${belowWorkArea}px` } as CSSProperties}
         onTransitionEnd={(event) => {
           if (event.target !== event.currentTarget || shown || !hidingRef.current) return;
