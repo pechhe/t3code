@@ -673,6 +673,8 @@ export const OrchestrationV2Run = Schema.Struct({
   restartCancelledBackgroundWork: Schema.optional(
     Schema.Array(OrchestrationV2RestartCancelledBackgroundWork),
   ),
+  /** What a Stop, or a settle that stopped it, cut short of this run's background work, by name. */
+  stoppedBackgroundWork: Schema.optional(Schema.Array(TrimmedNonEmptyString)),
   sourcePlanRef: Schema.optional(
     Schema.Struct({
       threadId: ThreadId,
@@ -2772,6 +2774,11 @@ export const OrchestrationV2Command = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     settledAt: Schema.optional(Schema.DateTimeUtc),
+    /**
+     * Settling refuses while the thread has background work running, unless this is set: a person
+     * confirmed that settling stops it. The stop is recorded on the run it cut short.
+     */
+    stopBackgroundWork: Schema.optional(Schema.Boolean),
   }),
   /**
    * Rejected when the thread changed after `snapshotAt` or carries any explicit

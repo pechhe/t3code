@@ -174,6 +174,7 @@ export const captureViewport = async (
 };
 
 export const snapshot = async (input: {
+  readonly locator?: string | undefined;
   readonly page: Page;
   readonly cdp: CDPSession;
   readonly renderScale: number;
@@ -183,6 +184,8 @@ export const snapshot = async (input: {
 }): Promise<PreviewAutomationSnapshot> => {
   const viewport = input.page.viewportSize() ?? { width: 1280, height: 800 };
   const scale = Math.min(1, MAX_SCREENSHOT_WIDTH / (viewport.width * input.renderScale));
+  // Resolve the scope before invalidating, so an aria-ref from the previous snapshot still works.
+  const scope = targetLocator(input.page, input);
   const state = refsFor(input.page);
   invalidateRefs(input.page);
   const generation = state.generation;
@@ -193,9 +196,13 @@ export const snapshot = async (input: {
         "url" | "title" | "loading" | "visibleText" | "interactiveElements"
       >
     >,
-    input.page.ariaSnapshot({ mode: "ai", boxes: true, timeout: DEFAULT_TIMEOUT_MS }),
+    (scope ?? input.page).ariaSnapshot({ mode: "ai", boxes: true, timeout: DEFAULT_TIMEOUT_MS }),
     captureViewport(input.page, input.cdp, { format: "png", scale }),
   ]);
+  const visibleText =
+    scope === null
+      ? page.visibleText
+      : (await scope.innerText({ timeout: DEFAULT_TIMEOUT_MS })).slice(0, MAX_VISIBLE_TEXT_LENGTH);
   if (state.generation !== generation) {
     throw new ServerBrowserOperationError(
       "PreviewAutomationExecutionError",
@@ -211,6 +218,7 @@ export const snapshot = async (input: {
     });
   return {
     ...page,
+    visibleText,
     accessibilityTree,
     consoleEntries: [...input.consoleEntries],
     networkEntries: [...input.networkEntries],
@@ -463,26 +471,43 @@ export const waitFor = async (page: Page, input: PreviewAutomationWaitForInput) 
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const deadline = Date.now() + timeoutMs;
   const locator = targetLocator(page, input);
-  const { text, urlIncludes } = input;
-  const checks: Array<() => Promise<boolean>> = [];
-  if (locator !== null) checks.push(async () => (await locator.count()) > 0);
-  if (text !== undefined) {
-    // A navigation can destroy the context mid-check; that counts as not yet.
-    checks.push(() =>
-      page
-        .evaluate(`(document.body?.innerText ?? "").includes(${JSON.stringify(text)})`)
-        .then((found) => found === true)
-        .catch(() => false),
-    );
+  const absentLocator = targetLocator(page, { locator: input.locatorAbsent });
+  const { text, textAbsent, urlIncludes } = input;
+  // A navigation can destroy the context mid-check; that counts as not yet.
+  const pageText = (needle: string) =>
+    page
+      .evaluate(`(document.body?.innerText ?? "").includes(${JSON.stringify(needle)})`)
+      .then((found) => found === true)
+      .catch(() => null);
+  const checks: Array<readonly [name: string, check: () => Promise<boolean>]> = [];
+  if (locator !== null) {
+    checks.push([
+      input.locator === undefined ? "selector" : "locator",
+      async () => (await locator.count()) > 0,
+    ]);
   }
-  if (urlIncludes !== undefined) checks.push(async () => page.url().includes(urlIncludes));
+  if (text !== undefined) checks.push(["text", async () => (await pageText(text)) === true]);
+  if (textAbsent !== undefined) {
+    checks.push(["textAbsent", async () => (await pageText(textAbsent)) === false]);
+  }
+  if (absentLocator !== null) {
+    // Hidden counts as gone, but any visible match means it is still there. A failure to look
+    // (a bad selector, a stale ref) must not read as absence, so it is not caught here.
+    checks.push([
+      "locatorAbsent",
+      async () => (await absentLocator.filter({ visible: true }).count()) === 0,
+    ]);
+  }
+  if (urlIncludes !== undefined)
+    checks.push(["urlIncludes", async () => page.url().includes(urlIncludes)]);
   for (;;) {
-    const results = await Promise.all(checks.map((check) => check()));
+    const results = await Promise.all(checks.map(([, check]) => check()));
     if (results.every(Boolean)) return;
     if (Date.now() >= deadline) {
+      const failing = checks.filter((_, index) => !results[index]).map(([name]) => name);
       throw new ServerBrowserOperationError(
         "PreviewAutomationTimeoutError",
-        `Waited ${timeoutMs}ms without every condition holding.`,
+        `Waited ${timeoutMs}ms; still not holding: ${failing.join(", ")}.`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, WAIT_POLL_MS));

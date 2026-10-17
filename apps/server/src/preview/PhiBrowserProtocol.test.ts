@@ -16,6 +16,10 @@ interface FakeNode {
   readonly box?: boolean;
   readonly name?: string;
   readonly password?: boolean;
+  /** Left out of a default scan; a showHidden scan includes it, flagged. */
+  readonly hidden?: boolean;
+  /** Boxed but visibility:hidden, as Phi's scan treats it. */
+  readonly invisible?: boolean;
   /** Text directly inside this element, ahead of its children. */
   readonly text?: string;
   readonly children?: ReadonlyArray<FakeNode>;
@@ -31,6 +35,7 @@ interface FakeElement {
   childNodes: Array<FakeElement | { nodeType: 3; textContent: string; parent: FakeElement }>;
   previousElementSibling: FakeElement | null;
   getBoundingClientRect: () => { width: number; height: number };
+  querySelectorAll: (selector: string) => Array<FakeElement>;
 }
 
 /**
@@ -50,6 +55,8 @@ function fakePage(body: ReadonlyArray<FakeNode>) {
       childNodes: [],
       previousElementSibling: null,
       getBoundingClientRect: () => (boxless ? { width: 0, height: 0 } : { width: 10, height: 10 }),
+      querySelectorAll: () =>
+        element.children.flatMap((child) => [child, ...child.querySelectorAll("*")]),
     };
     element.children = (spec.children ?? []).map((child) => build(child, element));
     element.children.forEach((child, index) => {
@@ -76,53 +83,84 @@ function fakePage(body: ReadonlyArray<FakeNode>) {
         const [, tag, index] = /^(\w+)\[(\d+)\]$/.exec(step)!;
         return element.children.filter((child) => child.localName === tag)[Number(index) - 1]!;
       }, html);
-  const scan = (root: FakeElement, isRoot = true): Array<FakeNode> => {
-    if (!isRoot && root.getBoundingClientRect().width === 0) return [];
-    return [root.spec, ...root.children.flatMap((child) => scan(child, false))];
+  // Like Phi's scan: a boxless element is skipped with its subtree (only the root is exempt),
+  // unless showHidden, which keeps the subtree but flags everything under it hidden.
+  const scan = (
+    root: FakeElement,
+    showHidden: boolean,
+    isRoot = true,
+    hidden = false,
+  ): Array<{ readonly spec: FakeNode; readonly flagged: boolean }> => {
+    const boxless = !isRoot && root.getBoundingClientRect().width === 0;
+    if (boxless && !showHidden) return [];
+    const flagged = hidden || boxless || root.spec.hidden === true || root.spec.invisible === true;
+    if ((root.spec.hidden || root.spec.invisible) && !showHidden) return [];
+    return [
+      { spec: root.spec, flagged },
+      ...root.children.flatMap((child) => scan(child, showHidden, false, flagged)),
+    ];
   };
-  const scanned = (within?: string) =>
-    scan(within === undefined ? bodyElement : resolve(within.replace(/^xpath=/, "")));
-  return {
-    js: (expression: string) =>
-      NodeVM.runInContext(
-        expression,
-        NodeVM.createContext({
-          document: {
-            body: { querySelectorAll: () => descendants(bodyElement) },
-            // Text renders unless an ancestor is boxless for a reason other than display:contents.
-            createRange: () => {
-              let parent: FakeElement | null = null;
-              return {
-                selectNodeContents: (node: { parent: FakeElement }) => {
-                  parent = node.parent;
-                },
-                getBoundingClientRect: () => {
-                  for (let at = parent; at; at = at.parentElement)
-                    if (at.spec.box === false) return { width: 0, height: 0 };
-                  return { width: 10, height: 10 };
-                },
-              };
-            },
+  const rootOf = (within?: string) =>
+    within === undefined ? bodyElement : resolve(within.replace(/^xpath=/, ""));
+  const scanned = (within?: string, showHidden = false) => scan(rootOf(within), showHidden);
+  const run = (expression: string, globals: Record<string, unknown> = {}) =>
+    NodeVM.runInContext(
+      expression,
+      NodeVM.createContext({
+        ...globals,
+        document: {
+          body: bodyElement,
+          // Text renders unless an ancestor is boxless for a reason other than display:contents.
+          createRange: () => {
+            let parent: FakeElement | null = null;
+            return {
+              selectNodeContents: (node: { parent: FakeElement }) => {
+                parent = node.parent;
+              },
+              getBoundingClientRect: () => {
+                for (let at = parent; at; at = at.parentElement)
+                  if (at.spec.box === false) return { width: 0, height: 0 };
+                return { width: 10, height: 10 };
+              },
+            };
           },
-          getComputedStyle: (element: FakeElement) => ({
-            display: element.spec.display ?? "block",
-          }),
+        },
+        getComputedStyle: (element: FakeElement) => ({
+          display: element.spec.display ?? "block",
+          visibility: element.spec.invisible ? "hidden" : "visible",
         }),
-      ),
-    observe: (within?: string) =>
-      scanned(within).flatMap((node, ref): Array<Record<string, unknown>> =>
-        node.password
+      }),
+    );
+  // A node keeps its ref across scans, as Phi's backend node ids do.
+  const refOf = new Map<FakeNode, number>(
+    [html, ...descendants(html)].map((element, ref) => [element.spec, ref]),
+  );
+  return {
+    js: run,
+    callOn: (within: string, declaration: string) =>
+      run(`(${declaration}).call(root)`, { root: rootOf(within) }),
+    observe: (within?: string, showHidden = false) =>
+      scanned(within, showHidden).flatMap((node): Array<Record<string, unknown>> => {
+        const ref = refOf.get(node.spec)!;
+        return node.spec.password
           ? [{ ref, type: "password" }]
-          : node.name
-            ? [{ ref, role: "button", name: node.name }]
-            : [],
-      ),
+          : node.spec.name
+            ? [
+                {
+                  ref,
+                  role: "button",
+                  name: node.spec.name,
+                  ...(node.flagged ? { hidden: true } : {}),
+                },
+              ]
+            : [];
+      }),
     text: (within?: string) =>
       [
         "--- BEGIN UNTRUSTED PAGE CONTENT ---",
-        ...scanned(within).flatMap((node) => [
-          ...(node.text ? [node.text] : []),
-          ...(node.name ? [node.name] : []),
+        ...scanned(within).flatMap(({ spec }) => [
+          ...(spec.text ? [spec.text] : []),
+          ...(spec.name ? [spec.name] : []),
         ]),
         "--- END UNTRUSTED PAGE CONTENT ---",
       ].join("\n"),
@@ -147,13 +185,14 @@ async function round(
     viewport?: { _tag: "freeform"; width: number; height: number };
     pageText?: string | Array<string>;
     elementPolls?: Array<boolean>;
+    cssShown?: Array<boolean>;
     elementError?: string;
     dialog?: boolean;
     page?: ReadonlyArray<FakeNode>;
   } = {},
 ) {
   const calls: Array<unknown> = [];
-  const polls = { element: 0, page: 0 };
+  const polls = { element: 0, page: 0, css: 0 };
   const page = options.page === undefined ? undefined : fakePage(options.page);
   let value = options.initial ?? "existing";
   const guard = () => {
@@ -174,11 +213,23 @@ async function round(
     },
     currentContext: () => ({ kind: options.kind ?? "shadow", windowId: 1 }),
     listTabs: async () => options.tabs ?? [{ targetId: "owned-tab" }],
-    observe: async (input?: { within?: string }) => ({
-      elements: page ? page.observe(input?.within) : options.password ? [{ type: "password" }] : [],
+    observe: async (input?: { within?: string; showHidden?: boolean }) => ({
+      elements: page
+        ? page.observe(input?.within, input?.showHidden)
+        : options.password
+          ? [{ type: "password" }]
+          : [],
     }),
     snapshotText: async (input?: { within?: string }) => page?.text(input?.within) ?? "",
-    js: async (expression: string) => page?.js(expression) ?? { roots: [], texts: [] },
+    js: async (expression: string) =>
+      // The wait's visible-match probe; the display:contents scan never queries the document.
+      expression.includes("contentDocument")
+        ? ([options.cssShown ?? []].flat()[polls.css++] ??
+          [options.cssShown ?? []].flat().at(-1) ??
+          false)
+        : (page?.js(expression) ?? { roots: [], texts: [] }),
+    callOnElement: async (target: string, declaration: string) =>
+      page?.callOn(target, declaration) ?? { roots: [], texts: [] },
     screenshot: async () => "fixture.png",
     require: () => ({ readFileSync: () => Buffer.alloc(24), unlinkSync: () => {} }),
     listAgentSpaces: async () => [
@@ -425,6 +476,65 @@ describe("fixed Phi skill adapter", () => {
     expect(done.calls.at(-1)).toMatchObject({ t3Phi: { result: {} } });
   });
 
+  it("waits for text to leave and for an element to be gone", async () => {
+    const textGone = translatePhiOperation(
+      "waitFor",
+      { textAbsent: "Saving", timeoutMs: 5000 },
+      refs,
+    );
+    const done = await round(textGone, { pageText: ["Saving draft", "Saving draft", "Saved"] });
+    expect(done.calls.at(-1)).toMatchObject({ t3Phi: { result: {} } });
+    const stuck = await round(textGone, { pageText: "Saving draft" });
+    expect(stuck.calls.at(-1)).toMatchObject({
+      t3Phi: { result: null, failure: "action-failed", unmet: ["textAbsent"] },
+    });
+
+    const cardGone = translatePhiOperation(
+      "waitFor",
+      { locatorAbsent: "aria-ref=tab-a-document-1-element-1", timeoutMs: 5000 },
+      refs,
+    );
+    const removed = await round(cardGone, { elementPolls: [true, true, false] });
+    expect(
+      removed.calls.filter((call) => Array.isArray(call) && call[0] === "wait-element"),
+    ).toHaveLength(3);
+    expect(removed.calls.at(-1)).toMatchObject({ t3Phi: { result: {} } });
+    const gone = translatePhiOperation(
+      "waitFor",
+      { locatorAbsent: ".card", timeoutMs: 5000 },
+      refs,
+    );
+    // A selector is checked across every match, not just the first one Phi would find.
+    expect((await round(gone, { cssShown: [true, true, false] })).calls.at(-1)).toMatchObject({
+      t3Phi: { result: {} },
+    });
+    const kept = await round(
+      translatePhiOperation("waitFor", { locatorAbsent: ".card", timeoutMs: 50 }, refs),
+      { cssShown: [true] },
+    );
+    expect(kept.calls.at(-1)).toMatchObject({
+      t3Phi: { failure: "action-failed", unmet: ["locatorAbsent"] },
+    });
+  });
+
+  it("refuses a role locator for an absence wait, which Phi can only check on its first match", () => {
+    expect(() =>
+      translatePhiOperation("waitFor", { locatorAbsent: 'role=button[name="Add"]' }, refs),
+    ).toThrow("does not support this locator");
+  });
+
+  it("names every condition that did not hold when a combined wait times out", async () => {
+    const wait = translatePhiOperation(
+      "waitFor",
+      { text: "Saved", textAbsent: "Saving", urlIncludes: "/other", timeoutMs: 50 },
+      refs,
+    );
+    const result = await round(wait, { pageText: "Saving" });
+    expect(result.calls.at(-1)).toMatchObject({
+      t3Phi: { unmet: ["text", "textAbsent", "urlIncludes"] },
+    });
+  });
+
   it("fails a wait interrupted by a dialog instead of reporting a match", async () => {
     const wait = translatePhiOperation("waitFor", { text: "Saved", timeoutMs: 5000 }, refs);
     expect((await round(wait, { dialog: true })).calls.at(-1)).toMatchObject({
@@ -496,6 +606,123 @@ describe("fixed Phi skill adapter", () => {
       "~~~ END UNTRUSTED PAGE CONTENT ---",
       "--- END UNTRUSTED PAGE CONTENT ---",
     ]);
+  });
+
+  it("reports how many hidden elements the scan left out", async () => {
+    const result = await round(
+      { operation: "snapshot" },
+      {
+        page: [
+          { tag: "button", name: "Add" },
+          { tag: "button", name: "Add (collapsed)", hidden: true },
+          { tag: "button", name: "Add (menu)", hidden: true },
+        ],
+      },
+    );
+    const reply = result.calls.at(-1) as {
+      t3Phi: { result: { observed: { elements: Array<{ name: string }> }; omitted: number } };
+    };
+    expect(reply.t3Phi.result.observed.elements.map((element) => element.name)).toEqual(["Add"]);
+    expect(reply.t3Phi.result.omitted).toBe(2);
+  });
+
+  it("does not count a control under a boxless wrapper as left out, since the scan recovers it", async () => {
+    const result = await round(
+      { operation: "snapshot" },
+      {
+        page: [
+          {
+            tag: "div",
+            display: "contents",
+            children: [{ tag: "main", children: [{ tag: "button", name: "Accept" }] }],
+          },
+          { tag: "button", name: "Collapsed", hidden: true },
+        ],
+      },
+    );
+    const reply = result.calls.at(-1) as {
+      t3Phi: { result: { observed: { elements: Array<{ name: string }> }; omitted: number } };
+    };
+    expect(reply.t3Phi.result.observed.elements.map((element) => element.name)).toEqual(["Accept"]);
+    expect(reply.t3Phi.result.omitted).toBe(1);
+  });
+
+  it("does not recover a hidden control from under a boxless wrapper, and counts it", async () => {
+    const result = await round(
+      { operation: "snapshot" },
+      {
+        page: [
+          {
+            tag: "div",
+            display: "contents",
+            children: [
+              { tag: "button", name: "Accept" },
+              { tag: "button", name: "Secret", invisible: true },
+            ],
+          },
+        ],
+      },
+    );
+    const reply = result.calls.at(-1) as {
+      t3Phi: { result: { observed: { elements: Array<{ name: string }> }; omitted: number } };
+    };
+    expect(reply.t3Phi.result.observed.elements.map((element) => element.name)).toEqual(["Accept"]);
+    expect(reply.t3Phi.result.omitted).toBe(1);
+  });
+
+  it("recovers a control under a display:contents wrapper inside a scoped region", async () => {
+    const result = await round(
+      { operation: "snapshot", target: "xpath=/html[1]/body[1]/main[1]" },
+      {
+        page: [
+          { tag: "nav", children: [{ tag: "a", name: "Sidebar" }] },
+          {
+            tag: "main",
+            children: [
+              { tag: "button", name: "Dismiss" },
+              {
+                tag: "div",
+                display: "contents",
+                children: [{ tag: "div", children: [{ tag: "button", name: "Accept" }] }],
+              },
+            ],
+          },
+        ],
+      },
+    );
+    const reply = result.calls.at(-1) as {
+      t3Phi: { result: { observed: { elements: Array<{ name: string }> }; text: string } };
+    };
+    expect(reply.t3Phi.result.observed.elements.map((element) => element.name).sort()).toEqual([
+      "Accept",
+      "Dismiss",
+    ]);
+    expect(reply.t3Phi.result.text).toContain("Accept");
+    expect(reply.t3Phi.result.text).not.toContain("Sidebar");
+  });
+
+  it("scans only the requested region for a scoped snapshot", async () => {
+    const page = [
+      { tag: "nav", children: [{ tag: "a", name: "Sidebar" }] },
+      { tag: "main", children: [{ tag: "button", name: "Accept" }] },
+    ];
+    const scoped = translatePhiOperation(
+      "snapshot",
+      { locator: "aria-ref=tab-a-document-1-element-1" },
+      new Map([["tab-a-document-1-element-1", "xpath=/html[1]/body[1]/main[1]"]]),
+    );
+    expect(scoped).toEqual({ operation: "snapshot", target: "xpath=/html[1]/body[1]/main[1]" });
+    const result = await round(scoped, { page });
+    const reply = result.calls.at(-1) as {
+      t3Phi: { result: { observed: { elements: Array<{ name: string }> }; text: string } };
+    };
+    expect(reply.t3Phi.result.observed.elements.map((element) => element.name)).toEqual(["Accept"]);
+    expect(reply.t3Phi.result.text).toContain("Accept");
+    expect(reply.t3Phi.result.text).not.toContain("Sidebar");
+    expect(translatePhiOperation("snapshot", {}, refs)).toEqual({
+      operation: "snapshot",
+      target: undefined,
+    });
   });
 
   it("stops shadow input at a sign-in form inside a display:contents app", async () => {

@@ -68,6 +68,9 @@ On web and desktop, pinning or unpinning a thread keeps the sidebar at your curr
 scroll position instead of following the thread to its new place in the list.
 
 Pinning does not prevent automatic settlement. Settling a thread removes its pin.
+Settling stops a thread's background work, such as a background command or subagent, so T3 Code
+asks first when the thread still has some running. Agents and automatic settlement wait for that
+work to finish instead.
 
 On web and desktop, drag a thread between sections to change its state. Drag a thread up into
 the pinned section to pin it at the spot you drop it; drag a pinned thread down into the active

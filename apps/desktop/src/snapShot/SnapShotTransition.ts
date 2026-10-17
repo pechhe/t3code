@@ -8,6 +8,8 @@ const MAX_DURATION_MS = 680;
 const DURATION_DISTANCE_SCALE = 2_000;
 const EASING = "cubic-bezier(.2,.8,.2,1)";
 const TIMEOUT_MS = 6_000;
+// Longest wait for the capture's destination before the flight is given up on as the cue.
+const FLIGHT_WAIT_MS = 1_000;
 
 type SnapShotAnimationDetails = {
   readonly appName: string;
@@ -52,6 +54,15 @@ type ActiveTransition = {
   details?: SnapShotAnimationDetails | undefined;
   timer?: Fiber.Fiber<void> | undefined;
   flight?: Promise<void> | undefined;
+  /** Settles as the flight starts playing, or as the transition ends without one. */
+  readonly flightStarted: PromiseWithResolvers<void>;
+};
+
+/** A hidden surface with the transition page loaded, waiting for the next capture. */
+type ReadySurface = {
+  readonly window: Electron.BrowserWindow;
+  readonly requestedBounds: Electron.Rectangle;
+  readonly loaded: Promise<void>;
 };
 
 type SnapShotTransitionOptions = {
@@ -61,6 +72,8 @@ type SnapShotTransitionOptions = {
   readonly alwaysOnTopLevel?:
     | NonNullable<Parameters<Electron.BrowserWindow["setAlwaysOnTop"]>[1]>
     | undefined;
+  /** Told of each surface made, so the app never mistakes one for a window of its own. */
+  readonly onWindowCreated?: ((window: Electron.BrowserWindow) => void) | undefined;
 };
 
 export function snapShotAnimationOverlayBounds(
@@ -127,23 +140,27 @@ function createWindow(
   return window;
 }
 
-function transitionHtml(
-  sourceBounds: Electron.Rectangle,
-  overlayBounds: Electron.Rectangle,
-  flash: boolean,
-): string {
-  const source = {
-    x: sourceBounds.x - overlayBounds.x,
-    y: sourceBounds.y - overlayBounds.y,
-    width: sourceBounds.width,
-    height: sourceBounds.height,
-  };
-  return `<!doctype html><style>
+function sameRectangle(left: Electron.Rectangle, right: Electron.Rectangle): boolean {
+  return (
+    left.x === right.x &&
+    left.y === right.y &&
+    left.width === right.width &&
+    left.height === right.height
+  );
+}
+
+function loadTransitionPage(window: Electron.BrowserWindow): Promise<void> {
+  return window
+    .loadURL("data:text/html;charset=utf-8," + encodeURIComponent(TRANSITION_HTML))
+    .catch(() => undefined);
+}
+
+const TRANSITION_HTML = `<!doctype html><style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}
-#card{position:absolute;left:${source.x}px;top:${source.y}px;width:${source.width}px;height:${source.height}px;contain:strict;overflow:hidden;border-radius:12px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.24);transform-origin:center;will-change:transform}
+#card{position:absolute;contain:strict;overflow:hidden;border-radius:12px;background:#fff;box-shadow:0 24px 70px rgba(0,0,0,.24);transform-origin:center;will-change:transform}
 #content{position:absolute;inset:0;overflow:hidden;border-radius:inherit;transform-origin:center;will-change:transform}
 #snapshot{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;transform-origin:center;will-change:transform}
-#flash{position:absolute;inset:0;background:#fff;opacity:0;${flash ? "" : "display:none"}}
+#flash{position:absolute;inset:0;background:#fff;opacity:0}
 #details{--scale:1;position:absolute;inset-inline:0;bottom:0;display:flex;align-items:center;gap:calc(6px * var(--scale));padding:calc(24px * var(--scale)) calc(10px * var(--scale)) calc(8px * var(--scale));background:linear-gradient(to top,rgba(0,0,0,.85),rgba(0,0,0,.55),transparent);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;opacity:0}
 #details:not([data-ready]){visibility:hidden}
 #icon,#fallback{width:calc(28px * var(--scale));height:calc(28px * var(--scale));flex:none;border-radius:calc(6px * var(--scale))}
@@ -153,11 +170,11 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
 #app{color:#fff;font-size:calc(11px * var(--scale));font-weight:500}#title{color:rgba(255,255,255,.7);font-size:calc(9px * var(--scale))}
 #border{position:absolute;z-index:2;inset:0;box-sizing:border-box;border:0 solid transparent;border-radius:inherit;opacity:0}
 </style><div id="card"><div id="content"><img id="snapshot"><div id="details"><img id="icon"><div id="fallback"></div><div id="copy"><div id="app"></div><div id="title"></div></div></div></div><div id="border"></div><div id="flash"></div></div><script>
-const source=${JSON.stringify(source)},card=document.getElementById("card"),content=document.getElementById("content"),snapshot=document.getElementById("snapshot"),details=document.getElementById("details"),border=document.getElementById("border");
+const source={x:0,y:0,width:0,height:0},card=document.getElementById("card"),content=document.getElementById("content"),snapshot=document.getElementById("snapshot"),details=document.getElementById("details"),border=document.getElementById("border");
 const afterPaint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-window.setCaptureSnapshot=async src=>{snapshot.src=src;await snapshot.decode();await afterPaint()};
 window.rebaseCaptureSource=next=>{Object.assign(source,next);Object.assign(card.style,{left:source.x+"px",top:source.y+"px",width:source.width+"px",height:source.height+"px"})};
-window.startCaptureFlash=()=>document.getElementById("flash").animate([{opacity:.08},{offset:.38,opacity:.08},{offset:.68,opacity:.02},{opacity:0}],{duration:300,fill:"forwards",easing:"${EASING}"});
+window.setCaptureSnapshot=async(src,next)=>{window.rebaseCaptureSource(next);snapshot.src=src;await snapshot.decode();await afterPaint()};
+window.startCaptureFlash=()=>document.getElementById("flash").animate([{opacity:.7},{offset:.15,opacity:.6},{opacity:0}],{duration:360,fill:"forwards",easing:"ease-out"});
 const applyDetails=value=>{
   if(!value)return;
   details.dataset.ready="";
@@ -197,20 +214,98 @@ window.prepareCaptureTransition=async destination=>{
   await afterPaint();
 };
 </script>`;
-}
 
 export class SnapShotTransition {
   private active: ActiveTransition | undefined;
+  /** Surfaces kept loaded between captures, one per display, while `warm`. */
+  private ready: Array<ReadySurface> = [];
+  private warmed = false;
   private readonly boundOverlayToCaptureDisplays: boolean;
   private readonly waitForCompositorFrame: boolean;
   private readonly alwaysOnTopLevel: SnapShotTransitionOptions["alwaysOnTopLevel"];
   private readonly showWindow: (window: Electron.BaseWindow) => void;
+  private readonly onWindowCreated: (window: Electron.BrowserWindow) => void;
 
   constructor(options: SnapShotTransitionOptions = {}) {
     this.boundOverlayToCaptureDisplays = options.boundOverlayToCaptureDisplays ?? false;
     this.waitForCompositorFrame = options.waitForCompositorFrame ?? false;
     this.alwaysOnTopLevel = options.alwaysOnTopLevel;
     this.showWindow = options.showWindow ?? ((window) => window.showInactive());
+    this.onWindowCreated = options.onWindowCreated ?? (() => undefined);
+  }
+
+  /**
+   * Keeps a loaded surface ready on every display, so a capture's flash and flight start
+   * without waiting for a new window and its renderer.
+   */
+  warm(): void {
+    this.warmed = true;
+    const wanted = this.surfaceBounds();
+    this.ready = this.ready.filter((surface) => {
+      const keep =
+        !surface.window.isDestroyed() &&
+        wanted.some((bounds) => sameRectangle(bounds, surface.requestedBounds));
+      if (!keep && !surface.window.isDestroyed()) surface.window.destroy();
+      return keep;
+    });
+    for (const bounds of wanted) {
+      if (this.ready.some((surface) => sameRectangle(surface.requestedBounds, bounds))) continue;
+      this.ready.push(this.createSurface(bounds));
+    }
+  }
+
+  /** Stops keeping surfaces ready and closes them. */
+  cool(): void {
+    this.warmed = false;
+    this.dispose();
+    for (const surface of this.ready) {
+      if (!surface.window.isDestroyed()) surface.window.destroy();
+    }
+    this.ready = [];
+  }
+
+  /** Whether `window` is one of this transition's surfaces. */
+  owns(window: Electron.BrowserWindow): boolean {
+    return (
+      this.ready.some((surface) => surface.window === window) ||
+      (this.active?.overlays.some((overlay) => overlay.window === window) ?? false)
+    );
+  }
+
+  /**
+   * Settles as the capture's flight starts, as its transition ends, or after a bound wait for a
+   * destination that may never come.
+   */
+  async waitForFlight(id: string): Promise<void> {
+    const active = this.active;
+    if (!active || active.id !== id) return;
+    await Effect.runPromise(
+      Effect.promise(() => active.flightStarted.promise).pipe(
+        Effect.timeout(FLIGHT_WAIT_MS),
+        Effect.ignore,
+      ),
+    );
+  }
+
+  private surfaceBounds(): Array<Electron.Rectangle> {
+    const displays = Electron.screen.getAllDisplays();
+    return this.boundOverlayToCaptureDisplays
+      ? displays.map((display) => display.bounds)
+      : [snapShotAnimationOverlayBounds(displays)];
+  }
+
+  private takeSurface(bounds: Electron.Rectangle): ReadySurface {
+    const index = this.ready.findIndex(
+      (surface) => !surface.window.isDestroyed() && sameRectangle(surface.requestedBounds, bounds),
+    );
+    const [surface] = index >= 0 ? this.ready.splice(index, 1) : [];
+    return surface ?? this.createSurface(bounds);
+  }
+
+  private createSurface(bounds: Electron.Rectangle): ReadySurface {
+    const window = createWindow(bounds, this.alwaysOnTopLevel);
+    this.onWindowCreated(window);
+    return { window, requestedBounds: bounds, loaded: loadTransitionPage(window) };
   }
 
   async begin(
@@ -237,6 +332,7 @@ export class SnapShotTransition {
       source,
       snapshotDataUrl,
       overlays: [],
+      flightStarted: Promise.withResolvers<void>(),
     };
     active.timer = Effect.runFork(
       Effect.sleep(TIMEOUT_MS).pipe(
@@ -263,21 +359,31 @@ export class SnapShotTransition {
   ): Promise<void> {
     const overlays: ActiveTransition["overlays"] = [];
     try {
+      const loads: Array<Promise<void>> = [];
       for (const bounds of requestedBounds) {
-        const window = createWindow(bounds, this.alwaysOnTopLevel);
-        const overlay = { window, requestedBounds: bounds, bounds: window.getBounds() };
+        const surface = this.takeSurface(bounds);
+        const overlay = {
+          window: surface.window,
+          requestedBounds: bounds,
+          bounds: surface.window.getBounds(),
+        };
         active.overlays.push(overlay);
         overlays.push(overlay);
+        loads.push(surface.loaded);
       }
       await Promise.all(
-        overlays.map(async (overlay) => {
-          await overlay.window.loadURL(
-            "data:text/html;charset=utf-8," +
-              encodeURIComponent(transitionHtml(active.source, overlay.bounds, flash)),
-          );
+        overlays.map(async (overlay, index) => {
+          await loads[index];
           if (this.active === active && !overlay.window.isDestroyed()) {
             await overlay.window.webContents.executeJavaScript(
-              `window.setCaptureSnapshot(${JSON.stringify(active.snapshotDataUrl)})`,
+              `window.setCaptureSnapshot(${JSON.stringify(active.snapshotDataUrl)},${JSON.stringify(
+                {
+                  x: active.source.x - overlay.bounds.x,
+                  y: active.source.y - overlay.bounds.y,
+                  width: active.source.width,
+                  height: active.source.height,
+                },
+              )})`,
             );
           }
         }),
@@ -409,6 +515,7 @@ export class SnapShotTransition {
       }),
     );
     if (this.active !== active) return;
+    active.flightStarted.resolve();
     await Promise.allSettled(
       prepared.map((result) => {
         if (result.status !== "fulfilled" || !result.value || result.value.window.isDestroyed()) {
@@ -441,8 +548,28 @@ export class SnapShotTransition {
     this.active = undefined;
     if (!active) return;
     active.timer?.interruptUnsafe();
+    active.flightStarted.resolve();
+    const wanted = this.warmed ? this.surfaceBounds() : [];
     for (const overlay of active.overlays) {
-      if (!overlay.window.isDestroyed()) overlay.window.destroy();
+      if (overlay.window.isDestroyed()) continue;
+      const reusable =
+        wanted.some((bounds) => sameRectangle(bounds, overlay.requestedBounds)) &&
+        !this.ready.some((surface) =>
+          sameRectangle(surface.requestedBounds, overlay.requestedBounds),
+        );
+      if (!reusable) {
+        overlay.window.destroy();
+        continue;
+      }
+      // Reloading resets the page for the next capture while the surface is out of sight.
+      overlay.window.hide();
+      this.ready.push({
+        window: overlay.window,
+        requestedBounds: overlay.requestedBounds,
+        loaded: loadTransitionPage(overlay.window),
+      });
     }
+    // Displays may have changed since the surfaces were made.
+    if (this.warmed) this.warm();
   }
 }

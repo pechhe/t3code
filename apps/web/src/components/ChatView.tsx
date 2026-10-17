@@ -3192,21 +3192,22 @@ export default function ChatView(props: ChatViewProps) {
           providerSubagentModels,
           reportedModelSelection,
         );
+  // SlipJay assigns the workspace and its base, so the strip has no Git context to offer;
+  // the thread details card shows the workspace and its landing.
+  const composerShowsGitControls = isGitRepo && !isSlipJayProject;
   const mountComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
-    // A SlipJay thread always shows the workspace it works in.
-    persistInActiveThreads: settings.persistComposerContextStrip || isSlipJayProject,
+    persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo: isGitRepo || isSlipJayProject,
+    isGitRepo: composerShowsGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server",
   });
   const showComposerContextStrip = shouldShowComposerContextStrip({
     isDraftHeroState,
-    // A SlipJay thread always shows the workspace it works in.
-    persistInActiveThreads: settings.persistComposerContextStrip || isSlipJayProject,
+    persistInActiveThreads: settings.persistComposerContextStrip,
     hasActiveProject: activeProject !== null && !showProviderSubagentBar,
-    isGitRepo: isGitRepo || isSlipJayProject,
+    isGitRepo: composerShowsGitControls,
     showEnvironmentIndicator: showComposerEnvironmentIndicator,
     hostsRestingComposerControls: routeKind === "server" && restingComposerControlsVisible,
   });
@@ -8658,7 +8659,7 @@ export default function ChatView(props: ChatViewProps) {
                               restingControlsHost={restingComposerControlsHost}
                               restingControlsHaveLeadingContext={
                                 mountComposerContextStrip &&
-                                (isGitRepo || isSlipJayProject || showComposerEnvironmentIndicator)
+                                (composerShowsGitControls || showComposerEnvironmentIndicator)
                               }
                               onRestingControlsVisibilityChange={setRestingComposerControlsVisible}
                               getTimelineScrollableNode={getTimelineScrollableNodeStable}
@@ -8740,9 +8741,7 @@ export default function ChatView(props: ChatViewProps) {
                                 ref={branchToolbarRef}
                                 environmentId={activeThread.environmentId}
                                 threadId={activeThread.id}
-                                showGitControls={isGitRepo}
-                                slipJayStatus={slipJayStatus}
-                                slipJayPending={isSlipJayProject && slipJayStatus === null}
+                                showGitControls={composerShowsGitControls}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChangeStable}
                                 startFromOrigin={startFromOrigin}

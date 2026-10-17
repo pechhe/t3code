@@ -459,7 +459,13 @@ background work is empty, apart from its own thread watches: a pull request
 watch is unfinished work, waiting on another thread is not.
 
 A watch fires with the first outcome that applies: archived or deleted, needs
-input (a pending question or approval), failed, stopped, or finished. The wake is
+input (a pending question or approval), failed, stopped, or finished. A run whose
+background work a Stop cut short, including a settle a person confirmed over
+running work, records it as `stoppedBackgroundWork` and counts as stopped, for
+watches and `task_status` alike. `thread.settle` refuses while background work
+runs unless the command carries `stopBackgroundWork`, which only a person's
+confirmation sets; an agent settling its own thread waits for the work and the
+turn it wakes to finish. The wake is
 a server notification whose source is the watched thread; it quotes that
 thread's result or oldest request as its own words. `ThreadWatchReactor` only
 picks the moment, from events and a periodic sweep of stored state. The
