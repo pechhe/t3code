@@ -7,6 +7,7 @@ import {
 } from "playwright-core";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 
+import { PHI_ANY_VISIBLE_MATCH } from "./PhiBrowserProtocol.ts";
 import { presentAsChrome } from "./ServerBrowserContexts.ts";
 import * as ServerBrowserPage from "./ServerBrowserPage.ts";
 
@@ -31,8 +32,9 @@ describe("server browser element refs", () => {
     await context.close();
   });
 
-  const takeSnapshot = () =>
+  const takeSnapshot = (locator?: string) =>
     ServerBrowserPage.snapshot({
+      locator,
       page,
       cdp,
       renderScale: 1,
@@ -154,6 +156,81 @@ describe("server browser element refs", () => {
     const locator = buttonLocator((await takeSnapshot()).accessibilityTree, "continue");
     await takeSnapshot();
     await expect(ServerBrowserPage.click(page, { locator })).rejects.toThrow(/stale/);
+  });
+
+  it("snapshots only the region named by a locator, with refs that work", async () => {
+    await page.setContent(
+      `<nav><button>Sidebar</button></nav>
+       <section aria-label="card"><p>Acme Ltd</p><button onclick="this.textContent='accepted'">Accept</button></section>`,
+    );
+    const whole = await takeSnapshot();
+    const card = locators(
+      String(whole.accessibilityTree)
+        .split("\n")
+        .find((line) => line.includes('region "card"')),
+    )[0]!;
+    const scoped = await takeSnapshot(card);
+    expect(String(scoped.accessibilityTree)).toContain('button "Accept"');
+    expect(String(scoped.accessibilityTree)).not.toContain("Sidebar");
+    expect(scoped.visibleText).toContain("Acme Ltd");
+    expect(scoped.visibleText).not.toContain("Sidebar");
+    await ServerBrowserPage.click(page, {
+      locator: buttonLocator(scoped.accessibilityTree, "Accept"),
+      timeoutMs: 1_000,
+    });
+    expect(await page.getByRole("button", { name: "accepted" }).count()).toBe(1);
+  });
+
+  it("waits for text and elements to go away, and names what still holds on timeout", async () => {
+    await page.setContent(
+      `<p id="note">Saving</p><div class="card">Acme</div>
+       <script>setTimeout(() => { document.getElementById("note").textContent = "Saved"; document.querySelector(".card").hidden = true }, 150)</script>`,
+    );
+    await ServerBrowserPage.waitFor(page, {
+      textAbsent: "Saving",
+      locatorAbsent: ".card",
+      timeoutMs: 3_000,
+    });
+    expect(await page.locator("#note").textContent()).toBe("Saved");
+    await page.setContent('<p>Saving</p><div class="card">Acme</div>');
+    await expect(
+      ServerBrowserPage.waitFor(page, {
+        text: "Saving",
+        textAbsent: "Saving",
+        locatorAbsent: ".card",
+        timeoutMs: 200,
+      }),
+    ).rejects.toThrow("still not holding: textAbsent, locatorAbsent");
+    await ServerBrowserPage.waitFor(page, { locatorAbsent: ".missing", timeoutMs: 200 });
+    // One hidden match does not make the element gone while another still shows.
+    await page.setContent('<div class="card" hidden>old</div><div class="card">new</div>');
+    await expect(
+      ServerBrowserPage.waitFor(page, { locatorAbsent: ".card", timeoutMs: 200 }),
+    ).rejects.toThrow("still not holding: locatorAbsent");
+    // Failing to look is an error, never absence.
+    await expect(
+      ServerBrowserPage.waitFor(page, { locatorAbsent: "css=:::", timeoutMs: 200 }),
+    ).rejects.not.toThrow("still not holding");
+  });
+
+  it("tells whether any match of a selector shows, as Phi's absence wait needs", async () => {
+    const shown = (selector: string) =>
+      page.evaluate(`(${PHI_ANY_VISIBLE_MATCH})(${JSON.stringify(selector)})`);
+    await page.setContent('<div class="card" hidden>old</div><div class="card">new</div>');
+    expect(await shown(".card")).toBe(true);
+    await page.setContent(
+      '<div class="card" hidden>old</div><div class="card" style="visibility:hidden">new</div>',
+    );
+    expect(await shown(".card")).toBe(false);
+    const frame = (style: string) =>
+      `<iframe style="${style}" srcdoc="<div class=card>inside</div>"></iframe>`;
+    await page.setContent(frame("width:200px;height:100px"));
+    await page.frameLocator("iframe").locator(".card").waitFor();
+    expect(await shown(".card")).toBe(true);
+    await page.setContent(frame("width:200px;height:100px;visibility:hidden"));
+    await page.waitForLoadState("load");
+    expect(await shown(".card")).toBe(false);
+    await expect(shown(":::")).rejects.toThrow();
   });
 
   it.each(["aria-ref=e1", " aria-ref=e1", "css=body >> aria-ref=e1"])(

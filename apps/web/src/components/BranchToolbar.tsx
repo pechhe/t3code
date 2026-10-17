@@ -96,8 +96,6 @@ interface BranchToolbarProps {
   showGitControls: boolean;
   /** Set in a SlipJay project, whose workspace and base replace the Git controls. */
   slipJayStatus?: SlipJayCheckoutStatus | null;
-  /** A remembered SlipJay project whose status has not answered yet: hold its row, not Git's. */
-  slipJayPending?: boolean;
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   envMode: EnvMode;
@@ -154,35 +152,29 @@ function showWorkspaceContextMenu(event: ReactMouseEvent, workspacePath: string)
 }
 
 /**
- * A strip or panel row: SlipJay assigns the workspace and its base, so only a
+ * A details panel row: SlipJay assigns the workspace and its base, so only a
  * landing's row acts, opening its log.
  */
 function SlipJayContextRow({
-  displayMode = "toolbar",
   icon: Icon,
   label,
   tooltip,
-  className,
   onClick,
 }: {
-  displayMode?: "toolbar" | "panel";
   icon: LucideIcon;
   label: string;
   tooltip: string;
-  className?: string;
   onClick?: () => void;
 }) {
-  const isPanel = displayMode === "panel";
   const rowClassName = cn(
     "inline-flex h-7 min-w-0 items-center gap-1 border border-transparent px-1.75 font-normal text-muted-foreground/70 text-xs sm:h-6",
-    isPanel && THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
+    THREAD_DETAILS_PANEL_LOCKED_ROW_CLASS,
     onClick && "cursor-pointer rounded-md hover:text-foreground",
-    className,
   );
   const content = (
     <>
-      <Icon className={isPanel ? THREAD_DETAILS_PANEL_ICON_CLASS : "size-3 shrink-0"} />
-      <ComposerContextLabel displayMode={displayMode}>{label}</ComposerContextLabel>
+      <Icon className={THREAD_DETAILS_PANEL_ICON_CLASS} />
+      <ComposerContextLabel displayMode="panel">{label}</ComposerContextLabel>
     </>
   );
   const row = onClick ? (
@@ -632,7 +624,6 @@ export const BranchToolbar = memo(function BranchToolbar({
   threadId,
   showGitControls,
   slipJayStatus = null,
-  slipJayPending = false,
   draftId,
   onEnvModeChange,
   envMode,
@@ -673,13 +664,10 @@ export const BranchToolbar = memo(function BranchToolbar({
   const envModeLocked =
     envLocked ||
     slipJayStatus !== null ||
-    slipJayPending ||
     (serverThread !== null && activeWorktreePath !== null);
   const slipJayRows =
     slipJayStatus === null
-      ? slipJayPending
-        ? { workspace: "SlipJay workspace", base: null, landing: null }
-        : null
+      ? null
       : {
           workspace: resolveSlipJayWorkspaceLabel(slipJayStatus, serverThread === null),
           base: resolveSlipJayBaseLabel(slipJayStatus, serverThread === null),
@@ -789,14 +777,12 @@ export const BranchToolbar = memo(function BranchToolbar({
         {panelSection !== "workspace" && slipJayRows ? (
           <>
             <SlipJayContextRow
-              displayMode="panel"
               icon={FolderGitIcon}
               label={slipJayRows.workspace}
               tooltip="SlipJay workspace"
             />
             {slipJayRows.landing !== null ? (
               <SlipJayContextRow
-                displayMode="panel"
                 icon={GitCommitHorizontalIcon}
                 label={resolveSlipJayLandingLabel(slipJayRows.landing)}
                 tooltip={slipJayRows.landing.reason ?? "Open the landing log"}
@@ -804,7 +790,6 @@ export const BranchToolbar = memo(function BranchToolbar({
               />
             ) : slipJayRows.base === null ? null : (
               <SlipJayContextRow
-                displayMode="panel"
                 icon={GitBranchIcon}
                 label={slipJayRows.base}
                 tooltip="Integration branch"
@@ -867,7 +852,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           />
         </div>
       ) : null}
-      {showGitControls || showEnvironmentIndicator || slipJayRows ? (
+      {showGitControls || showEnvironmentIndicator ? (
         <div
           className={cn(
             "min-h-7 min-w-10 items-center gap-1 sm:min-h-6",
@@ -885,7 +870,7 @@ export const BranchToolbar = memo(function BranchToolbar({
                 availableEnvironments={availableEnvironments}
                 {...(showEnvironmentPicker && onEnvironmentChange ? { onEnvironmentChange } : {})}
               />
-              {showGitControls || slipJayRows ? (
+              {showGitControls ? (
                 <Separator
                   orientation="vertical"
                   className="mx-0.5 h-3.5!"
@@ -894,17 +879,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               ) : null}
             </>
           )}
-          {slipJayRows ? (
-            <SlipJayContextRow
-              icon={FolderGitIcon}
-              label={slipJayRows.workspace}
-              tooltip={
-                serverThread === null
-                  ? "Sending the first message allocates a SlipJay workspace."
-                  : "SlipJay workspace"
-              }
-            />
-          ) : showGitControls ? (
+          {showGitControls ? (
             <BranchToolbarEnvModeSelector
               forceNewWorktree={forceNewWorktree}
               envLocked={envModeLocked}
@@ -928,24 +903,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         />
       ) : null}
 
-      {slipJayRows ? (
-        slipJayRows.landing !== null ? (
-          <SlipJayContextRow
-            icon={GitCommitHorizontalIcon}
-            label={resolveSlipJayLandingLabel(slipJayRows.landing)}
-            tooltip={slipJayRows.landing.reason ?? "Open the landing log"}
-            className="ml-auto"
-            onClick={openLandingLog}
-          />
-        ) : slipJayRows.base === null ? null : (
-          <SlipJayContextRow
-            icon={GitBranchIcon}
-            label={slipJayRows.base}
-            tooltip="Integration branch"
-            className="ml-auto"
-          />
-        )
-      ) : showGitControls ? (
+      {showGitControls ? (
         <BranchToolbarBranchSelector
           forceNewWorktree={forceNewWorktree}
           ref={branchSelectorRef}
@@ -963,7 +921,6 @@ export const BranchToolbar = memo(function BranchToolbar({
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
         />
       ) : null}
-      {landingLogDialog}
     </ComposerSurface.ContextStrip>
   );
 });

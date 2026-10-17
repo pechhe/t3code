@@ -78,6 +78,8 @@ const decodeWindow = Schema.decodeUnknownEffect(WindowContext);
 const decodeRendered = Schema.decodeUnknownEffect(PreviewRenderedViewportSize);
 const ObservedSnapshot = Schema.Struct({
   text: Schema.String,
+  /** Hidden or zero-size elements the scan left out. */
+  omitted: Schema.optional(Schema.Int),
   observed: Schema.Struct({
     url: Schema.String,
     title: Schema.String,
@@ -92,6 +94,41 @@ const ObservedSnapshot = Schema.Struct({
   screenshot: PreviewAutomationSnapshot.fields.screenshot,
 });
 const decodeObserved = Schema.decodeUnknownEffect(ObservedSnapshot);
+
+const MAX_SNAPSHOT_NAME_CHARS = 120;
+
+/**
+ * Cuts the text inside each `[aria-ref=... ]` tag, never the line around it: several controls
+ * can share a line, and a cut line would drop the later refs. One huge name, such as a dev
+ * toolbar's, would otherwise crowd out the page it sits on. A tag's own locator can hold `]`,
+ * so a tag runs to the last `]` before the next tag or the end of the line.
+ */
+export const capLongNames = (text: string) =>
+  text.replace(/\[aria-ref=\S+ [^\n]*?(?=\[aria-ref=|\n|$)/g, (segment) => {
+    const end = segment.lastIndexOf("]");
+    const space = segment.indexOf(" ");
+    if (end < 0 || end - space - 1 <= MAX_SNAPSHOT_NAME_CHARS) return segment;
+    const ref = segment.slice(1, space);
+    const body = segment.slice(space + 1, end);
+    return `${segment.slice(0, space + 1)}${body.slice(0, MAX_SNAPSHOT_NAME_CHARS)}… +${body.length - MAX_SNAPSHOT_NAME_CHARS} chars; a preview_snapshot with locator=${ref} is not cut here${segment.slice(end)}`;
+  });
+
+const MAX_SNAPSHOT_TEXT_CHARS = 20_000;
+
+/** The runner hands over the whole scan so names can be cut first; keep its envelope lines. */
+const boundText = (text: string) => {
+  if (text.length <= MAX_SNAPSHOT_TEXT_CHARS) return text;
+  const lines = text.split("\n");
+  return [
+    lines[0],
+    lines.slice(1, -1).join("\n").slice(0, MAX_SNAPSHOT_TEXT_CHARS),
+    lines.at(-1),
+  ].join("\n");
+};
+
+// First, because the transport bounds the text and cuts the end of a long page.
+const withOmitted = (text: string, omitted: number | undefined) =>
+  omitted ? `[${omitted} hidden or zero-size elements left out]\n${text}` : text;
 
 const isInputError = Schema.is(PhiBrowserInputError);
 const isRunnerError = Schema.is(PhiBrowserRunner.PhiBrowserRunnerError);
@@ -116,9 +153,11 @@ const failure = (reason: PreviewAutomationBackendError["reason"], cause?: unknow
       cause.reason === "user-space-unavailable")
   )
     reason = cause.reason;
+  const unmet = isRunnerError(cause) ? cause.unmet : undefined;
   return new PreviewAutomationBackendError({
     backend: "phi",
     reason,
+    ...(unmet === undefined ? {} : { unmet }),
     ...(cause === undefined ? {} : { cause }),
   });
 };
@@ -563,35 +602,28 @@ const make = Effect.gen(function* () {
           const generation = (yield* crypto.randomUUIDv4().pipe(Effect.orDie)).slice(0, 8);
           const refs = new Map<string, string>();
           const names = new Map<string, string>();
-          const elements = result.observed.elements.flatMap((element, index) => {
-            if (element.ref === null) return [];
+          result.observed.elements.forEach((element, index) => {
+            if (element.ref === null) return;
             const ref = `${generation}-${index}`;
             refs.set(ref, `@${element.ref}`);
             names.set(String(element.ref), ref);
-            return [
-              {
-                tag: element.role,
-                role: element.role,
-                name: element.name ?? "",
-                selector: `aria-ref=${ref}`,
-                x: 0,
-                y: 0,
-                width: 0,
-                height: 0,
-              },
-            ];
           });
           references.set(binding.tabId, refs);
           setCurrent();
+          const text = result.text.replace(/\bref=(\d+)\b/g, (_match, id: string) =>
+            names.has(id) ? `aria-ref=${names.get(id)}` : "[unavailable-ref]",
+          );
+          // A scoped snapshot is how an agent reads a capped name in full.
+          const scoped = action.target !== undefined;
+          // visibleText already lists every element once, tagged with its ref. Repeating them in
+          // interactiveElements, with no geometry to add, only doubles what an agent has to read.
           return yield* decodeSnapshot({
             url: result.observed.url,
             title: result.observed.title,
             loading: false,
-            visibleText: result.text.replace(/\bref=(\d+)\b/g, (_match, id: string) =>
-              names.has(id) ? `aria-ref=${names.get(id)}` : "[unavailable-ref]",
-            ),
-            interactiveElements: elements,
-            accessibilityTree: elements,
+            visibleText: withOmitted(boundText(scoped ? text : capLongNames(text)), result.omitted),
+            interactiveElements: [],
+            accessibilityTree: null,
             consoleEntries: [],
             networkEntries: [],
             actionTimeline: [],

@@ -38,6 +38,7 @@ import * as Electron from "electron";
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
+import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import { supportsSnapShotOverlay } from "../window/SnapShotOverlayWindow.ts";
 import { startGlobalShiftShortcutProcess } from "./GlobalShiftShortcutProcess.ts";
@@ -437,7 +438,9 @@ async function captureSource({
   let linuxActivationFailure: { readonly cause: unknown } | undefined;
   const destinationWindow =
     Electron.BrowserWindow.getFocusedWindow() ??
-    Electron.BrowserWindow.getAllWindows().find((window) => !window.isDestroyed());
+    Electron.BrowserWindow.getAllWindows().find(
+      (window) => !window.isDestroyed() && !transition.owns(window),
+    );
   const destinationWindowBounds = overlayBounds ?? destinationWindow?.getBounds();
   {
     const revealPreparation =
@@ -726,6 +729,7 @@ export const make = Effect.gen(function* () {
   const permissions = yield* MacPermissions.MacPermissions;
   const clientSettings = yield* DesktopClientSettings.DesktopClientSettings;
   const desktopWindow = yield* DesktopWindow.DesktopWindow;
+  const electronWindow = yield* ElectronWindow.ElectronWindow;
   const overlayEnabled = (settings: ClientSettings) =>
     settings.snapShotEnabled && supportsSnapShotOverlay(environment.platform);
   const fileSystem = yield* FileSystem.FileSystem;
@@ -805,6 +809,7 @@ export const make = Effect.gen(function* () {
     // Transparent Windows surfaces must not resize while their compositor animation is running.
     boundOverlayToCaptureDisplays: environment.platform !== "linux",
     alwaysOnTopLevel: environment.platform === "linux" ? undefined : "pop-up-menu",
+    onWindowCreated: (window) => Effect.runSync(electronWindow.markAuxiliary(window)),
   });
   let linuxFeedback: { id: string; feedback: LinuxCaptureFeedback } | undefined;
   const closeLinuxFeedback = (id?: string) => {
@@ -930,12 +935,16 @@ export const make = Effect.gen(function* () {
           snapshot.linuxActivationFailure.cause,
         );
       }
-      // The overlay shows once the pixels are read, so it is never in the capture.
-      const overlayShown =
-        Option.isSome(overlayBounds) && (yield* desktopWindow.showSnapShotOverlay);
+      // The overlay shows once the pixels are read, so it is never in the capture. With the
+      // capture flying in, it shows as the flight starts, so its composer rises to meet it.
       if (snapshot.animationStarted) {
         yield* emit({ type: "started", id: id as DesktopSnapShotId });
-      } else if (!overlayShown) {
+        if (Option.isSome(overlayBounds)) {
+          void transition
+            .waitForFlight(id)
+            .then(() => runPromise(desktopWindow.showSnapShotOverlay));
+        }
+      } else if (!(Option.isSome(overlayBounds) && (yield* desktopWindow.showSnapShotOverlay))) {
         yield* desktopWindow.activate.pipe(Effect.ignoreCause);
       }
       return { id, capturedAt, ...snapshot };
@@ -1134,8 +1143,11 @@ export const make = Effect.gen(function* () {
       flash.dispose();
     }
     if (!settings.snapShotEnabled || !settings.snapShotAnimations || mode === "unavailable") {
-      transition.dispose();
+      transition.cool();
       closeLinuxFeedback();
+    } else if (environment.platform === "darwin") {
+      // Elsewhere hidden surfaces would count as open windows and keep the app running.
+      transition.warm();
     }
     // Every client-settings save lands here. Only the fields that decide which
     // shortcut listener runs may tear it down; a font-size change must not
@@ -1332,15 +1344,18 @@ export const make = Effect.gen(function* () {
       shortcutSuppressed = suppressed;
     });
 
-  const configure = Effect.fn("desktop.snapShot.configure")(function* (settings: ClientSettings) {
-    yield* configurationMutex.withPermits(1)(applySettings(settings, null));
-    yield* overlayEnabled(settings)
+  const applyOverlay = (settings: ClientSettings) =>
+    overlayEnabled(settings)
       ? desktopWindow.prepareSnapShotOverlay.pipe(
           Effect.catch((error) =>
             Effect.logWarning("Could not prepare the SnapShot overlay", error.message),
           ),
         )
       : desktopWindow.closeSnapShotOverlay;
+
+  const configure = Effect.fn("desktop.snapShot.configure")(function* (settings: ClientSettings) {
+    yield* configurationMutex.withPermits(1)(applySettings(settings, null));
+    yield* applyOverlay(settings);
   });
 
   const requestPermissions = Effect.fn("desktop.snapShot.requestPermissions")(function* (
@@ -1484,7 +1499,7 @@ export const make = Effect.gen(function* () {
     Effect.sync(() => {
       releaseShortcut();
       flash.dispose();
-      transition.dispose();
+      transition.cool();
       closeLinuxFeedback();
       accessibilityProcessPool.close();
       macSnapShotPool.close();
@@ -1542,16 +1557,12 @@ export const make = Effect.gen(function* () {
   });
 
   return DesktopSnapShot.of({
-    initialize: configurationMutex.withPermits(1)(
-      clientSettings.get.pipe(
-        Effect.flatMap((stored) =>
-          applySettings(
-            Option.getOrElse(stored, () => DEFAULT_CLIENT_SETTINGS),
-            null,
-          ),
-        ),
-        Effect.ignore,
-      ),
+    // Ready before the first capture: the overlay boots the whole app, which is slow to wait for.
+    initialize: clientSettings.get.pipe(
+      Effect.map((stored) => Option.getOrElse(stored, () => DEFAULT_CLIENT_SETTINGS)),
+      Effect.tap((settings) => configurationMutex.withPermits(1)(applySettings(settings, null))),
+      Effect.flatMap(applyOverlay),
+      Effect.ignore,
     ),
     configure,
     requestPermissions,
