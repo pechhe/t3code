@@ -411,21 +411,25 @@ function SubagentTimelineLink(props: {
   const progress = (agent?.progress ?? props.progress)?.trim();
   const settled = SETTLED_SUBAGENT_STATUSES.has(status ?? liveStatus);
   const rawDetail = settled ? result || progress : progress || result;
+  // An event card marks when the parent heard back; the task's own card already shows its
+  // result and stats, and repeating them made one task read as two.
   const detail =
-    rawDetail && !GENERIC_CHILD_END.test(rawDetail) ? plainDetail(rawDetail) || null : null;
+    props.event === undefined && rawDetail && !GENERIC_CHILD_END.test(rawDetail)
+      ? plainDetail(rawDetail) || null
+      : null;
   const failed = status === "failed";
   const timing = {
     status: liveStatus,
     startedAt: isoOrNull(agent?.startedAt ?? props.startedAt),
     completedAt: isoOrNull(agent?.completedAt ?? props.completedAt),
   };
-  // The timestamp replaces elapsed time on an event card, so its length joins the details.
   const meta: ReactNode[] = [];
-  if (agent?.model) {
+  if (!props.event && agent?.model) {
     meta.push(resolveSubagentMetadata({ model: agent.model, provider: props.provider }).modelLabel);
   }
-  if (props.event) meta.push(<SubagentElapsed agent={timing} />);
-  if (agent?.totalTokens !== undefined) meta.push(`${formatTokens(agent.totalTokens)} tokens`);
+  if (!props.event && agent?.totalTokens !== undefined) {
+    meta.push(`${formatTokens(agent.totalTokens)} tokens`);
+  }
   const content = (
     <>
       <SubagentAvatar
@@ -439,7 +443,7 @@ function SubagentTimelineLink(props: {
           {topic ? (
             <span className="min-w-0 truncate text-xs font-medium text-foreground">{topic}</span>
           ) : null}
-          {detail !== null && (props.event !== undefined || status !== "completed") ? (
+          {detail !== null && status !== "completed" ? (
             <span
               className={cn(
                 "shrink-0 text-3xs",
