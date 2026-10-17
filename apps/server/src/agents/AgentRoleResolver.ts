@@ -14,7 +14,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { compareByUsageReset } from "@t3tools/shared/providerPools";
+import { compareByUsageReset, isProviderUsageExhausted } from "@t3tools/shared/providerPools";
 
 export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentRoleError", {
   reason: Schema.Literals([
@@ -251,13 +251,12 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     const matching =
       options === undefined
         ? requested
-        : requested.filter(
-            ({ selection: value }) =>
-              options.every((option) =>
-                value.options?.some(
-                  (expected) => expected.id === option.id && expected.value === option.value,
-                ),
+        : requested.filter(({ selection: value }) =>
+            options.every((option) =>
+              value.options?.some(
+                (expected) => expected.id === option.id && expected.value === option.value,
               ),
+            ),
           );
     if (matching.length === 0)
       return yield* new AgentRoleError({ reason: "unsupported-options", candidates: diagnostics });
@@ -281,9 +280,21 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     candidate.provider.driver !== authorDriver
       ? 1
       : 0;
-  const byUsageReset = compareByUsageReset(DateTime.toEpochMillis(yield* DateTime.now));
+  const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
+  const byUsageReset = compareByUsageReset(nowMs);
+  const limitedInstances = new Set(
+    eligible
+      .filter(({ provider }) => isProviderUsageExhausted(provider, nowMs))
+      .map(({ provider }) => provider.instanceId),
+  );
+  const limited = (candidate: { readonly provider: ServerProvider }) =>
+    Number(limitedInstances.has(candidate.provider.instanceId));
   candidates.sort(
     (a, b) =>
+      // An account out of allowance serves only when every candidate is, so the work moves
+      // down the list instead of failing at once; then the soonest reset serves first.
+      limited(a) - limited(b) ||
+      (limited(a) === 1 ? byUsageReset(a.provider, b.provider) : 0) ||
       // A reviewer never defaults to the model that wrote the work.
       (reviewer
         ? Number(a.selection.model === request.authorModel) -
@@ -312,11 +323,15 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         ? candidate
         : {
             ...candidate,
+            // `selection` names the choice; a limited one says the task will wait for a reset.
             reason:
-              candidate.alias === chosen.alias &&
-              candidate.providerInstanceId === chosen.provider.instanceId
-                ? "selected"
-                : "lower-preference",
+              candidate.providerInstanceId !== undefined &&
+              limitedInstances.has(candidate.providerInstanceId)
+                ? "usage-limited"
+                : candidate.alias === chosen.alias &&
+                    candidate.providerInstanceId === chosen.provider.instanceId
+                  ? "selected"
+                  : "lower-preference",
           },
     ),
   };

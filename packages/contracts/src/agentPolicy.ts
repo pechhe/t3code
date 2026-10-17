@@ -483,6 +483,14 @@ export const AgentRolesInput = Schema.Struct({
   authorModel: Schema.optional(TrimmedNonEmptyString),
 });
 export type AgentRolesInput = typeof AgentRolesInput.Type;
+/** How one model and account in a role's list fared when the role was resolved. */
+export const AgentPolicyCandidate = Schema.Struct({
+  alias: Schema.String,
+  model: Schema.String,
+  providerInstanceId: Schema.optional(ProviderInstanceId),
+  reason: Schema.String,
+});
+export type AgentPolicyCandidate = typeof AgentPolicyCandidate.Type;
 export const AgentRolesResult = Schema.Struct({
   environmentId: EnvironmentId,
   policyHash: Sha256,
@@ -497,6 +505,8 @@ export const AgentRolesResult = Schema.Struct({
       executionBoundary: Schema.optional(AgentExecutionBoundary),
       selection: Schema.NullOr(ModelSelection),
       refusal: Schema.NullOr(TrimmedNonEmptyString),
+      /** Accounts out of usage, passed over unless every candidate is; absent when none is. */
+      usageLimited: Schema.optional(Schema.Array(AgentPolicyCandidate)),
     }),
   ),
 });

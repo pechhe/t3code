@@ -2,21 +2,14 @@ import * as Schema from "effect/Schema";
 import {
   AgentExecutionRequirement,
   AgentExecutionBoundary,
+  AgentPolicyCandidate,
   AgentPolicyManifest,
   AgentPolicySnapshot,
   Sha256,
 } from "./agentPolicy.ts";
-import { ProviderInstanceId } from "./providerInstance.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ServerProvider } from "./server.ts";
 
-export const AgentPolicyCandidate = Schema.Struct({
-  alias: Schema.String,
-  model: Schema.String,
-  providerInstanceId: Schema.optional(ProviderInstanceId),
-  reason: Schema.String,
-});
-export type AgentPolicyCandidate = typeof AgentPolicyCandidate.Type;
 export const AgentPolicyPreview = Schema.Struct({
   executionRequirement: Schema.optional(AgentExecutionRequirement),
   executionBoundary: Schema.optional(AgentExecutionBoundary),

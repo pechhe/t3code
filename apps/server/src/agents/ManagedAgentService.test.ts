@@ -8,6 +8,7 @@ import {
   type ModelSelection,
   type OrchestrationV2AppThread,
   RunId,
+  type ServerProvider,
   ThreadId,
 } from "@t3tools/contracts";
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
@@ -1042,6 +1043,49 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
           );
       expect((yield* reviewer()).refusal).toBeNull();
       expect((yield* reviewer("spec")).refusal).toBeNull();
+    }),
+  );
+
+  it.effect("discovery names the accounts a role passed over for usage", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const claudeOut: ServerProvider = {
+        ...claude,
+        usageLimits: {
+          checkedAt: "2026-10-15T00:00:00.000Z",
+          windows: [
+            {
+              id: "seven_day",
+              kind: "weekly",
+              label: "Week",
+              usedPercent: 100,
+              resetsAt: "2026-10-15T03:00:00.000Z",
+            },
+          ],
+        },
+      };
+      const discovered = yield* f.service
+        .roles({
+          providers: [codex, claudeOut],
+          ceiling: "full-access",
+          request: { taskClass: "non-ui", sourceRevision },
+        })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+      const reviewer = discovered.roles.find((role) => role.role === "ticket-reviewer")!;
+      expect(reviewer.selection?.model).toBe(codexModel);
+      expect(reviewer.usageLimited).toContainEqual(
+        expect.objectContaining({ model: claudeModel, providerInstanceId: claude.instanceId }),
+      );
+      const unlimited = yield* f.service
+        .roles({
+          providers: [codex, claude],
+          ceiling: "full-access",
+          request: { taskClass: "non-ui", sourceRevision },
+        })
+        .pipe(Effect.provideService(ConfigProvider.ConfigProvider, f.config));
+      expect(
+        unlimited.roles.find((role) => role.role === "ticket-reviewer")!.usageLimited,
+      ).toBeUndefined();
     }),
   );
 

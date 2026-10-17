@@ -498,30 +498,31 @@ const make = Effect.gen(function* () {
             policy.sourceAccess === "read-only" || input.request.readOnly === true,
           );
           const browser = yield* browserRoute(policy.toolProfile, input.projectId, "discovery");
-          const result = yield* Effect.result(
-            resolver.resolve({
-              ...context,
-              snapshot,
-              ...(browser === undefined ? {} : { browser }),
-              providers: input.providers,
-              ...(input.selection === undefined ? {} : { selection: input.selection }),
-              ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
-              request: {
-                ...context.request,
-                ...(!isReviewerRole(role)
-                  ? {}
-                  : {
-                      review: {
-                        scope: REVIEWER_SCOPE[role],
-                        baseRevision: "capability-discovery",
-                        includedChanges: ["capability-discovery"],
-                        specRef: "capability-discovery",
-                        specRevision: "capability-discovery",
-                        coverage: "complete" as const,
-                      },
-                    }),
-              },
-            }),
+          const result = yield* resolver.preview({
+            ...context,
+            snapshot,
+            ...(browser === undefined ? {} : { browser }),
+            providers: input.providers,
+            ...(input.selection === undefined ? {} : { selection: input.selection }),
+            ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
+            request: {
+              ...context.request,
+              ...(!isReviewerRole(role)
+                ? {}
+                : {
+                    review: {
+                      scope: REVIEWER_SCOPE[role],
+                      baseRevision: "capability-discovery",
+                      includedChanges: ["capability-discovery"],
+                      specRef: "capability-discovery",
+                      specRevision: "capability-discovery",
+                      coverage: "complete" as const,
+                    },
+                  }),
+            },
+          });
+          const usageLimited = result.candidates.filter(
+            (candidate) => candidate.reason === "usage-limited",
           );
           return {
             role,
@@ -533,19 +534,12 @@ const make = Effect.gen(function* () {
                 ? readOnlyToolProfile(policy.toolProfile)
                 : policy.toolProfile,
             executionRequirement: context.request.executionRequirement,
-            ...(result._tag === "Success"
-              ? {
-                  executionBoundary:
-                    input.request.readOnly === true || policy.sourceAccess === "read-only"
-                      ? ("read-only" as const)
-                      : input.providers.find((p) => p.instanceId === result.success.instanceId)
-                            ?.driver === "claudeAgent"
-                        ? ("trusted-host-access" as const)
-                        : ("workspace-sandbox" as const),
-                }
-              : {}),
-            selection: result._tag === "Success" ? result.success : null,
-            refusal: result._tag === "Failure" ? result.failure.reason : null,
+            ...(result.executionBoundary === undefined
+              ? {}
+              : { executionBoundary: result.executionBoundary }),
+            selection: result.selection,
+            refusal: result.refusal,
+            ...(usageLimited.length === 0 ? {} : { usageLimited }),
           };
         }),
       );

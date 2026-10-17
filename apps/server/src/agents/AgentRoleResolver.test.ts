@@ -669,4 +669,65 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* resolve(base)).instanceId).toBe(sooner.instanceId);
     }),
   );
+
+  it.effect("delegates past accounts out of usage to the next model with allowance", () =>
+    Effect.gen(function* () {
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const limit = (account: ServerProvider, resetsAt: string, id = account.instanceId) => ({
+        ...account,
+        instanceId: id,
+        usageLimits: {
+          checkedAt: "2026-10-15T00:00:00.000Z",
+          windows: [
+            { id: "seven_day", kind: "weekly" as const, label: "Week", usedPercent: 100, resetsAt },
+          ],
+        },
+      });
+      const review = (authorModel?: string) =>
+        request({
+          role: "ticket-reviewer",
+          sourceRevision: "reviewed-commit",
+          review: changeReview,
+          ...(authorModel === undefined ? {} : { authorModel }),
+        });
+      const claudeOut = limit(claude, "2026-10-15T03:00:00.000Z");
+      const codexOut = limit(codex, "2026-10-15T02:00:00.000Z");
+
+      // Sonnet leads the list, but its only account is out, so Codex serves.
+      const skipped = yield* resolver.preview(
+        input({ request: review(), providers: [codex, claudeOut] }),
+      );
+      expect(skipped.selection?.model).toBe(codexModel);
+      expect(skipped.candidates).toContainEqual(
+        expect.objectContaining({ alias: "sonnet", reason: "usage-limited" }),
+      );
+
+      // Another account with allowance keeps the preferred model.
+      const spare = { ...claude, instanceId: ProviderInstanceId.make("claude-spare") };
+      const kept = yield* resolve(
+        input({ request: review(), providers: [codex, claudeOut, spare] }),
+      );
+      expect(kept).toMatchObject({ model: claudeModel, instanceId: spare.instanceId });
+
+      // With every account out, the one resetting soonest serves rather than refusing.
+      const allOut = yield* resolve(input({ request: review(), providers: [codexOut, claudeOut] }));
+      expect(allOut.model).toBe(codexModel);
+
+      // Allowance outranks a reviewer's preference against the author's model.
+      const authorOnly = yield* resolve(
+        input({ request: review(claudeModel), providers: [codexOut, claude] }),
+      );
+      expect(authorOnly.model).toBe(claudeModel);
+
+      // An explicit choice takes an account of that model with allowance when it has one.
+      const chosen = yield* resolve(
+        input({
+          request: review(),
+          providers: [codex, claudeOut, spare],
+          selection: { model: claudeModel },
+        }),
+      );
+      expect(chosen.instanceId).toBe(spare.instanceId);
+    }),
+  );
 });
