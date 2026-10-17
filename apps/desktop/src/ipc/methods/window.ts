@@ -40,7 +40,10 @@ import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as Electron from "electron";
 import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
-import { currentComposerScreenRecordingSupport } from "../../preview/ComposerDisplayMedia.ts";
+import {
+  currentComposerScreenRecordingSupport,
+  prepareMacScreenPicker,
+} from "../../preview/ComposerDisplayMedia.ts";
 import * as ScreenRecordingIndicator from "../../preview/ScreenRecordingIndicator.ts";
 import * as IpcChannels from "../channels.ts";
 import * as DesktopIpc from "../DesktopIpc.ts";
@@ -404,6 +407,21 @@ export const getScreenRecordingSupport = DesktopIpc.makeIpcMethod({
     return currentComposerScreenRecordingSupport(
       environment.platform,
       yield* HostProcess.Environment,
+    );
+  }),
+});
+
+export const prepareScreenRecording = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.PREPARE_SCREEN_RECORDING_CHANNEL,
+  payload: Schema.Undefined,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.prepareScreenRecording")(function* () {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    if (environment.platform !== "darwin") return;
+    yield* Effect.tryPromise(prepareMacScreenPicker).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not prepare the macOS screen picker", { error }),
+      ),
     );
   }),
 });

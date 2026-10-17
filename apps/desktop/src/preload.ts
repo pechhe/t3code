@@ -248,6 +248,8 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.OPEN_SYSTEM_SETTINGS_CHANNEL, pane),
   getScreenRecordingSupport: () =>
     ipcRenderer.invoke(IpcChannels.GET_SCREEN_RECORDING_SUPPORT_CHANNEL, undefined),
+  prepareScreenRecording: () =>
+    ipcRenderer.invoke(IpcChannels.PREPARE_SCREEN_RECORDING_CHANNEL, undefined),
   setScreenRecordingIndicator: (state) =>
     ipcRenderer.invoke(IpcChannels.SET_SCREEN_RECORDING_INDICATOR_CHANNEL, state),
   onScreenRecordingIndicatorAction: (listener) => {

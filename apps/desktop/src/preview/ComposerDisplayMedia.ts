@@ -1,6 +1,7 @@
 import * as NodeOS from "node:os";
 
 import type { DesktopScreenRecordingSupport } from "@t3tools/contracts";
+import type { DataType } from "ffi-rs";
 import * as Electron from "electron";
 
 import { isWaylandSession } from "../snapShot/snapShot.ts";
@@ -26,6 +27,59 @@ export const currentComposerScreenRecordingSupport = (
   platform: NodeJS.Platform,
   environment: NodeJS.ProcessEnv,
 ) => composerScreenRecordingSupport({ platform, darwinRelease: NodeOS.release(), environment });
+
+let macScreenPickerReset: Promise<() => void> | undefined;
+
+const loadMacScreenPickerReset = () =>
+  import("ffi-rs").then(({ DataType, load, open }) => {
+    const library = "t3-objc";
+    open({ library, path: "/usr/lib/libobjc.A.dylib" });
+    const lookup = (funcName: string, name: string) =>
+      load({
+        library,
+        funcName,
+        retType: DataType.BigInt,
+        paramsType: [DataType.String],
+        paramsValue: [name],
+      }) as bigint;
+    const send = (
+      receiver: bigint,
+      selector: string,
+      retType: DataType,
+      paramsType: ReadonlyArray<DataType> = [],
+      paramsValue: ReadonlyArray<unknown> = [],
+    ) =>
+      load({
+        library,
+        funcName: "objc_msgSend",
+        retType,
+        paramsType: [DataType.BigInt, DataType.BigInt, ...paramsType],
+        paramsValue: [receiver, lookup("sel_registerName", selector), ...paramsValue],
+      });
+    return () => {
+      const picker = send(
+        lookup("objc_getClass", "SCContentSharingPicker"),
+        "sharedPicker",
+        DataType.BigInt,
+      ) as bigint;
+      if (picker === 0n) return;
+      send(picker, "setActive:", DataType.Void, [DataType.Boolean], [true]);
+      // nil lifts the limit; Electron sets its own once the capture starts.
+      send(picker, "setMaximumStreamCount:", DataType.Void, [DataType.BigInt], [0n]);
+    };
+  });
+
+/**
+ * Readies macOS's system picker for the next `getDisplayMedia()`. Electron sets the picker's stream
+ * limit before activating it, and ScreenCaptureKit only forwards a limit changed while the picker is
+ * active. Once the first recording ends, macOS keeps the limit of 0 Electron set then, and withholds
+ * every later pick until the request times out. Activating the picker and clearing the limit first
+ * lets Electron's own update reach macOS.
+ */
+export async function prepareMacScreenPicker(): Promise<void> {
+  macScreenPickerReset ??= loadMacScreenPickerReset();
+  (await macScreenPickerReset)();
+}
 
 export interface ComposerDisplayMediaHost {
   /** Whether listing sources shows the platform's own picker, so the result is the user's choice. */

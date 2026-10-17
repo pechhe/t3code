@@ -1198,6 +1198,8 @@ export interface DesktopBridge {
   openSystemSettings?: (pane: SystemSettingsPane) => Promise<boolean>;
   checkSystemPermission?: (pane: SystemSettingsPane) => Promise<boolean>;
   getScreenRecordingSupport?: () => Promise<DesktopScreenRecordingSupport>;
+  /** Readies the platform's screen picker; call right before each `getDisplayMedia()`. */
+  prepareScreenRecording?: () => Promise<void>;
   /**
    * Shows recording controls outside the window, or hides them for null. Resolves whether they are
    * shown; where they are not, the app shows its own.

@@ -54,7 +54,11 @@ export function browserComposerScreenRecorderHost(
   );
   return {
     captureBusy: () => readActiveBrowserRecordingTabIds().size > 0,
-    getDisplayMedia: (options) => navigator.mediaDevices.getDisplayMedia(options),
+    getDisplayMedia: async (options) => {
+      // Preparation only helps the picker; a failed call must not stop the recording.
+      await window.desktopBridge?.prepareScreenRecording?.().catch(() => undefined);
+      return navigator.mediaDevices.getDisplayMedia(options);
+    },
     createRecorder: (stream) => createMediaRecorder(stream, { maxVideoBitsPerSecond }),
     now: () => Date.now(),
   };
