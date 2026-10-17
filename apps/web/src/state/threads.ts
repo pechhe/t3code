@@ -17,6 +17,13 @@ import { environmentCatalog } from "../connection/catalog";
 import { connectionAtomRuntime } from "../connection/runtime";
 import { environmentSnapshotAtom } from "./shell";
 
+// The declaration emitter must name these to describe `threadEnvironment`'s commands, and
+// only a reachable import gives it a portable path.
+export type {
+  MoveThreadToProjectInput,
+  OpenSideChatInput,
+} from "@t3tools/client-runtime/operations";
+
 export const threadEnvironment = createThreadEnvironmentAtoms(
   connectionAtomRuntime,
   environmentSnapshotAtom,

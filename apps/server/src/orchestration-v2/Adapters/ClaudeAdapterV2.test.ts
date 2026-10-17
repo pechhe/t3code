@@ -820,7 +820,15 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
         hooks: { SessionStart: [{ hooks: [{ type: "command", command: "unsafe" }] }] },
       } as never,
     });
-    assert.deepEqual(options.tools, ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "ToolSearch"]);
+    assert.deepEqual(options.tools, [
+      "Read",
+      "Glob",
+      "Grep",
+      "Write",
+      "Edit",
+      "Bash",
+      "ToolSearch",
+    ]);
     assert.notProperty(options.settings, "hooks");
     assert.equal(options.permissionMode, "bypassPermissions");
     assert.isTrue(options.allowDangerouslySkipPermissions);
@@ -5336,6 +5344,33 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           assert.equal(
             (afterStart.at(-1)?.providerThread.pendingBackgroundTasks ?? [])[0]?.taskId,
             WAKE_TASK_ID,
+          );
+
+          // A subagent's own background shell keeps the subagent waiting on it.
+          yield* Queue.offer(
+            harness.sdkMessages,
+            claudeSdkFrame({
+              type: "system",
+              subtype: "background_tasks_changed",
+              tasks: [
+                {
+                  task_id: "subagent-shell",
+                  task_type: "local_bash",
+                  description: "sleep 150",
+                  parent_task_id: "agent-1",
+                },
+              ],
+              uuid: "00000000-0000-4000-8000-000000000203",
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+          );
+          yield* awaitUntil(
+            () =>
+              providerThreadRosterEvents(harness.events).some(
+                (event) =>
+                  event.providerThread.pendingBackgroundTasks?.[0]?.parentTaskId === "agent-1",
+              ),
+            "subagent shell roster",
           );
 
           yield* Queue.offer(harness.sdkMessages, emptyRoster);

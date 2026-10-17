@@ -1,7 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
-  AuthAdministrativeScopes,
   AuthSessionId,
+  AuthStandardClientScopes,
   type AuthCreatePairingCredentialInput,
   EnvironmentHttpApi,
 } from "@t3tools/contracts";
@@ -503,7 +503,7 @@ it.live("one-click approves only access the browser session holds the scopes for
           Effect.flatMap(json<{ csrfToken?: string; oneClickAccess?: ReadonlyArray<string> }>),
         );
 
-      const admin = yield* browserCookie([...AuthAdministrativeScopes]);
+      const admin = yield* browserCookie([...AuthStandardClientScopes]);
       const adminDetails = yield* details(admin);
       expect(adminDetails.csrfToken).toEqual(expect.any(String));
       expect(adminDetails.oneClickAccess).toEqual([
