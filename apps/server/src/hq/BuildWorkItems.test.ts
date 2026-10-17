@@ -712,11 +712,39 @@ it.effect("a mention HQ can't answer is left out without caching it as unknown",
     const { hq, service, add } = yield* makeHarness;
     add(item(1_000_078, "spec", "Show the Build item", "in_progress"));
     hq.state.unreachable = true;
+    // Unreachable is told apart from a number Build doesn't know, which sets no flag.
     assert.deepStrictEqual(yield* service.mentions({ threadId, numbers: [1_000_078] }), {
       items: [],
+      unavailable: true,
     });
     hq.state.unreachable = false;
-    const { items } = yield* service.mentions({ threadId, numbers: [1_000_078] });
+    const { items, unavailable } = yield* service.mentions({
+      threadId,
+      numbers: [1_000_078, 1_000_404],
+    });
     assert.strictEqual(items[0]?.item?.title, "Show the Build item");
+    assert.isUndefined(unavailable);
+  }),
+);
+
+it.effect("a card for a link made against another HQ is unavailable and reads nothing", () =>
+  Effect.gen(function* () {
+    const { hq, service, add, connections } = yield* makeHarness;
+    const spec = item(1_000_078, "spec", "Show the Build item", "in_progress");
+    const mentioned = item(1_000_081, "ticket", "Chat chips", "ready");
+    add(spec, mentioned);
+    yield* service.link({ threadId, reference: "#1000078" });
+    yield* connections.connect({
+      projectId,
+      origin: otherOrigin,
+      delegation: `yshqd_${"e".repeat(43)}`,
+    });
+    const reads = hq.toolCalls.length;
+    const failed = yield* service.card({ threadId, itemId: spec.id, open: "a" }).pipe(Effect.flip);
+    assert.strictEqual(failed.reason, "unavailable");
+    assert.strictEqual(hq.toolCalls.length, reads);
+    // A mention's card keeps reading the project's current HQ.
+    const card = yield* service.card({ threadId, itemId: mentioned.id, open: "b" });
+    assert.strictEqual(card?.item.title, "Chat chips");
   }),
 );

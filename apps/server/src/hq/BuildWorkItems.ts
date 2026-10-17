@@ -239,7 +239,8 @@ export class BuildWorkItems extends Context.Service<
     ) => Effect.Effect<BuildWorkItemCardResult, BuildWorkItemError>;
     /**
      * Items mentioned in the thread's messages, by number on its project HQ, as clients show
-     * them. Shares the linked item's cache and cadence; a number Build doesn't know is absent.
+     * them. Shares the linked item's cache and cadence; a number Build doesn't know is absent, and
+     * `unavailable` tells that apart from Build being unreachable.
      */
     readonly mentions: (
       input: BuildWorkItemMentionsInput,
@@ -431,21 +432,26 @@ const make = Effect.gen(function* () {
       const shell = yield* shellOf(input.threadId);
       const connection = yield* connectionOf(shell.projectId);
       if (connection === null) return { items: [] };
+      let unreachable = false;
       const views = yield* Effect.forEach(
         [...new Set(input.numbers)],
         (number) =>
           itemIdOf(shell.projectId, connection, number).pipe(
-            Effect.flatMap((itemId) =>
-              Option.isSome(itemId) && itemId.value !== null
+            Effect.flatMap((itemId) => {
+              if (Option.isNone(itemId)) unreachable = true;
+              return Option.isSome(itemId) && itemId.value !== null
                 ? summaryView(shell.projectId, connection, { itemId: itemId.value, number }).pipe(
                     Effect.map(Option.some),
                   )
-                : Effect.succeed(Option.none<BuildWorkItemView>()),
-            ),
+                : Effect.succeed(Option.none<BuildWorkItemView>());
+            }),
           ),
         { concurrency: 4 },
       );
-      return { items: views.flatMap((found) => (Option.isSome(found) ? [found.value] : [])) };
+      return {
+        items: views.flatMap((found) => (Option.isSome(found) ? [found.value] : [])),
+        ...(unreachable ? { unavailable: true } : {}),
+      };
     },
   );
 
@@ -625,6 +631,12 @@ const make = Effect.gen(function* () {
       const shell = yield* shellOf(input.threadId);
       const connection = yield* connectionOf(shell.projectId);
       if (connection === null) return null;
+      // The link's item is on another HQ: never read it, or its number, on this one.
+      if (shell.workItem?.itemId === input.itemId && shell.workItem.origin !== connection.origin)
+        return yield* error(
+          "unavailable",
+          `This link is on ${shell.workItem.origin}, but this project uses ${connection.origin}.`,
+        );
       const key = `${connection.connection}\n${input.itemId}`;
       const cached = yield* readLock.withLock(
         `card\n${key}`,

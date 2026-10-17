@@ -300,6 +300,7 @@ export function ThreadBuildItemSheet({ route }: StaticScreenProps<BuildItemTarge
   const itemId =
     target.itemId ?? mention.data?.items.find((found) => found.number === target.number)?.itemId;
   const unknown = target.itemId === undefined && mention.data !== null && itemId === undefined;
+  const unreachable = mention.data?.unavailable === true;
   const cardQuery = useEnvironmentQuery(
     itemId === undefined
       ? null
@@ -321,7 +322,7 @@ export function ThreadBuildItemSheet({ route }: StaticScreenProps<BuildItemTarge
         <CardBody card={cardQuery.data} />
       ) : (
         <Text className="pt-6 text-center text-sm text-foreground-muted">
-          {cardQuery.error !== null || mention.error !== null
+          {cardQuery.error !== null || mention.error !== null || (unknown && unreachable)
             ? "Build couldn't be reached."
             : unknown
               ? `Build has no item #${target.number} you can see.`

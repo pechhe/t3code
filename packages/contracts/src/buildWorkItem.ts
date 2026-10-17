@@ -171,6 +171,11 @@ export type BuildWorkItemMentionsInput = typeof BuildWorkItemMentionsInput.Type;
 /** Only the items Build knows: a number it doesn't is absent, and its mention stays as written. */
 export const BuildWorkItemMentionsResult = Schema.Struct({
   items: Schema.Array(BuildWorkItemView),
+  /**
+   * Build could not be reached for at least one number, so an absent one may be known to Build.
+   * Optional, so a client still reads an older server, which leaves it out.
+   */
+  unavailable: Schema.optional(Schema.Boolean),
 });
 export type BuildWorkItemMentionsResult = typeof BuildWorkItemMentionsResult.Type;
 
