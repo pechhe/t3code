@@ -257,8 +257,12 @@ const ThreadSuggestProjectTool = Tool.make("t3_thread_suggest_project", {
 const ThreadMoveToProjectTool = Tool.make("t3_thread_move_to_project", {
   ...commandTool,
   description:
-    "Move a No project thread into a project because the user asked for it: forks the conversation from its latest finished turn into the project, at the project's root, and archives the No project thread. Omit threadId for this thread. To propose a move instead, use t3_thread_suggest_project.",
-  parameters: Schema.Struct({ threadId: Schema.optional(ThreadId), projectId: ProjectId }),
+    "Move a No project thread into a project. Once the thread has no active or queued run, T3 forks the conversation into the project at its root as targetThreadId, sends continuationPrompt there, and archives the No project thread. Moving this thread: call it, then end your turn; the moved thread continues the work with your conversation, so make continuationPrompt the next instruction. If the user chose Keep on an earlier move or suggestion, move only when they ask again. Omit threadId for this thread.",
+  parameters: Schema.Struct({
+    threadId: Schema.optional(ThreadId),
+    projectId: ProjectId,
+    continuationPrompt: Schema.optional(TrimmedNonEmptyString),
+  }),
   success: transferResult,
   dependencies: projectMoveDependencies,
 })

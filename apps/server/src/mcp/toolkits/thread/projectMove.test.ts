@@ -166,22 +166,31 @@ it.effect("refuses a move into a project that does not exist", () => {
   }).pipe(Effect.provide(layerFor(scratchProjectId, dispatched)));
 });
 
-it.effect("a move forks the chat into the project and archives the original", () => {
+it.effect("a move is recorded for T3 to make once the chat's turn ends", () => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   return Effect.gen(function* () {
-    const result = yield* call("t3_thread_move_to_project", { projectId: targetProjectId });
+    const result = yield* call("t3_thread_move_to_project", {
+      projectId: targetProjectId,
+      continuationPrompt: "Continue the chaser email.",
+    });
     expect(result.isError).toBe(false);
     expect(dispatched).toMatchObject([
       {
-        type: "thread.fork",
-        sourceThreadId: threadId,
-        sourcePoint: { type: "latest_finished" },
-        title: "Chaser email",
-        projectId: targetProjectId,
+        type: "thread.metadata.update",
+        threadId,
+        projectSuggestion: {
+          projectId: targetProjectId,
+          move: { continuation: "Continue the chaser email." },
+        },
       },
-      { type: "thread.archive", threadId },
     ]);
-    const fork = dispatched[0] as Extract<OrchestrationV2ServerCommand, { type: "thread.fork" }>;
-    expect(result.structuredContent).toMatchObject({ targetThreadId: fork.targetThreadId });
+    const update = dispatched[0] as Extract<
+      OrchestrationV2ServerCommand,
+      { type: "thread.metadata.update" }
+    >;
+    const suggestion = update.projectSuggestion;
+    expect(result.structuredContent).toMatchObject({
+      targetThreadId: typeof suggestion === "object" ? suggestion.move?.targetThreadId : undefined,
+    });
   }).pipe(Effect.provide(layerFor(scratchProjectId, dispatched)));
 });

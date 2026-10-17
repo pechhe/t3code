@@ -2777,6 +2777,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     if (
       command.type === "thread.metadata.update" &&
       typeof command.projectSuggestion === "object" &&
+      command.projectSuggestion.move === undefined &&
       thread.projectSuggestion != null
     ) {
       return yield* new OrchestratorDispatchError({

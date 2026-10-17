@@ -397,6 +397,18 @@ export const OrchestrationV2ThreadWorkItem = Schema.Struct({
 export type OrchestrationV2ThreadWorkItem = typeof OrchestrationV2ThreadWorkItem.Type;
 
 /**
+ * A move the agent made itself rather than suggested. Once the chat has no
+ * active or queued run, T3 forks it into the project as `targetThreadId`,
+ * archives the original and sends `continuation` to the moved chat. Keep
+ * (dismissal) cancels a move not yet made.
+ */
+export const OrchestrationV2ThreadProjectMove = Schema.Struct({
+  targetThreadId: ThreadId,
+  continuation: Schema.NullOr(TrimmedNonEmptyString),
+});
+export type OrchestrationV2ThreadProjectMove = typeof OrchestrationV2ThreadProjectMove.Type;
+
+/**
  * A project an agent suggested for its own No project chat. The user moves the
  * chat there or keeps it; a dismissed suggestion stays recorded so the chat is
  * suggested at most once.
@@ -406,6 +418,7 @@ export const OrchestrationV2ThreadProjectSuggestion = Schema.Struct({
   reason: TrimmedNonEmptyString,
   suggestedAt: Schema.DateTimeUtc,
   dismissedAt: Schema.NullOr(Schema.DateTimeUtc),
+  move: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectMove)),
 });
 export type OrchestrationV2ThreadProjectSuggestion =
   typeof OrchestrationV2ThreadProjectSuggestion.Type;
@@ -2898,7 +2911,12 @@ export const OrchestrationV2Command = Schema.Union([
     /** Record a suggested project, or dismiss the recorded one; absent leaves it unchanged. */
     projectSuggestion: Schema.optional(
       Schema.Union([
-        Schema.Struct({ projectId: ProjectId, reason: TrimmedNonEmptyString }),
+        Schema.Struct({
+          projectId: ProjectId,
+          reason: TrimmedNonEmptyString,
+          /** Replaces any earlier suggestion, dismissed or not. */
+          move: Schema.optional(OrchestrationV2ThreadProjectMove),
+        }),
         Schema.Literal("dismissed"),
       ]),
     ),

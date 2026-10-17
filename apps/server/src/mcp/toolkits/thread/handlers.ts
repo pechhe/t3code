@@ -205,27 +205,19 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       yield* assertMovableToProject(projection.thread.projectId, input.projectId);
       const commandId = yield* newCommandId();
       const targetThreadId = ThreadId.make(`${commandId}:move`);
-      yield* threads
+      const result = yield* threads
         .dispatch({
-          type: "thread.fork",
+          type: "thread.metadata.update",
           commandId,
-          sourceThreadId: projection.thread.id,
-          targetThreadId,
-          sourcePoint: { type: "latest_finished" },
-          title: projection.thread.title,
-          projectId: input.projectId,
-          createdBy: "agent",
-          creationSource: "mcp",
-        })
-        .pipe(Effect.mapError(dispatchFailure));
-      const archived = yield* threads
-        .dispatch({
-          type: "thread.archive",
-          commandId: yield* newCommandId(),
           threadId: projection.thread.id,
+          projectSuggestion: {
+            projectId: input.projectId,
+            reason: "Moving here as asked in this chat.",
+            move: { targetThreadId, continuation: input.continuationPrompt ?? null },
+          },
         })
         .pipe(Effect.mapError(dispatchFailure));
-      return { sequence: archived.sequence, targetThreadId };
+      return { sequence: result.sequence, targetThreadId };
     }),
   ),
   t3_thread_merge_back: McpToolAccess.writesThreads(

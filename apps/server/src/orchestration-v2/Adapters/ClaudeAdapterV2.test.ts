@@ -2167,10 +2167,7 @@ describe("ClaudeAdapterV2 native fork", () => {
         assert.deepEqual(forkCalls, [
           {
             sessionId: "source-native-session",
-            options: {
-              dir: "/workspace",
-              upToMessageId: "assistant-message-cursor",
-            },
+            options: { upToMessageId: "assistant-message-cursor" },
             // The session lives in the instance's Claude home.
             environment: { CLAUDE_CONFIG_DIR: "/accounts/work" },
             threadId: targetThreadId,

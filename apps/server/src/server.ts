@@ -21,6 +21,7 @@ import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReact
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
 import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
+import * as ProjectMoveReactor from "./orchestration-v2/ProjectMoveReactor.ts";
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
 
@@ -630,6 +631,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* (yield* ThreadWatchReactor.ThreadWatchReactor).start();
     }),
   ).pipe(Layer.provide(ThreadWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* ProjectMoveReactor.ProjectMoveReactor).start();
+    }),
+  ).pipe(Layer.provide(ProjectMoveReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* HqAgentLifecycleReactor.HqAgentLifecycleReactor).start();
