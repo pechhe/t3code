@@ -254,10 +254,10 @@ worktree to choose. The exception is a thread a scheduled task or agent starts i
 checkout itself. With the project selected, **Settings → Source Control** shows
 **Workspaces: SlipJay workspaces**.
 
-The composer strip shows the thread's workspace and its Issue, then the integration bookmark it
-starts from, how many changes that bookmark has gained since, and how many files the thread
-changed. While the thread's change lands, the strip shows its landing stage instead; select it
-to open the landing log.
+The thread details card shows the thread's workspace and its Issue, then the integration bookmark
+it starts from, how many changes that bookmark has gained since, and how many files the thread
+changed. While the thread's change lands, the card shows its landing stage instead; select it to
+open the landing log.
 
 To publish a thread's work, choose **Land** in the thread details card. T3 Code runs
 `slipjay land` in the thread's workspace and reports SlipJay's verdict when it finishes.
@@ -265,7 +265,7 @@ To publish a thread's work, choose **Land** in the thread details card. T3 Code 
 - Land needs SlipJay on the machine running your T3 Code server, with a runner location:
   `SLIPJAY_RUNNER` in the server's environment, or `"runner"` in `~/.slipjay/config.json`.
 - A successful land removes the landed workspace unless another process still uses it. The
-  strip keeps showing the landed commit, and the thread's next message gets a fresh workspace.
+  card keeps showing the landed commit, and the thread's next message gets a fresh workspace.
 - Land is not offered in the project's main checkout, and reads **Landing…** while the
   thread's change is landing. Mobile shows the workspace, its base and the landing, but has no
   Land.

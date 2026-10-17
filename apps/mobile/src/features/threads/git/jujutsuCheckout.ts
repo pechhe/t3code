@@ -8,7 +8,7 @@ import {
 
 /**
  * How a Jujutsu checkout reads in place of a Git branch and its status: its SlipJay
- * workspace with its base, changed files and landing, as the web strip shows, or
+ * workspace with its base, changed files and landing, as the web details card shows, or
  * else its changed files. Git actions do not apply to it. Null for any other checkout.
  */
 export function resolveJujutsuCheckoutLabels(

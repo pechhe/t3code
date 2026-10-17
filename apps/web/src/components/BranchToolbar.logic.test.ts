@@ -52,7 +52,7 @@ const checkoutStatus = (overrides: Partial<VcsStatusResult>): VcsStatusResult =>
 
 const CWD = "/repo/.slipjay/workspaces/t3-29";
 
-describe("SlipJay composer strip", () => {
+describe("SlipJay land", () => {
   it("offers Land only in a started thread's own workspace, and not mid-landing", () => {
     const workspaceStatus = (landing?: VcsStatusSlipJayLanding) =>
       resolveSlipJayCheckoutStatus(
