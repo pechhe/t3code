@@ -61,6 +61,8 @@ const showIndicator = (state: ComposerScreenRecordingState) => {
           elapsedMs: state.elapsedMs,
           resumedAt: state.resumedAt,
           limitMs: COMPOSER_SCREEN_RECORDING_LIMIT_MS,
+          preview: state.preview,
+          canChangeSource: state.canChangeSource,
         }
       : null;
   void setIndicator(indicator).then(
@@ -77,7 +79,11 @@ const subscribeToIndicatorActions = () => {
   const onAction = window.desktopBridge?.onScreenRecordingIndicatorAction;
   if (indicatorActionsSubscribed || !onAction) return;
   indicatorActionsSubscribed = true;
-  onAction((action: DesktopScreenRecordingIndicatorAction) => screenRecordingControls[action]());
+  onAction((action: DesktopScreenRecordingIndicatorAction) =>
+    action === "change-source"
+      ? screenRecordingControls.changeSource()
+      : screenRecordingControls[action](),
+  );
 };
 
 const onStateChange = (state: ComposerScreenRecordingState) => {
@@ -94,6 +100,16 @@ export const screenRecordingControls = {
     recorder.stop();
   },
   discard: () => recorder?.discard(),
+  changeSource: () => {
+    void recorder?.changeSource().then((change) => {
+      if (change.type !== "failed") return;
+      toastManager.add({
+        type: "error",
+        title: "Couldn't change what's recorded",
+        description: change.error instanceof Error ? change.error.message : undefined,
+      });
+    });
+  },
 };
 
 // A recording that cannot attach is still the user's work, so offer it as a download.

@@ -11,21 +11,27 @@ const preferredMimeTypes = [
   "video/webm",
 ] as const;
 
-export const createMediaRecorder = (
-  stream: MediaStream,
-  { maxVideoBitsPerSecond = 50_000_000 }: { readonly maxVideoBitsPerSecond?: number } = {},
-): MediaRecorder => {
-  const mimeType = preferredMimeTypes.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+const estimatedVideoBitsPerSecond = (stream: MediaStream) => {
   const settings = stream.getVideoTracks()[0]?.getSettings();
-  const videoBitsPerSecond = Math.round(
+  return Math.round(
     Math.min(
-      maxVideoBitsPerSecond,
+      50_000_000,
       Math.max(
         2_500_000,
         (settings?.width ?? 1920) * (settings?.height ?? 1080) * (settings?.frameRate ?? 30) * 0.05,
       ),
     ),
   );
+};
+
+/** Without a `videoBitsPerSecond`, the bitrate follows the video track's size and frame rate. */
+export const createMediaRecorder = (
+  stream: MediaStream,
+  {
+    videoBitsPerSecond = estimatedVideoBitsPerSecond(stream),
+  }: { readonly videoBitsPerSecond?: number } = {},
+): MediaRecorder => {
+  const mimeType = preferredMimeTypes.find((candidate) => MediaRecorder.isTypeSupported(candidate));
   return new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond });
 };
 

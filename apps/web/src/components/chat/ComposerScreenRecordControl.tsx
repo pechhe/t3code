@@ -129,6 +129,28 @@ export function ScreenRecordingBar() {
       {origin ? (
         <span className="text-muted-foreground max-w-48 truncate text-xs">for {origin.title}</span>
       ) : null}
+      {state.canChangeSource ? (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label="Change what's recorded"
+                onClick={screenRecordingControls.changeSource}
+              />
+            }
+          >
+            {state.preview ? (
+              <img src={state.preview} alt="" className="max-h-5 max-w-10 rounded-sm border" />
+            ) : (
+              <ScreenShareIcon />
+            )}
+          </TooltipTrigger>
+          <TooltipPopup>Change what's recorded</TooltipPopup>
+        </Tooltip>
+      ) : null}
       <Button
         type="button"
         variant="ghost"

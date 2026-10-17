@@ -61,24 +61,65 @@ class FakeRecorder extends EventTarget {
   }
 }
 
+class FakeRelay {
+  readonly output = new FakeStream("video");
+  readonly used: FakeTrack[] = [];
+  stopped = false;
+  constructor(readonly showPreview: (preview: string) => void) {}
+  use(track: FakeTrack) {
+    this.used.push(track);
+  }
+  stop() {
+    this.stopped = true;
+  }
+}
+
 const setup = (
-  options: { readonly pick?: () => Promise<FakeStream>; readonly captureBusy?: boolean } = {},
+  options: {
+    readonly pick?: () => Promise<FakeStream>;
+    readonly captureBusy?: boolean;
+    readonly relay?: boolean;
+  } = {},
 ) => {
   const stream = new FakeStream("video", "audio");
   const recorder = new FakeRecorder();
   const states: ComposerScreenRecordingState["phase"][] = [];
   const getDisplayMedia = vi.fn(options.pick ?? (async () => stream));
+  let relay: FakeRelay | null = null;
+  let recorded: unknown = null;
   const screenRecorder = createComposerScreenRecorder(
     {
       captureBusy: () => options.captureBusy ?? false,
       getDisplayMedia: getDisplayMedia as never,
-      createRecorder: () => recorder as unknown as MediaRecorder,
+      createRecorder: (input) => {
+        recorded = input;
+        return recorder as unknown as MediaRecorder;
+      },
+      createRelay: (showPreview) => {
+        if (!options.relay) return null;
+        relay = new FakeRelay(showPreview);
+        return relay as never;
+      },
       now: () => Date.now(),
     },
     (state) => states.push(state.phase),
   );
   const allTracksStopped = () => stream.tracks.every((track) => track.stopped);
-  return { stream, recorder, states, getDisplayMedia, screenRecorder, allTracksStopped };
+  return {
+    stream,
+    recorder,
+    states,
+    getDisplayMedia,
+    screenRecorder,
+    allTracksStopped,
+    relay: () => relay,
+    recorded: () => recorded,
+  };
+};
+
+const recordingState = (state: ComposerScreenRecordingState) => {
+  if (state.phase !== "recording") throw new Error(`expected recording, got ${state.phase}`);
+  return state;
 };
 
 describe("composer screen recording", () => {
@@ -215,6 +256,122 @@ describe("composer screen recording", () => {
     expect((await outcome)?.type).toBe("recorded");
     expect(allTracksStopped()).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("changing what is recorded", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: new Date(2026, 9, 16, 14, 5, 9) });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("records through the relay and shows its preview", async () => {
+    const { screenRecorder, stream, relay, recorded } = setup({ relay: true });
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recorded()).toBe(relay()?.output);
+    expect(relay()?.used).toEqual(stream.getVideoTracks());
+    expect(recordingState(screenRecorder.getState())).toMatchObject({
+      preview: null,
+      canChangeSource: true,
+    });
+
+    relay()?.showPreview("data:image/jpeg;base64,first");
+    expect(recordingState(screenRecorder.getState()).preview).toBe("data:image/jpeg;base64,first");
+    screenRecorder.stop();
+    expect((await outcome)?.type).toBe("recorded");
+    expect(relay()?.stopped).toBe(true);
+  });
+
+  it("pauses while the picker is open, then records the new source", async () => {
+    const { screenRecorder, stream, recorder, getDisplayMedia, relay } = setup({ relay: true });
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(2_000);
+    relay()?.showPreview("data:image/jpeg;base64,first");
+
+    let grant!: (stream: FakeStream) => void;
+    const next = new FakeStream("video", "audio");
+    getDisplayMedia.mockImplementationOnce(() => new Promise((resolve) => (grant = resolve)));
+    const change = screenRecorder.changeSource();
+    expect(recorder.state).toBe("paused");
+    await vi.advanceTimersByTimeAsync(10_000);
+    grant(next);
+
+    expect(await change).toEqual({ type: "changed" });
+    expect(recorder.state).toBe("recording");
+    expect(relay()?.used).toEqual([...stream.getVideoTracks(), ...next.getVideoTracks()]);
+    expect(stream.tracks.every((track) => track.stopped)).toBe(true);
+    expect(next.getAudioTracks()).toEqual([]);
+    const changed = recordingState(screenRecorder.getState());
+    expect(changed.preview).toBeNull();
+    expect(screenRecordingElapsedMs(changed, Date.now())).toBe(2_000);
+
+    // The old source's end no longer ends the recording; the new one's does.
+    stream.getVideoTracks()[0]!.dispatchEvent(new Event("ended"));
+    expect(screenRecorder.getState().phase).toBe("recording");
+    next.getVideoTracks()[0]!.dispatchEvent(new Event("ended"));
+    expect((await outcome)?.type).toBe("recorded");
+    expect(next.tracks.every((track) => track.stopped)).toBe(true);
+  });
+
+  it("keeps the source and stays paused when the picker is dismissed", async () => {
+    const { screenRecorder, stream, recorder, getDisplayMedia } = setup({ relay: true });
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(0);
+    screenRecorder.pause();
+    getDisplayMedia.mockImplementationOnce(() =>
+      Promise.reject(new DOMException("Permission denied", "NotAllowedError")),
+    );
+    expect(await screenRecorder.changeSource()).toEqual({ type: "kept" });
+    expect(recorder.state).toBe("paused");
+    expect(stream.getVideoTracks()[0]!.stopped).toBe(false);
+    screenRecorder.discard();
+    await outcome;
+  });
+
+  it("ignores pause and resume while the picker is open", async () => {
+    const { screenRecorder, recorder, getDisplayMedia } = setup({ relay: true });
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(0);
+    let dismiss!: (error: unknown) => void;
+    getDisplayMedia.mockImplementationOnce(() => new Promise((_, reject) => (dismiss = reject)));
+    const change = screenRecorder.changeSource();
+    screenRecorder.resume();
+    expect(recorder.state).toBe("paused");
+    dismiss(new DOMException("Permission denied", "NotAllowedError"));
+    expect(await change).toEqual({ type: "kept" });
+    expect(recorder.state).toBe("recording");
+    screenRecorder.discard();
+    await outcome;
+  });
+
+  it("stops a source picked after the recording was discarded", async () => {
+    const { screenRecorder, getDisplayMedia } = setup({ relay: true });
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(0);
+    let grant!: (stream: FakeStream) => void;
+    const late = new FakeStream("video");
+    getDisplayMedia.mockImplementationOnce(() => new Promise((resolve) => (grant = resolve)));
+    const change = screenRecorder.changeSource();
+    screenRecorder.discard();
+    grant(late);
+    expect(await change).toEqual({ type: "kept" });
+    expect(late.tracks.every((track) => track.stopped)).toBe(true);
+    expect(await outcome).toEqual({ type: "discarded" });
+  });
+
+  it("keeps its only source where the browser cannot relay frames", async () => {
+    const { screenRecorder, stream, getDisplayMedia, recorded } = setup();
+    const outcome = screenRecorder.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(recorded()).toBe(stream);
+    expect(recordingState(screenRecorder.getState()).canChangeSource).toBe(false);
+    expect(await screenRecorder.changeSource()).toEqual({ type: "kept" });
+    expect(getDisplayMedia).toHaveBeenCalledTimes(1);
+    screenRecorder.discard();
+    await outcome;
   });
 });
 

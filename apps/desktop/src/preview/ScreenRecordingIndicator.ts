@@ -1,9 +1,9 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Notch geometry comes from NSScreen through a one-shot JXA query.
 import * as NodeChildProcess from "node:child_process";
 
-import type {
+import {
   DesktopScreenRecordingIndicatorAction,
-  DesktopScreenRecordingIndicatorState,
+  type DesktopScreenRecordingIndicatorState,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -76,7 +76,7 @@ const readScreenNotches = () =>
     );
   });
 
-const WING_WIDTH = 116;
+const WING_WIDTH = 132;
 const PLAIN_HEIGHT = 32;
 const PLAIN_GAP = 8;
 
@@ -116,13 +116,16 @@ const PAUSE_ICON = icon(
 );
 const PLAY_ICON = icon('<polygon points="6 3 20 12 6 21 6 3"/>');
 const STOP_ICON = icon('<rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor"/>');
+const SCREEN_ICON = icon(
+  '<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+);
 const DISCARD_ICON = icon(
   '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
 );
 
 function indicatorHtml(gap: number) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
 <title>T3 Code recording</title><style>
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
@@ -135,6 +138,11 @@ body { display: flex; color: #f5f5f5; font: 600 12px/1 -apple-system, BlinkMacSy
 #dot { width: 8px; height: 8px; border-radius: 50%; background: #ff453a; }
 body[data-paused] #dot { background: #8e8e93; }
 #clock { font-variant-numeric: tabular-nums; }
+#change-source { width: auto; min-width: 26px; padding: 0 3px; }
+#change-source[hidden] { display: none; }
+#preview { display: block; max-width: 40px; max-height: 20px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+#preview:not([src]) { display: none; }
+#preview[src] + svg { display: none; }
 button { display: grid; place-items: center; width: 26px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; }
 button:hover { background: rgba(255,255,255,.16); }
 button:focus-visible { outline: 2px solid #0a84ff; outline-offset: -2px; }
@@ -142,7 +150,8 @@ button:focus-visible { outline: 2px solid #0a84ff; outline-offset: -2px; }
 #resume, body[data-paused] #pause { display: none; }
 body[data-paused] #resume { display: grid; }
 </style></head><body><div id="pill">
-<div class="wing" id="left"><span id="dot"></span><span id="clock" role="timer">0:00</span></div>
+<div class="wing" id="left"><span id="dot"></span><span id="clock" role="timer">0:00</span>
+<button id="change-source" hidden title="Change what's recorded" aria-label="Change what's recorded"><img id="preview" alt="">${SCREEN_ICON}</button></div>
 <div id="gap"></div>
 <div class="wing" id="right">
 <button id="pause" title="Pause recording" aria-label="Pause recording">${PAUSE_ICON}</button>
@@ -151,6 +160,8 @@ body[data-paused] #resume { display: grid; }
 <button id="discard" title="Discard recording" aria-label="Discard recording">${DISCARD_ICON}</button>
 </div></div></body></html>`;
 }
+
+const isIndicatorAction = Schema.is(DesktopScreenRecordingIndicatorAction);
 
 const OWNER_GONE_EVENTS = ["destroyed", "did-navigate", "render-process-gone"] as const;
 
@@ -175,14 +186,10 @@ class IndicatorWindow {
     | undefined;
   private readonly onPillAction = (event: Electron.IpcMainEvent, action: unknown) => {
     if (!this.window || event.sender !== this.window.webContents) return;
-    if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "discard")
-      return;
+    if (!isIndicatorAction(action)) return;
     const owner = this.owner;
     if (!owner || owner.isDestroyed()) return;
-    owner.send(
-      SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL,
-      action satisfies DesktopScreenRecordingIndicatorAction,
-    );
+    owner.send(SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL, action);
     if (action === "stop") revealOwner(owner);
   };
   private readonly onOwnerGone = () => this.close();

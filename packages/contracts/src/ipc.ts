@@ -1072,12 +1072,21 @@ export const DesktopScreenRecordingIndicatorState = Schema.Struct({
   /** Epoch ms when recording last resumed, or null while paused. */
   resumedAt: Schema.NullOr(Schema.Finite),
   limitMs: Schema.Finite,
+  /** A small JPEG data URL of what is being recorded, once a frame has arrived. */
+  preview: Schema.NullOr(
+    Schema.String.check(
+      Schema.isStartingWith("data:image/jpeg;base64,"),
+      Schema.isMaxLength(100_000),
+    ),
+  ),
+  canChangeSource: Schema.Boolean,
 });
 export type DesktopScreenRecordingIndicatorState = typeof DesktopScreenRecordingIndicatorState.Type;
 export const DesktopScreenRecordingIndicatorAction = Schema.Literals([
   "pause",
   "resume",
   "stop",
+  "change-source",
   "discard",
 ]);
 export type DesktopScreenRecordingIndicatorAction =

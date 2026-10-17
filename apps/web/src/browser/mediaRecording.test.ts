@@ -43,11 +43,11 @@ describe("createMediaRecorder", () => {
     expect(constructed[0]).not.toHaveProperty("mimeType");
   });
 
-  it("caps the bitrate for large captures", () => {
+  it("sizes the bitrate to the capture unless given one", () => {
     stubMediaRecorder(["video/webm"]);
     const retina = { width: 3024, height: 1964, frameRate: 30 };
     createMediaRecorder(streamOf(retina));
-    createMediaRecorder(streamOf(retina), { maxVideoBitsPerSecond: 5_000_000 });
+    createMediaRecorder(streamOf(retina), { videoBitsPerSecond: 5_000_000 });
     expect(constructed.map((options) => options?.videoBitsPerSecond)).toEqual([
       8_908_704, 5_000_000,
     ]);
