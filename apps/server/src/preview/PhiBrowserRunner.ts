@@ -1,5 +1,5 @@
 // @effect-diagnostics preferSchemaOverJson:off schemaSyncInEffect:off -- Fixed runner source needs JSON string-literal escaping; response decoding is enclosed in Effect.try.
-import type { PreviewViewportSetting } from "@t3tools/contracts";
+import { PreviewAutomationWaitCondition, type PreviewViewportSetting } from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -23,6 +23,7 @@ export class PhiBrowserRunnerError extends Schema.TaggedError<PhiBrowserRunnerEr
       "action-failed",
       "user-space-unavailable",
     ]),
+    unmet: Schema.optional(Schema.Array(PreviewAutomationWaitCondition)),
     cause: Schema.Defect(),
   },
 ) {
@@ -87,6 +88,8 @@ const RunnerReply = Schema.Struct({
   failure: Schema.optional(
     Schema.Literals(["human-control", "login-required", "action-failed", "user-space-unavailable"]),
   ),
+  /** The wait conditions that never held, when the failed action was a wait. */
+  unmet: Schema.optional(Schema.Array(PreviewAutomationWaitCondition)),
 });
 const decodeReply = Schema.decodeUnknownSync(RunnerReply);
 
@@ -182,7 +185,11 @@ ${PHI_RUNNER_PROGRAM}
       catch: (cause) => new PhiBrowserRunnerError({ reason: "invalid-response", cause }),
     });
     if (reply.failure !== undefined)
-      return yield* new PhiBrowserRunnerError({ reason: reply.failure, cause: undefined });
+      return yield* new PhiBrowserRunnerError({
+        reason: reply.failure,
+        unmet: reply.unmet,
+        cause: undefined,
+      });
     return reply;
   });
   return PhiBrowserRunner.of({ run });

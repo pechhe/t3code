@@ -110,6 +110,7 @@ const {
     scripts: Array<string>;
     capturedRegions: Array<Electron.Rectangle>;
     showCount: number;
+    hideCount: number;
     resizeCount: number;
     alwaysOnTopCalls: Array<[boolean, string | undefined]>;
   }>,
@@ -322,6 +323,7 @@ vi.mock("electron", () => {
         scripts: [],
         capturedRegions: [],
         showCount: 0,
+        hideCount: 0,
         resizeCount: 0,
         alwaysOnTopCalls: [],
       };
@@ -353,6 +355,10 @@ vi.mock("electron", () => {
 
     setAlwaysOnTop(flag: boolean, level?: string) {
       this.state.alwaysOnTopCalls.push([flag, level]);
+    }
+
+    hide() {
+      this.state.hideCount += 1;
     }
 
     showInactive() {
@@ -438,6 +444,7 @@ vi.mock("electron", () => {
 
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import * as DesktopClientSettings from "../settings/DesktopClientSettings.ts";
+import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopSnapShot from "./DesktopSnapShot.ts";
 import * as SnapShotAccessibility from "./SnapShotAccessibility.ts";
@@ -536,6 +543,7 @@ const layerTest = (
             ...desktopWindowOverrides,
           } as unknown as DesktopWindow.DesktopWindow["Service"]),
         ),
+        Layer.mock(ElectronWindow.ElectronWindow)({ markAuxiliary: () => Effect.void }),
         FileSystem.layerNoop(fileSystemOverrides),
         Path.layer,
         Layer.succeed(
@@ -1016,6 +1024,96 @@ it.effect("shows the SnapShot overlay after the capture instead of raising the m
             order.push("show");
             return true;
           }),
+        },
+      ),
+    ),
+  );
+});
+
+it.effect("shows the SnapShot overlay as the capture's flight starts", () => {
+  registerShortcutMock.mockReset().mockReturnValue(true);
+  mediaAccessStatusMock.mockReturnValue("granted");
+  animationSettingsMock.mockReturnValue({
+    prefersReducedMotion: false,
+    shouldRenderRichAnimation: true,
+  });
+  flashWindows.length = 0;
+  const bounds = { x: 10, y: 20, width: 800, height: 600 };
+  const overlayBounds = { x: 100, y: 80, width: 680, height: 480 };
+  const order: string[] = [];
+  const started: string[] = [];
+  activeWindowMock.mockReset().mockResolvedValue({
+    id: 7,
+    title: "Safari",
+    owner: { name: "Safari", processId: 99 },
+    bounds,
+    platform: "macos",
+  });
+  macCaptureMock.mockReset().mockImplementation(async () => {
+    order.push("capture");
+    return { source: { name: "Safari" }, png: Buffer.from([1, 2, 3]) };
+  });
+
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const service = yield* DesktopSnapShot.make;
+      yield* service.configure(
+        enabledSettings({
+          snapShotFlash: false,
+          snapShotShortcut: {
+            key: "2",
+            ctrlKey: true,
+            shiftKey: true,
+            altKey: false,
+            metaKey: false,
+            modKey: false,
+          },
+        }),
+      );
+      yield* Effect.promise(registerShortcutMock.mock.calls.at(-1)![1] as () => Promise<void>);
+
+      // The composer waits to rise with the capture flying towards it.
+      assert.deepEqual(order, ["prepare", "place", "capture"]);
+      assert.lengthOf(started, 1);
+      yield* service.setAnimationDestination(started[0]!, {
+        frame: { x: 600, y: 400, width: 208, height: 112 },
+        backgroundColor: "#fff",
+        borderColor: "#ccc",
+        borderWidth: 1,
+        cornerRadius: 8,
+        scaleFactor: 1,
+      });
+      yield* Effect.promise(() => vi.waitFor(() => assert.include(order, "show")));
+    }),
+  ).pipe(
+    Effect.provide(
+      layerTest(
+        "darwin",
+        {
+          makeDirectory: () => Effect.void,
+          rename: () => Effect.void,
+          writeFile: () => Effect.void,
+          writeFileString: () => Effect.void,
+        },
+        Option.none(),
+        undefined,
+        {
+          prepareSnapShotOverlay: Effect.sync(() => {
+            order.push("prepare");
+          }),
+          hasSnapShotOverlay: Effect.succeed(true),
+          placeSnapShotOverlay: Effect.sync(() => {
+            order.push("place");
+            return Option.some(overlayBounds);
+          }),
+          showSnapShotOverlay: Effect.sync(() => {
+            order.push("show");
+            return true;
+          }),
+          dispatchSnapShotEvent: (event) =>
+            Effect.sync(() => {
+              if (event.type === "started") started.push(event.id);
+            }),
         },
       ),
     ),
@@ -1837,8 +1935,9 @@ it.effect("uses display-local macOS capture surfaces across the source and main 
       yield* service.configure(enabledSettings());
       yield* service.capture;
 
+      // Surfaces are kept ready for each display, so their creation order is not the flight's.
       const transitionWindows = flashWindows.filter((window) => window.kind === "browser");
-      assert.deepEqual(
+      assert.sameDeepMembers(
         transitionWindows.map((window) => window.bounds),
         [
           { x: 0, y: -200, width: 1_440, height: 900 },
@@ -1957,7 +2056,7 @@ it.effect("uses the unfocused main window for a macOS cross-display transition",
       yield* service.configure(enabledSettings());
       yield* service.capture;
 
-      assert.deepEqual(
+      assert.sameDeepMembers(
         flashWindows.filter((window) => window.kind === "browser").map((window) => window.bounds),
         [
           { x: 0, y: -200, width: 1_440, height: 900 },
@@ -2441,6 +2540,69 @@ it("keeps flying on the destination display when the capture display fails", asy
   } finally {
     transitionScriptState.rejectFlight = false;
     transitionScriptState.heldFlights = null;
+    transition.dispose();
+  }
+});
+
+it("reuses a ready surface for the next capture instead of opening another", async () => {
+  flashWindows.length = 0;
+  const created: Array<Electron.BrowserWindow> = [];
+  const transition = new SnapShotTransition({
+    boundOverlayToCaptureDisplays: true,
+    onWindowCreated: (window) => created.push(window),
+  });
+  const source = { x: 100, y: 50, width: 900, height: 600 };
+
+  try {
+    transition.warm();
+    assert.lengthOf(flashWindows, 2);
+    await transition.begin("capture-1", source, "data:image/png;base64,", true, source);
+    transition.dispose();
+    await transition.begin("capture-2", source, "data:image/png;base64,", true, source);
+
+    assert.lengthOf(flashWindows, 2);
+    // Each surface is reported, so the app can keep it apart from its own windows.
+    assert.lengthOf(created, 2);
+    const surface = flashWindows.find((window) => window.showCount > 0);
+    assert.isFalse(surface?.destroyed);
+    assert.strictEqual(surface?.showCount, 2);
+    assert.strictEqual(surface?.hideCount, 1);
+    // Each capture starts on a freshly loaded page.
+    assert.strictEqual(surface?.loadCount, 2);
+  } finally {
+    transition.cool();
+  }
+  assert.isTrue(flashWindows.every((window) => window.destroyed));
+});
+
+it("settles the wait for a capture's flight as the flight starts", async () => {
+  flashWindows.length = 0;
+  const transition = new SnapShotTransition({ boundOverlayToCaptureDisplays: true });
+  const source = { x: 100, y: 50, width: 900, height: 600 };
+
+  try {
+    await transition.begin("capture-1", source, "data:image/png;base64,", false, source);
+    let started = false;
+    const flight = transition.waitForFlight("capture-1").then(() => {
+      started = true;
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.isFalse(started);
+
+    transition.animateTo("capture-1", {
+      frame: { x: 600, y: 400, width: 208, height: 112 },
+      backgroundColor: "#fff",
+      borderColor: "#ccc",
+      borderWidth: 1,
+      cornerRadius: 8,
+      scaleFactor: 1,
+    });
+    await flight;
+
+    assert.isTrue(
+      flashWindows.some((window) => window.scripts.includes("window.playCaptureTransition()")),
+    );
+  } finally {
     transition.dispose();
   }
 });
@@ -3124,7 +3286,7 @@ it("uses native opacity for a short-lived flash", async () => {
   }
 });
 
-it.effect("does not request permissions or create the flash during desktop startup", () => {
+it.effect("does not request permissions or show capture feedback during desktop startup", () => {
   flashWindows.length = 0;
   accessibilityTrustedMock.mockReset().mockReturnValue(false);
   mediaAccessStatusMock.mockReset().mockReturnValue("not-determined");
@@ -3140,7 +3302,7 @@ it.effect("does not request permissions or create the flash during desktop start
     Effect.gen(function* () {
       const service = yield* DesktopSnapShot.make;
       yield* service.initialize;
-      assert.lengthOf(flashWindows, 0);
+      assert.isTrue(flashWindows.every((window) => window.showCount === 0));
       assert.deepEqual(accessibilityTrustedMock.mock.calls, [[false]]);
       assert.lengthOf(getSourcesMock.mock.calls, 0);
       assert.lengthOf(openExternalMock.mock.calls, 0);

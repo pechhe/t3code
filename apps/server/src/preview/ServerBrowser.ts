@@ -29,6 +29,7 @@ import {
   type PreviewAutomationScrollInput,
   type PreviewAutomationSelectInput,
   type PreviewAutomationSetColorSchemeInput,
+  type PreviewAutomationSnapshotInput,
   type PreviewAutomationStatus,
   type PreviewAutomationTypeInput,
   type PreviewAutomationUploadInput,
@@ -1895,7 +1896,11 @@ const make = Effect.gen(function* () {
       }
       case "snapshot": {
         return withScreencastsPaused(tab, () =>
-          ServerBrowserPage.snapshot({ ...tab, renderScale: RENDER_SCALE }),
+          ServerBrowserPage.snapshot({
+            ...tab,
+            locator: (input as PreviewAutomationSnapshotInput | undefined)?.locator,
+            renderScale: RENDER_SCALE,
+          }),
         );
       }
       case "click": {

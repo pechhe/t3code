@@ -5,6 +5,7 @@ import {
   PreviewAutomationPressInput,
   PreviewAutomationResizeInput,
   PreviewAutomationScrollInput,
+  PreviewAutomationSnapshotInput,
   PreviewAutomationTypeInput,
   PreviewAutomationWaitForInput,
   type PreviewAutomationOperation,
@@ -21,6 +22,7 @@ const decodeType = Schema.decodeUnknownSync(PreviewAutomationTypeInput);
 const decodePress = Schema.decodeUnknownSync(PreviewAutomationPressInput);
 const decodeScroll = Schema.decodeUnknownSync(PreviewAutomationScrollInput);
 const decodeWaitFor = Schema.decodeUnknownSync(PreviewAutomationWaitForInput);
+const decodeSnapshotInput = Schema.decodeUnknownSync(PreviewAutomationSnapshotInput);
 const decodeResize = Schema.decodeUnknownSync(PreviewAutomationResizeInput);
 
 export const PHI_OPERATIONS = [
@@ -76,6 +78,8 @@ export interface PhiOperation {
   readonly url?: string | undefined;
   readonly timeout?: number | undefined;
   readonly text?: string | undefined;
+  readonly textAbsent?: string | undefined;
+  readonly absentTarget?: string | undefined;
   readonly urlIncludes?: string | undefined;
   readonly viewport?: PreviewViewportSetting | undefined;
   readonly message?: string | undefined;
@@ -195,10 +199,16 @@ export function translatePhiOperation(
     }
     case "waitFor": {
       const value = decodeWaitFor(input);
+      const absentTarget = target({ locator: value.locatorAbsent }, refs);
+      // Phi's role lookup sees only the first match, which could be hidden while another shows.
+      if (absentTarget?.startsWith("loc=role:"))
+        throw new PhiBrowserInputError({ reason: "unsupported-option" });
       return {
         operation,
         target: target(value, refs),
         text: value.text,
+        textAbsent: value.textAbsent,
+        absentTarget,
         urlIncludes: value.urlIncludes,
         timeout: (value.timeoutMs ?? 15_000) / 1000,
       };
@@ -221,14 +231,36 @@ export function translatePhiOperation(
     }
     case "resume":
       return { operation };
-    case "status":
     case "snapshot":
+      return { operation, target: target(decodeSnapshotInput(input), refs) };
+    case "status":
     case "close":
       return { operation };
     default:
       throw new PhiBrowserInputError({ reason: "unsupported-operation" });
   }
 }
+
+/**
+ * Page function behind a Phi `locatorAbsent`: whether any element matching a CSS selector shows,
+ * in the page or in a same-origin frame that itself shows. A bad selector throws, since failing
+ * to look is not evidence that the element is gone. Kept as source because it runs in the page.
+ */
+export const PHI_ANY_VISIBLE_MATCH = String.raw`(selector) => {
+  const shown = (element) => {
+    const box = element.getBoundingClientRect();
+    const style = element.ownerDocument.defaultView.getComputedStyle(element);
+    return box.width > 0 && box.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+  };
+  const documents = (root) => [root, ...Array.from(root.querySelectorAll('iframe, frame')).flatMap(frame => {
+    try {
+      return shown(frame) && frame.contentDocument ? documents(frame.contentDocument) : [];
+    } catch {
+      return [];
+    }
+  })];
+  return documents(document).some(root => Array.from(root.querySelectorAll(selector)).some(shown));
+}`;
 
 /**
  * Fixed runner program. Only JSON data is appended by the transport. No tool
@@ -323,7 +355,7 @@ const op = request.action;
 // Also scan the boxed children of such wrappers; refs are node ids, so the scans merge cleanly.
 // Runs in the page: XPaths of the boxed children of display:contents wrappers, and the visible
 // text sitting directly inside those wrappers, which no scan root reaches.
-const contentsRoots = () => {
+const contentsRoots = (root) => {
   const path = (el) => {
     const steps = [];
     for (; el && el.nodeType === 1; el = el.parentElement) {
@@ -336,7 +368,7 @@ const contentsRoots = () => {
   };
   const roots = [];
   const texts = [];
-  for (const wrapper of document.body.querySelectorAll('*')) {
+  for (const wrapper of root.querySelectorAll('*')) {
     if (getComputedStyle(wrapper).display !== 'contents') continue;
     for (const node of wrapper.childNodes) {
       if (node.nodeType === 3) {
@@ -347,32 +379,45 @@ const contentsRoots = () => {
         if (text && (box.width || box.height)) texts.push(text);
       } else if (node.nodeType === 1 && getComputedStyle(node).display !== 'contents') {
         const box = node.getBoundingClientRect();
-        if (box.width || box.height) roots.push(path(node));
+        // A hidden root would make Phi scan its subtree as hidden, controls and prose included.
+        if ((box.width || box.height) && getComputedStyle(node).visibility !== 'hidden') roots.push(path(node));
       }
     }
     if (roots.length >= 50) break;
   }
   return {roots, texts};
 };
-const scanPage = async (withText) => {
-  const observed = await observe();
-  const parts = withText ? [await snapshotText({maxChars: 20000})] : [];
-  if (observed.dialog) return {observed, text: parts[0] ?? ''};
-  const {roots, texts} = await js('(' + contentsRoots + ')()');
+// The server cuts long names, then bounds the text, so the scan must not cut it first: a cut
+// could take the later controls' refs with it.
+const MAX_SCAN_CHARS = 200000;
+const scanPage = async (withText, within) => {
+  const observed = await observe({within});
+  const parts = withText ? [await snapshotText({within, maxChars: MAX_SCAN_CHARS})] : [];
+  if (observed.dialog) return {observed, text: parts[0] ?? '', omitted: 0};
+  // The wrappers inside the scope: a scoped scan skips them just as a full one does.
+  const {roots, texts} = within === undefined
+    ? await js('(' + contentsRoots + ')(document.body)')
+    : await callOnElement(within, 'function () { return (' + contentsRoots + ')(this); }');
   observed.elements = observed.elements ?? [];
   for (const root of roots) {
-    const within = 'xpath=' + root;
-    observed.elements.push(...((await observe({within})).elements ?? []));
-    if (withText) parts.push(await snapshotText({within, maxChars: 20000}));
+    const scope = 'xpath=' + root;
+    observed.elements.push(...((await observe({within: scope})).elements ?? []));
+    if (withText) parts.push(await snapshotText({within: scope, maxChars: MAX_SCAN_CHARS}));
   }
-  if (!withText) return {observed, text: ''};
+  if (!withText) return {observed, text: '', omitted: 0};
+  // Hidden and zero-size controls are left out of every scan; this says how many, so an agent
+  // can tell a page that is empty from one whose controls are not showing. A control under a
+  // boxless wrapper is flagged hidden but was recovered above, so it does not count.
+  const shown = new Set(observed.elements.map(element => element.ref));
+  const omitted = ((await observe({within, showHidden: true})).elements ?? [])
+    .filter(element => element.hidden && !shown.has(element.ref)).length;
   // Each part arrives in the untrusted-content envelope; keep one around the merged body.
   const lines = parts[0].split('\n');
   // Raw wrapper text gets the skill's envelope-marker neutralising, as its own text does.
   const neutral = texts.map(text => text.replace(/^(\s*)--- (BEGIN|END) UNTRUSTED/gm, '$1~~~ $2 UNTRUSTED'));
   const body = [...parts.map(part => part.split('\n').slice(1, -1).join('\n')), ...neutral]
-    .filter(Boolean).join('\n').slice(0, 20000);
-  return {observed, text: [lines[0], body, lines.at(-1)].join('\n')};
+    .filter(Boolean).join('\n').slice(0, MAX_SCAN_CHARS);
+  return {observed, omitted, text: [lines[0], body, lines.at(-1)].join('\n')};
 };
 if (request.context.kind === 'shadow' && ['click', 'type', 'press', 'scroll'].includes(op.operation)) {
   const page = (await scanPage(false)).observed;
@@ -411,12 +456,12 @@ if (op.operation === 'status') {
         : await openTab(request.allocationUrl ?? op.url, {reuseBlank: request.context.kind === 'shadow'}); break;
       case 'navigate': result = await goto(op.url, {timeout: op.timeout}); break;
       case 'snapshot': {
-        const {observed, text} = await scanPage(true);
+        const {observed, text, omitted} = await scanPage(true, op.target);
         const file = await screenshot();
         const fs = require('node:fs');
         try {
           const png = fs.readFileSync(file);
-          result = { observed, text, screenshot: {mimeType: 'image/png', data: png.toString('base64'),
+          result = { observed, text, omitted, screenshot: {mimeType: 'image/png', data: png.toString('base64'),
             width: png.readUInt32BE(16), height: png.readUInt32BE(20)} };
         } finally { fs.unlinkSync(file); }
         break;
@@ -440,10 +485,11 @@ if (op.operation === 'status') {
       }
       case 'waitFor': {
         // The text and URL arrive as JSON string literals inside a fixed condition: data, not code.
+        const pageText = '(document.body ? document.body.innerText : "")';
         const conditions = [];
-        if (op.text !== undefined) conditions.push('(document.body ? document.body.innerText : "").includes(' + JSON.stringify(op.text) + ')');
-        if (op.urlIncludes !== undefined) conditions.push('location.href.includes(' + JSON.stringify(op.urlIncludes) + ')');
-        const expression = conditions.join(' && ');
+        if (op.text !== undefined) conditions.push([pageText + '.includes(' + JSON.stringify(op.text) + ')', 'text']);
+        if (op.textAbsent !== undefined) conditions.push(['!' + pageText + '.includes(' + JSON.stringify(op.textAbsent) + ')', 'textAbsent']);
+        if (op.urlIncludes !== undefined) conditions.push(['location.href.includes(' + JSON.stringify(op.urlIncludes) + ')', 'urlIncludes']);
         // One probe: true when met, false on the helper's timeout. A dialog stops the wait.
         const holds = async (probe) => {
           try {
@@ -454,13 +500,27 @@ if (op.operation === 'status') {
             throw error;
           }
         };
+        // A CSS selector can match several elements, and Phi's own lookup sees only the first, which
+        // may be hidden while a later one still shows. The selector arrives as a JSON string literal.
+        const anyVisibleMatch = ${PHI_ANY_VISIBLE_MATCH};
+        const stillShown = (target) => target.startsWith('loc=css:')
+          ? js('(' + anyVisibleMatch + ')(' + JSON.stringify(target.slice(8)) + ')')
+          : holds(waitForElement(target, {timeout: 0.25}));
         const deadline = Date.now() + op.timeout * 1000;
         // Every condition is checked again on each poll, so they hold at the same moment.
         for (;;) {
-          const element = op.target === undefined || await holds(waitForElement(op.target, {timeout: 0.25}));
-          const page = !expression || await holds(waitForFunction(expression, {timeout: 0}));
-          if (element && page) break;
-          if (Date.now() >= deadline) throw new Error('preview_wait_for timed out before every condition matched');
+          const failing = [];
+          if (op.target !== undefined && !await holds(waitForElement(op.target, {timeout: 0.25}))) failing.push('locator');
+          // Hidden counts as gone, as for a missing element: waitForElement looks for a visible one.
+          if (op.absentTarget !== undefined && await stillShown(op.absentTarget)) failing.push('locatorAbsent');
+          for (const [expression, name] of conditions)
+            if (!await holds(waitForFunction(expression, {timeout: 0}))) failing.push(name);
+          if (!failing.length) break;
+          if (Date.now() >= deadline) {
+            cliLog(JSON.stringify({t3Phi: {result: null, context: currentContext(), failure: 'action-failed',
+              unmet: failing}}));
+            return;
+          }
           await wait(0.25);
         }
         result = {};

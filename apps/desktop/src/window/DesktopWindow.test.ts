@@ -118,7 +118,9 @@ function makeFakeBrowserWindow() {
       windowListeners.set(eventName, listener);
     }),
     restore: vi.fn(),
+    setAlwaysOnTop: vi.fn(),
     setBackgroundColor: vi.fn(),
+    setIgnoreMouseEvents: vi.fn(),
     setAutoHideCursor: vi.fn(),
     setFullScreen: vi.fn(),
     setOpacity: vi.fn(),
@@ -666,6 +668,29 @@ describe("DesktopWindow", () => {
         assert.deepEqual(fakeWindow.setAutoHideCursor.mock.calls, [[false]]);
         assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["t3code-dev://app/"]);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 1);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("prepares a SnapShot overlay asked for before the backend was ready once it is", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = layerTest({
+        window: fakeWindow.window,
+        createCount: yield* Ref.make(0),
+        mainWindow: yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none()),
+        createdWindowOptions,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.prepareSnapShotOverlay;
+        assert.isFalse(yield* desktopWindow.hasSnapShotOverlay);
+
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+        assert.isTrue(yield* desktopWindow.hasSnapShotOverlay);
+        assert.isTrue(createdWindowOptions.some((options) => options.title?.endsWith(" SnapShot")));
       }).pipe(Effect.provide(layer));
     }),
   );

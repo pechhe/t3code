@@ -644,6 +644,15 @@ export const PreviewAutomationEvaluateInput = Schema.Struct({
 });
 export type PreviewAutomationEvaluateInput = typeof PreviewAutomationEvaluateInput.Type;
 
+export const PreviewAutomationWaitCondition = Schema.Literals([
+  "locator",
+  "locatorAbsent",
+  "text",
+  "textAbsent",
+  "urlIncludes",
+]);
+export type PreviewAutomationWaitCondition = typeof PreviewAutomationWaitCondition.Type;
+
 export const PreviewAutomationWaitForInput = Schema.Struct({
   ...PreviewAutomationTabTargetFields,
   selector: Schema.optional(LegacySelector).annotate({
@@ -659,6 +668,17 @@ export const PreviewAutomationWaitForInput = Schema.Struct({
     }),
   ).annotate({
     description: "Case-sensitive substring that must appear in visible document text.",
+  }),
+  textAbsent: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description: "Case-sensitive substring that must no longer appear in visible document text.",
+    }),
+  ).annotate({
+    description: "Case-sensitive substring that must no longer appear in visible document text.",
+  }),
+  locatorAbsent: Schema.optional(Locator).annotate({
+    description:
+      "Playwright selector whose elements must all be gone or hidden, for example a card that should leave after Accept. On Phi use a CSS selector or aria-ref; role locators are not supported here.",
   }),
   urlIncludes: Schema.optional(
     TrimmedNonEmptyString.annotate({
@@ -676,6 +696,8 @@ export const PreviewAutomationWaitForInput = Schema.Struct({
         input.selector !== undefined ||
         input.locator !== undefined ||
         input.text !== undefined ||
+        input.textAbsent !== undefined ||
+        input.locatorAbsent !== undefined ||
         input.urlIncludes !== undefined ||
         "Provide at least one wait condition."
       );
@@ -686,6 +708,15 @@ export const PreviewAutomationWaitForInput = Schema.Struct({
       "Waits until all provided conditions match. Use after click/type when the page changes asynchronously.",
   });
 export type PreviewAutomationWaitForInput = typeof PreviewAutomationWaitForInput.Type;
+
+export const PreviewAutomationSnapshotInput = Schema.Struct({
+  ...PreviewAutomationTabTargetFields,
+  locator: Schema.optional(Locator).annotate({
+    description:
+      "Snapshot only the subtree of this element, for example aria-ref=<ref> of a card or dialog from an earlier snapshot, or role=dialog. Omit for the whole page.",
+  }),
+});
+export type PreviewAutomationSnapshotInput = typeof PreviewAutomationSnapshotInput.Type;
 
 export const PreviewAutomationElement = Schema.Struct({
   tag: Schema.String,
@@ -1176,6 +1207,8 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
       "human-control",
       "user-space-unavailable",
     ]),
+    /** For a wait that timed out: the conditions that never held. */
+    unmet: Schema.optional(Schema.Array(PreviewAutomationWaitCondition)),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
@@ -1200,7 +1233,9 @@ export class PreviewAutomationBackendError extends Schema.TaggedError<PreviewAut
       case "unsupported-option":
         return 'Phi does not support this locator or option. Use aria-ref=<ref> from the latest preview_snapshot, a CSS selector, or role=<role>[name="..."].';
       case "action-failed":
-        return "The page action did not complete: the target was not found or not actionable, or a wait timed out. Take a fresh snapshot and retry.";
+        return `The page action did not complete: the target was not found or not actionable, or a wait timed out${
+          this.unmet === undefined ? "" : ` (not holding: ${this.unmet.join(", ")})`
+        }. Take a fresh snapshot and retry.`;
       case "unsupported-shortcut":
         return "Phi does not support native Meta shortcuts. Use preview_type with clear=true to replace input, or a supported key without Meta.";
       case "login-required":

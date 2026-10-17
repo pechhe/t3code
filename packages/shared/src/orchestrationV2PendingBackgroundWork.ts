@@ -49,6 +49,40 @@ export function turnItemUpdateCanEndBackgroundWork(
   return BACKGROUND_TURN_ITEM_TYPES.has(item.type) && !isOrchestrationV2WorkActive(item.status);
 }
 
+const THREAD_WATCH_TASK_PREFIX = "thread-watch:";
+const PULL_REQUEST_WATCH_TASK_PREFIX = "pull-request-watch:";
+
+/**
+ * The thread's own background work: the pending tasks that are not watches. Settling or stopping
+ * a thread cuts this work short, while its watches just end.
+ */
+export function ownBackgroundWork<Task extends Pick<PendingBackgroundWorkTask, "taskId">>(
+  tasks: ReadonlyArray<Task>,
+): ReadonlyArray<Task> {
+  return tasks.filter(
+    (task) =>
+      !task.taskId.startsWith(THREAD_WATCH_TASK_PREFIX) &&
+      !task.taskId.startsWith(PULL_REQUEST_WATCH_TASK_PREFIX),
+  );
+}
+
+/** How a person or agent is told which background work stops. */
+export function backgroundWorkName(
+  task: Pick<PendingBackgroundWorkTask, "description" | "kind">,
+): string {
+  if (task.description !== undefined) return task.description;
+  switch (task.kind) {
+    case "command":
+      return "A background command";
+    case "subagent":
+      return "A subagent";
+    case "monitor":
+      return "A monitor";
+    default:
+      return "A background task";
+  }
+}
+
 export function backgroundWorkHoldsCompletion(
   tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "kind">>,
 ): boolean {
@@ -254,7 +288,7 @@ function watchTasks(input: {
   return [
     ...pullRequestWatchTasks(input.pullRequests),
     ...(input.threadWatches ?? []).map((watch) => ({
-      taskId: `thread-watch:${watch.id}`,
+      taskId: `${THREAD_WATCH_TASK_PREFIX}${watch.id}`,
       description: `Watching thread ${watch.title}`,
       kind: "monitor" as const,
     })),
@@ -269,7 +303,7 @@ function pullRequestWatchTasks(
       ? []
       : [
           {
-            taskId: `pull-request-watch:${threadPullRequestKeyOf(link)}`,
+            taskId: `${PULL_REQUEST_WATCH_TASK_PREFIX}${threadPullRequestKeyOf(link)}`,
             description: `Watching pull request #${link.number}`,
             kind: "monitor" as const,
           },

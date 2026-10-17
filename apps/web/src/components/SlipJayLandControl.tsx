@@ -32,7 +32,7 @@ import {
 
 /**
  * A SlipJay workspace's primary action in place of commit, push and pull request:
- * `slipjay land`, whose progress and result the composer strip's landing state shows.
+ * `slipjay land`, whose progress and result the details panel's landing row shows.
  * While its landing waits it shows the queue and can be cancelled; once it fails, the
  * thread's agent can be asked to fix it.
  */
@@ -157,7 +157,7 @@ function SlipJayLandRow({
             : {
                 type: "info",
                 title: "Stopped waiting for the landing",
-                description: "It continues on the runner; the composer strip shows its progress.",
+                description: "It continues on the runner; the thread details show its progress.",
                 ...(toastData === undefined ? {} : { data: toastData }),
               },
         ),
