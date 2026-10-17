@@ -25,7 +25,6 @@ import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
-import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -224,7 +223,6 @@ function failureDetail(error: unknown): string {
 
 const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
-  const fileSystem = yield* FileSystem.FileSystem;
   const setupTracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
   const cloneTracker = yield* ProjectCloneTracker.ProjectCloneTracker;
   const terminals = yield* TerminalManager.TerminalManager;
@@ -1196,10 +1194,12 @@ const make = Effect.gen(function* () {
     // A worktree the failed attempt already created is reused, not created again.
     // One SlipJay has released since is gone, so a fresh one is prepared instead.
     const boundWorktreePath = projection.thread.worktreePath;
+    const project = Option.getOrUndefined(yield* projects.getById(projection.thread.projectId));
     const reuse =
       workspacePreparation.type === "worktree" &&
       boundWorktreePath !== null &&
-      (yield* fileSystem.exists(boundWorktreePath).pipe(Effect.orElseSucceed(() => true)))
+      project !== undefined &&
+      (yield* workspaces.contains(project.workspaceRoot, boundWorktreePath))
         ? {
             strategy: {
               type: "existing_worktree" as const,

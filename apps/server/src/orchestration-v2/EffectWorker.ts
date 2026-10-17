@@ -1,6 +1,7 @@
 import { CommandId } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -9,6 +10,7 @@ import * as Layer from "effect/Layer";
 import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as Hex from "effect/encoding/Hex";
 
 import {
   increment,
@@ -75,6 +77,7 @@ export class OrchestrationEffectExecutorV2 extends Context.Service<
 export const layerExecutor: Layer.Layer<
   OrchestrationEffectExecutorV2,
   never,
+  | Crypto.Crypto
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunFinalizationService.RunFinalizationService
   | CheckpointRollbackService.CheckpointRollbackServiceV2
@@ -87,6 +90,7 @@ export const layerExecutor: Layer.Layer<
 > = Layer.effect(
   OrchestrationEffectExecutorV2,
   Effect.gen(function* () {
+    const crypto = yield* Crypto.Crypto;
     const runFinalization = yield* RunFinalizationService.RunFinalizationService;
     const resourceCleanup = yield* ResourceCleanupService.ResourceCleanupService;
     const checkpointRollback = yield* CheckpointRollbackService.CheckpointRollbackServiceV2;
@@ -147,27 +151,29 @@ export const layerExecutor: Layer.Layer<
             const { runId } = effect.request;
             // A run whose SlipJay workspace was released waits for a fresh one;
             // releasing it from preparation starts it again.
-            return releasedWorkspaces
-              .prepare({
-                commandId: CommandId.make(`${effect.id}:released-workspace`),
-                threadId: effect.threadId,
-                runId,
-              })
-              .pipe(
-                Effect.flatMap((deferred) =>
-                  deferred
-                    ? Effect.void
-                    : providerTurnStart.start({ threadId: effect.threadId, runId, willRetry }),
-                ),
-                Effect.mapError(
-                  (cause) =>
-                    new OrchestrationEffectExecutionError({
-                      effectId: effect.id,
-                      effectType: effect.request.type,
-                      cause,
-                    }),
-                ),
-              );
+            return crypto.digest("SHA-256", new TextEncoder().encode(effect.id)).pipe(
+              Effect.flatMap((digest) =>
+                releasedWorkspaces.prepare({
+                  // Keep retries idempotent without embedding the preceding effect chain.
+                  commandId: CommandId.make(`command:released-workspace:${Hex.encode(digest)}`),
+                  threadId: effect.threadId,
+                  runId,
+                }),
+              ),
+              Effect.flatMap((deferred) =>
+                deferred
+                  ? Effect.void
+                  : providerTurnStart.start({ threadId: effect.threadId, runId, willRetry }),
+              ),
+              Effect.mapError(
+                (cause) =>
+                  new OrchestrationEffectExecutionError({
+                    effectId: effect.id,
+                    effectType: effect.request.type,
+                    cause,
+                  }),
+              ),
+            );
           }
           case "provider-turn.interrupt": {
             const request = effect.request;

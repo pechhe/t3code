@@ -1,4 +1,5 @@
 import { assert, it } from "@effect/vitest";
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   CommandId,
   NodeId,
@@ -154,6 +155,7 @@ function layerExecutorFor(input: {
     Layer.provide(
       Layer.mergeAll(
         layerDependencies,
+        NodeCrypto.layer,
         Layer.mock(ThreadManagementService.ThreadManagementService)(input.threads ?? {}),
         ServerSettings.layerTest(
           input.continueAfterRestart === true ? { continueThreadsAfterServerUpdate: true } : {},
@@ -221,6 +223,43 @@ it.effect.each([
       }).pipe(Effect.provide(layer));
       assert.deepEqual(yield* Ref.get(events), expected);
     }),
+);
+
+it.effect("keeps workspace preparation commands bounded and idempotent across effect retries", () =>
+  Effect.gen(function* () {
+    const now = yield* DateTime.now;
+    const events = yield* Ref.make<ReadonlyArray<string>>([]);
+    const commands: string[] = [];
+    const layer = layerExecutorFor({ events }).pipe(
+      Layer.provide(
+        Layer.succeed(ThreadLaunchService.ReleasedWorkspacePreparation, {
+          prepare: (input) =>
+            Effect.sync(() => {
+              commands.push(input.commandId);
+              return true;
+            }),
+        }),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const executor = yield* EffectWorker.OrchestrationEffectExecutorV2;
+      let id = `effect:${"previous-preparation:".repeat(20_000)}`;
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const effect = {
+          ...restartEffect(now, { type: "detach" }),
+          id,
+          request: { type: "provider-turn.start" as const, runId },
+        };
+        yield* executor.execute(effect);
+        yield* executor.execute(effect, { willRetry: true });
+        assert.equal(commands.at(-1), commands.at(-2));
+        assert.isBelow(commands.at(-1)!.length, 128);
+        id = `effect:${commands.at(-1)!}:provider-turn.start:${runId}`;
+      }
+    }).pipe(Effect.provide(layer));
+    assert.equal(new Set(commands).size, 10);
+    assert.deepEqual(yield* Ref.get(events), []);
+  }),
 );
 
 it.effect("settles a stopped run when its adapter has already lost the native turn", () =>

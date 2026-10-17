@@ -175,8 +175,11 @@ function makeHarness(options: HarnessOptions = {}) {
   );
   // Workspaces exist unless a test releases them.
   const releasedPaths = new Set<string>();
+  const recreatedPaths = new Set<string>();
   const layerExternalServices = Layer.mergeAll(
-    FileSystem.layerNoop({ exists: (path) => Effect.sync(() => !releasedPaths.has(path)) }),
+    FileSystem.layerNoop({
+      exists: (path) => Effect.sync(() => recreatedPaths.has(path) || !releasedPaths.has(path)),
+    }),
     WorktreeSetupTracker.layer,
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(TerminalManager.TerminalManager)({ close: closeTerminal }),
@@ -283,6 +286,7 @@ function makeHarness(options: HarnessOptions = {}) {
     allocateWorkspace,
     releaseWorkspace,
     releasedPaths,
+    recreatedPaths,
     renameBranch,
     generateBranchName,
     generateThreadTitle,
@@ -1544,45 +1548,52 @@ const allocateInTurn = (...outcomes: ReadonlyArray<string | null>) => {
   };
 };
 
-it.effect("gives a run whose SlipJay workspace was released a fresh one before it starts", () =>
-  Effect.gen(function* () {
-    const harness = makeHarness({
-      slipjay: true,
-      allocateWorkspace: allocateInTurn("/slipjay/workspaces/landed", "/slipjay/workspaces/fresh"),
-    });
-    yield* Effect.gen(function* () {
-      const launches = yield* ThreadLaunch.ThreadLaunchService;
-      const threads = yield* ThreadManagement.ThreadManagementService;
-      const run = yield* launchSlipJayRun("thread:launch:released-slipjay");
-      harness.releasedPaths.add("/slipjay/workspaces/landed");
-
-      assert.isTrue(yield* launches.prepareReleasedWorkspace(run));
-      yield* waitUntil(() =>
-        threads
-          .getThreadProjection(run.threadId)
-          .pipe(
-            Effect.map(
-              (projection) =>
-                projection.thread.worktreePath === "/slipjay/workspaces/fresh" &&
-                projection.runs[0]?.status === "starting",
-            ),
-          ),
-      );
-      const projection = yield* threads.getThreadProjection(run.threadId);
-      assert.equal(harness.allocateWorkspace.mock.calls.length, 2);
-      // Earlier checkpoints are read through the thread's root scope, which now
-      // reads the shared store from the fresh workspace.
-      assert.equal(
-        projection.checkpointScopes.find((scope) => scope.kind === "root_run")?.cwd,
-        "/slipjay/workspaces/fresh",
-      );
-      assert.isTrue(
-        projection.turnItems.some(
-          (item) => item.type === "command_execution" && item.title === "Workspace ready",
+it.effect.each([false, true])(
+  "gives a released SlipJay workspace a fresh checkout even when its folder was recreated: %s",
+  (recreated) =>
+    Effect.gen(function* () {
+      const harness = makeHarness({
+        slipjay: true,
+        allocateWorkspace: allocateInTurn(
+          "/slipjay/workspaces/landed",
+          "/slipjay/workspaces/fresh",
         ),
-      );
-    }).pipe(Effect.provide(harness.layer));
-  }),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const run = yield* launchSlipJayRun("thread:launch:released-slipjay");
+        harness.releasedPaths.add("/slipjay/workspaces/landed");
+        if (recreated) harness.recreatedPaths.add("/slipjay/workspaces/landed");
+
+        assert.isTrue(yield* launches.prepareReleasedWorkspace(run));
+        yield* waitUntil(() =>
+          threads
+            .getThreadProjection(run.threadId)
+            .pipe(
+              Effect.map(
+                (projection) =>
+                  projection.thread.worktreePath === "/slipjay/workspaces/fresh" &&
+                  projection.runs[0]?.status === "starting",
+              ),
+            ),
+        );
+        const projection = yield* threads.getThreadProjection(run.threadId);
+        assert.equal(harness.allocateWorkspace.mock.calls.length, 2);
+        assert.isFalse(yield* launches.prepareReleasedWorkspace(run));
+        // Earlier checkpoints are read through the thread's root scope, which now
+        // reads the shared store from the fresh workspace.
+        assert.equal(
+          projection.checkpointScopes.find((scope) => scope.kind === "root_run")?.cwd,
+          "/slipjay/workspaces/fresh",
+        );
+        assert.isTrue(
+          projection.turnItems.some(
+            (item) => item.type === "command_execution" && item.title === "Workspace ready",
+          ),
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
 );
 
 it.effect("leaves a run alone when SlipJay kept its workspace", () =>
