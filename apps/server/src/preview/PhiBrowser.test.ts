@@ -179,6 +179,7 @@ const withFixture = (
                     ],
                   },
                   text: "ref=12 Name ref=123 Save",
+                  omitted: 3,
                   screenshot: { mimeType: "image/png", data: "cG5n", width: 10, height: 10 },
                 },
                 context: { windowId: tab?.windowId ?? 0 },
@@ -316,6 +317,26 @@ it.effect("keeps a resized tab's size on every later round until it fills again"
   ),
 );
 
+it("cuts a long name inside its tag and leaves the other controls on the line", () => {
+  const long = `[aria-ref=g-3 css:[data-testid="toolbar"] button: ${"x".repeat(500)}]`;
+  const capped = PhiBrowser.capLongNames(
+    `Intro [aria-ref=g-1 link: Home] ${long} [aria-ref=g-4 button: Add] after\nnext line`,
+  );
+  expect(capped).toContain("Intro [aria-ref=g-1 link: Home] ");
+  expect(capped).toContain(" [aria-ref=g-4 button: Add] after\nnext line");
+  expect(capped).toMatch(
+    /\[aria-ref=g-3 css:\[data-testid="toolbar"\] button: x+… \+\d+ chars; a preview_snapshot with locator=aria-ref=g-3 is not cut here\]/,
+  );
+  expect(capped.length).toBeLessThan(400);
+});
+
+it("keeps the control after a huge name once the whole scan is capped then bounded", () => {
+  const huge = `[aria-ref=g-1 button: ${"x".repeat(25_000)}]`;
+  const capped = PhiBrowser.capLongNames(`${huge} [aria-ref=g-2 button: Accept]`);
+  expect(capped.length).toBeLessThan(500);
+  expect(capped).toContain("[aria-ref=g-2 button: Accept]");
+});
+
 it.effect("scopes refs to a tab and snapshot generation without prefix collisions", () =>
   withFixture(({ browser }) =>
     Effect.gen(function* () {
@@ -331,9 +352,15 @@ it.effect("scopes refs to a tab and snapshot generation without prefix collision
         tabId,
         input: {},
       })) as PreviewAutomationSnapshot;
-      const locator = shot.interactiveElements[0]!.selector;
+      const refsIn = (snapshot: PreviewAutomationSnapshot) =>
+        Array.from(snapshot.visibleText.matchAll(/aria-ref=\S+/g), (match) => match[0]);
+      const [locator, second] = refsIn(shot);
+      // Each element is listed once, in the prose, rather than again as a geometry-less record.
+      expect(shot.interactiveElements).toEqual([]);
+      expect(refsIn(shot)).toHaveLength(2);
+      expect(second).toBeDefined();
       expect(shot.visibleText).not.toContain("ref=12");
-      expect(shot.visibleText).toContain(shot.interactiveElements[1]!.selector);
+      expect(shot.visibleText).toContain("[3 hidden or zero-size elements left out]");
       yield* browser.invoke({ scope, operation: "click", tabId, input: { locator } });
       yield* browser.invoke({ scope, operation: "snapshot", tabId, input: {} });
       const stale = yield* browser
@@ -357,7 +384,7 @@ it.effect("scopes refs to a tab and snapshot generation without prefix collision
           scope,
           operation: "click",
           tabId: other.tabId!,
-          input: { locator: fresh.interactiveElements[0]!.selector },
+          input: { locator: fresh.visibleText.match(/aria-ref=\S+/)![0] },
         })
         .pipe(Effect.flip, Effect.orDie);
       expect(crossTab.reason).toBe("stale-reference");
