@@ -464,6 +464,20 @@ describe("ClientSettings window capture", () => {
     });
   });
 
+  it("keeps a Space shortcut's key", () => {
+    const optionSpace = {
+      key: " ",
+      metaKey: false,
+      ctrlKey: false,
+      shiftKey: false,
+      altKey: true,
+      modKey: false,
+    };
+    expect(decodeClientSettingsPatch({ snapShotShortcut: optionSpace })).toEqual({
+      snapShotShortcut: optionSpace,
+    });
+  });
+
   it("rejects unknown capture sounds", () => {
     expect(() => decodeClientSettingsPatch({ snapShotSound: "doorbell" })).toThrow();
   });
