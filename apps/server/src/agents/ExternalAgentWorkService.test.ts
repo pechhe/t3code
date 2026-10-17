@@ -1384,63 +1384,51 @@ it.effect("continues an external worker with a correction in its conversation", 
   ),
 );
 
-it.effect("refuses continuing an external reviewer", () =>
-  withFixture((fixture) =>
-    Effect.gen(function* () {
-      const client = yield* fixture.issueSession("reviewer-owner");
-      const attached = yield* fixture.attach(client);
-      const initial = yield* fixture.submit(client, {
-        externalSessionKey: attached.key,
-        clientRequestId: "review-open",
-        task: "Review",
-        agentTask: request({
-          role: "ticket-reviewer",
-          workspacePath: fixture.workspacePath,
-          sourceRevision: "fixture-source-revision",
-          review: changeReview,
-        }),
-      });
-      expect(
-        (yield* fixture
-          .submit(client, {
-            externalSessionKey: attached.key,
-            clientRequestId: "review-reuse",
-            task: "Again",
-            followup: {
-              taskId: initial.taskId,
-              sourceRevision: "new-revision",
-              changes: "Updated",
-            },
-          })
-          .pipe(Effect.flip)).reason,
-      ).toBe("authority");
-    }),
-  ),
-);
-
 it.effect(
-  "applies server child defaults without widening external callers or changing running children",
+  "continues an external reviewer in its conversation, and a fresh round starts a new one",
   () =>
-    withFixture((f) =>
+    withFixture((fixture) =>
       Effect.gen(function* () {
-        const client = yield* f.issueSession("client-default-child");
-        const session = yield* f.attach(client);
-        const settings = yield* ServerSettings.ServerSettingsService;
-        yield* settings.updateSettings({
-          delegation: {
-            defaultChildRuntimeMode: "approval-required",
-            advisorIdleCloseMinutes: null,
+        const client = yield* fixture.issueSession("reviewer-owner");
+        const attached = yield* fixture.attach(client);
+        const reviewRequest = (workId: string) =>
+          request({
+            role: "ticket-reviewer",
+            workId,
+            workspacePath: fixture.workspacePath,
+            sourceRevision: "fixture-source-revision",
+            review: changeReview,
+          });
+        const initial = yield* fixture.submit(client, {
+          externalSessionKey: attached.key,
+          clientRequestId: "review-open",
+          task: "Review",
+          agentTask: reviewRequest("review-work"),
+        });
+        yield* Ref.update(fixture.state, (state) => ({
+          ...state,
+          activeThreads: new Set<string>(),
+          completedThreads: new Set([initial.childThreadId]),
+        }));
+        const resumed = yield* fixture.submit(client, {
+          externalSessionKey: attached.key,
+          clientRequestId: "review-reuse",
+          task: "Finish the check you stopped at",
+          followup: {
+            taskId: initial.taskId,
+            sourceRevision: "fixture-source-revision",
+            changes: "Nothing changed.",
           },
         });
-        const first = yield* f.submit(client, f.submitInput(session));
-        expect((yield* Ref.get(f.state)).calls[0]?.runtimeMode).toBe("approval-required");
-        yield* settings.updateSettings({
-          delegation: { defaultChildRuntimeMode: "inherit", advisorIdleCloseMinutes: null },
+        expect(resumed.childThreadId).toBe(initial.childThreadId);
+        expect(resumed.agentTask).toEqual(initial.agentTask);
+        const fresh = yield* fixture.submit(client, {
+          externalSessionKey: attached.key,
+          clientRequestId: "review-round-two",
+          task: "Review again, with the prior findings",
+          agentTask: reviewRequest("review-work-round-two"),
         });
-        expect((yield* Ref.get(f.state)).calls[0]?.runtimeMode).toBe("approval-required");
-        yield* f.submit(client, f.submitInput(session));
-        expect((yield* Ref.get(f.state)).calls).toHaveLength(1);
-        expect(first.childThreadId).toBe((yield* Ref.get(f.state)).calls[0]?.threadId);
+        expect(fresh.childThreadId).not.toBe(initial.childThreadId);
       }),
     ),
 );

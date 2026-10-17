@@ -118,7 +118,7 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
-import { continuableRoles, followupBinding, followupPrompt } from "../agents/followup.ts";
+import { followupBinding, followupPrompt } from "../agents/followup.ts";
 import { managedTaskTitle } from "../agents/taskTitle.ts";
 import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -2355,10 +2355,10 @@ const make = Effect.gen(function* () {
               "This advisor is closed. Start a new advisor.",
             );
           const binding = child.thread.agentTask;
-          if (binding === undefined || !continuableRoles.has(binding.role))
+          if (binding === undefined)
             return yield* failure(
               "invalid_request",
-              "Only a managed advisor or worker can continue its conversation; reviewers and UI verifiers start fresh.",
+              "Only a managed task can continue its conversation.",
             );
           const followupTarget = followupBinding(
             binding,
@@ -3571,7 +3571,7 @@ const make = Effect.gen(function* () {
         if (target.thread.agentTask !== undefined)
           return yield* failure(
             "invalid_request",
-            "Use delegate_task with followup to continue a managed advisor or worker, or a fresh managed task for reviewers.",
+            "Use delegate_task with followup to continue a managed task, or a fresh managed task for a new independent review round.",
           );
         yield* assertLiveCallerForOtherThread(scope, parent, target);
         yield* resolveRuntimeMode(limits.runtimeMode, target.thread.runtimeMode);

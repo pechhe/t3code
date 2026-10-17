@@ -45,7 +45,7 @@ import * as Managed from "./ManagedAgentService.ts";
 import type { McpInvocationScope } from "../mcp/McpInvocationContext.ts";
 import { clientRuntimeModeCeiling } from "../mcp/McpInvocationContext.ts";
 import { subagentResultForRun } from "@t3tools/provider-core/server/subagentProjection";
-import { continuableRoles, followupBinding, followupPrompt } from "./followup.ts";
+import { followupBinding, followupPrompt } from "./followup.ts";
 import {
   containingRepositoryStore,
   repositoryStore,
@@ -507,10 +507,7 @@ const make = Effect.gen(function* () {
             return yield* new ExternalAgentWorkError({ reason: "conflict" });
           const session = yield* readSession(scope, input.externalSessionKey);
           const original = yield* readWork(scope, followup.taskId);
-          if (
-            original.row.session_key !== session.key ||
-            !continuableRoles.has(original.work.binding.role)
-          )
+          if (original.row.session_key !== session.key)
             return yield* new ExternalAgentWorkError({ reason: "authority" });
           const identity = yield* hash(`${session.key}\n${input.clientRequestId}`);
           const taskId = NodeId.make(`node:followup:${identity}`);

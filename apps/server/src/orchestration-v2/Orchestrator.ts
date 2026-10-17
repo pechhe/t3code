@@ -156,7 +156,6 @@ import {
 import { planThreadDeletion } from "./ThreadDeletion.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ServerSettings from "../serverSettings.ts";
-import { continuableRoles } from "../agents/followup.ts";
 
 export class OrchestratorDispatchError extends Schema.TaggedError<OrchestratorDispatchError>()(
   "OrchestratorDispatchError",
@@ -11568,14 +11567,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             threadId: command.threadId,
           });
         }
-        if (
-          command.followupSourceRevision !== undefined &&
-          (thread.agentTask === undefined || !continuableRoles.has(thread.agentTask.role))
-        )
+        if (command.followupSourceRevision !== undefined && thread.agentTask === undefined)
           return yield* new OrchestratorDispatchError({
             commandId: command.commandId,
             commandType: command.type,
-            cause: "Only a continuable managed conversation accepts a follow-up source revision.",
+            cause: "Only a managed conversation accepts a follow-up source revision.",
           });
         yield* dispatchMessage(command, events, effects);
         if (command.followupSourceRevision !== undefined) {

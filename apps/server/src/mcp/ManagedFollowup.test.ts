@@ -31,7 +31,7 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 
 it.effect(
-  "continues only an owned idle advisor or worker and preserves each task and immutable binding",
+  "continues an owned idle task of any role and preserves each task and immutable binding",
   () =>
     Effect.gen(function* () {
       const parentId = ThreadId.make("advisor-parent");
@@ -287,15 +287,31 @@ it.effect(
             completionDelivery: { state: "acknowledged", observedByRunId: null },
           })),
         };
-        child = {
-          ...child,
-          thread: { ...child.thread, agentTask: { ...binding, role: "ticket-reviewer" } },
-        };
-        expect(
-          (yield* service
-            .delegateTask(scope, { ...input, clientRequestId: "review" })
-            .pipe(Effect.flip)).code,
-        ).toBe("invalid_request");
+        // A reviewer or UI verifier that stopped partway continues in its own conversation too;
+        // a new independent round is still a fresh delegate_task.
+        for (const role of ["ticket-reviewer", "ui-verifier"] as const) {
+          child = {
+            ...child,
+            thread: { ...child.thread, agentTask: { ...binding, role } },
+          };
+          const before = sends;
+          const resumed = yield* service.delegateTask(scope, {
+            ...input,
+            clientRequestId: `resume-${role}`,
+          });
+          expect(resumed.childThreadId).toBe(childId);
+          expect(sends).toBe(before + 1);
+          child = { ...child, runs: child.runs.map((run) => ({ ...run, status: "completed" })) };
+          parent = {
+            ...parent,
+            subagents: parent.subagents.map((task) => ({
+              ...task,
+              status: "completed",
+              result: "Reviewed",
+              completionDelivery: { state: "acknowledged", observedByRunId: null },
+            })),
+          };
+        }
         child = { ...child, thread: { ...child.thread, agentTask: binding } };
         parent = {
           ...parent,

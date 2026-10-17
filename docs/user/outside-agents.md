@@ -155,21 +155,21 @@ that task ID. Waiting is bounded and does not cancel work when its timeout expir
 disconnecting the terminal also leaves accepted work running. `outcome` records
 the owning caller's claim against a returned assignment ID as self-report.
 
-To continue an `advisor` or a worker in its existing conversation, submit
+To continue a task of any role in its existing conversation, submit
 `followup` containing one of its task IDs as `taskId`, the workspace's current
 `sourceRevision` and the `changes` since its previous task. Keep
 `externalSessionKey`, supply a new stable `clientRequestId`, and put the question or
 correction in `task`; omit `agentTask` and target or runtime overrides. Use it for
-repeated advice on one piece of work, and to send a worker its corrections instead
-of starting a fresh one. The same conversation, model, workspace and permissions
-are reused, with a separate task ID and result for each follow-up. Advisors and
-workers originally started with a source revision are checked against the
+repeated advice on one piece of work, to send a worker its corrections instead
+of starting a fresh one, and to finish a reviewer or UI verifier that stopped partway. The same conversation, model, workspace and permissions
+are reused, with a separate task ID and result for each follow-up. Tasks originally started
+with a source revision are checked against the
 follow-up's revision. Workers started without a pin stay unpinned as they write.
 Finish one task before starting the next. Cancel any of its task
 IDs when the work ends; this closes the whole conversation and prevents further
 reuse. A verified-completion or cancellation outcome for experimental work also
 prevents further follow-ups; reported failures can still be corrected.
-Reviewers and UI verifiers always start fresh.
+A new review round started fresh, with the prior findings in the brief, is the caller's choice when it wants an independent judgement.
 Conversation reuse reduces repeated briefing, but prompt caching and its savings
 depend on the provider and timing.
 
