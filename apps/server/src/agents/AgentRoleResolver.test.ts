@@ -89,6 +89,54 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* review(true, [claude])).model).toBe(claudeModel);
     }),
   );
+  it.effect("a model's policy options ride along when the account offers them", () =>
+    Effect.gen(function* () {
+      const original = snapshot();
+      const withFast = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          models: {
+            ...original.manifest.models,
+            luna: { ...original.manifest.models.luna!, options: { serviceTier: "fast" } },
+          },
+        },
+      };
+      const offering = {
+        ...codex,
+        models: codex.models.map((model) => ({
+          ...model,
+          capabilities: {
+            optionDescriptors: [
+              ...(model.capabilities?.optionDescriptors ?? []),
+              {
+                id: "serviceTier",
+                label: "Service Tier",
+                type: "select" as const,
+                options: [
+                  { id: "default", label: "Standard" },
+                  { id: "fast", label: "Fast" },
+                ],
+              },
+            ],
+          },
+        })),
+      };
+      const chore = (providers: ReadonlyArray<ServerProvider>) =>
+        resolve(
+          input({
+            snapshot: withFast,
+            providers,
+            request: request({ role: "chore-worker" }),
+          }),
+        );
+      expect((yield* chore([offering])).options).toEqual([
+        { id: "reasoning", value: "medium" },
+        { id: "serviceTier", value: "fast" },
+      ]);
+      expect((yield* chore([codex])).options).toEqual([{ id: "reasoning", value: "medium" }]);
+    }),
+  );
   it.effect("selects a workhorse with explicit medium and deliberate high effort", () =>
     Effect.gen(function* () {
       expect(yield* resolve(input())).toEqual({

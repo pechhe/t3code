@@ -103,6 +103,8 @@ const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
   effortOption: TrimmedNonEmptyString,
+  /** Select options every task on this model carries beside effort, e.g. `serviceTier: "fast"`. */
+  options: Schema.optional(Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString)),
 });
 
 /** A model a role may use and the effort it runs at. */

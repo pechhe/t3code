@@ -208,6 +208,16 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         skip("unsupported-effort");
         continue;
       }
+      // A model that does not offer a policy option (say fast, on an account without it)
+      // still runs; it just starts without that option.
+      const extras = Object.entries(binding.options ?? {}).filter(([id, value]) =>
+        model?.capabilities?.optionDescriptors?.some(
+          (candidate) =>
+            candidate.id === id &&
+            candidate.type === "select" &&
+            candidate.options.some((choice) => choice.id === value),
+        ),
+      );
       skip("eligible");
       eligible.push({
         alias,
@@ -215,7 +225,10 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         selection: {
           instanceId: provider.instanceId,
           model: binding.model,
-          options: [{ id: binding.effortOption, value: effort }],
+          options: [
+            { id: binding.effortOption, value: effort },
+            ...extras.map(([id, value]) => ({ id, value })),
+          ],
         },
       });
     }
@@ -240,7 +253,6 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         ? requested
         : requested.filter(
             ({ selection: value }) =>
-              options.length === value.options?.length &&
               options.every((option) =>
                 value.options?.some(
                   (expected) => expected.id === option.id && expected.value === option.value,
