@@ -1,5 +1,6 @@
 import type {
   OrchestrationV2AppThread,
+  OrchestrationV2ConversationMessage,
   OrchestrationV2Notification,
   OrchestrationV2Run,
   OrchestrationV2RuntimeRequest,
@@ -88,6 +89,31 @@ export function decideThreadWatch(state: WatchedThreadState): ThreadWatchDecisio
     kind: status === "completed" ? "finished" : status === "failed" ? "failed" : "stopped",
     resultRun: progress.resultRun,
   };
+}
+
+/**
+ * Wakes from a fired watch on `watchedThreadId` still queued behind the watcher's active run. They
+ * go stale once the watcher unwatches or reads the result, so both cancel them.
+ */
+export function queuedThreadWatchWakes(
+  watcher: {
+    readonly runs: ReadonlyArray<OrchestrationV2Run>;
+    readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage>;
+  },
+  watchedThreadId: string,
+): ReadonlyArray<OrchestrationV2Run> {
+  const wakeMessageIds = new Set(
+    watcher.messages
+      .filter(
+        (message) =>
+          message.notification?.source.kind === "thread" &&
+          message.notification.source.threadId === watchedThreadId,
+      )
+      .map((message) => message.id),
+  );
+  return watcher.runs.filter(
+    (run) => run.status === "queued" && wakeMessageIds.has(run.userMessageId),
+  );
 }
 
 /** What a person is asked, from the request's own turn item. */

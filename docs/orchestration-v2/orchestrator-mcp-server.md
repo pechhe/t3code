@@ -474,7 +474,11 @@ the watch and queues the wake in one transaction, and derives the wake's message
 id from the watch, so a replay cannot wake twice.
 
 A watch ends without a wake on `unwatch_thread`, when the user stops the
-watcher, or when the watcher is archived, settled or deleted. A thread cannot
+watcher, or when the watcher is archived, settled or deleted. Reading the watched
+thread's result with `t3_thread_read` also ends it, since the wake would only
+repeat that result. A wake that fired while the watcher was busy waits queued
+behind its run, so ending the watch, by `unwatch_thread` or by that read,
+cancels a wake still queued. A thread cannot
 watch itself or a thread in another environment, and a subagent or a settled or
 archived thread cannot start a watch.
 

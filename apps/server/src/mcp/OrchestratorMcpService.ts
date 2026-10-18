@@ -111,7 +111,12 @@ import {
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
 import { runOutcome } from "../orchestration-v2/RestartBackgroundNote.ts";
-import { threadWatchRefusal } from "../orchestration-v2/threadWatch.ts";
+import {
+  decideThreadWatch,
+  queuedThreadWatchWakes,
+  threadWatchRefusal,
+  watchedThreadRecords,
+} from "../orchestration-v2/threadWatch.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
@@ -561,8 +566,17 @@ function pageIncludesTerminalTaskResult(input: {
       ? delegatedTaskRun(input.target, input.task)
       : input.target.runs.find((run) => run.id === transfer.sourcePoint.runId);
   if (run === undefined || !isTerminalTaskStatus(taskStatusForRun(run))) return false;
+  return pageIncludesRunResult({ ...input, run });
+}
 
-  const result = subagentResultForRun(input.target, run);
+/** Whether the page shows `run`'s whole result, so the reader has seen it. */
+function pageIncludesRunResult(input: {
+  readonly page: ReadonlyArray<OrchestrationV2ThreadProjection["visibleTurnItems"][number]>;
+  readonly target: Pick<OrchestrationV2ThreadProjection, "thread" | "messages" | "turnItems">;
+  readonly run: OrchestrationV2Run;
+  readonly maxChars: number;
+}): boolean {
+  const result = subagentResultForRun(input.target, input.run);
   if (result.messageId === null && result.turnItemId === null) return false;
 
   return input.page.some((row) => {
@@ -3557,6 +3571,67 @@ const make = Effect.gen(function* () {
                 true,
                 "thread-read-acknowledge",
               );
+            }
+          }
+        }
+        // Reading the result a watch would wake the caller with ends the watch, so the wake cannot
+        // arrive after the caller has moved on.
+        if (
+          parent !== undefined &&
+          scope.thread !== undefined &&
+          (input.textOffset ?? 0) === 0 &&
+          ((parent.thread.threadWatches ?? []).some(
+            (watch) => watch.threadId === target.thread.id,
+          ) ||
+            queuedThreadWatchWakes(parent, target.thread.id).length > 0)
+        ) {
+          const watched = yield* threadManagement
+            .getThreadRecords(
+              target.thread.id,
+              watchedThreadRecords.fields,
+              watchedThreadRecords.filter,
+            )
+            .pipe(Effect.mapError(threadManagementFailure));
+          const decision = decideThreadWatch(watched);
+          if (decision !== undefined && "resultRun" in decision) {
+            const resultRecords = yield* threadManagement
+              .getThreadRecords(target.thread.id, ["messages", "turnItems"], {
+                messageRoles: ["assistant"],
+                messageRunIds: [decision.resultRun.id],
+                turnItemRunIds: [decision.resultRun.id],
+                turnItemTypes: ["assistant_message", "error"],
+              })
+              .pipe(Effect.mapError(threadManagementFailure));
+            if (
+              pageIncludesRunResult({
+                page,
+                target: resultRecords,
+                run: decision.resultRun,
+                maxChars,
+              })
+            ) {
+              yield* threadManagement
+                .dispatch({
+                  type: "thread.thread-watch",
+                  commandId: stableCommandId({
+                    scope,
+                    requestKey: yield* requestKey(undefined),
+                    operation: "thread-read-unwatch",
+                  }),
+                  threadId: scope.thread.threadId,
+                  watchedThreadId: target.thread.id,
+                  watching: false,
+                })
+                .pipe(
+                  Effect.mapError((error) =>
+                    isThreadManagementError(error)
+                      ? threadManagementFailure(error)
+                      : failure(
+                          "orchestration_error",
+                          `Unable to end the watch on thread ${target.thread.id}: ${errorMessage(error)}`,
+                        ),
+                  ),
+                );
             }
           }
         }

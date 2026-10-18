@@ -127,6 +127,7 @@ import {
 import { ProviderAdapterRegistryV2 } from "./ProviderAdapterRegistry.ts";
 import {
   decideThreadWatch,
+  queuedThreadWatchWakes,
   requestPrompt,
   threadWatchRefusal,
   threadWatchWake,
@@ -2507,6 +2508,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const watches = thread.threadWatches ?? [];
     const existing = watches.find((watch) => watch.threadId === command.watchedThreadId);
     if (!command.watching) {
+      const watcher = yield* projectionStore
+        .getThreadRecords(command.threadId, ["runs", "messages"], {
+          turnItemTypes: [],
+          messageRoles: ["user"],
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      for (const run of queuedThreadWatchWakes(watcher, command.watchedThreadId)) {
+        yield* dispatchQueuedRunCancel(
+          {
+            type: "queued-run.cancel",
+            commandId: command.commandId,
+            threadId: command.threadId,
+            runId: run.id,
+          },
+          events,
+        );
+      }
       if (existing === undefined) return;
       return yield* emitThreadWatches(
         events,

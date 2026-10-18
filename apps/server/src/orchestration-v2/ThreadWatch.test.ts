@@ -804,6 +804,71 @@ it.layer(layerTest)("thread watches", (it) => {
     }),
   );
 
+  it.effect("drops a wake still queued behind its watcher's run when unwatched", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const lead = yield* createThread("queued-lead");
+      const worker = yield* createThread("queued-worker");
+      const providerThreadId = ProviderThreadId.make(`provider-thread:${lead}`);
+      const busy = { ...run(lead, 1, "running"), providerThreadId };
+      yield* (yield* EventSink.EventSinkV2).write({
+        commandId: CommandId.make("command:queued-lead-busy"),
+        events: [
+          {
+            id: EventId.make("event:queued-lead-busy:provider-thread"),
+            type: "provider-thread.updated",
+            threadId: lead,
+            runId: busy.id,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: now,
+            driver,
+            payload: {
+              id: providerThreadId,
+              driver,
+              providerInstanceId: modelSelection.instanceId,
+              providerSessionId: null,
+              appThreadId: lead,
+              ownerNodeId: null,
+              nativeThreadRef: null,
+              nativeConversationHeadRef: null,
+              status: "active",
+              firstRunOrdinal: 1,
+              lastRunOrdinal: 1,
+              handoffIds: [],
+              forkedFrom: null,
+              pendingBackgroundTasks: [],
+              contextUsage: null,
+              nativeMetadata: null,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+          {
+            id: EventId.make("event:queued-lead-busy:run"),
+            type: "run.updated",
+            threadId: lead,
+            runId: busy.id,
+            nodeId: rootNodeId,
+            providerInstanceId: modelSelection.instanceId,
+            occurredAt: now,
+            payload: busy,
+          },
+        ],
+      });
+      yield* watch(lead, worker);
+      yield* observe(yield* seedRun(worker, { status: "completed", text: "Done." }));
+      const [wake] = yield* wakes(lead);
+      const wakeRun = () =>
+        orchestrator
+          .getThreadRecords(lead, ["runs"])
+          .pipe(Effect.map(({ runs }) => runs.find((run) => run.userMessageId === wake?.id)));
+      assert.equal((yield* wakeRun())?.status, "queued");
+
+      yield* watch(lead, worker, false);
+      assert.equal((yield* wakeRun())?.status, "cancelled");
+    }),
+  );
+
   it.effect("settles over background work only for a person, and tells watchers it stopped", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

@@ -987,7 +987,8 @@ function deriveTurnFolds(input: {
 
   interface TurnGroup {
     entries: Array<TimelineEntry>;
-    terminalEntry: Extract<TimelineEntry, { kind: "message" }> | null;
+    /** Each run's final reply, oldest first; every one stays visible. */
+    terminalEntries: Array<Extract<TimelineEntry, { kind: "message" }>>;
     hasStreamingMessage: boolean;
     /**
      * Entry timestamps alone undercount the duration (the first entry appears
@@ -1036,7 +1037,7 @@ function deriveTurnFolds(input: {
     if (!group) {
       group = {
         entries: [],
-        terminalEntry: null,
+        terminalEntries: [],
         hasStreamingMessage: false,
         startBoundary: pendingBoundary?.createdAt ?? null,
         anchorEntryId: pendingBoundary?.anchorEntryId ?? entry.id,
@@ -1049,7 +1050,7 @@ function deriveTurnFolds(input: {
     group.ownRunIds.add(ownRunId);
     if (entry.kind === "message") {
       if (input.terminalAssistantMessageIds.has(entry.message.id)) {
-        group.terminalEntry = entry;
+        group.terminalEntries.push(entry);
       }
       if (entry.message.streaming) {
         group.hasStreamingMessage = true;
@@ -1074,11 +1075,24 @@ function deriveTurnFolds(input: {
       continue;
     }
     const hiddenEntryIds = new Set<string>();
-    const terminalEntryIndex = group.terminalEntry
-      ? group.entries.findIndex((entry) => entry.id === group.terminalEntry?.id)
+    // A wake can add nothing after the prompted run already answered, so only
+    // the work folds: each run's reply stays, after the notice that woke it.
+    const terminalEntry = group.terminalEntries.at(-1) ?? null;
+    const terminalEntryIds = new Set(group.terminalEntries.map((entry) => entry.id));
+    const answeringRunIds = new Set(
+      group.terminalEntries.map((entry) => entry.message.runId ?? null),
+    );
+    const terminalEntryIndex = terminalEntry
+      ? group.entries.findIndex((entry) => entry.id === terminalEntry.id)
       : group.entries.length;
     for (const [index, entry] of group.entries.entries()) {
-      if (entry.id === group.terminalEntry?.id) {
+      if (
+        terminalEntryIds.has(entry.id) ||
+        (entry.kind === "work" &&
+          entry.entry.itemType === "notification" &&
+          entry.entry.runId !== runId &&
+          answeringRunIds.has(entry.entry.runId ?? null))
+      ) {
         continue;
       }
       const isCompaction =
@@ -1128,8 +1142,7 @@ function deriveTurnFolds(input: {
         ? computeElapsedMs(input.latestRun.startedAt, input.latestRun.completedAt)
         : computeElapsedMs(
             group.startBoundary ?? firstEntry.createdAt,
-            maxIsoTimestamp(group.terminalEntry?.message.updatedAt ?? null, lastEntryEnd) ??
-              lastEntryEnd,
+            maxIsoTimestamp(terminalEntry?.message.updatedAt ?? null, lastEntryEnd) ?? lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
     const label = isLatestInterruptedTurn

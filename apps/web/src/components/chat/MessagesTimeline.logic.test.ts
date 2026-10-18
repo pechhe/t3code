@@ -4902,7 +4902,16 @@ it.each([true, false])(
         createdAt: time(40),
       });
     } else {
-      expect(ids).toEqual(["prompt", "turn-fold:initial", "ack-b"]);
+      // A wake folds its work but never the replies before it.
+      expect(ids).toEqual([
+        "prompt",
+        "turn-fold:initial",
+        "launched",
+        "notification-a",
+        "ack-a",
+        "notification-b",
+        "ack-b",
+      ]);
       const expanded = deriveMessagesTimelineRows({
         ...input,
         expandedRunIds: new Set([RunId.make("initial")]),
