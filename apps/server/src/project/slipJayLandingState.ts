@@ -83,6 +83,9 @@ const WatchOperation = Schema.Struct({
   submittedAt: Schema.optional(Schema.String),
   finishedAt: Schema.optional(Schema.String),
   stageStartedAt: Schema.optional(Schema.String),
+  runs: Schema.optional(
+    Schema.Array(Schema.Struct({ startedAt: Schema.optional(Schema.String) })),
+  ),
   timing: Schema.optional(
     Schema.Struct({ medianMs: Schema.optional(Schema.NullOr(Schema.Number)) }),
   ),
@@ -482,7 +485,18 @@ export function submittingWorkspace(submittedBy: string, host: string): string |
   return name === undefined || name.length === 0 ? undefined : name;
 }
 
+/**
+ * When a running operation started work, as its first command run: the snapshot records
+ * no time it left the queue. This misses the fetch and rebase before that command, but
+ * stays fixed once set, where a stage's start would reset at every stage.
+ */
+function runStartedAt(operation: WatchOperation): string | undefined {
+  if (operation.status !== "running") return undefined;
+  return operation.runs?.find((run) => run.startedAt !== undefined)?.startedAt;
+}
+
 const runnerOperation = (operation: WatchOperation, host: string): SlipJayRunnerOperation => {
+  const startedAt = runStartedAt(operation);
   const workspaceName =
     operation.submittedBy === undefined
       ? undefined
@@ -496,6 +510,7 @@ const runnerOperation = (operation: WatchOperation, host: string): SlipJayRunner
     submittedBy: operation.submittedBy ?? "",
     ...(operation.position === undefined ? {} : { position: operation.position }),
     ...(operation.submittedAt === undefined ? {} : { submittedAt: operation.submittedAt }),
+    ...(startedAt === undefined ? {} : { startedAt }),
     ...(operation.stageStartedAt === undefined ? {} : { stageStartedAt: operation.stageStartedAt }),
     ...(typeof operation.timing?.medianMs === "number"
       ? { stageMedianMs: operation.timing.medianMs }

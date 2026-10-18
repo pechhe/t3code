@@ -441,6 +441,54 @@ describe("runnerOverviewFromSnapshot", () => {
     expect(JSON.stringify(overview)).not.toContain("amberAfterMs");
   });
 
+  it("dates a running operation's start from its first command run, and not before one", () => {
+    const overview = runnerOverviewFromSnapshot(
+      snapshotOf({
+        seq: 4,
+        lanes: {
+          serial: [
+            {
+              id: "op_running",
+              repo: REPO,
+              stage: "verifying",
+              status: "running",
+              submittedAt: "2026-10-17T14:30:00.000Z",
+              stageStartedAt: "2026-10-17T15:00:00.000Z",
+              runs: [
+                { startedAt: "2026-10-17T14:55:00.000Z", purpose: "dependencies" },
+                { startedAt: "2026-10-17T15:00:01.000Z", purpose: "gate" },
+              ],
+              submittedBy: `${HOST}:ys-one`,
+            },
+            {
+              id: "op_fetching",
+              repo: REPO,
+              stage: "fetching",
+              status: "running",
+              stageStartedAt: "2026-10-17T15:01:00.000Z",
+              runs: [],
+              submittedBy: `${HOST}:ys-two`,
+            },
+            {
+              id: "op_queued",
+              repo: REPO,
+              stage: "queued",
+              status: "queued",
+              submittedAt: "2026-10-17T14:40:00.000Z",
+              submittedBy: `${HOST}:ys-three`,
+            },
+          ],
+        },
+      }),
+      HOST,
+    );
+    expect(overview.serial.map((operation) => operation.startedAt)).toEqual([
+      "2026-10-17T14:55:00.000Z",
+      undefined,
+      undefined,
+    ]);
+  });
+
   it("reports a paused queue", () => {
     const overview = runnerOverviewFromSnapshot(
       snapshotOf({ seq: 1, lanes: { serial: [] }, paused: { by: "owner" } }),

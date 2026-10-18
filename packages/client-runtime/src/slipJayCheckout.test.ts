@@ -259,11 +259,33 @@ describe("SlipJay landing chip", () => {
         operation({ status: "queued", stage: "queued", position: 2 }),
         NOW,
       ),
-    ).toMatchObject({ tone: "running", label: "verifying" });
+    ).toMatchObject({ tone: "running", label: "verifying", elapsed: null });
+  });
+
+  it("shows no wait time while the overview already has a queued landing running", () => {
+    expect(
+      resolveSlipJayLandingChip(
+        landing({ stage: "queued" }),
+        operation({ startedAt: "2026-10-17T15:09:45.000Z" }),
+        NOW,
+      ),
+    ).toMatchObject({ tone: "waiting", elapsed: null });
+  });
+
+  it("counts a running landing's time from when it left the queue, not from submission", () => {
+    expect(
+      resolveSlipJayLandingChip(
+        landing({}),
+        operation({ startedAt: "2026-10-17T15:09:45.000Z" }),
+        NOW,
+      ).elapsed,
+    ).toBe("15s");
+    expect(resolveSlipJayLandingChip(landing({}), operation({}), NOW).elapsed).toBeNull();
   });
 
   it("estimates what is left of the running stage from the runner's median", () => {
     const running = operation({
+      startedAt: "2026-10-17T15:08:30.000Z",
       stageStartedAt: "2026-10-17T15:09:00.000Z",
       stageMedianMs: 77_000,
     });
@@ -271,7 +293,7 @@ describe("SlipJay landing chip", () => {
       tone: "running",
       label: "verifying",
       detail: "~17s left",
-      elapsed: "1:36",
+      elapsed: "1:30",
     });
     expect(resolveSlipJayLandingChip(landing({}), running, NOW + 60_000).detail).toBe(
       "slower than usual",

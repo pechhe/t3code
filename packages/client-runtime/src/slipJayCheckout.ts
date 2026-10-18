@@ -212,21 +212,35 @@ export function formatSlipJayDuration(ms: number): string {
     : `${minutes}:${seconds}`;
 }
 
+/**
+ * How long an operation has spent in its current phase: waiting since submission while
+ * queued, then running since it left the queue. Null where the runner gave no time.
+ */
+export function resolveSlipJayOperationElapsed(
+  operation: Pick<SlipJayRunnerOperation, "submittedAt" | "startedAt">,
+  queued: boolean,
+  now: number,
+): string | null {
+  const since = queued ? operation.submittedAt : operation.startedAt;
+  return since === undefined ? null : formatSlipJayDuration(now - Date.parse(since));
+}
+
 export type SlipJayLandingChipTone = "waiting" | "running" | "failed" | "landed" | "ended";
 
 /**
  * What a thread's landing chip says about its landing. `operation` is the landing's row in
  * the runner's lanes, read for its queue place and timing; the overview can trail the
- * landing's own stage, so its timing counts only while both name the same stage.
+ * landing's own stage, so its timing counts only while both agree on the phase or stage.
  */
 export function resolveSlipJayLandingChip(
   landing: VcsStatusSlipJayLanding,
   operation: SlipJayRunnerOperation | null,
   now: number,
 ): { tone: SlipJayLandingChipTone; label: string; detail: string | null; elapsed: string | null } {
+  const queued = landing.stage === "queued";
   const elapsed =
-    landing.status === "active" && operation?.submittedAt !== undefined
-      ? formatSlipJayDuration(now - Date.parse(operation.submittedAt))
+    landing.status === "active" && operation !== null && (operation.status === "queued") === queued
+      ? resolveSlipJayOperationElapsed(operation, queued, now)
       : null;
   switch (landing.status) {
     case "active": {

@@ -1,7 +1,7 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
-  formatSlipJayDuration,
+  resolveSlipJayOperationElapsed,
   resolveSlipJayOperationLabel,
   resolveSlipJayQueueLabel,
   resolveSlipJayRunnerSummary,
@@ -327,11 +327,10 @@ function RunnerOperationRow({
   const title = isLanding
     ? (spec?.title ?? thread?.title ?? resolveSlipJayOperationLabel(operation))
     : resolveSlipJayOperationLabel(operation);
+  const elapsed = resolveSlipJayOperationElapsed(operation, !running, now);
   const detail = [
     resolveSlipJayQueueLabel(operation) ?? operation.stage,
-    ...(running && operation.submittedAt !== undefined
-      ? [formatSlipJayDuration(now - Date.parse(operation.submittedAt))]
-      : []),
+    ...(elapsed === null ? [] : [elapsed]),
   ].join(" · ");
   const source = [
     ...(thread === undefined && operation.workspaceName === undefined
