@@ -360,10 +360,18 @@ const copySourceSlice = Effect.fn("copyDevDbSourceSlice")(function* (sourcePath:
 const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigrateDevDbInput) {
   const sql = yield* SqlClient.SqlClient;
 
+  // Provider sessions are processes of the source server, which the copy never
+  // inherits. A session left "ready" by an idle thread would otherwise make
+  // nearly every family live, although server recovery only marks it stopped.
+  yield* sql`UPDATE ${sql(PROVIDER_SESSIONS_TABLE)}
+    SET status = 'stopped', payload_json = json_set(payload_json, '$.status', 'stopped')
+    WHERE status NOT IN ('stopped', 'error')`;
+
   // Threads the server would resume or start work on by itself. Its own
   // recovery queries find most of them; usage-limit recovery also depends on
-  // settings, so any thread whose latest run failed or that has a recovery
-  // choice counts as live too.
+  // settings, so any thread whose latest run failed counts as live too. A
+  // stored limitRecovery choice does not: it only acts while its run is the
+  // failed latest run, and it stays behind after the thread moves on.
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const recoveryThreadIds = yield* Effect.forEach(RECOVERY_KINDS, (kind) =>
     projections.getRecoveryThreadIds(kind),
@@ -376,10 +384,7 @@ const pruneSnapshot = Effect.fn("pruneDevDbSnapshot")(function* (input: RunMigra
     SELECT r.thread_id FROM orchestration_v2_projection_runs r
     WHERE r.status = 'failed' AND r.ordinal = (
       SELECT MAX(latest.ordinal) FROM orchestration_v2_projection_runs latest
-      WHERE latest.thread_id = r.thread_id)
-    UNION
-    SELECT thread_id FROM orchestration_v2_projection_threads
-    WHERE json_extract(payload_json, '$.limitRecovery') IS NOT NULL`;
+      WHERE latest.thread_id = r.thread_id)`;
 
   // Forks and subagents read history and results through their lineage, so a
   // thread family is cloned or dropped as a whole.

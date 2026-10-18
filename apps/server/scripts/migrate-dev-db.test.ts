@@ -42,12 +42,13 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         ["stopped-thread", "project-kept", "completed", "{}", "2026-08-01"],
         ["fork-thread", "project-kept", "completed", forkPayload, "2026-08-02"],
         ["running-thread", "project-kept", "running", "{}", "2026-08-05"],
+        ["failed-thread", "project-kept", "failed", "{}", "2026-08-05"],
         ["settled-thread", "project-kept", "completed", '{"settledAt":"2026-08-01"}', "2026-08-05"],
         [
           "limit-thread",
           "project-kept",
           "completed",
-          '{"limitRecovery":{"autoResume":true}}',
+          '{"limitRecovery":{"autoResume":true,"runId":"run-before-continuation"}}',
           "2026-08-05",
         ],
         ["subagent-parent", "project-kept", "completed", "{}", "2026-08-05"],
@@ -181,7 +182,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const source = yield* createFixtureSource(sourceDir);
 
       const result = yield* runMigrateDevDb(
-        { baseDir: destDir, source, projects: 5, threadsPerProject: 1 },
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 3 },
         { sharedHome: sourceDir },
       );
 
@@ -208,11 +209,11 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       );
       assert.deepStrictEqual(
         kept.threads.map((row) => row.thread_id),
-        ["fork-thread", "stopped-thread"],
+        ["fork-thread", "limit-thread", "stopped-thread"],
       );
       assert.deepStrictEqual(
         kept.events.map((row) => row.stream_id),
-        ["fork-thread", "stopped-thread"],
+        ["fork-thread", "limit-thread", "stopped-thread"],
       );
       assert.deepStrictEqual(
         kept.sessions.map((row) => row.provider_session_id),
@@ -223,6 +224,57 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         kept.observations.map((row) => row.id),
         ["observation-kept"],
       );
+    }),
+  );
+
+  it.effect("keeps families whose only live-looking state is idle sessions and old markers", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-idle-src-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-idle-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+      yield* withDatabase(
+        source,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          yield* sql`INSERT INTO orchestration_v2_projection_provider_sessions
+            (provider_session_id, thread_id, provider, status, updated_at, payload_json)
+            VALUES
+            ('session-idle', 'stopped-thread', 'codex', 'ready', '2026-08-01', '{"status":"ready"}'),
+            ('session-running', 'running-thread', 'codex', 'ready', '2026-08-01', '{"status":"ready"}')`;
+          yield* sql`INSERT INTO orchestration_v2_projection_provider_session_bindings
+            (provider_session_id, thread_id)
+            VALUES ('session-idle', 'stopped-thread'), ('session-running', 'running-thread')`;
+        }),
+      );
+
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 10 },
+        { sharedHome: sourceDir },
+      );
+
+      const kept = yield* withDatabase(
+        result.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          const threads = yield* sql<{ thread_id: string }>`
+            SELECT thread_id FROM orchestration_v2_projection_threads ORDER BY thread_id`;
+          const sessions = yield* sql<{ provider_session_id: string; status: string; json: string | null }>`
+            SELECT provider_session_id, status, json_extract(payload_json, '$.status') AS json
+            FROM orchestration_v2_projection_provider_sessions ORDER BY provider_session_id`;
+          return { threads, sessions };
+        }),
+      );
+      // Running, failed and delegated-work families stay out; idle sessions and a
+      // superseded limit marker do not make a family live.
+      assert.deepStrictEqual(
+        kept.threads.map((row) => row.thread_id),
+        ["fork-thread", "limit-thread", "stopped-thread"],
+      );
+      assert.deepStrictEqual(kept.sessions, [
+        { provider_session_id: "session-idle", status: "stopped", json: "stopped" },
+        { provider_session_id: "session-shared", status: "stopped", json: null },
+      ]);
     }),
   );
 
