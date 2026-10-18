@@ -24,8 +24,8 @@ export const THREAD_WORKFLOW_ICONS: Record<SelectableThreadWorkflowKind, LucideI
 };
 
 /**
- * A thread's governing workflow as a chip. An unattended thread carries a static moon
- * marker after the name; nothing animates.
+ * A thread's governing workflow as a chip. An unattended thread adds a moon segment, set off
+ * by a divider in the chip's tint, so it reads at a glance in a long list; nothing animates.
  */
 export function ThreadWorkflowChip({
   kind,
@@ -46,7 +46,14 @@ export function ThreadWorkflowChip({
       aria-label={threadWorkflowChipLabel({ kind, unattended })}
       {...props}
     >
-      {unattended ? <MoonIcon aria-hidden className="size-2.5 shrink-0 opacity-80" /> : null}
+      {unattended ? (
+        <span
+          aria-hidden
+          className="ms-0.5 flex h-full shrink-0 items-center border-s border-(--tint-chip-border) ps-1"
+        >
+          <MoonIcon className="size-3 shrink-0" />
+        </span>
+      ) : null}
     </TintChip>
   );
 }

@@ -51,6 +51,7 @@ function makeProjection() {
       {
         id: runId,
         ordinal: 1,
+        userMessageId: MessageId.make("message:user"),
         providerInstanceId: instanceId,
         modelSelection: { instanceId, model: "gpt-6" },
         providerThreadId,

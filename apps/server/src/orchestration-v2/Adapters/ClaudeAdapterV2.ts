@@ -3325,6 +3325,7 @@ export function claudeUserInputQuestions(
         question,
         options,
         multiSelect: record.multiSelect === true,
+        ...(record.allowCustomAnswer === false ? { allowCustomAnswer: false } : {}),
       },
     ];
   });
@@ -8248,6 +8249,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                         },
                       ],
                       multiSelect: false,
+                      // A fixed choice, so an unattended thread's away answer leaves it alone.
+                      allowCustomAnswer: false,
                     },
                   ],
                 },

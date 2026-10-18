@@ -13,8 +13,8 @@ import { cn } from "../../lib/cn";
 import { projectIconColorClassNames } from "../../lib/projectIcon";
 
 /**
- * A thread's workflow as a small pill in its tint, the same tint web uses, with a static
- * moon when it runs unattended.
+ * A thread's workflow as a small pill in its tint, the same tint web uses. An unattended
+ * thread adds a moon segment behind a tinted divider; nothing animates.
  */
 export function ThreadWorkflowBadge(props: {
   readonly workflow: OrchestrationV2ThreadWorkflow | null | undefined;
@@ -35,12 +35,10 @@ export function ThreadWorkflowBadge(props: {
         {THREAD_WORKFLOW_LABELS[shown.kind]}
       </Text>
       {shown.unattended ? (
-        <SymbolView
-          name="moon"
-          size={9}
-          tintColorClassName="accent-foreground-muted"
-          type="monochrome"
-        />
+        <>
+          <View className={cn("mx-0.5 h-3 w-px", colors.divider)} />
+          <SymbolView name="moon" size={11} tintColorClassName={colors.symbol} type="monochrome" />
+        </>
       ) : null}
     </View>
   );

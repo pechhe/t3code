@@ -14,6 +14,7 @@ import type { ProjectionRuntimeRecoveryState } from "./ProjectionStore.ts";
 
 import * as ServerSettings from "../serverSettings.ts";
 import { isNativeMaintenanceCommand } from "./CommandPolicy.ts";
+import { MAX_CONTINUATION_CHAIN, serverContinuationChainLength } from "./serverContinuation.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import {
   awaitingProviderThreadId,
@@ -29,8 +30,6 @@ import {
 } from "./RestartBackgroundNote.ts";
 
 const CONTINUE_PROMPT = "Continue where you left off.";
-
-const MAX_CONTINUATION_CHAIN = 3;
 
 function restartContinuationBlocked(
   projection: Pick<
@@ -227,15 +226,7 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
       return;
     if (projection.thread.providerInstanceId !== source.providerInstanceId) return;
     // A turn that keeps crashing the server would otherwise restart it forever.
-    let chainLength = 0;
-    for (
-      let run: OrchestrationV2Run | undefined = source;
-      run?.restartContinuationOfRunId !== undefined && chainLength < MAX_CONTINUATION_CHAIN;
-      run = projection.runs.find((candidate) => candidate.id === run?.restartContinuationOfRunId)
-    ) {
-      chainLength += 1;
-    }
-    if (chainLength >= MAX_CONTINUATION_CHAIN) {
+    if (serverContinuationChainLength(projection.runs, source) >= MAX_CONTINUATION_CHAIN) {
       yield* Effect.logWarning("Not continuing a run restarted too many times in a row", {
         threadId: input.threadId,
         sourceRunId: input.sourceRunId,
