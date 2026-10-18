@@ -12,7 +12,10 @@ import {
   ProviderThreadId,
   ProviderTurnId,
   MessageId,
+  ContextHandoffId,
+  TurnItemId,
   RunId,
+  RuntimeRequestId,
   ThreadId,
   type AgentTaskBinding,
   type ExperimentAssignInput,
@@ -234,6 +237,7 @@ const addRunTurn = Effect.fn(function* (
   usage: TurnTokenUsage | undefined,
   delegatedTask?: string,
   timing?: { requested: number; start: number; end: number },
+  overrides?: Partial<OrchestrationV2Run>,
 ) {
   const store = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
@@ -261,6 +265,7 @@ const addRunTurn = Effect.fn(function* (
     checkpointId: null,
     contextHandoffId: null,
     ...(delegatedTask ? { delegatedTaskId: NodeId.make(delegatedTask) } : {}),
+    ...overrides,
   };
   yield* store.apply({
     id: EventId.make(`event:${suffix}:run`),
@@ -1516,12 +1521,407 @@ describe("experiment evidence", () => {
       assert.lengthOf(bundle.captures, 1);
       assert.equal(bundle.captures[0]?.source, "runtime");
       assert.equal(bundle.rubric?.revision, "rollover-quality-v1");
-      assert.include(bundle.captures[0]?.missing ?? [], "initiating-message-unavailable");
+      assert.include(bundle.captures[0]?.missing ?? [], "user-instructions-unavailable");
       assert.include(
         bundle.captures[0]?.artifacts.find((item) => item.kind === "policy-observation")?.content ??
           "",
         '"effectivePolicy":{"softLimit":144000,"hardLimit":180000}',
       );
+    }).pipe(Effect.provide(layer)),
+  );
+});
+
+const addUserMessage = Effect.fn(function* (thread: string, run: string, id: string, text: string) {
+  const store = yield* ProjectionStore.ProjectionStoreV2;
+  const now = yield* DateTime.now;
+  yield* store.apply({
+    id: EventId.make(`event:${id}:message`),
+    type: "message.updated",
+    threadId: ThreadId.make(thread),
+    occurredAt: now,
+    payload: {
+      createdBy: "user",
+      creationSource: "web",
+      id: MessageId.make(id),
+      threadId: ThreadId.make(thread),
+      runId: RunId.make(run),
+      nodeId: null,
+      role: "user",
+      text,
+      attachments: [],
+      streaming: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+});
+const addItem = Effect.fn(function* (
+  thread: string,
+  run: string,
+  ordinal: number,
+  item:
+    | { type: "command_execution"; input: string; output: string }
+    | { type: "assistant_message"; text: string }
+    | { type: "reasoning"; text: string }
+    | { type: "dynamic_tool"; toolName: string; input: unknown; output: unknown }
+    | {
+        type: "user_input_request";
+        requestId: RuntimeRequestId;
+        questions: ReadonlyArray<{
+          id: string;
+          header: string;
+          question: string;
+          options: ReadonlyArray<{ label: string; description: string; value?: string }>;
+        }>;
+      },
+  title: string | null = null,
+) {
+  const store = yield* ProjectionStore.ProjectionStoreV2;
+  const now = yield* DateTime.now;
+  const id = TurnItemId.make(`item:${run}:${ordinal}`);
+  const base = {
+    id,
+    threadId: ThreadId.make(thread),
+    runId: RunId.make(run),
+    nodeId: null,
+    providerThreadId: null,
+    providerTurnId: null,
+    nativeItemRef: null,
+    parentItemId: null,
+    ordinal,
+    status: "completed" as const,
+    title,
+    startedAt: now,
+    completedAt: now,
+    updatedAt: now,
+  };
+  yield* store.apply({
+    id: EventId.make(`event:${id}`),
+    type: "turn-item.updated",
+    threadId: ThreadId.make(thread),
+    occurredAt: now,
+    payload:
+      item.type === "command_execution"
+        ? { ...base, ...item, exitCode: 0 }
+        : item.type === "assistant_message"
+          ? {
+              ...base,
+              ...item,
+              messageId: MessageId.make(`assistant:${ordinal}`),
+              streaming: false,
+            }
+          : item.type === "reasoning"
+            ? { ...base, ...item, streaming: false }
+            : { ...base, ...item },
+  });
+});
+
+describe("rollover capture", () => {
+  it.effect(
+    "keeps the user's instructions, full note and delivered context, and bounds tool output first",
+    () =>
+      Effect.gen(function* () {
+        yield* start();
+        yield* addThread("thread:1");
+        yield* addRunTurn("thread:1", "1", undefined);
+        yield* addRunTurn("thread:1", "2", undefined);
+        yield* addRunTurn("thread:1", "3", undefined, undefined, undefined, {
+          rolloverOfRunId: RunId.make("run:2"),
+        });
+        const service = yield* Experiments.ExperimentService;
+        const assignment = (yield* service.assign(assignInput()))[0]!;
+        const brief = "Original brief: keep the public API stable. " + "b".repeat(20_000);
+        yield* addUserMessage("thread:1", "run:1", "message:brief", brief);
+        yield* addUserMessage("thread:1", "run:2", "message:go", "yes build this");
+        yield* addItem("thread:1", "run:2", 10, { type: "reasoning", text: "private thoughts" });
+        for (let index = 0; index < 80; index++)
+          yield* addItem("thread:1", "run:2", 11 + index, {
+            type: "command_execution",
+            input: `step ${index}`,
+            output: "o".repeat(6_000),
+          });
+        yield* addItem("thread:1", "run:2", 100, {
+          type: "assistant_message",
+          text: "Handing off now.",
+        });
+        const episodeId = "rollover:episode";
+        const soft = {
+          id: "soft:run:2",
+          assignmentId: assignment.id,
+          episodeId,
+          runId: RunId.make("run:2"),
+          kind: "soft" as const,
+          usedTokens: 180_000,
+          maxTokens: 200_000,
+          evidence: ["turn:2"],
+        };
+        yield* service.recordObservation(soft);
+        const before = yield* service.readEvidence({
+          assignmentId: assignment.id,
+          episodeId,
+          limit: 5,
+        });
+        assert.equal(before.rubric?.revision, "rollover-quality-v1");
+        const artifacts = before.captures.flatMap((capture) => capture.artifacts);
+        assert.equal(before.captures[0]?.recipeRevision, "rollover-v2");
+        assert.equal(
+          artifacts
+            .filter((artifact) => artifact.reference.startsWith("message:message:brief"))
+            .map((artifact) => artifact.content)
+            .join(""),
+          brief,
+        );
+        assert.isTrue(artifacts.some((artifact) => artifact.content === "yes build this"));
+        const activity = artifacts
+          .filter((artifact) => artifact.kind === "activity")
+          .flatMap((artifact) => JSON.parse(artifact.content!) as Array<Record<string, unknown>>);
+        assert.isFalse(activity.some((item) => item.type === "reasoning"));
+        assert.isTrue(activity.some((item) => item.text === "Handing off now."));
+        // Tool output is cut and shed before anything else; the nearest items keep theirs.
+        const missing = before.captures[0]!.missing;
+        assert.isTrue(missing.some((marker) => marker.startsWith("item-text-truncated:")));
+        assert.isTrue(missing.some((marker) => marker.startsWith("tool-output-omitted:")));
+        assert.equal(
+          activity.at(-2)?.text,
+          ("Command: step 79\nExit code: 0\n" + "o".repeat(6_000)).slice(0, 4_000),
+        );
+        assert.isNull(activity[0]?.text);
+        assert.equal(activity[0]?.textLength, "Command: step 0\nExit code: 0\n".length + 6_000);
+
+        // A later capture of the same episode holds only what changed.
+        yield* addUserMessage("thread:1", "run:2", "message:late", "Also keep the CLI flags");
+        yield* service.recordObservation({ ...soft, id: "hard:run:2", kind: "hard" });
+        const hard = (yield* service.readEvidence({
+          assignmentId: assignment.id,
+          episodeId,
+          offset: before.captures.length,
+          limit: 5,
+        })).captures.find((capture) => capture.id === "capture:hard:run:2")!;
+        assert.deepEqual(
+          hard.artifacts
+            .filter((artifact) => artifact.kind === "user-instruction")
+            .map((artifact) => artifact.content),
+          ["Also keep the CLI flags"],
+        );
+        assert.isTrue(
+          hard.missing.some((marker) =>
+            marker.startsWith("unchanged-since-earlier-episode-capture:"),
+          ),
+        );
+
+        const note = "## Goal\n" + "n".repeat(30_000);
+        const context = "Delivered: " + "c".repeat(40_000);
+        const store = yield* ProjectionStore.ProjectionStoreV2;
+        const now = yield* DateTime.now;
+        yield* store.apply({
+          id: EventId.make("event:handoff"),
+          type: "context-handoff.updated",
+          threadId: ThreadId.make("thread:1"),
+          occurredAt: now,
+          payload: {
+            id: ContextHandoffId.make("handoff:1"),
+            threadId: ThreadId.make("thread:1"),
+            targetRunId: RunId.make("run:3"),
+            fromProviderThreadIds: [ProviderThreadId.make("provider:2")],
+            toProviderThreadId: ProviderThreadId.make("provider:3"),
+            coveredRunOrdinals: { from: 1, to: 2 },
+            strategy: "manual_context",
+            status: "ready",
+            summaryMessageId: null,
+            summaryText: note,
+            delivery: {
+              nativeThreadId: "native:3",
+              status: "inline",
+              contextText: context,
+              summaryIncluded: true,
+              itemIds: [],
+            },
+            createdByProviderInstanceId: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+        yield* service.recordObservation({
+          id: "fresh:run:3",
+          assignmentId: assignment.id,
+          episodeId,
+          runId: RunId.make("run:3"),
+          kind: "fresh-context",
+          usedTokens: 20_000,
+          maxTokens: 200_000,
+          evidence: ["turn:3"],
+        });
+        const all: Array<(typeof before.captures)[number]> = [];
+        for (let offset: number | null = 0; offset !== null;) {
+          const page: typeof before = yield* service.readEvidence({
+            assignmentId: assignment.id,
+            episodeId,
+            offset,
+            limit: 5,
+          });
+          all.push(...page.captures);
+          offset = page.nextOffset;
+        }
+        const after = all.filter((capture) => capture.id.startsWith("capture:fresh:run:3"));
+        const afterArtifacts = after.flatMap((capture) => capture.artifacts);
+        const joined = (kind: string) =>
+          afterArtifacts
+            .filter((artifact) => artifact.kind === kind)
+            .map((artifact) => artifact.content)
+            .join("");
+        assert.equal(joined("handoff-note"), note);
+        assert.equal(joined("delivered-context"), context);
+        assert.isTrue(after.every((capture) => capture.phase === "after"));
+        assert.notInclude(after[0]!.missing.join(" "), "truncated");
+      }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("captures tool content, the questions behind answers, and bounds long titles", () =>
+    Effect.gen(function* () {
+      yield* start();
+      yield* addThread("thread:1");
+      yield* addRunTurn("thread:1", "1", undefined);
+      const service = yield* Experiments.ExperimentService;
+      const assignment = (yield* service.assign(assignInput()))[0]!;
+      yield* addUserMessage("thread:1", "run:1", "message:brief", "Ship the fix");
+      const requestId = RuntimeRequestId.make("request:scope");
+      yield* addItem("thread:1", "run:1", 1, {
+        type: "user_input_request",
+        requestId,
+        questions: [
+          {
+            id: "scope",
+            header: "Scope",
+            question: "Include the CLI?",
+            options: [{ label: "Yes", description: "Change the CLI flags too", value: "yes" }],
+          },
+        ],
+      });
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      yield* store.apply({
+        id: EventId.make("event:request:scope"),
+        type: "runtime-request.updated",
+        threadId: ThreadId.make("thread:1"),
+        runId: RunId.make("run:1"),
+        occurredAt: now,
+        payload: {
+          id: requestId,
+          nodeId: NodeId.make("node:1"),
+          providerTurnId: null,
+          nativeRequestRef: null,
+          kind: "user_input",
+          status: "resolved",
+          responseCapability: { type: "message" },
+          createdAt: now,
+          resolvedAt: now,
+          answers: { scope: "yes" },
+        },
+      });
+      yield* addItem("thread:1", "run:1", 2, {
+        type: "dynamic_tool",
+        toolName: "t3_thread_read",
+        input: { threadId: "thread:other" },
+        output: { status: "idle" },
+      });
+      yield* addItem(
+        "thread:1",
+        "run:1",
+        3,
+        { type: "command_execution", input: "ls", output: "x".repeat(40_000) },
+        "t".repeat(40_000),
+      );
+      yield* service.recordObservation({
+        id: "soft:run:1",
+        assignmentId: assignment.id,
+        episodeId: "episode",
+        runId: RunId.make("run:1"),
+        kind: "soft",
+        usedTokens: 180_000,
+        maxTokens: 200_000,
+        evidence: ["turn:1"],
+      });
+      const { captures } = yield* service.readEvidence({
+        assignmentId: assignment.id,
+        episodeId: "episode",
+      });
+      const artifacts = captures.flatMap((capture) => capture.artifacts);
+      const answer = JSON.parse(
+        artifacts.find((artifact) => artifact.kind === "user-answer")!.content!,
+      );
+      assert.equal(answer.questions[0].question, "Include the CLI?");
+      assert.equal(answer.questions[0].options[0].value, "yes");
+      assert.deepEqual(answer.answers, { scope: "yes" });
+      const activity = artifacts
+        .filter((artifact) => artifact.kind === "activity")
+        .flatMap((artifact) => JSON.parse(artifact.content!) as Array<Record<string, unknown>>);
+      const tool = activity.find((item) => item.type === "dynamic_tool");
+      assert.include(String(tool?.text), "t3_thread_read");
+      assert.include(String(tool?.text), '"status":"idle"');
+      const command = activity.find((item) => item.type === "command_execution");
+      assert.equal(command?.titleLength, 40_000);
+      assert.lengthOf(String(command?.title), 1_000);
+      assert.isTrue(
+        captures[0]!.missing.some((marker) => marker.startsWith("item-text-truncated:")),
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("appends retrospective agent evidence to a runtime episode under its own recipe", () =>
+    Effect.gen(function* () {
+      yield* start();
+      yield* addThread("thread:1");
+      yield* addRunTurn("thread:1", "1", undefined);
+      const service = yield* Experiments.ExperimentService;
+      const assignment = (yield* service.assign(assignInput()))[0]!;
+      const runtime = {
+        id: "capture:runtime",
+        assignmentId: assignment.id,
+        episodeId: "episode",
+        recipeRevision: "rollover-v1",
+        runId: RunId.make("run:1"),
+        phase: "before" as const,
+        source: "runtime" as const,
+        artifacts: [],
+        missing: ["history-unavailable"],
+      };
+      yield* service.recordEvidence(runtime);
+      const recovered = yield* service.recordEvidence({
+        ...runtime,
+        id: "capture:recovered",
+        recipeRevision: "authority-recovery-v2",
+        phase: "after",
+        source: "agent",
+        artifacts: [{ kind: "instruction", reference: "message:brief", content: "the brief" }],
+        missing: [],
+      });
+      const page = yield* service.readEvidence({
+        assignmentId: assignment.id,
+        episodeId: "episode",
+        offset: 1,
+      });
+      assert.deepEqual(page.captures, [recovered]);
+      // The rubric follows the episode, not the page.
+      assert.equal(page.rubric?.revision, "rollover-quality-v1");
+      const conflict = yield* Effect.flip(
+        service.recordEvidence({ ...runtime, missing: ["something-else"] }),
+      );
+      assert.equal(conflict.reason, "conflict");
+      assert.include(conflict.message, "append under a new id");
+      const oversized = yield* Effect.flip(
+        service.recordEvidence({
+          ...runtime,
+          id: "capture:oversized",
+          artifacts: Array.from({ length: 5 }, (_, index) => ({
+            kind: "chunk",
+            reference: `chunk:${index}`,
+            content: "x".repeat(30_000),
+          })),
+        }),
+      );
+      assert.include(oversized.message, "150000 UTF-8 bytes");
+      const report = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      assert.equal(report.episodes?.[0]?.recipeRevision, "rollover-v1");
     }).pipe(Effect.provide(layer)),
   );
 });

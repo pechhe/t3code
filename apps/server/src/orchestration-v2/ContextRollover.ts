@@ -14,7 +14,7 @@ import * as Context from "effect/Context";
 /** The T3 MCP tool an agent writes its rollover note with. */
 export const ROLLOVER_NOTE_TOOL_NAME = "t3_write_rollover_note";
 /** Identifies the note prompt and capture; bump it when either changes. */
-export const ROLLOVER_NOTE_RECIPE = "rollover-v1";
+export const ROLLOVER_NOTE_RECIPE = "rollover-v2";
 
 /**
  * The fresh session receives the note through the handoff budget (bytes, by default

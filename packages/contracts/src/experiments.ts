@@ -323,6 +323,7 @@ export const ExperimentEvaluation = Schema.Struct({
 export type ExperimentEvaluation = typeof ExperimentEvaluation.Type;
 export const ExperimentEpisodeReport = Schema.Struct({
   id: TrimmedNonEmptyString,
+  /** The recipe of the episode's earliest capture; each capture records its own. */
   recipeRevision: TrimmedNonEmptyString,
   /**
    * The setup segment of this entry's captures (see the runs' `setupSegment`). An episode
@@ -588,9 +589,11 @@ export class ExperimentError extends Schema.TaggedError<ExperimentError>()("Expe
     "invalid-evidence",
   ]),
   entityId: Schema.String,
+  /** What the caller can change to succeed; absent when nothing it supplied was at fault. */
+  detail: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.Defect()),
 }) {
   override get message(): string {
-    return `Experiment ${this.operation} failed (${this.reason}).`;
+    return `Experiment ${this.operation} failed (${this.reason})${this.detail === undefined ? "" : `: ${this.detail}`}.`;
   }
 }

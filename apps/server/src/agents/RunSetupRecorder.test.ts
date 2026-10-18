@@ -146,7 +146,7 @@ describe("captureRunSetup", () => {
         softLimit: 220_000,
         hardLimit: 280_000,
         held: false,
-        noteRecipe: "rollover-v1",
+        noteRecipe: "rollover-v2",
       });
       assert.deepEqual(record.experimentAssignments, [{ experimentId: "trial", variantId: "a" }]);
       assert.deepEqual(record.workflow, { kind: "lead", unattended: true });
@@ -172,7 +172,7 @@ describe("captureRunSetup", () => {
         softLimit: 72_000,
         hardLimit: 90_000,
         held: false,
-        noteRecipe: "rollover-v1",
+        noteRecipe: "rollover-v2",
       });
     }).pipe(Effect.provide(layer)),
   );

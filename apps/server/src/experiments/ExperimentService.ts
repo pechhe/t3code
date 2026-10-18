@@ -35,6 +35,7 @@ import {
   type ExperimentTurnEvidence,
   ThreadId,
   type OrchestrationV2Run,
+  type OrchestrationV2TurnItem,
   isConsultingRole,
   isReviewerRole,
 } from "@t3tools/contracts";
@@ -47,6 +48,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { historicalMessage } from "@t3tools/provider-core/server/handoffBudget";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import { ROLLOVER_NOTE_RECIPE } from "../orchestration-v2/ContextRollover.ts";
 import * as Option from "effect/Option";
 import * as PolicyStore from "../agents/AgentPolicyStore.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
@@ -183,6 +185,39 @@ const encodeAssignment = Schema.encodeSync(jsonAssignment);
 const encodeOutcome = Schema.encodeSync(jsonOutcome);
 const encodeObservation = Schema.encodeSync(jsonObservation);
 const encodeSnapshot = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+const decodeSnapshots = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Array(Schema.Unknown)),
+);
+/** Packs activity snapshots, in order, into artifacts within the per-artifact bound. */
+const activityArtifacts = (
+  reference: string,
+  snapshots: ReadonlyArray<ActivitySnapshot>,
+): EvidenceArtifact[] => {
+  const artifacts: EvidenceArtifact[] = [];
+  let batch: string[] = [];
+  let ordinals: number[] = [];
+  let chars = 2;
+  const flush = () => {
+    if (batch.length === 0) return;
+    artifacts.push({
+      kind: "activity",
+      reference: `${reference}:items:${ordinals[0]}-${ordinals.at(-1)}`,
+      content: `[${batch.join(",")}]`,
+    });
+    batch = [];
+    ordinals = [];
+    chars = 2;
+  };
+  for (const snapshot of snapshots) {
+    const encoded = encodeSnapshot(snapshot);
+    if (chars + encoded.length + 1 > artifactChars) flush();
+    batch.push(encoded);
+    ordinals.push(snapshot.ordinal);
+    chars += encoded.length + 1;
+  }
+  flush();
+  return artifacts;
+};
 const rolloverRubric = {
   revision: "rollover-quality-v1",
   criteria: [
@@ -196,6 +231,99 @@ const rolloverRubric = {
   instructions:
     "Compare pre-handoff instructions and observable work state with the submitted note, confirmed delivered material and resumed actions. Cite exact capture IDs and artifact references in each finding. Missing original constraints, delivery or resumed work requires unknown for affected criteria. A hard nudge or successful turn alone proves neither a bad interruption nor correct continuation. Do not infer hidden reasoning. Separate automated judgements from human review and self-report; record evaluator usage separately. Use actual effective thresholds and analyze within provider/model before pooling.",
 };
+/** Recipes judged by `rolloverRubric`; episodes keep the recipe they were captured under. */
+const rolloverRecipes = ["rollover-v1", ROLLOVER_NOTE_RECIPE];
+// One capture's bounds (see ExperimentEvidenceInput); larger runtime evidence spans parts.
+const captureBytes = 128_000;
+const captureArtifacts = 32;
+const artifactChars = 32_000;
+// Within artifactChars, and at most 48 KB of UTF-8.
+const textChunk = 16_000;
+const toolOutputChars = 4_000;
+const activityBytes = 256_000;
+type EvidenceArtifact = ExperimentEvidenceInput["artifacts"][number];
+interface ActivitySnapshot {
+  readonly reference: string;
+  readonly type: string;
+  readonly ordinal: number;
+  readonly status: string;
+  readonly title: string | null;
+  /** The full title length, present when the title above is cut. */
+  readonly titleLength?: number;
+  text: string | null;
+  /** The full text length, present when the text above is cut or left out. */
+  textLength?: number;
+}
+const titleChars = 1_000;
+const utf8Bytes = (text: string) => Buffer.byteLength(text, "utf8");
+const renderValue = (value: unknown) =>
+  typeof value === "string" ? value : (JSON.stringify(value) ?? "");
+const renderQuestions = (item: Extract<OrchestrationV2TurnItem, { type: "user_input_request" }>) =>
+  item.questions.map((question) => ({
+    id: question.id,
+    header: question.header,
+    question: question.question,
+    options: question.options.map((option) => ({
+      label: option.label,
+      description: option.description,
+      ...(option.value === undefined ? {} : { value: option.value }),
+    })),
+  }));
+/** What an item did, for a reviewer: the handoff renderer's text plus the kinds it leaves out. */
+const activityText = (item: OrchestrationV2TurnItem): string | null => {
+  switch (item.type) {
+    case "dynamic_tool":
+      return [
+        `Tool: ${item.toolName ?? "unknown"}`,
+        `Input: ${renderValue(item.input)}`,
+        ...(item.output === undefined ? [] : [`Output: ${renderValue(item.output)}`]),
+      ].join("\n");
+    case "user_input_request":
+      return encodeSnapshot(renderQuestions(item));
+    case "approval_request":
+      return [
+        `Approval: ${item.requestKind}`,
+        ...(item.prompt === undefined ? [] : [item.prompt]),
+      ].join("\n");
+    case "subagent":
+      return [
+        `Prompt: ${item.prompt}`,
+        ...(item.result === null ? [] : [`Result: ${item.result}`]),
+      ].join("\n");
+    case "web_search":
+      return renderValue({ patterns: item.patterns ?? [], results: item.results ?? [] });
+    case "file_search":
+      return renderValue({ pattern: item.pattern ?? null, results: item.results ?? [] });
+    case "todo_list":
+      return renderValue({ explanation: item.explanation ?? null, steps: item.steps });
+    case "compaction":
+    case "handoff":
+      return item.summary ?? null;
+    case "system_notice":
+    case "run_interrupt_request":
+      return item.message;
+    case "file_change":
+      return [
+        `File change: ${item.fileName}`,
+        ...(item.diffStr === undefined ? [] : [item.diffStr]),
+      ].join("\n");
+    default:
+      return historicalMessage(item)?.text ?? null;
+  }
+};
+/** Splits text over artifacts without losing any; each split names its character range. */
+const textArtifacts = (kind: string, reference: string, text: string): EvidenceArtifact[] =>
+  text.length <= textChunk
+    ? [{ kind, reference, content: text }]
+    : Array.from({ length: Math.ceil(text.length / textChunk) }, (_, index) => {
+        const from = index * textChunk;
+        const to = Math.min(text.length, from + textChunk);
+        return {
+          kind,
+          reference: `${reference}:chars:${from}-${to}`,
+          content: text.slice(from, to),
+        };
+      });
 const jsonEvidence = Schema.fromJsonString(ExperimentEvidence);
 const jsonEvaluation = Schema.fromJsonString(ExperimentEvaluation);
 const encodeEvidence = Schema.encodeSync(jsonEvidence);
@@ -361,8 +489,20 @@ const make = Effect.gen(function* () {
           : new ExperimentError({ operation, entityId, reason: "persistence", cause }),
       ),
     );
-  const fail = (operation: string, entityId: string, reason: ExperimentError["reason"]) =>
-    Effect.fail(new ExperimentError({ operation, entityId, reason }));
+  const fail = (
+    operation: string,
+    entityId: string,
+    reason: ExperimentError["reason"],
+    detail?: string,
+  ) =>
+    Effect.fail(
+      new ExperimentError({
+        operation,
+        entityId,
+        reason,
+        ...(detail === undefined ? {} : { detail }),
+      }),
+    );
 
   const list = Effect.fn("ExperimentService.list")(function* () {
     const rows = yield* persist(
@@ -1602,14 +1742,15 @@ const make = Effect.gen(function* () {
         const evaluationRows = yield* sql<{
           payload_json: string;
         }>`SELECT payload_json FROM experiment_evaluations WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} ORDER BY rowid DESC LIMIT 11`;
+        const rollover = yield* sql<{
+          id: string;
+        }>`SELECT id FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} AND json_extract(payload_json, '$.recipeRevision') IN (SELECT value FROM json_each(${encodeSnapshot(rolloverRecipes)})) LIMIT 1`;
         const hasMoreCaptures = rows.length > limit;
         const captures = yield* Effect.forEach(rows.slice(0, limit), (row) =>
           decodeEvidence(row.payload_json),
         );
         return {
-          rubric: captures.some((capture) => capture.recipeRevision === "rollover-v1")
-            ? rolloverRubric
-            : null,
+          rubric: rollover.length > 0 ? rolloverRubric : null,
           captures,
           evaluations: yield* Effect.forEach(evaluationRows.slice(0, 10), (row) =>
             decodeEvaluation(row.payload_json),
@@ -1632,19 +1773,46 @@ const make = Effect.gen(function* () {
             if (!visibleWork(assignment, reader))
               return yield* fail("evidence", input.id, "not-found");
             if (assignment.threadId === null)
-              return yield* fail("evidence", input.id, "invalid-evidence");
-            if (
-              !isExperimentEvidenceInput(input) ||
-              input.artifacts.reduce(
-                (size, a) => size + Buffer.byteLength(a.content ?? "", "utf8"),
-                0,
-              ) > 128_000 ||
-              (input.artifacts.length === 0 && input.missing.length === 0)
-            )
-              return yield* fail("evidence", input.id, "invalid-evidence");
+              return yield* fail(
+                "evidence",
+                input.id,
+                "invalid-evidence",
+                "the assignment has no thread to hold evidence",
+              );
+            const id = input.id;
+            if (!isExperimentEvidenceInput(input))
+              return yield* fail(
+                "evidence",
+                id,
+                "invalid-evidence",
+                "the capture does not match the evidence schema",
+              );
+            const bytes = input.artifacts.reduce(
+              (size, a) => size + Buffer.byteLength(a.content ?? "", "utf8"),
+              0,
+            );
+            if (bytes > captureBytes)
+              return yield* fail(
+                "evidence",
+                input.id,
+                "invalid-evidence",
+                `artifact content is ${bytes} UTF-8 bytes; split it across captures of at most ${captureBytes}`,
+              );
+            if (input.artifacts.length === 0 && input.missing.length === 0)
+              return yield* fail(
+                "evidence",
+                input.id,
+                "invalid-evidence",
+                "supply at least one artifact or missing-evidence marker",
+              );
             const { runs } = yield* projections.getThreadRecords(assignment.threadId, ["runs"]);
             if (!runs.some((run) => run.id === input.runId))
-              return yield* fail("evidence", input.id, "invalid-evidence");
+              return yield* fail(
+                "evidence",
+                input.id,
+                "invalid-evidence",
+                `run ${input.runId} is not a run of the assignment's thread`,
+              );
             const previousRows = yield* sql<{
               payload_json: string;
             }>`SELECT payload_json FROM experiment_evidence WHERE id = ${input.id}`;
@@ -1654,14 +1822,16 @@ const make = Effect.gen(function* () {
                 encodeEvidence(previous) !==
                 encodeEvidence({ ...input, capturedAt: previous.capturedAt })
               )
-                return yield* fail("evidence", input.id, "conflict");
+                return yield* fail(
+                  "evidence",
+                  input.id,
+                  "conflict",
+                  "a different capture already has this id; captures are immutable, so append under a new id",
+                );
               return previous;
             }
-            const recipes = yield* sql<{
-              recipe_revision: string;
-            }>`SELECT json_extract(payload_json, '$.recipeRevision') AS recipe_revision FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} LIMIT 1`;
-            if (recipes[0] && recipes[0].recipe_revision !== input.recipeRevision)
-              return yield* fail("evidence", input.id, "conflict");
+            // Each capture names its own recipe and source, so later evidence (a
+            // retrospective agent recovery, or a newer runtime recipe) joins the episode.
             const value: ExperimentEvidence = { ...input, capturedAt: yield* nowIso };
             yield* sql`INSERT INTO experiment_evidence(id, assignment_id, episode_id, payload_json) VALUES (${value.id}, ${value.assignmentId}, ${value.episodeId}, ${encodeEvidence(value)})`;
             return value;
@@ -1733,30 +1903,94 @@ const make = Effect.gen(function* () {
       ),
   );
 
-  // A bounded recipe freezes observable state; older history remains explicitly incomplete.
+  // Freezes what a review judges a rollover against: the user's instructions and answers
+  // since the previous rollover, the full handoff note and delivered context, and the run's
+  // activity. Instructions and the handoff are never cut: they spill into further parts.
+  // Size bounds fall on tool output first, then on the activity furthest from the rollover,
+  // and each capture adds only what this episode's earlier captures do not already hold.
   const captureRollover = Effect.fn("ExperimentService.captureRollover")(function* (
     input: ExperimentObservationInput,
   ) {
     if (input.episodeId === undefined) return;
     const assignment = yield* getAssignment(input.assignmentId);
     if (assignment.threadId === null) return;
-    const records = yield* projections.getThreadRecords(assignment.threadId, [
+    const threadId = assignment.threadId;
+    const records = yield* projections.getThreadRecords(threadId, [
       "runs",
       "contextHandoffs",
       "subagents",
+      "runtimeRequests",
     ]);
     const run = records.runs.find((candidate) => candidate.id === input.runId);
-    if (run === undefined) return yield* fail("evidence", input.id, "invalid-evidence");
-    const first = yield* projections.getTimelinePage(assignment.threadId, {
-      view: "activity",
-      limit: 1,
+    if (run === undefined)
+      return yield* fail(
+        "evidence",
+        input.id,
+        "invalid-evidence",
+        `run ${input.runId} is not a run of the assignment's thread`,
+      );
+    const continuing = input.kind === "fresh-context" || input.kind === "continuation-ended";
+    const missing: string[] = [];
+    const seen = new Set<string>();
+    const earlier = yield* sql<{
+      payload_json: string;
+    }>`SELECT payload_json FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} AND json_extract(payload_json, '$.source') = 'runtime' AND json_extract(payload_json, '$.recipeRevision') = ${ROLLOVER_NOTE_RECIPE}`;
+    for (const row of earlier) {
+      for (const artifact of (yield* decodeEvidence(row.payload_json)).artifacts) {
+        if (artifact.content === null) continue;
+        if (artifact.kind !== "activity") seen.add(`${artifact.reference}\n${artifact.content}`);
+        else
+          for (const snapshot of yield* decodeSnapshots(artifact.content))
+            seen.add(encodeSnapshot(snapshot));
+      }
+    }
+
+    // Instructions since the latest rollover at or before this run; earlier ones belong to
+    // that rollover's episode.
+    const boundary = records.runs
+      .filter(
+        (candidate) => candidate.rolloverOfRunId !== undefined && candidate.ordinal <= run.ordinal,
+      )
+      .reduce<OrchestrationV2Run | undefined>(
+        (latest, candidate) =>
+          latest === undefined || candidate.ordinal > latest.ordinal ? candidate : latest,
+        undefined,
+      );
+    const since = boundary === undefined ? undefined : DateTime.toEpochMillis(boundary.requestedAt);
+    if (boundary !== undefined && !continuing)
+      missing.push(
+        `instructions-before-run-${boundary.ordinal}-in-rollover-of-${boundary.rolloverOfRunId}`,
+      );
+    const ordinals = new Map(records.runs.map((candidate) => [candidate.id, candidate.ordinal]));
+    const { messages } = yield* projections.getThreadRecords(threadId, ["messages"], {
+      messageRoles: ["user"],
     });
-    const page = yield* projections.getTimelinePage(assignment.threadId, {
-      view: "activity",
-      limit: 20,
-      afterPosition: Math.max(-1, first.totalItems - 21),
+    const instructions = messages.filter((message) => {
+      const ordinal = message.runId === null ? undefined : ordinals.get(message.runId);
+      return ordinal !== undefined
+        ? boundary === undefined || ordinal >= boundary.ordinal
+        : since === undefined || DateTime.toEpochMillis(message.createdAt) >= since;
     });
-    const artifacts: ExperimentEvidenceInput["artifacts"][number][] = [
+    if (instructions.length === 0) missing.push("user-instructions-unavailable");
+    const { turnItems: questionItems } = yield* projections.getThreadRecords(
+      threadId,
+      ["turnItems"],
+      { turnItemTypes: ["user_input_request"] },
+    );
+    const questions = new Map(
+      questionItems.flatMap((item) =>
+        item.type === "user_input_request"
+          ? [[item.requestId, renderQuestions(item)] as const]
+          : [],
+      ),
+    );
+    const answers = records.runtimeRequests.filter(
+      (request) =>
+        request.kind === "user_input" &&
+        request.answers !== undefined &&
+        (since === undefined || DateTime.toEpochMillis(request.createdAt) >= since),
+    );
+    const required: EvidenceArtifact[] = [
       {
         kind: "policy-observation",
         reference: `observation:${input.id}`,
@@ -1778,100 +2012,193 @@ const make = Effect.gen(function* () {
           })),
         }),
       },
+      ...instructions.flatMap((message) =>
+        textArtifacts("user-instruction", `message:${message.id}`, message.text),
+      ),
+      ...answers.flatMap((request) =>
+        textArtifacts(
+          "user-answer",
+          `request:${request.id}`,
+          encodeSnapshot({
+            questions: questions.get(request.id) ?? null,
+            answers: request.answers,
+            resolvedAt: request.resolvedAt === null ? null : DateTime.formatIso(request.resolvedAt),
+          }),
+        ),
+      ),
     ];
-    const missing: string[] = [];
-    const { messages } = yield* projections.getThreadRecords(assignment.threadId, ["messages"], {
-      messageIds: [run.userMessageId],
-    });
-    const instruction = messages.find((message) => message.id === run.userMessageId);
-    if (instruction !== undefined) {
-      artifacts.push({
-        kind: "initiating-message",
-        reference: `message:${instruction.id}`,
-        content: instruction.text.slice(0, 8_000),
-      });
-      if (instruction.text.length > 8_000) missing.push("initiating-message-truncated");
-    } else missing.push("initiating-message-unavailable");
-    if (first.totalItems > page.items.length)
-      missing.push("earlier-history-not-snapshotted; recover with thread activity pagination");
-    for (const row of page.items) {
-      const item = row.item;
-      const text = historicalMessage(item)?.text ?? null;
-      artifacts.push({
-        kind: item.type,
-        reference: `thread:${row.sourceThreadId}:item:${item.id}`,
-        content: encodeSnapshot({
-          position: row.position,
-          runId: item.runId,
-          status: item.status,
-          title: item.title,
-          text: text?.slice(0, 4_000) ?? null,
-        }),
-      });
-      if (text !== null && text.length > 4_000) missing.push(`truncated-item:${item.id}`);
-    }
+    const unasked = answers.filter((request) => !questions.has(request.id)).length;
+    if (unasked > 0) missing.push(`user-answer-questions-unavailable:${unasked}`);
+    if (records.subagents.length > 20) missing.push("older-subagents-not-snapshotted");
     const handoff = records.contextHandoffs.find(
       (candidate) => candidate.targetRunId === input.runId,
     );
     if (handoff !== undefined) {
-      artifacts.push({
-        kind: "handoff",
-        reference: `handoff:${handoff.id}`,
-        content: encodeSnapshot({
-          id: handoff.id,
-          targetRunId: handoff.targetRunId,
-          summaryText: handoff.summaryText.slice(0, 4_000),
-          delivery:
-            handoff.delivery === undefined
-              ? null
-              : {
-                  ...handoff.delivery,
-                  contextText: handoff.delivery.contextText?.slice(0, 24_000),
-                },
-        }),
-      });
-      if (handoff.summaryText.length > 4_000) missing.push("handoff-note-snapshot-truncated");
+      required.push(
+        {
+          kind: "handoff",
+          reference: `handoff:${handoff.id}`,
+          content: encodeSnapshot({
+            id: handoff.id,
+            targetRunId: handoff.targetRunId,
+            status: handoff.status,
+            strategy: handoff.strategy,
+            coveredRunOrdinals: handoff.coveredRunOrdinals,
+            history:
+              handoff.history === undefined
+                ? null
+                : {
+                    coverage: handoff.history.coverage,
+                    omittedItems: handoff.history.omittedItems,
+                  },
+            delivery:
+              handoff.delivery === undefined
+                ? null
+                : {
+                    nativeThreadId: handoff.delivery.nativeThreadId,
+                    status: handoff.delivery.status,
+                    summaryIncluded: handoff.delivery.summaryIncluded ?? null,
+                    deliveredItems: handoff.delivery.itemIds.length,
+                    omittedItems: handoff.delivery.omittedItemIds?.length ?? 0,
+                  },
+          }),
+        },
+        ...textArtifacts("handoff-note", `handoff:${handoff.id}:note`, handoff.summaryText),
+        ...(handoff.delivery?.contextText === undefined
+          ? []
+          : textArtifacts(
+              "delivered-context",
+              `handoff:${handoff.id}:delivered-context`,
+              handoff.delivery.contextText,
+            )),
+      );
       if (handoff.delivery === undefined || handoff.delivery.status === "pending")
         missing.push("handoff-delivery-unconfirmed");
       if (handoff.delivery?.summaryIncluded === false)
         missing.push("handoff-note-omitted-at-delivery");
       if (handoff.delivery?.contextText === undefined)
         missing.push("delivered-context-payload-unavailable");
-      else if (handoff.delivery.contextText.length > 24_000)
-        missing.push("delivered-context-snapshot-truncated");
     } else if (input.kind === "fresh-context") missing.push("handoff-record-unavailable");
-    if (records.subagents.length > 20) missing.push("older-subagents-not-snapshotted");
-    let remainingBytes = 128_000;
-    const boundedArtifacts = artifacts.map((artifact) => {
-      const bytes = Buffer.byteLength(artifact.content ?? "", "utf8");
-      if ((artifact.content?.length ?? 0) > 32_000 || bytes > remainingBytes) {
-        missing.push(`artifact-content-omitted:${artifact.reference}`);
-        return { ...artifact, content: null };
+
+    // The run's activity, reasoning excluded and user messages held above as instructions.
+    const { turnItems } = yield* projections.getThreadRecords(threadId, ["turnItems"], {
+      turnItemRunId: run.id,
+    });
+    let unchanged = 0;
+    const snapshots: ActivitySnapshot[] = [];
+    for (const item of turnItems) {
+      if (item.type === "reasoning" || item.type === "user_message") continue;
+      const text = activityText(item);
+      const limit = item.type === "assistant_message" ? textChunk : toolOutputChars;
+      const snapshot: ActivitySnapshot = {
+        reference: `thread:${threadId}:item:${item.id}`,
+        type: item.type,
+        ordinal: item.ordinal,
+        status: item.status,
+        title: item.title?.slice(0, titleChars) ?? null,
+        ...(item.title !== null && item.title.length > titleChars
+          ? { titleLength: item.title.length }
+          : {}),
+        text: text?.slice(0, limit) ?? null,
+        ...(text !== null && text.length > limit ? { textLength: text.length } : {}),
+      };
+      // Escaping can still overflow one artifact; halve until the snapshot fits. The bounded
+      // title and metadata always fit once the text is empty.
+      while (snapshot.text && encodeSnapshot(snapshot).length > artifactChars - 2) {
+        snapshot.textLength ??= snapshot.text.length;
+        snapshot.text = snapshot.text.slice(0, Math.floor(snapshot.text.length / 2));
       }
-      remainingBytes -= bytes;
-      return artifact;
-    });
-    yield* recordEvidence({
-      id: `capture:${input.id}`,
-      assignmentId: input.assignmentId,
-      episodeId: input.episodeId,
-      recipeRevision: "rollover-v1",
-      runId: input.runId,
-      phase:
-        input.kind === "restart-failure"
-          ? "failure"
-          : input.kind === "fresh-context" || input.kind === "continuation-ended"
-            ? "after"
-            : input.kind === "rollover"
-              ? "action"
-              : "before",
-      source: "runtime",
-      artifacts: boundedArtifacts,
-      missing:
-        missing.length > 32
-          ? [...missing.slice(0, 31), "additional-missing-evidence-markers-omitted"]
-          : missing,
-    });
+      if (seen.has(encodeSnapshot(snapshot))) unchanged++;
+      else snapshots.push(snapshot);
+    }
+    // Furthest from the rollover first: a continuation's latest items, a handed-off run's earliest.
+    const shedOrder = continuing ? snapshots.toReversed() : snapshots;
+    let total = snapshots.reduce((size, snapshot) => size + utf8Bytes(encodeSnapshot(snapshot)), 0);
+    let toolOutputOmitted = 0;
+    for (const snapshot of shedOrder) {
+      if (total <= activityBytes) break;
+      if (snapshot.type === "assistant_message" || snapshot.text === null) continue;
+      const before = utf8Bytes(encodeSnapshot(snapshot));
+      snapshot.textLength ??= snapshot.text.length;
+      snapshot.text = null;
+      total -= before - utf8Bytes(encodeSnapshot(snapshot));
+      toolOutputOmitted++;
+    }
+    const omitted = new Set<ActivitySnapshot>();
+    for (const snapshot of shedOrder) {
+      if (total <= activityBytes) break;
+      total -= utf8Bytes(encodeSnapshot(snapshot));
+      omitted.add(snapshot);
+    }
+    const kept = snapshots.filter((snapshot) => !omitted.has(snapshot));
+    const truncated = kept.filter(
+      (snapshot) =>
+        (snapshot.text !== null && snapshot.textLength !== undefined) ||
+        snapshot.titleLength !== undefined,
+    ).length;
+    if (truncated > 0) missing.push(`item-text-truncated:${truncated}`);
+    if (toolOutputOmitted > 0) missing.push(`tool-output-omitted:${toolOutputOmitted}`);
+    if (omitted.size > 0) {
+      const ordinalsOmitted = [...omitted].map((snapshot) => snapshot.ordinal);
+      missing.push(
+        `activity-items-omitted:${omitted.size} between ordinals ${Math.min(...ordinalsOmitted)}-${Math.max(...ordinalsOmitted)}; recover with thread activity pagination`,
+      );
+    }
+
+    const parts: EvidenceArtifact[][] = [];
+    let partBytes = 0;
+    for (const artifact of [
+      ...required,
+      ...activityArtifacts(`thread:${threadId}:run:${run.id}`, kept),
+    ]) {
+      if (artifact.kind !== "activity" && seen.has(`${artifact.reference}\n${artifact.content}`)) {
+        unchanged++;
+        continue;
+      }
+      const bytes = utf8Bytes(artifact.content ?? "");
+      const part = parts.at(-1);
+      if (
+        part === undefined ||
+        part.length === captureArtifacts ||
+        partBytes + bytes > captureBytes
+      ) {
+        parts.push([artifact]);
+        partBytes = bytes;
+      } else {
+        part.push(artifact);
+        partBytes += bytes;
+      }
+    }
+    if (unchanged > 0) missing.push(`unchanged-since-earlier-episode-capture:${unchanged}`);
+    const phase =
+      input.kind === "restart-failure"
+        ? "failure"
+        : continuing
+          ? "after"
+          : input.kind === "rollover"
+            ? "action"
+            : "before";
+    yield* Effect.forEach(
+      parts,
+      (artifacts, index) =>
+        recordEvidence({
+          id: index === 0 ? `capture:${input.id}` : `capture:${input.id}:part:${index + 1}`,
+          assignmentId: input.assignmentId,
+          episodeId: input.episodeId!,
+          recipeRevision: ROLLOVER_NOTE_RECIPE,
+          runId: input.runId,
+          phase,
+          source: "runtime",
+          artifacts,
+          missing:
+            index > 0
+              ? []
+              : missing.length > 32
+                ? [...missing.slice(0, 31), "additional-missing-evidence-markers-omitted"]
+                : missing,
+        }),
+      { discard: true },
+    );
   });
   const recordObservation = Effect.fn("ExperimentService.recordObservation")(
     (input: ExperimentObservationInput) =>
@@ -2032,7 +2359,8 @@ const make = Effect.gen(function* () {
           .slice(0, 20)
           .map((id) => ({
             id,
-            recipeRevision: captures.find((capture) => capture.episode_id === id)!.recipe_revision,
+            recipeRevision: captures.findLast((capture) => capture.episode_id === id)!
+              .recipe_revision,
             captureIds: captures
               .filter((capture) => capture.episode_id === id)
               .map((capture) => capture.id),
