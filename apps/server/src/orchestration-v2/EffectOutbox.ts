@@ -25,6 +25,7 @@ import * as Queue from "effect/Queue";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import type * as Statement from "effect/sql/Statement";
 
 import { forkParked } from "../serverActivation.ts";
 
@@ -318,6 +319,11 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
         available,
         Array.from({ length: Math.min(64, Math.max(0, Math.floor(count))) }, () => undefined),
       ).pipe(Effect.asVoid);
+    // Title generation and the deferred browser-tab release each run in their own
+    // lane: a release waiting out a managed task's follow-up grace period must not
+    // hold back the follow-up turn that would keep those tabs.
+    const effectLane = (effectType: Statement.Fragment) =>
+      sql`CASE WHEN ${effectType} IN ('thread-title.generate', 'browser-sessions.release') THEN ${effectType} ELSE '' END`;
     // An earlier effect waiting out a retry backoff still blocks later ones, so
     // a turn cannot start while a failed rollback is about to restore files.
     const claimableCandidatePredicate = (
@@ -347,17 +353,7 @@ export const layer: Layer.Layer<EffectOutboxV2, never, SqlClient.SqlClient> = La
                 }
               )
             )
-            AND (
-              (
-                candidate.effect_type = 'thread-title.generate'
-                AND active.effect_type = 'thread-title.generate'
-              )
-              OR
-              (
-                candidate.effect_type != 'thread-title.generate'
-                AND active.effect_type != 'thread-title.generate'
-              )
-            )
+            AND ${effectLane(sql`active.effect_type`)} = ${effectLane(sql`candidate.effect_type`)}
         )
       `;
 

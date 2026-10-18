@@ -2318,6 +2318,47 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     }),
   );
 
+  it.effect("starts a follow-up turn while the previous run's tab release waits", () =>
+    Effect.gen(function* () {
+      const outbox = yield* EffectOutbox.EffectOutboxV2;
+      const now = yield* DateTime.now;
+      const commandId = CommandId.make("command:foundation-release-effect-lane");
+      const threadId = ThreadId.make("thread:foundation-release-effect-lane");
+      const providerEffectId = "effect:foundation-release-effect-lane:b-provider";
+      yield* outbox.enqueue([
+        {
+          id: "effect:foundation-release-effect-lane:a-release",
+          commandId,
+          threadId,
+          request: {
+            type: "browser-sessions.release",
+            sourceRunId: RunId.make("run:foundation-release-effect-lane:1"),
+          },
+          availableAt: DateTime.add(now, { minutes: 10 }),
+        },
+        {
+          id: providerEffectId,
+          commandId,
+          threadId,
+          request: {
+            type: "provider-turn.start",
+            runId: RunId.make("run:foundation-release-effect-lane:2"),
+          },
+        },
+      ]);
+
+      const provider = yield* outbox.claimNext({
+        workerId: "release-lane-worker",
+        leaseDurationMs: 30_000,
+      });
+      assert.isTrue(Option.isSome(provider));
+      if (Option.isSome(provider)) {
+        assert.equal(provider.value.id, providerEffectId);
+        yield* outbox.succeed({ effectId: provider.value.id, workerId: "release-lane-worker" });
+      }
+    }),
+  );
+
   it.effect("ignores deadlines blocked by a running effect on the same thread", () =>
     Effect.gen(function* () {
       const outbox = yield* EffectOutbox.EffectOutboxV2;
