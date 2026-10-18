@@ -1148,12 +1148,18 @@ describe("VcsStatusBroadcaster", () => {
   });
 
   it.effect(
-    "a landing change refreshes the SlipJay checkouts of its repository and removed ones",
+    "a landing change refreshes watched SlipJay checkouts of its repository and removed ones, and evicts unwatched ones",
     () => {
       const localReads: string[] = [];
+      const invalidated: string[] = [];
+      const remoteReads: string[] = [];
       let landingsArrived = false;
       const refreshed = Deferred.makeUnsafe<void>();
-      const repositories: Record<string, string> = { "/a": "pechhe/a", "/b": "pechhe/b" };
+      const repositories: Record<string, string> = {
+        "/a": "pechhe/a",
+        "/b": "pechhe/b",
+        "/idle": "pechhe/a",
+      };
       const layerFor = (changes: Queue.Queue<LandingChange>) =>
         VcsStatusBroadcaster.layer.pipe(
           Layer.provide(
@@ -1175,8 +1181,9 @@ describe("VcsStatusBroadcaster", () => {
                   ),
                   Effect.as({ ...baseLocalStatus, slipJay: { integration: "t3peach" } }),
                 ),
-              remoteStatus: () => Effect.succeed(baseRemoteStatus),
-              invalidateLocalStatus: () => Effect.void,
+              remoteStatus: ({ cwd }) =>
+                Effect.sync(() => remoteReads.push(cwd)).pipe(Effect.as(baseRemoteStatus)),
+              invalidateLocalStatus: (cwd) => Effect.sync(() => invalidated.push(cwd)),
               invalidateRemoteStatus: () => Effect.void,
               invalidateStatus: () => Effect.void,
             }),
@@ -1187,10 +1194,16 @@ describe("VcsStatusBroadcaster", () => {
         const changes = yield* Queue.unbounded<LandingChange>();
         yield* Effect.gen(function* () {
           const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
-          yield* broadcaster.getStatus({ cwd: "/a" });
-          yield* broadcaster.getStatus({ cwd: "/b" });
           // A workspace SlipJay has since removed: no repository can be read for it.
-          yield* broadcaster.getStatus({ cwd: "/gone" });
+          for (const cwd of ["/a", "/b", "/gone"]) {
+            const snapshot = yield* Deferred.make<void>();
+            yield* Stream.runForEach(broadcaster.streamStatus({ cwd, includeRemote: false }), () =>
+              Deferred.succeed(snapshot, undefined).pipe(Effect.ignore),
+            ).pipe(Effect.forkScoped);
+            yield* Deferred.await(snapshot);
+          }
+          // Cached by a one-off read, with nothing watching it.
+          yield* broadcaster.getStatus({ cwd: "/idle" });
           localReads.length = 0;
           landingsArrived = true;
           // Changes apply in order, and checkouts refresh in the order they were cached, so
@@ -1199,8 +1212,75 @@ describe("VcsStatusBroadcaster", () => {
           yield* Queue.offer(changes, { repository: "pechhe/b", changeId: "y" });
           yield* Deferred.await(refreshed);
           assert.deepStrictEqual(localReads, ["/a", "/gone", "/b", "/gone"]);
+
+          // The unwatched checkout was evicted without a read, remote status included, so its
+          // next read loads both fresh.
+          assert.include(invalidated, "/idle");
+          assert.deepStrictEqual(remoteReads, ["/idle"]);
+          yield* broadcaster.getStatus({ cwd: "/idle" });
+          assert.deepStrictEqual(localReads.slice(4), ["/idle"]);
+          assert.deepStrictEqual(remoteReads, ["/idle", "/idle"]);
         }).pipe(Effect.provide(layerFor(changes)));
       });
     },
   );
+
+  it.effect("a checkout whose status stream ended is evicted, not refreshed, on a landing", () => {
+    const localReads: string[] = [];
+    const sentinelRead = Deferred.makeUnsafe<void>();
+    let landingsArrived = false;
+    const layerFor = (changes: Queue.Queue<LandingChange>) =>
+      VcsStatusBroadcaster.layer.pipe(
+        Layer.provide(
+          Layer.mock(SlipJayLandings.SlipJayLandings)({
+            changes: Stream.fromQueue(changes),
+            repositoryOf: () => Effect.succeed("pechhe/a"),
+          }),
+        ),
+        Layer.provideMerge(NodeServices.layer),
+        Layer.provide(layerBackgroundPolicy(() => true)),
+        Layer.provide(
+          Layer.mock(GitWorkflowService.GitWorkflowService)({
+            localStatus: ({ cwd }) =>
+              Effect.sync(() => localReads.push(cwd)).pipe(
+                Effect.andThen(() =>
+                  landingsArrived && cwd === "/sentinel"
+                    ? Deferred.succeed(sentinelRead, undefined)
+                    : Effect.void,
+                ),
+                Effect.as({ ...baseLocalStatus, slipJay: { integration: "t3peach" } }),
+              ),
+            remoteStatus: () => Effect.succeed(baseRemoteStatus),
+            invalidateLocalStatus: () => Effect.void,
+            invalidateRemoteStatus: () => Effect.void,
+            invalidateStatus: () => Effect.void,
+          }),
+        ),
+      );
+
+    return Effect.gen(function* () {
+      const changes = yield* Queue.unbounded<LandingChange>();
+      yield* Effect.gen(function* () {
+        const broadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+        const watch = Effect.fnUntraced(function* (cwd: string, scope: Scope.Scope) {
+          const snapshot = yield* Deferred.make<void>();
+          yield* Stream.runForEach(broadcaster.streamStatus({ cwd, includeRemote: false }), () =>
+            Deferred.succeed(snapshot, undefined).pipe(Effect.ignore),
+          ).pipe(Effect.forkIn(scope));
+          yield* Deferred.await(snapshot);
+        });
+        const closedScope = yield* Scope.make();
+        yield* watch("/closed", closedScope);
+        yield* watch("/sentinel", yield* Scope.Scope);
+        yield* Scope.close(closedScope, Exit.void);
+        localReads.length = 0;
+        landingsArrived = true;
+        yield* Queue.offer(changes, { repository: "pechhe/a", changeId: "x" });
+        // Checkouts refresh in the order they were cached, so once /sentinel is read the
+        // sweep has already passed /closed.
+        yield* Deferred.await(sentinelRead);
+        assert.deepStrictEqual(localReads, ["/sentinel"]);
+      }).pipe(Effect.provide(layerFor(changes)));
+    });
+  });
 });

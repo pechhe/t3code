@@ -236,6 +236,18 @@ export const make = Effect.gen(function* () {
   const withRemoteWriteLock = <A, E, R>(cwd: string, effect: Effect.Effect<A, E, R>) =>
     remoteWriteLocks.withLock(cwd, effect);
   const pollersRef = yield* SynchronizedRef.make(new Map<string, ActiveRemotePoller>());
+  // Checkouts with a live status stream, with or without remote polling.
+  const watchedRef = yield* Ref.make(new Map<string, number>());
+  const watch = (cwd: string) =>
+    Ref.update(watchedRef, (watched) => new Map(watched).set(cwd, (watched.get(cwd) ?? 0) + 1));
+  const unwatch = (cwd: string) =>
+    Ref.update(watchedRef, (watched) => {
+      const next = new Map(watched);
+      const count = next.get(cwd) ?? 0;
+      if (count <= 1) next.delete(cwd);
+      else next.set(cwd, count - 1);
+      return next;
+    });
 
   const getCachedStatus = Effect.fn("VcsStatusBroadcaster.getCachedStatus")(function* (
     cwd: string,
@@ -396,13 +408,29 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  // Forgets a checkout so its next read loads it fresh. Nothing publishes, because nobody
+  // is watching it, and nothing would keep a remembered remote status current.
+  const evictCachedStatus = (cwd: string) =>
+    Ref.update(cacheRef, (cache) => {
+      const next = new Map(cache);
+      next.delete(cwd);
+      return next;
+    }).pipe(Effect.andThen(workflow.invalidateLocalStatus(cwd)));
+
   // A landing moves on SlipJay's runner, not in the checkout, so a landing change
-  // refreshes the SlipJay checkouts this server is showing for that repository.
+  // refreshes the SlipJay checkouts being watched for that repository. Reading a checkout
+  // costs several VCS processes, and the cache would otherwise keep every checkout ever
+  // shown, so an unwatched one is evicted and reloads when it is next read.
   yield* landings.changes.pipe(
     Stream.runForEach((change) =>
       Effect.gen(function* () {
         for (const [cwd, cached] of yield* Ref.get(cacheRef)) {
           if (cached.local?.value.slipJay === undefined) continue;
+          if (!(yield* Ref.get(watchedRef)).has(cwd)) {
+            yield* evictCachedStatus(cwd);
+            // A stream that began watching meanwhile may have read the entry just evicted.
+            if (!(yield* Ref.get(watchedRef)).has(cwd)) continue;
+          }
           // A checkout SlipJay removed has no repository left to match. Refreshing it reads
           // what it landed from SlipJay's record, so an open thread does not keep "Landing".
           const repository = yield* landings.repositoryOf(cwd);
@@ -719,6 +747,8 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         const cwd = yield* withFileSystem(normalizeCwd(input.cwd));
         const subscription = yield* PubSub.subscribe(changesPubSub);
+        // Before the load, so a landing during it refreshes this checkout instead of dropping it.
+        yield* Effect.acquireRelease(watch(cwd), () => unwatch(cwd));
         const initialLocal = yield* getOrLoadLocalStatus(cwd);
         const cachedStatus = yield* getCachedStatus(cwd);
         const initialRemote = cachedStatus?.remote?.value ?? null;
