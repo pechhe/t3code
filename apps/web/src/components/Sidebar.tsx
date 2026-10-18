@@ -256,6 +256,7 @@ import { resolveSnoozePresets, snoozeWakeLabel, type SnoozePreset } from "./Side
 import { ProjectChip } from "./ProjectChip";
 import { ThreadWorkflowChip } from "./ThreadWorkflowChip";
 import { visibleThreadWorkflow } from "@t3tools/client-runtime/thread-workflow";
+import { SidebarReleaseApprovals } from "./SidebarReleaseApprovals";
 import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { ThreadSearchMatchExcerpt } from "./ThreadSearchMatch";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -4724,6 +4725,9 @@ export default function Sidebar() {
         }
       >
         <SidebarGroup className="flex-1" role="presentation">
+          {isSearchingThreads ? null : (
+            <SidebarReleaseApprovals threads={threads} onOpenThread={navigateToThread} />
+          )}
           {isSearchingThreads ? (
             threadSearchResults.length > 0 ? (
               <TooltipProvider

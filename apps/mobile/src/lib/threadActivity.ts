@@ -339,6 +339,13 @@ export function isContextHandoffActivityGroup(entry: ThreadFeedActivityGroup): b
   );
 }
 
+export function isReleaseApprovalActivityGroup(entry: ThreadFeedActivityGroup): boolean {
+  return (
+    entry.activities.length === 1 &&
+    entry.activities[0]?.projectedItem.item.type === "release_approval_request"
+  );
+}
+
 export function isSecretRequestActivityGroup(entry: ThreadFeedActivityGroup): boolean {
   return (
     entry.activities.length === 1 &&
@@ -453,7 +460,8 @@ function itemIsProminent(item: OrchestrationV2TurnItem): boolean {
     item.type === "fork" ||
     item.type === "thread_created" ||
     item.type === "system_notice" ||
-    item.type === "secret_request"
+    item.type === "secret_request" ||
+    item.type === "release_approval_request"
   );
 }
 
@@ -575,6 +583,8 @@ function itemIcon(item: OrchestrationV2TurnItem): ThreadFeedActivity["icon"] {
       return "zap";
     case "secret_request":
       return "lock";
+    case "release_approval_request":
+      return "check";
   }
 }
 
@@ -631,6 +641,8 @@ function itemSummary(
       return "Thread created";
     case "secret_request":
       return item.label;
+    case "release_approval_request":
+      return `Release ${item.repository}`;
     case "dynamic_tool": {
       const classified = classifyToolActivity({
         itemType: "dynamic_tool_call",
@@ -690,6 +702,8 @@ function itemPreview(item: OrchestrationV2TurnItem): string | null {
       return item.targetThreadId;
     case "secret_request":
       return item.reason || null;
+    case "release_approval_request":
+      return item.candidate;
     case "subagent":
       return item.result ?? item.progress ?? item.prompt;
     case "dynamic_tool":

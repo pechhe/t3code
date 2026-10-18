@@ -39,6 +39,14 @@ import {
 } from "./baseSchemas.ts";
 import { ChatAttachment } from "./chatAttachment.ts";
 import {
+  ReleaseApprovalAnswer,
+  ReleaseApprovalCardSummary,
+  ReleaseApprovalId,
+  ReleaseApprovalStatus,
+  ReleaseApprovalSummary,
+  ReleaseCandidate,
+} from "./releaseApproval.ts";
+import {
   OrchestrationGetFullThreadDiffInput,
   OrchestrationGetFullThreadDiffResult,
   OrchestrationGetTurnDiffInput,
@@ -1511,6 +1519,24 @@ const OrchestrationV2SecretRequestFields = {
   secretStatus: OrchestrationV2SecretRequestStatus,
 } as const;
 
+/** One thread's view of a release approval; every thread that asked holds one. */
+const OrchestrationV2ReleaseApprovalStateFields = {
+  approvalId: ReleaseApprovalId,
+  repository: TrimmedNonEmptyString,
+  candidate: ReleaseCandidate,
+  base: TrimmedNonEmptyString,
+  summary: ReleaseApprovalSummary,
+  details: Schema.String,
+  approvalStatus: ReleaseApprovalStatus,
+  answer: Schema.optional(ReleaseApprovalAnswer),
+  supersededBy: Schema.optional(ReleaseCandidate),
+} as const;
+
+const OrchestrationV2ReleaseApprovalRequestFields = {
+  type: Schema.Literal("release_approval_request"),
+  ...OrchestrationV2ReleaseApprovalStateFields,
+} as const;
+
 export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -1688,6 +1714,10 @@ export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
     ...OrchestrationV2SecretRequestFields,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemBaseFields,
+    ...OrchestrationV2ReleaseApprovalRequestFields,
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2015,6 +2045,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   lastErrorClass: Schema.optional(Schema.NullOr(OrchestrationV2ProviderFailureClass)),
   usageLimitResetAt: Schema.optional(Schema.NullOr(IsoDateTime)),
   pendingRuntimeRequest: Schema.NullOr(OrchestrationV2PendingRuntimeRequestSummary),
+  /** The open release approvals this thread asked for, one per repository; only the owner answers them. */
+  pendingReleaseApprovals: Schema.optional(Schema.Array(ReleaseApprovalCardSummary)),
   latestVisibleMessage: Schema.NullOr(OrchestrationV2LatestVisibleMessageSummary),
   latestUserMessageAt: Schema.NullOr(Schema.DateTimeUtc),
   /**
@@ -2461,6 +2493,10 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
     ...OrchestrationV2SecretRequestFields,
+  }),
+  Schema.Struct({
+    ...OrchestrationV2TurnItemJsonBaseFields,
+    ...OrchestrationV2ReleaseApprovalRequestFields,
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
@@ -3338,6 +3374,19 @@ const OrchestrationV2InternalCommand = Schema.Union([
     reason: Schema.String,
     placeholder: Schema.optional(Schema.String),
     secretStatus: OrchestrationV2SecretRequestStatus,
+  }),
+  /**
+   * Records or updates one thread's view of a release approval. Internal: only the
+   * ReleaseApprovals service, which owns the approval itself, writes these.
+   */
+  Schema.Struct({
+    type: Schema.Literal("release_approval.record"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    runId: RunId,
+    nodeId: NodeId,
+    turnItemId: TurnItemId,
+    ...OrchestrationV2ReleaseApprovalStateFields,
   }),
   /**
    * Fires the watch if the watched thread's stored state calls for it: ends the watch and queues

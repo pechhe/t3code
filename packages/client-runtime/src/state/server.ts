@@ -1359,6 +1359,15 @@ export function createServerEnvironmentAtoms<R, E>(
           JSON.stringify([environmentId, input.threadId, input.turnItemId]),
       },
     }),
+    // One answer per card at a time; the server refuses a second answer anyway.
+    answerReleaseApproval: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:release-approvals:answer",
+      tag: WS_METHODS.releaseApprovalsAnswer,
+      concurrency: {
+        mode: "singleFlight",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.approvalId]),
+      },
+    }),
     refreshUsageRates: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:refresh-usage-rates",
       tag: WS_METHODS.serverRefreshUsageRates,

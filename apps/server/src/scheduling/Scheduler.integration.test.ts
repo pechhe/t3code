@@ -25,6 +25,7 @@ import * as UsageLimitRecoveryWorker from "../orchestration-v2/UsageLimitRecover
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Scheduler from "./Scheduler.ts";
 
@@ -114,6 +115,7 @@ it.effect.each(["on time", "after restart"])(
           getSettings: Effect.succeed(DEFAULT_SERVER_SETTINGS),
         }),
         Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
       );
       const layerWorkers = Layer.mergeAll(
         ScheduledTasks.layer,

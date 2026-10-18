@@ -55,6 +55,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
@@ -377,6 +378,7 @@ it.effect.each(
           NodeCrypto.layer,
           Scheduler.layer,
           Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
         ),
       ),
     );
@@ -439,6 +441,7 @@ it.effect("runs a scheduled root task on a SlipJay project's root without a work
         NodeCrypto.layer,
         Scheduler.layer,
         Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
       ),
     ),
   );
@@ -3621,6 +3624,7 @@ it.effect.each(
         ),
         Layer.provide(Layer.mock(ScheduledTasks.ScheduledTaskService)({})),
         Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+        Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
       );
       yield* Effect.gen(function* () {
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;

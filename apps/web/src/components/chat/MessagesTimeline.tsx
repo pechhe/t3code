@@ -297,6 +297,7 @@ import {
   V2LifecycleRow,
   type HandoffTimelineRun,
 } from "./V2LifecycleRow";
+import { ReleaseApprovalTimelineCard } from "./ReleaseApprovalCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
 
@@ -2140,6 +2141,8 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
   const userMessage = resolveUserMessagePresentation(row.message);
+  // A scheduled run's prompt is not the user's own message, so it does not read as one.
+  const scheduled = userMessage.attribution === "automation";
   const resolvedContext = resolveUserMessageContext(row.message);
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const revertTurnCount = row.revertTurnCount;
@@ -2249,10 +2252,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
   };
 
   return (
-    <div className="group flex flex-col items-end gap-1">
-      {userMessage.attribution === "automation" ? (
+    <div className={cn("group flex flex-col gap-1", scheduled ? "items-start" : "items-end")}>
+      {scheduled ? (
         <p
-          className="me-1 text-2xs text-muted-foreground/70"
+          className="ms-1 text-2xs text-muted-foreground/70"
           data-user-message-attribution="automation"
         >
           {userMessage.scheduledTaskId ? (
@@ -2264,10 +2267,10 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
               }}
               className="rounded-sm hover:text-muted-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
             >
-              Sent by automation
+              Scheduled task
             </Link>
           ) : (
-            "Sent by automation"
+            "Scheduled task"
           )}
         </p>
       ) : userMessage.attribution === "t3code" ? (
@@ -2297,9 +2300,14 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
       ) : null}
       <div
         ref={bubbleRef}
-        className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
+        className={cn(
+          "relative max-w-[80%] rounded-2xl p-3",
+          scheduled
+            ? "border border-border/70 bg-muted/40 text-foreground"
+            : "bg-message text-message-foreground",
+        )}
       >
-        <MessageAuthorHeading>You</MessageAuthorHeading>
+        <MessageAuthorHeading>{scheduled ? "Scheduled task" : "You"}</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
@@ -2421,7 +2429,12 @@ function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" 
           </span>
         </div>
       ) : null}
-      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+      <div
+        className={cn(
+          "flex w-full max-w-[80%] items-center pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
+          scheduled ? "justify-start" : "justify-end",
+        )}
+      >
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>
@@ -2974,6 +2987,15 @@ function V2EventTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "event"
   const { item, visibility, sourceThreadId } = row.projectedItem;
   if (item.type === "subagent" && (row.subagents?.length ?? 1) > 1) {
     return <V2SubagentGroup key={row.id} row={row} />;
+  }
+  if (item.type === "release_approval_request") {
+    return (
+      <ReleaseApprovalTimelineCard
+        environmentId={ctx.activeThreadEnvironmentId}
+        item={item}
+        visibility={visibility}
+      />
+    );
   }
   if (item.type === "secret_request") {
     return (

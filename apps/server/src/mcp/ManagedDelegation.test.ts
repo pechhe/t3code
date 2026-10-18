@@ -38,6 +38,7 @@ import * as Adapters from "../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Secrets from "../secrets/SecretRequests.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as Scheduled from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcs from "../vcs/GitVcsDriver.ts";
@@ -143,6 +144,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           }),
           Layer.mock(Projects.ProjectService)({}),
           Layer.mock(Secrets.SecretRequests)({}),
+          Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
           Layer.mock(Scheduled.ScheduledTaskService)({}),
           Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
           Layer.mock(GitVcs.GitVcsDriver)({}),
@@ -377,6 +379,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ),
         }),
         Layer.mock(Secrets.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
         Layer.mock(Scheduled.ScheduledTaskService)({}),
         Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
         Layer.mock(GitVcs.GitVcsDriver)({}),

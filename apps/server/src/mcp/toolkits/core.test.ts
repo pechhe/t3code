@@ -47,6 +47,7 @@ import * as ManagedProjectFolders from "../../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../provider/ProviderRegistry.ts";
 import * as SecretRequests from "../../secrets/SecretRequests.ts";
+import * as ReleaseApprovals from "../../releases/ReleaseApprovals.ts";
 import * as ScheduledTaskService from "../../scheduledTasks/ScheduledTaskService.ts";
 import * as RunSetupRecorder from "../../agents/RunSetupRecorder.ts";
 import * as ServerSettings from "../../serverSettings.ts";
@@ -758,6 +759,7 @@ it.effect(
           Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
           Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+          Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
         ),
       ),
     ),
@@ -819,6 +821,7 @@ it.effect("a caller cannot rewrite a scheduled task that runs above its own mode
         ),
         Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
         Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+        Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
       ),
     ),
   ),
@@ -911,6 +914,7 @@ it.effect.each(["t3_thread_interrupt", "t3_workflow_stop"])(
           Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
           Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
           Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+          Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
         ),
       ),
     ),
@@ -1011,6 +1015,7 @@ it.effect("discovers workflow stop targets and requires orchestration capability
         Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
         Layer.provide(Layer.mock(ProjectService.ProjectService)({})),
         Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+        Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
       ),
     ),
   );
@@ -1252,6 +1257,7 @@ it.effect(
             }),
           ),
           Layer.provide(Layer.mock(SecretRequests.SecretRequests)({})),
+          Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
           Layer.provide(layerLinkedPeers(peerCalls)),
         ),
       ),

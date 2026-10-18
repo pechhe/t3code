@@ -5,6 +5,7 @@ import { useMarkdownImageSource } from "../../native/useMarkdownImageSource";
 import { enrichedContextLinkPresentation } from "../../lib/enrichedLinkPresentation";
 import { ThreadContextDivider } from "./thread-context-divider";
 import { ThreadHandoffDivider, ThreadHandoffRow } from "./thread-handoff-row";
+import { ReleaseApprovalCard } from "./ReleaseApprovalCard";
 import { SecretRequestCard } from "./SecretRequestCard";
 import { AppActivityIndicator } from "../../components/ui/AppActivityIndicator";
 import {
@@ -178,6 +179,7 @@ import {
   threadFeedRunIsUnsettled,
   isContextCompactionActivityGroup,
   isContextHandoffActivityGroup,
+  isReleaseApprovalActivityGroup,
   isSecretRequestActivityGroup,
   type ThreadFeedEntry,
   type ThreadFeedLatestRun,
@@ -1108,6 +1110,16 @@ function renderFeedEntry(
     );
   }
 
+  if (entry.type === "activity-group" && isReleaseApprovalActivityGroup(entry)) {
+    return (
+      <ReleaseApprovalCard
+        environmentId={props.environmentId}
+        projectedItem={entry.activities[0]!.projectedItem}
+        iconColor={iconSubtleColor}
+      />
+    );
+  }
+
   if (entry.type === "activity-group" && isSecretRequestActivityGroup(entry)) {
     return (
       <SecretRequestCard
@@ -1177,12 +1189,15 @@ function renderFeedEntry(
       );
       return (
         <Animated.View
-          className="mb-5 items-end"
+          // A scheduled run's prompt is not the user's own message, so it sits on the other side.
+          className={
+            presentation.attribution === "automation" ? "mb-5 items-start" : "mb-5 items-end"
+          }
           {...(enterAnimated ? { entering: FadeInUp.duration(220) } : {})}
         >
           {presentation.attribution === "automation" ? (
-            <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
-              Sent by automation
+            <Text className="mb-1 pl-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
+              Scheduled task
             </Text>
           ) : presentation.attribution === "t3code" ? (
             <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">

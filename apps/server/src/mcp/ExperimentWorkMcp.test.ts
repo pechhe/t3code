@@ -29,6 +29,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import { OrchestratorProjectionError } from "../orchestration-v2/Orchestrator.ts";
 import {
   request as taskRequest,
@@ -177,6 +178,7 @@ const dependencies = (input: {
           getById: () => Effect.succeed(Option.some(project)),
         }),
         Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
         Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
         Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
         Layer.mock(GitVcsDriver.GitVcsDriver)({}),

@@ -63,6 +63,13 @@ export const SIDE_CHAT_NOTE =
   "This is a side chat: the user is asking a quick question beside the main conversation. Be extra concise unless the user asks for more detail.";
 
 /**
+ * A scheduled run's prompt is recorded as a user-role message, but the user did not just write
+ * it: an agent must not read it as a fresh instruction or as the answer to its own question.
+ */
+export const SCHEDULED_TASK_NOTE =
+  "The message below is a scheduled task's prompt, sent by T3 Code on the task's schedule. It is not a new message from the user: treat it as a routine trigger, not as a new instruction or as the user's answer to anything you asked them.";
+
+/**
  * Sent with each turn of a No project chat until its agent suggests a project,
  * so it can offer a better home for the chat once one is clear.
  */
@@ -1199,20 +1206,23 @@ export const layer: Layer.Layer<
               ),
               Effect.orElseSucceed(() => false),
             ));
+          const scheduled = message.scheduledTaskId !== undefined;
           const context = [
             delivery.context,
             restartNote,
             projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
             offersProjectSuggestion ? NO_PROJECT_NOTE : "",
+            scheduled ? SCHEDULED_TASK_NOTE : "",
           ]
             .filter((part) => part !== "")
             .join("\n\n");
+          const messageLabel = scheduled ? "Scheduled task prompt" : "User message";
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
           yield* start({
             ...(noteContinuation ? promptedInput : turnInput),
             message: {
               ...turnInput.message,
-              text: context === "" ? userText : `${context}\n\nUser message:\n${userText}`,
+              text: context === "" ? userText : `${context}\n\n${messageLabel}:\n${userText}`,
             },
           }).pipe(
             // A pending marker would make the next turn abandon this native
@@ -1257,7 +1267,8 @@ export const layer: Layer.Layer<
         missedItems.length === 0 &&
         restartNote === "" &&
         !noteContinuation &&
-        projection.thread.sideChat !== true
+        projection.thread.sideChat !== true &&
+        message.scheduledTaskId === undefined
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);

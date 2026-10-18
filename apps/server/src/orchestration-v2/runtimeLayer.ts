@@ -57,6 +57,7 @@ import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
 import * as TurnItemPositionStore from "./TurnItemPositionStore.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 
 export const layerEventInfrastructure = Layer.mergeAll(
@@ -391,6 +392,7 @@ export const layerProduction = Layer.mergeAll(
   layerScheduledTaskProvided,
   RunSetupRecorder.storeLayer,
   layerSecretRequestsProvided,
+  ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   BuildWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),

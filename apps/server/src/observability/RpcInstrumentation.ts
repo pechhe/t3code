@@ -112,6 +112,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.peersList]: "peers",
   [WS_METHODS.peersUpdate]: "peers",
   [WS_METHODS.secretsAnswerRequest]: "secrets",
+  [WS_METHODS.releaseApprovalsAnswer]: "releaseApprovals",
   [WS_METHODS.cloudGetRelayClientStatus]: "cloud",
   [WS_METHODS.cloudInstallRelayClient]: "cloud",
   [WS_METHODS.pullRequestsList]: "pull-requests",

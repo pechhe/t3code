@@ -135,6 +135,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
+import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
   archivedShellStreamItemFromThreadShell,
@@ -1274,6 +1275,7 @@ const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
       const secretRequests = yield* SecretRequests.SecretRequests;
+      const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const deviceService = yield* DeviceService.DeviceService;
       const deviceHostContext =
@@ -2116,6 +2118,12 @@ const layerWsRpc = (
         [WS_METHODS.secretsAnswerRequest]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(secretRequests.answer(input)),
+          ),
+        [WS_METHODS.releaseApprovalsAnswer]: (input) =>
+          Effect.annotateCurrentSpan({ "release_approval.id": input.approvalId }).pipe(
+            Effect.andThen(
+              releaseApprovals.answer({ ...input, answeredBy: currentSession.subject }),
+            ),
           ),
         [WS_METHODS.scheduledTasksListWebhookDeliveries]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(

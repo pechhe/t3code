@@ -8,6 +8,7 @@ import {
   ProviderInstanceId,
   ProviderThreadId,
   RunId,
+  ScheduledTaskId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -20,7 +21,7 @@ import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import { SIDE_CHAT_NOTE } from "./ProviderTurnStartService.ts";
+import { SCHEDULED_TASK_NOTE, SIDE_CHAT_NOTE } from "./ProviderTurnStartService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -158,6 +159,50 @@ it.effect("tells the provider to answer briefly in a side chat", () =>
     const text = yield* Deferred.await(started);
     assert.include(text, SIDE_CHAT_NOTE);
     assert.isTrue(text.endsWith("What does this do?"));
+  }),
+);
+
+it.effect("tells the provider a scheduled prompt is not a message from the user", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<string>();
+    yield* Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const threadId = ThreadId.make("scheduled-prompt-note");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-scheduled-prompt-note"),
+        threadId,
+        projectId,
+        title: "Scheduled prompt note",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("scheduled-prompt"),
+        threadId,
+        messageId: MessageId.make("scheduled-prompt"),
+        scheduledTaskId: ScheduledTaskId.make("heartbeat"),
+        text: "Check the release.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      yield* worker.drain();
+    }).pipe(Effect.provide(recordingLayer(started)));
+
+    const text = yield* Deferred.await(started);
+    assert.include(text, SCHEDULED_TASK_NOTE);
+    assert.include(text, "Scheduled task prompt:\nCheck the release.");
+    assert.notInclude(text, "User message:");
   }),
 );
 

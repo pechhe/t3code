@@ -44,6 +44,8 @@ import {
   type OrchestratorMcpDelegateTaskResult,
   type OrchestratorMcpInteractionMode,
   type OrchestratorMcpDeleteScheduledTaskInput,
+  type OrchestratorMcpRequestReleaseApprovalInput,
+  type OrchestratorMcpRequestReleaseApprovalResult,
   type OrchestratorMcpRequestSecretInput,
   type OrchestratorMcpRequestSecretResult,
   type OrchestratorMcpDeleteScheduledTaskResult,
@@ -137,6 +139,7 @@ import {
   requireThreadScope,
 } from "./McpInvocationContext.ts";
 import * as Metrics from "../observability/Metrics.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 
 const encodeDelegateTaskFingerprint = Schema.encodeEffect(
@@ -244,6 +247,11 @@ export interface OrchestratorMcpServiceShape {
     scope: McpInvocationScope,
     input: OrchestratorMcpRequestSecretInput,
   ) => Effect.Effect<OrchestratorMcpRequestSecretResult, OrchestratorMcpFailure>;
+  /** Only the owner answers; the result says whether to wait or that it is already approved. */
+  readonly requestReleaseApproval: (
+    scope: McpInvocationScope,
+    input: OrchestratorMcpRequestReleaseApprovalInput,
+  ) => Effect.Effect<OrchestratorMcpRequestReleaseApprovalResult, OrchestratorMcpFailure>;
   readonly listThreads: (
     scope: McpInvocationScope,
     input: OrchestratorMcpThreadListInput,
@@ -951,6 +959,10 @@ function turnItemText(item: OrchestrationV2TurnItem): string | null {
       return `Created thread ${item.targetThreadId} with ${item.targetProviderInstanceId} (${item.targetModel}).`;
     case "secret_request":
       return `Asked the user for ${item.label}: ${item.secretStatus}.`;
+    case "release_approval_request":
+      return `Asked the owner to approve releasing ${item.repository} at ${item.candidate}: ${item.approvalStatus}${
+        item.answer?.note ? ` (note: ${item.answer.note})` : ""
+      }.`;
     case "subagent":
       return item.result ?? item.progress ?? item.prompt;
     case "dynamic_tool":
@@ -1060,6 +1072,7 @@ const make = Effect.gen(function* () {
         )
       : Effect.succeed(project.defaultModelSelection);
   const secretRequests = yield* SecretRequests.SecretRequests;
+  const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
 
   const requireCapability = (scope: McpInvocationScope) =>
     scope.capabilities.has("orchestration")
@@ -2092,6 +2105,38 @@ const make = Effect.gen(function* () {
         }
         return { status, secretRef: secretRef.value };
       }).pipe(Effect.withSpan("OrchestratorMcpService.requestSecret")),
+
+    requestReleaseApproval: (scope, input) =>
+      Effect.gen(function* () {
+        const { scope: threadScope, parent } = yield* loadThreadCaller(
+          scope,
+          "request_release_approval",
+        );
+        const run = ThreadManagementService.latestActiveRun(parent);
+        if (
+          run === undefined ||
+          run.rootNodeId === null ||
+          run.providerInstanceId !== threadScope.thread.providerInstanceId
+        ) {
+          return yield* failure(
+            "parent_not_active",
+            "Asking for a release approval requires an active run owned by this MCP provider session.",
+          );
+        }
+        return yield* releaseApprovals
+          .request(
+            { threadId: threadScope.thread.threadId, runId: run.id, nodeId: run.rootNodeId },
+            input,
+          )
+          .pipe(
+            Effect.mapError((error) =>
+              failure(
+                "orchestration_error",
+                `Could not request the release approval: ${error.message}`,
+              ),
+            ),
+          );
+      }).pipe(Effect.withSpan("OrchestratorMcpService.requestReleaseApproval")),
 
     capabilities: (scope) =>
       Effect.gen(function* () {
@@ -3904,6 +3949,7 @@ export const layer: Layer.Layer<
   | ScheduledTaskService.ScheduledTaskService
   | ProjectService.ProjectService
   | SecretRequests.SecretRequests
+  | ReleaseApprovals.ReleaseApprovals
   | ServerSettings.ServerSettingsService
   | WorkspaceProvider.WorkspaceProvider
 > = Layer.effect(OrchestratorMcpService, make);

@@ -642,6 +642,70 @@ it.effect("closes a secret request card's form when its run is recovered", () =>
   }).pipe(Effect.provide(layer));
 });
 
+it.effect("keeps a release approval card open when its run is recovered", () => {
+  const threadId = ThreadId.make("thread_release_recovery");
+  const runId = RunId.make("run_release_recovery");
+  let committedInput: Parameters<EventSink.EventSinkV2["Service"]["commitCommand"]>[0] | null =
+    null;
+  const projection = {
+    thread: { id: threadId },
+    runtimeRequests: [],
+    providerSessions: [],
+    providerThreads: [],
+    providerTurns: [],
+    runs: [{ id: runId, status: "running", providerInstanceId: ProviderInstanceId.make("codex") }],
+    attempts: [],
+    nodes: [],
+    subagents: [],
+    messages: [],
+    turnItems: [
+      {
+        id: "turn-item:release-approval:recovery",
+        threadId,
+        runId,
+        nodeId: null,
+        type: "release_approval_request",
+        status: "waiting",
+        approvalStatus: "pending",
+      },
+    ],
+  } as unknown as OrchestrationV2ThreadProjection;
+  const layer = ProviderRuntimeRecovery.layer.pipe(
+    Layer.provide(ServerSettings.layerTest()),
+    Layer.provide(
+      Layer.mergeAll(
+        Layer.mock(ProjectionStore.ProjectionStoreV2)({
+          getRecoveryThreadIds: () => Effect.succeed([threadId]),
+          getRuntimeRecoveryProjection: () => Effect.succeed(projection),
+        }),
+        Layer.mock(EventSink.EventSinkV2)({
+          commitCommand: (input) => {
+            committedInput = input;
+            return Effect.succeed({ committed: true, cancelledEffectCount: 0 } as never);
+          },
+        }),
+        IdAllocator.layer,
+        Layer.mock(EffectWorker.OrchestrationEffectWorkerV2)({
+          runRecoveryOnce: Effect.succeed(false),
+        }),
+        Layer.mock(EffectOutbox.EffectOutboxV2)({
+          listByCommandId: () => Effect.succeed([]),
+          reconcileAfterProcessLoss: Effect.succeed({ requeued: 0, cancelled: 0 }),
+        }),
+      ),
+    ),
+  );
+
+  return Effect.gen(function* () {
+    yield* (yield* ProviderRuntimeRecovery.ProviderRuntimeRecoveryService).reconcile("startup");
+    const runEvent = committedInput?.events.find((event) => event.type === "run.updated");
+    assert.equal(runEvent?.type === "run.updated" ? runEvent.payload.status : null, "cancelled");
+    assert.isFalse(
+      committedInput?.events.some((event) => event.type === "turn-item.updated") ?? false,
+    );
+  }).pipe(Effect.provide(layer));
+});
+
 it.effect.each(["queued", "preparing"] as const)("recovers $0 work after restart", (status) => {
   const threadId = ThreadId.make("thread_queued_restart");
   const runId = RunId.make("run_queued_restart");

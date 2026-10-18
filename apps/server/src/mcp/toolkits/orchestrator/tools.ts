@@ -13,6 +13,8 @@ import {
   OrchestratorMcpDelegateTaskResult,
   OrchestratorMcpDeleteScheduledTaskInput,
   OrchestratorMcpDeleteScheduledTaskResult,
+  OrchestratorMcpRequestReleaseApprovalInput,
+  OrchestratorMcpRequestReleaseApprovalResult,
   OrchestratorMcpRequestSecretInput,
   OrchestratorMcpRequestSecretResult,
   OrchestratorMcpFailure,
@@ -220,6 +222,18 @@ const RequestSecretTool = Tool.make("request_secret", {
   .annotate(Tool.Title, "Request a secret from the user")
   .annotate(Tool.Destructive, false);
 
+const RequestReleaseApprovalTool = Tool.make("request_release_approval", {
+  description:
+    "Ask the owner to approve a release, whenever a release needs their yes (for SlipJay, before `slipjay promote`). Never ask for a release yes in chat. Pass the repository, the full candidate commit id, the base, and a summary copied from your release plan (`slipjay promote`'s plan JSON); T3 shows it as one Approve/Decline card in the owner's inbox. There is one open card per repository across all threads: asking for the same candidate joins the open card, so asking again (on a heartbeat, after a rollover, from another thread) never asks the owner twice; asking for a different candidate replaces the open card. This returns at once. On `pending`, end your turn: the owner's answer arrives later as a message in this thread, with the decision, the candidate, their note, who answered and when. On `approved`, the owner already approved this exact candidate; do not ask again. An approval covers exactly that candidate: release only that commit. You cannot answer the card yourself. After a decline, ask again only if the user tells you to.",
+  parameters: OrchestratorMcpRequestReleaseApprovalInput,
+  success: OrchestratorMcpRequestReleaseApprovalResult,
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+})
+  .annotate(Tool.Title, "Request a release approval")
+  .annotate(Tool.Destructive, false);
+
 export const CreateThreadsTool = Tool.make("create_threads", {
   description:
     "Needs an agent running inside a T3 thread. Create one or more ORDINARY TOP-LEVEL T3 conversations. This is not delegation and does not create child agents/subagents. For delegated work, check agent_roles and call delegate_task with agentTask. Use create_threads for a batch of separate top-level threads sharing this checkout. Prefer t3_thread_launch for a single thread. Both require the user to request separate/new/top-level threads or conversations. Each entry may override provider, model, options, runtime mode, and interaction mode; omitted settings inherit. Project, branch, and worktree always inherit and cannot be overridden here. For independent implementation or a PR stack in its own worktree, use t3_thread_launch with workspaceStrategy instead of asking the agent to create a worktree in its prompt.",
@@ -356,6 +370,7 @@ export const OrchestratorToolkit = Toolkit.make(
   UpdateScheduledTaskTool,
   DeleteScheduledTaskTool,
   RequestSecretTool,
+  RequestReleaseApprovalTool,
   CreateThreadsTool,
   ThreadListTool,
   ThreadReadTool,

@@ -410,6 +410,7 @@ import {
   PeersUpdateInput,
 } from "./peers.ts";
 import { SecretRequestAnswerInput, SecretRequestError } from "./secretRequest.ts";
+import { ReleaseApprovalAnswerInput, ReleaseApprovalError } from "./releaseApproval.ts";
 import {
   ProjectCloneActionInput,
   ProjectCloneActionResult,
@@ -598,6 +599,7 @@ export const WS_METHODS = {
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
+  releaseApprovalsAnswer: "releaseApprovals.answer",
 
   // Linked environments
   peersList: "peers.list",
@@ -2078,6 +2080,11 @@ const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
 });
 
+const WsReleaseApprovalsAnswerRpc = Rpc.make(WS_METHODS.releaseApprovalsAnswer, {
+  payload: ReleaseApprovalAnswerInput,
+  error: Schema.Union([ReleaseApprovalError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksListWebhookDeliveriesRpc = Rpc.make(
   WS_METHODS.scheduledTasksListWebhookDeliveries,
   {
@@ -2234,6 +2241,7 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsScheduledTasksRunNowRpc,
   WsScheduledTasksRotateWebhookTokenRpc,
   WsSecretsAnswerRequestRpc,
+  WsReleaseApprovalsAnswerRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
   WsServerReportClientActivityRpc,

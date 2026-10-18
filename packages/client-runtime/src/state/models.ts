@@ -1,6 +1,7 @@
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import type {
+  ReleaseApprovalCardSummary,
   ThreadLinkedPullRequest,
   EnvironmentId,
   MessageId,
@@ -104,6 +105,8 @@ export interface EnvironmentThreadShell {
   readonly latestUserAuthoredMessageAt?: string | null;
   readonly hasPendingApprovals: boolean;
   readonly hasPendingUserInput: boolean;
+  /** The open release cards this thread asked for; the owner answers them, never an agent. */
+  readonly pendingReleaseApprovals?: ReadonlyArray<ReleaseApprovalCardSummary>;
   readonly pendingSubagentRequest?: PendingSubagentRequest | null;
   readonly hasActionableProposedPlan: boolean;
   readonly pendingBackgroundTasks: ReadonlyArray<
@@ -263,9 +266,11 @@ export function presentThreadShell(
       ? {}
       : { latestUserAuthoredMessageAt: nullableIso(thread.latestUserAuthoredMessageAt) }),
     hasPendingApprovals:
-      thread.pendingRuntimeRequest !== null &&
-      thread.pendingRuntimeRequest.kind !== "user_input" &&
-      thread.pendingRuntimeRequest.kind !== "auth_refresh",
+      (thread.pendingReleaseApprovals?.length ?? 0) > 0 ||
+      (thread.pendingRuntimeRequest !== null &&
+        thread.pendingRuntimeRequest.kind !== "user_input" &&
+        thread.pendingRuntimeRequest.kind !== "auth_refresh"),
+    pendingReleaseApprovals: thread.pendingReleaseApprovals ?? [],
     hasPendingUserInput: thread.pendingRuntimeRequest?.kind === "user_input",
     pendingSubagentRequest,
     hasActionableProposedPlan: thread.hasActionableProposedPlan,

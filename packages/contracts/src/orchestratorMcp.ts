@@ -32,6 +32,12 @@ import {
   ScheduledTaskUpsertSchedule,
 } from "./scheduledTask.ts";
 import { PeerEnvironmentStatus } from "./peers.ts";
+import {
+  ReleaseApprovalAnswer,
+  ReleaseApprovalId,
+  ReleaseApprovalSummary,
+  ReleaseCandidate,
+} from "./releaseApproval.ts";
 import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 import { OrchestrationSearchThreadsInput, OrchestrationThreadSearchMatch } from "./threadSearch.ts";
 import { ThreadLinkedPullRequest } from "./threadPullRequest.ts";
@@ -702,6 +708,47 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;
+
+export const OrchestratorMcpRequestReleaseApprovalInput = Schema.Struct({
+  repository: TrimmedNonEmptyString.annotate({
+    description: "The repository being released, e.g. 'pechhe/yardsmith'.",
+  }),
+  candidate: ReleaseCandidate.annotate({
+    description: "The full commit id to release. An approval covers exactly this commit.",
+  }),
+  base: TrimmedNonEmptyString.annotate({
+    description: "What the release branch holds now (a commit id or ref).",
+  }),
+  summary: ReleaseApprovalSummary.annotate({
+    description:
+      "What the release contains, from your release plan (for SlipJay, `slipjay promote`'s plan JSON): commit count, the Specs or items with partial-build flags, migrations with non-additive flags, verification copied from the plan (`detail` for failedCommand or a note), and whether an earlier approval already covers it.",
+  }),
+  details: Schema.String.annotate({
+    description: "Markdown the owner can expand on the card: anything else they need to decide.",
+  }),
+});
+export type OrchestratorMcpRequestReleaseApprovalInput =
+  typeof OrchestratorMcpRequestReleaseApprovalInput.Type;
+
+export const OrchestratorMcpRequestReleaseApprovalResult = Schema.Struct({
+  requestId: ReleaseApprovalId.annotate({
+    description: "The card's id, shared by every thread that asked for this candidate.",
+  }),
+  status: Schema.Literals(["pending", "approved"]).annotate({
+    description:
+      "pending: end your turn; the owner's answer arrives as a message in this thread. approved: the owner already approved this exact candidate; do not ask again.",
+  }),
+  candidate: ReleaseCandidate,
+  joined: Schema.Boolean.annotate({
+    description: "True when this call joined a card that was already open for this candidate.",
+  }),
+  supersededCandidate: Schema.NullOr(ReleaseCandidate).annotate({
+    description: "The older candidate whose open card this request replaced, if any.",
+  }),
+  answer: Schema.NullOr(ReleaseApprovalAnswer),
+});
+export type OrchestratorMcpRequestReleaseApprovalResult =
+  typeof OrchestratorMcpRequestReleaseApprovalResult.Type;
 
 export const OrchestratorMcpRequestSecretInput = Schema.Struct({
   label: TrimmedNonEmptyString.annotate({

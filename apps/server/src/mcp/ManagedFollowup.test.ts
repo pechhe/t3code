@@ -22,6 +22,7 @@ import * as Git from "../vcs/GitVcsDriver.ts";
 import * as Providers from "../provider/ProviderRegistry.ts";
 import * as Projects from "../project/ProjectService.ts";
 import * as Secrets from "../secrets/SecretRequests.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as Scheduled from "../scheduledTasks/ScheduledTaskService.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as Settings from "../serverSettings.ts";
@@ -173,6 +174,7 @@ it.effect(
             Effect.succeed(Option.some({ workspaceRoot: binding.workspacePath } as never)),
         }),
         Layer.mock(Secrets.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
         Layer.mock(Scheduled.ScheduledTaskService)({}),
         Layer.mock(Launch.ThreadLaunchService)({}),
         Layer.mock(Git.GitVcsDriver)({}),

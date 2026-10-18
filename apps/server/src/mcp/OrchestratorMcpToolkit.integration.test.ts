@@ -81,6 +81,7 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as RunSetupRecorder from "../agents/RunSetupRecorder.ts";
+import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -752,6 +753,7 @@ describe("orchestrator MCP toolkit", () => {
                 Layer.provide(layerOrchestration),
               ),
             ),
+            Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
             Layer.provide(
               Layer.merge(
                 NodeServices.layer,
@@ -3969,6 +3971,7 @@ describe("orchestrator MCP toolkit", () => {
               Layer.provide(layerOrchestration),
             ),
           ),
+          Layer.provide(Layer.mock(ReleaseApprovals.ReleaseApprovals)({})),
           Layer.provide(
             Layer.merge(
               NodeServices.layer,

@@ -40,6 +40,7 @@ import type {
   RunAttemptId,
 } from "@t3tools/contracts";
 import {
+  type ReleaseApprovalCardSummary,
   OrchestrationV2AppThreadJson as OrchestrationV2AppThreadJsonSchema,
   OrchestrationV2CheckpointJson as OrchestrationV2CheckpointJsonSchema,
   OrchestrationV2CheckpointScopeJson as OrchestrationV2CheckpointScopeJsonSchema,
@@ -1035,6 +1036,7 @@ type ShellThreadRow = {
   readonly blocking_failure_payload_json: string | null;
   readonly pending_request_payload_json: string | null;
   readonly pending_secret_request_payload_json: string | null;
+  readonly pending_release_approvals_payload_json: string;
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
@@ -1164,6 +1166,9 @@ const decodePlanArtifact = Schema.decodeUnknownEffect(OrchestrationV2PlanArtifac
 const decodePlanPayload = (json: string) => decodePlanArtifact(parseEncodedPayload(json));
 const decodeTurnItemPayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2TurnItemJsonSchema),
+);
+const decodeTurnItemsPayload = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Array(OrchestrationV2TurnItemJsonSchema)),
 );
 const decodeCheckpointScopePayload = Schema.decodeUnknownEffect(
   Schema.fromJsonString(OrchestrationV2CheckpointScopeJsonSchema),
@@ -1443,6 +1448,31 @@ function secretRequestAsPendingInput(
   };
 }
 
+function releaseApprovalCards(
+  items: ReadonlyArray<OrchestrationV2TurnItem>,
+): ReadonlyArray<ReleaseApprovalCardSummary> {
+  return items
+    .flatMap((item) =>
+      item.type === "release_approval_request" && item.approvalStatus === "pending"
+        ? [
+            {
+              approvalId: item.approvalId,
+              repository: item.repository,
+              candidate: item.candidate,
+              base: item.base,
+              summary: item.summary,
+              requestedAt: DateTime.formatIso(item.startedAt ?? item.updatedAt),
+            },
+          ]
+        : [],
+    )
+    .toSorted(
+      (left, right) =>
+        left.requestedAt.localeCompare(right.requestedAt) ||
+        left.approvalId.localeCompare(right.approvalId),
+    );
+}
+
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
 ): OrchestrationV2ThreadShell {
@@ -1567,6 +1597,11 @@ export function threadShellFromProjection(
             kind: pendingRuntimeRequest.kind,
             createdAt: pendingRuntimeRequest.createdAt,
           },
+    pendingReleaseApprovals: releaseApprovalCards(
+      projection.turnItems.filter(
+        (item) => item.type === "release_approval_request" && item.status === "waiting",
+      ),
+    ),
     // Thread detail owns message bodies. Keeping them out of shell rows makes
     // initial hydration and streaming updates independent of transcript size.
     latestVisibleMessage: null,
@@ -1667,6 +1702,7 @@ type ShellThreadState = {
   readonly lastErrorClass: OrchestrationV2ThreadShell["lastErrorClass"];
   readonly usageLimitResetAt: OrchestrationV2ThreadShell["usageLimitResetAt"];
   readonly pendingRuntimeRequest: OrchestrationV2ThreadProjection["runtimeRequests"][number] | null;
+  readonly pendingReleaseApprovals: ReadonlyArray<ReleaseApprovalCardSummary>;
   readonly latestUserMessageAt: DateTime.Utc | null;
   readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   readonly hasActionableProposedPlan: boolean;
@@ -1840,6 +1876,7 @@ function shellFromState(input: {
             kind: input.state.pendingRuntimeRequest.kind,
             createdAt: input.state.pendingRuntimeRequest.createdAt,
           },
+    pendingReleaseApprovals: input.state.pendingReleaseApprovals,
     latestVisibleMessage: null,
     latestUserMessageAt: input.state.latestUserMessageAt,
     latestUserAuthoredMessageAt: input.state.latestUserAuthoredMessageAt,
@@ -5433,6 +5470,13 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 LIMIT 1
               ) AS pending_secret_request_payload_json,
               (
+                -- Served by a partial index over waiting release cards only.
+                SELECT json_group_array(json(card.payload_json))
+                FROM orchestration_v2_projection_turn_items card
+                WHERE card.thread_id = t.thread_id
+                  AND card.type = 'release_approval_request' AND card.status = 'waiting'
+              ) AS pending_release_approvals_payload_json,
+              (
                 SELECT message.updated_at
                 FROM orchestration_v2_projection_messages message
                 WHERE message.thread_id = t.thread_id
@@ -5840,6 +5884,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                   yield* decodeTurnItemPayload(row.pending_secret_request_payload_json),
                 )
               : null;
+        const pendingReleaseApprovals = releaseApprovalCards(
+          yield* decodeTurnItemsPayload(row.pending_release_approvals_payload_json),
+        );
         let terminalFailureItem =
           row.terminal_failure_payload_json === null
             ? null
@@ -5927,6 +5974,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             row.last_error,
           ),
           pendingRuntimeRequest,
+          pendingReleaseApprovals,
           latestUserMessageAt:
             row.latest_user_message_at === null
               ? null
