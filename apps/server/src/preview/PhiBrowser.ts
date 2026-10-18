@@ -183,8 +183,8 @@ export class PhiBrowser extends Context.Service<
     ) => Effect.Effect<ReadonlyArray<PreviewSessionSnapshot>>;
     readonly releaseSession: (sessionId: string) => Effect.Effect<void>;
     /**
-     * Whether managed browser tasks can start. Discovery accepts an answer up to half a minute
-     * old; a task launch passes `probe` to ask Phi now. Nothing is allocated either way.
+     * Whether managed browser tasks can start. Discovery accepts a recent answer; a task launch
+     * passes `probe` to ask Phi now. Nothing is allocated either way.
      */
     readonly availability: (input: {
       readonly skillDirectory: string;
@@ -292,8 +292,14 @@ const make = Effect.gen(function* () {
     control: { owner: "agent", ownedByCaller: true, generation: 0 },
   });
 
-  // Discovery reads a recent answer rather than probing Phi on every call.
+  // Discovery reads a recent answer rather than probing Phi on every call. A failed probe is
+  // kept only briefly: a busy machine can slow a healthy Phi past the deadline, and a long-lived
+  // false "unreachable" sends every agent to the fallback route.
   const REACHABILITY_TTL_MS = 30_000;
+  const UNREACHABLE_TTL_MS = 5_000;
+  // Covers a cold runner start, the CDP connection and a shadow status round, which take
+  // over two seconds on a loaded Mac.
+  const PROBE_TIMEOUT_MS = 5_000;
   const reachability = yield* Ref.make<
     ReadonlyMap<string, { readonly value: PhiAvailability; readonly at: number }>
   >(new Map());
@@ -301,7 +307,11 @@ const make = Effect.gen(function* () {
     Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis;
       const known = (yield* Ref.get(reachability)).get(input.skillDirectory);
-      if (!input.probe && known !== undefined && now - known.at < REACHABILITY_TTL_MS)
+      if (
+        !input.probe &&
+        known !== undefined &&
+        now - known.at < (known.value === "unreachable" ? UNREACHABLE_TTL_MS : REACHABILITY_TTL_MS)
+      )
         return known.value;
       const value: PhiAvailability = yield* runner
         .run({
@@ -309,7 +319,7 @@ const make = Effect.gen(function* () {
           skillDirectory: input.skillDirectory,
           context: { kind: "shadow", name: "t3-probe", incognito: true },
           action: { operation: "status" },
-          timeoutMs: input.probe ? 5_000 : 2_000,
+          timeoutMs: PROBE_TIMEOUT_MS,
         })
         .pipe(
           Effect.as("available" as const),

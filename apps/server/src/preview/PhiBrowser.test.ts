@@ -19,6 +19,7 @@ import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import * as PreviewAutomationBroker from "../mcp/PreviewAutomationBroker.ts";
@@ -260,6 +261,24 @@ it.effect("reports reachable Phi without a tab, caches discovery and probes laun
       control.probeError = "connection-failed";
       expect(yield* browser.availability({ skillDirectory: "", probe: true })).toBe("unreachable");
       expect(calls.every((call) => call.probe)).toBe(true);
+    }),
+  ),
+);
+
+it.effect("rechecks an unreachable Phi soon while keeping a reachable answer", () =>
+  withFixture(({ browser, calls, control }) =>
+    Effect.gen(function* () {
+      const discover = browser.availability({ skillDirectory: "", probe: false });
+      control.probeError = "connection-failed";
+      expect(yield* discover).toBe("unreachable");
+      control.probeError = undefined;
+      expect(yield* discover).toBe("unreachable");
+      yield* TestClock.adjust("5 seconds");
+      expect(yield* discover).toBe("available");
+      control.probeError = "connection-failed";
+      yield* TestClock.adjust("20 seconds");
+      expect(yield* discover).toBe("available");
+      expect(calls).toHaveLength(2);
     }),
   ),
 );
