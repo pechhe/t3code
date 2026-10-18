@@ -3,6 +3,7 @@ import {
   DesktopAppBrandingSchema,
   DesktopEnvironmentBootstrapSchema,
   DesktopScreenRecordingIndicatorState,
+  DesktopScreenRecordingSource,
   DesktopScreenRecordingSupport,
   DesktopThemeSchema,
   EDITORS,
@@ -42,6 +43,8 @@ import * as MacPermissions from "../../permissions/MacPermissions.ts";
 import { safariPermissionCheck } from "../../preview/BrowserImport/SafariPermission.ts";
 import {
   currentComposerScreenRecordingSupport,
+  macScreenPickerLibraryPath,
+  macScreenPickerSelection,
   prepareMacScreenPicker,
 } from "../../preview/ComposerDisplayMedia.ts";
 import * as ScreenRecordingIndicator from "../../preview/ScreenRecordingIndicator.ts";
@@ -418,9 +421,30 @@ export const prepareScreenRecording = DesktopIpc.makeIpcMethod({
   handler: Effect.fn("desktop.ipc.window.prepareScreenRecording")(function* () {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
     if (environment.platform !== "darwin") return;
-    yield* Effect.tryPromise(prepareMacScreenPicker).pipe(
+    yield* Effect.tryPromise(() =>
+      prepareMacScreenPicker(macScreenPickerLibraryPath(environment)),
+    ).pipe(
       Effect.catch((error) =>
         Effect.logWarning("Could not prepare the macOS screen picker", { error }),
+      ),
+    );
+  }),
+});
+
+export const getScreenRecordingSource = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GET_SCREEN_RECORDING_SOURCE_CHANNEL,
+  payload: Schema.Undefined,
+  result: Schema.NullOr(DesktopScreenRecordingSource),
+  handler: Effect.fn("desktop.ipc.window.getScreenRecordingSource")(function* () {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    if (environment.platform !== "darwin") return null;
+    return yield* Effect.tryPromise(() =>
+      macScreenPickerSelection(macScreenPickerLibraryPath(environment)),
+    ).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not read the macOS screen picker", { error }).pipe(
+          Effect.as(null),
+        ),
       ),
     );
   }),

@@ -6,6 +6,7 @@ import {
   createComposerScreenRecorder,
   type ComposerScreenRecordingState,
   screenRecordingElapsedMs,
+  screenSourceLabel,
 } from "./composerScreenRecording";
 
 class FakeTrack extends EventTarget {
@@ -65,7 +66,6 @@ class FakeRelay {
   readonly output = new FakeStream("video");
   readonly used: FakeTrack[] = [];
   stopped = false;
-  constructor(readonly showPreview: (preview: string) => void) {}
   use(track: FakeTrack) {
     this.used.push(track);
   }
@@ -74,9 +74,11 @@ class FakeRelay {
   }
 }
 
+const picked = (stream: FakeStream, label: string | null = null) => ({ stream, label });
+
 const setup = (
   options: {
-    readonly pick?: () => Promise<FakeStream>;
+    readonly pick?: () => Promise<ReturnType<typeof picked>>;
     readonly captureBusy?: boolean;
     readonly relay?: boolean;
   } = {},
@@ -84,7 +86,7 @@ const setup = (
   const stream = new FakeStream("video", "audio");
   const recorder = new FakeRecorder();
   const states: ComposerScreenRecordingState["phase"][] = [];
-  const getDisplayMedia = vi.fn(options.pick ?? (async () => stream));
+  const getDisplayMedia = vi.fn(options.pick ?? (async () => picked(stream, "Entire screen")));
   let relay: FakeRelay | null = null;
   let recorded: unknown = null;
   const screenRecorder = createComposerScreenRecorder(
@@ -95,9 +97,9 @@ const setup = (
         recorded = input;
         return recorder as unknown as MediaRecorder;
       },
-      createRelay: (showPreview) => {
+      createRelay: () => {
         if (!options.relay) return null;
-        relay = new FakeRelay(showPreview);
+        relay = new FakeRelay();
         return relay as never;
       },
       now: () => Date.now(),
@@ -189,14 +191,14 @@ describe("composer screen recording", () => {
   });
 
   it("stops a stream that arrives after a discard during the picker", async () => {
-    let grant!: (stream: FakeStream) => void;
+    let grant!: (pick: ReturnType<typeof picked>) => void;
     const late = new FakeStream("video");
     const { screenRecorder } = setup({
       pick: () => new Promise((resolve) => (grant = resolve)),
     });
     const outcome = screenRecorder.start();
     screenRecorder.discard();
-    grant(late);
+    grant(picked(late));
     expect(await outcome).toEqual({ type: "discarded" });
     expect(late.tracks.every((track) => track.stopped)).toBe(true);
   });
@@ -267,19 +269,16 @@ describe("changing what is recorded", () => {
     vi.useRealTimers();
   });
 
-  it("records through the relay and shows its preview", async () => {
+  it("records through the relay and names what it records", async () => {
     const { screenRecorder, stream, relay, recorded } = setup({ relay: true });
     const outcome = screenRecorder.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(recorded()).toBe(relay()?.output);
     expect(relay()?.used).toEqual(stream.getVideoTracks());
     expect(recordingState(screenRecorder.getState())).toMatchObject({
-      preview: null,
+      source: "Entire screen",
       canChangeSource: true,
     });
-
-    relay()?.showPreview("data:image/jpeg;base64,first");
-    expect(recordingState(screenRecorder.getState()).preview).toBe("data:image/jpeg;base64,first");
     screenRecorder.stop();
     expect((await outcome)?.type).toBe("recorded");
     expect(relay()?.stopped).toBe(true);
@@ -289,15 +288,14 @@ describe("changing what is recorded", () => {
     const { screenRecorder, stream, recorder, getDisplayMedia, relay } = setup({ relay: true });
     const outcome = screenRecorder.start();
     await vi.advanceTimersByTimeAsync(2_000);
-    relay()?.showPreview("data:image/jpeg;base64,first");
 
-    let grant!: (stream: FakeStream) => void;
+    let grant!: (pick: ReturnType<typeof picked>) => void;
     const next = new FakeStream("video", "audio");
     getDisplayMedia.mockImplementationOnce(() => new Promise((resolve) => (grant = resolve)));
     const change = screenRecorder.changeSource();
     expect(recorder.state).toBe("paused");
     await vi.advanceTimersByTimeAsync(10_000);
-    grant(next);
+    grant(picked(next, "T3 Code window"));
 
     expect(await change).toEqual({ type: "changed" });
     expect(recorder.state).toBe("recording");
@@ -305,7 +303,7 @@ describe("changing what is recorded", () => {
     expect(stream.tracks.every((track) => track.stopped)).toBe(true);
     expect(next.getAudioTracks()).toEqual([]);
     const changed = recordingState(screenRecorder.getState());
-    expect(changed.preview).toBeNull();
+    expect(changed.source).toBe("T3 Code window");
     expect(screenRecordingElapsedMs(changed, Date.now())).toBe(2_000);
 
     // The old source's end no longer ends the recording; the new one's does.
@@ -351,12 +349,12 @@ describe("changing what is recorded", () => {
     const { screenRecorder, getDisplayMedia } = setup({ relay: true });
     const outcome = screenRecorder.start();
     await vi.advanceTimersByTimeAsync(0);
-    let grant!: (stream: FakeStream) => void;
+    let grant!: (pick: ReturnType<typeof picked>) => void;
     const late = new FakeStream("video");
     getDisplayMedia.mockImplementationOnce(() => new Promise((resolve) => (grant = resolve)));
     const change = screenRecorder.changeSource();
     screenRecorder.discard();
-    grant(late);
+    grant(picked(late));
     expect(await change).toEqual({ type: "kept" });
     expect(late.tracks.every((track) => track.stopped)).toBe(true);
     expect(await outcome).toEqual({ type: "discarded" });
@@ -372,6 +370,18 @@ describe("changing what is recorded", () => {
     expect(getDisplayMedia).toHaveBeenCalledTimes(1);
     screenRecorder.discard();
     await outcome;
+  });
+});
+
+describe("screenSourceLabel", () => {
+  it("names the app where macOS says which", () => {
+    expect(screenSourceLabel({ kind: "screen", name: null })).toBe("Entire screen");
+    expect(screenSourceLabel({ kind: "app", name: "Phi" })).toBe("Phi app");
+    expect(screenSourceLabel({ kind: "window", name: "T3 Code" })).toBe("T3 Code window");
+    expect(screenSourceLabel({ kind: "window", name: null })).toBe("A window");
+    expect(screenSourceLabel({ kind: "app", name: "x".repeat(300) })).toBe(
+      `${"x".repeat(59)}… app`,
+    );
   });
 });
 

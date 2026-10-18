@@ -1,6 +1,10 @@
 import * as NodeOS from "node:os";
 
-import type { DesktopScreenRecordingSupport } from "@t3tools/contracts";
+import {
+  DesktopScreenRecordingSource,
+  type DesktopScreenRecordingSupport,
+} from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import type { DataType } from "ffi-rs";
 import * as Electron from "electron";
 
@@ -28,57 +32,79 @@ export const currentComposerScreenRecordingSupport = (
   environment: NodeJS.ProcessEnv,
 ) => composerScreenRecordingSupport({ platform, darwinRelease: NodeOS.release(), environment });
 
-let macScreenPickerReset: Promise<() => void> | undefined;
+const decodeScreenSource = Schema.decodeUnknownSync(
+  Schema.fromJsonString(DesktopScreenRecordingSource),
+);
 
-const loadMacScreenPickerReset = () =>
-  import("ffi-rs").then(({ DataType, load, open }) => {
-    const library = "t3-objc";
-    open({ library, path: "/usr/lib/libobjc.A.dylib" });
-    const lookup = (funcName: string, name: string) =>
-      load({
-        library,
-        funcName,
-        retType: DataType.BigInt,
-        paramsType: [DataType.String],
-        paramsValue: [name],
-      }) as bigint;
-    const send = (
-      receiver: bigint,
-      selector: string,
-      retType: DataType,
-      paramsType: ReadonlyArray<DataType> = [],
-      paramsValue: ReadonlyArray<unknown> = [],
-    ) =>
-      load({
-        library,
-        funcName: "objc_msgSend",
-        retType,
-        paramsType: [DataType.BigInt, DataType.BigInt, ...paramsType],
-        paramsValue: [receiver, lookup("sel_registerName", selector), ...paramsValue],
-      });
-    return () => {
-      const picker = send(
-        lookup("objc_getClass", "SCContentSharingPicker"),
-        "sharedPicker",
-        DataType.BigInt,
-      ) as bigint;
-      if (picker === 0n) return;
-      send(picker, "setActive:", DataType.Void, [DataType.Boolean], [true]);
-      // nil lifts the limit; Electron sets its own once the capture starts.
-      send(picker, "setMaximumStreamCount:", DataType.Void, [DataType.BigInt], [0n]);
+interface MacScreenPicker {
+  readonly prepare: () => void;
+  readonly selection: () => DesktopScreenRecordingSource | null;
+}
+
+let macScreenPicker: Promise<MacScreenPicker> | undefined;
+
+const MAC_SCREEN_PICKER_LIBRARY = "libt3-screen-picker.dylib";
+
+/** Packaged apps carry the library as a resource; development builds it with `start-electron`. */
+export const macScreenPickerLibraryPath = (environment: {
+  readonly path: { readonly join: (...segments: ReadonlyArray<string>) => string };
+  readonly isPackaged: boolean;
+  readonly resourcesPath: string;
+  readonly rootDir: string;
+  readonly processArch: string;
+}) =>
+  environment.isPackaged
+    ? environment.path.join(environment.resourcesPath, "screen-picker", MAC_SCREEN_PICKER_LIBRARY)
+    : environment.path.join(
+        environment.rootDir,
+        "native",
+        "screen-picker",
+        "build",
+        environment.processArch,
+        MAC_SCREEN_PICKER_LIBRARY,
+      );
+
+// The library observes macOS's picker from inside this process; see native/screen-picker.
+const loadMacScreenPicker = (libraryPath: string) =>
+  import("ffi-rs").then(({ DataType, load, open }): MacScreenPicker => {
+    const library = "t3-screen-picker";
+    open({ library, path: libraryPath });
+    const call = (funcName: string, retType: DataType) =>
+      load({ library, funcName, retType, paramsType: [], paramsValue: [] });
+    return {
+      prepare: () => call("t3_screen_picker_prepare", DataType.Void),
+      selection: () => {
+        const json = call("t3_screen_picker_selection", DataType.String) as string;
+        return json === "" ? null : decodeScreenSource(json);
+      },
     };
   });
 
+const macScreenPickerFor = (libraryPath: string) => {
+  if (!macScreenPicker) {
+    const loading = loadMacScreenPicker(libraryPath);
+    macScreenPicker = loading;
+    // A library that failed to load is tried again on the next recording.
+    loading.catch(() => {
+      if (macScreenPicker === loading) macScreenPicker = undefined;
+    });
+  }
+  return macScreenPicker;
+};
+
 /**
- * Readies macOS's system picker for the next `getDisplayMedia()`. Electron sets the picker's stream
- * limit before activating it, and ScreenCaptureKit only forwards a limit changed while the picker is
- * active. Once the first recording ends, macOS keeps the limit of 0 Electron set then, and withholds
- * every later pick until the request times out. Activating the picker and clearing the limit first
- * lets Electron's own update reach macOS.
+ * Readies macOS's system picker for the next `getDisplayMedia()` and forgets the last pick, so
+ * `macScreenPickerSelection` reports only what the user picks next.
  */
-export async function prepareMacScreenPicker(): Promise<void> {
-  macScreenPickerReset ??= loadMacScreenPickerReset();
-  (await macScreenPickerReset)();
+export async function prepareMacScreenPicker(libraryPath: string): Promise<void> {
+  (await macScreenPickerFor(libraryPath)).prepare();
+}
+
+/** What the user picked since `prepareMacScreenPicker`, or null before a pick. */
+export async function macScreenPickerSelection(
+  libraryPath: string,
+): Promise<DesktopScreenRecordingSource | null> {
+  return (await macScreenPickerFor(libraryPath)).selection();
 }
 
 export interface ComposerDisplayMediaHost {

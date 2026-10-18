@@ -1,3 +1,5 @@
+import type { DesktopScreenRecordingSource } from "@t3tools/contracts";
+
 import { readActiveBrowserRecordingTabIds } from "~/browser/browserRecording";
 import { createMediaRecorder, recordedMimeType, stopMediaStream } from "~/browser/mediaRecording";
 
@@ -16,9 +18,6 @@ const DISPLAY_MEDIA_OPTIONS: DisplayMediaStreamOptions = {
 };
 // MediaRecorder treats the bitrate as a target, so leave headroom under the upload cap.
 const UPLOAD_CAP_HEADROOM = 0.8;
-const PREVIEW_WIDTH = 160;
-const PREVIEW_HEIGHT = 100;
-const PREVIEW_INTERVAL_MS = 500;
 
 export type ComposerScreenRecordingState =
   | { readonly phase: "idle" }
@@ -30,11 +29,8 @@ export type ComposerScreenRecordingState =
       readonly elapsedMs: number;
       /** When recording last resumed, or null while paused. */
       readonly resumedAt: number | null;
-      /**
-       * A still of what is being recorded as an image URL. Browsers do not name the surface the
-       * user picked, so the picture is how the user tells which one it is.
-       */
-      readonly preview: string | null;
+      /** What is being recorded, such as "Entire screen", where the picker says. */
+      readonly source: string | null;
       readonly canChangeSource: boolean;
     }
   | { readonly phase: "finishing" };
@@ -60,16 +56,21 @@ export interface ComposerScreenRelay {
   readonly stop: () => void;
 }
 
+export interface ComposerScreenPick {
+  readonly stream: MediaStream;
+  readonly label: string | null;
+}
+
 export interface ComposerScreenRecorderHost {
   /**
    * The desktop answers an armed browser-panel recording's display-media request by frame, and the
    * composer asks from the same frame, so the composer must not ask while one is starting or running.
    */
   readonly captureBusy: () => boolean;
-  readonly getDisplayMedia: (options: DisplayMediaStreamOptions) => Promise<MediaStream>;
+  readonly getDisplayMedia: (options: DisplayMediaStreamOptions) => Promise<ComposerScreenPick>;
   readonly createRecorder: (stream: MediaStream) => MediaRecorder;
   /** Null where the browser cannot relay frames; the recording then keeps its first source. */
-  readonly createRelay: (onPreview: (preview: string) => void) => ComposerScreenRelay | null;
+  readonly createRelay: () => ComposerScreenRelay | null;
   readonly now: () => number;
 }
 
@@ -93,35 +94,12 @@ declare const MediaStreamTrackGenerator:
     })
   | undefined;
 
-function createBrowserScreenRelay(
-  onPreview: (preview: string) => void,
-): ComposerScreenRelay | null {
+function createBrowserScreenRelay(): ComposerScreenRelay | null {
   if (typeof MediaStreamTrackProcessor === "undefined") return null;
   if (typeof MediaStreamTrackGenerator === "undefined") return null;
   const output = new MediaStreamTrackGenerator({ kind: "video" });
   const writer = output.writable.getWriter();
-  const canvas = document.createElement("canvas");
   let reader: ReadableStreamDefaultReader<VideoFrame> | null = null;
-  let previewSize = "";
-  let previewAt = -Infinity;
-  // Taken again when the picture changes shape, since the first frame of a capture can be a
-  // placeholder size and a recorded window can be resized.
-  const preview = (frame: VideoFrame) => {
-    const size = `${frame.displayWidth}x${frame.displayHeight}`;
-    const now = performance.now();
-    if (size === previewSize || now - previewAt < PREVIEW_INTERVAL_MS) return;
-    previewSize = size;
-    previewAt = now;
-    const scale = Math.min(
-      PREVIEW_WIDTH / frame.displayWidth,
-      PREVIEW_HEIGHT / frame.displayHeight,
-      1,
-    );
-    canvas.width = Math.max(1, Math.round(frame.displayWidth * scale));
-    canvas.height = Math.max(1, Math.round(frame.displayHeight * scale));
-    canvas.getContext("2d")?.drawImage(frame, 0, 0, canvas.width, canvas.height);
-    onPreview(canvas.toDataURL("image/jpeg", 0.7));
-  };
   const pump = async (source: ReadableStreamDefaultReader<VideoFrame>) => {
     for (;;) {
       const { done, value } = await source.read();
@@ -130,7 +108,6 @@ function createBrowserScreenRelay(
         value.close();
         return;
       }
-      preview(value);
       // The generator closes each frame once written.
       void writer.write(value).catch(() => undefined);
     }
@@ -145,8 +122,6 @@ function createBrowserScreenRelay(
       release();
       const next = new MediaStreamTrackProcessor({ track }).readable.getReader();
       reader = next;
-      previewSize = "";
-      previewAt = -Infinity;
       void pump(next).catch(() => undefined);
     },
     stop: () => {
@@ -154,6 +129,41 @@ function createBrowserScreenRelay(
       output.stop();
     },
   };
+}
+
+const MAX_SOURCE_NAME_LENGTH = 60;
+
+export function screenSourceLabel(source: DesktopScreenRecordingSource): string {
+  const name =
+    source.name && source.name.length > MAX_SOURCE_NAME_LENGTH
+      ? `${source.name.slice(0, MAX_SOURCE_NAME_LENGTH - 1)}…`
+      : source.name;
+  switch (source.kind) {
+    case "screen":
+      return "Entire screen";
+    case "app":
+      return name ? `${name} app` : "An app";
+    case "window":
+      return name ? `${name} window` : "A window";
+  }
+}
+
+// Browsers say only which kind of surface was picked, never its name.
+const SURFACE_LABELS: Readonly<Record<string, string>> = {
+  monitor: "Entire screen",
+  window: "A window",
+  browser: "A browser tab",
+};
+
+async function pickedLabel(stream: MediaStream): Promise<string | null> {
+  // macOS's picker gives the page an opaque surface, so only the desktop can say.
+  const desktopSource = window.desktopBridge?.getScreenRecordingSource;
+  if (desktopSource) {
+    const source = await desktopSource().catch(() => null);
+    return source ? screenSourceLabel(source) : null;
+  }
+  const surface = stream.getVideoTracks()[0]?.getSettings().displaySurface;
+  return (surface && SURFACE_LABELS[surface]) || null;
 }
 
 export function browserComposerScreenRecorderHost(
@@ -168,7 +178,8 @@ export function browserComposerScreenRecorderHost(
     getDisplayMedia: async (options) => {
       // Preparation only helps the picker; a failed call must not stop the recording.
       await window.desktopBridge?.prepareScreenRecording?.().catch(() => undefined);
-      return navigator.mediaDevices.getDisplayMedia(options);
+      const stream = await navigator.mediaDevices.getDisplayMedia(options);
+      return { stream, label: await pickedLabel(stream) };
     },
     createRecorder: (stream) => createMediaRecorder(stream, { videoBitsPerSecond }),
     createRelay: createBrowserScreenRelay,
@@ -222,11 +233,10 @@ export function createComposerScreenRecorder(
     onStateChange(next);
   };
 
-  const record = (picked: MediaStream): Promise<ComposerScreenRecordingOutcome> => {
+  const record = (picked: ComposerScreenPick): Promise<ComposerScreenRecordingOutcome> => {
     const chunks: Blob[] = [];
-    let source = picked;
-    let preview: string | null = null;
-    let publishRecording = () => {};
+    let source = picked.stream;
+    let label = picked.label;
     let relay: ComposerScreenRelay | null = null;
     let recorder: MediaRecorder;
     const stopCapture = () => {
@@ -234,10 +244,7 @@ export function createComposerScreenRecorder(
       relay?.stop();
     };
     try {
-      relay = host.createRelay((next) => {
-        preview = next;
-        publishRecording();
-      });
+      relay = host.createRelay();
       const track = source.getVideoTracks()[0];
       if (relay && track) relay.use(track);
       recorder = host.createRecorder(relay?.output ?? source);
@@ -264,14 +271,14 @@ export function createComposerScreenRecorder(
       let done = false;
       let changing = false;
       let limitTimer: ReturnType<typeof setTimeout> | undefined;
-      publishRecording = () => {
+      const publishRecording = () => {
         if (!done) {
           setState({
             phase: "recording",
             startedAt,
             elapsedMs,
             resumedAt,
-            preview,
+            source: label,
             canChangeSource,
           });
         }
@@ -360,7 +367,8 @@ export function createComposerScreenRecorder(
         const wasRunning = resumedAt !== null;
         applyPause(true);
         try {
-          const next = videoOnly(await host.getDisplayMedia(DISPLAY_MEDIA_OPTIONS));
+          const pick = await host.getDisplayMedia(DISPLAY_MEDIA_OPTIONS);
+          const next = videoOnly(pick.stream);
           const track = next.getVideoTracks()[0];
           if (done || !track) {
             stopMediaStream(next);
@@ -368,7 +376,7 @@ export function createComposerScreenRecorder(
           }
           const previous = source;
           source = next;
-          preview = null;
+          label = pick.label;
           relay.use(track);
           watchSource(next);
           stopMediaStream(previous);
@@ -401,9 +409,9 @@ export function createComposerScreenRecorder(
         discarded = true;
       };
       discardPicking = picking;
-      let stream: MediaStream;
+      let pick: ComposerScreenPick;
       try {
-        stream = await host.getDisplayMedia(DISPLAY_MEDIA_OPTIONS);
+        pick = await host.getDisplayMedia(DISPLAY_MEDIA_OPTIONS);
       } catch (error) {
         if (discardPicking === picking) discardPicking = null;
         setState({ phase: "idle" });
@@ -412,11 +420,11 @@ export function createComposerScreenRecorder(
       }
       if (discardPicking === picking) discardPicking = null;
       if (discarded) {
-        stopMediaStream(stream);
+        stopMediaStream(pick.stream);
         setState({ phase: "idle" });
         return { type: "discarded" };
       }
-      return record(videoOnly(stream));
+      return record({ stream: videoOnly(pick.stream), label: pick.label });
     },
     stop: () => finishRecording?.(true),
     pause: () => setPaused?.(true),

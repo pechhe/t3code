@@ -166,19 +166,22 @@ export function ScreenRecordingBar() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                aria-label="Change what's recorded"
+                aria-label={
+                  state.source
+                    ? `Recording ${state.source}. Change what's recorded`
+                    : "Change what's recorded"
+                }
                 onClick={screenRecordingControls.changeSource}
               />
             }
           >
-            {state.preview ? (
-              <img src={state.preview} alt="" className="max-h-5 max-w-10 rounded-sm border" />
-            ) : (
-              <ScreenShareIcon />
-            )}
+            <ScreenShareIcon />
+            {state.source ? <span className="max-w-40 truncate">{state.source}</span> : null}
           </TooltipTrigger>
           <TooltipPopup>Change what's recorded</TooltipPopup>
         </Tooltip>
+      ) : state.source ? (
+        <span className="text-muted-foreground max-w-40 truncate text-xs">{state.source}</span>
       ) : null}
       <Button
         type="button"

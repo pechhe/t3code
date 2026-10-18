@@ -59,7 +59,8 @@ To show the agent behaviour rather than a still, choose the record button next
 to **Send** and pick a screen or window. While recording you can move around
 T3 Code and other apps: in the Mac app the controls sit in the notch at the top of the
 screen (elsewhere, along the top of T3 Code), where you can pause, stop or
-discard. When you stop, T3 Code comes to the front on the thread you started
+discard. The controls also name what is being recorded; choose it to switch to
+another screen, app or window in the same video. When you stop, T3 Code comes to the front on the thread you started
 in, with the video attached to its draft. Paused time is not recorded; recordings stop by themselves after 60
 seconds of recording and capture no audio.
 

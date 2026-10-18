@@ -11,7 +11,8 @@ describe("screen recording indicator placement", () => {
     expect(bounds.gap).toBe(220);
     expect(bounds.height).toBe(38);
     expect(bounds.y).toBe(0);
-    expect(bounds.x + (bounds.width - bounds.gap) / 2).toBe(790);
+    expect(bounds.x + bounds.left).toBe(790);
+    expect(bounds.x + bounds.left + bounds.gap).toBe(1010);
   });
 
   it("hangs from the top centre of a screen without a notch", () => {

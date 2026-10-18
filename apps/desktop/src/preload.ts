@@ -5,6 +5,7 @@ import type {
   DesktopPreviewRecordingInputEvent,
   DesktopPreviewRecordingFrame,
   DesktopPreviewTabState,
+  DesktopScreenRecordingIndicatorAction,
   DesktopSnapShotEvent,
 } from "@t3tools/contracts";
 import { exposeClerkBridge } from "@clerk/electron/preload";
@@ -41,6 +42,16 @@ try {
     }
   }
 } catch {}
+
+const INDICATOR_ACTIONS = new Set<unknown>([
+  "pause",
+  "resume",
+  "stop",
+  "discard",
+  "change-source",
+] satisfies ReadonlyArray<DesktopScreenRecordingIndicatorAction>);
+const isIndicatorAction = (action: unknown): action is DesktopScreenRecordingIndicatorAction =>
+  INDICATOR_ACTIONS.has(action);
 
 // oxlint-disable-next-line t3code/no-global-process-runtime -- Electron exposes the client platform in its sandboxed preload process.
 const clientPlatform = process.platform;
@@ -250,13 +261,18 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.GET_SCREEN_RECORDING_SUPPORT_CHANNEL, undefined),
   prepareScreenRecording: () =>
     ipcRenderer.invoke(IpcChannels.PREPARE_SCREEN_RECORDING_CHANNEL, undefined),
+  // Only macOS's picker hides what was picked from the page; elsewhere the page can tell.
+  ...(clientPlatform === "darwin"
+    ? {
+        getScreenRecordingSource: () =>
+          ipcRenderer.invoke(IpcChannels.GET_SCREEN_RECORDING_SOURCE_CHANNEL, undefined),
+      }
+    : {}),
   setScreenRecordingIndicator: (state) =>
     ipcRenderer.invoke(IpcChannels.SET_SCREEN_RECORDING_INDICATOR_CHANNEL, state),
   onScreenRecordingIndicatorAction: (listener) => {
     const wrappedListener = (_event: Electron.IpcRendererEvent, action: unknown) => {
-      if (action !== "pause" && action !== "resume" && action !== "stop" && action !== "discard")
-        return;
-      listener(action);
+      if (isIndicatorAction(action)) listener(action);
     };
     ipcRenderer.on(IpcChannels.SCREEN_RECORDING_INDICATOR_ACTION_CHANNEL, wrappedListener);
     return () => {

@@ -76,7 +76,10 @@ const readScreenNotches = () =>
     );
   });
 
-const WING_WIDTH = 132;
+// The left wing also names what is being recorded; the right holds only the buttons, and stays
+// narrow to cover as few menu bar icons as it can.
+const LEFT_WING_WIDTH = 196;
+const RIGHT_WING_WIDTH = 132;
 const PLAIN_HEIGHT = 32;
 const PLAIN_GAP = 8;
 
@@ -87,24 +90,26 @@ const PLAIN_GAP = 8;
 export function screenRecordingIndicatorBounds(
   display: Pick<Electron.Display, "bounds">,
   notch: ScreenNotch | undefined,
-): Electron.Rectangle & { readonly gap: number } {
+): Electron.Rectangle & { readonly left: number; readonly gap: number } {
   const { bounds } = display;
   if (notch) {
     const gap = notch.notchRight - notch.notchLeft;
     return {
-      x: Math.round(bounds.x + notch.notchLeft - WING_WIDTH),
+      x: Math.round(bounds.x + notch.notchLeft - LEFT_WING_WIDTH),
       y: bounds.y,
-      width: Math.round(gap + WING_WIDTH * 2),
+      width: Math.round(LEFT_WING_WIDTH + gap + RIGHT_WING_WIDTH),
       height: Math.round(notch.notchHeight),
+      left: LEFT_WING_WIDTH,
       gap: Math.round(gap),
     };
   }
-  const width = WING_WIDTH * 2 + PLAIN_GAP;
+  const width = LEFT_WING_WIDTH + PLAIN_GAP + RIGHT_WING_WIDTH;
   return {
     x: Math.round(bounds.x + (bounds.width - width) / 2),
     y: bounds.y,
     width,
     height: PLAIN_HEIGHT,
+    left: LEFT_WING_WIDTH,
     gap: PLAIN_GAP,
   };
 }
@@ -123,26 +128,27 @@ const DISCARD_ICON = icon(
   '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
 );
 
-function indicatorHtml(gap: number) {
+function indicatorHtml(left: number, gap: number) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>T3 Code recording</title><style>
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
 body { display: flex; color: #f5f5f5; font: 600 12px/1 -apple-system, BlinkMacSystemFont, sans-serif; user-select: none; -webkit-user-select: none; cursor: default; }
 #pill { display: flex; width: 100%; height: 100%; background: #000; border-radius: 0 0 14px 14px; }
-.wing { display: flex; flex: 1; align-items: center; gap: 6px; padding: 0 10px; }
-#left { justify-content: flex-start; }
+.wing { display: flex; flex: 1; min-width: 0; align-items: center; gap: 6px; padding: 0 10px; }
+#left { flex: none; width: ${left}px; justify-content: flex-start; }
 #right { justify-content: flex-end; gap: 2px; }
 #gap { width: ${gap}px; flex: none; }
-#dot { width: 8px; height: 8px; border-radius: 50%; background: #ff453a; }
+#dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #ff453a; }
 body[data-paused] #dot { background: #8e8e93; }
-#clock { font-variant-numeric: tabular-nums; }
-#change-source { width: auto; min-width: 26px; padding: 0 3px; }
+#clock { flex: none; font-variant-numeric: tabular-nums; }
+#change-source { display: flex; align-items: center; width: auto; min-width: 26px; padding: 0 7px; background: rgba(255,255,255,.1); font-weight: 500; }
+#change-source:hover { background: rgba(255,255,255,.2); }
 #change-source[hidden] { display: none; }
-#preview { display: block; max-width: 40px; max-height: 20px; border-radius: 3px; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
-#preview:not([src]) { display: none; }
-#preview[src] + svg { display: none; }
+#source { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#source:empty { display: none; }
+#source:not(:empty) + svg { display: none; }
 button { display: grid; place-items: center; width: 26px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: inherit; }
 button:hover { background: rgba(255,255,255,.16); }
 button:focus-visible { outline: 2px solid #0a84ff; outline-offset: -2px; }
@@ -151,7 +157,7 @@ button:focus-visible { outline: 2px solid #0a84ff; outline-offset: -2px; }
 body[data-paused] #resume { display: grid; }
 </style></head><body><div id="pill">
 <div class="wing" id="left"><span id="dot"></span><span id="clock" role="timer">0:00</span>
-<button id="change-source" hidden title="Change what's recorded" aria-label="Change what's recorded"><img id="preview" alt="">${SCREEN_ICON}</button></div>
+<button id="change-source" hidden title="Change what's recorded" aria-label="Change what's recorded"><span id="source"></span>${SCREEN_ICON}</button></div>
 <div id="gap"></div>
 <div class="wing" id="right">
 <button id="pause" title="Pause recording" aria-label="Pause recording">${PAUSE_ICON}</button>
@@ -249,7 +255,7 @@ class IndicatorWindow {
         candidate.width === display.bounds.width,
     );
     if (generation !== this.generation || owner.isDestroyed()) return false;
-    const { gap, ...bounds } = screenRecordingIndicatorBounds(display, notch);
+    const { left, gap, ...bounds } = screenRecordingIndicatorBounds(display, notch);
     const window = new Electron.BrowserWindow({
       ...bounds,
       type: "panel",
@@ -292,7 +298,7 @@ class IndicatorWindow {
     });
     try {
       await window.loadURL(
-        `data:text/html;charset=utf-8,${encodeURIComponent(indicatorHtml(gap))}`,
+        `data:text/html;charset=utf-8,${encodeURIComponent(indicatorHtml(left, gap))}`,
       );
     } catch {
       if (this.window === window) this.close();

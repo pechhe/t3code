@@ -48,6 +48,7 @@ import {
   checkSystemPermission,
   getScreenRecordingSupport,
   prepareScreenRecording,
+  getScreenRecordingSource,
   setScreenRecordingIndicator,
   pasteAsText,
   probeRemoteEditors,
@@ -168,6 +169,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(checkSystemPermission);
   yield* ipc.handle(getScreenRecordingSupport);
   yield* ipc.handle(prepareScreenRecording);
+  yield* ipc.handle(getScreenRecordingSource);
   yield* ipc.handle(setScreenRecordingIndicator);
   yield* ipc.handle(pasteAsText);
   yield* ipc.handle(probeRemoteEditors);

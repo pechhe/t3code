@@ -61,7 +61,7 @@ const showIndicator = (state: ComposerScreenRecordingState) => {
           elapsedMs: state.elapsedMs,
           resumedAt: state.resumedAt,
           limitMs: COMPOSER_SCREEN_RECORDING_LIMIT_MS,
-          preview: state.preview,
+          source: state.source,
           canChangeSource: state.canChangeSource,
         }
       : null;

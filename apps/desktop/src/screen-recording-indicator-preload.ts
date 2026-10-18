@@ -10,7 +10,7 @@ interface IndicatorState {
   readonly elapsedMs: number;
   readonly resumedAt: number | null;
   readonly limitMs: number;
-  readonly preview: string | null;
+  readonly source: string | null;
   readonly canChangeSource: boolean;
 }
 
@@ -22,7 +22,7 @@ const formatClock = (ms: number) => {
 window.addEventListener("DOMContentLoaded", () => {
   const clock = document.getElementById("clock");
   const changeSource = document.getElementById("change-source");
-  const preview = document.getElementById("preview");
+  const source = document.getElementById("source");
   let state: IndicatorState | null = null;
   let ticker: number | undefined;
   const render = () => {
@@ -33,10 +33,14 @@ window.addEventListener("DOMContentLoaded", () => {
   ipcRenderer.on(SCREEN_RECORDING_INDICATOR_STATE_CHANNEL, (_event, next: IndicatorState) => {
     state = next;
     document.body.toggleAttribute("data-paused", next.resumedAt === null);
-    if (changeSource) changeSource.hidden = !next.canChangeSource;
-    if (next.preview === null) preview?.removeAttribute("src");
-    else if (preview?.getAttribute("src") !== next.preview)
-      preview?.setAttribute("src", next.preview);
+    if (changeSource) {
+      changeSource.hidden = !next.canChangeSource;
+      changeSource.setAttribute(
+        "aria-label",
+        next.source ? `Recording ${next.source}. Change what's recorded` : "Change what's recorded",
+      );
+    }
+    if (source) source.textContent = next.source ?? "";
     window.clearInterval(ticker);
     // Ticks only while recording; a paused clock does not repaint.
     if (next.resumedAt !== null) ticker = window.setInterval(render, 1_000);

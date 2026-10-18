@@ -1066,19 +1066,21 @@ export const DesktopScreenRecordingSupport = Schema.Literals([
 ]);
 export type DesktopScreenRecordingSupport = typeof DesktopScreenRecordingSupport.Type;
 
+/** What the user picked to record; `name` is the app's, null for a screen or where macOS does not say. */
+export const DesktopScreenRecordingSource = Schema.Struct({
+  kind: Schema.Literals(["screen", "window", "app"]),
+  name: Schema.NullOr(Schema.String),
+});
+export type DesktopScreenRecordingSource = typeof DesktopScreenRecordingSource.Type;
+
 /** What the desktop's recording indicator shows; it ticks the clock itself between updates. */
 export const DesktopScreenRecordingIndicatorState = Schema.Struct({
   elapsedMs: Schema.Finite,
   /** Epoch ms when recording last resumed, or null while paused. */
   resumedAt: Schema.NullOr(Schema.Finite),
   limitMs: Schema.Finite,
-  /** A small JPEG data URL of what is being recorded, once a frame has arrived. */
-  preview: Schema.NullOr(
-    Schema.String.check(
-      Schema.isStartingWith("data:image/jpeg;base64,"),
-      Schema.isMaxLength(100_000),
-    ),
-  ),
+  /** What is being recorded, such as "Entire screen", where it is known. */
+  source: Schema.NullOr(Schema.String.check(Schema.isMaxLength(200))),
   canChangeSource: Schema.Boolean,
 });
 export type DesktopScreenRecordingIndicatorState = typeof DesktopScreenRecordingIndicatorState.Type;
@@ -1209,6 +1211,8 @@ export interface DesktopBridge {
   getScreenRecordingSupport?: () => Promise<DesktopScreenRecordingSupport>;
   /** Readies the platform's screen picker; call right before each `getDisplayMedia()`. */
   prepareScreenRecording?: () => Promise<void>;
+  /** macOS only: what the user picked in the last `getDisplayMedia()`, which its picker hides from the page. */
+  getScreenRecordingSource?: () => Promise<DesktopScreenRecordingSource | null>;
   /**
    * Shows recording controls outside the window, or hides them for null. Resolves whether they are
    * shown; where they are not, the app shows its own.
