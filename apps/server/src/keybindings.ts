@@ -114,6 +114,15 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
       when: "composerFocus && draftThreadRoute",
     },
   },
+  {
+    id: "modelPicker.toggle:mod+5",
+    alongside: { key: "mod+shift+m", command: "modelPicker.toggle", when: "!terminalFocus" },
+    rule: {
+      key: "mod+5",
+      command: "modelPicker.toggle",
+      when: "!modelPickerOpen && !terminalFocus && isDesktop",
+    },
+  },
 ];
 
 function keybindingShortcutContext(rule: KeybindingRule): string | null {
