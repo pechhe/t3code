@@ -39,6 +39,46 @@ export function getTraitsSpeedDisplay(
   return null;
 }
 
+/**
+ * The composer's Fast switch over whichever speed option the model exposes: Claude's `fastMode`
+ * boolean or Codex's `serviceTier` select. Null when the model has no Fast option.
+ */
+export function resolveFastSwitch(descriptors: ReadonlyArray<ProviderOptionDescriptor>): {
+  active: boolean;
+  setActive: (active: boolean) => ReadonlyArray<ProviderOptionDescriptor>;
+} | null {
+  for (const descriptor of descriptors) {
+    if (descriptor.id === "fastMode" && descriptor.type === "boolean") {
+      return {
+        active: descriptor.currentValue === true,
+        setActive: (active) =>
+          descriptors.map((entry) =>
+            entry === descriptor ? { ...descriptor, currentValue: active } : entry,
+          ),
+      };
+    }
+    if (descriptor.id === "serviceTier" && descriptor.type === "select") {
+      const fastTier = descriptor.options.find(({ label }) => label === "Fast");
+      const standardTier = descriptor.options.find(({ id }) => id === "default");
+      if (!fastTier || !standardTier) continue;
+      const currentValue = getProviderOptionCurrentValue(descriptor);
+      const fastTierIds = descriptor.options
+        .filter(({ label }) => label === "Fast" || label === "Ultrafast")
+        .map(({ id }) => id);
+      return {
+        active: typeof currentValue === "string" && fastTierIds.includes(currentValue),
+        setActive: (active) =>
+          descriptors.map((entry) =>
+            entry === descriptor
+              ? { ...descriptor, currentValue: active ? fastTier.id : standardTier.id }
+              : entry,
+          ),
+      };
+    }
+  }
+  return null;
+}
+
 export function TraitsSpeedIcon({
   provider,
   speedIcon,

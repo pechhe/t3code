@@ -9,6 +9,7 @@ import {
 } from "@t3tools/contracts";
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
+  buildProviderOptionSelectionsFromDescriptors,
   getProviderOptionCurrentValue,
   getProviderOptionDescriptors,
   isClaudeUltrathinkPrompt,
@@ -19,6 +20,7 @@ import type { ReactNode } from "react";
 import type { DraftId } from "../../composerDraftStore";
 import { getProviderModelCapabilities } from "../../providerModels";
 import type { ComposerControlSize } from "./ComposerControl";
+import { resolveFastSwitch } from "./TraitsSpeed";
 import {
   getReasoningTraitStep,
   shouldRenderTraitsControls,
@@ -101,6 +103,33 @@ function resolveComposerOptionSelections(
 } {
   const caps = getProviderModelCapabilities(models, model, provider, planModeEnabled);
   return { caps, selections: withImplicitFastModeDefault(caps, modelOptions) };
+}
+
+/** The selected model's Fast switch state; null when the model has no Fast option. */
+export function getComposerFastSwitch(input: {
+  provider: ProviderDriverKind;
+  model: string;
+  models: ReadonlyArray<ServerProviderModel>;
+  modelOptions: ReadonlyArray<ProviderOptionSelection> | null | undefined;
+  planModeEnabled: boolean;
+}): {
+  active: boolean;
+  modelOptionsWithFast: (active: boolean) => ReadonlyArray<ProviderOptionSelection> | undefined;
+} | null {
+  const { caps, selections } = resolveComposerOptionSelections(
+    input.models,
+    input.model,
+    input.provider,
+    input.modelOptions,
+    input.planModeEnabled,
+  );
+  const fastSwitch = resolveFastSwitch(getProviderOptionDescriptors({ caps, selections }));
+  if (!fastSwitch) return null;
+  return {
+    active: fastSwitch.active,
+    modelOptionsWithFast: (active) =>
+      buildProviderOptionSelectionsFromDescriptors(fastSwitch.setActive(active)),
+  };
 }
 
 export function getComposerProviderState(input: ComposerProviderStateInput): ComposerProviderState {

@@ -344,6 +344,7 @@ import {
   renderProviderTraitsMenuContent,
   renderProviderTraitsPicker,
 } from "./composerProviderState";
+import { ComposerFastSwitch } from "./ComposerFastSwitch";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
 import { RolloverHoldIndicator } from "./RolloverHoldIndicator";
 import {
@@ -3037,6 +3038,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isComposerOwned: true,
   } satisfies Parameters<typeof renderProviderTraitsPicker>[0];
   const providerTraitsPicker = renderProviderTraitsPicker(providerTraitsPickerInput);
+  const composerFastSwitchInput = {
+    provider: selectedProvider,
+    instanceId: selectedInstanceId,
+    ...(routeKind === "server" ? { threadRef: routeThreadRef } : {}),
+    ...(routeKind === "draft" && draftId ? { draftId } : {}),
+    model: selectedModel,
+    models: selectedProviderModels,
+    modelOptions: composerModelOptions?.[selectedInstanceId],
+    planModeEnabled: settings.planModeEnabled,
+  };
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -5284,8 +5295,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const restingProviderTraitsPicker = renderProviderTraitsPicker({
     ...providerTraitsPickerInput,
     size: composerControlsCollapsed ? "xs" : "sm",
-    hidden: composerControlsHidden || restingHiddenBlockCount > 1,
+    hidden: composerControlsHidden || restingHiddenBlockCount > 2,
   });
+  // Blocks hide from the end as space runs out, so Fast goes before mode and after traits, whose
+  // menu still offers Fast once the switch is hidden.
   const restingBlockDefs = [
     ...(providerTraitsPicker
       ? [
@@ -5300,6 +5313,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           },
         ]
       : []),
+    {
+      id: "fast",
+      content: (
+        <>
+          <ComposerControlSeparator size={composerControlsCollapsed ? "xs" : "sm"} />
+          <ComposerFastSwitch
+            {...composerFastSwitchInput}
+            size={composerControlsCollapsed ? "xs" : "sm"}
+          />
+        </>
+      ),
+    },
     {
       id: "mode",
       content: (
@@ -5448,6 +5473,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         renderOverflow={renderProviderModelPicker}
       />
       <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
+      <ComposerFastSwitch {...composerFastSwitchInput} device />
     </>
   ) : (
     <>
