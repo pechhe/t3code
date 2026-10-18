@@ -223,6 +223,45 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     }),
   );
 
+  it.effect("waits while a delegated task or a thread watch will wake the thread", () =>
+    Effect.gen(function* () {
+      const reactor = yield* UnattendedReactor.UnattendedReactor;
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const delegating = yield* setup("delegating", true);
+      yield* orchestrator.dispatch({
+        type: "delegated_task.request",
+        commandId: CommandId.make("delegate:delegating"),
+        parentThreadId: delegating.threadId,
+        parentRunId: delegating.run.id,
+        parentNodeId: delegating.run.rootNodeId!,
+        task: "Research the sources",
+        completionWake: "settled_only",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      const parentRun = (yield* projections.getThreadRecords(delegating.threadId, ["runs"]))
+        .runs[0]!;
+      yield* reactor.handle(yield* finish(parentRun));
+      assert.equal((yield* continuations(delegating.threadId)).length, 0);
+
+      const watched = yield* setup("watched", false);
+      const watching = yield* setup("watching", true);
+      yield* orchestrator.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("watch:watching"),
+        threadId: watching.threadId,
+        watchedThreadId: watched.threadId,
+        watching: true,
+      });
+      yield* reactor.handle(yield* finish(watching.run));
+      assert.equal((yield* continuations(watching.threadId)).length, 0);
+    }),
+  );
+
   it.effect("yields to a message already queued behind the run", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
@@ -327,46 +366,45 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
             resolvedAt: null,
           },
         } satisfies OrchestrationV2DomainEvent;
-        yield* eventSink.write({
-          events: [
-            request,
-            {
-              id: EventId.make(`event:item:${name}`),
-              type: "turn-item.updated",
-              threadId,
-              runId: run.id,
-              occurredAt: now,
-              payload: {
-                type: "user_input_request",
-                id: TurnItemId.make(`item:${name}`),
-                threadId,
-                runId: run.id,
-                nodeId: NodeId.make(`node:${name}`),
-                providerThreadId: null,
-                providerTurnId: null,
-                nativeItemRef: null,
-                parentItemId: null,
-                ordinal: 1,
-                status: "waiting",
-                title: null,
-                startedAt: now,
-                completedAt: null,
-                updatedAt: now,
-                requestId,
-                questions: [
-                  {
-                    id: "Which database?",
-                    header: "Database",
-                    question: "Which database?",
-                    options: [],
-                    ...(allowCustomAnswer === false ? { allowCustomAnswer } : {}),
-                  },
-                ],
-              },
-            },
-          ],
-        });
+        // Claude records the request before the item holding its questions.
+        yield* eventSink.write({ events: [request] });
         yield* reactor.handle(request);
+        const item = {
+          id: EventId.make(`event:item:${name}`),
+          type: "turn-item.updated",
+          threadId,
+          runId: run.id,
+          occurredAt: now,
+          payload: {
+            type: "user_input_request",
+            id: TurnItemId.make(`item:${name}`),
+            threadId,
+            runId: run.id,
+            nodeId: NodeId.make(`node:${name}`),
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            parentItemId: null,
+            ordinal: 1,
+            status: "waiting",
+            title: null,
+            startedAt: now,
+            completedAt: null,
+            updatedAt: now,
+            requestId,
+            questions: [
+              {
+                id: "Which database?",
+                header: "Database",
+                question: "Which database?",
+                options: [],
+                ...(allowCustomAnswer === false ? { allowCustomAnswer } : {}),
+              },
+            ],
+          },
+        } satisfies OrchestrationV2DomainEvent;
+        yield* eventSink.write({ events: [item] });
+        yield* reactor.handle(item);
         const { runtimeRequests } = yield* projections.getThreadRecords(threadId, [
           "runtimeRequests",
         ]);
@@ -381,48 +419,50 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     }),
   );
 
-  it.effect("dismisses a question asked after the turn ended and answers it in the continuation", () =>
-    Effect.gen(function* () {
-      const reactor = yield* UnattendedReactor.UnattendedReactor;
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const now = yield* DateTime.now;
-      const { threadId, run } = yield* setup("late-question", true);
-      const requestId = RuntimeRequestId.make("request:late-question");
-      yield* projections.apply({
-        id: EventId.make("event:late-question"),
-        type: "runtime-request.updated",
-        threadId,
-        runId: run.id,
-        occurredAt: now,
-        payload: {
-          id: requestId,
-          nodeId: run.rootNodeId!,
-          providerTurnId: null,
-          nativeRequestRef: null,
-          kind: "user_input",
-          status: "pending",
-          responseCapability: { type: "message" },
-          createdAt: now,
-          resolvedAt: null,
-        },
-      });
-      yield* reactor.handle(yield* finish(run));
-      const records = yield* projections.getThreadRecords(threadId, [
-        "runtimeRequests",
-        "runs",
-        "messages",
-      ]);
-      assert.notEqual(
-        records.runtimeRequests.find((request) => request.id === requestId)?.status,
-        "pending",
-      );
-      const continuation = records.runs.find((candidate) =>
-        candidate.userMessageId.startsWith(CONTINUATION),
-      )!;
-      const message = records.messages.find((m) => m.id === continuation.userMessageId)!;
-      assert.include(message.text, "The owner is away");
-      assert.equal(message.createdBy, "agent");
-    }),
+  it.effect(
+    "dismisses a question asked after the turn ended and answers it in the continuation",
+    () =>
+      Effect.gen(function* () {
+        const reactor = yield* UnattendedReactor.UnattendedReactor;
+        const projections = yield* ProjectionStore.ProjectionStoreV2;
+        const now = yield* DateTime.now;
+        const { threadId, run } = yield* setup("late-question", true);
+        const requestId = RuntimeRequestId.make("request:late-question");
+        yield* projections.apply({
+          id: EventId.make("event:late-question"),
+          type: "runtime-request.updated",
+          threadId,
+          runId: run.id,
+          occurredAt: now,
+          payload: {
+            id: requestId,
+            nodeId: run.rootNodeId!,
+            providerTurnId: null,
+            nativeRequestRef: null,
+            kind: "user_input",
+            status: "pending",
+            responseCapability: { type: "message" },
+            createdAt: now,
+            resolvedAt: null,
+          },
+        });
+        yield* reactor.handle(yield* finish(run));
+        const records = yield* projections.getThreadRecords(threadId, [
+          "runtimeRequests",
+          "runs",
+          "messages",
+        ]);
+        assert.notEqual(
+          records.runtimeRequests.find((request) => request.id === requestId)?.status,
+          "pending",
+        );
+        const continuation = records.runs.find((candidate) =>
+          candidate.userMessageId.startsWith(CONTINUATION),
+        )!;
+        const message = records.messages.find((m) => m.id === continuation.userMessageId)!;
+        assert.include(message.text, "The owner is away");
+        assert.equal(message.createdBy, "agent");
+      }),
   );
 });
 

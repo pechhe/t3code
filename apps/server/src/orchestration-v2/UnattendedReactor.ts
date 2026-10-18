@@ -6,6 +6,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2RuntimeRequest,
   type RunId,
+  type RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -78,26 +79,29 @@ const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
 
+  // A provider may record the request before the item holding its questions, so either event
+  // can be the one that finds both.
   const answerQuestion = Effect.fnUntraced(function* (
     threadId: ThreadId,
-    request: OrchestrationV2RuntimeRequest,
+    requestId: RuntimeRequestId,
   ) {
+    const request = yield* projections.getRuntimeRequest(threadId, requestId);
+    if (request === undefined || !answerableLiveQuestion(request)) return;
     const records = yield* projections.getThreadRecords(threadId, ["turnItems"], {
       turnItemTypes: ["user_input_request"],
     });
     if (!isUnattendedTopLevel(records.thread, yield* DateTime.now)) return;
     const item = records.turnItems.find(
-      (candidate) =>
-        candidate.type === "user_input_request" && candidate.requestId === request.id,
+      (candidate) => candidate.type === "user_input_request" && candidate.requestId === requestId,
     );
     if (item?.type !== "user_input_request" || item.questions.length === 0) return;
     // Fixed-choice dialogs, such as Claude's resume prompt, stay with the owner.
     if (item.questions.some((question) => question.allowCustomAnswer === false)) return;
     yield* engine.dispatch({
       type: "runtime-request.respond",
-      commandId: CommandId.make(`server:unattended-answer:${request.id}`),
+      commandId: CommandId.make(`server:unattended-answer:${requestId}`),
       threadId,
-      requestId: request.id,
+      requestId,
       answers: Object.fromEntries(item.questions.map((question) => [question.id, AWAY_ANSWER])),
     });
   });
@@ -192,7 +196,10 @@ const make = Effect.gen(function* () {
   const handle: UnattendedReactor["Service"]["handle"] = (event) =>
     Effect.gen(function* () {
       if (event.type === "runtime-request.updated" && answerableLiveQuestion(event.payload)) {
-        return yield* answerQuestion(event.threadId, event.payload);
+        return yield* answerQuestion(event.threadId, event.payload.id);
+      }
+      if (event.type === "turn-item.updated" && event.payload.type === "user_input_request") {
+        return yield* answerQuestion(event.threadId, event.payload.requestId);
       }
       if (event.type === "run.updated" && event.payload.status === "completed") {
         return yield* continueAfter(event.threadId, event.payload.id);
