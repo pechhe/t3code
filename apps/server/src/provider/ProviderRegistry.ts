@@ -46,6 +46,7 @@ import {
 } from "@t3tools/provider-core/server/maintenanceResolver";
 import type { ProviderSnapshotSource } from "./builtInProviderCatalog.ts";
 import {
+  needsUsageRefresh,
   USAGE_REFRESH_STALE_MS,
   withPoolSnapshots,
   type ProviderPool,
@@ -106,6 +107,46 @@ export class ProviderRegistry extends Context.Service<
     readonly streamChanges: Stream.Stream<ReadonlyArray<ServerProvider>>;
   }
 >()("t3/provider/ProviderRegistry") {}
+
+/**
+ * Chooses an account from `providers` the way `choose` does, but first re-reads the chosen
+ * account's usage when its cached reading may hide exhaustion, and chooses again from the
+ * refreshed reading, repeating for each account a refresh moves the choice to. Each account is
+ * re-read at most once. Every account takes the registry's latest snapshot, but only accounts
+ * already in `providers`, so a list the caller narrowed stays narrowed. When a read fails the
+ * cached reading stands.
+ */
+export const chooseWithFreshUsage = <A, E, R>(
+  registry: ProviderRegistry["Service"],
+  providers: ReadonlyArray<ServerProvider>,
+  choose: (providers: ReadonlyArray<ServerProvider>) => Effect.Effect<A, E, R>,
+  chosenInstance: (choice: A) => ProviderInstanceId | undefined,
+): Effect.Effect<A, E, R> =>
+  Effect.gen(function* () {
+    let candidates = providers;
+    let choice = yield* choose(candidates);
+    const refreshed = new Set<ProviderInstanceId>();
+    while (true) {
+      const instanceId = chosenInstance(choice);
+      const chosen = candidates.find((provider) => provider.instanceId === instanceId);
+      if (
+        chosen === undefined ||
+        refreshed.has(chosen.instanceId) ||
+        !needsUsageRefresh(chosen, DateTime.toEpochMillis(yield* DateTime.now))
+      ) {
+        return choice;
+      }
+      refreshed.add(chosen.instanceId);
+      const latest = new Map(
+        (yield* registry.refreshInstanceUsage(chosen.instanceId)).map((provider) => [
+          provider.instanceId,
+          provider,
+        ]),
+      );
+      candidates = candidates.map((provider) => latest.get(provider.instanceId) ?? provider);
+      choice = yield* choose(candidates);
+    }
+  });
 
 const loadProviders = (
   providerSources: ReadonlyArray<ProviderSnapshotSource>,

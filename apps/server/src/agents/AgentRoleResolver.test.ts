@@ -5,6 +5,9 @@ import {
   type ServerProvider,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as TestClock from "effect/testing/TestClock";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import { makeProviderRegistryMock } from "../provider/testUtils/providerRegistryMock.ts";
 import * as Resolver from "./AgentRoleResolver.ts";
 import {
   snapshot,
@@ -667,6 +670,75 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
         providers: [caller, later, sooner, pool],
       });
       expect((yield* resolve(base)).instanceId).toBe(sooner.instanceId);
+    }),
+  );
+
+  it.effect("re-reads a stale near-limit first choice before a task starts on it", () =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(Date.parse("2026-10-15T00:10:00.000Z"));
+      const reading = (usedPercent: number, checkedAt: string) => ({
+        ...claude,
+        usageLimits: {
+          checkedAt,
+          windows: [
+            {
+              id: "five_hour",
+              kind: "session" as const,
+              label: "Session",
+              usedPercent,
+              resetsAt: "2026-10-15T03:00:00.000Z",
+            },
+          ],
+        },
+      });
+      const stale = "2026-10-15T00:00:00.000Z";
+      const review = request({
+        role: "ticket-reviewer",
+        sourceRevision: "reviewed-commit",
+        review: changeReview,
+      });
+      const now = "2026-10-15T00:10:00.000Z";
+      const spare = (usedPercent: number) => ({
+        ...reading(usedPercent, now),
+        instanceId: ProviderInstanceId.make("claude-spare"),
+      });
+      const choose = (cached: ServerProvider, others: ReadonlyArray<ServerProvider> = []) =>
+        Effect.gen(function* () {
+          const reads: Array<string> = [];
+          const registry = {
+            ...makeProviderRegistryMock(),
+            refreshInstanceUsage: (instanceId: ProviderInstanceId) =>
+              Effect.sync(() => {
+                reads.push(instanceId);
+                return [codex, reading(100, now), spare(100)];
+              }),
+          };
+          const selection = yield* ProviderRegistry.chooseWithFreshUsage(
+            registry,
+            [codex, cached, ...others],
+            (providers) => resolve(input({ request: review, providers })),
+            (chosen) => chosen.instanceId,
+          );
+          return { model: selection.model, reads };
+        });
+
+      // Sonnet leads the list; the re-read shows its account is out, so Codex serves.
+      expect(yield* choose(reading(96, stale))).toEqual({
+        model: codexModel,
+        reads: [claude.instanceId],
+      });
+      // The registry's newer readings of the other accounts count too: the spare ran out
+      // meanwhile, so the work moves past it.
+      expect(yield* choose(reading(96, stale), [spare(50)])).toEqual({
+        model: codexModel,
+        reads: [claude.instanceId],
+      });
+      // Below the threshold, or freshly read, the cached reading is trusted.
+      expect(yield* choose(reading(90, stale))).toEqual({ model: claudeModel, reads: [] });
+      expect(yield* choose(reading(96, "2026-10-15T00:09:30.000Z"))).toEqual({
+        model: claudeModel,
+        reads: [],
+      });
     }),
   );
 

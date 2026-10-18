@@ -743,51 +743,61 @@ const make = Effect.gen(function* () {
                 p.instanceId === input.target.providerInstanceId) &&
               (input.target?.driverKind === undefined || p.driver === input.target.driverKind),
           );
-          const prepared = yield* managed
-            .prepare({
-              request:
-                original === undefined
-                  ? input.agentTask
-                  : {
-                      ...input.agentTask,
-                      executionRequirement:
-                        original.executionBoundary === undefined
-                          ? "sandbox-required"
-                          : (original.executionRequirement ?? "sandbox-required"),
-                    },
-              runtimeMode,
-              projectId: session.projectId,
-              requestFingerprint: fingerprint,
-              workspacePath: session.workspacePath,
-              ...(yield* workspaceAuthority(session.projectId, input.agentTask, session.key)),
-              providers: requestedProviders,
-              ceiling,
-              ...(original === undefined && unit === undefined
-                ? {}
-                : { policyHash: original?.policyHash ?? unit!.policyHash }),
-              ...(input.target?.model === undefined
-                ? {}
-                : {
-                    selection: {
-                      ...(input.target.providerInstanceId === undefined
-                        ? {}
-                        : { instanceId: input.target.providerInstanceId }),
-                      model: input.target.model,
-                      ...(input.target.options === undefined
-                        ? {}
-                        : { options: input.target.options }),
-                    },
-                  }),
-            })
-            .pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ExternalAgentWorkError({
-                    reason: cause.reason === "source" ? "source" : "policy",
-                    cause,
-                  }),
-              ),
-            );
+          const agentTask = input.agentTask;
+          const authority = yield* workspaceAuthority(session.projectId, agentTask, session.key);
+          // The first choice's cached reading may hide that it is out of allowance, so it is
+          // re-read before the work starts there.
+          const prepared = yield* Providers.chooseWithFreshUsage(
+            providers,
+            requestedProviders,
+            (candidates) =>
+              managed
+                .prepare({
+                  request:
+                    original === undefined
+                      ? agentTask
+                      : {
+                          ...agentTask,
+                          executionRequirement:
+                            original.executionBoundary === undefined
+                              ? "sandbox-required"
+                              : (original.executionRequirement ?? "sandbox-required"),
+                        },
+                  runtimeMode,
+                  projectId: session.projectId,
+                  requestFingerprint: fingerprint,
+                  workspacePath: session.workspacePath,
+                  ...authority,
+                  providers: candidates,
+                  ceiling,
+                  ...(original === undefined && unit === undefined
+                    ? {}
+                    : { policyHash: original?.policyHash ?? unit!.policyHash }),
+                  ...(input.target?.model === undefined
+                    ? {}
+                    : {
+                        selection: {
+                          ...(input.target.providerInstanceId === undefined
+                            ? {}
+                            : { instanceId: input.target.providerInstanceId }),
+                          model: input.target.model,
+                          ...(input.target.options === undefined
+                            ? {}
+                            : { options: input.target.options }),
+                        },
+                      }),
+                })
+                .pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new ExternalAgentWorkError({
+                        reason: cause.reason === "source" ? "source" : "policy",
+                        cause,
+                      }),
+                  ),
+                ),
+            (result) => result.binding.effective.instanceId,
+          );
           if (
             original?.executionBoundary !== undefined &&
             original.executionBoundary !== prepared.binding.executionBoundary

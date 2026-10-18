@@ -2669,52 +2669,66 @@ const make = Effect.gen(function* () {
           return { owner: threadOwner(parent.thread), projectRoot, occupants: yield* occupants() };
         });
         const workspaceAuthority = yield* readWorkspaceAuthority;
+        const agentTask = input.agentTask;
         const prepared =
-          managedService === undefined || input.agentTask === undefined
+          managedService === undefined || agentTask === undefined
             ? undefined
-            : yield* managedService
-                .prepare({
-                  runtimeMode: yield* resolveRuntimeMode(
-                    parent.thread.runtimeMode,
-                    input.runtimeMode,
-                    undefined,
-                    (yield* serverSettings.getSettings.pipe(
-                      Effect.mapError(() =>
-                        failure("orchestration_error", "Unable to read delegation settings."),
-                      ),
-                    )).delegation.defaultChildRuntimeMode,
-                  ),
-                  projectId: parent.thread.projectId,
-                  request: input.agentTask,
-                  requestFingerprint,
-                  ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
-                  ...(recordedBinding === undefined ? {} : { recordedBinding }),
-                  providers: eligibleProviders.filter(
+            : yield* Effect.gen(function* () {
+                const runtimeMode = yield* resolveRuntimeMode(
+                  parent.thread.runtimeMode,
+                  input.runtimeMode,
+                  undefined,
+                  (yield* serverSettings.getSettings.pipe(
+                    Effect.mapError(() =>
+                      failure("orchestration_error", "Unable to read delegation settings."),
+                    ),
+                  )).delegation.defaultChildRuntimeMode,
+                );
+                // The first choice's cached reading may hide that it is out of allowance, so
+                // it is re-read before the task starts there.
+                return yield* ProviderRegistry.chooseWithFreshUsage(
+                  providerRegistry,
+                  eligibleProviders.filter(
                     (provider) =>
                       (input.target?.providerInstanceId === undefined ||
                         provider.instanceId === input.target.providerInstanceId) &&
                       (input.target?.driverKind === undefined ||
                         provider.driver === input.target.driverKind),
                   ),
-                  ceiling: parent.thread.runtimeMode,
-                  workspacePath: parent.thread.worktreePath,
-                  ...workspaceAuthority,
-                  callerModel: parent.thread.modelSelection.model,
-                  ...(input.target?.model === undefined
-                    ? {}
-                    : {
-                        selection: {
-                          ...(input.target.providerInstanceId === undefined
-                            ? {}
-                            : { instanceId: input.target.providerInstanceId }),
-                          model: input.target.model,
-                          ...(input.target.options === undefined
-                            ? {}
-                            : { options: input.target.options }),
-                        },
-                      }),
-                })
-                .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+                  (providers) =>
+                    managedService
+                      .prepare({
+                        runtimeMode,
+                        projectId: parent.thread.projectId,
+                        request: agentTask,
+                        requestFingerprint,
+                        ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
+                        ...(recordedBinding === undefined ? {} : { recordedBinding }),
+                        providers,
+                        ceiling: parent.thread.runtimeMode,
+                        workspacePath: parent.thread.worktreePath,
+                        ...workspaceAuthority,
+                        callerModel: parent.thread.modelSelection.model,
+                        ...(input.target?.model === undefined
+                          ? {}
+                          : {
+                              selection: {
+                                ...(input.target.providerInstanceId === undefined
+                                  ? {}
+                                  : { instanceId: input.target.providerInstanceId }),
+                                model: input.target.model,
+                                ...(input.target.options === undefined
+                                  ? {}
+                                  : { options: input.target.options }),
+                              },
+                            }),
+                      })
+                      .pipe(
+                        Effect.mapError((error) => failure("capability_denied", error.message)),
+                      ),
+                  (result) => result.binding.effective.instanceId,
+                );
+              });
         let target = yield* resolveTargetRechecking({
           parent,
           target:
