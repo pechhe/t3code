@@ -1,3 +1,4 @@
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import type { SearchMiddleware } from "@tanstack/react-router";
 
 import { validateSettingsScopeSearch, type SettingsScopeSearch } from "./settingsScope";
@@ -25,3 +26,26 @@ export const retainSettingsScope: SearchMiddleware<SettingsScopeSearch> = ({ sea
   );
   return { ...previousScope, ...result };
 };
+
+/**
+ * The project the Projects page opens on when none is picked: the current
+ * project, else the first.
+ */
+export function defaultSettingsProjectKey(
+  groups: ReadonlyArray<{
+    readonly projectKey: string;
+    readonly memberProjectRefs: readonly ScopedProjectRef[];
+  }>,
+  currentProject: ScopedProjectRef | null,
+): string | null {
+  const current =
+    currentProject &&
+    groups.find((group) =>
+      group.memberProjectRefs.some(
+        (ref) =>
+          ref.environmentId === currentProject.environmentId &&
+          ref.projectId === currentProject.projectId,
+      ),
+    );
+  return (current ?? groups[0])?.projectKey ?? null;
+}

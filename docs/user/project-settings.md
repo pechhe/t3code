@@ -5,6 +5,9 @@ the project and environment a change applies to. Pages that only hold device pre
 Appearance, don't show it. They start at **All projects** and **All environments**
 and stay selected as you move between categories or search for a setting.
 
+**Settings → Projects** holds a project's own settings, such as its name, icon, checkouts and
+actions. It opens on the project you were working in; pick another in the sentence at the top.
+
 Preferences saved on this device, such as appearance, confirmations and browser profiles, always
 show and ignore the selection. Everything else is stored on a server. Choose one environment to
 edit its settings, or leave **All environments** to edit every connected environment at once.

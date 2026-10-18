@@ -2098,6 +2098,9 @@ function OpenCommandPaletteDialog(props: {
     run: async () => {
       await navigate({
         to: item.to,
+        ...(item.to === "/settings/projects" && contextualProjectGroup
+          ? { search: { project: contextualProjectGroup.projectKey } }
+          : {}),
         hash: item.targetId ?? item.id,
         replace: pathname === item.to,
         hashScrollIntoView: false,

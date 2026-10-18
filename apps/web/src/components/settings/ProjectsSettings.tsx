@@ -6,7 +6,7 @@ import { SettingsScopeNotice } from "./SettingsScopeNotice";
 import { SettingsPageContainer } from "./settingsLayout";
 
 export function ProjectsSettings() {
-  const { search: value, scope } = useSettingsScope();
+  const { search: value, scope, groups } = useSettingsScope();
   const projectScope =
     scope.kind === "project" ||
     scope.kind === "checkout" ||
@@ -23,6 +23,12 @@ export function ProjectsSettings() {
       ) : scope.kind === "unavailable" ? (
         <SettingsPageContainer>
           <p className="text-sm text-muted-foreground">{scope.message}</p>
+        </SettingsPageContainer>
+      ) : groups.length === 0 ? (
+        <SettingsPageContainer>
+          <p className="text-sm text-muted-foreground">
+            Add a project from the sidebar to manage its settings here.
+          </p>
         </SettingsPageContainer>
       ) : (
         <SettingsScopeNotice target="project">

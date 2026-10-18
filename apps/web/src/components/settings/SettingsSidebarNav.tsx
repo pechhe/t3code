@@ -1,7 +1,6 @@
 import {
   lazy,
   Suspense,
-  useCallback,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -41,17 +40,19 @@ import {
   SidebarInput,
 } from "../ui/sidebar";
 import { SidebarUtilityMenu } from "../sidebar/SidebarChrome";
+import { readMainAppProjectRef } from "../sidebar/mainAppLocation";
 import { scrollToSettingsTarget } from "./settingsLayout";
 import {
   searchSettings,
-  isSettingsOverviewVisible,
   SETTINGS_SECTION_LABELS,
   type SettingsPath,
   type SettingsSearchItem,
 } from "./settingsSearch";
 import { useSettingsSearchQuery } from "./settingsSearchStore";
 import { useAvailableSettingsSearchItems } from "./useAvailableSettingsSearchItems";
-import { validateSettingsScopeSearch } from "./settingsScope";
+import { validateSettingsScopeSearch, type SettingsScopeSearch } from "./settingsScope";
+import { defaultSettingsProjectKey } from "./settingsScopeNavigation";
+import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 
 const SnapShotIcon = createLucideIcon("snap-shot", [
   [
@@ -117,9 +118,13 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentHash = useLocation({ select: (location) => location.hash });
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
-  const navItems = SETTINGS_NAV_ITEMS.filter(
-    (item) => item.to !== "/settings/projects" || isSettingsOverviewVisible(scopeSearch),
-  );
+  const projectGroups = useSettingsProjectGroups();
+  // The Projects page needs a project; arriving without one picks a default.
+  const searchFor = (to: SettingsPath): SettingsScopeSearch | undefined => {
+    if (to !== "/settings/projects" || scopeSearch.project) return undefined;
+    const project = defaultSettingsProjectKey(projectGroups, readMainAppProjectRef());
+    return project ? { ...scopeSearch, project } : undefined;
+  };
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const searchInputRef = useRef<HTMLInputElement>(null);
   const query = useSettingsSearchQuery((state) => state.query);
@@ -200,83 +205,69 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMobile, open, setOpen, setOpenMobile, setQuery]);
 
-  const handleSectionClick = useCallback(
-    (to: SettingsPath) => {
-      if (isMobile) {
-        setOpenMobile(false);
-      }
-      void navigate({
-        to,
-        hash: "",
-        replace: true,
-        hashScrollIntoView: false,
-      });
-    },
-    [isMobile, navigate, setOpenMobile],
-  );
-  const clearSearch = useCallback(() => {
+  const handleSectionClick = (to: SettingsPath) => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+    const search = searchFor(to);
+    void navigate({
+      to,
+      ...(search ? { search: () => search } : {}),
+      hash: "",
+      replace: true,
+      hashScrollIntoView: false,
+    });
+  };
+  const clearSearch = () => {
     setQuery("");
     setActiveResultIndex(0);
-  }, [setQuery]);
-  const handleSearchResultClick = useCallback(
-    (item: SettingsSearchItem) => {
+  };
+  const handleSearchResultClick = (item: SettingsSearchItem) => {
+    clearSearch();
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+    const targetId = item.targetId ?? item.id;
+    const search = searchFor(item.to);
+    if (!search && pathname === item.to && currentHash.replace(/^#/, "") === targetId) {
+      scrollToSettingsTarget(targetId);
+      return;
+    }
+    void navigate({
+      to: item.to,
+      ...(search ? { search: () => search } : {}),
+      hash: targetId,
+      replace: true,
+      hashScrollIntoView: false,
+      state: { settingsTargetHighlight: true },
+    });
+  };
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape" && isSearching) {
+      event.preventDefault();
+      event.stopPropagation();
       clearSearch();
-      if (isMobile) {
-        setOpenMobile(false);
-      }
-      const targetId = item.targetId ?? item.id;
-      if (pathname === item.to && currentHash.replace(/^#/, "") === targetId) {
-        scrollToSettingsTarget(targetId);
-        return;
-      }
-      void navigate({
-        to: item.to,
-        hash: targetId,
-        replace: true,
-        hashScrollIntoView: false,
-        state: { settingsTargetHighlight: true },
-      });
-    },
-    [clearSearch, currentHash, isMobile, navigate, pathname, setOpenMobile],
-  );
-  const handleSearchKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLInputElement>) => {
-      if (event.key === "Escape" && isSearching) {
-        event.preventDefault();
-        event.stopPropagation();
-        clearSearch();
-        return;
-      }
-      // Keys act on what the box says now, even while the list still shows the last query.
-      const current = listedQuery === query ? results : searchSettings(query, searchableItems);
-      if (current.length === 0) return;
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        setActiveResultIndex((index) => (index + 1) % current.length);
-        return;
-      }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        setActiveResultIndex((index) => (index - 1 + current.length) % current.length);
-        return;
-      }
-      if (event.key === "Enter") {
-        event.preventDefault();
-        const result = current[activeResultIndex];
-        if (result) handleSearchResultClick(result);
-      }
-    },
-    [
-      activeResultIndex,
-      clearSearch,
-      handleSearchResultClick,
-      isSearching,
-      listedQuery,
-      query,
-      results,
-      searchableItems,
-    ],
-  );
+      return;
+    }
+    // Keys act on what the box says now, even while the list still shows the last query.
+    const current = listedQuery === query ? results : searchSettings(query, searchableItems);
+    if (current.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveResultIndex((index) => (index + 1) % current.length);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveResultIndex((index) => (index - 1 + current.length) % current.length);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const result = current[activeResultIndex];
+      if (result) handleSearchResultClick(result);
+    }
+  };
   return (
     <>
       <SidebarContent className="overflow-x-hidden">
@@ -367,7 +358,7 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
               </SidebarMenu>
             ) : (
               <SidebarMenu>
-                {navItems.map((item) => {
+                {SETTINGS_NAV_ITEMS.map((item) => {
                   const Icon = item.icon;
                   const isGeneralDetailPage =
                     item.to === "/settings/general" &&
