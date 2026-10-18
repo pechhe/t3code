@@ -65,6 +65,11 @@ export const ProviderInstanceConfig = Schema.Struct({
    * to one member, and `config` is ignored.
    */
   pool: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
+  /**
+   * The pool member new threads use first while it has allowance; without it
+   * the pool spends whichever allowance would lapse unused soonest.
+   */
+  preferredMember: Schema.optionalKey(ProviderInstanceId),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 

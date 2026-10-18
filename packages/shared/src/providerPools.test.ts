@@ -11,6 +11,7 @@ import {
   needsUsageRefresh,
   pickPoolFailoverMember,
   pickPoolMember,
+  pickRolloverMember,
   withPoolSnapshots,
   type ProviderPool,
 } from "./providerPools.ts";
@@ -259,6 +260,83 @@ describe("pickPoolFailoverMember", () => {
       account("c", [{ usedPercent: 0, resetsAt: at(3) }], { auth: { status: "unauthenticated" } }),
     ];
     expect(pickPoolFailoverMember({ pool, providers, nowMs: NOW, limited })).toBeUndefined();
+  });
+});
+
+describe("preferred member", () => {
+  const preferB: ProviderPool = { ...pool, preferredMember: ProviderInstanceId.make("b") };
+  const providers = [
+    account("a", [{ usedPercent: 10, resetsAt: at(1) }]),
+    account("b", [{ usedPercent: 10, resetsAt: at(4) }]),
+    account("c", [{ usedPercent: 10, resetsAt: at(3) }]),
+  ];
+
+  it("takes new threads ahead of the spend order", () => {
+    expect(pickPoolMember({ pool, providers, nowMs: NOW })).toBe("a");
+    expect(pickPoolMember({ pool: preferB, providers, nowMs: NOW })).toBe("b");
+  });
+
+  it("leaves a thread on its current member while it has allowance", () => {
+    expect(
+      pickPoolMember({
+        pool: preferB,
+        providers,
+        nowMs: NOW,
+        current: ProviderInstanceId.make("c"),
+      }),
+    ).toBe("c");
+  });
+
+  it("falls back to the spend order once the preferred member is at a limit", () => {
+    const limited = [providers[0]!, account("b", [{ usedPercent: 100, resetsAt: at(2) }])];
+    expect(pickPoolMember({ pool: preferB, providers: limited, nowMs: NOW })).toBe("a");
+  });
+
+  it("is where a limited thread fails over to", () => {
+    expect(
+      pickPoolFailoverMember({
+        pool: preferB,
+        providers,
+        nowMs: NOW,
+        limited: ProviderInstanceId.make("c"),
+      }),
+    ).toBe("b");
+  });
+
+  it("is where a rolled-over session moves to", () => {
+    const snapshots = withPoolSnapshots(providers, [preferB], NOW);
+    expect(snapshots.at(-1)?.poolPreferredMember).toBe("b");
+    expect(
+      pickRolloverMember({
+        providers: snapshots,
+        nowMs: NOW,
+        member: ProviderInstanceId.make("c"),
+      }),
+    ).toBe("b");
+    expect(
+      pickRolloverMember({
+        providers: snapshots,
+        nowMs: NOW,
+        member: ProviderInstanceId.make("outsider"),
+      }),
+    ).toBe("outsider");
+  });
+
+  it("keeps the thread's member when the pool has no usable preference", () => {
+    const providers = [
+      account("a", [{ usedPercent: 10, resetsAt: at(4) }]),
+      account("b", [{ usedPercent: 10, resetsAt: at(1) }]),
+      account("c", [{ usedPercent: 10, resetsAt: at(2) }]),
+    ];
+    const member = ProviderInstanceId.make("a");
+    const auto = withPoolSnapshots(providers, [pool], NOW);
+    expect(pickRolloverMember({ providers: auto, nowMs: NOW, member })).toBe("a");
+    const exhausted = withPoolSnapshots(
+      [account("a", []), account("b", [{ usedPercent: 100, resetsAt: at(1) }]), account("c", [])],
+      [preferB],
+      NOW,
+    );
+    expect(pickRolloverMember({ providers: exhausted, nowMs: NOW, member })).toBe("a");
   });
 });
 

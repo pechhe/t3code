@@ -723,10 +723,10 @@ const make = Effect.gen(function* () {
       const pool = providers.find((provider) => provider.instanceId === selection.instanceId);
       const members = pool?.poolMembers;
       if (pool === undefined || members === undefined) return selection;
-      const current =
-        threadId === undefined
-          ? undefined
-          : (yield* orchestrator.getThreadShell(threadId))?.modelSelection.instanceId;
+      const shell =
+        threadId === undefined ? undefined : yield* orchestrator.getThreadShell(threadId);
+      // A thread that has not run yet holds no session to keep, so it is placed like a new one.
+      const current = shell?.latestRunId == null ? undefined : shell.modelSelection.instanceId;
       // A reading near its limit and a minute old may hide exhaustion, so the chosen member's
       // usage is re-read before the turn commits to it.
       let member = yield* ProviderRegistry.chooseWithFreshUsage(
@@ -736,7 +736,7 @@ const make = Effect.gen(function* () {
           DateTime.now.pipe(
             Effect.map((now) =>
               pickPoolMember({
-                pool: { driver: pool.driver, members },
+                pool: { driver: pool.driver, members, preferredMember: pool.poolPreferredMember },
                 providers: candidates,
                 nowMs: DateTime.toEpochMillis(now),
                 current,

@@ -76,6 +76,8 @@ export function DeviceModelSlider(props: {
   onSelect: (instanceId: ProviderInstanceId, model: string) => void;
   /** Wraps the overflow trigger in the full model picker. */
   renderOverflow: (trigger: ReactElement) => ReactNode;
+  /** Overrides the provider's light, as an account pool does with the account it will use. */
+  lightColor?: string | undefined;
   ref?: Ref<DeviceModelSliderHandle>;
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
@@ -88,6 +90,7 @@ export function DeviceModelSlider(props: {
     lockedProvider,
     lockedContinuationGroupKey,
     getModelDisabledReason,
+    lightColor,
   } = props;
 
   const resolveSlot = useMemo(
@@ -160,9 +163,11 @@ export function DeviceModelSlider(props: {
   const position = activeIndex >= 0 ? activeIndex : FAVORITE_SLOTS;
   const overflowLabel = activeIndex < 0 && active ? active.label : null;
   const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
-  const providerLight = activeEntry
-    ? (activeEntry.accentColor ?? PROVIDER_LIGHTS[activeEntry.driverKind])
-    : undefined;
+  const providerLight =
+    lightColor ??
+    (activeEntry
+      ? (activeEntry.accentColor ?? PROVIDER_LIGHTS[activeEntry.driverKind])
+      : undefined);
 
   return (
     <div

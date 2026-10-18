@@ -10,6 +10,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
+import { pickRolloverMember } from "@t3tools/shared/providerPools";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -17,11 +18,13 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import type * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ExperimentService from "../experiments/ExperimentService.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 
 import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -97,6 +100,21 @@ export const make = Effect.gen(function* () {
   const notes = yield* ContextRolloverNotes;
   const crypto = yield* Crypto.Crypto;
   const experiments = yield* ExperimentService.ExperimentService;
+  const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
+
+  // A rolled-over session starts fresh, so a pooled thread may move to the
+  // pool's preferred member without paying for a second handoff.
+  const rolloverModelSelection = (run: OrchestrationV2Run) =>
+    Effect.gen(function* () {
+      if (Option.isNone(providerRegistry)) return run.modelSelection;
+      const providers = yield* providerRegistry.value.getProviders;
+      const instanceId = pickRolloverMember({
+        providers,
+        nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+        member: run.modelSelection.instanceId,
+      });
+      return { ...run.modelSelection, instanceId };
+    });
 
   const threads = new Map<ThreadId, ThreadRollover>();
   const compactions = new Map<ThreadId, Set<TurnItemId>>();
@@ -478,6 +496,7 @@ export const make = Effect.gen(function* () {
     }
     const policy = yield* thresholdsFor(threadId, run);
     const before = threads.get(threadId);
+    const modelSelection = yield* rolloverModelSelection(run);
     const dispatched = yield* engine
       .dispatch({
         type: "message.dispatch",
@@ -493,7 +512,7 @@ export const make = Effect.gen(function* () {
           detail: note,
         },
         attachments: [],
-        modelSelection: run.modelSelection,
+        modelSelection,
         dispatchMode: { type: "start_immediately" },
         createdBy: "agent",
         creationSource: "server",

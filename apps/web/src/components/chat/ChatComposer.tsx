@@ -325,6 +325,7 @@ import { recordSendOrigin } from "~/lib/sendMotion";
 import { compactOnSendTokens } from "./compactOnSend.logic";
 import { DeviceContextBar } from "./device/DeviceContextBar";
 import { DeviceModelSlider, type DeviceModelSliderHandle } from "./device/DeviceModelSlider";
+import { ComposerPoolAccount, useComposerPoolAccount } from "./ComposerPoolAccount";
 import { DeviceReasoningDial, type DeviceReasoningDialHandle } from "./device/DeviceReasoningDial";
 import { ComposerPendingApprovalPanel } from "./ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./ComposerPendingUserInputPanel";
@@ -3060,6 +3061,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     modelOptions: composerModelOptions?.[selectedInstanceId],
     planModeEnabled: settings.planModeEnabled,
   };
+  const poolAccount = useComposerPoolAccount({
+    environmentId,
+    selectedInstanceId,
+    providers: providerStatuses,
+    // A thread that has not run yet is placed like a new one, as the server does.
+    current: activeThread?.latestRun ? activeThreadModelSelection?.instanceId : undefined,
+  });
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,
   );
@@ -5493,13 +5501,24 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           onProviderModelSelect(instanceId, model, { focusComposer: false });
         }}
         renderOverflow={renderProviderModelPicker}
+        lightColor={poolAccount?.next.color}
       />
+      {poolAccount ? (
+        <ComposerPoolAccount state={poolAccount} isNew={!activeThread?.latestRun} device />
+      ) : null}
       <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
       <ComposerFastSwitch {...composerFastSwitchInput} device />
     </>
   ) : (
     <>
       {renderProviderModelPicker()}
+      {poolAccount ? (
+        <ComposerPoolAccount
+          state={poolAccount}
+          isNew={!activeThread?.latestRun}
+          size={composerControlsCollapsed ? "xs" : "sm"}
+        />
+      ) : null}
 
       <>
         {restingBlockDefs.map((def, index) => {

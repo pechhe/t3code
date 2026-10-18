@@ -434,7 +434,11 @@ it.effect(
   },
 );
 
-it.effect("routes a pooled selection to a member account before the orchestrator sees it", () => {
+/** Sends a pooled model change and follow-up to a thread on `claude_later`, returning the accounts each was routed to. */
+const routePooledThread = (input: {
+  readonly hasRun: boolean;
+  readonly preferredMember?: ProviderInstanceId;
+}) => {
   const projectId = ProjectId.make("project:thread-management:pool");
   const threadId = ThreadId.make("thread:thread-management:pool");
   const pool = ProviderInstanceId.make("claude_pool");
@@ -464,6 +468,7 @@ it.effect("routes a pooled selection to a member account before the orchestrator
       ...member(sooner, "2026-10-15T02:00:00.000Z"),
       instanceId: pool,
       poolMembers: [later, sooner],
+      ...(input.preferredMember ? { poolPreferredMember: input.preferredMember } : {}),
     },
   ];
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
@@ -478,6 +483,7 @@ it.effect("routes a pooled selection to a member account before the orchestrator
         getThreadShell: () =>
           Effect.succeed({
             modelSelection: { instanceId: later, model: "claude-test" },
+            latestRunId: input.hasRun ? "run:thread-management:pool" : null,
           } as unknown as OrchestrationV2ThreadShell),
         dispatch: (command) =>
           Effect.sync(() => {
@@ -518,13 +524,31 @@ it.effect("routes a pooled selection to a member account before the orchestrator
       createdBy: "user",
       creationSource: "web",
     });
-    const selections = dispatched.map((command) =>
+    return dispatched.map((command) =>
       "modelSelection" in command ? command.modelSelection?.instanceId : undefined,
     );
-    // Both keep the thread on its member, which still has allowance.
-    expect(selections).toEqual([later, later]);
   }).pipe(Effect.provide(layerTest));
-});
+};
+
+it.effect("routes a pooled selection to a member account before the orchestrator sees it", () =>
+  Effect.gen(function* () {
+    // Both keep the thread on its member, which still has allowance.
+    expect(yield* routePooledThread({ hasRun: true })).toEqual(["claude_later", "claude_later"]);
+  }),
+);
+
+it.effect("places a thread that has not run like a new one", () =>
+  Effect.gen(function* () {
+    // The allowance that resets sooner is spent first.
+    expect(yield* routePooledThread({ hasRun: false })).toEqual(["claude_sooner", "claude_sooner"]);
+    expect(
+      yield* routePooledThread({
+        hasRun: false,
+        preferredMember: ProviderInstanceId.make("claude_later"),
+      }),
+    ).toEqual(["claude_later", "claude_later"]);
+  }),
+);
 
 describe("pooled routing refreshes the chosen member's usage near its limit", () => {
   const projectId = ProjectId.make("project:thread-management:pool-refresh");

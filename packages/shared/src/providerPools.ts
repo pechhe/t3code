@@ -2,9 +2,11 @@
  * Account pools: a configured instance whose turns run on one of its member
  * instances (for example several Claude subscriptions).
  *
- * A pooled turn goes to the member whose allowance would otherwise lapse
- * unused soonest, among those with allowance left. A thread already on a member stays there while it has
- * allowance, which avoids a provider switch and its context handoff.
+ * A pooled turn goes to the pool's preferred member while it has allowance,
+ * otherwise to the member whose allowance would otherwise lapse unused soonest,
+ * among those with allowance left. A thread already on a member stays there
+ * while it has allowance, which avoids a provider switch and its context
+ * handoff, unless a preferred member takes over at a context rollover.
  *
  * @module providerPools
  */
@@ -22,7 +24,10 @@ export interface ProviderPool {
   readonly accentColor?: string | undefined;
   readonly enabled: boolean;
   readonly members: ReadonlyArray<ProviderInstanceId>;
+  readonly preferredMember?: ProviderInstanceId | undefined;
 }
+
+type PoolRoute = Pick<ProviderPool, "driver" | "members" | "preferredMember">;
 
 /** Whether the provider can take a turn now, ignoring usage limits. */
 export const isProviderRoutable = (provider: ServerProvider): boolean =>
@@ -137,7 +142,7 @@ export const compareByUsageReset =
   };
 
 const routableMembers = (
-  pool: Pick<ProviderPool, "driver" | "members">,
+  pool: PoolRoute,
   providers: ReadonlyArray<ServerProvider>,
 ): ReadonlyArray<ServerProvider> =>
   pool.members.flatMap((member) => {
@@ -156,7 +161,7 @@ const routableMembers = (
  * returned so the turn fails onto the earliest usage-limit recovery.
  */
 export const pickPoolMember = (input: {
-  readonly pool: Pick<ProviderPool, "driver" | "members">;
+  readonly pool: PoolRoute;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly nowMs: number;
   /** The member the thread is already on, kept while it has allowance. */
@@ -167,7 +172,19 @@ export const pickPoolMember = (input: {
   if (current !== undefined && !isProviderUsageExhausted(current, input.nowMs)) {
     return current.instanceId;
   }
-  return [...candidates].sort(compareByUsageReset(input.nowMs))[0]?.instanceId;
+  return orderForPool(input.pool, candidates, input.nowMs)[0]?.instanceId;
+};
+
+/** Spend order, with the preferred member first unless it is at a limit. */
+const orderForPool = (
+  pool: PoolRoute,
+  candidates: ReadonlyArray<ServerProvider>,
+  nowMs: number,
+): ReadonlyArray<ServerProvider> => {
+  const ordered = [...candidates].sort(compareByUsageReset(nowMs));
+  const preferred = ordered.find((provider) => provider.instanceId === pool.preferredMember);
+  if (preferred === undefined || isProviderUsageExhausted(preferred, nowMs)) return ordered;
+  return [preferred, ...ordered.filter((provider) => provider !== preferred)];
 };
 
 /**
@@ -177,17 +194,41 @@ export const pickPoolMember = (input: {
  * returns an exhausted member, so a failover cannot cycle between limits.
  */
 export const pickPoolFailoverMember = (input: {
-  readonly pool: Pick<ProviderPool, "driver" | "members">;
+  readonly pool: PoolRoute;
   readonly providers: ReadonlyArray<ServerProvider>;
   readonly nowMs: number;
   readonly limited: ProviderInstanceId;
 }): ProviderInstanceId | undefined =>
-  routableMembers(input.pool, input.providers)
-    .filter(
+  orderForPool(
+    input.pool,
+    routableMembers(input.pool, input.providers).filter(
       (provider) =>
         provider.instanceId !== input.limited && !isProviderUsageExhausted(provider, input.nowMs),
-    )
-    .sort(compareByUsageReset(input.nowMs))[0]?.instanceId;
+    ),
+    input.nowMs,
+  )[0]?.instanceId;
+
+/**
+ * The member a fresh session after a context rollover should run on: the
+ * pool's preferred member while it can take a turn, since the session starts
+ * from a handoff note either way. Otherwise `member`, which also covers a
+ * member in no pool.
+ */
+export const pickRolloverMember = (input: {
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly nowMs: number;
+  readonly member: ProviderInstanceId;
+}): ProviderInstanceId => {
+  const pool = input.providers.find((provider) => provider.poolMembers?.includes(input.member));
+  const preferred = pool?.poolPreferredMember;
+  if (pool?.poolMembers === undefined || preferred === undefined) return input.member;
+  const picked = pickPoolMember({
+    pool: { driver: pool.driver, members: pool.poolMembers, preferredMember: preferred },
+    providers: input.providers,
+    nowMs: input.nowMs,
+  });
+  return picked === preferred ? preferred : input.member;
+};
 
 /**
  * Append one snapshot per pool, presented as the member a turn would use now
@@ -225,6 +266,9 @@ export const withPoolSnapshots = (
         ...(pool.accentColor === undefined ? {} : { accentColor: pool.accentColor }),
         enabled: pool.enabled && base.enabled,
         poolMembers: pool.members,
+        ...(pool.preferredMember === undefined
+          ? {}
+          : { poolPreferredMember: pool.preferredMember }),
       },
     ];
   });

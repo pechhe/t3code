@@ -1315,6 +1315,27 @@
   box-shadow: var(--cap-shadow);
 }
 
+/* The pooled account: a lamp in the colour of the account the next turn uses, latched
+   while the pool has a preferred account. */
+.device-cap--account .device-cap__lamp {
+  background: radial-gradient(
+    circle at 34% 28%,
+    color-mix(in oklch, var(--account-light) 45%, white),
+    var(--account-light) 45%,
+    color-mix(in oklch, var(--account-light) 60%, black) 80%,
+    color-mix(in oklch, var(--account-light) 25%, black) 100%
+  );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--account-light) 40%, black),
+    0 1px 0 oklch(1 0.002 250 / 0.5);
+}
+.device-cap--account[aria-pressed="true"] .device-cap__lamp {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklch, var(--account-light) 40%, black),
+    0 0 6px color-mix(in oklch, var(--account-light) 80%, transparent),
+    0 0 12px color-mix(in oklch, var(--account-light) 40%, transparent);
+}
+
 /* An empty composer leaves the cap at full brightness, just without the glow. */
 .send-dial:disabled {
   cursor: default;

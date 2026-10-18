@@ -52,7 +52,11 @@ export function poolFailoverCommand(
   for (const pool of providers) {
     if (pool.poolMembers?.includes(limited) !== true) continue;
     const member = pickPoolFailoverMember({
-      pool: { driver: pool.driver, members: pool.poolMembers },
+      pool: {
+        driver: pool.driver,
+        members: pool.poolMembers,
+        preferredMember: pool.poolPreferredMember,
+      },
       providers,
       nowMs,
       limited,
