@@ -62,6 +62,12 @@ describe("RPC authorization scopes", () => {
     );
   });
 
+  it("lets only clients that may operate threads answer a release approval", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.releaseApprovalsAnswer)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+  });
+
   it("keeps webhook delivery logs, which hold request bodies, behind operate scope", () => {
     for (const method of [
       WS_METHODS.scheduledTasksListWebhookDeliveries,

@@ -84,6 +84,10 @@ chosen project it has. A project a machine lacks is skipped, and the editor says
 The Scheduled icon shows a dot while a task runs and a count of failed runs you
 have not opened yet; its tooltip gives the next run time.
 
+A run's prompt appears in its thread as a **Scheduled task** message rather than
+as yours, and the agent is told it is a routine trigger, not a new instruction or
+an answer from you.
+
 ## Scheduled tasks on mobile
 
 Open **Settings → Scheduled tasks** to create recurring tasks or manage existing

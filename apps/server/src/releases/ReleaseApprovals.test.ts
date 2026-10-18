@@ -142,7 +142,6 @@ it.effect("delivers one answer to every requesting thread and keeps an approval"
         candidate: candidateA,
         decision: "approved",
         note: "  Ship it  ",
-        answeredBy: "henry",
       });
 
       assert.deepStrictEqual(
@@ -162,7 +161,7 @@ it.effect("delivers one answer to every requesting thread and keeps an approval"
         assert.include(message.text, "approved");
         assert.include(message.text, candidateA);
         assert.include(message.text, "Note: Ship it");
-        assert.include(message.text, "Answered by henry");
+        assert.include(message.text, "Answered by the owner");
       }
 
       const twice = yield* Effect.flip(
@@ -170,7 +169,6 @@ it.effect("delivers one answer to every requesting thread and keeps an approval"
           approvalId: card.requestId,
           candidate: candidateA,
           decision: "declined",
-          answeredBy: "henry",
         }),
       );
       assert.strictEqual(twice.reason, "already_answered");
@@ -212,7 +210,6 @@ it.effect("replaces an open card for an older candidate and tells its other thre
           approvalId: older.requestId,
           candidate: candidateA,
           decision: "approved",
-          answeredBy: "henry",
         }),
       );
       assert.strictEqual(stale.reason, "superseded");
@@ -231,7 +228,6 @@ it.effect("refuses an answer for a different candidate and skips archived thread
             approvalId: card.requestId,
             candidate: candidateB,
             decision: "approved",
-            answeredBy: "henry",
           }),
         );
         assert.strictEqual(mismatch.reason, "candidate_mismatch");
@@ -240,7 +236,6 @@ it.effect("refuses an answer for a different candidate and skips archived thread
           approvalId: card.requestId,
           candidate: candidateA,
           decision: "declined",
-          answeredBy: "henry",
         });
         assert.deepStrictEqual(
           sent.map((message) => message.threadId),
@@ -269,7 +264,6 @@ it.effect("still delivers the answer when a thread's card cannot be updated", ()
           approvalId: card.requestId,
           candidate: candidateA,
           decision: "approved",
-          answeredBy: "henry",
         });
         assert.deepStrictEqual(
           sent.map((message) => message.threadId).toSorted(),
@@ -292,7 +286,6 @@ it.effect("answering a card that missed its update repairs it without repeating 
           approvalId: card.requestId,
           candidate: candidateA,
           decision: "approved",
-          answeredBy: "henry",
         });
         failing = false;
         records.length = 0;
@@ -304,7 +297,6 @@ it.effect("answering a card that missed its update repairs it without repeating 
             approvalId: card.requestId,
             candidate: candidateA,
             decision: "approved",
-            answeredBy: "henry",
           }),
         );
         assert.strictEqual(again.reason, "already_answered");
@@ -355,7 +347,6 @@ it.effect("answering a replaced card repeats its notice only to threads that lac
           approvalId: older.requestId,
           candidate: candidateA,
           decision: "approved",
-          answeredBy: "henry",
         }),
       );
       assert.strictEqual(stale.reason, "superseded");

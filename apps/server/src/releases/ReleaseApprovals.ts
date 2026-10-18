@@ -49,9 +49,7 @@ export class ReleaseApprovals extends Context.Service<
       requester: ReleaseApprovalRequester,
       input: OrchestratorMcpRequestReleaseApprovalInput,
     ) => Effect.Effect<OrchestratorMcpRequestReleaseApprovalResult, ReleaseApprovalError>;
-    readonly answer: (
-      input: ReleaseApprovalAnswerInput & { readonly answeredBy: string },
-    ) => Effect.Effect<void, ReleaseApprovalError>;
+    readonly answer: (input: ReleaseApprovalAnswerInput) => Effect.Effect<void, ReleaseApprovalError>;
   }
 >()("t3/releases/ReleaseApprovals") {}
 
@@ -81,6 +79,12 @@ const encodeSummary = Schema.encodeSync(SummaryJson);
 const decodeSummary = Schema.decodeSync(SummaryJson);
 const encodeAnswer = Schema.encodeSync(AnswerJson);
 const decodeAnswer = Schema.decodeSync(AnswerJson);
+
+/**
+ * Only a client allowed to operate threads can answer, which is the environment's owner; its
+ * session names a credential (`desktop-bootstrap`, say), not a person, so it is not quoted.
+ */
+const ANSWERED_BY = "the owner";
 
 const isReleaseApprovalError = Schema.is(ReleaseApprovalError);
 const failed = (cause: unknown) => new ReleaseApprovalError({ reason: "failed", cause });
@@ -436,7 +440,7 @@ const make = Effect.gen(function* () {
             decision: input.decision,
             candidate: approval.candidate,
             note: note === undefined || note === "" ? null : note,
-            answeredBy: input.answeredBy,
+            answeredBy: ANSWERED_BY,
             answeredAt: now,
           };
           yield* sql`

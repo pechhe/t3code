@@ -19,6 +19,7 @@ import * as Schema from "effect/Schema";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
+import { frameScheduledTaskPrompt } from "./ScheduledTaskPrompt.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 
 const yieldToRuntime = Effect.yieldNow.pipe(
@@ -354,6 +355,10 @@ export const layer: Layer.Layer<
             });
           }
           const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);
+          const text = projectComposerContextForProvider({
+            text: message.text,
+            records: message.context?.records ?? [],
+          });
           yield* loaded.session.value
             .steerTurn({
               threadId: input.threadId,
@@ -362,10 +367,7 @@ export const layer: Layer.Layer<
               providerTurnId: loaded.providerTurn.id,
               message: {
                 messageId: message.id,
-                text: projectComposerContextForProvider({
-                  text: message.text,
-                  records: message.context?.records ?? [],
-                }),
+                text: message.scheduledTaskId === undefined ? text : frameScheduledTaskPrompt(text),
                 attachments: message.attachments,
                 ...(videoFrames.length === 0 ? {} : { videoFrames }),
                 createdBy: message.createdBy,

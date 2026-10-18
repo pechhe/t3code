@@ -2121,9 +2121,7 @@ const layerWsRpc = (
           ),
         [WS_METHODS.releaseApprovalsAnswer]: (input) =>
           Effect.annotateCurrentSpan({ "release_approval.id": input.approvalId }).pipe(
-            Effect.andThen(
-              releaseApprovals.answer({ ...input, answeredBy: currentSession.subject }),
-            ),
+            Effect.andThen(releaseApprovals.answer(input)),
           ),
         [WS_METHODS.scheduledTasksListWebhookDeliveries]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(

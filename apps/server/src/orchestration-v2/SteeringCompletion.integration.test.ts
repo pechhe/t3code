@@ -9,6 +9,7 @@ import {
   ProviderInstanceId,
   ProviderThreadId,
   ProviderTurnId,
+  ScheduledTaskId,
   ThreadId,
   type ModelSelection,
   type OrchestrationV2DomainEvent,
@@ -25,6 +26,7 @@ import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
+import { SCHEDULED_TASK_NOTE } from "./ScheduledTaskPrompt.ts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -633,6 +635,39 @@ it.effect.each([{ canRestart: false }, { canRestart: true }])(
         }).pipe(Effect.provide(layer));
       }),
     ),
+);
+
+it.effect("frames a scheduled prompt steered into the running turn", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { started, steered, layer, startFirstTurn } = yield* nextTurnSelectionHarness(
+        "steering-scheduled-prompt",
+      );
+      yield* Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+        const threadId = yield* startFirstTurn;
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("scheduled-steer"),
+          threadId,
+          messageId: MessageId.make("message:scheduled-steer"),
+          scheduledTaskId: ScheduledTaskId.make("heartbeat"),
+          text: "Check the release.",
+          attachments: [],
+          modelSelection: runSelection,
+          dispatchMode: { type: "steer_active", targetRunId: started[0]!.runId },
+          createdBy: "agent",
+          creationSource: "mcp",
+        });
+        yield* worker.drain();
+      }).pipe(Effect.provide(layer));
+
+      assert.lengthOf(steered, 1);
+      assert.isTrue(steered[0]!.startsWith(SCHEDULED_TASK_NOTE));
+      assert.isTrue(steered[0]!.endsWith("Scheduled task prompt:\nCheck the release."));
+    }),
+  ),
 );
 
 it.effect("starts a steer that missed the turn on the saved next-turn selection", () =>

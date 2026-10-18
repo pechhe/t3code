@@ -21,7 +21,8 @@ import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import { SCHEDULED_TASK_NOTE, SIDE_CHAT_NOTE } from "./ProviderTurnStartService.ts";
+import { SIDE_CHAT_NOTE } from "./ProviderTurnStartService.ts";
+import { SCHEDULED_TASK_NOTE } from "./ScheduledTaskPrompt.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
@@ -203,6 +204,49 @@ it.effect("tells the provider a scheduled prompt is not a message from the user"
     assert.include(text, SCHEDULED_TASK_NOTE);
     assert.include(text, "Scheduled task prompt:\nCheck the release.");
     assert.notInclude(text, "User message:");
+  }),
+);
+
+it.effect("sends an ordinary user message without the scheduled framing", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<string>();
+    yield* Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const threadId = ThreadId.make("ordinary-prompt");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-ordinary-prompt"),
+        threadId,
+        projectId,
+        title: "Ordinary prompt",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("ordinary-prompt"),
+        threadId,
+        messageId: MessageId.make("ordinary-prompt"),
+        text: "Check the release.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* worker.drain();
+    }).pipe(Effect.provide(recordingLayer(started)));
+
+    const text = yield* Deferred.await(started);
+    assert.notInclude(text, SCHEDULED_TASK_NOTE);
+    assert.notInclude(text, "Scheduled task prompt:");
+    assert.isTrue(text.endsWith("Check the release."));
   }),
 );
 

@@ -973,6 +973,28 @@ function AgentMessageAttribution(props: {
   );
 }
 
+/** Scheduled tasks are managed from Settings; there is no per-task screen to open directly. */
+function ScheduledTaskAttribution() {
+  const navigation = useNavigation();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Open scheduled tasks"
+      hitSlop={4}
+      onPress={() =>
+        navigation.navigate("SettingsSheet", {
+          screen: "SettingsContent",
+          params: { screen: "SettingsScheduledTasks" },
+        })
+      }
+    >
+      <Text className="mb-1 pl-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
+        Scheduled task
+      </Text>
+    </Pressable>
+  );
+}
+
 function renderFeedEntry(
   info: { item: PendingThreadFeedEntry; index: number },
   props: Pick<
@@ -1196,9 +1218,7 @@ function renderFeedEntry(
           {...(enterAnimated ? { entering: FadeInUp.duration(220) } : {})}
         >
           {presentation.attribution === "automation" ? (
-            <Text className="mb-1 pl-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
-              Scheduled task
-            </Text>
+            <ScheduledTaskAttribution />
           ) : presentation.attribution === "t3code" ? (
             <Text className="mb-1 pr-1 font-t3-medium text-2xs text-foreground-muted opacity-60">
               Sent by T3 Code
@@ -1210,9 +1230,15 @@ function renderFeedEntry(
             />
           ) : null}
           <View
-            className="min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
+            className={
+              presentation.attribution === "automation"
+                ? "min-w-0 gap-2 rounded-[20px] border border-border bg-card px-3.5 py-2.5"
+                : "min-w-0 gap-2 rounded-[20px] px-3.5 py-2.5"
+            }
             style={{
-              backgroundColor: userBubbleColor,
+              ...(presentation.attribution === "automation"
+                ? null
+                : { backgroundColor: userBubbleColor }),
               maxWidth: props.duoColumns ? "85%" : props.userBubbleMaxWidth,
               ...(hasReviewCommentContext
                 ? { width: props.reviewCommentBubbleWidth }

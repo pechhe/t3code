@@ -57,17 +57,11 @@ import {
   pendingRestartCancelledBackgroundWork,
   restartCancelledBackgroundWorkNote,
 } from "./RestartBackgroundNote.ts";
+import { SCHEDULED_TASK_NOTE, SCHEDULED_TASK_PROMPT_LABEL } from "./ScheduledTaskPrompt.ts";
 
 /** Sent with each side chat turn; the side chat card is narrow and meant for quick answers. */
 export const SIDE_CHAT_NOTE =
   "This is a side chat: the user is asking a quick question beside the main conversation. Be extra concise unless the user asks for more detail.";
-
-/**
- * A scheduled run's prompt is recorded as a user-role message, but the user did not just write
- * it: an agent must not read it as a fresh instruction or as the answer to its own question.
- */
-export const SCHEDULED_TASK_NOTE =
-  "The message below is a scheduled task's prompt, sent by T3 Code on the task's schedule. It is not a new message from the user: treat it as a routine trigger, not as a new instruction or as the user's answer to anything you asked them.";
 
 /**
  * Sent with each turn of a No project chat until its agent suggests a project,
@@ -1216,7 +1210,7 @@ export const layer: Layer.Layer<
           ]
             .filter((part) => part !== "")
             .join("\n\n");
-          const messageLabel = scheduled ? "Scheduled task prompt" : "User message";
+          const messageLabel = scheduled ? SCHEDULED_TASK_PROMPT_LABEL : "User message";
           const { restartContinuationOfRunId: _resumedRunId, ...promptedInput } = turnInput;
           yield* start({
             ...(noteContinuation ? promptedInput : turnInput),

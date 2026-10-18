@@ -257,3 +257,17 @@ Choose **Snooze → Custom…** from a thread's menu to pick a date and time in 
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+
+## Approve a release
+
+When an agent needs your approval to release a repository, it asks with a release
+card instead of a chat message. The card appears at the top of the sidebar and in
+each thread that asked. Several threads asking about the same repository and
+commit share one card, and you answer it once. The card shows the commits,
+migrations (destructive ones are flagged) and verification status. Choose
+**Approve** or **Decline**, optionally with a note, and every thread that asked
+receives your answer.
+
+An approval covers exactly that commit. If an agent asks about a newer commit
+before you answer, its card replaces the older one, and the threads waiting on the
+older card are told. On mobile, the card appears in the thread.
