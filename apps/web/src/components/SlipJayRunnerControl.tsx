@@ -36,6 +36,9 @@ import {
   useNow,
 } from "./SlipJayTicket";
 
+/** A repository key without its owner, which is the same for every repository a runner serves. */
+const repositoryName = (repo: string) => repo.slice(repo.indexOf("/") + 1);
+
 /** The latest deploy of each repository to each environment, newest first. */
 function latestDeploys(deploys: ReadonlyArray<SlipJayRunnerDeploy>) {
   const seen = new Set<string>();
@@ -114,21 +117,25 @@ export function SlipJayRunnerControl({
           }
         >
           <SlipJayTicket
+            solid
             tone={summary.tone === "busy" ? "running" : "waiting"}
-            className="h-6 text-xs"
-            stub={<SlipJayMark />}
+            className="h-7 text-xs"
+            stub={<SlipJayMark className="size-4" />}
           >
-            <span
-              className={cn(
-                "pe-2 font-mono max-sm:hidden",
-                summary.tone === "attention" && "text-warning",
-              )}
-            >
-              {summary.label}
-            </span>
+            {/* Idle says nothing the mark does not; the tag is then just its stub. */}
+            {summary.tone === "idle" ? null : (
+              <span
+                className={cn(
+                  "px-2 font-mono max-sm:hidden",
+                  summary.tone === "attention" && "text-warning",
+                )}
+              >
+                {summary.label}
+              </span>
+            )}
           </SlipJayTicket>
         </PopoverTrigger>
-        <PopoverPopup side="bottom" align="end" width="md" padding="compact">
+        <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
           <div className="flex flex-col gap-3 text-sm">
             <div className="flex items-center gap-2 border-b pb-2">
               <SlipJayMark className="size-4 text-foreground [--jay-beak:var(--color-slipjay)] [--jay-eye:var(--popover)]" />
@@ -177,26 +184,31 @@ export function SlipJayRunnerControl({
             {overview.deploys.length > 0 || release !== null ? (
               <RunnerSection title="Environments">
                 {latestDeploys(overview.deploys).map((deploy) => (
-                  <div key={deploy.operationId} className="flex min-w-0 items-baseline gap-2 px-1">
-                    <span className="min-w-0 flex-1 truncate">
-                      <span className="font-medium capitalize">{deploy.environment}</span>{" "}
-                      <span className="font-mono text-muted-foreground text-xs">
-                        {deploy.commitId.slice(0, 7)}
+                  <div
+                    key={deploy.operationId}
+                    className="flex min-w-0 items-baseline gap-2 px-1 text-xs"
+                  >
+                    <span className="shrink-0 font-medium text-sm capitalize">
+                      {deploy.environment}
+                    </span>
+                    {showRepository ? (
+                      <span className="min-w-0 truncate text-muted-foreground">
+                        {repositoryName(deploy.repo)}
                       </span>
-                      {showRepository ? (
-                        <span className="text-muted-foreground"> · {deploy.repo}</span>
-                      ) : null}
+                    ) : null}
+                    <span className="ms-auto shrink-0 font-mono text-muted-foreground">
+                      {deploy.commitId.slice(0, 7)}
                     </span>
                     <span
                       className={cn(
-                        "shrink-0 text-xs",
+                        "shrink-0 tabular-nums",
                         deploy.status === "deployed" ? "text-muted-foreground" : "text-destructive",
                       )}
                     >
-                      {deploy.status}
+                      {deploy.status === "deployed" ? "" : `${deploy.status} `}
                       {deploy.finishedAt === undefined
                         ? ""
-                        : ` ${formatRelativeTimeLabel(deploy.finishedAt)}`}
+                        : formatRelativeTimeLabel(deploy.finishedAt)}
                     </span>
                   </div>
                 ))}
@@ -320,10 +332,12 @@ function RunnerOperationRow({
     ...(running && operation.submittedAt !== undefined
       ? [formatSlipJayDuration(now - Date.parse(operation.submittedAt))]
       : []),
+  ].join(" · ");
+  const source = [
     ...(thread === undefined && operation.workspaceName === undefined
       ? [operation.submittedBy]
       : []),
-    ...(showRepository ? [operation.repo] : []),
+    ...(showRepository ? [repositoryName(operation.repo)] : []),
   ].join(" · ");
   const heading = (
     <span className="flex min-w-0 items-center gap-1.5">
@@ -354,7 +368,7 @@ function RunnerOperationRow({
         </span>
       }
     >
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-1.5">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pe-2.5">
         {thread === undefined ? (
           heading
         ) : (
@@ -370,7 +384,8 @@ function RunnerOperationRow({
           {isLanding && stage >= 0 ? (
             <SlipJayStageDots tone="running" completed={stage} current={stage} />
           ) : null}
-          <span className="min-w-0 truncate font-mono">{detail}</span>
+          <span className="shrink-0 font-mono tabular-nums">{detail}</span>
+          {source === "" ? null : <span className="ms-auto min-w-0 truncate">{source}</span>}
         </span>
       </span>
       {operation.status === "queued" ? (

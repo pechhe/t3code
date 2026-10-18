@@ -75,22 +75,35 @@ const BODY_TORN = tornEdge("body");
 /**
  * A SlipJay ticket: a stub, a dashed perforation and a body, with notches masked out so
  * any surface shows through. A landed ticket tears along the perforation; `torn` moves
- * the stub, and the move animates only when it changes.
+ * the stub, and the move animates only when it changes. A `solid` ticket is one colour
+ * throughout, a tag for toolbars where a paper body would read as a second control.
  */
 export function SlipJayTicket({
   tone,
   stub,
   torn = false,
+  solid = false,
   className,
   children,
 }: {
   tone: SlipJayTicketTone;
   stub: ReactNode;
   torn?: boolean;
+  solid?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   const ripped = tone === "landed";
+  if (solid) {
+    return (
+      <div className={cn("flex min-w-0 items-stretch rounded-md", STUB_TONE[tone], className)}>
+        <div className="relative flex shrink-0 items-center px-2 after:absolute after:inset-y-1.5 after:end-0 after:border-e-2 after:border-dotted after:border-current/35">
+          {stub}
+        </div>
+        <div className="flex min-w-0 items-center">{children}</div>
+      </div>
+    );
+  }
   return (
     <div className={cn("flex min-w-0 items-stretch drop-shadow-xs", className)}>
       <div
