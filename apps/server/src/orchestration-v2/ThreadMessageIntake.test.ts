@@ -16,11 +16,13 @@ import {
   type OrchestrationV2Command,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2StoredEvent,
+  type OrchestrationV2ThreadShell,
   type UserInputAttachments,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { createPendingAttachmentId, resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -856,4 +858,69 @@ it.effect(
         true,
       );
     }).pipe(Effect.provide(layerIntakeTest)),
+);
+
+it.effect("re-pins a pinned task when a person writes after its workspace moved", () =>
+  Effect.gen(function* () {
+    const threadId = ThreadId.make("thread-repin-person-message");
+    const send = (input: {
+      readonly createdBy: "user" | "agent";
+      readonly moved: string | undefined;
+      readonly text?: string;
+    }) => {
+      const captured: OrchestrationV2ServerCommand[] = [];
+      return dispatchCommand({
+        type: "message.dispatch",
+        commandId: CommandId.make(`command-repin-${input.createdBy}`),
+        threadId,
+        messageId: MessageId.make(`message-repin-${input.createdBy}`),
+        text: input.text ?? "Check the newer change too",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        createdBy: input.createdBy,
+        creationSource: "web",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(ThreadManagementService.ThreadManagementService)({
+              getThreadShell: () =>
+                Effect.succeed({
+                  agentTask: {
+                    role: "ticket-reviewer",
+                    workspacePath: "/workspace",
+                    sourceRevision: "pinned-commit",
+                  },
+                } as unknown as OrchestrationV2ThreadShell),
+              dispatch: (command) => {
+                captured.push(command);
+                return Effect.succeed({ sequence: 1, storedEvents: [] });
+              },
+            }),
+            Layer.mock(ManagedAgent.ManagedAgentService)({
+              movedRevision: (binding) => {
+                expect(binding.sourceRevision).toBe("pinned-commit");
+                return Effect.succeed(input.moved);
+              },
+            }),
+          ),
+        ),
+        Effect.as(captured),
+      );
+    };
+
+    const [repinned] = yield* send({ createdBy: "user", moved: "later-commit" });
+    expect(repinned).toMatchObject({
+      followupSourceRevision: "later-commit",
+      text: "Source revision: later-commit (the workspace moved on from pinned-commit)\n\nCheck the newer change too",
+    });
+    const [compact] = yield* send({ createdBy: "user", moved: "later-commit", text: "/compact" });
+    expect(compact).toMatchObject({ followupSourceRevision: "later-commit", text: "/compact" });
+    for (const unchanged of [
+      yield* send({ createdBy: "user", moved: undefined }),
+      yield* send({ createdBy: "agent", moved: "later-commit" }),
+    ]) {
+      expect(unchanged[0]).not.toHaveProperty("followupSourceRevision");
+      expect(unchanged[0]).toMatchObject({ text: "Check the newer change too" });
+    }
+  }).pipe(Effect.provide(layerIntakeTest)),
 );

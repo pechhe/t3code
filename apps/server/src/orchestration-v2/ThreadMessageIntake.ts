@@ -2,12 +2,16 @@ import { remapComposerContextAttachments } from "@t3tools/shared/composerContext
 import { appendUserInputAttachmentPaths } from "../provider/userInputAttachments.ts";
 import type { ChatAttachment, OrchestrationV2Command } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import { pinnedBinding } from "../agents/followup.ts";
+import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import { resolveAttachmentPath } from "../attachmentStore.ts";
 import * as ServerConfig from "../config.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 
 import * as AttachmentClaims from "./AttachmentClaims.ts";
+import { isNativeMaintenanceCommand } from "./CommandPolicy.ts";
 import * as ThreadLaunch from "./ThreadLaunchService.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
@@ -52,9 +56,41 @@ const releaseUnusedClaims = Effect.fn("ThreadMessageIntake.releaseUnusedClaims")
   );
 });
 
-export const dispatchCommand = Effect.fn("ThreadMessageIntake.dispatchCommand")(function* (
-  command: OrchestrationV2Command,
+/**
+ * A person writing to a pinned managed task means the workspace as it is now: once the
+ * workspace has moved past the pin, the message re-pins the task there and says so, where
+ * the run would otherwise be refused for a revision only an agent's follow-up can state.
+ */
+const repinPersonMessage = Effect.fn("ThreadMessageIntake.repinPersonMessage")(function* (
+  command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
 ) {
+  if (command.createdBy !== "user" || command.followupSourceRevision !== undefined) return command;
+  const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+  if (Option.isNone(managed)) return command;
+  const thread = yield* ThreadManagement.ThreadManagementService.pipe(
+    Effect.flatMap((threads) => threads.getThreadShell(command.threadId)),
+  );
+  if (thread?.agentTask === undefined) return command;
+  const binding = pinnedBinding(thread.agentTask, thread.followupSourceRevision);
+  const pinned = binding.sourceRevision;
+  if (pinned === undefined) return command;
+  const moved = yield* managed.value
+    .movedRevision({ ...binding, sourceRevision: pinned })
+    .pipe(Effect.orElseSucceed(() => undefined));
+  if (moved === undefined) return command;
+  // A maintenance command reads no source and is recognised by its exact text.
+  if (isNativeMaintenanceCommand(command)) return { ...command, followupSourceRevision: moved };
+  return {
+    ...command,
+    followupSourceRevision: moved,
+    text: `Source revision: ${moved} (the workspace moved on from ${pinned})\n\n${command.text}`,
+  };
+});
+
+export const dispatchCommand = Effect.fn("ThreadMessageIntake.dispatchCommand")(function* (
+  input: OrchestrationV2Command,
+) {
+  const command = input.type === "message.dispatch" ? yield* repinPersonMessage(input) : input;
   const threads = yield* ThreadManagement.ThreadManagementService;
   if (command.type === "runtime-request.respond" && command.attachmentsByQuestionId) {
     const config = yield* ServerConfig.ServerConfig;

@@ -630,6 +630,32 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
     }),
   );
 
+  it.effect("names the commit a pinned task's workspace moved to", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const accepted = yield* f.prepare({
+        request: request({
+          workspacePath: f.workspacePath,
+          role: "ticket-reviewer",
+          sourceRevision,
+          review: changeReview,
+        }),
+      });
+      const binding = { ...accepted.binding, sourceRevision };
+      try {
+        expect(yield* f.service.movedRevision(binding)).toBeUndefined();
+        workingCopy.output = `empty-working-copy ${sourceRevision}`;
+        expect(yield* f.service.movedRevision(binding)).toBeUndefined();
+        workingCopy.output = "empty-working-copy later-commit";
+        expect(yield* f.service.movedRevision(binding)).toBe("later-commit");
+        workingCopy.output = "edited-working-copy";
+        expect(yield* f.service.movedRevision(binding)).toBe("edited-working-copy");
+      } finally {
+        workingCopy.output = sourceRevision;
+      }
+    }),
+  );
+
   it.effect("lets a root-bound lead send pinned readers and isolated writers elsewhere", () =>
     Effect.gen(function* () {
       const f = yield* fixture;

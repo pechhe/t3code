@@ -18,7 +18,7 @@ import * as Schema from "effect/Schema";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectStore from "./ProjectStore.ts";
-import { pinsFollowupRevision } from "../agents/followup.ts";
+import { pinnedBinding } from "../agents/followup.ts";
 
 export class RuntimePolicyResolveError extends Schema.TaggedError<RuntimePolicyResolveError>()(
   "RuntimePolicyResolveError",
@@ -175,14 +175,7 @@ export const layerFromProjectStore: Layer.Layer<
             : cwd;
           yield* managed.value
             .validate({
-              binding:
-                input.thread.followupSourceRevision !== undefined &&
-                pinsFollowupRevision(input.thread.agentTask)
-                  ? {
-                      ...input.thread.agentTask,
-                      sourceRevision: input.thread.followupSourceRevision,
-                    }
-                  : input.thread.agentTask,
+              binding: pinnedBinding(input.thread.agentTask, input.thread.followupSourceRevision),
               selection: input.modelSelection,
               projectId: input.thread.projectId,
               providers: [yield* instance.snapshot.getSnapshot],

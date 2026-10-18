@@ -160,6 +160,13 @@ export class ManagedAgentService extends Context.Service<
       binding: AgentTaskBinding,
       run: { readonly threadId: ThreadId; readonly runId: RunId },
     ) => Effect.Effect<AgentTaskHandoff | undefined, ManagedAgentError>;
+    /**
+     * The commit a pinned task's workspace now shows, when it no longer shows the pin:
+     * none while the pin still holds or the checkout has no clean commit to pin.
+     */
+    readonly movedRevision: (
+      binding: AgentTaskBinding & { readonly sourceRevision: string },
+    ) => Effect.Effect<string | undefined, ManagedAgentError>;
   }
 >()("t3/agents/ManagedAgentService") {}
 
@@ -375,48 +382,54 @@ const make = Effect.gen(function* () {
         ),
       );
     if (request.sourceRevision !== undefined) {
-      const jj = yield* fs
-        .exists(path.join(actual, ".jj"))
-        .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
-      const output = yield* processes
+      const revisions = yield* pinnableRevisions(actual);
+      if (!revisions.includes(request.sourceRevision))
+        return yield* new ManagedAgentError({ reason: "source" });
+    }
+  });
+  /**
+   * The commits a pinned reader in this checkout sees: the working copy, or also the single
+   * parent of an empty jj working copy, the state `jj commit` leaves. A dirty git tree sees none.
+   */
+  const pinnableRevisions = Effect.fn("ManagedAgentService.pinnableRevisions")(function* (
+    actual: string,
+  ) {
+    const jj = yield* fs
+      .exists(path.join(actual, ".jj"))
+      .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
+    const output = yield* processes
+      .run({
+        command: jj ? "jj" : "git",
+        args: jj
+          ? [
+              "log",
+              "-r",
+              "@",
+              "--no-graph",
+              "-T",
+              'commit_id ++ if(empty, " " ++ parents.map(|c| c.commit_id()).join(" "))',
+            ]
+          : ["rev-parse", "HEAD"],
+        cwd: actual,
+        timeout: "10 seconds",
+        maxOutputBytes: 4096,
+      })
+      .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
+    if (output.code !== 0) return [];
+    const [current = "", ...parents] = output.stdout.trim().split(" ");
+    if (!jj) {
+      const dirty = yield* processes
         .run({
-          command: jj ? "jj" : "git",
-          // jj also names the parent of an empty working copy, the state `jj commit` leaves.
-          args: jj
-            ? [
-                "log",
-                "-r",
-                "@",
-                "--no-graph",
-                "-T",
-                'commit_id ++ if(empty, " " ++ parents.map(|c| c.commit_id()).join(" "))',
-              ]
-            : ["rev-parse", "HEAD"],
+          command: "git",
+          args: ["status", "--porcelain", "--untracked-files=normal"],
           cwd: actual,
           timeout: "10 seconds",
           maxOutputBytes: 4096,
         })
         .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
-      // The working copy itself, or the single parent of an empty one, must be the pin.
-      const [current, ...parents] = output.stdout.trim().split(" ");
-      const pinned =
-        current === request.sourceRevision ||
-        (parents.length === 1 && parents[0] === request.sourceRevision);
-      if (output.code !== 0 || !pinned) return yield* new ManagedAgentError({ reason: "source" });
-      if (!jj) {
-        const dirty = yield* processes
-          .run({
-            command: "git",
-            args: ["status", "--porcelain", "--untracked-files=normal"],
-            cwd: actual,
-            timeout: "10 seconds",
-            maxOutputBytes: 4096,
-          })
-          .pipe(Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })));
-        if (dirty.code !== 0 || dirty.stdout.trim() !== "")
-          return yield* new ManagedAgentError({ reason: "source" });
-      }
+      if (dirty.code !== 0 || dirty.stdout.trim() !== "") return [];
     }
+    return parents.length === 1 ? [current, parents[0]!] : [current];
   });
   const isolatedLaunches = yield* Semaphore.make(1);
   return ManagedAgentService.of({
@@ -462,6 +475,13 @@ const make = Effect.gen(function* () {
       },
       Effect.mapError((cause) => new ManagedAgentError({ reason: "source", cause })),
     ),
+    movedRevision: (binding) =>
+      pinnableRevisions(binding.workspacePath).pipe(
+        // An empty jj working copy's id changes on every snapshot; its parent is the commit.
+        Effect.map((revisions) =>
+          revisions.includes(binding.sourceRevision) ? undefined : revisions.at(-1),
+        ),
+      ),
     snapshot: () =>
       currentPolicy.pipe(
         Effect.tap((snapshot) =>

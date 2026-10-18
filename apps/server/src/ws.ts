@@ -1,6 +1,8 @@
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
+import * as ManagedAgent from "./agents/ManagedAgentService.ts";
 import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
+import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 
@@ -1234,7 +1236,20 @@ const layerWsRpc = (
         | FileSystem.FileSystem
         | ServerConfig.ServerConfig
         | ServerSettings.ServerSettingsService
-      >();
+      >().pipe(
+        // Commands run on the startup queue's fiber, so the optional managed-agent service
+        // a typed message re-pins through is carried along with the required ones.
+        Effect.flatMap((context) =>
+          Effect.serviceOption(ManagedAgent.ManagedAgentService).pipe(
+            Effect.map(
+              Option.match({
+                onNone: () => context,
+                onSome: (managed) => Context.add(context, ManagedAgent.ManagedAgentService, managed),
+              }),
+            ),
+          ),
+        ),
+      );
       const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
       const projectStore = yield* ProjectStore.ProjectStoreV2;
       const projectService = yield* ProjectService.ProjectService;

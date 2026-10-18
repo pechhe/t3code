@@ -108,7 +108,9 @@ its revision and the role names, or the reason the policy is refused.
   same caller, so it shows the model a launch will use.
 - A follow-up to a task launched on a source revision must state the revision
   its workspace is at now. A task launched without one, as outside a
-  repository, continues without one.
+  repository, continues without one. A message a person types into the task's
+  thread after its workspace moved re-pins it to the workspace's current commit,
+  and the message opens with the new revision so the agent knows to re-read.
 - `ticket-reviewer` reviews a `change` scope and `spec-reviewer` a `spec` scope;
   each task declares its scope and coverage. Tasks recorded under the earlier
   `reviewer` name read as `ticket-reviewer`. A new reviewer trial names the

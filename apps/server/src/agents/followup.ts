@@ -33,3 +33,12 @@ export const followupBinding = (
  */
 export const pinsFollowupRevision = (binding: AgentTaskBinding) =>
   isConsultingRole(binding.role) || binding.sourceRevision !== undefined;
+
+/** The binding a managed thread's runs are validated against, with any follow-up pin applied. */
+export const pinnedBinding = (
+  binding: AgentTaskBinding,
+  followupSourceRevision: string | undefined,
+) =>
+  followupSourceRevision !== undefined && pinsFollowupRevision(binding)
+    ? { ...binding, sourceRevision: followupSourceRevision }
+    : binding;
