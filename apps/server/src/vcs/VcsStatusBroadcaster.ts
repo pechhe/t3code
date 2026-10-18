@@ -421,9 +421,14 @@ export const make = Effect.gen(function* () {
   // refreshes the SlipJay checkouts being watched for that repository. Reading a checkout
   // costs several VCS processes, and the cache would otherwise keep every checkout ever
   // shown, so an unwatched one is evicted and reloads when it is next read.
+  // Changes that arrive during a pass are taken together, so a watch reconnect, which
+  // reports every retained landing at once, refreshes each checkout once rather than once
+  // per landing.
   yield* landings.changes.pipe(
-    Stream.runForEach((change) =>
+    Stream.runForEachArray((changes) =>
       Effect.gen(function* () {
+        const everyRepository = changes.some((change) => change.repository === null);
+        const changedRepositories = new Set(changes.map((change) => change.repository));
         for (const [cwd, cached] of yield* Ref.get(cacheRef)) {
           if (cached.local?.value.slipJay === undefined) continue;
           if (!(yield* Ref.get(watchedRef)).has(cwd)) {
@@ -434,7 +439,7 @@ export const make = Effect.gen(function* () {
           // A checkout SlipJay removed has no repository left to match. Refreshing it reads
           // what it landed from SlipJay's record, so an open thread does not keep "Landing".
           const repository = yield* landings.repositoryOf(cwd);
-          if (change.repository !== null && repository !== null && repository !== change.repository)
+          if (!everyRepository && repository !== null && !changedRepositories.has(repository))
             continue;
           yield* refreshLocalStatusCore(cwd).pipe(Effect.ignore);
         }

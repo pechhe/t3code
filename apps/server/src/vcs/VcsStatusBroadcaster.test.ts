@@ -1155,6 +1155,7 @@ describe("VcsStatusBroadcaster", () => {
       const remoteReads: string[] = [];
       let landingsArrived = false;
       const refreshed = Deferred.makeUnsafe<void>();
+      const idleEvicted = Deferred.makeUnsafe<void>();
       const repositories: Record<string, string> = {
         "/a": "pechhe/a",
         "/b": "pechhe/b",
@@ -1175,7 +1176,7 @@ describe("VcsStatusBroadcaster", () => {
               localStatus: ({ cwd }) =>
                 Effect.sync(() => localReads.push(cwd)).pipe(
                   Effect.andThen(() =>
-                    landingsArrived && localReads.filter((read) => read === "/gone").length === 2
+                    landingsArrived && cwd === "/gone"
                       ? Deferred.succeed(refreshed, undefined)
                       : Effect.void,
                   ),
@@ -1183,7 +1184,14 @@ describe("VcsStatusBroadcaster", () => {
                 ),
               remoteStatus: ({ cwd }) =>
                 Effect.sync(() => remoteReads.push(cwd)).pipe(Effect.as(baseRemoteStatus)),
-              invalidateLocalStatus: (cwd) => Effect.sync(() => invalidated.push(cwd)),
+              invalidateLocalStatus: (cwd) =>
+                Effect.sync(() => invalidated.push(cwd)).pipe(
+                  Effect.andThen(() =>
+                    landingsArrived && cwd === "/idle"
+                      ? Deferred.succeed(idleEvicted, undefined)
+                      : Effect.void,
+                  ),
+                ),
               invalidateRemoteStatus: () => Effect.void,
               invalidateStatus: () => Effect.void,
             }),
@@ -1206,19 +1214,24 @@ describe("VcsStatusBroadcaster", () => {
           yield* broadcaster.getStatus({ cwd: "/idle" });
           localReads.length = 0;
           landingsArrived = true;
-          // Changes apply in order, and checkouts refresh in the order they were cached, so
-          // /gone refreshing a second time means both changes have been handled.
-          yield* Queue.offer(changes, { repository: "pechhe/a", changeId: "x" });
-          yield* Queue.offer(changes, { repository: "pechhe/b", changeId: "y" });
+          // Changes that arrive together, as every retained landing does when the watch
+          // reconnects, refresh each matching checkout once. Checkouts refresh in the order
+          // they were cached, so /gone is the last.
+          yield* Queue.offerAll(changes, [
+            { repository: "pechhe/a", changeId: "x" },
+            { repository: "pechhe/a", changeId: "z" },
+            { repository: "pechhe/b", changeId: "y" },
+          ]);
           yield* Deferred.await(refreshed);
-          assert.deepStrictEqual(localReads, ["/a", "/gone", "/b", "/gone"]);
+          yield* Deferred.await(idleEvicted);
+          assert.deepStrictEqual(localReads, ["/a", "/b", "/gone"]);
 
           // The unwatched checkout was evicted without a read, remote status included, so its
           // next read loads both fresh.
           assert.include(invalidated, "/idle");
           assert.deepStrictEqual(remoteReads, ["/idle"]);
           yield* broadcaster.getStatus({ cwd: "/idle" });
-          assert.deepStrictEqual(localReads.slice(4), ["/idle"]);
+          assert.deepStrictEqual(localReads.slice(3), ["/idle"]);
           assert.deepStrictEqual(remoteReads, ["/idle", "/idle"]);
         }).pipe(Effect.provide(layerFor(changes)));
       });
