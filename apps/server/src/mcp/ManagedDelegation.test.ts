@@ -235,10 +235,21 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       }),
   );
 
-  /** A codex lead in a jj workspace, with a captured dispatch and configurable occupants. */
+  /**
+   * A codex lead in a jj workspace, with a captured dispatch and configurable occupants.
+   * `register` adds registered projects in the foreign repository (`twin` a second one, in a
+   * subdirectory of it); `scratch` makes the lead a No project chat in a plain folder.
+   */
   const harness = (
-    occupantsFor: (helper: string) => ReadonlyArray<OrchestrationV2ThreadShell> = () => [],
+    occupantsFor: (
+      helper: string,
+      where: { readonly projectId: string; readonly foreign: string; readonly foreignHelper: string },
+    ) => ReadonlyArray<OrchestrationV2ThreadShell> = () => [],
     bound = true,
+    options: {
+      readonly register?: ReadonlyArray<"foreign" | "twin">;
+      readonly scratch?: boolean;
+    } = {},
   ) =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -255,6 +266,14 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       // A workspace of a different repository, which no helper of this lead may use.
       const foreign = `${base}/foreign`;
       yield* fs.makeDirectory(`${foreign}/.jj/repo`, { recursive: true });
+      yield* fs.makeDirectory(`${foreign}/packages/app`, { recursive: true });
+      const foreignHelper = `${base}/foreign-helper`;
+      yield* fs.makeDirectory(`${foreignHelper}/.jj`, { recursive: true });
+      yield* fs.writeFileString(`${foreignHelper}/.jj/repo`, `${foreign}/.jj/repo`);
+      // A No project chat's own folder, in no repository.
+      const scratchRoot = `${base}/scratch`;
+      const scratchFolder = `${scratchRoot}/chat`;
+      yield* fs.makeDirectory(scratchFolder, { recursive: true });
       const policy = snapshot();
       yield* fs.writeFileString(
         `${policyRoot}/roles/policy.json`,
@@ -263,7 +282,14 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       for (const role of Object.values(policy.manifest.roles))
         yield* fs.writeFileString(`${policyRoot}/${role.brief}`, "Role brief\n");
       const threadId = ThreadId.make("lead-thread");
-      const projectId = ProjectId.make("lead-project");
+      const projectId = ProjectId.make(options.scratch ? "scratch-project" : "lead-project");
+      const projectRoots = new Map<string, string>([
+        [projectId, options.scratch ? scratchRoot : lead],
+        ...(options.register?.includes("foreign") ? [["foreign-project", foreign] as const] : []),
+        ...(options.register?.includes("twin")
+          ? [["twin-project", `${foreign}/packages/app`] as const]
+          : []),
+      ]);
       const parent = {
         thread: {
           id: threadId,
@@ -271,7 +297,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           title: "Lead",
           runtimeMode: "full-access",
           interactionMode: "default",
-          worktreePath: bound ? lead : null,
+          worktreePath: options.scratch ? scratchFolder : bound ? lead : null,
           modelSelection: { instanceId: codex.instanceId, model: codex.models[0]!.slug },
         },
         runs: [
@@ -319,7 +345,10 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           getThreadRecords: () => Effect.succeed(parent),
           hasReceipt: () => Effect.succeed(false),
           isProviderInstanceEnabledForProject: () => Effect.succeed(true),
-          listProjectThreads: () => Effect.succeed(occupantsFor(helper)),
+          listProjectThreads: (input) =>
+            Effect.succeed(
+              occupantsFor(helper, { projectId: input.projectId, foreign, foreignHelper }),
+            ),
           dispatch: (command) =>
             Effect.suspend(() => {
               dispatched.push(command);
@@ -336,7 +365,16 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           list: () => Effect.succeed([codex.instanceId, claude.instanceId]),
         }),
         Layer.mock(Projects.ProjectService)({
-          getById: () => Effect.succeed(Option.some({ workspaceRoot: lead } as never)),
+          getById: (id) =>
+            Effect.succeed(
+              Option.fromNullishOr(projectRoots.get(id)).pipe(
+                Option.map((workspaceRoot) => ({ id, workspaceRoot }) as never),
+              ),
+            ),
+          listShells: () =>
+            Effect.succeed(
+              [...projectRoots].map(([id, workspaceRoot]) => ({ id, workspaceRoot }) as never),
+            ),
         }),
         Layer.mock(Secrets.SecretRequests)({}),
         Layer.mock(Scheduled.ScheduledTaskService)({}),
@@ -385,7 +423,19 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
           ),
         );
-      return { lead, helper, foreign, base, policyRoot, delegate, roles, dispatched, locked };
+      return {
+        lead,
+        helper,
+        foreign,
+        foreignHelper,
+        scratchFolder,
+        base,
+        policyRoot,
+        delegate,
+        roles,
+        dispatched,
+        locked,
+      };
     });
 
   it.effect(
@@ -607,6 +657,210 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         agentTask: request({ workspacePath: free.lead, workId: "exporter" }),
       });
       expect([...read.locked, ...free.locked]).toEqual([true, true, false]);
+    }),
+  );
+  it.effect(
+    "sends pinned readers and isolated writers to another registered project, never a sharing writer",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* harness(() => [], true, { register: ["foreign"] });
+        const commands = h.dispatched as Array<{
+          agentTask: AgentTaskBinding;
+        }>;
+        const scout = (workspacePath: string, attemptId = "scout") => ({
+          task: "Map the foreign code",
+          clientRequestId: `foreign-${attemptId}`,
+          agentTask: request({
+            role: "advisor",
+            attemptId,
+            workspacePath,
+            readOnly: true,
+            sourceRevision: "source-pin",
+          }),
+        });
+        yield* h.delegate(scout(h.foreign));
+        expect(commands[0]?.agentTask).toMatchObject({
+          workspacePath: h.foreign,
+          projectId: "foreign-project",
+        });
+        // An isolated writer works in its own workspace of that repository and hands back.
+        yield* h.delegate({
+          task: "Implement it there",
+          clientRequestId: "foreign-isolated",
+          agentTask: request({
+            workId: "foreign-work",
+            workspacePath: h.foreignHelper,
+            workspaceAssignment: "isolated",
+          }),
+        });
+        expect(commands[1]?.agentTask).toMatchObject({
+          workspacePath: h.foreignHelper,
+          projectId: "foreign-project",
+          sourceAccess: "scoped-write",
+        });
+        // Both claimed their workspace under the occupancy lock.
+        expect(h.locked).toEqual([true, true]);
+        // The lead holds no workspace there for a writer to share, and the project's main
+        // checkout is never an isolated workspace.
+        const sharing = yield* h.delegate({
+          task: "Write in the foreign checkout",
+          clientRequestId: "foreign-sharing",
+          agentTask: request({ workId: "sharing", workspacePath: h.foreign }),
+        });
+        expect(sharing.code).toBe("capability_denied");
+        expect(sharing.message).toContain("no workspace of its own");
+        expect(
+          (yield* h.delegate({
+            task: "Write in the foreign main checkout",
+            clientRequestId: "foreign-root-isolated",
+            agentTask: request({
+              workId: "root-isolated",
+              workspacePath: h.foreign,
+              workspaceAssignment: "isolated",
+            }),
+          })).code,
+        ).toBe("capability_denied");
+        // Naming a project that is not registered is refused.
+        expect(
+          (yield* h.delegate({
+            ...scout(h.foreign, "unknown-project"),
+            agentTask: {
+              ...scout(h.foreign, "unknown-project").agentTask,
+              projectId: ProjectId.make("missing-project"),
+            },
+          })).message,
+        ).toContain("is not registered");
+        expect(h.dispatched).toHaveLength(2);
+      }),
+  );
+
+  it.effect("asks which project when several are registered in the target repository", () =>
+    Effect.gen(function* () {
+      const h = yield* harness(() => [], true, { register: ["foreign", "twin"] });
+      const scout = (projectId?: string) => ({
+        task: "Map the foreign code",
+        clientRequestId: `twin-${projectId ?? "inferred"}`,
+        agentTask: request({
+          role: "advisor",
+          attemptId: projectId ?? "inferred",
+          workspacePath: h.foreign,
+          readOnly: true,
+          sourceRevision: "source-pin",
+          ...(projectId === undefined ? {} : { projectId: ProjectId.make(projectId) }),
+        }),
+      });
+      const ambiguous = yield* h.delegate(scout());
+      expect(ambiguous.code).toBe("capability_denied");
+      expect(ambiguous.message).toContain("pass agentTask.projectId");
+      yield* h.delegate(scout("foreign-project"));
+      expect(h.dispatched).toHaveLength(1);
+      expect((h.dispatched[0] as { agentTask: AgentTaskBinding }).agentTask.projectId).toBe(
+        "foreign-project",
+      );
+    }),
+  );
+
+  it.effect("lets a No project chat delegate into a registered project and its own folder", () =>
+    Effect.gen(function* () {
+      const h = yield* harness(() => [], true, { register: ["foreign"], scratch: true });
+      const commands = h.dispatched as Array<{ agentTask: AgentTaskBinding }>;
+      yield* h.delegate({
+        task: "Challenge the Spec",
+        clientRequestId: "scratch-advisor",
+        agentTask: request({
+          role: "advisor",
+          workspacePath: h.foreign,
+          readOnly: true,
+          sourceRevision: "source-pin",
+        }),
+      });
+      expect(commands[0]?.agentTask).toMatchObject({ projectId: "foreign-project" });
+      // Work that needs no repository runs in the chat's own folder.
+      yield* h.delegate({
+        task: "Advise on the approach",
+        clientRequestId: "scratch-folder-advisor",
+        agentTask: request({
+          role: "advisor",
+          workId: "folder-advice",
+          workspacePath: h.scratchFolder,
+          readOnly: true,
+        }),
+      });
+      expect(commands[1]?.agentTask.workspacePath).toBe(h.scratchFolder);
+      expect(commands[1]?.agentTask.projectId).toBeUndefined();
+      // A writer sharing a checkout needs the chat to hold a workspace there.
+      expect(
+        (yield* h.delegate({
+          task: "Write in the foreign checkout",
+          clientRequestId: "scratch-writer",
+          agentTask: request({ workId: "scratch-writer", workspacePath: h.foreign }),
+        })).code,
+      ).toBe("capability_denied");
+      expect(h.dispatched).toHaveLength(2);
+    }),
+  );
+  it.effect("checks another project's workspaces for writers of every project there", () =>
+    Effect.gen(function* () {
+      const writer = (projectId: string, worktreePath: string | null) =>
+        ({
+          id: `writer-in-${projectId}`,
+          projectId,
+          lineage: { rootThreadId: "other-lead" },
+          worktreePath,
+          status: "running",
+          agentTask: { workId: "other-work", sourceAccess: "scoped-write" },
+        }) as unknown as OrchestrationV2ThreadShell;
+      // A live writer in the other project's main checkout keeps a pinned reader out of it.
+      const root = yield* harness(
+        (_, where) =>
+          where.projectId === "foreign-project" ? [writer(where.projectId, where.foreign)] : [],
+        true,
+        { register: ["foreign"] },
+      );
+      const rootReader = {
+        task: "Read the foreign main checkout",
+        clientRequestId: "foreign-root-reader",
+        agentTask: request({
+          role: "advisor",
+          workspacePath: root.foreign,
+          readOnly: true,
+          sourceRevision: "source-pin",
+        }),
+      };
+      expect((yield* root.delegate(rootReader)).message).toContain("another thread is working in");
+      // So does a writer working there unbound, as an ordinary thread at the project root does.
+      const unbound = yield* harness(
+        (_, where) =>
+          where.projectId === "foreign-project" ? [writer(where.projectId, null)] : [],
+        true,
+        { register: ["foreign"] },
+      );
+      expect(
+        (yield* unbound.delegate({
+          ...rootReader,
+          agentTask: { ...rootReader.agentTask, workspacePath: unbound.foreign },
+        })).message,
+      ).toContain("another thread is working in");
+      // A writer registered under a second project of the same repository still occupies
+      // its workspace when the task names the first project.
+      const twin = yield* harness(
+        (_, where) =>
+          where.projectId === "twin-project" ? [writer(where.projectId, where.foreignHelper)] : [],
+        true,
+        { register: ["foreign", "twin"] },
+      );
+      const helper = yield* twin.delegate({
+        task: "Implement it there",
+        clientRequestId: "twin-occupied",
+        agentTask: request({
+          workId: "foreign-work",
+          workspacePath: twin.foreignHelper,
+          workspaceAssignment: "isolated",
+          projectId: ProjectId.make("foreign-project"),
+        }),
+      });
+      expect(helper.message).toContain("another thread is working in");
+      expect([...root.dispatched, ...unbound.dispatched, ...twin.dispatched]).toHaveLength(0);
     }),
   );
 });

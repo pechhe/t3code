@@ -678,6 +678,31 @@ it.effect("keeps delegated child pull-request links independent of the parent", 
     const here = yield* readerThread("Review here");
     assert.equal(here.thread.worktreePath, "/repo-worktree");
     assert.equal(here.thread.branch, "feature/parent-pr");
+    assert.equal(here.thread.projectId, parent.thread.projectId);
+
+    // A task sent to another registered project's repository belongs to that project.
+    const otherProject = ProjectId.make("project:other-repository");
+    yield* orchestrator.dispatch({
+      type: "delegated_task.request",
+      commandId: CommandId.make("delegate-other-project"),
+      parentThreadId,
+      parentRunId: parentRun.id,
+      parentNodeId: parentRun.rootNodeId!,
+      agentTask: { ...isolated, workspacePath: "/other-helper", projectId: otherProject },
+      task: "Implement it in the other repository",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const other = yield* projections.getThreadProjection(
+      (yield* projections.getThreadProjection(parentThreadId)).subagents.find(
+        (task) => task.prompt === "Implement it in the other repository",
+      )!.childThreadId!,
+    );
+    assert.equal(other.thread.projectId, otherProject);
+    assert.equal(other.thread.worktreePath, "/other-helper");
 
     const childPullRequest = {
       ...parentPullRequest,

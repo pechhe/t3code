@@ -1025,6 +1025,29 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  const listProjects = projects.listShells().pipe(
+    Effect.mapError((error) =>
+      failure("orchestration_error", `Unable to read projects: ${error.message}`),
+    ),
+  );
+
+  // Another project's workspace may be occupied by a thread of any project registered in its
+  // repository, including one working unbound in its main checkout, so a task sent there is
+  // checked against all of them.
+  const occupantsEverywhere = listProjects.pipe(
+    Effect.flatMap((all) =>
+      Effect.forEach(all, (project) =>
+        threadManagement
+          .listProjectThreads({ projectId: project.id, includeSubagents: true })
+          .pipe(
+            Effect.map((threads) => workspaceOccupants(threads, project.workspaceRoot)),
+            Effect.mapError(threadManagementFailure),
+          ),
+      ),
+    ),
+    Effect.map((occupants) => occupants.flat()),
+  );
+
   const projectDefaultModelSelection = (
     project: Effect.Success<ReturnType<typeof requireProject>>,
   ) =>
@@ -2457,9 +2480,12 @@ const make = Effect.gen(function* () {
                 "invalid_request",
                 "The agent is busy, awaiting result publication, or closed. If the advisor is closed, start a new advisor.",
               );
+            // A task sent to another project stays there, where the caller holds no workspace.
+            const taskProjectId = followupTarget.projectId ?? parent.thread.projectId;
+            const foreign = taskProjectId !== parent.thread.projectId;
             const providers = yield* Effect.filter(yield* loadProviders, (provider) =>
               threadManagement.isProviderInstanceEnabledForProject({
-                projectId: parent.thread.projectId,
+                projectId: taskProjectId,
                 instanceId: provider.instanceId,
               }),
             );
@@ -2468,20 +2494,23 @@ const make = Effect.gen(function* () {
                 binding: followupTarget,
                 runtimeMode: child.thread.runtimeMode,
                 selection: binding.effective,
-                projectId: parent.thread.projectId,
+                projectId: taskProjectId,
                 providers,
                 ceiling: parent.thread.runtimeMode,
-                workspacePath: parent.thread.worktreePath,
+                workspacePath: foreign ? null : parent.thread.worktreePath,
                 owner: threadOwner(parent.thread),
-                projectRoot: (yield* requireProject(parent.thread.projectId)).workspaceRoot,
-                occupants: workspaceOccupants(
-                  yield* threadManagement
-                    .listProjectThreads({
-                      projectId: parent.thread.projectId,
-                      includeSubagents: true,
-                    })
-                    .pipe(Effect.mapError(threadManagementFailure)),
-                ),
+                projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
+                ...(foreign ? { foreignProject: true } : {}),
+                occupants: foreign
+                  ? yield* occupantsEverywhere
+                  : workspaceOccupants(
+                      yield* threadManagement
+                        .listProjectThreads({
+                          projectId: taskProjectId,
+                          includeSubagents: true,
+                        })
+                        .pipe(Effect.mapError(threadManagementFailure)),
+                    ),
               })
               .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
             if (binding.workUnitId !== undefined)
@@ -2617,12 +2646,32 @@ const make = Effect.gen(function* () {
             );
           return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
         }
+        // A managed task may work in any registered project's repository, not only the caller's.
+        const taskProjectId =
+          managedService === undefined || input.agentTask === undefined
+            ? parent.thread.projectId
+            : yield* managedService
+                .targetProject({
+                  request: input.agentTask,
+                  callerProjectId: parent.thread.projectId,
+                  callerCheckout: parent.thread.worktreePath,
+                  projects: listProjects,
+                })
+                .pipe(
+                  Effect.mapError((error) =>
+                    Schema.is(ManagedAgent.ManagedAgentError)(error)
+                      ? failure("capability_denied", error.message)
+                      : error,
+                  ),
+                );
+        // The caller holds no workspace in another project, so its task never shares one there.
+        const foreign = taskProjectId !== parent.thread.projectId;
         const eligibleProviders =
           input.agentTask === undefined
             ? providers
             : yield* Effect.filter(providers, (provider) =>
                 threadManagement.isProviderInstanceEnabledForProject({
-                  projectId: parent.thread.projectId,
+                  projectId: taskProjectId,
                   instanceId: provider.instanceId,
                 }),
               );
@@ -2663,6 +2712,7 @@ const make = Effect.gen(function* () {
         // A pinned reader may use another workspace of the repository, so it is checked
         // against the writers there just as an isolated helper is.
         const elsewhere =
+          foreign ||
           isolated ||
           (input.agentTask?.sourceRevision !== undefined &&
             input.agentTask.workspacePath !== parent.thread.worktreePath);
@@ -2672,8 +2722,16 @@ const make = Effect.gen(function* () {
           if (!elsewhere && bound) return {};
           const occupants = () =>
             threadManagement
-              .listProjectThreads({ projectId: parent.thread.projectId, includeSubagents: true })
+              .listProjectThreads({ projectId: taskProjectId, includeSubagents: true })
               .pipe(Effect.map(workspaceOccupants), Effect.mapError(threadManagementFailure));
+          if (foreign)
+            return {
+              owner: threadOwner(parent.thread),
+              workspacePath: null,
+              projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
+              foreignProject: true,
+              occupants: yield* occupantsEverywhere,
+            };
           // A bound lead's own binding is its workspace; only isolated helpers and unbound
           // leads compare against the project's main checkout.
           if (bound && !isolated)
@@ -2683,7 +2741,10 @@ const make = Effect.gen(function* () {
           return { owner: threadOwner(parent.thread), projectRoot, occupants: yield* occupants() };
         });
         const workspaceAuthority = yield* readWorkspaceAuthority;
-        const agentTask = input.agentTask;
+        const agentTask =
+          input.agentTask === undefined || !foreign
+            ? input.agentTask
+            : { ...input.agentTask, projectId: taskProjectId };
         const prepared =
           managedService === undefined || agentTask === undefined
             ? undefined
@@ -2713,7 +2774,7 @@ const make = Effect.gen(function* () {
                     managedService
                       .prepare({
                         runtimeMode,
-                        projectId: parent.thread.projectId,
+                        projectId: taskProjectId,
                         request: agentTask,
                         requestFingerprint,
                         ...(workUnit === undefined ? {} : { policyHash: workUnit.policyHash }),
@@ -2762,7 +2823,7 @@ const make = Effect.gen(function* () {
             : experiments.assignForTask({
                 ...(prepared === undefined ? {} : { agentTask: prepared.binding }),
                 threadId: deriveIds.delegatedTaskThread({ commandId }),
-                projectId: parent.thread.projectId,
+                projectId: taskProjectId,
                 modelSelection: target.modelSelection,
                 unitId: deriveIds.delegatedTaskNode({ commandId }),
                 unitCreatedAt: DateTime.formatIso(yield* DateTime.now),
@@ -2895,7 +2956,7 @@ const make = Effect.gen(function* () {
                 binding: prepared.binding,
                 runtimeMode,
                 selection: target.modelSelection,
-                projectId: parent.thread.projectId,
+                projectId: taskProjectId,
                 providers: eligibleProviders,
                 ceiling: parent.thread.runtimeMode,
                 workspacePath: parent.thread.worktreePath,

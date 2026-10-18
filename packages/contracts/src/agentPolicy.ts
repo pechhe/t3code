@@ -387,6 +387,12 @@ const agentTaskRequestFields = {
   workId: TrimmedNonEmptyString,
   attemptId: TrimmedNonEmptyString,
   workspacePath: TrimmedNonEmptyString,
+  /**
+   * The registered project whose repository holds `workspacePath`. Absent means the caller's
+   * own project when the path is in its repository, otherwise the one registered project whose
+   * repository holds it; needed only when several projects share that repository.
+   */
+  projectId: Schema.optional(ProjectId),
   /** Absent means `lead`; records from before isolated workspaces are all lead-bound. */
   workspaceAssignment: Schema.optional(AgentWorkspaceAssignment),
   sourceRevision: Schema.optional(TrimmedNonEmptyString),

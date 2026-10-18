@@ -99,6 +99,12 @@ type Authority = {
   readonly workspacePath: string | null;
   /** The project's main checkout, which an isolated helper never uses. */
   readonly projectRoot?: string;
+  /**
+   * The task works in another registered project's repository, where the caller holds no
+   * checkout: only pinned readers and isolated writers go there, and even that project's main
+   * checkout is checked for live writers.
+   */
+  readonly foreignProject?: boolean;
   /** Threads bound to workspaces, so an isolated one has one owner and one writer. */
   readonly occupants?: ReadonlyArray<WorkspaceOccupant>;
   /** The accountable lead requesting the work, in the same terms as an occupant's owner. */
@@ -134,6 +140,22 @@ export class ManagedAgentService extends Context.Service<
         readonly selection: ModelSelection;
       },
     ) => Effect.Effect<void, ManagedAgentError>;
+    /**
+     * The registered project whose repository holds a task's workspace: the named one, else the
+     * caller's own when the path is in its repository, else the one registered project whose
+     * repository holds it. A path in no registered repository stays with the caller, whose
+     * workspace rules then refuse it; a path several projects share needs an explicit project.
+     */
+    readonly targetProject: <E>(input: {
+      readonly request: Pick<AgentTaskRequest, "workspacePath" | "projectId">;
+      readonly callerProjectId: ProjectId;
+      /** The caller's own checkout, which settles the common case without listing projects. */
+      readonly callerCheckout: string | null;
+      readonly projects: Effect.Effect<
+        ReadonlyArray<{ readonly id: ProjectId; readonly workspaceRoot: string }>,
+        E
+      >;
+    }) => Effect.Effect<ProjectId, ManagedAgentError | E>;
     /** Whether this environment names a policy, readable or not. */
     readonly configured: () => Effect.Effect<boolean>;
     /** Serialises workspace occupancy checks with the launch they authorise, across routes. */
@@ -316,8 +338,9 @@ const make = Effect.gen(function* () {
     if (pinnedReader) {
       // In another workspace, a live writer would change the files under the reader after the
       // pin was checked. The lead's own checkout is always occupied by the lead, which may read
-      // it beside its own work exactly as an unpinned reader does.
-      if (expected !== lead) {
+      // it beside its own work exactly as an unpinned reader does; another project's main
+      // checkout is never the lead's.
+      if (expected !== lead || authority.foreignProject === true) {
         yield* sameRepository();
         if (
           (authority.occupants ?? []).some(
@@ -328,6 +351,10 @@ const make = Effect.gen(function* () {
           return yield* refuse(occupied);
       }
     } else if (assignment === "lead") {
+      if (authority.foreignProject === true)
+        return yield* refuse(
+          'this thread has no workspace of its own in that project; pin sourceRevision for read-only work there, or pass workspaceAssignment "isolated" with a separately allocated workspace',
+        );
       if (expected !== lead)
         return yield* refuse(
           `a task sharing the lead's workspace must use ${lead}; pin sourceRevision for read-only work elsewhere, or pass workspaceAssignment "isolated" with a separately allocated workspace`,
@@ -433,6 +460,41 @@ const make = Effect.gen(function* () {
   });
   const isolatedLaunches = yield* Semaphore.make(1);
   return ManagedAgentService.of({
+    targetProject: Effect.fn("ManagedAgentService.targetProject")(function* ({
+      request,
+      callerProjectId,
+      callerCheckout,
+      projects: listProjects,
+    }) {
+      if (request.projectId !== undefined) {
+        if (!(yield* listProjects).some((project) => project.id === request.projectId))
+          return yield* new ManagedAgentError({
+            reason: "workspace",
+            detail: `project ${request.projectId} is not registered`,
+          });
+        return request.projectId;
+      }
+      const store = (directory: string) =>
+        local(containingRepositoryStore(directory)).pipe(Effect.orElseSucceed(() => undefined));
+      const target = yield* store(request.workspacePath);
+      if (target === undefined) return callerProjectId;
+      if (callerCheckout !== null && (yield* store(callerCheckout)) === target)
+        return callerProjectId;
+      const projects = yield* listProjects;
+      const caller = projects.find((project) => project.id === callerProjectId);
+      if (caller !== undefined && (yield* store(caller.workspaceRoot)) === target)
+        return callerProjectId;
+      const matches = yield* Effect.filter(
+        projects.filter((project) => project.id !== callerProjectId),
+        (project) => store(project.workspaceRoot).pipe(Effect.map((found) => found === target)),
+      );
+      if (matches.length > 1)
+        return yield* new ManagedAgentError({
+          reason: "workspace",
+          detail: `${request.workspacePath} is in a repository several projects are registered in (${matches.map((project) => project.id).join(", ")}); pass agentTask.projectId`,
+        });
+      return matches[0]?.id ?? callerProjectId;
+    }),
     configured: () =>
       Config.option(Config.String("T3CODE_AGENT_POLICY_ROOT")).pipe(
         Effect.map(Option.isSome),

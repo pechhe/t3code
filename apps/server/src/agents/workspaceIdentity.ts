@@ -138,21 +138,26 @@ export const threadOwner = (
 ): string =>
   thread.agentTask?.externalOwner?.externalSessionKey ?? thread.lineage?.rootThreadId ?? thread.id;
 
-/** Threads bound to a workspace; one without a managed read-only binding writes. */
+/**
+ * Threads bound to a workspace; one without a managed read-only binding writes. Given its
+ * project's main checkout, an unbound thread occupies that checkout, where it runs.
+ */
 export const workspaceOccupants = (
   shells: ReadonlyArray<OrchestrationV2ThreadShell>,
+  projectRoot?: string,
 ): ReadonlyArray<WorkspaceOccupant> =>
-  shells.flatMap((shell) =>
-    shell.worktreePath === null
+  shells.flatMap((shell) => {
+    const workspacePath = shell.worktreePath ?? projectRoot;
+    return workspacePath === undefined
       ? []
       : [
           {
-            workspacePath: shell.worktreePath,
+            workspacePath,
             owner: threadOwner(shell),
             workId: shell.agentTask?.workId ?? null,
             attemptId: shell.agentTask?.attemptId ?? null,
             writes: shell.agentTask?.sourceAccess !== "read-only",
             running: !SETTLED.has(shell.status),
           },
-        ],
-  );
+        ];
+  });

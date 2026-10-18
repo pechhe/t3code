@@ -7182,6 +7182,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           creationSource: command.creationSource,
         }),
         ...(command.agentTask === undefined ? {} : { agentTask: command.agentTask }),
+        // A task sent to another registered project belongs to it, so that project's
+        // occupancy, settings and workspace preparation see it.
+        ...(command.agentTask?.projectId === undefined
+          ? {}
+          : { projectId: command.agentTask.projectId }),
         // A managed task runs, resumes and checkpoints in its admitted workspace: an isolated
         // helper's own, or the workspace a pinned reader was sent to instead of the lead's.
         ...(command.agentTask !== undefined && command.agentTask.workspacePath !== leadCheckout
