@@ -338,6 +338,7 @@ describe("searchSettings", () => {
     const targets = [
       "capture accessibility data",
       "capture shortcut",
+      "show or hide shortcut",
       "capture sound",
       "capture flash",
       "capture animations",
@@ -349,6 +350,7 @@ describe("searchSettings", () => {
     expect(targets).toEqual([
       ["snap-shot-accessibility", "snap-shot-enabled"],
       ["snap-shot-shortcut", "snap-shot-enabled"],
+      ["snap-shot-overlay-shortcut", "snap-shot-enabled"],
       ["snap-shot-sound", "snap-shot-enabled"],
       ["snap-shot-flash", "snap-shot-enabled"],
       ["snap-shot-animations", "snap-shot-enabled"],

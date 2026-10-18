@@ -21,11 +21,11 @@ describe("SnapShot overlay window", () => {
     workArea: { x: 1440, y: 25, width: 1920, height: 985 },
   };
 
-  it("puts its composer where the main window's composer rests, reaching the screen edge", () => {
+  it("puts its composer where the main window's composer rests, from the work area's top to the screen edge", () => {
     const composer = { x: 1900, y: 400, width: 736, height: 560 };
     expect(snapShotOverlayPlacement({ display, composer, zoomFactor: 1 })).toEqual({
-      bounds: { x: 1900 - 24, y: 960 - 640, width: 736 + 48, height: 1080 - (960 - 640) },
-      bottomInset: 1080 - 960,
+      bounds: { x: 1900 - 24, y: 25, width: 736 + 48, height: 1080 - 25 },
+      insets: { composer: 1080 - 960, workArea: 1080 - 1010 },
     });
   });
 
@@ -34,13 +34,16 @@ describe("SnapShot overlay window", () => {
     const placement = snapShotOverlayPlacement({ display, composer, zoomFactor: 1.25 });
     expect(placement.bounds.x).toBe(1900 - 30);
     expect(placement.bounds.width).toBe(920 + 60);
-    expect(placement.bottomInset).toBe((1080 - 960) / 1.25);
+    expect(placement.insets).toEqual({
+      composer: (1080 - 960) / 1.25,
+      workArea: (1080 - 1010) / 1.25,
+    });
   });
 
   it("sits at the bottom centre of the display without a main window to match", () => {
     expect(snapShotOverlayPlacement({ display, composer: null, zoomFactor: 1 })).toEqual({
-      bounds: { x: 1440 + 592 - 24, y: 998 - 640, width: 736 + 48, height: 1080 - (998 - 640) },
-      bottomInset: 1080 - 998,
+      bounds: { x: 1440 + 592 - 24, y: 25, width: 736 + 48, height: 1080 - 25 },
+      insets: { composer: 1080 - 998, workArea: 1080 - 1010 },
     });
   });
 

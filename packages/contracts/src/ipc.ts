@@ -214,6 +214,15 @@ export const DesktopViewportFrame = Schema.Struct({
 });
 export type DesktopViewportFrame = typeof DesktopViewportFrame.Type;
 
+/** How far the SnapShot overlay window reaches below its composer and below the work area. */
+export const DesktopSnapShotOverlayInsets = Schema.Struct({
+  /** From the composer's resting edge down to the window's bottom, in CSS pixels. */
+  composer: Schema.Number,
+  /** From the bottom of the work area, above any Dock, down to the window's bottom. */
+  workArea: Schema.Number,
+});
+export type DesktopSnapShotOverlayInsets = typeof DesktopSnapShotOverlayInsets.Type;
+
 /** An unsent SnapShot overlay chat, handed to the main window to carry on there. */
 export const DesktopSnapShotDraftHandoff = Schema.Struct({
   projectRef: ScopedProjectRef,
@@ -1140,6 +1149,8 @@ export interface DesktopBridge {
   acknowledgeSnapShot?: (id: string) => Promise<void>;
   /** Hides the SnapShot overlay window; its chat and draft stay as they are. */
   hideSnapShotOverlay?: () => Promise<void>;
+  /** The overlay's show-or-hide shortcut asks the visible overlay to slide away. */
+  onSnapShotOverlayHideRequest?: (listener: () => void) => () => void;
   /** Lets the overlay take the pointer over its content; elsewhere clicks reach the app behind. */
   setSnapShotOverlayInteractive?: (interactive: boolean) => Promise<void>;
   /**
@@ -1147,8 +1158,7 @@ export interface DesktopBridge {
    * SnapShot overlay can put its composer in the same place.
    */
   setMainComposerFrame?: (frame: DesktopViewportFrame) => Promise<void>;
-  /** How far below the overlay's composer its window reaches, in CSS pixels. */
-  getSnapShotOverlayBottomInset?: () => Promise<number>;
+  getSnapShotOverlayInsets?: () => Promise<DesktopSnapShotOverlayInsets>;
   /** The main window took focus while the overlay is up: hand the overlay's chat to it. */
   onSnapShotOverlayHandoffRequest?: (listener: () => void) => () => void;
   /** Gives the overlay's unsent chat to the main window and hides the overlay. */

@@ -34,6 +34,10 @@ import {
   type DesktopSnapShotBridge,
 } from "../../lib/desktopSnapShot";
 import { readFileAsDataUrl } from "../ChatView.logic";
+import {
+  isEndedSnapShotConversation,
+  useSnapShotOverlaySession,
+} from "../snapShot/snapShotOverlaySession";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 
 type CaptureTarget = DraftId | ScopedThreadRef;
@@ -201,14 +205,16 @@ export async function deliverSnapShot(
 }
 
 /**
- * In the SnapShot overlay a capture joins the open chat only while it is unsent; once sent, the
- * next capture starts a fresh chat without a project. Elsewhere it joins the current chat.
+ * A capture joins the chat on screen. In the SnapShot overlay that holds until the user ends the
+ * conversation; the next capture then starts a fresh chat without a project.
  */
 export function reusableSnapShotTarget(
   target: CaptureTarget | null,
   overlay: boolean,
 ): CaptureTarget | null {
-  return overlay && typeof target !== "string" ? null : target;
+  if (!overlay || target === null || typeof target === "string") return target;
+  const { ended } = useSnapShotOverlaySession.getState();
+  return isEndedSnapShotConversation(ended, target) ? null : target;
 }
 
 export function SnapShotCoordinator({

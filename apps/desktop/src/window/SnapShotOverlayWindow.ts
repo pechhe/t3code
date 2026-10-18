@@ -1,10 +1,12 @@
+import type { DesktopSnapShotOverlayInsets } from "@t3tools/contracts";
 import type * as Electron from "electron";
 
 /** Marks the renderer as the SnapShot overlay; read once by the web app at startup. */
 export const SNAP_SHOT_OVERLAY_SURFACE = "snap-shot-overlay";
 
-// Room above the composer for its menus and, later, an answer.
-const OVERLAY_HEIGHT = 640;
+// Before its first placement, which stretches it from the top of the work area to the bottom of
+// the screen: room above the composer for its menus and the whole conversation.
+const INITIAL_OVERLAY_HEIGHT = 640;
 // Either side of the composer, for its shadow; the renderer pads its lane by the same amount.
 const OVERLAY_SIDE_MARGIN = 24;
 // The composer's width without a main window to match: the default chat width.
@@ -31,7 +33,7 @@ export function snapShotOverlayWindowOptions(input: {
 }): Electron.BrowserWindowConstructorOptions {
   return {
     width: DEFAULT_COMPOSER_WIDTH + 2 * OVERLAY_SIDE_MARGIN,
-    height: OVERLAY_HEIGHT,
+    height: INITIAL_OVERLAY_HEIGHT,
     show: false,
     frame: false,
     transparent: true,
@@ -65,16 +67,16 @@ export function snapShotOverlayWindowOptions(input: {
 
 export interface SnapShotOverlayPlacement {
   readonly bounds: Electron.Rectangle;
-  /** From the composer's resting edge down to the window's bottom, in CSS pixels. */
-  readonly bottomInset: number;
+  readonly insets: DesktopSnapShotOverlayInsets;
 }
 
 /**
  * Puts the overlay's composer exactly where the main window's composer sits, so switching to
  * T3 finds the same composer in the same place. `composer` is that composer's column on screen,
  * whose bottom edge is where it rests; without it, the composer sits at the bottom centre of
- * the display. Either way the window reaches the bottom of the screen, under any Dock, so the
- * composer can slide in from the edge.
+ * the display. Either way the window spans from the top of the work area to the bottom of the
+ * screen, under any Dock, so the composer can slide in from the edge and the conversation can
+ * open above it.
  */
 export function snapShotOverlayPlacement(input: {
   readonly display: Pick<Electron.Display, "bounds" | "workArea">;
@@ -95,7 +97,7 @@ export function snapShotOverlayPlacement(input: {
     ? column.x
     : Math.round(workArea.x + (workArea.width - column.width) / 2);
   const anchor = Math.round(Math.min(column.y + column.height, bottom));
-  const top = Math.max(workArea.y, anchor - Math.round(OVERLAY_HEIGHT * zoom));
+  const top = workArea.y;
   return {
     bounds: {
       x: Math.round(x) - margin,
@@ -103,7 +105,10 @@ export function snapShotOverlayPlacement(input: {
       width: Math.round(column.width) + 2 * margin,
       height: bottom - top,
     },
-    bottomInset: (bottom - anchor) / zoom,
+    insets: {
+      composer: (bottom - anchor) / zoom,
+      workArea: (bottom - (workArea.y + workArea.height)) / zoom,
+    },
   };
 }
 

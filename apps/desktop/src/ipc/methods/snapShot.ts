@@ -13,6 +13,7 @@ import {
   ScopedProjectRef,
   ScopedThreadRef,
   DesktopSnapShotDraftHandoff,
+  DesktopSnapShotOverlayInsets,
   DesktopViewportFrame,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -264,13 +265,13 @@ export const setMainComposerFrame = DesktopIpc.makeIpcMethod({
   }),
 });
 
-export const getSnapShotOverlayBottomInset = DesktopIpc.makeIpcMethod({
-  channel: IpcChannels.GET_SNAP_SHOT_OVERLAY_BOTTOM_INSET_CHANNEL,
+export const getSnapShotOverlayInsets = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.GET_SNAP_SHOT_OVERLAY_INSETS_CHANNEL,
   payload: Schema.Void,
-  result: Schema.Number,
-  handler: Effect.fn("desktop.ipc.snapShot.getOverlayBottomInset")(function* (_, event) {
+  result: DesktopSnapShotOverlayInsets,
+  handler: Effect.fn("desktop.ipc.snapShot.getOverlayInsets")(function* (_, event) {
     yield* ensureTrustedSnapShotSender(event);
-    return yield* (yield* DesktopWindow.DesktopWindow).snapShotOverlayBottomInset;
+    return yield* (yield* DesktopWindow.DesktopWindow).snapShotOverlayInsets;
   }),
 });
 

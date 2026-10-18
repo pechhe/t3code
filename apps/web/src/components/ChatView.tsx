@@ -412,6 +412,8 @@ import {
   SNAP_SHOT_DOCK_CLASS_NAME,
   SnapShotOverlayAbove,
   SnapShotOverlayDockPill,
+  SnapShotOverlayExpandedHeader,
+  SNAP_SHOT_EXPANDED_CLASS_NAME,
 } from "./snapShot/SnapShotOverlayChat";
 import { useSnapShotOverlayDock } from "./snapShot/snapShotOverlayDock";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
@@ -2828,7 +2830,11 @@ export default function ChatView(props: ChatViewProps) {
   const timelineMessages = timelineEntries.flatMap((entry) =>
     entry.kind === "message" ? [entry.message] : [],
   );
-  const overlayDock = useSnapShotOverlayDock(timelineMessages, isWorking);
+  // A turn counts as working from the send until its run settles, as the timeline sees it.
+  const overlayDock = useSnapShotOverlayDock(
+    timelineMessages,
+    isWorking || (activeLatestRun !== null && !latestRunSettled),
+  );
   const displayedTimeline = resolveThreadSwitchTimeline({
     loading: timelineEntries.length === 0 && threadSyncPhase !== null,
     activeThreadKey,
@@ -8199,11 +8205,22 @@ export default function ChatView(props: ChatViewProps) {
             </div>
             <div
               className={cn(
-                "relative flex min-h-0 flex-1 flex-col bg-background",
-                // The overlay shows only its composer.
-                overlayPresentation && "invisible",
+                "relative flex min-h-0 flex-1 flex-col",
+                // The overlay shows only its composer, unless asked for the whole conversation.
+                !overlayPresentation
+                  ? "bg-background"
+                  : overlayDock.expanded
+                    ? cn(SNAP_SHOT_EXPANDED_CLASS_NAME, "pointer-events-auto")
+                    : "invisible",
               )}
             >
+              {overlayPresentation && overlayDock.expanded ? (
+                <SnapShotOverlayExpandedHeader
+                  dock={overlayDock}
+                  title={activeThread?.title ?? overlayDock.prompt?.text ?? ""}
+                  threadRef={isServerThread ? activeThreadRef : null}
+                />
+              ) : null}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
@@ -8403,6 +8420,7 @@ export default function ChatView(props: ChatViewProps) {
                       projectRef={activeProjectRef}
                       projectTitle={activeProject?.title ?? null}
                       threadRef={isServerThread ? activeThreadRef : null}
+                      composerTarget={composerDraftTarget}
                       cwd={gitCwd ?? undefined}
                     />
                   ) : null}

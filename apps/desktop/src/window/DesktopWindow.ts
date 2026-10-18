@@ -11,6 +11,7 @@ import * as Electron from "electron";
 import {
   type DesktopSnapShotDraftHandoff,
   type DesktopSnapShotEvent,
+  type DesktopSnapShotOverlayInsets,
   type DesktopViewportFrame,
   type ScopedProjectRef,
   type ScopedThreadRef,
@@ -32,6 +33,7 @@ import {
   SNAP_SHOT_DRAFT_HANDOFF_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL,
+  SNAP_SHOT_OVERLAY_HIDE_REQUEST_CHANNEL,
   SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
@@ -134,12 +136,17 @@ export class DesktopWindow extends Context.Service<
     /** Shows the overlay over the front app; false when there is no overlay window. */
     readonly showSnapShotOverlay: Effect.Effect<boolean>;
     readonly hideSnapShotOverlay: Effect.Effect<void>;
+    /**
+     * The overlay's show-or-hide shortcut: a visible overlay slides away, keeping its chat; a
+     * hidden one comes back as it was, without a snapshot.
+     */
+    readonly toggleSnapShotOverlay: Effect.Effect<void>;
     /** Takes the pointer while it is over the overlay's content; elsewhere clicks pass through. */
     readonly setSnapShotOverlayInteractive: (interactive: boolean) => Effect.Effect<void>;
     /** Where the main window's composer rests, which the overlay's composer lines up with. */
     readonly setMainComposerFrame: (frame: DesktopViewportFrame) => Effect.Effect<void>;
-    /** From the overlay's composer down to its window's bottom edge, in CSS pixels. */
-    readonly snapShotOverlayBottomInset: Effect.Effect<number>;
+    /** How far the overlay window reaches below its composer and below the work area. */
+    readonly snapShotOverlayInsets: Effect.Effect<DesktopSnapShotOverlayInsets>;
     /** Gives the overlay's unsent chat to the main window, revealing it, and hides the overlay. */
     readonly handOffSnapShotDraft: (
       draft: DesktopSnapShotDraftHandoff,
@@ -369,7 +376,10 @@ export const make = Effect.gen(function* () {
     Effect.map(Option.filter((window) => !window.isDestroyed())),
   );
   const mainComposerFrameRef = yield* Ref.make<Option.Option<DesktopViewportFrame>>(Option.none());
-  const snapShotOverlayBottomInsetRef = yield* Ref.make(0);
+  const snapShotOverlayInsetsRef = yield* Ref.make<DesktopSnapShotOverlayInsets>({
+    composer: 0,
+    workArea: 0,
+  });
   // Asked for before the backend was ready; made as soon as it is.
   const snapShotOverlayWantedRef = yield* Ref.make(false);
 
@@ -1078,7 +1088,7 @@ export const make = Effect.gen(function* () {
       const placement = snapShotOverlayPlacement({ display, composer, zoomFactor });
       window.webContents.setZoomFactor(zoomFactor);
       window.setBounds(placement.bounds);
-      yield* Ref.set(snapShotOverlayBottomInsetRef, placement.bottomInset);
+      yield* Ref.set(snapShotOverlayInsetsRef, placement.insets);
     }
     return Option.some(window.getBounds());
   }).pipe(Effect.withSpan("desktop.window.placeSnapShotOverlay"));
@@ -1106,6 +1116,17 @@ export const make = Effect.gen(function* () {
     // Hidden, the overlay rests its composer below the screen edge, ready to slide in again.
     overlay.value.webContents.send(SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL, false);
   }).pipe(Effect.withSpan("desktop.window.hideSnapShotOverlay"));
+
+  const toggleSnapShotOverlay = Effect.gen(function* () {
+    const overlay = yield* liveSnapShotOverlay;
+    if (Option.isSome(overlay) && overlay.value.isVisible()) {
+      // The overlay slides its composer away, then asks to be hidden.
+      overlay.value.webContents.send(SNAP_SHOT_OVERLAY_HIDE_REQUEST_CHANNEL);
+      return;
+    }
+    if (Option.isNone(yield* placeSnapShotOverlay)) return;
+    yield* showSnapShotOverlay;
+  }).pipe(Effect.withSpan("desktop.window.toggleSnapShotOverlay"));
 
   const handOffSnapShotDraft = Effect.fn("desktop.window.handOffSnapShotDraft")(function* (
     draft: DesktopSnapShotDraftHandoff,
@@ -1188,9 +1209,10 @@ export const make = Effect.gen(function* () {
     placeSnapShotOverlay,
     showSnapShotOverlay,
     hideSnapShotOverlay,
+    toggleSnapShotOverlay,
     setSnapShotOverlayInteractive,
     setMainComposerFrame: (frame) => Ref.set(mainComposerFrameRef, Option.some(frame)),
-    snapShotOverlayBottomInset: Ref.get(snapShotOverlayBottomInsetRef),
+    snapShotOverlayInsets: Ref.get(snapShotOverlayInsetsRef),
     handOffSnapShotDraft,
     prepareSnapShotDraftHandoff,
     snapShotOverlayFor: (webContentsId) =>

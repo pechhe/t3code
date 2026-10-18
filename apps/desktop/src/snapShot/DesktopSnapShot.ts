@@ -1053,6 +1053,33 @@ export const make = Effect.gen(function* () {
   }).pipe(Effect.withSpan("desktop.snapShot.shortcutActivated"));
   const onShortcut = () => runPromise(captureFromShortcut).catch(() => undefined);
 
+  // The overlay's show-or-hide shortcut sits beside the capture shortcut, and gives way to a
+  // capture shortcut on the same keys.
+  let registeredOverlayAccelerator: string | undefined;
+  const onOverlayShortcut = () => {
+    if (shortcutSuppressed) return;
+    void runPromise(desktopWindow.toggleSnapShotOverlay).catch(() => undefined);
+  };
+  const releaseOverlayShortcut = () => {
+    if (registeredOverlayAccelerator)
+      Electron.globalShortcut.unregister(registeredOverlayAccelerator);
+    registeredOverlayAccelerator = undefined;
+  };
+  const applyOverlayShortcut = (settings: ClientSettings) => {
+    const accelerator = overlayEnabled(settings)
+      ? toElectronAccelerator(settings.snapShotOverlayShortcut)
+      : undefined;
+    const captureAccelerator = isModifierPairShortcut(settings.snapShotShortcut)
+      ? undefined
+      : toElectronAccelerator(settings.snapShotShortcut);
+    const wanted = accelerator === captureAccelerator ? undefined : accelerator;
+    if (wanted === registeredOverlayAccelerator) return;
+    releaseOverlayShortcut();
+    if (wanted && Electron.globalShortcut.register(wanted, onOverlayShortcut)) {
+      registeredOverlayAccelerator = wanted;
+    }
+  };
+
   const checkShortcut = Effect.fn("desktop.snapShot.checkShortcut")(function* (
     shortcut: SnapShotShortcut,
   ) {
@@ -1118,7 +1145,7 @@ export const make = Effect.gen(function* () {
     return available;
   });
 
-  const applySettings = Effect.fn("desktop.snapShot.applySettings")(function* (
+  const applyCaptureSettings = Effect.fn("desktop.snapShot.applySettings")(function* (
     settings: ClientSettings,
     requestedPermissionMessage: string | null,
     forceShortcut = false,
@@ -1344,6 +1371,18 @@ export const make = Effect.gen(function* () {
     });
   });
 
+  // The overlay's shortcut steps aside before the capture shortcut takes its keys, and takes
+  // them back once the capture shortcut has let go of them.
+  const applySettings = (
+    settings: ClientSettings,
+    requestedPermissionMessage: string | null,
+    forceShortcut = false,
+  ) =>
+    Effect.sync(() => applyOverlayShortcut(settings)).pipe(
+      Effect.andThen(applyCaptureSettings(settings, requestedPermissionMessage, forceShortcut)),
+      Effect.ensuring(Effect.sync(() => applyOverlayShortcut(settings))),
+    );
+
   const setShortcutSuppressed = (suppressed: boolean) =>
     Effect.sync(() => {
       shortcutSuppressed = suppressed;
@@ -1503,6 +1542,7 @@ export const make = Effect.gen(function* () {
   yield* Effect.addFinalizer(() =>
     Effect.sync(() => {
       releaseShortcut();
+      releaseOverlayShortcut();
       flash.dispose();
       transition.dispose();
       closeLinuxFeedback();

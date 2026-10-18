@@ -48,6 +48,7 @@ import { Menu, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger }
 import { SelectButton } from "../ui/select";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
+import { SnapShotOverlayShortcutRow } from "./SnapShotOverlayShortcutRow";
 import { SnapShotSetupDialog } from "./SnapShotSetupDialog";
 import { useSnapShotShortcutRecorder } from "./useSnapShotShortcutRecorder";
 import {
@@ -511,6 +512,7 @@ export function SnapShotSettings() {
                   )
                 }
               />
+              {state?.overlay ? <SnapShotOverlayShortcutRow disabled={setupBusy} /> : null}
               <SettingsRow
                 {...searchableSetting("snap-shot-sound")}
                 description="Choose the sound played when capture starts."

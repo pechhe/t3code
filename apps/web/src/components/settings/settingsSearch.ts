@@ -726,6 +726,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     targetId: "snap-shot-enabled",
   },
   {
+    id: "snap-shot-overlay-shortcut",
+    title: "Show or hide shortcut",
+    to: "/settings/snap-shot",
+    targetId: "snap-shot-enabled",
+    searchTerms: ["snapshot overlay conversation hide show"],
+  },
+  {
     id: "snap-shot-sound",
     title: "Capture sound",
     to: "/settings/snap-shot",

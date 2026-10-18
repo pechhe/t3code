@@ -1,28 +1,43 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
-import type { DesktopSnapShotDraftHandoff } from "@t3tools/contracts";
+import type {
+  DesktopSnapShotDraftHandoff,
+  DesktopSnapShotOverlayInsets,
+  ScopedThreadRef,
+} from "@t3tools/contracts";
 import { Outlet, useRouter } from "@tanstack/react-router";
 import {
   type CSSProperties,
   type ReactNode,
-  useCallback,
+  createContext,
+  useContext,
   useEffect,
   useRef,
   useState,
 } from "react";
 
-import { type DraftId, useComposerDraftStore } from "../../composerDraftStore";
+import {
+  type ComposerThreadTarget,
+  type DraftId,
+  useComposerDraftStore,
+} from "../../composerDraftStore";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useScratchProject } from "../../hooks/useScratchProject";
+import { useStableCallback } from "../../hooks/useStableCallback";
 import { usePrimaryEnvironmentId } from "../../state/environments";
-import { resolveThreadRouteTarget } from "../../threadRoutes";
+import { buildThreadRouteParams, resolveThreadRouteTarget } from "../../threadRoutes";
 import { SnapShotCoordinator } from "../desktop/SnapShotCoordinator";
+import { useSnapShotOverlaySession } from "./snapShotOverlaySession";
+
+// Ending a conversation and a capture arriving just after both ask for a fresh chat; they share
+// one, so the capture lands in the chat the overlay shows.
+let startingOverlayDraft: Promise<DraftId | null> | null = null;
 
 /** Starts a fresh chat without a project in the overlay window, replacing what it shows. */
 function useStartSnapShotOverlayDraft(): () => Promise<DraftId | null> {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const { openScratchProject } = useScratchProject();
   const handleNewThread = useNewThreadHandler();
-  return useCallback(async () => {
+  const start = async () => {
     if (primaryEnvironmentId === null) return null;
     const project = await openScratchProject(primaryEnvironmentId);
     if (!project) return null;
@@ -31,13 +46,27 @@ function useStartSnapShotOverlayDraft(): () => Promise<DraftId | null> {
     });
     prepareMainWindowFor(created?.draftId ?? null);
     return created?.draftId ?? null;
-  }, [handleNewThread, openScratchProject, primaryEnvironmentId]);
+  };
+  return () => {
+    startingOverlayDraft ??= start().finally(() => {
+      startingOverlayDraft = null;
+    });
+    return startingOverlayDraft;
+  };
 }
 
 /** The overlay's current chat, read from its route. */
 function currentOverlayDraftId(router: ReturnType<typeof useRouter>): DraftId | null {
   const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
   return route?.kind === "draft" ? route.draftId : null;
+}
+
+/** The conversation the overlay shows once its chat is sent; null while it is unsent. */
+function currentOverlayConversation(router: ReturnType<typeof useRouter>): ScopedThreadRef | null {
+  const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
+  if (route?.kind === "server") return route.threadRef;
+  const draftId = route?.kind === "draft" ? route.draftId : null;
+  return (draftId && useComposerDraftStore.getState().getDraftSession(draftId)?.promotedTo) || null;
 }
 
 /** Opens the overlay chat's project on the main window's new-chat page, ready for the handover. */
@@ -76,8 +105,8 @@ function snapShotDraftHandoff(draftId: DraftId): DesktopSnapShotDraftHandoff | n
 }
 
 /**
- * When the main window takes focus while the overlay is up, the overlay's chat moves there:
- * an unsent one onto the main window's new-chat page, a sent one by opening it.
+ * When the main window takes focus while the overlay is up, an unsent chat moves onto the main
+ * window's new-chat page. A conversation stays in the overlay until the user hides or ends it.
  */
 function useSnapShotOverlayHandoff() {
   const router = useRouter();
@@ -86,17 +115,8 @@ function useSnapShotOverlayHandoff() {
     // Activating the app and focusing the main window can both ask; the chat moves once.
     let handingOff = false;
     return bridge?.onSnapShotOverlayHandoffRequest?.(() => {
-      if (handingOff) return;
-      const route = resolveThreadRouteTarget(router.state.matches.at(-1)?.params ?? {});
+      if (handingOff || currentOverlayConversation(router)) return;
       const draftId = currentOverlayDraftId(router);
-      const threadRef = route?.kind === "server" ? route.threadRef : null;
-      const sentThread =
-        threadRef ??
-        (draftId ? useComposerDraftStore.getState().getDraftSession(draftId)?.promotedTo : null);
-      if (sentThread) {
-        void bridge.openThreadInMainWindow?.(sentThread);
-        return;
-      }
       const draft = draftId ? snapShotDraftHandoff(draftId) : null;
       if (!draftId || !draft) {
         void bridge.hideSnapShotOverlay?.();
@@ -145,69 +165,160 @@ export function SnapShotOverlayStart() {
   return null;
 }
 
-/** Layers that close on Escape before the overlay does. */
-const OPEN_LAYER_SELECTOR =
+/** Menus, popups and rows that close on Escape before anything else does. */
+export const SNAP_SHOT_OPEN_POPUP_SELECTOR =
   '[data-composer-drawer-layer], [data-slot$="-popup"]:not([data-closed]), [role="dialog"], [data-snap-shot-project-row]';
+/** Layers that close on Escape before the overlay does: popups, then the whole conversation. */
+const OPEN_LAYER_SELECTOR = `${SNAP_SHOT_OPEN_POPUP_SELECTOR}, [data-snap-shot-expanded]`;
 
 function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+/** What the overlay's chat can ask of the overlay around it. */
+export interface SnapShotOverlayControls {
+  /** Slides the overlay away, keeping its chat for the next time it shows. */
+  readonly hide: () => void;
+  /** Ends the conversation on screen: the overlay slides away and the next capture starts fresh. */
+  readonly end: () => void;
+  /** Ends the conversation on screen for a fresh chat, taking the composer's content along. */
+  readonly startNewChat: (composerTarget: ComposerThreadTarget) => void;
+  /** Takes the fresh chat's content back to the conversation the user last ended. */
+  readonly resume: (draftId: DraftId) => void;
+  /** Where the overlay's pill floats: centred at the bottom of the work area, above any Dock. */
+  readonly floor: HTMLElement | null;
+}
+
+const SnapShotOverlayControlsContext = createContext<SnapShotOverlayControls | null>(null);
+
+/** The overlay's controls, or null outside the overlay window. */
+export function useSnapShotOverlayControls(): SnapShotOverlayControls | null {
+  return useContext(SnapShotOverlayControlsContext);
+}
+
 /**
  * The overlay's composer, floating exactly where the main window's composer sits. The window
  * reaches the bottom of the screen, so the composer slides up from the screen edge when the
- * overlay shows and drops back down when Escape hides it, keeping the chat for the next
- * capture. Only the composer and its menus take the pointer; elsewhere clicks reach the app
- * behind.
+ * overlay shows and drops back down when it hides, keeping the chat for next time. Escape ends a
+ * conversation instead, so the next capture starts fresh. Only the composer and its menus take
+ * the pointer; elsewhere clicks reach the app behind.
  */
 export function SnapShotOverlayFrame({ children }: { readonly children: ReactNode }) {
-  const [shown, setShown] = useState(false);
-  const [belowWorkArea, setBelowWorkArea] = useState(0);
-  const hidingRef = useRef(false);
+  const router = useRouter();
+  const startOverlayDraft = useStartSnapShotOverlayDraft();
+  const [shown, setShownState] = useState(false);
+  const shownRef = useRef(false);
+  const setShown = (next: boolean) => {
+    shownRef.current = next;
+    setShownState(next);
+  };
+  const [insets, setInsets] = useState<DesktopSnapShotOverlayInsets>({ composer: 0, workArea: 0 });
+  const [floor, setFloor] = useState<HTMLElement | null>(null);
+  // Set while the overlay slides away, with what to do once it is hidden.
+  const hidingRef = useRef<{ readonly afterHide: (() => void) | undefined } | null>(null);
+
+  const finishHiding = useStableCallback(() => {
+    const hiding = hidingRef.current;
+    hidingRef.current = null;
+    void window.desktopBridge?.hideSnapShotOverlay?.();
+    hiding?.afterHide?.();
+  });
+  const slideAway = useStableCallback((afterHide?: () => void) => {
+    hidingRef.current = { afterHide };
+    if (prefersReducedMotion() || !shownRef.current) {
+      finishHiding();
+      return;
+    }
+    setShown(false);
+  });
+
+  const end = useStableCallback(() => {
+    const conversation = currentOverlayConversation(router);
+    if (!conversation) {
+      slideAway();
+      return;
+    }
+    useSnapShotOverlaySession.getState().endConversation(conversation, Date.now());
+    slideAway(() => void startOverlayDraft());
+  });
+
+  const startNewChat = useStableCallback((composerTarget: ComposerThreadTarget) => {
+    const conversation = currentOverlayConversation(router);
+    if (!conversation) return;
+    useSnapShotOverlaySession.getState().endConversation(conversation, Date.now());
+    void startOverlayDraft().then((draftId) => {
+      if (draftId) {
+        useComposerDraftStore.getState().moveComposerPromptAndImages(composerTarget, draftId);
+      } else {
+        // No fresh chat: the conversation carries on.
+        useSnapShotOverlaySession.getState().forgetEnded();
+      }
+    });
+  });
+
+  const resume = useStableCallback((draftId: DraftId) => {
+    const { ended, forgetEnded } = useSnapShotOverlaySession.getState();
+    if (!ended) return;
+    forgetEnded();
+    useComposerDraftStore.getState().moveComposerPromptAndImages(draftId, ended.threadRef);
+    void router.navigate({
+      to: "/$environmentId/$threadId",
+      params: buildThreadRouteParams(ended.threadRef),
+      replace: true,
+    });
+  });
 
   useEffect(() => {
     const slideIn = () => {
-      hidingRef.current = false;
+      hidingRef.current = null;
       setShown(false);
-      void (window.desktopBridge?.getSnapShotOverlayBottomInset?.() ?? Promise.resolve(0))
-        .catch(() => 0)
-        .then((inset) => {
-          setBelowWorkArea(inset);
+      useSnapShotOverlaySession.getState().forgetStaleEnded(Date.now());
+      void (
+        window.desktopBridge?.getSnapShotOverlayInsets?.() ??
+        Promise.resolve({ composer: 0, workArea: 0 })
+      )
+        .catch(() => ({ composer: 0, workArea: 0 }))
+        .then((next) => {
+          setInsets(next);
           // Paint the composer below the screen edge first, so it has somewhere to slide from.
           requestAnimationFrame(() => requestAnimationFrame(() => setShown(true)));
         });
     };
     // The window never reports itself hidden, so the desktop app says when it shows and hides.
     if (document.hasFocus()) slideIn();
-    return window.desktopBridge?.onSnapShotOverlayVisibility?.((visible) => {
+    const stopVisibility = window.desktopBridge?.onSnapShotOverlayVisibility?.((visible) => {
       if (visible) {
         slideIn();
         return;
       }
-      hidingRef.current = false;
+      // Hidden by the desktop app mid-slide: finish what the slide was for.
+      const hiding = hidingRef.current;
+      hidingRef.current = null;
       setShown(false);
+      hiding?.afterHide?.();
     });
-  }, []);
+    // The show-or-hide shortcut, pressed while the overlay is up.
+    const stopHideRequest = window.desktopBridge?.onSnapShotOverlayHideRequest?.(() => slideAway());
+    return () => {
+      stopVisibility?.();
+      stopHideRequest?.();
+    };
+  }, [setShown, slideAway]);
 
   useEffect(() => {
-    // Escape hides the overlay from anywhere, the composer included, unless it is closing a menu,
-    // popup or the composer's suggestions first. Listening ahead of the composer, which keeps
-    // Escape for itself.
+    // Escape ends the conversation from anywhere, the composer included, or hides an unsent chat,
+    // unless it is closing a menu, popup or the composer's suggestions first. Listening ahead of
+    // the composer, which keeps Escape for itself.
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
       if (document.querySelector(OPEN_LAYER_SELECTOR)) return;
       event.preventDefault();
       event.stopPropagation();
-      if (prefersReducedMotion()) {
-        void window.desktopBridge?.hideSnapShotOverlay?.();
-        return;
-      }
-      hidingRef.current = true;
-      setShown(false);
+      end();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, []);
+  }, [end]);
 
   useEffect(() => {
     let interactive = false;
@@ -233,25 +344,39 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
     };
   }, []);
 
+  const controls: SnapShotOverlayControls = {
+    hide: () => slideAway(),
+    end,
+    startNewChat,
+    resume,
+    floor,
+  };
+
   return (
-    <div
-      className="pointer-events-none flex h-svh min-h-0 overflow-hidden"
-      style={{ paddingBottom: belowWorkArea }}
-    >
-      {/* Sliding in plays the slide out backwards: the same duration and the reversed curve. */}
+    <SnapShotOverlayControlsContext value={controls}>
       <div
-        data-snap-shot-overlay-slide
-        data-snap-shot-overlay-shown={shown || undefined}
-        className="relative flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:ease-in-reversed motion-reduce:transition-none"
-        style={{ "--overlay-drop": `${belowWorkArea}px` } as CSSProperties}
-        onTransitionEnd={(event) => {
-          if (event.target !== event.currentTarget || shown || !hidingRef.current) return;
-          hidingRef.current = false;
-          void window.desktopBridge?.hideSnapShotOverlay?.();
-        }}
+        className="pointer-events-none relative flex h-svh min-h-0 overflow-hidden"
+        style={{ paddingBottom: insets.composer }}
       >
-        <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
+        {/* Sliding in plays the slide out backwards: the same duration and the reversed curve. */}
+        <div
+          data-snap-shot-overlay-slide
+          data-snap-shot-overlay-shown={shown || undefined}
+          className="relative flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:ease-in-reversed motion-reduce:transition-none"
+          style={{ "--overlay-drop": `${insets.composer}px` } as CSSProperties}
+          onTransitionEnd={(event) => {
+            if (event.target !== event.currentTarget || shown || !hidingRef.current) return;
+            finishHiding();
+          }}
+        >
+          <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
+        </div>
+        <div
+          ref={setFloor}
+          className="pointer-events-none absolute inset-x-0 flex justify-center"
+          style={{ bottom: insets.workArea }}
+        />
       </div>
-    </div>
+    </SnapShotOverlayControlsContext>
   );
 }

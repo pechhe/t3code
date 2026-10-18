@@ -3467,7 +3467,11 @@ it.effect("registers a configured key chord instead of the Shift listener", () =
       yield* service.configure(settings);
 
       assert.isTrue((yield* service.state).shortcutRegistered);
-      assert.strictEqual(registerShortcutMock.mock.calls[0]?.[0], "Control+Alt+K");
+      // Beside the overlay's show-or-hide shortcut.
+      assert.deepEqual(
+        registerShortcutMock.mock.calls.map(([accelerator]) => accelerator),
+        ["Alt+Shift+Space", "Control+Alt+K"],
+      );
       assert.lengthOf(shortcutProcesses, 0);
     }),
   ).pipe(Effect.provide(layerTest("win32")));
@@ -3493,12 +3497,12 @@ it.effect("an unrelated client-setting change keeps the registered shortcut", ()
       yield* service.configure(settings);
       assert.deepEqual(
         registerShortcutMock.mock.calls.map(([accelerator]) => accelerator),
-        ["Control+Alt+K"],
+        ["Alt+Shift+Space", "Control+Alt+K"],
       );
 
       yield* service.configure({ ...settings, wordWrap: !settings.wordWrap });
       assert.lengthOf(unregisterShortcutMock.mock.calls, 0);
-      assert.lengthOf(registerShortcutMock.mock.calls, 1);
+      assert.lengthOf(registerShortcutMock.mock.calls, 2);
       assert.isTrue((yield* service.state).shortcutRegistered);
 
       yield* service.configure({
@@ -3508,11 +3512,95 @@ it.effect("an unrelated client-setting change keeps the registered shortcut", ()
       assert.deepEqual(unregisterShortcutMock.mock.calls, [["Control+Alt+K"]]);
       assert.deepEqual(
         registerShortcutMock.mock.calls.map(([accelerator]) => accelerator),
-        ["Control+Alt+K", "Control+Alt+J"],
+        ["Alt+Shift+Space", "Control+Alt+K", "Control+Alt+J"],
       );
     }),
   ).pipe(Effect.provide(layerTest("win32")));
 });
+
+it.effect(
+  "the overlay's show-or-hide shortcut gives way to the capture shortcut on its keys",
+  () => {
+    registerShortcutMock.mockReset().mockReturnValue(true);
+    unregisterShortcutMock.mockReset();
+    const settings = enabledSettings({
+      snapShotShortcut: DEFAULT_CLIENT_SETTINGS.snapShotOverlayShortcut,
+    });
+    const controlAltH = {
+      key: "h",
+      metaKey: false,
+      ctrlKey: true,
+      shiftKey: false,
+      altKey: true,
+      modKey: false,
+    };
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* DesktopSnapShot.make;
+        yield* service.configure(settings);
+        assert.deepEqual(
+          registerShortcutMock.mock.calls.map(([accelerator]) => accelerator),
+          ["Alt+Shift+Space"],
+        );
+
+        yield* service.configure({ ...settings, snapShotOverlayShortcut: controlAltH });
+        assert.deepEqual(
+          registerShortcutMock.mock.calls.map(([accelerator]) => accelerator),
+          ["Alt+Shift+Space", "Control+Alt+H"],
+        );
+
+        unregisterShortcutMock.mockClear();
+        yield* service.configure({
+          ...settings,
+          snapShotOverlayShortcut: controlAltH,
+          snapShotEnabled: false,
+        });
+        assert.deepInclude(unregisterShortcutMock.mock.calls, ["Control+Alt+H"]);
+      }),
+    ).pipe(Effect.provide(layerTest("win32")));
+  },
+);
+
+it.effect(
+  "the overlay's shortcut takes its keys back once the capture shortcut moves off them",
+  () => {
+    // Like the system, refuse keys that are already registered.
+    const held = new Set<string>();
+    registerShortcutMock.mockReset().mockImplementation((accelerator: string) => {
+      if (held.has(accelerator)) return false;
+      held.add(accelerator);
+      return true;
+    });
+    unregisterShortcutMock.mockReset().mockImplementation((accelerator: string) => {
+      held.delete(accelerator);
+    });
+    const settings = enabledSettings({
+      snapShotShortcut: DEFAULT_CLIENT_SETTINGS.snapShotOverlayShortcut,
+    });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const service = yield* DesktopSnapShot.make;
+        yield* service.configure(settings);
+        assert.deepEqual([...held], ["Alt+Shift+Space"]);
+
+        yield* service.configure({
+          ...settings,
+          snapShotShortcut: {
+            key: "k",
+            metaKey: false,
+            ctrlKey: true,
+            shiftKey: false,
+            altKey: true,
+            modKey: false,
+          },
+        });
+        assert.sameMembers([...held], ["Control+Alt+K", "Alt+Shift+Space"]);
+      }),
+    ).pipe(Effect.provide(layerTest("win32")));
+  },
+);
 
 it.effect("capture fails closed while snapshots are disabled", () => {
   activeWindowMock.mockClear();

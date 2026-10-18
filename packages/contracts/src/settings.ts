@@ -215,6 +215,15 @@ export function snapShotModifierPairLabel(modifier: SnapShotModifier, apple: boo
 const DEFAULT_SNAP_SHOT_SHORTCUT: SnapShotShortcut = {
   kind: "both-shift-keys",
 };
+// Shows or hides the SnapShot overlay's conversation without taking a snapshot.
+const DEFAULT_SNAP_SHOT_OVERLAY_SHORTCUT: SnapShotKeyChord = {
+  key: " ",
+  metaKey: false,
+  ctrlKey: false,
+  shiftKey: true,
+  altKey: true,
+  modKey: false,
+};
 
 export const NotificationMode = Schema.Literals([
   "off",
@@ -469,6 +478,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   snapShotShortcut: SnapShotShortcut.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNAP_SHOT_SHORTCUT)),
+  ),
+  snapShotOverlayShortcut: SnapShotKeyChord.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SNAP_SHOT_OVERLAY_SHORTCUT)),
   ),
   snapShotPlaySound: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   snapShotSound: SnapShotSound.pipe(
@@ -1708,6 +1720,7 @@ export const ClientSettingsPatch = Schema.Struct({
   snapShotEnabled: Schema.optionalKey(Schema.Boolean),
   snapShotIncludeAccessibility: Schema.optionalKey(Schema.Boolean),
   snapShotShortcut: Schema.optionalKey(SnapShotShortcut),
+  snapShotOverlayShortcut: Schema.optionalKey(SnapShotKeyChord),
   snapShotPlaySound: Schema.optionalKey(Schema.Boolean),
   snapShotSound: Schema.optionalKey(SnapShotSound),
   snapShotFlash: Schema.optionalKey(Schema.Boolean),

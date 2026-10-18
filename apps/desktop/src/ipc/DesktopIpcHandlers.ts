@@ -64,7 +64,7 @@ import {
   openThreadInMainWindow,
   setSnapShotOverlayInteractive,
   setMainComposerFrame,
-  getSnapShotOverlayBottomInset,
+  getSnapShotOverlayInsets,
   handOffSnapShotDraft,
   prepareSnapShotDraftHandoff,
   checkSnapShotShortcut,
@@ -130,7 +130,7 @@ export const installDesktopIpcHandlers = Effect.fn("desktop.ipc.installHandlers"
   yield* ipc.handle(hideSnapShotOverlay);
   yield* ipc.handle(setSnapShotOverlayInteractive);
   yield* ipc.handle(setMainComposerFrame);
-  yield* ipc.handle(getSnapShotOverlayBottomInset);
+  yield* ipc.handle(getSnapShotOverlayInsets);
   yield* ipc.handle(handOffSnapShotDraft);
   yield* ipc.handle(prepareSnapShotDraftHandoff);
   yield* ipc.handle(openThreadInMainWindow);

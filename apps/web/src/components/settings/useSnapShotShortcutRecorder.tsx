@@ -31,6 +31,7 @@ const MODIFIER_CODES: Readonly<Record<SnapShotModifier, readonly [string, string
 };
 
 export function useSnapShotShortcutRecorder({
+  name = "snapshot shortcut",
   shortcut,
   shortcutLabel,
   disabled = false,
@@ -39,6 +40,8 @@ export function useSnapShotShortcutRecorder({
   onStart,
   onError,
 }: {
+  /** What the shortcut does, for the recorder's accessible name. */
+  name?: string;
   shortcut: SnapShotShortcut;
   shortcutLabel?: string | undefined;
   disabled?: boolean;
@@ -126,8 +129,8 @@ export function useSnapShotShortcutRecorder({
         disabled={disabled}
         aria-label={
           displayShortcut
-            ? `Record snapshot shortcut, currently ${formatSnapShotShortcutLabel(displayShortcut)}`
-            : "Change snapshot shortcut"
+            ? `Record ${name}, currently ${formatSnapShotShortcutLabel(displayShortcut)}`
+            : `Change ${name}`
         }
         aria-pressed={recording}
         data-keybinding-capture=""

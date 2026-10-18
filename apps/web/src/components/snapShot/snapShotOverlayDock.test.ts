@@ -19,7 +19,7 @@ function message(id: string, role: ChatMessage["role"], text = id): ChatMessage 
 describe("resolveSnapShotOverlayDock", () => {
   it("keeps an unsent chat's composer up", () => {
     const dock = resolveSnapShotOverlayDock([], false, null);
-    expect(dock).toMatchObject({ docked: false, prompt: null, reply: null, phase: null });
+    expect(dock).toMatchObject({ docked: false, prompt: null, reply: null, turn: null });
   });
 
   it("docks while the agent works and rises with its reply", () => {
@@ -47,20 +47,16 @@ describe("resolveSnapShotOverlayDock", () => {
     expect(dock.reply).toBeNull();
   });
 
-  it("lets the user raise or tuck the composer for the current turn only", () => {
+  it("lets the user raise the composer for the working turn only", () => {
     const prompt = message("prompt", "user");
     const reply = message("reply", "assistant");
     const working = resolveSnapShotOverlayDock([prompt], true, null);
-    expect(resolveSnapShotOverlayDock([prompt], true, working.phase).docked).toBe(false);
+    expect(resolveSnapShotOverlayDock([prompt], true, working.turn).docked).toBe(false);
+    expect(resolveSnapShotOverlayDock([prompt, reply], false, working.turn).docked).toBe(false);
 
-    // The raise was for the working turn; the reply arrives up as usual.
-    const answered = resolveSnapShotOverlayDock([prompt, reply], false, working.phase);
-    expect(answered.docked).toBe(false);
-    expect(resolveSnapShotOverlayDock([prompt, reply], false, answered.phase).docked).toBe(true);
-
-    // A follow-up starts its own turn, docked again.
+    // A follow-up is its own turn, docked again.
     const followUp = message("follow-up", "user");
-    expect(resolveSnapShotOverlayDock([prompt, reply, followUp], true, answered.phase).docked).toBe(
+    expect(resolveSnapShotOverlayDock([prompt, reply, followUp], true, working.turn).docked).toBe(
       true,
     );
   });
