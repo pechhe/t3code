@@ -27,6 +27,7 @@ import {
   type VcsSlipJayCancelResult,
   type VcsSlipJayLandInput,
   type VcsSlipJayLandResult,
+  type VcsSlipJayLandingDetailResult,
   type VcsSlipJayLandingLogInput,
   type VcsSlipJayLandingLogResult,
   type VcsStatusSlipJayLanding,
@@ -41,6 +42,7 @@ import {
   initialLandingWatchState,
   landingChanges,
   landingForOperation,
+  parseLandingDetail,
   parseLandingOutcome,
   parseWatchLine,
   resolveWorkspaceLanding,
@@ -183,6 +185,10 @@ export class SlipJayLandings extends Context.Service<
     readonly readLog: (
       input: VcsSlipJayLandingLogInput,
     ) => Effect.Effect<VcsSlipJayLandingLogResult, SlipJayCommandError>;
+    /** What the runner recorded of a tracked landing, read through `slipjay runner outcome`. */
+    readonly readDetail: (
+      input: VcsSlipJayLandingLogInput,
+    ) => Effect.Effect<VcsSlipJayLandingDetailResult, SlipJayCommandError>;
     /**
      * Runs `slipjay land` in a workspace, as an agent would, and resolves with its
      * verdict. The landing outlives the request: an interrupted caller stops waiting,
@@ -512,53 +518,97 @@ export const make = Effect.gen(function* () {
     return resolved.landing;
   });
 
-  const readLog: SlipJayLandings["Service"]["readLog"] = Effect.fn("SlipJayLandings.readLog")(
-    function* ({ cwd, operationId }) {
+  // Only the landing the strip shows: one this host tracks for the checkout's repository,
+  // or a removed workspace's own. A client cannot read arbitrary runner operations.
+  const isShownLanding = Effect.fn("SlipJayLandings.isShownLanding")(function* (
+    cwd: string,
+    operationId: string,
+  ) {
+    const removed = yield* removedWorkspaceLanding(cwd);
+    if (removed !== undefined) return removed.operationId === operationId;
+    const repository = yield* Cache.get(repositories, cwd);
+    return (
+      repository !== null &&
+      landingForOperation(yield* Ref.get(state), repository, operationId) !== undefined
+    );
+  });
+
+  // The runner, not the checkout, answers these; the workspace may be gone.
+  const readRunner = (
+    { cwd, operationId }: VcsSlipJayLandingLogInput,
+    request: {
+      readonly operation: string;
+      readonly subcommand: "log" | "outcome";
+      readonly timeout: Duration.Input;
+      readonly maxOutputBytes: number;
+      readonly what: string;
+    },
+  ) =>
+    Effect.gen(function* () {
+      const command = `slipjay runner ${request.subcommand}`;
       const failure = (
         detail: string,
         extra: { readonly exitCode?: number; readonly cause?: unknown } = {},
       ) =>
         new SlipJayCommandError({
-          operation: "SlipJayLandings.readLog",
-          command: "slipjay runner log",
+          operation: request.operation,
+          command,
           cwd,
           detail,
           ...extra,
         });
-      // Only the landing the strip shows: one this host tracks for the checkout's
-      // repository, or a removed workspace's own. A client cannot read arbitrary runner
-      // operations through it.
-      const removed = yield* removedWorkspaceLanding(cwd);
-      const repository = removed === undefined ? yield* Cache.get(repositories, cwd) : null;
-      const shown =
-        removed !== undefined
-          ? removed.operationId === operationId
-          : repository !== null &&
-            landingForOperation(yield* Ref.get(state), repository, operationId) !== undefined;
-      if (!shown) return yield* failure("This landing is not tracked for this workspace.");
+      if (!(yield* isShownLanding(cwd, operationId)))
+        return yield* failure("This landing is not tracked for this workspace.");
       const output = yield* processes
         .run({
           command: "slipjay",
-          // The runner, not the checkout, holds the log; the workspace may be gone.
-          args: ["runner", "log", operationId],
-          timeout: "30 seconds",
-          maxOutputBytes: LANDING_LOG_MAX_BYTES,
+          args: ["runner", request.subcommand, operationId],
+          timeout: request.timeout,
+          maxOutputBytes: request.maxOutputBytes,
           outputMode: "truncate",
         })
         .pipe(
           Effect.mapError((cause) =>
-            failure("SlipJay could not be run to read the landing log.", { cause }),
+            failure(`SlipJay could not be run to read the ${request.what}.`, { cause }),
           ),
         );
       // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
       if (output.code !== 0)
         return yield* failure(
-          "SlipJay could not read the landing log. Run `slipjay runner log` on the server for details.",
+          `SlipJay could not read the ${request.what}. Run \`${command}\` on the server for details.`,
           output.code === null ? {} : { exitCode: output.code },
         );
+      return { output, failure };
+    });
+
+  const readLog: SlipJayLandings["Service"]["readLog"] = Effect.fn("SlipJayLandings.readLog")(
+    function* (input) {
+      const { output } = yield* readRunner(input, {
+        operation: "SlipJayLandings.readLog",
+        subcommand: "log",
+        timeout: "30 seconds",
+        maxOutputBytes: LANDING_LOG_MAX_BYTES,
+        what: "landing log",
+      });
       return { log: output.stdout, truncated: output.stdoutTruncated };
     },
   );
+
+  const readDetail: SlipJayLandings["Service"]["readDetail"] = Effect.fn(
+    "SlipJayLandings.readDetail",
+  )(function* (input) {
+    const { output, failure } = yield* readRunner(input, {
+      operation: "SlipJayLandings.readDetail",
+      subcommand: "outcome",
+      timeout: "20 seconds",
+      maxOutputBytes: 1024 * 1024,
+      what: "landing outcome",
+    });
+    const detail = parseLandingDetail(output.stdout);
+    if (Option.isNone(detail))
+      return yield* failure("SlipJay reported this landing in an unexpected form.");
+    return detail.value;
+  });
 
   const runLand = (cwd: string) =>
     processes
@@ -711,6 +761,7 @@ export const make = Effect.gen(function* () {
     changes: Stream.fromPubSub(changed),
     repositoryOf,
     readLog,
+    readDetail,
   });
 });
 
@@ -749,6 +800,15 @@ export const layerNone = Layer.succeed(
         new SlipJayCommandError({
           operation: "SlipJayLandings.readLog",
           command: "slipjay runner log",
+          cwd,
+          detail: "SlipJay is not available on this host.",
+        }),
+      ),
+    readDetail: ({ cwd }) =>
+      Effect.fail(
+        new SlipJayCommandError({
+          operation: "SlipJayLandings.readDetail",
+          command: "slipjay runner outcome",
           cwd,
           detail: "SlipJay is not available on this host.",
         }),

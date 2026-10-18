@@ -7,6 +7,7 @@ import {
   initialLandingWatchState,
   landingChanges,
   landingForChange,
+  parseLandingDetail,
   parseLandingOutcome,
   parseWatchLine,
   resolveWorkspaceLanding,
@@ -447,5 +448,66 @@ describe("runnerOverviewFromSnapshot", () => {
     );
     expect(overview.paused).toBe(true);
     expect(overview.deploy).toEqual([]);
+  });
+});
+
+describe("landing detail", () => {
+  it("reads when it ran, what it published and each current check", () => {
+    const detail = Option.getOrThrow(
+      parseLandingDetail(
+        JSON.stringify({
+          status: "failed",
+          stage: "verifying",
+          terminal: true,
+          submittedAt: "2026-10-18T14:31:57.449Z",
+          finishedAt: "2026-10-18T14:34:41.342Z",
+          identity: { type: "identity", workspace: "t3-landing", machine: "mac" },
+          publication: { state: "unpublished", base: "087f8b4" },
+          failure: { reason: "a gate failed", stage: "verifying" },
+          runs: [
+            {
+              command: "vp test",
+              purpose: "gate",
+              outcome: "failed",
+              durationMs: 900,
+              invalidated: true,
+            },
+            {
+              command: "vp test",
+              purpose: "gate",
+              outcome: "failed",
+              durationMs: 1200,
+              failingTests: ["chip > tears"],
+              invalidated: false,
+            },
+            { command: "vp typecheck", purpose: "gate", outcome: "incomplete", durationMs: null },
+          ],
+        }),
+      ),
+    );
+    expect(detail).toEqual({
+      status: "failed",
+      stage: "verifying",
+      terminal: true,
+      submittedAt: "2026-10-18T14:31:57.449Z",
+      finishedAt: "2026-10-18T14:34:41.342Z",
+      workspace: "t3-landing",
+      baseCommitId: "087f8b4",
+      failure: { reason: "a gate failed", stage: "verifying" },
+      checks: [
+        {
+          command: "vp test",
+          purpose: "gate",
+          outcome: "failed",
+          durationMs: 1200,
+          failingTests: ["chip > tears"],
+        },
+        { command: "vp typecheck", purpose: "gate", outcome: "incomplete", failingTests: [] },
+      ],
+    });
+  });
+
+  it("is none for output that is not an outcome", () => {
+    expect(Option.isNone(parseLandingDetail("SlipJay: no such operation"))).toBe(true);
   });
 });

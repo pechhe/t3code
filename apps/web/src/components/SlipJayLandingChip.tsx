@@ -13,6 +13,8 @@ import { useComposerDraftStore } from "~/composerDraftStore";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
 import { Button } from "./ui/button";
+import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
+import { SlipJayLandingDetails } from "./SlipJayLandingDetails";
 import { SlipJayLandingLogDialog } from "./SlipJayLandingLogDialog";
 import { useSlipJayCancel } from "./SlipJayRunnerControl";
 import {
@@ -40,7 +42,8 @@ const dismissLanding = (environmentId: EnvironmentId, operationId: string) => {
 /**
  * The thread's SlipJay landing as a ticket above the composer: the Spec it delivers, where
  * it waits or which stage it runs, how long it has taken and, once it ends, the outcome
- * with what to do next. A finished landing stays until it is dismissed.
+ * with what to do next. Clicking it opens what the runner recorded of the landing. A
+ * finished landing stays until it is dismissed.
  */
 export function SlipJayLandingChip(props: {
   environmentId: EnvironmentId;
@@ -81,6 +84,16 @@ function LandingTicket({
   const progress = resolveSlipJayStageProgress(landing);
   const spec = useSlipJaySpec(threadRef, status.workspace?.issueNumber);
   const [logOpen, setLogOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const askAgentToFix = () => {
+    setDetailsOpen(false);
+    useComposerDraftStore.getState().setPrompt(threadRef, resolveSlipJayFixPrompt(landing));
+    onComposerFocusRequest?.();
+  };
+  const openLog = () => {
+    setDetailsOpen(false);
+    setLogOpen(true);
+  };
 
   return (
     <div className="flex min-w-0 pb-1.5">
@@ -97,53 +110,77 @@ function LandingTicket({
           </>
         }
       >
-        {spec?.title ? (
-          <span className="min-w-0 max-w-56 truncate font-medium">{spec.title}</span>
-        ) : null}
-        <span
-          role="status"
-          className={
-            chip.tone === "failed"
-              ? "shrink-0 font-mono text-destructive"
-              : chip.tone === "landed"
-                ? "shrink-0 font-mono text-slipjay-mint-strong dark:text-slipjay-mint"
-                : "shrink-0 font-mono"
-          }
-        >
-          {chip.label}
-        </span>
-        {chip.tone === "ended" ? null : (
-          <SlipJayStageDots
-            tone={chip.tone}
-            completed={progress.completed}
-            current={progress.current}
-          />
-        )}
-        {chip.detail === null ? null : (
-          <span className="shrink-0 font-mono text-muted-foreground">{chip.detail}</span>
-        )}
-        {chip.elapsed === null ? null : (
-          <span className="shrink-0 font-mono tabular-nums">{chip.elapsed}</span>
-        )}
+        <Popover open={detailsOpen} onOpenChange={setDetailsOpen}>
+          <PopoverTrigger
+            render={
+              <button
+                type="button"
+                className="-ms-1 flex min-w-0 self-stretch cursor-pointer items-center gap-2 rounded-sm px-1 hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+              />
+            }
+          >
+            {spec?.title ? (
+              <span className="min-w-0 max-w-56 truncate font-medium">{spec.title}</span>
+            ) : null}
+            <span
+              role="status"
+              className={
+                chip.tone === "failed"
+                  ? "shrink-0 font-mono text-destructive"
+                  : chip.tone === "landed"
+                    ? "shrink-0 font-mono text-slipjay-mint-strong dark:text-slipjay-mint"
+                    : "shrink-0 font-mono"
+              }
+            >
+              {chip.label}
+            </span>
+            {chip.tone === "ended" ? null : (
+              <SlipJayStageDots
+                tone={chip.tone}
+                completed={progress.completed}
+                current={progress.current}
+              />
+            )}
+            {chip.detail === null ? null : (
+              <span className="shrink-0 font-mono text-muted-foreground">{chip.detail}</span>
+            )}
+            {chip.elapsed === null ? null : (
+              <span className="shrink-0 font-mono tabular-nums">{chip.elapsed}</span>
+            )}
+          </PopoverTrigger>
+          <PopoverPopup side="top" align="start" width="lg" padding="compact">
+            <SlipJayLandingDetails
+              environmentId={environmentId}
+              cwd={status.cwd}
+              landing={landing}
+              spec={spec}
+              label={chip.label}
+              now={now}
+              actions={
+                <>
+                  <Button size="xs" variant="ghost" onClick={openLog}>
+                    Log
+                  </Button>
+                  {chip.tone === "failed" ? (
+                    <Button size="xs" variant="outline" onClick={askAgentToFix}>
+                      Ask agent to fix
+                    </Button>
+                  ) : null}
+                </>
+              }
+            />
+          </PopoverPopup>
+        </Popover>
         <span className="flex shrink-0 items-center pe-0.5">
           {chip.tone === "waiting" ? (
             <CancelLanding environmentId={environmentId} operationId={landing.operationId} />
           ) : null}
           {chip.tone === "failed" ? (
             <>
-              <Button size="xs" variant="ghost" onClick={() => setLogOpen(true)}>
+              <Button size="xs" variant="ghost" onClick={openLog}>
                 Log
               </Button>
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => {
-                  useComposerDraftStore
-                    .getState()
-                    .setPrompt(threadRef, resolveSlipJayFixPrompt(landing));
-                  onComposerFocusRequest?.();
-                }}
-              >
+              <Button size="xs" variant="ghost" onClick={askAgentToFix}>
                 Ask agent to fix
               </Button>
             </>
@@ -160,15 +197,13 @@ function LandingTicket({
           )}
         </span>
       </SlipJayTicket>
-      {chip.tone === "failed" ? (
-        <SlipJayLandingLogDialog
-          environmentId={environmentId}
-          cwd={status.cwd}
-          landing={landing}
-          open={logOpen}
-          onOpenChange={setLogOpen}
-        />
-      ) : null}
+      <SlipJayLandingLogDialog
+        environmentId={environmentId}
+        cwd={status.cwd}
+        landing={landing}
+        open={logOpen}
+        onOpenChange={setLogOpen}
+      />
     </div>
   );
 }

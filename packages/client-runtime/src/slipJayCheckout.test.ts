@@ -7,6 +7,7 @@ import type {
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  resolveSlipJayLandingTimes,
   formatSlipJayDuration,
   resolveSlipJayBaseLabel,
   resolveSlipJayCheckoutStatus,
@@ -296,5 +297,68 @@ describe("SlipJay landing chip", () => {
     expect(resolveSlipJayLandingChip(landing({ status: "cancelled" }), null, NOW).tone).toBe(
       "ended",
     );
+  });
+});
+
+describe("SlipJay landing times", () => {
+  const detail = {
+    status: "landed",
+    stage: "publishing",
+    terminal: true,
+    submittedAt: "2026-10-18T14:31:57.000Z",
+    checks: [
+      {
+        command: "vp test",
+        purpose: "gate",
+        outcome: "passed",
+        durationMs: 14_000,
+        failingTests: [],
+      },
+      {
+        command: "vp lint",
+        purpose: "gate",
+        outcome: "passed",
+        durationMs: 31_000,
+        failingTests: [],
+      },
+    ],
+  };
+
+  it("measures a finished landing to its finish and sums its checks", () => {
+    expect(
+      resolveSlipJayLandingTimes(
+        { ...detail, finishedAt: "2026-10-18T14:34:40.000Z" },
+        Date.parse("2026-10-18T15:00:00.000Z"),
+      ),
+    ).toEqual({ took: "2:43", checks: "45s" });
+  });
+
+  it("measures a running landing to now, counting only finished checks", () => {
+    expect(
+      resolveSlipJayLandingTimes(
+        {
+          ...detail,
+          terminal: false,
+          checks: [
+            ...detail.checks,
+            { command: "vp typecheck", purpose: "gate", outcome: "incomplete", failingTests: [] },
+          ],
+        },
+        Date.parse("2026-10-18T14:32:57.000Z"),
+      ),
+    ).toEqual({ took: "1:00", checks: "45s" });
+  });
+
+  it("says nothing it was not told", () => {
+    const { submittedAt: _, ...unsubmitted } = detail;
+    expect(resolveSlipJayLandingTimes({ ...unsubmitted, checks: [] }, 0)).toEqual({
+      took: null,
+      checks: null,
+    });
+    // Finished, but without its finish time: not the time since submission.
+    expect(resolveSlipJayLandingTimes(detail, Date.parse("2026-10-18T15:00:00.000Z")).took).toBe(
+      null,
+    );
+    expect(resolveSlipJayLandingTimes({ ...detail, finishedAt: "not a time" }, 0).took).toBe(null);
   });
 });

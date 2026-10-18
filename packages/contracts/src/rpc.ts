@@ -167,6 +167,7 @@ import {
   VcsSlipJayLandResult,
   VcsSlipJayLandingLogInput,
   VcsSlipJayLandingLogResult,
+  VcsSlipJayLandingDetailResult,
   GitManagerServiceError,
   GitPreparePullRequestThreadInput,
   GitPreparePullRequestThreadResult,
@@ -485,6 +486,7 @@ export const WS_METHODS = {
   vcsSwitchRef: "vcs.switchRef",
   vcsInit: "vcs.init",
   vcsSlipJayLandingLog: "vcs.slipJayLandingLog",
+  vcsSlipJayLandingDetail: "vcs.slipJayLandingDetail",
   vcsSlipJayLand: "vcs.slipJayLand",
   vcsSlipJayCancel: "vcs.slipJayCancel",
   vcsSlipJayPromotionPlan: "vcs.slipJayPromotionPlan",
@@ -1590,6 +1592,12 @@ const WsVcsSlipJayLandingLogRpc = Rpc.make(WS_METHODS.vcsSlipJayLandingLog, {
   error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
 });
 
+const WsVcsSlipJayLandingDetailRpc = Rpc.make(WS_METHODS.vcsSlipJayLandingDetail, {
+  payload: VcsSlipJayLandingLogInput,
+  success: VcsSlipJayLandingDetailResult,
+  error: Schema.Union([SlipJayCommandError, EnvironmentAuthorizationError]),
+});
+
 const WsVcsCreateWorktreeRpc = Rpc.make(WS_METHODS.vcsCreateWorktree, {
   // Clients cannot choose the folder: new worktrees go in the server's managed
   // worktrees folder. `path` stays a required null because older servers
@@ -2272,6 +2280,7 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsGitPreparePullRequestThreadRpc,
   WsVcsListRefsRpc,
   WsVcsSlipJayLandingLogRpc,
+  WsVcsSlipJayLandingDetailRpc,
   WsVcsSlipJayLandRpc,
   WsVcsSlipJayCancelRpc,
   WsVcsSlipJayPromotionPlanRpc,

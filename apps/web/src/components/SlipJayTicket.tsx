@@ -167,6 +167,13 @@ export function SlipJayStageDots({
   );
 }
 
+export interface SlipJaySpec {
+  number: number;
+  title: string | null;
+  status: string | null;
+  held: boolean;
+}
+
 /**
  * The HQ Build Spec a thread's landing delivers: the thread's linked Spec when there is one,
  * otherwise the Issue SlipJay attached to its workspace, known only by number.
@@ -174,7 +181,7 @@ export function SlipJayStageDots({
 export function useSlipJaySpec(
   threadRef: ScopedThreadRef | null,
   issueNumber?: number,
-): { number: number; title: string | null; status: string | null; held: boolean } | null {
+): SlipJaySpec | null {
   const link = useThreadBuildWorkItem(threadRef).data;
   if (link != null && link.item?.kind !== "ticket") {
     const shown = presentBuildWorkItem(link);

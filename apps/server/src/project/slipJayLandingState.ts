@@ -5,6 +5,7 @@ import type {
   SlipJayRunnerDeploy,
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
+  VcsSlipJayLandingDetailResult,
   VcsStatusSlipJayLanding,
 } from "@t3tools/contracts";
 
@@ -154,6 +155,69 @@ export type LandingOutcome = typeof LandingOutcome.Type;
 export const parseLandingOutcome = Schema.decodeUnknownOption(
   Schema.fromJsonString(LandingOutcome),
 );
+
+const LandingDetail = Schema.Struct({
+  ...LandingOutcome.fields,
+  submittedAt: Schema.optional(Schema.String),
+  finishedAt: Schema.optional(Schema.String),
+  identity: Schema.optional(Schema.Struct({ workspace: Schema.optional(Schema.String) })),
+  publication: Schema.optional(
+    Schema.Struct({
+      base: Schema.optional(Schema.String),
+      commitId: Schema.optional(Schema.String),
+    }),
+  ),
+  runs: Schema.optional(
+    Schema.Array(
+      Schema.Struct({
+        command: Schema.String,
+        purpose: Schema.String,
+        outcome: Schema.String,
+        // Absent or null until the run finishes.
+        durationMs: Schema.optional(Schema.NullOr(Schema.Number)),
+        failingTests: Schema.optional(Schema.Array(Schema.String)),
+        invalidated: Schema.optional(Schema.Boolean),
+      }),
+    ),
+  ),
+});
+const decodeLandingDetail = Schema.decodeUnknownOption(Schema.fromJsonString(LandingDetail));
+
+const present = <K extends string, V>(key: K, value: V | null | undefined) =>
+  (value === null || value === undefined ? {} : { [key]: value }) as Partial<Record<K, V>>;
+
+/**
+ * A landing's detail from `slipjay runner outcome <operation>` output, or none when it is
+ * not one. Runs a later attempt replaced are left out: they no longer decide the outcome.
+ */
+export const parseLandingDetail = (stdout: string): Option.Option<VcsSlipJayLandingDetailResult> =>
+  Option.map(decodeLandingDetail(stdout), (outcome) => ({
+    status: outcome.status,
+    stage: outcome.stage,
+    terminal: outcome.terminal,
+    ...present("submittedAt", outcome.submittedAt),
+    ...present("finishedAt", outcome.finishedAt),
+    ...present("workspace", outcome.identity?.workspace),
+    ...present("baseCommitId", outcome.publication?.base),
+    ...present("commitId", outcome.publication?.commitId),
+    ...(outcome.failure === undefined
+      ? {}
+      : {
+          failure: {
+            reason: outcome.failure.reason,
+            ...present("stage", outcome.failure.stage),
+          },
+        }),
+    checks: (outcome.runs ?? [])
+      .filter((run) => run.invalidated !== true)
+      .map((run) => ({
+        command: run.command,
+        purpose: run.purpose,
+        outcome: run.outcome,
+        ...present("durationMs", run.durationMs),
+        failingTests: run.failingTests ?? [],
+      })),
+  }));
 
 const isLanding = (kind: string | undefined) => kind === undefined || kind === "landing";
 

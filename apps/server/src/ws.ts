@@ -2804,6 +2804,8 @@ const layerWsRpc = (
             .pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsListRefs]: (input) => gitWorkflow.listRefs(input),
         [WS_METHODS.vcsSlipJayLandingLog]: (input) => gitWorkflow.readSlipJayLandingLog(input),
+        [WS_METHODS.vcsSlipJayLandingDetail]: (input) =>
+          gitWorkflow.readSlipJayLandingDetail(input),
         [WS_METHODS.vcsSlipJayLand]: (input) =>
           gitWorkflow.landSlipJay(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.vcsSlipJayCancel]: (input) => slipJayLandings.cancel(input),

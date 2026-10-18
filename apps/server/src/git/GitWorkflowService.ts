@@ -15,6 +15,7 @@ import {
   type VcsListRefsInput,
   type VcsSlipJayLandInput,
   type VcsSlipJayLandResult,
+  type VcsSlipJayLandingDetailResult,
   type VcsSlipJayLandingLogInput,
   type VcsSlipJayLandingLogResult,
   type VcsListRefsResult,
@@ -83,6 +84,9 @@ export class GitWorkflowService extends Context.Service<
     readonly readSlipJayLandingLog: (
       input: VcsSlipJayLandingLogInput,
     ) => Effect.Effect<VcsSlipJayLandingLogResult, SlipJayCommandError>;
+    readonly readSlipJayLandingDetail: (
+      input: VcsSlipJayLandingLogInput,
+    ) => Effect.Effect<VcsSlipJayLandingDetailResult, SlipJayCommandError>;
     readonly listRefs: (
       input: VcsListRefsInput,
     ) => Effect.Effect<VcsListRefsResult, GitCommandError>;
@@ -435,6 +439,7 @@ export const make = Effect.gen(function* () {
     ),
     landSlipJay: (input) => landings.land(input),
     readSlipJayLandingLog: (input) => landings.readLog(input),
+    readSlipJayLandingDetail: (input) => landings.readDetail(input),
     listRefs: (input) =>
       detectGitRepositoryForCommand("GitWorkflowService.listRefs", input.cwd).pipe(
         Effect.flatMap((isGitRepository) =>

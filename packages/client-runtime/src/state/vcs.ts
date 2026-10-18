@@ -382,6 +382,14 @@ export function createVcsEnvironmentAtoms<R, E>(
       tag: WS_METHODS.vcsSlipJayLandingLog,
       staleTimeMs: 0,
     }),
+    // What the runner recorded of a landing, followed while it is shown and still running.
+    slipJayLandingDetail: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:slipjay-landing-detail",
+      tag: WS_METHODS.vcsSlipJayLandingDetail,
+      staleTimeMs: 0,
+      refreshIntervalMs: 5_000,
+      isFinal: (detail) => detail.terminal,
+    }),
     cancelWorktreeSetup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:cancel-worktree-setup",
       tag: WS_METHODS.worktreeSetupCancel,

@@ -221,6 +221,40 @@ export const VcsSlipJayLandingLogResult = Schema.Struct({
 });
 export type VcsSlipJayLandingLogResult = typeof VcsSlipJayLandingLogResult.Type;
 
+/** One command the runner ran for a landing: its dependency install or a gate. */
+export const VcsSlipJayLandingCheck = Schema.Struct({
+  /** As the project's slipjay.json declares it, which its landing log also shows. */
+  command: Schema.String,
+  /** SlipJay's purpose, such as `dependencies` or `gate`. */
+  purpose: Schema.String,
+  /** `passed`, `failed`, or another SlipJay outcome; `running` while it has not finished. */
+  outcome: Schema.String,
+  durationMs: Schema.optional(Schema.Number),
+  failingTests: Schema.Array(Schema.String),
+});
+export type VcsSlipJayLandingCheck = typeof VcsSlipJayLandingCheck.Type;
+
+/** What the runner recorded of one landing, from `slipjay runner outcome`. */
+export const VcsSlipJayLandingDetailResult = Schema.Struct({
+  /** SlipJay's status, such as `running`, `landed` or `failed`. */
+  status: Schema.String,
+  stage: Schema.String,
+  /** The landing has finished and will not change. */
+  terminal: Schema.Boolean,
+  submittedAt: Schema.optional(Schema.String),
+  finishedAt: Schema.optional(Schema.String),
+  /** The workspace that submitted it. */
+  workspace: Schema.optional(Schema.String),
+  /** The integration commit it landed on, and the commit it published. */
+  baseCommitId: Schema.optional(Schema.String),
+  commitId: Schema.optional(Schema.String),
+  failure: Schema.optional(
+    Schema.Struct({ reason: Schema.String, stage: Schema.optional(Schema.String) }),
+  ),
+  checks: Schema.Array(VcsSlipJayLandingCheck),
+});
+export type VcsSlipJayLandingDetailResult = typeof VcsSlipJayLandingDetailResult.Type;
+
 export const VcsSlipJayLandResult = Schema.Struct({
   /** This workspace's current change was published. */
   landed: Schema.Boolean,

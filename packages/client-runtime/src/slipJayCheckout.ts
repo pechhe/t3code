@@ -1,6 +1,7 @@
 import type {
   SlipJayRunnerOperation,
   SlipJayRunnerOverview,
+  VcsSlipJayLandingDetailResult,
   VcsStatusResult,
   VcsStatusSlipJayLanding,
 } from "@t3tools/contracts";
@@ -275,4 +276,29 @@ export function resolveSlipJayLandingChip(
     case "unknown":
       return { tone: "ended", label: "outcome unknown", detail: null, elapsed: null };
   }
+}
+
+/**
+ * How long a landing has taken, from submission to its finish or `now`, and how much of
+ * that its checks ran; null where the runner did not record enough to say.
+ */
+export function resolveSlipJayLandingTimes(
+  detail: VcsSlipJayLandingDetailResult,
+  now: number,
+): { took: string | null; checks: string | null } {
+  const finished = detail.checks.flatMap((check) =>
+    check.durationMs === undefined ? [] : [check.durationMs],
+  );
+  const submitted = detail.submittedAt === undefined ? NaN : Date.parse(detail.submittedAt);
+  // A finished landing without its finish time took an unknown time, not one up to now.
+  const end =
+    detail.finishedAt !== undefined ? Date.parse(detail.finishedAt) : detail.terminal ? NaN : now;
+  const took = end - submitted;
+  return {
+    took: Number.isFinite(took) ? formatSlipJayDuration(took) : null,
+    checks:
+      finished.length === 0
+        ? null
+        : formatSlipJayDuration(finished.reduce((total, ms) => total + ms, 0)),
+  };
 }
