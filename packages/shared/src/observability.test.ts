@@ -2,6 +2,7 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Arr from "effect/Array";
 import * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -10,6 +11,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
 import * as Order from "effect/Order";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as References from "effect/References";
@@ -58,6 +60,7 @@ const TraceRecordLine = Schema.Struct({
   name: Schema.String,
   spanId: Schema.String,
   parentSpanId: Schema.optional(Schema.String),
+  parentSpanName: Schema.optional(Schema.String),
   attributes: Schema.Record(Schema.String, Schema.Unknown),
   events: Schema.Array(
     Schema.Struct({
@@ -331,6 +334,95 @@ describe("observability", () => {
   });
 
   nodeServicesIt("node services", (it) => {
+    it.effect(
+      "filters fast successes only in the file, preserving diagnostic spans, warnings and parent identity",
+      () =>
+        Effect.scoped(
+          Effect.gen(function* () {
+            const fs = yield* FileSystem.FileSystem;
+            const directory = yield* fs.makeTempDirectoryScoped();
+            const tracePath = `${directory}/trace.ndjson`;
+            const delegates: Array<Tracer.Span> = [];
+            const sink = yield* makeTraceSink({
+              filePath: tracePath,
+              maxBytes: 1024 * 1024,
+              maxFiles: 2,
+              batchWindowMs: 10_000,
+              retention: { minDurationMs: 1, minSqlLockWaitMs: 5 },
+            });
+            const tracer = yield* makeLocalFileTracer({
+              filePath: tracePath,
+              maxBytes: 1024 * 1024,
+              maxFiles: 2,
+              batchWindowMs: 10_000,
+              sink,
+              delegate: Tracer.make({
+                span: (options) => {
+                  const span = new Tracer.NativeSpan(options);
+                  delegates.push(span);
+                  return span;
+                },
+              }),
+            });
+            const start = (name: string, parent?: Tracer.AnySpan) =>
+              tracer.span({
+                name,
+                parent: parent ? Option.some(parent) : Option.none(),
+                startTime: 0n,
+                kind: "internal",
+                sampled: true,
+                root: false,
+                links: [],
+                annotations: Context.empty(),
+              });
+            const parent = start("fast-parent");
+            parent.end(8_000n, Exit.void);
+            const child = start("failed-child", parent);
+            child.end(9_000n, Exit.fail("broken"));
+            start("fast").end(999_999n, Exit.void);
+            start("slow").end(1_000_000n, Exit.void);
+            start("interrupted").end(1n, Exit.failCause(Cause.interrupt()));
+            const locked = start("sqlite");
+            locked.attribute("db.lock_wait_ms", 5);
+            locked.attribute("db.query.text", "SELECT 1");
+            locked.end(1n, Exit.void);
+            const unlocked = start("sqlite-below-threshold");
+            unlocked.attribute("db.lock_wait_ms", 4.999);
+            unlocked.end(1n, Exit.void);
+            const malformed = start("invalid-lock-wait");
+            malformed.attribute("db.lock_wait_ms", "5");
+            malformed.end(1n, Exit.void);
+            const warned = start("fast-warning");
+            warned.event("log", 1n, { "effect.logLevel": "Warn" });
+            warned.end(1n, Exit.void);
+            const informed = start("fast-info");
+            informed.event("log", 1n, { "effect.logLevel": "Info" });
+            informed.end(1n, Exit.void);
+            const { exit: _exit, ...base } = makeRecord("renderer") as EffectTraceRecord;
+            sink.push({
+              ...base,
+              type: "otlp-span",
+              durationMs: 0,
+              resourceAttributes: {},
+              scope: { attributes: {} },
+            });
+            yield* sink.close();
+            const records = yield* readTraceRecords(tracePath);
+            assert.deepStrictEqual(
+              records.map((record) => record.name),
+              ["failed-child", "slow", "interrupted", "sqlite", "fast-warning", "renderer"],
+            );
+            assert.equal(records[0]?.parentSpanId, parent.spanId);
+            assert.equal(records[0]?.parentSpanName, "fast-parent");
+            assert.equal(records[3]?.attributes["db.query.text"], "SELECT 1");
+            assert.equal(delegates.length, 10);
+            assert.isTrue(delegates.every((span) => span.status._tag === "Ended"));
+            assert.equal(delegates[0]?.name, "fast-parent");
+            assert.equal(delegates[1]?.parent._tag, "Some");
+          }),
+        ),
+    );
+
     it.effect(
       "keeps trace producers responsive during a slow write, bounds the backlog, and drains on close",
       () =>

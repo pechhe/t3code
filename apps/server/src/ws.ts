@@ -273,6 +273,7 @@ import * as AgentSessionImporter from "./project/AgentSessionImporter.ts";
 import * as UsageLimitSources from "./usage/UsageLimitSources.ts";
 
 const CONFIG_DISCOVERY_TIMEOUT = Duration.seconds(5);
+const TRACE_DIAGNOSTICS_MAX_FILES = 10;
 const isProviderUploadFeedbackError = Schema.is(ProviderUploadFeedbackError);
 
 const resolveDiscoveryForConfig = <A, E, R>(
@@ -2461,7 +2462,8 @@ const layerWsRpc = (
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
           TraceDiagnostics.readTraceDiagnostics({
             traceFilePath: config.serverTracePath,
-            maxFiles: config.traceMaxFiles,
+            // The Diagnostics page parses these on open; the newest files cover recent issues.
+            maxFiles: Math.min(config.traceMaxFiles, TRACE_DIAGNOSTICS_MAX_FILES),
           }),
         [WS_METHODS.serverGetProcessDiagnostics]: (_input) => processDiagnostics.read,
         [WS_METHODS.serverGetHostResources]: (_input) => hostResources.read,

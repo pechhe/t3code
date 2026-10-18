@@ -25,11 +25,17 @@ import {
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Tracer from "effect/Tracer";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Statement from "effect/sql/Statement";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { projectThreadAwarenessV2 } from "@t3tools/shared/agentAwareness";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -181,6 +187,156 @@ const addRolledBackRecoveryCandidate = Effect.fn("addRolledBackRecoveryCandidate
 
   return threadId;
 });
+
+const withReaderStore = <A, E>(
+  use: Effect.Effect<A, E, ProjectionStore.ProjectionStoreV2 | SqlClient.SqlClient>,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = yield* fs.makeTempDirectoryScoped({ prefix: "projection-reader-" });
+    return yield* use.pipe(
+      Effect.provide(
+        ProjectionStore.layer.pipe(
+          Layer.provideMerge(SqlitePersistence.layerFromPath(`${directory}/state.sqlite`)),
+        ),
+      ),
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer));
+
+it.effect("background and snapshot reads complete while the writer holds uncommitted changes", () =>
+  withReaderStore(
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = yield* addRolledBackRecoveryCandidate("reader-routing");
+      const original = yield* store.getThread(threadId);
+      const run = (yield* store.getThreadRecords(threadId, ["runs"])).runs[0]!;
+      const node = {
+        id: run.rootNodeId!,
+        threadId,
+        runId: run.id,
+        rootNodeId: run.rootNodeId!,
+        parentNodeId: null,
+        kind: "root_turn" as const,
+        status: "completed" as const,
+        countsForRun: true,
+        providerThreadId: null,
+        providerTurnId: null,
+        nativeItemRef: null,
+        runtimeRequestId: null,
+        checkpointScopeId: null,
+        startedAt: original.createdAt,
+        completedAt: original.createdAt,
+      };
+      yield* store.apply({
+        id: EventId.make("event:reader-routing:node"),
+        type: "node.updated",
+        threadId,
+        runId: run.id,
+        nodeId: node.id,
+        driver,
+        occurredAt: original.createdAt,
+        payload: node,
+      });
+      const held = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const holder = yield* Effect.forkChild(
+        sql.withTransaction(
+          sql`UPDATE orchestration_v2_projection_threads
+              SET payload_json = json_set(payload_json, '$.title', 'uncommitted')
+              WHERE thread_id = ${threadId}`.pipe(
+            Effect.andThen(Deferred.succeed(held, undefined)),
+            Effect.andThen(Deferred.await(release)),
+          ),
+        ),
+      );
+      yield* Deferred.await(held);
+      assert.isTrue(yield* store.isNodeStored(node));
+      assert.isUndefined(yield* store.getSubagentByChildThread(threadId));
+      const snapshot = yield* store.getThreadSnapshot(threadId);
+      assert.equal(snapshot.projection.runs[0]?.id, run.id);
+      assert.equal(snapshot.projection.thread.title, original.title);
+      assert.equal(
+        (yield* store.getThreadSnapshotWindow(threadId, { rowLimit: 10 })).projection.thread.title,
+        original.title,
+      );
+      assert.equal((yield* store.getSettlementCandidates(threadId))[0]?.id, threadId);
+      assert.deepEqual(
+        yield* store.getLimitRecoveryCandidates({
+          now: original.createdAt,
+          autoResume: true,
+          snooze: true,
+          poolSwitch: true,
+        }),
+        [],
+      );
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(holder);
+      assert.equal((yield* store.getThread(threadId)).title, "uncommitted");
+    }),
+  ),
+);
+
+it.effect("projection reads inside a command transaction see its uncommitted changes", () =>
+  withReaderStore(
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = yield* addRolledBackRecoveryCandidate("writer-routing");
+      yield* sql.withTransaction(
+        Effect.gen(function* () {
+          yield* sql`UPDATE orchestration_v2_projection_threads
+              SET payload_json = json_set(payload_json, '$.title', 'own write', '$.branch', 'own branch')
+              WHERE thread_id = ${threadId}`;
+          assert.equal((yield* store.getThread(threadId)).title, "own write");
+          assert.equal(
+            (yield* store.getThreadRecords(threadId, ["runs"])).thread.title,
+            "own write",
+          );
+          assert.equal((yield* store.getSettlementCandidates(threadId))[0]?.branch, "own branch");
+        }),
+      );
+    }),
+  ),
+);
+
+it.effect(
+  "canonical and settlement payload decoding fails after their snapshot transaction ends",
+  () =>
+    withReaderStore(
+      Effect.gen(function* () {
+        const store = yield* ProjectionStore.ProjectionStoreV2;
+        const sql = yield* SqlClient.SqlClient;
+        const threadId = yield* addRolledBackRecoveryCandidate("decode-after-snapshot");
+        yield* sql`UPDATE orchestration_v2_projection_threads
+          SET payload_json = json_remove(payload_json, '$.title') WHERE thread_id = ${threadId}`;
+        for (const read of [
+          store.getThreadRecords(threadId, ["runs"]).pipe(Effect.asVoid),
+          store.getSettlementCandidates(threadId).pipe(Effect.asVoid),
+        ]) {
+          const transactions: Array<boolean> = [];
+          const tracer = Tracer.make({
+            span(options) {
+              const span = new Tracer.NativeSpan(options);
+              const end = span.end.bind(span);
+              span.end = (endTime, exit) => {
+                end(endTime, exit);
+                if (span.name === "sql.transaction") transactions.push(Exit.isSuccess(exit));
+              };
+              return span;
+            },
+          });
+          const result = yield* read.pipe(
+            Effect.withTracer(tracer),
+            Effect.provideService(Statement.SpanPropagationEnabled, true),
+            Effect.exit,
+          );
+          assert.isTrue(Exit.isFailure(result));
+          assert.deepEqual(transactions, [true]);
+        }
+      }),
+    ),
+);
 
 it.effect.each([
   ["memory", ProjectionStore.layerMemory],
@@ -5910,6 +6066,7 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
           taskId: "pull-request-watch:github.com/pingdotgg/t3code#7",
           description: "Watching pull request #7",
           kind: "monitor",
+          watching: { kind: "pull_request", url: "https://github.com/pingdotgg/t3code/pull/7" },
         },
       ]);
       assert.equal(yield* phase, "running");

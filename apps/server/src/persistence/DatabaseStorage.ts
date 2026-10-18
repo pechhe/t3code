@@ -1,8 +1,10 @@
 import type { DatabaseStorageStatus } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
@@ -16,6 +18,7 @@ import { forkParked } from "../serverActivation.ts";
 
 /** Pages returned per reclaim pass; one minute of churn, not a backlog. */
 const RECLAIM_PAGES_PER_PASS = 1024;
+const COMPACTION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export class DatabaseStorage extends Context.Service<
   DatabaseStorage,
@@ -89,9 +92,29 @@ const make = Effect.gen(function* () {
     Effect.catch((cause) => Effect.logWarning("Database space reclamation failed", { cause })),
   );
 
-  const compact = maintenance.compactEventStore.pipe(
+  // A failed pass records no completion, so attempts are remembered too;
+  // otherwise a persistent failure would rescan all history every minute.
+  let lastAttemptMs: number | undefined;
+  // A timestamp in the future (clock skew when it was written) counts as due.
+  const ranRecently = (atMs: number | undefined, now: number) =>
+    atMs !== undefined && now >= atMs && now - atMs < COMPACTION_INTERVAL_MS;
+  const compact = Effect.gen(function* () {
+    const rows = yield* sql<{ readonly updated_at: string }>`
+      SELECT updated_at FROM orchestration_v2_projection_metadata
+      WHERE projection_name = 'event-store-compaction'
+    `;
+    const completed = rows[0] === undefined ? Option.none() : DateTime.make(rows[0].updated_at);
+    const now = DateTime.toEpochMillis(yield* DateTime.now);
+    if (
+      ranRecently(lastAttemptMs, now) ||
+      ranRecently(Option.getOrUndefined(Option.map(completed, DateTime.toEpochMillis)), now)
+    )
+      return;
+    lastAttemptMs = now;
+    return yield* maintenance.compactEventStore;
+  }).pipe(
     Effect.tap((result) =>
-      result.deletedEventCount > 0 || result.deletedReceiptCount > 0
+      result !== undefined && (result.deletedEventCount > 0 || result.deletedReceiptCount > 0)
         ? Effect.logInfo("Compacted orchestration history", result)
         : Effect.void,
     ),
@@ -103,7 +126,9 @@ const make = Effect.gen(function* () {
   yield* forkParked(
     Effect.sleep("1 minute").pipe(
       Effect.andThen(
-        compact.pipe(Effect.andThen(publishStatus), Effect.repeat(Schedule.spaced("6 hours"))),
+        // Check the persisted deadline each minute so restarts neither rescan
+        // early nor postpone an already recent pass by another six hours.
+        compact.pipe(Effect.andThen(publishStatus), Effect.repeat(Schedule.spaced("1 minute"))),
       ),
     ),
   );

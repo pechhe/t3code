@@ -18,6 +18,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type * as Scope from "effect/Scope";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
 import * as ExperimentService from "../experiments/ExperimentService.ts";
@@ -66,6 +67,7 @@ interface ThreadRollover {
 }
 
 const floorOf = (state: ThreadRollover) => (typeof state.floor === "number" ? state.floor : null);
+const encodeEnrollmentPolicy = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 type RolloverEvent = Extract<
   OrchestrationV2DomainEvent,
@@ -98,6 +100,21 @@ export const make = Effect.gen(function* () {
 
   const threads = new Map<ThreadId, ThreadRollover>();
   const compactions = new Map<ThreadId, Set<TurnItemId>>();
+  const activeRuns = new Map<ThreadId, { attemptId: RunAttemptId; run: OrchestrationV2Run }>();
+  const enrollmentPolicies = new Map<ThreadId, string>();
+
+  const runForAttempt = Effect.fn("ContextRolloverReactor.runForAttempt")(function* (
+    threadId: ThreadId,
+    attemptId: RunAttemptId,
+  ) {
+    const cached = activeRuns.get(threadId);
+    if (cached?.attemptId === attemptId) return cached.run;
+    const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
+    const run = runs.find((candidate) => candidate.activeAttemptId === attemptId);
+    // A miss is not cached: no run.updated follows to clear it if the run lands later.
+    if (run !== undefined) activeRuns.set(threadId, { attemptId, run });
+    return run;
+  });
 
   const thresholdsFor = Effect.fn("ContextRolloverReactor.thresholdsFor")(function* (
     threadId: ThreadId,
@@ -123,14 +140,38 @@ export const make = Effect.gen(function* () {
       }) === null
     )
       return null;
-    yield* experiments.assignForThread({
-      threadLever: "rollover",
-      threadId,
-      projectId: thread.projectId,
-      modelSelection: run.modelSelection,
-      enrollment: "new",
-      unitCreatedAt: DateTime.formatIso(thread.createdAt),
-    });
+    // Definitions and settings are cheap reads. Only enrollment needs a writer
+    // transaction; retry it when its inputs change, not on every usage report.
+    const policyKey = encodeEnrollmentPolicy([
+      settings.contextRollover,
+      thread.projectId,
+      thread.createdAt,
+      thread.rolloverThresholds,
+      thread.rolloverHold,
+      thread.lineage,
+      thread.creationSource,
+      run.activeAttemptId,
+      run.modelSelection,
+      // Every experiment change goes through a transition that bumps updatedAt,
+      // so these fields stand in for definitions that would be retained per thread.
+      (yield* experiments.list()).map(({ id, status, startedAt, updatedAt }) => [
+        id,
+        status,
+        startedAt,
+        updatedAt,
+      ]),
+    ]);
+    if (enrollmentPolicies.get(threadId) !== policyKey) {
+      yield* experiments.assignForThread({
+        threadLever: "rollover",
+        threadId,
+        projectId: thread.projectId,
+        modelSelection: run.modelSelection,
+        enrollment: "new",
+        unitCreatedAt: DateTime.formatIso(thread.createdAt),
+      });
+      enrollmentPolicies.set(threadId, policyKey);
+    }
     const assignment = (yield* experiments.getRolloverAssignment(threadId)) ?? undefined;
     const thresholds = assignedRolloverThresholds(
       settings.contextRollover,
@@ -178,8 +219,7 @@ export const make = Effect.gen(function* () {
     if (turn.status !== "running") return;
     // Resolve the active attempt before touching session state: late reports from
     // a previous run must not reset a fresh session's growth floor or nudge phase.
-    const { runs } = yield* projections.getThreadRecords(event.threadId, ["runs"]);
-    const run = runs.find((candidate) => candidate.activeAttemptId === turn.runAttemptId);
+    const run = yield* runForAttempt(event.threadId, turn.runAttemptId);
     if (run === undefined || (run.status !== "running" && run.status !== "waiting")) return;
     let previousState = threads.get(event.threadId);
     // A provider switch is a different conversation, not a native context drop.
@@ -295,8 +335,7 @@ export const make = Effect.gen(function* () {
     )
       return;
     state.attemptId = turn.runAttemptId;
-    const { runs } = yield* projections.getThreadRecords(event.threadId, ["runs"]);
-    const run = runs.find((candidate) => candidate.activeAttemptId === turn.runAttemptId);
+    const run = yield* runForAttempt(event.threadId, turn.runAttemptId);
     if (run === undefined || (run.status !== "running" && run.status !== "waiting")) return;
     yield* nudgeIfDue(event.threadId, run, turn, state, "turn-start");
   });
@@ -605,6 +644,7 @@ export const make = Effect.gen(function* () {
       return event.payload.tokenUsage === undefined ? onTurnStart(event) : onUsage(event);
     }
     if (event.type === "turn-item.updated") return onCompaction(event);
+    activeRuns.delete(event.threadId);
     if (isTerminalRunStatus(event.payload.status)) return onRunEnd(event.threadId, event.payload);
     if (
       event.payload.rolloverOfRunId !== undefined &&
@@ -656,6 +696,7 @@ export const make = Effect.gen(function* () {
           case "thread.rollover-thresholds-set":
             // A hold or moved thresholds forget a soft nudge not yet answered; it starts over.
             return Effect.sync(() => {
+              enrollmentPolicies.delete(event.threadId);
               const state = threads.get(event.threadId);
               if (state === undefined) return;
               state.phase = "idle";
@@ -664,6 +705,8 @@ export const make = Effect.gen(function* () {
           case "thread.deleted":
             return Effect.sync(() => {
               threads.delete(event.threadId);
+              activeRuns.delete(event.threadId);
+              enrollmentPolicies.delete(event.threadId);
               compactions.delete(event.threadId);
               notes.delete(event.threadId);
             });

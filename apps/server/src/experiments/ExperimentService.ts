@@ -538,9 +538,21 @@ const make = Effect.gen(function* () {
     const rows = yield* persist(
       "assignments",
       input.experimentId ?? input.threadId ?? "",
-      sql<{
-        payload_json: string;
-      }>`SELECT payload_json FROM experiment_assignments WHERE (${input.experimentId ?? null} IS NULL OR experiment_id = ${input.experimentId ?? null}) AND (${input.threadId ?? null} IS NULL OR thread_id = ${input.threadId ?? null}) ORDER BY rowid`,
+      input.experimentId !== undefined && input.threadId !== undefined
+        ? sql<{
+            payload_json: string;
+          }>`SELECT payload_json FROM experiment_assignments WHERE experiment_id = ${input.experimentId} AND thread_id = ${input.threadId} ORDER BY rowid`
+        : input.experimentId !== undefined
+          ? sql<{
+              payload_json: string;
+            }>`SELECT payload_json FROM experiment_assignments WHERE experiment_id = ${input.experimentId} ORDER BY rowid`
+          : input.threadId !== undefined
+            ? sql<{
+                payload_json: string;
+              }>`SELECT payload_json FROM experiment_assignments WHERE thread_id = ${input.threadId} ORDER BY rowid`
+            : sql<{
+                payload_json: string;
+              }>`SELECT payload_json FROM experiment_assignments ORDER BY rowid`,
     );
     const decoded = yield* Effect.forEach(rows, (row) =>
       persist("assignments", "", decodeAssignment(row.payload_json)),

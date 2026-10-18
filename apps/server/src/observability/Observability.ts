@@ -17,6 +17,9 @@ import * as ResourceAttribution from "../resourceTelemetry/ResourceAttribution.t
 import * as ServerLogger from "../serverLogger.ts";
 import * as BrowserTraceCollector from "./BrowserTraceCollector.ts";
 
+const TRACE_MIN_DURATION_MS = 1;
+const TRACE_MIN_SQL_LOCK_WAIT_MS = 5;
+
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;
@@ -45,6 +48,10 @@ export const layer = Layer.unwrap(
           maxBytes: config.traceMaxBytes,
           maxFiles: config.traceMaxFiles,
           batchWindowMs: config.traceBatchWindowMs,
+          retention: {
+            minDurationMs: TRACE_MIN_DURATION_MS,
+            minSqlLockWaitMs: TRACE_MIN_SQL_LOCK_WAIT_MS,
+          },
           onFlush: (stats) =>
             attribution.record({
               component: "server-trace",

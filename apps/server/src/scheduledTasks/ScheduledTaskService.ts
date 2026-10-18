@@ -25,6 +25,7 @@ import {
   type ProjectId,
   type RuntimeMode,
 } from "@t3tools/contracts";
+import { readOnly } from "@t3tools/shared/nodeSqliteClient";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -334,12 +335,14 @@ export const listDueTasks = Effect.fn("ScheduledTaskService.listDueTasks")(funct
   now: DateTime.DateTime,
 ) {
   const sql = yield* SqlClient.SqlClient;
+  // The poll runs every few seconds; on the reader it never queues behind writes.
+  // A stale row is harmless because runTask re-reads the task before it runs.
   const rows = yield* sql<ScheduledTaskRow>`
     SELECT * FROM scheduled_tasks
     WHERE enabled = 1 AND next_run_at IS NOT NULL
       AND next_run_at <= ${iso(now)} AND last_run_status <> 'running'
     ORDER BY next_run_at ASC, task_id ASC
-  `;
+  `.pipe(readOnly);
   const tasks: ScheduledTask[] = [];
   for (const row of rows) {
     const decoded = yield* Effect.result(decodeRow(row));

@@ -580,6 +580,7 @@ const runHeldTurnScenario = (
         Layer.mergeAll(
           layerProjections,
           Layer.mock(ExperimentService.ExperimentService)({
+            list: () => Effect.succeed([]),
             getRolloverAssignment: () => Effect.succeed(options.assignment ?? null),
             assignForThread: () =>
               Effect.succeed(options.assignment === undefined ? [] : [options.assignment]),

@@ -65,6 +65,7 @@ interface BaseTraceRecord {
 
 export interface EffectTraceRecord extends BaseTraceRecord {
   readonly type: "effect-span";
+  readonly parentSpanName?: string;
   readonly exit:
     | {
         readonly _tag: "Success";
@@ -133,6 +134,10 @@ export interface TraceSinkOptions {
   readonly maxBytes: number;
   readonly maxFiles: number;
   readonly batchWindowMs: number;
+  readonly retention?: {
+    readonly minDurationMs: number;
+    readonly minSqlLockWaitMs: number;
+  };
   readonly onFlush?: (stats: TraceSinkFlushStats) => Effect.Effect<void>;
 }
 
@@ -321,9 +326,17 @@ export function truncateTraceAttributes(attributes: TraceAttributes): TraceAttri
   return truncated ?? attributes;
 }
 
+// Diagnostics read warnings and errors from span log events, so a fast span keeps them.
+const WARNING_OR_WORSE_LOG_LEVELS = new Set(["warn", "warning", "error", "fatal"]);
+const isWarningOrWorseLog = (event: TraceRecordEvent) => {
+  const level = event.attributes["effect.logLevel"];
+  return typeof level === "string" && WARNING_OR_WORSE_LOG_LEVELS.has(level.toLowerCase());
+};
+
 function spanToTraceRecord(span: SerializableSpan): EffectTraceRecord {
   const status = span.status as Extract<Tracer.SpanStatus, { _tag: "Ended" }>;
-  const parentSpanId = Option.getOrUndefined(span.parent)?.spanId;
+  const parent = Option.getOrUndefined(span.parent);
+  const parentSpanId = parent?.spanId;
 
   return {
     type: "effect-span",
@@ -331,6 +344,8 @@ function spanToTraceRecord(span: SerializableSpan): EffectTraceRecord {
     traceId: span.traceId,
     spanId: span.spanId,
     ...(parentSpanId ? { parentSpanId } : {}),
+    // A fast parent may be filtered from the file, or may not have ended yet.
+    ...(parent?._tag === "Span" ? { parentSpanName: parent.name } : {}),
     sampled: span.sampled,
     kind: span.kind,
     startTimeUnixNano: String(status.startTime),
@@ -473,6 +488,20 @@ export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: Trac
   return {
     filePath: options.filePath,
     push(record) {
+      // Renderer OTLP records lack parent names; retain their chain unchanged.
+      if (
+        options.retention &&
+        record.type === "effect-span" &&
+        record.exit._tag === "Success" &&
+        record.durationMs < options.retention.minDurationMs &&
+        !(
+          typeof record.attributes["db.lock_wait_ms"] === "number" &&
+          record.attributes["db.lock_wait_ms"] >= options.retention.minSqlLockWaitMs
+        ) &&
+        !record.events.some(isWarningOrWorseLog)
+      ) {
+        return;
+      }
       try {
         const text = `${JSON.stringify(record)}\n`;
         const bytes = Buffer.byteLength(text);
@@ -578,6 +607,7 @@ export const makeLocalFileTracer = Effect.fn("makeLocalFileTracer")(function* (
       maxBytes: options.maxBytes,
       maxFiles: options.maxFiles,
       batchWindowMs: options.batchWindowMs,
+      ...(options.retention ? { retention: options.retention } : {}),
       ...(options.onFlush ? { onFlush: options.onFlush } : {}),
     }));
 

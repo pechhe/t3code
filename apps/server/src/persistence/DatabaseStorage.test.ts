@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as DateTime from "effect/DateTime";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -104,6 +105,107 @@ it.effect("publishes nothing when doctor would repair a different database", () 
             return { ...config, dbPath: `${config.baseDir}/dev/statev2.sqlite` };
           }),
         ).pipe(Layer.provide(testConfig)),
+      ),
+    ),
+  ),
+);
+
+it.effect.each([undefined, 5, 7, -2] as const)(
+  "respects persisted completion across restarts (previous pass %s hours ago)",
+  (hoursAgo) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      let passes = 0;
+      if (hoursAgo !== undefined) {
+        const completedAt = DateTime.formatIso(
+          DateTime.subtract(yield* DateTime.now, { hours: hoursAgo }),
+        );
+        yield* sql`
+        INSERT INTO orchestration_v2_projection_metadata VALUES ('event-store-compaction', 1, 0, ${completedAt})
+      `;
+      }
+      const observed = ProjectionMaintenance.ProjectionMaintenanceV2.of({
+        ...maintenance,
+        compactEventStore: maintenance.compactEventStore.pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              passes++;
+            }),
+          ),
+        ),
+      });
+      const start = Effect.scoped(
+        Effect.gen(function* () {
+          yield* DatabaseStorage.DatabaseStorage;
+          yield* TestClock.adjust("1 minute");
+        }).pipe(
+          Effect.provide(Layer.fresh(DatabaseStorage.layer)),
+          Effect.provideService(ProjectionMaintenance.ProjectionMaintenanceV2, observed),
+        ),
+      );
+      yield* start;
+      // Negative: a completion stamped in the future by a skewed clock.
+      const expected = hoursAgo === 5 ? 0 : 1;
+      assert.equal(passes, expected);
+      yield* start;
+      assert.equal(passes, expected);
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          yield* DatabaseStorage.DatabaseStorage;
+          yield* TestClock.adjust("6 hours");
+          assert.equal(passes, expected + 1);
+        }).pipe(
+          Effect.provide(Layer.fresh(DatabaseStorage.layer)),
+          Effect.provideService(ProjectionMaintenance.ProjectionMaintenanceV2, observed),
+        ),
+      );
+    }).pipe(
+      Effect.provide(
+        ProjectionMaintenance.layer.pipe(
+          Layer.provideMerge(Layer.merge(EventStore.layer, ProjectionStore.layer)),
+          Layer.provideMerge(Sqlite.layerMemory),
+          Layer.provideMerge(testConfig),
+          Layer.provideMerge(NodeServices.layer),
+        ),
+      ),
+    ),
+);
+
+it.effect("waits a full interval after a failed pass before retrying", () =>
+  Effect.gen(function* () {
+    const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+    let attempts = 0;
+    const failing = ProjectionMaintenance.ProjectionMaintenanceV2.of({
+      ...maintenance,
+      compactEventStore: Effect.suspend(() => {
+        attempts++;
+        return Effect.fail(
+          new ProjectionMaintenance.ProjectionMaintenanceError({ operation: "compact event store" }),
+        );
+      }),
+    });
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* DatabaseStorage.DatabaseStorage;
+        yield* TestClock.adjust("1 minute");
+        assert.equal(attempts, 1);
+        yield* TestClock.adjust("5 hours");
+        assert.equal(attempts, 1);
+        yield* TestClock.adjust("1 hour");
+        assert.equal(attempts, 2);
+      }).pipe(
+        Effect.provide(Layer.fresh(DatabaseStorage.layer)),
+        Effect.provideService(ProjectionMaintenance.ProjectionMaintenanceV2, failing),
+      ),
+    );
+  }).pipe(
+    Effect.provide(
+      ProjectionMaintenance.layer.pipe(
+        Layer.provideMerge(Layer.merge(EventStore.layer, ProjectionStore.layer)),
+        Layer.provideMerge(Sqlite.layerMemory),
+        Layer.provideMerge(testConfig),
+        Layer.provideMerge(NodeServices.layer),
       ),
     ),
   ),

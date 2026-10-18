@@ -41,11 +41,16 @@ server starts: production and explicitly configured homes use
 `<worktree>/.t3/userdata/logs/server.trace.ndjson`, and an implicit dev run outside a linked
 worktree uses `~/.t3/dev/logs/server.trace.ndjson`.
 
+The server file skips successful spans under 1 ms unless they waited 5 ms or more for a database
+connection or logged a warning or error; those make up most spans and would otherwise rotate the
+file within minutes. Failed and interrupted spans are always kept, and a kept span names its
+parent in `parentSpanName` even when the parent was skipped. OTLP export still receives every span.
+
 Important fields common to both record types:
 
 - `type`: `effect-span` or `otlp-span`
 - `name`: span name
-- `traceId`, `spanId`, `parentSpanId`: correlation
+- `traceId`, `spanId`, `parentSpanId`: correlation (`parentSpanName` on server spans)
 - `durationMs`: elapsed time
 - `attributes`: structured context
 - `events`: embedded logs and custom events
@@ -82,7 +87,9 @@ t3 trace summary --since 30m --limit 40
 It reads `T3CODE_TRACE_FILE` if set, else `<home>/userdata/logs/server.trace.ndjson` for
 `--base-dir` or `T3CODE_HOME`, plus the `T3CODE_TRACE_MAX_FILES` rotated backups. For a dev run or
 a copied file, set `T3CODE_TRACE_FILE`. `--since 30m` keeps spans that ended in the last 30
-minutes. The rate is per minute between the first and last span end.
+minutes. The rate is per minute between the first and last span end. Counts, rates and
+percentiles cover only the spans the file keeps, so a name whose spans are mostly under 1 ms looks
+rarer and slower than it is.
 
 ### Metrics
 
@@ -102,7 +109,7 @@ the loop stalled for more than 2 s since the previous sample, it records a root
 `T3CODE_TRACE_MIN_LEVEL` is `Warn`. The warning shows in Settings > Diagnostics unless OTLP logs are
 on. The span time is when the sample ran, not when the stall happened.
 
-The trace file rotates in well under an hour on a busy server, so each stall is also appended as one
+The trace file can rotate within hours on a busy server, so each stall is also appended as one
 NDJSON line to `event-loop-stalls.ndjson`, next to the trace file. A line has `time` and the span
 attributes. The file keeps the last 1000 or more stalls, with one rotated backup
 (`event-loop-stalls.ndjson.1`). Use it to see how often a server stalls over days.
@@ -594,7 +601,7 @@ Local trace file:
 
 - `T3CODE_TRACE_FILE`: override trace file path
 - `T3CODE_TRACE_MAX_BYTES`: per-file rotation size, default `10485760`
-- `T3CODE_TRACE_MAX_FILES`: rotated file count, default `10`
+- `T3CODE_TRACE_MAX_FILES`: rotated file count, default `60`
 - `T3CODE_TRACE_BATCH_WINDOW_MS`: flush window, default `1000`
 - `T3CODE_TRACE_MIN_LEVEL`: minimum trace level, default `Info`
 - `T3CODE_TRACE_TIMING_ENABLED`: enable timing metadata, default `true`

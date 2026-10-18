@@ -30,6 +30,7 @@ import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
+import * as Statement from "effect/sql/Statement";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
@@ -325,6 +326,51 @@ const addRunTurn = Effect.fn(function* (
 });
 
 describe("ExperimentService", () => {
+  it.effect("filters assignments with indexed queries and preserves insertion order", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      const sql = yield* SqlClient.SqlClient;
+      yield* service.create(definition());
+      yield* service.transition({ experimentId: "rollover", status: "running" });
+      const first = (yield* service.assign(assignInput("thread:1")))[0]!;
+      const second = (yield* service.assign(assignInput("thread:2")))[0]!;
+      const queries: Array<ReturnType<Statement.Statement<unknown>["compile"]>> = [];
+      const lookups = yield* Effect.gen(function* () {
+        return [
+          yield* service.assignments({}),
+          yield* service.assignments({ experimentId: "rollover" }),
+          yield* service.assignments({ threadId: ThreadId.make("thread:2") }),
+          yield* service.assignments({
+            experimentId: "rollover",
+            threadId: ThreadId.make("thread:1"),
+          }),
+          yield* service.assignments({
+            experimentId: "missing",
+            threadId: ThreadId.make("thread:1"),
+          }),
+          yield* service.assignments({ threadId: ThreadId.make("thread:missing") }),
+        ];
+      }).pipe(
+        Effect.provideService(Statement.CurrentTransformer, (statement) => {
+          queries.push(statement.compile());
+          return Effect.succeed(statement);
+        }),
+      );
+      assert.deepEqual(lookups, [[first, second], [first, second], [second], [first], [], []]);
+      assert.lengthOf(queries, 6);
+      for (const [query, parameters] of queries.slice(1)) {
+        const plan = yield* sql.unsafe<{ detail: string }>(
+          `EXPLAIN QUERY PLAN ${query}`,
+          parameters,
+        );
+        assert.isTrue(
+          plan.some((step) => step.detail.includes("SEARCH experiment_assignments USING INDEX")),
+        );
+        assert.isFalse(plan.some((step) => step.detail.includes("SCAN experiment_assignments")));
+      }
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect(
     "creates drafts and retains balanced immutable assignment across service reconstruction, pause and stop",
     () =>

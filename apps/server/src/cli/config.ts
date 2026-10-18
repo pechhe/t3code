@@ -88,8 +88,9 @@ export const traceFileConfig = Config.String("T3CODE_TRACE_FILE").pipe(
   Config.option,
   Config.map(Option.getOrUndefined),
 );
+// The file keeps only spans worth diagnosing (see makeTraceSink), so 60 files hold hours.
 export const traceMaxFilesConfig = Config.Int("T3CODE_TRACE_MAX_FILES").pipe(
-  Config.withDefault(10),
+  Config.withDefault(60),
 );
 
 const EnvServerConfig = Config.all({
