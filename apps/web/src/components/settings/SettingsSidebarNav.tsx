@@ -119,11 +119,12 @@ export function SettingsSidebarNav({ pathname }: { pathname: string }) {
   const currentSearch = useLocation({ select: (location) => location.search });
   const scopeSearch = useMemo(() => validateSettingsScopeSearch(currentSearch), [currentSearch]);
   const projectGroups = useSettingsProjectGroups();
-  // The Projects page needs a project; arriving without one picks a default.
+  // The Projects page needs a project; arriving without one picks a default
+  // across all environments, since a picked environment may hold no checkout of it.
   const searchFor = (to: SettingsPath): SettingsScopeSearch | undefined => {
     if (to !== "/settings/projects" || scopeSearch.project) return undefined;
     const project = defaultSettingsProjectKey(projectGroups, readMainAppProjectRef());
-    return project ? { ...scopeSearch, project } : undefined;
+    return project ? { project } : undefined;
   };
   const { isMobile, setOpenMobile, open, setOpen } = useSidebar();
   const searchInputRef = useRef<HTMLInputElement>(null);
