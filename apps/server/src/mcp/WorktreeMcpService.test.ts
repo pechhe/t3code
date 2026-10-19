@@ -359,7 +359,11 @@ const makeHarness = (options: HarnessOptions = {}) => {
 
   const allocateWorkspace = vi.fn(
     (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["allocate"]>[0]) =>
-      Effect.succeed({ workspacePath: "/slipjay/workspaces/feature-handoff", created: true }),
+      Effect.succeed({
+        workspacePath: "/slipjay/workspaces/feature-handoff",
+        created: true,
+        issue: null,
+      }),
   );
   const releaseWorkspace = vi.fn(
     (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["release"]>[0]) =>

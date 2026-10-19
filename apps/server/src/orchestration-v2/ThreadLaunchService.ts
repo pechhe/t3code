@@ -332,6 +332,17 @@ const make = Effect.gen(function* () {
       });
   });
 
+  /**
+   * The Build item a thread works under: its HQ link, or else the item its workspace was
+   * attached to, which needs no HQ connection.
+   */
+  const threadBuildItem = Effect.fn("ThreadLaunchService.threadBuildItem")(function* (
+    threadId: ThreadId,
+  ) {
+    const { thread } = yield* threads.getThreadRecords(threadId, []);
+    return thread.workItem?.number ?? thread.workspaceIssue ?? undefined;
+  });
+
   const prepareInBackground = Effect.fn("ThreadLaunchService.prepareInBackground")(function* (
     input: PreparationInput,
     threadId: ThreadId,
@@ -446,11 +457,17 @@ const make = Effect.gen(function* () {
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         const task =
           requestedBranch ?? initialMessage?.text.trim().split("\n")[0]?.slice(0, 80) ?? "";
-        // A thread launched for a Build item, or linked to one, works in that item's
-        // workspace, including when SlipJay removed the previous one while it was idle.
+        // A thread launched for a Build item works in that item's workspace. A thread that
+        // already belongs to one, such as one replacing a workspace SlipJay removed, gets a
+        // new checkout carrying the item, since the item's workspace may be another thread's.
+        const buildItem = input.workspaceStrategy.buildItem;
+        const owned = buildItem === undefined ? yield* threadBuildItem(threadId) : undefined;
         const issue =
-          input.workspaceStrategy.buildItem ??
-          (yield* threads.getThreadShell(threadId))?.workItem?.number;
+          buildItem !== undefined
+            ? { number: buildItem, mode: "resume" as const }
+            : owned !== undefined
+              ? { number: owned, mode: "attach" as const }
+              : undefined;
         // SlipJay reports the path after dependency preparation. Keep acquisition
         // and rollback registration atomic, so cancellation cannot lose that path.
         // A resumed Build item workspace predates this launch, so cancelling never removes it.
@@ -464,7 +481,7 @@ const make = Effect.gen(function* () {
             .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
           worktreePath = allocation.workspacePath;
           branch = null;
-          workspaceIssue = issue ?? null;
+          workspaceIssue = allocation.issue;
           if (allocation.created) {
             createdWorktreePath = worktreePath;
             createdBySlipJay = true;
@@ -1303,13 +1320,7 @@ const make = Effect.gen(function* () {
     ) {
       return null;
     }
-    // The replacement stays under the thread's Build item: its HQ link, or else the item
-    // its workspace was attached to, which needs no HQ connection.
-    const buildItem =
-      thread.workItem?.number ??
-      (yield* threads.getThreadRecords(threadId, [])).thread.workspaceIssue ??
-      undefined;
-    return { thread, worktreePath: thread.worktreePath, project, buildItem };
+    return { thread, worktreePath: thread.worktreePath, project };
   });
 
   const prepareReleasedWorkspace: ThreadLaunchService["Service"]["prepareReleasedWorkspace"] =
@@ -1327,11 +1338,7 @@ const make = Effect.gen(function* () {
         commandId: input.commandId,
         threadId: input.threadId,
         runId: input.runId,
-        workspaceStrategy: {
-          type: "worktree",
-          baseRef: "HEAD",
-          ...(released.buildItem === undefined ? {} : { buildItem: released.buildItem }),
-        },
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
       });
       yield* prepareRun(input);
       return true;
@@ -1350,10 +1357,15 @@ const make = Effect.gen(function* () {
       if (released === null) return unchanged;
       const relative = path.relative(released.worktreePath, input.cwd);
       if (relative.startsWith("..") || path.isAbsolute(relative)) return unchanged;
-      const { workspacePath: worktreePath, created } = yield* workspaces.allocate({
+      const buildItem = yield* threadBuildItem(threadId);
+      const {
+        workspacePath: worktreePath,
+        created,
+        issue,
+      } = yield* workspaces.allocate({
         projectRoot: released.project.workspaceRoot,
         task: released.thread.title,
-        ...(released.buildItem === undefined ? {} : { issue: released.buildItem }),
+        ...(buildItem === undefined ? {} : { issue: { number: buildItem, mode: "attach" } }),
       });
       // Compare-and-set: a turn preparing a workspace at the same time keeps its own.
       yield* threads
@@ -1365,7 +1377,7 @@ const make = Effect.gen(function* () {
           worktreePath,
           expectedWorktreePath: released.worktreePath,
           workspaceReplaced: true,
-          ...(released.buildItem === undefined ? {} : { workspaceIssue: released.buildItem }),
+          ...(issue === null ? {} : { workspaceIssue: issue }),
         })
         .pipe(
           Effect.onError(() =>

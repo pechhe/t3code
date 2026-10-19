@@ -156,9 +156,13 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
           ),
         ),
       );
-      expect(yield* service.allocate({ projectRoot: "/project", task: "work", issue: 42 })).toEqual(
-        { workspacePath: "/item-42", created: false },
-      );
+      expect(
+        yield* service.allocate({
+          projectRoot: "/project",
+          task: "work",
+          issue: { number: 42, mode: "resume" },
+        }),
+      ).toEqual({ workspacePath: "/item-42", created: false, issue: 42 });
       expect(commands).toEqual([
         {
           args: ["slipjay", "start", "--integration", "--json", "--issue", "42", "work"],
@@ -166,5 +170,42 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
         },
       ]);
     }),
+  );
+  it.effect.each([
+    { attachCode: 0, issue: 42 },
+    { attachCode: 1, issue: null },
+  ])(
+    "attaches a Build item to a new checkout only when no other workspace holds it: %o",
+    ({ attachCode, issue }) =>
+      Effect.gen(function* () {
+        const commands: Array<{ readonly args: string[]; readonly cwd: string | undefined }> = [];
+        const service = yield* Workspaces.make.pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              Layer.mock(Processes.ProcessRunner)({
+                run: (input) =>
+                  Effect.sync(() => {
+                    commands.push({ args: [input.command, ...input.args], cwd: input.cwd });
+                    return input.args[0] === "attach-issue"
+                      ? { ...output(""), code: ChildProcessSpawner.ExitCode(attachCode) }
+                      : output(JSON.stringify({ workspacePath: "/fresh", created: true }));
+                  }),
+              }),
+              Layer.mock(Git.GitVcsDriver)({}),
+            ),
+          ),
+        );
+        expect(
+          yield* service.allocate({
+            projectRoot: "/project",
+            task: "work",
+            issue: { number: 42, mode: "attach" },
+          }),
+        ).toEqual({ workspacePath: "/fresh", created: true, issue });
+        expect(commands).toEqual([
+          { args: ["slipjay", "start", "--integration", "--json", "work"], cwd: "/project" },
+          { args: ["slipjay", "attach-issue", "42"], cwd: "/fresh" },
+        ]);
+      }),
   );
 });

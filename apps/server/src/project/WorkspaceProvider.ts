@@ -52,16 +52,18 @@ export class WorkspaceProvider extends Context.Service<
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, WorkspaceProviderError | GitCommandError>;
     /**
-     * Allocates a SlipJay workspace named after `task`. With `issue`, that Build item's
-     * existing workspace is returned instead when it has one, with `created` false: the
-     * caller must not release a checkout it did not create.
+     * Allocates a SlipJay workspace named after `task`. An `issue` to `resume` returns that
+     * Build item's existing workspace when it has one, with `created` false: the caller must
+     * not release a checkout it did not create. An `issue` to `attach` always gets a new
+     * checkout, which takes the item only when no other workspace holds it. `issue` in the
+     * result is the item the workspace belongs to.
      */
     readonly allocate: (input: {
       readonly projectRoot: string;
       readonly task: string;
-      readonly issue?: number;
+      readonly issue?: { readonly number: number; readonly mode: "resume" | "attach" };
     }) => Effect.Effect<
-      { readonly workspacePath: string; readonly created: boolean },
+      { readonly workspacePath: string; readonly created: boolean; readonly issue: number | null },
       WorkspaceProviderError
     >;
     /** Removes an allocated SlipJay workspace; SlipJay keeps one holding unfinished work. */
@@ -127,13 +129,14 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         // A project registered in a subdirectory allocates from its SlipJay root.
         const root = (yield* slipJayProject(projectRoot))?.root ?? projectRoot;
-        // With an Issue, SlipJay resumes that item's workspace (or its surviving checkout)
-        // and creates one attached to it only when none exists.
+        // To resume, SlipJay returns the item's workspace (or its surviving checkout) and
+        // creates one attached to it only when none exists.
+        const resume = issue?.mode === "resume";
         const output = yield* slipjay("allocate", root, [
           "start",
           "--integration",
           "--json",
-          ...(issue === undefined ? [] : ["--issue", String(issue)]),
+          ...(resume ? ["--issue", String(issue.number)] : []),
           task,
         ]);
         const result = yield* decodeSlipJayStartResult(output.stdout.trim()).pipe(
@@ -141,9 +144,31 @@ export const make = Effect.gen(function* () {
             (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
           ),
         );
+        // Resuming would hand over a workspace that may be another thread's. Attaching
+        // refuses an item another workspace holds, so this checkout only ever belongs to
+        // the thread that asked for it.
+        const attached =
+          issue === undefined || resume
+            ? true
+            : yield* slipjay(
+                "allocate",
+                root,
+                ["attach-issue", String(issue.number)],
+                result.workspacePath,
+              ).pipe(
+                Effect.as(true),
+                Effect.catch((error) =>
+                  Effect.logWarning("SlipJay workspace allocated without its Issue", {
+                    workspacePath: result.workspacePath,
+                    issue: issue.number,
+                    error: error.message,
+                  }).pipe(Effect.as(false)),
+                ),
+              );
         const allocation = {
           workspacePath: result.workspacePath,
           created: result.created ?? false,
+          issue: issue !== undefined && attached ? issue.number : null,
         };
         // SlipJay emits the path after preparation. Cancellation waits for that
         // receipt so a workspace it created can be returned rather than orphaned.

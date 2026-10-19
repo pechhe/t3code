@@ -141,7 +141,13 @@ interface HarnessOptions {
   readonly allocateWorkspace?: WorkspaceProvider.WorkspaceProvider["Service"]["allocate"];
 }
 
-const allocated = (workspacePath: string, created = true) => ({ workspacePath, created });
+type AllocateInput = Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["allocate"]>[0];
+
+const allocated = (workspacePath: string, created = true, issue: number | null = null) => ({
+  workspacePath,
+  created,
+  issue,
+});
 
 function makeHarness(options: HarnessOptions = {}) {
   const layerDatabase = SqlitePersistence.layerMemory;
@@ -1678,7 +1684,7 @@ const launchSlipJayRun = (thread: string, workspace?: ThreadLaunch.ThreadLaunchW
 
 const allocateInTurn = (...outcomes: ReadonlyArray<string | null>) => {
   let calls = 0;
-  return () => {
+  return (input: AllocateInput) => {
     const outcome = outcomes[calls++];
     return outcome === null || outcome === undefined
       ? Effect.fail(
@@ -1687,7 +1693,7 @@ const allocateInTurn = (...outcomes: ReadonlyArray<string | null>) => {
             projectRoot: project.workspaceRoot,
           }),
         )
-      : Effect.succeed(allocated(outcome));
+      : Effect.succeed(allocated(outcome, true, input.issue?.number ?? null));
   };
 };
 
@@ -1823,7 +1829,11 @@ it.effect.each(["link", "launch"] as const)(
               ),
             ),
         );
-        assert.deepInclude(harness.allocateWorkspace.mock.calls[1]![0], { issue: 42 });
+        // A new checkout that takes the item only when no other workspace holds it: resuming
+        // the item's workspace could move this thread into another thread's checkout.
+        assert.deepInclude(harness.allocateWorkspace.mock.calls[1]![0], {
+          issue: { number: 42, mode: "attach" },
+        });
         assert.isFalse(harness.releasedPaths.has("/slipjay/workspaces/fresh"));
         assert.isNotNull((yield* threads.getThreadProjection(threadId)).thread.workspaceReplacedAt);
       }).pipe(Effect.provide(harness.layer));
@@ -1865,7 +1875,11 @@ it.effect.each(["link", "launch"] as const)(
           (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
           "/slipjay/workspaces/fresh",
         );
-        assert.deepInclude(harness.allocateWorkspace.mock.calls[1]![0], { issue: 42 });
+        // A new checkout that takes the item only when no other workspace holds it: resuming
+        // the item's workspace could move this thread into another thread's checkout.
+        assert.deepInclude(harness.allocateWorkspace.mock.calls[1]![0], {
+          issue: { number: 42, mode: "attach" },
+        });
         assert.isNotNull((yield* threads.getThreadProjection(threadId)).thread.workspaceReplacedAt);
       }).pipe(Effect.provide(harness.layer));
     }),
@@ -1904,7 +1918,10 @@ it.effect("keeps a Build item launched without a message through its workspace's
       );
       assert.deepEqual(
         harness.allocateWorkspace.mock.calls.map(([input]) => input.issue),
-        [42, 42],
+        [
+          { number: 42, mode: "resume" },
+          { number: 42, mode: "attach" },
+        ],
       );
     }).pipe(Effect.provide(harness.layer));
   }),
@@ -1958,7 +1975,7 @@ it.effect("binds a thread launched for a Build item to that item's workspace", (
   Effect.gen(function* () {
     const harness = makeHarness({
       slipjay: true,
-      allocateWorkspace: () => Effect.succeed(allocated("/slipjay/workspaces/item-42")),
+      allocateWorkspace: () => Effect.succeed(allocated("/slipjay/workspaces/item-42", true, 42)),
     });
     yield* Effect.gen(function* () {
       const threads = yield* ThreadManagement.ThreadManagementService;
@@ -1974,7 +1991,13 @@ it.effect("binds a thread launched for a Build item to that item's workspace", (
       );
       assert.deepEqual(
         harness.allocateWorkspace.mock.calls.map(([input]) => input),
-        [{ projectRoot: project.workspaceRoot, task: "Start", issue: 42 }],
+        [
+          {
+            projectRoot: project.workspaceRoot,
+            task: "Start",
+            issue: { number: 42, mode: "resume" },
+          },
+        ],
       );
     }).pipe(Effect.provide(harness.layer));
   }),
