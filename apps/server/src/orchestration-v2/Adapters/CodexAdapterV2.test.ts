@@ -3,6 +3,7 @@ import * as NodeOS from "node:os";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
 import {
   makeProviderTextDeltaCoalescer,
+  PROVIDER_TEXT_FLUSH_INTERVAL_MS,
   type ProviderTextDeltaUpdate,
 } from "./ProviderTextDeltaCoalescer.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -4472,7 +4473,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     Effect.scoped(
       Effect.gen(function* () {
         const transcript = finalAnswerTranscript("codex-streamed-message-once", [
-          { id: "answer", text: "CODEX_RECOVERY_OK", streamed: true, completionDelayMs: 100 },
+          {
+            id: "answer",
+            text: "CODEX_RECOVERY_OK",
+            streamed: true,
+            completionDelayMs: 2 * PROVIDER_TEXT_FLUSH_INTERVAL_MS,
+          },
         ]);
         const harness = yield* makeCodexReplayHarness(transcript);
         const now = yield* DateTime.now;
@@ -4487,7 +4493,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           }),
         );
         yield* Effect.yieldNow;
-        yield* TestClock.adjust("50 millis");
+        yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
         yield* awaitUntil(
           () => assistantTurnItems(harness.events).length === 1,
           "streamed turn item",
@@ -4498,7 +4504,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         );
         assert.deepEqual(assistantMessages(harness.events), []);
 
-        yield* TestClock.adjust("50 millis");
+        yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
         yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
         assert.deepEqual(
           assistantMessages(harness.events).map(({ message }) => ({
@@ -4617,7 +4623,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             {
               type: "emit_inbound",
               label: "item/completed/answer-overlap-original",
-              afterMs: 100,
+              afterMs: 2 * PROVIDER_TEXT_FLUSH_INTERVAL_MS,
               frame: {
                 method: "item/completed",
                 params: {
@@ -4667,12 +4673,12 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           }),
         );
         yield* Effect.yieldNow;
-        yield* TestClock.adjust("50 millis");
+        yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
         yield* Effect.yieldNow;
 
         assert.equal(new Set(assistantTurnItems(harness.events).map((item) => item.id)).size, 1);
 
-        yield* TestClock.adjust("50 millis");
+        yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
         yield* awaitUntil(() => harness.terminalEvents().length === 1, "root turn terminal");
         assert.equal(
           new Set(assistantMessages(harness.events).map((event) => event.message.id)).size,

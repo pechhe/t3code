@@ -900,10 +900,10 @@ it.effect("checkpoints the WAL on the worker instead of the writer", () =>
       }>`PRAGMA wal_autocheckpoint`;
       assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 10_000);
 
-      // About 1200 frames, past the 1000 that start a checkpoint.
+      // About 4200 frames, past the 4000 that start a checkpoint.
       yield* sql`CREATE TABLE pages(payload BLOB)`;
       yield* sql`
-        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1200)
+        WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 4200)
         INSERT INTO pages(payload) SELECT randomblob(4000) FROM n
       `;
       yield* checkpointWorkerReply(worker);
@@ -911,7 +911,7 @@ it.effect("checkpoints the WAL on the worker instead of the writer", () =>
         readonly log: number;
         readonly checkpointed: number;
       }>`PRAGMA wal_checkpoint(NOOP)`;
-      assert.isAbove(wal[0]!.log, 1000);
+      assert.isAbove(wal[0]!.log, 4000);
       assert.equal(wal[0]!.checkpointed, wal[0]!.log);
 
       assert.isAbove(yield* walSize, limit);
@@ -928,7 +928,7 @@ it.effect("hands checkpoints back to the writer when the worker stops", () =>
       const autocheckpoint = yield* sql<{
         readonly wal_autocheckpoint: number;
       }>`PRAGMA wal_autocheckpoint`;
-      assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 1000);
+      assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 4000);
     }),
   ),
 );
@@ -950,7 +950,7 @@ it.effect("warns once and hands checkpoints back when the worker fails at startu
           const autocheckpoint = yield* sql<{
             readonly wal_autocheckpoint: number;
           }>`PRAGMA wal_autocheckpoint`;
-          assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 1000);
+          assert.equal(autocheckpoint[0]?.wal_autocheckpoint, 4000);
           assert.deepEqual(warnings, [
             [
               "SQLite checkpoint worker unavailable; checkpoints run on the main connection",

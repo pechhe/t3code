@@ -508,6 +508,19 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#140 (closed), #135.
 
+### perf-persistence-writes
+
+- **Kind:** deliberate behaviour change (upstreamable performance fix)
+- **Why:** The backend wrote ~200 MB/min into `statev2.sqlite`: every event is its own commit of ~27 WAL pages, and each checkpoint rewrites the pages it touched at random offsets.
+- **Requirements:** Claude and Codex persist streamed text, reasoning and plans at most every 400 ms per item (upstream 50 ms for text), under the web reveal's ~0.45 s lag; completion still flushes at once. Allocated event ids end in a time-ordered UUIDv7, so the unique `event_id` index grows at each stream's right edge. The checkpoint worker starts at 4000 WAL frames (upstream 1000); the writer's backstop stays 10 000 frames.
+- **Integration points:** `PROVIDER_TEXT_FLUSH_INTERVAL_MS` in `ProviderTextDeltaCoalescer`; `IdAllocator` event ids (`randomUuidV7`); `CHECKPOINT_FRAMES` in `shared/nodeSqliteClient`.
+- **Proof:** packages/provider-core/src/server/IdAllocator.test.ts; packages/shared/src/nodeSqliteClient.test.ts; Claude and Codex adapter streaming tests. Replaying 5,697 real events (11.7 min of live traffic) through `EventSink` on a copy of the 8.3 GB live database: ~1,184 MB written before, ~831 MB after (−30%, runs vary ±5%).
+- **Upstream:** none known; all three are upstreamable.
+- **Retire when:** upstream persists streaming text less often and stops writing one commit per event.
+- **Constraints:** ACP-based adapters (Antigravity, Grok, ACP registry agents) still persist one turn-item update per chunk; OpenCode and Cursor were not checked. Most remaining cost is per-commit index maintenance (eight `orchestration_events` indexes, six or more on turn items).
+- **Decision:** `retain` (new, 2026-10-19).
+- **Owner:** YardSmith HQ Build #3350.
+
 ### dev-state-tooling
 
 - **Kind:** deliberate behaviour change

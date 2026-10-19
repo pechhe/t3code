@@ -1,4 +1,7 @@
-import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
+import {
+  makeProviderTextDeltaCoalescer,
+  PROVIDER_TEXT_FLUSH_INTERVAL_MS,
+} from "./ProviderTextDeltaCoalescer.ts";
 import { claudeTaskOutputRoot, tailClaudeTaskOutput } from "./ClaudeTaskOutputTail.ts";
 import {
   dynamicToolTitle,
@@ -6106,7 +6109,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           yield* textDeltas.append({ turnId: context.nativeTurnId, itemId, delta: text });
         });
         const textDeltas = yield* makeProviderTextDeltaCoalescer({
-          flushIntervalMs: 50,
+          flushIntervalMs: PROVIDER_TEXT_FLUSH_INTERVAL_MS,
           emit: (update) =>
             Effect.gen(function* () {
               const context = yield* Ref.get(activeTurn);
@@ -6152,7 +6155,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             }),
         });
         const reasoningDeltas = yield* makeProviderTextDeltaCoalescer({
-          flushIntervalMs: 50,
+          flushIntervalMs: PROVIDER_TEXT_FLUSH_INTERVAL_MS,
           emit: (update) =>
             Effect.gen(function* () {
               const context = yield* Ref.get(activeTurn);

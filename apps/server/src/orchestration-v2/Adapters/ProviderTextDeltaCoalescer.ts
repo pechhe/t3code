@@ -33,6 +33,12 @@ interface BufferedProviderText {
   readonly dirty: boolean;
 }
 
+// Every flush commits the item's whole text so far, so a short interval turns a
+// streaming reply into many large writes. The web client reveals streamed text
+// about 0.45 s behind what it has received (`REVEAL_LAG_S`), so flushing faster
+// than that does not make the reveal smoother; flushing slower makes it stall.
+export const PROVIDER_TEXT_FLUSH_INTERVAL_MS = 400;
+
 function providerTextBufferKey(turnId: string, itemId: string): string {
   return `${turnId}\u0000${itemId}`;
 }

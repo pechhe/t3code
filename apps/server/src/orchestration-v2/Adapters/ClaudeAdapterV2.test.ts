@@ -78,6 +78,7 @@ import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { PreviewControlsToolkit } from "../../mcp/toolkits/previewControls/tools.ts";
 import { HtmlToolkit } from "../../mcp/toolkits/html/tools.ts";
+import { PROVIDER_TEXT_FLUSH_INTERVAL_MS } from "./ProviderTextDeltaCoalescer.ts";
 import { RolloverToolkit } from "../../mcp/toolkits/rollover/tools.ts";
 import { EnvironmentToolkit } from "../../mcp/toolkits/environment/tools.ts";
 import { ProjectToolkit } from "../../mcp/toolkits/project/tools.ts";
@@ -3001,7 +3002,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             delta: { type: "text_delta", text: "growing" },
           });
           yield* Effect.yieldNow;
-          yield* TestClock.adjust("50 millis");
+          yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
           assert.isTrue(
             harness.events.some(
               (event) =>
@@ -3051,7 +3052,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
             delta: { type: "text_delta", text: " stale delta" },
           });
         }
-        yield* TestClock.adjust("50 millis");
+        yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
         yield* harness.offerAndWait(makeResultFrame({ uuid: "streamed-text-result", result: "" }));
         yield* Queue.take(harness.terminalReceipts);
         const messages = new Map(
@@ -3139,7 +3140,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         delta: { type: "text_delta", text: "text" },
       });
       yield* Effect.yieldNow;
-      yield* TestClock.adjust("50 millis");
+      yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
       const running = yield* Queue.take(harness.assistantItemReceipts);
       const snapshot = makeAssistantTextFrame({
         uuid: "empty-block-snapshot",
@@ -3200,7 +3201,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         delta: { type: "text_delta", text: "an answer" },
       });
       yield* Effect.yieldNow;
-      yield* TestClock.adjust("50 millis");
+      yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
       const running = yield* Queue.take(harness.assistantItemReceipts);
       assert.isTrue(running.type === "assistant_message" && running.streaming);
       yield* TestClock.adjust("2 seconds");
@@ -3264,7 +3265,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           }),
         );
       }
-      yield* TestClock.adjust("50 millis");
+      yield* TestClock.adjust(PROVIDER_TEXT_FLUSH_INTERVAL_MS);
       yield* harness.offerAndWait(makeResultFrame({ uuid: "child-stream-result", result: "" }));
       yield* Queue.take(harness.terminalReceipts);
       assert.isFalse(

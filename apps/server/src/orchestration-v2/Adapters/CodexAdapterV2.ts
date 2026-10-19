@@ -6,7 +6,10 @@ import {
 } from "@t3tools/provider-core/server/attachmentPrompt";
 import { revertCodexThread } from "../../provider/CodexThreadRevert.ts";
 import { historyResponseItems } from "@t3tools/provider-core/server/handoffBudget";
-import { makeProviderTextDeltaCoalescer } from "./ProviderTextDeltaCoalescer.ts";
+import {
+  makeProviderTextDeltaCoalescer,
+  PROVIDER_TEXT_FLUSH_INTERVAL_MS,
+} from "./ProviderTextDeltaCoalescer.ts";
 import {
   mcpToolPresentation,
   type McpToolPresentation,
@@ -206,10 +209,6 @@ export function codexProviderTurnTokenUsage(
   };
 }
 const DEFAULT_CODEX_SETTINGS = Schema.decodeSync(CodexSettings)({});
-const CODEX_ASSISTANT_DELTA_FLUSH_INTERVAL_MS = 50;
-// Each plan flush stores the whole plan three times (node, plan, turn item), so
-// flush at the cadence clients already see for assistant text.
-const CODEX_PLAN_DELTA_FLUSH_INTERVAL_MS = 400;
 const CodexBackgroundTerminalTerminateResponse = Schema.Struct({
   terminated: Schema.Boolean,
 });
@@ -3336,7 +3335,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           { turnId: string; nativeItemId: string; stream: "summary" | "content"; index: number }
         >();
         const reasoningDeltas = yield* makeProviderTextDeltaCoalescer({
-          flushIntervalMs: CODEX_ASSISTANT_DELTA_FLUSH_INTERVAL_MS,
+          flushIntervalMs: PROVIDER_TEXT_FLUSH_INTERVAL_MS,
           emit: (update) =>
             Effect.gen(function* () {
               const part = reasoningParts.get(update.itemId);
@@ -3421,7 +3420,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         });
 
         const agentMessageDeltas = yield* makeProviderTextDeltaCoalescer({
-          flushIntervalMs: CODEX_ASSISTANT_DELTA_FLUSH_INTERVAL_MS,
+          flushIntervalMs: PROVIDER_TEXT_FLUSH_INTERVAL_MS,
           emit: (update) =>
             Effect.gen(function* () {
               const context = yield* awaitActiveTurn(update.turnId);
@@ -3994,7 +3993,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           });
 
         const planDeltas = yield* makeProviderTextDeltaCoalescer({
-          flushIntervalMs: CODEX_PLAN_DELTA_FLUSH_INTERVAL_MS,
+          flushIntervalMs: PROVIDER_TEXT_FLUSH_INTERVAL_MS,
           emit: (update) =>
             Effect.gen(function* () {
               const resolved = yield* resolveItemEventContext(update.turnId);

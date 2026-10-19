@@ -26,7 +26,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
-import { randomUuidV4 } from "./randomUuid.ts";
+import { randomUuidV4, randomUuidV7 } from "./randomUuid.ts";
 
 export const IdAllocatorV2Kind = Schema.Literals([
   "command",
@@ -237,9 +237,10 @@ const randomId =
     readonly prefix: string;
     readonly parts: ReadonlyArray<string | number>;
     readonly make: (value: string) => Id;
+    readonly uuid?: Effect.Effect<string>;
   }) =>
   (allocationInput: Input): Effect.Effect<Id, IdAllocatorV2Error> =>
-    randomUuidV4.pipe(
+    (input.uuid ?? randomUuidV4).pipe(
       Effect.map((uuid) => input.make(joinId(input.prefix, ...input.parts, uuid))),
       Effect.mapError(
         (cause) =>
@@ -316,6 +317,9 @@ export const layer: Layer.Layer<IdAllocatorV2> = Layer.succeed(
               : ["provider-session", input.providerSessionId]),
           ],
           make: EventId.make,
+          // Event ids key a unique index; time-ordered ids append to its right
+          // edge instead of rewriting a random page of it on every event.
+          uuid: randomUuidV7,
         })(input),
       rawEvent: (input) =>
         randomId<RawEventId, typeof input>({

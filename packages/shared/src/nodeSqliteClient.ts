@@ -87,10 +87,7 @@ type Restore = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, 
 
 const TransactionAcquire = Context.Reference<
   { acquired?: Acquired; readonly restore: Restore } | undefined
->(
-  "@t3tools/shared/nodeSqliteClient/TransactionAcquire",
-  { defaultValue: () => undefined },
-);
+>("@t3tools/shared/nodeSqliteClient/TransactionAcquire", { defaultValue: () => undefined });
 
 export class UnsupportedNodeSqliteVersionError extends Schema.TaggedError<UnsupportedNodeSqliteVersionError>()(
   "UnsupportedNodeSqliteVersionError",
@@ -490,11 +487,14 @@ const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig) {
   return { acquire, unavailable: () => unavailable };
 });
 
-const CHECKPOINT_FRAMES = 1000;
+// A checkpoint writes each page changed since the last one once, at a random
+// offset in the database. Busy pages (index right edges, the thread row, page 1)
+// change on nearly every commit, so a longer cycle writes them fewer times.
+const CHECKPOINT_FRAMES = 4000;
 // While the worker runs, the writer still checkpoints a WAL this long. Writes
 // with no pause leave the worker behind, and the WAL can only restart once
 // every frame is checkpointed, so this keeps the file from growing forever.
-const WRITER_BACKSTOP_FRAMES = 10 * CHECKPOINT_FRAMES;
+const WRITER_BACKSTOP_FRAMES = 10_000;
 const CHECKPOINT_IDLE_MS = 100;
 
 // SQLite before 3.51 reads NOOP as PASSIVE and would checkpoint on every
