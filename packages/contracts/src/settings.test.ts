@@ -7,6 +7,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  CodexSettings,
   DEFAULT_SERVER_SETTINGS,
   requiredScopesForProjectMutation,
   resolveProjectProviderInstanceEnabled,
@@ -284,6 +285,22 @@ describe("ClaudeSettings auto-compaction", () => {
       expect(() => decodeClaudeSettings({ autoCompactWindow: value })).toThrow();
     },
   );
+});
+
+describe("CodexSettings auto-compaction", () => {
+  const decodeCodexSettings = Schema.decodeUnknownSync(CodexSettings);
+
+  it("uses Codex's default threshold when no override is configured", () => {
+    expect(decodeCodexSettings({}).autoCompactWindow).toBe("");
+  });
+
+  it.each(["100000", "1000000"])("accepts a supported threshold: %s", (value) => {
+    expect(decodeCodexSettings({ autoCompactWindow: value }).autoCompactWindow).toBe(value);
+  });
+
+  it.each(["99999", "1000001", "300k"])("rejects an unsupported threshold: %s", (value) => {
+    expect(() => decodeCodexSettings({ autoCompactWindow: value })).toThrow();
+  });
 });
 
 describe("ClientSettings notifications", () => {

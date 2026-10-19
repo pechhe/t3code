@@ -76,6 +76,18 @@ reported accounts, refresh provider status, and confirm the second instance has
 its own shadow path and login. A shadow-home conflict usually means the directory
 contains a copied Codex setup. Use a fresh shadow directory and sign in again.
 
+## Compact long conversations
+
+Set **Auto-compact after** in the Codex provider settings to an integer between
+`100000` and `1000000`. For example, `300000` asks Codex to summarize at about
+300,000 tokens. This changes when compaction happens, not the model's context
+window. Leave it empty for Codex's default. T3 asks Codex to keep your latest
+instructions, decisions, verified results, live work and next step in the
+summary when Codex summarizes locally; Codex's hosted compaction for some
+accounts ignores that request. With **Context rollover** on in General settings, the agent is also asked to
+reach a stopping point before compaction. The conversation, run and workspace
+carry on.
+
 ## Answer questions while Codex works
 
 Codex can ask a question and keep working. Answer it in the thread's question

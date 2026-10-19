@@ -4,61 +4,41 @@ import {
   type ExperimentRolloverPolicy,
   type OrchestrationV2AppThread,
   type OrchestrationV2RolloverHold,
-  type OrchestrationV2Run,
-  type RunId,
-  type ThreadId,
 } from "@t3tools/contracts";
-import { DEFAULT_HANDOFF_TOKEN_CAP } from "@t3tools/provider-core/server/handoffBudget";
-import * as Context from "effect/Context";
 
-/** The T3 MCP tool an agent writes its rollover note with. */
-export const ROLLOVER_NOTE_TOOL_NAME = "t3_write_rollover_note";
-/** Identifies the note prompt and capture; bump it when either changes. */
-export const ROLLOVER_NOTE_RECIPE = "rollover-v3";
+/** Identifies the compaction addendum and nudges in experiment evidence; bump it when either changes. */
+export const COMPACTION_RECIPE = "native-compaction-v1";
 
 /**
- * The fresh session receives the note through the handoff budget (bytes, by default
- * DEFAULT_HANDOFF_TOKEN_CAP); a note over the budget would be left out whole. Keep
- * room for the handoff's coverage line and framing.
+ * Appended to the provider's own compaction instructions (Codex `compact_prompt`), so the
+ * summary the agent continues from keeps what this product needs.
  */
-export const ROLLOVER_NOTE_MAX_BYTES = DEFAULT_HANDOFF_TOKEN_CAP - 4_000;
-
-export const ROLLOVER_NOTE_SECTIONS = `## Goal
-## Completed and verified (each with the check that proved it)
-## Done, not yet verified
-## Tried and rejected (approaches ruled out, and why)
-## Live work (worktrees and attached workspaces, agents, background tasks: id, state, owner)
-## Blockers
-## Unsaved decisions (user decisions with no durable home yet; point to the rest where you recorded them)
-## Queue (next steps, in order)
-## User's todo list
-## In-flight message (the latest user instruction not yet completed, quoted exactly)
-## Gotchas
-## Restart steps (exact first actions after resuming)`;
-
-export const ROLLOVER_NOTE_RULES = `Before writing it, record each unsaved user decision where it belongs (an issue, AGENTS.md, a spec or memory) and point to it there. Point to issues, commits, specs, diffs and files by path or URL instead of copying them. Redact secrets. Keep it under about 1,500 words: notes over ${ROLLOVER_NOTE_MAX_BYTES.toLocaleString("en-US")} bytes are refused. Write only what the next context cannot rediscover cheaply.`;
-
-export const ROLLOVER_RESUME_TEXT =
-  "Context rolled over: this is a fresh session seeded with your handoff note. Follow its restart steps, then continue.";
+export const COMPACTION_ADDENDUM = `Also keep, for the agent that continues this conversation:
+- The active objective and the user's latest instructions and corrections, quoted exactly where they are not yet done.
+- Decisions and constraints that must survive, and an approach that was rejected only when it would otherwise be tried again.
+- What is verified (with the check that proved it) versus assumed or still unchecked.
+- Live work by identifier and observed status: workspaces, branches and revisions, delegated agents and background tasks, and who owns the next action.
+- The next concrete action, and any blocker.
+Point to issues, commits, specs and files by path or URL instead of copying them. Never include credentials.`;
 
 const k = (tokens: number) => `${Math.round(tokens / 1000)}k`;
 
-/** Past the soft threshold: hand off at the next natural break, not mid-step. */
-export const rolloverSoftNudge = (used: number, hard: number) =>
-  `Context is at ${k(used)} tokens. Do not hand off mid-step: at the next natural break (a batch of work finished, a request answered, or before starting a new unit), record unsaved user decisions where they belong, write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn. T3 then continues this thread on a fresh session seeded with the note. That turn is not the end of the task: do not close it with a final status or summary for the user. Skip the handoff only when this thread's whole body of work is finished and nothing remains for it; answering one request does not finish a thread that has more to do. Until you hand off, T3 asks again each turn. A hard handoff is asked for at ${k(hard)}.`;
+/** Past the soft threshold: reach a natural break before the provider compacts. */
+export const rolloverSoftNudge = (used: number) =>
+  `Context is at ${k(used)} tokens and will be compacted automatically before it fills. Keep working: at the next natural break (a batch of work finished, a request answered, or before starting a new unit), record unsaved user decisions where they belong (an issue, spec, AGENTS.md or memory) and note the live work you will need afterwards. This is not a request to stop or to summarise for the user; if the task is finished, finish normally.`;
 
 /** Past the hard threshold while work is running. */
 export const rolloverHardNudge = (used: number) =>
-  `Context is at ${k(used)} tokens: hand off now. Finish the step in hand without starting new work, record unsaved user decisions where they belong, then write a handoff note with ${ROLLOVER_NOTE_TOOL_NAME} and end your turn without a final status or summary for the user: T3 continues the thread on a fresh session.`;
+  `Context is at ${k(used)} tokens and will be compacted at any moment. Finish the step in hand without starting a substantial new one, and make sure unsaved user decisions and live work are recorded where they belong. Then carry on with the task: compaction keeps this conversation, and nothing here asks you to stop.`;
 
 /** The timeline row for a nudge; the nudge text is its detail. */
 export const rolloverNudgeSummary = (action: "soft" | "hard", used: number) =>
-  `Context at ${k(used)} tokens: ${action === "hard" ? "asked for a handoff now" : "asked for a handoff at the next break"}`;
+  `Context at ${k(used)} tokens: ${action === "hard" ? "asked to reach a stopping point before compaction" : "asked to prepare for compaction at the next break"}`;
 
 export interface RolloverThresholds {
   readonly soft: number;
   readonly hard: number;
-  /** Provider context boundary after reserving room to write the note. */
+  /** Provider context boundary after reserving headroom. */
   readonly safetyHard?: number;
 }
 
@@ -170,21 +150,23 @@ export function lowestSoftThreshold(settings: ContextRolloverSettings): number |
   );
 }
 
+/** Command id prefix of a context nudge; the orchestrator drops one that arrives after its run ended. */
+export const ROLLOVER_NUDGE_COMMAND_PREFIX = "server:context-rollover-nudge:";
+
 export type RolloverPhase = "idle" | "softNudged" | "hardNudged";
 
 export type RolloverUsageAction = "none" | "soft" | "hard";
 
 /**
- * How far a session that began with a rollover must grow past its starting
- * context before it is asked for another note. A fresh session already carries
- * the system prompt, tools and the note; when that alone passes a threshold,
- * another rollover cannot free anything and would loop.
+ * How far a conversation must grow past its context after a native compaction before it is
+ * nudged again. A compacted context still carries the system prompt, tools and summary;
+ * when that alone passes a threshold, another nudge cannot help and would repeat.
  */
 export const ROLLOVER_MIN_GROWTH_TOKENS = 20_000;
 
 /**
- * Whether a session has grown enough to roll over. `floor` is its context when
- * it began with a rollover, or null when it did not.
+ * Whether a conversation has grown enough to be nudged. `floor` is its context after the
+ * last compaction, or null when it has not compacted.
  */
 export function grownSinceRollover(used: number, floor: number | null): boolean {
   return floor === null || used >= floor + ROLLOVER_MIN_GROWTH_TOKENS;
@@ -197,45 +179,11 @@ export function rolloverUsageAction(
   thresholds: RolloverThresholds,
   floor: number | null,
 ): RolloverUsageAction {
-  // The loop guard may delay a configured handoff, never a known context boundary.
+  if (!grownSinceRollover(used, floor)) return "none";
   if (thresholds.safetyHard !== undefined && used >= thresholds.safetyHard) {
     return phase === "hardNudged" ? "none" : "hard";
   }
-  if (!grownSinceRollover(used, floor)) return "none";
   if (used >= thresholds.hard) return phase === "hardNudged" ? "none" : "hard";
   if (used >= thresholds.soft) return phase === "idle" ? "soft" : "none";
   return "none";
 }
-
-export interface RolloverNote {
-  readonly runId: RunId;
-  readonly note: string;
-}
-
-/**
- * Notes agents have written, waiting for their run to end. Held in memory:
- * a server restart drops them, and the next usage report asks again.
- */
-export interface RolloverNotes {
-  readonly save: (threadId: ThreadId, note: RolloverNote) => void;
-  readonly get: (threadId: ThreadId) => RolloverNote | undefined;
-  readonly delete: (threadId: ThreadId) => void;
-  /** A run whose note is waiting holds a delegated child's result for the rollover run. */
-  readonly holdsResult: (run: Pick<OrchestrationV2Run, "id" | "threadId">) => boolean;
-}
-
-export function makeRolloverNotes(): RolloverNotes {
-  const notes = new Map<ThreadId, RolloverNote>();
-  return {
-    save: (threadId, note) => void notes.set(threadId, note),
-    get: (threadId) => notes.get(threadId),
-    delete: (threadId) => void notes.delete(threadId),
-    holdsResult: (run) => notes.get(run.threadId)?.runId === run.id,
-  };
-}
-
-/** One registry per process, shared by the orchestrator, the reactor and the MCP tool. */
-export class ContextRolloverNotes extends Context.Reference<RolloverNotes>(
-  "t3/orchestration-v2/ContextRolloverNotes",
-  { defaultValue: makeRolloverNotes },
-) {}

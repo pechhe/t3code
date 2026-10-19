@@ -382,7 +382,7 @@ export function useCheckpointDiff(
   return fullThreadTarget === null ? turn : fullThread;
 }
 
-/** Where a started thread is asked for a context handoff; null when it does not roll over. */
+/** Where a started thread is asked to prepare for compaction; null when it is not nudged. */
 export function useRolloverThresholds(
   target: {
     readonly environmentId: EnvironmentId;

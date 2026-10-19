@@ -8,9 +8,7 @@ import * as Schema from "effect/Schema";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
 import * as ServerConfig from "../config.ts";
-import * as ExperimentService from "../experiments/ExperimentService.ts";
 import { PreviewManager } from "../preview/Manager.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
 import * as McpSessionRegistry from "./McpSessionRegistry.ts";
@@ -21,7 +19,6 @@ import {
   ManagedBrowserSnapshotToolkit,
   ManagedBrowserToolkit,
 } from "./toolkits/managedBrowser/tools.ts";
-import { RolloverToolkit } from "./toolkits/rollover/tools.ts";
 
 const environmentId = EnvironmentId.make("environment-managed-browser");
 const scopeFor = (managedBrowser: boolean): McpInvocationContext.McpThreadInvocationScope => ({
@@ -51,9 +48,6 @@ const registry = Layer.mock(McpSessionRegistry.McpSessionRegistry)({
 const services = Layer.mergeAll(
   McpToolAccessTestkit.liveThreadsLayer,
   Layer.mock(PreviewManager)({}),
-  // The rollover note tool's dependencies; listing tools never calls them.
-  Layer.mock(ExperimentService.ExperimentService)({}),
-  Layer.mock(ServerSettings.ServerSettingsService)({}),
   PreviewAutomationBroker.layer,
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-managed-browser-test-" }),
 ).pipe(Layer.provideMerge(NodeServices.layer));
@@ -103,7 +97,6 @@ it("lists exactly the managed browser tools the adapters pre-approve", () => {
   const toolkit = [
     ...Object.keys(ManagedBrowserToolkit.tools),
     ...Object.keys(ManagedBrowserSnapshotToolkit.tools),
-    ...Object.keys(RolloverToolkit.tools),
   ];
   expect([...toolkit].sort()).toEqual([...MANAGED_BROWSER_TOOL_NAMES].sort());
   // Nothing that runs page code, shells out, or reaches T3 state is among them.

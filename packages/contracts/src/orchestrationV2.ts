@@ -3160,12 +3160,6 @@ export const OrchestrationV2Command = Schema.Union([
     manualContinuationOfRunId: Schema.optional(RunId),
     usageLimitRecoveryRequestId: Schema.optional(CommandId),
     deliveryIntent: Schema.optional(Schema.Literals(["auto", "steer", "restart"])),
-    /**
-     * Server-only. Start this run on a fresh native provider session, seeded
-     * with the agent's handoff note instead of the transcript. `ofRunId` is
-     * the run that wrote the note; a delegated task it answered carries over.
-     */
-    contextRollover: Schema.optional(Schema.Struct({ note: Schema.String, ofRunId: RunId })),
     delegatedCompletion: Schema.optional(
       Schema.Struct({
         parentRunId: RunId,

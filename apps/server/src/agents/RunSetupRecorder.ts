@@ -33,7 +33,7 @@ import {
 import * as ExperimentService from "../experiments/ExperimentService.ts";
 import * as InstructionOverlay from "../experiments/InstructionOverlay.ts";
 import {
-  ROLLOVER_NOTE_RECIPE,
+  COMPACTION_RECIPE,
   assignedRolloverThresholds,
   boundRolloverThresholds,
   rolloverHeld,
@@ -209,7 +209,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
             softLimit: thresholds.soft,
             hardLimit: thresholds.hard,
             held: rolloverHeld(input.thread.rolloverHold, yield* Clock.currentTimeMillis),
-            noteRecipe: ROLLOVER_NOTE_RECIPE,
+            noteRecipe: COMPACTION_RECIPE,
           },
     instructionOverlay:
       input.instructionOverlay === null

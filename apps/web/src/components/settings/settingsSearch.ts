@@ -598,7 +598,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     scope: "environment",
     environmentOnly: true,
-    searchTerms: ["handoff note fresh session context window compact compaction tokens"],
+    searchTerms: ["context window compact compaction auto-compact tokens"],
   },
   {
     id: "context-rollover-thresholds",
@@ -606,7 +606,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     scope: "environment",
     environmentOnly: true,
-    searchTerms: ["soft hard threshold tokens context limit handoff"],
+    searchTerms: ["soft hard threshold tokens context limit compaction"],
   },
   {
     id: "context-rollover-delegated",

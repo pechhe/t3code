@@ -67,8 +67,6 @@ import {
   PreviewSnapshotToolkit,
   PreviewStandardToolkit,
 } from "./toolkits/preview/tools.ts";
-import * as RolloverHandlers from "./toolkits/rollover/handlers.ts";
-import { RolloverToolkit } from "./toolkits/rollover/tools.ts";
 import * as TerminalHandlers from "./toolkits/terminal/handlers.ts";
 import { TerminalToolkit } from "./toolkits/terminal/tools.ts";
 import * as WorktreeHandlers from "./toolkits/worktree/handlers.ts";
@@ -1042,11 +1040,6 @@ export const layerThreadToolkit = toolkitRegistration(ThreadToolkit, ThreadHandl
   Layer.provide(ThreadDirectory.layer),
 );
 
-const layerRolloverToolkitRegistration = toolkitRegistration(
-  RolloverToolkit,
-  RolloverHandlers.layer,
-);
-
 const layerWorktreeToolkitRegistration = toolkitRegistration(
   WorktreeToolkit,
   WorktreeHandlers.layer,
@@ -1101,8 +1094,7 @@ export const layerMcpTransport = McpServer.layerHttp({
 }).pipe(Layer.provide(layerMcpAuthMiddleware));
 
 /**
- * The narrow server a managed browser task talks to: Phi's operations and the rollover note that
- * lets a long check continue on a fresh session, and nothing else, so no other tool is listed or
+ * The narrow server a managed browser task talks to: Phi's operations and nothing else, so no other tool is listed or
  * callable through its credential. `McpServer.layerHttp` is memoized within one build, so without
  * `fresh` the two endpoints would share one registry and each would serve both toolkits' tools.
  */
@@ -1110,7 +1102,6 @@ export const layerManagedBrowserToolkit = Layer.fresh(
   Layer.mergeAll(
     toolkitRegistration(ManagedBrowserToolkit, ManagedBrowserHandlers.layer),
     imageToolRegistration(registerPreviewSnapshot(), ManagedBrowserHandlers.layerSnapshot),
-    layerRolloverToolkitRegistration,
   ).pipe(
     Layer.provide(
       McpServer.layerHttp({
@@ -1138,7 +1129,6 @@ export const layer = Layer.mergeAll(
   toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(
     Layer.provide(layerOrchestratorMcpService),
   ),
-  layerRolloverToolkitRegistration,
   toolkitRegistration(TerminalToolkit, TerminalHandlers.layer),
   layerPullRequestsToolkit,
   layerDeviceToolkit,

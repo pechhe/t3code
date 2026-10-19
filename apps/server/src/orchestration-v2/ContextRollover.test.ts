@@ -1,12 +1,11 @@
 import { assert, describe, it } from "@effect/vitest";
-import { ContextRolloverSettings, RunId, ThreadId } from "@t3tools/contracts";
+import { ContextRolloverSettings, ThreadId } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 
 import {
   boundRolloverThresholds,
   assignedRolloverThresholds,
   lowestSoftThreshold,
-  makeRolloverNotes,
   resolveRolloverThresholds,
   rolloverHeld,
   rolloverUsageAction,
@@ -89,12 +88,13 @@ describe("boundRolloverThresholds", () => {
     });
   });
 
-  it("scales the reserve for smaller windows and bypasses the loop guard only for safety", () => {
+  it("scales the reserve for smaller windows and still waits for growth after a compaction", () => {
     const bounded = boundRolloverThresholds({ soft: 80_000, hard: 95_000 }, 100_000);
     assert.equal(bounded.hard, 90_000);
-    assert.equal(rolloverUsageAction("idle", 89_999, bounded, 84_000), "none");
-    assert.equal(rolloverUsageAction("idle", 90_000, bounded, 84_000), "hard");
-    assert.equal(rolloverUsageAction("hardNudged", 90_000, bounded, 84_000), "none");
+    assert.equal(rolloverUsageAction("idle", 89_999, bounded, 60_000), "soft");
+    assert.equal(rolloverUsageAction("idle", 90_000, bounded, 60_000), "hard");
+    assert.equal(rolloverUsageAction("hardNudged", 90_000, bounded, 60_000), "none");
+    assert.equal(rolloverUsageAction("idle", 90_000, bounded, 84_000), "none");
     const explicit = boundRolloverThresholds({ soft: 80_000, hard: 95_000 }, 200_000);
     assert.equal(rolloverUsageAction("idle", 95_000, explicit, 84_000), "none");
   });
@@ -205,13 +205,13 @@ describe("rolloverUsageAction", () => {
     assert.equal(rolloverUsageAction("idle", 250, thresholds, null), "hard");
   });
 
-  it("waits for a session that began above the threshold to grow before asking again", () => {
-    // Haiku 80k/95k against a fresh session that already holds 84k.
+  it("waits for a compacted conversation that is still above the threshold to grow before asking again", () => {
+    // Haiku 80k/95k against a compacted context that already holds 84k.
     const haiku = { soft: 80_000, hard: 95_000 };
     assert.equal(rolloverUsageAction("idle", 84_000, haiku, 84_000), "none");
     assert.equal(rolloverUsageAction("idle", 103_999, haiku, 84_000), "none");
     assert.equal(rolloverUsageAction("idle", 104_000, haiku, 84_000), "hard");
-    // A session that began well below the threshold nudges as usual.
+    // A conversation that compacted well below the threshold nudges as usual.
     assert.equal(rolloverUsageAction("idle", 80_000, haiku, 30_000), "soft");
   });
 });
@@ -226,18 +226,5 @@ describe("lowestSoftThreshold", () => {
     });
     assert.equal(lowestSoftThreshold(configured), 80_000);
     assert.isNull(lowestSoftThreshold(settings({ enabled: false })));
-  });
-});
-
-describe("makeRolloverNotes", () => {
-  it("holds a delegated result only for the run that wrote the note", () => {
-    const notes = makeRolloverNotes();
-    const threadId = ThreadId.make("thread:notes");
-    const runId = RunId.make("run:notes:1");
-    notes.save(threadId, { runId, note: "n" });
-    assert.isTrue(notes.holdsResult({ id: runId, threadId }));
-    assert.isFalse(notes.holdsResult({ id: RunId.make("run:notes:2"), threadId }));
-    notes.delete(threadId);
-    assert.isFalse(notes.holdsResult({ id: runId, threadId }));
   });
 });

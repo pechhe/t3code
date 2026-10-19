@@ -1,3 +1,4 @@
+import { COMPACTION_ADDENDUM } from "../ContextRollover.ts";
 import {
   providerVideoFrameLabel,
   readProviderVideoFrames,
@@ -1300,6 +1301,22 @@ export class CodexAppServerClientFactory extends Context.Service<
 >()("t3/orchestration-v2/Adapters/CodexAdapterV2/CodexAppServerClientFactory") {}
 
 /**
+ * `compact_prompt` replaces Codex's built-in compaction prompt, so this restates it (as
+ * shipped in codex-cli 0.163.0) before T3's addendum.
+ */
+export const CODEX_COMPACT_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
+
+Include:
+- Current progress and key decisions made
+- Important context, constraints, or user preferences
+- What remains to be done (clear next steps)
+- Any critical data, examples, or references needed to continue
+
+Be concise, structured, and focused on helping the next LLM seamlessly continue the work.
+
+${COMPACTION_ADDENDUM}`;
+
+/**
  * Codex waits this long for MCP servers before the first model request and
  *   leaves out any server still starting (default 1 s, too short for cold
  *   `npx`/`uvx` servers).
@@ -1307,6 +1324,7 @@ export class CodexAppServerClientFactory extends Context.Service<
 export const CODEX_THREAD_CONFIG = {
   "tools.update_plan.enabled": true,
   mcp_optional_startup_grace_ms: 10_000,
+  compact_prompt: CODEX_COMPACT_PROMPT,
 } as const;
 
 // T3 wait tools can block for up to an hour. Keep Codex's MCP timeout above
@@ -1320,6 +1338,8 @@ export function codexThreadRuntimeParams(input: {
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly disabledMcpServers?: ReadonlyArray<string>;
+  /** The provider setting's token count; empty or absent leaves Codex's own default. */
+  readonly autoCompactWindow?: string | undefined;
 }): {
   readonly cwd?: string;
   readonly model?: string;
@@ -1364,6 +1384,13 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
+      ...(input.autoCompactWindow === undefined || input.autoCompactWindow === ""
+        ? {}
+        : {
+            model_auto_compact_token_limit: Number(input.autoCompactWindow),
+            // Codex's default scope ignores the carried prompt prefix; the window is the whole context, as for Claude.
+            model_auto_compact_token_limit_scope: "total",
+          }),
       ...(input.runtimePolicy?.managedAgent !== true
         ? {}
         : {
@@ -1839,9 +1866,12 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             yield* Ref.set(initialized, true);
           }),
         );
+        const autoCompactWindow = (resolvedRuntime?.config ?? adapterOptions.settings)
+          .autoCompactWindow;
         const threadRuntimeParams = Effect.fn(function* (
-          params: Parameters<typeof codexThreadRuntimeParams>[0],
+          request: Parameters<typeof codexThreadRuntimeParams>[0],
         ) {
+          const params = { ...request, autoCompactWindow };
           if (params.runtimePolicy?.managedAgent !== true) return codexThreadRuntimeParams(params);
           yield* ensureInitialized;
           const effective = yield* client.request("config/read", {

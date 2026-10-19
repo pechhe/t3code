@@ -33,7 +33,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as RunSetup from "./RunSetupRecorder.ts";
-import { ROLLOVER_NOTE_RECIPE } from "../orchestration-v2/ContextRollover.ts";
+import { COMPACTION_RECIPE } from "../orchestration-v2/ContextRollover.ts";
 
 const threadId = ThreadId.make("thread:setup");
 const run = {
@@ -147,7 +147,7 @@ describe("captureRunSetup", () => {
         softLimit: 220_000,
         hardLimit: 280_000,
         held: false,
-        noteRecipe: ROLLOVER_NOTE_RECIPE,
+        noteRecipe: COMPACTION_RECIPE,
       });
       assert.deepEqual(record.experimentAssignments, [{ experimentId: "trial", variantId: "a" }]);
       assert.deepEqual(record.workflow, { kind: "lead", unattended: true });
@@ -173,7 +173,7 @@ describe("captureRunSetup", () => {
         softLimit: 72_000,
         hardLimit: 90_000,
         held: false,
-        noteRecipe: ROLLOVER_NOTE_RECIPE,
+        noteRecipe: COMPACTION_RECIPE,
       });
     }).pipe(Effect.provide(layer)),
   );

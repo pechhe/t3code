@@ -48,7 +48,7 @@ import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 import { historicalMessage } from "@t3tools/provider-core/server/handoffBudget";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
-import { ROLLOVER_NOTE_RECIPE } from "../orchestration-v2/ContextRollover.ts";
+import { COMPACTION_RECIPE } from "../orchestration-v2/ContextRollover.ts";
 import * as Option from "effect/Option";
 import * as PolicyStore from "../agents/AgentPolicyStore.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
@@ -232,7 +232,7 @@ const rolloverRubric = {
     "Compare pre-handoff instructions and observable work state with the submitted note, confirmed delivered material and resumed actions. Cite exact capture IDs and artifact references in each finding. Missing original constraints, delivery or resumed work requires unknown for affected criteria. A hard nudge or successful turn alone proves neither a bad interruption nor correct continuation. Do not infer hidden reasoning. Separate automated judgements from human review and self-report; record evaluator usage separately. Use actual effective thresholds and analyze within provider/model before pooling.",
 };
 /** Recipes judged by `rolloverRubric`; episodes keep the recipe they were captured under. */
-const rolloverRecipes = ["rollover-v1", ROLLOVER_NOTE_RECIPE];
+const rolloverRecipes = ["rollover-v1", "rollover-v3", COMPACTION_RECIPE];
 // One capture's bounds (see ExperimentEvidenceInput); larger runtime evidence spans parts.
 const captureBytes = 128_000;
 const captureArtifacts = 32;
@@ -1946,7 +1946,7 @@ const make = Effect.gen(function* () {
     const seen = new Set<string>();
     const earlier = yield* sql<{
       payload_json: string;
-    }>`SELECT payload_json FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} AND json_extract(payload_json, '$.source') = 'runtime' AND json_extract(payload_json, '$.recipeRevision') = ${ROLLOVER_NOTE_RECIPE}`;
+    }>`SELECT payload_json FROM experiment_evidence WHERE assignment_id = ${input.assignmentId} AND episode_id = ${input.episodeId} AND json_extract(payload_json, '$.source') = 'runtime' AND json_extract(payload_json, '$.recipeRevision') = ${COMPACTION_RECIPE}`;
     for (const row of earlier) {
       for (const artifact of (yield* decodeEvidence(row.payload_json)).artifacts) {
         if (artifact.content === null) continue;
@@ -2197,7 +2197,7 @@ const make = Effect.gen(function* () {
           id: index === 0 ? `capture:${input.id}` : `capture:${input.id}:part:${index + 1}`,
           assignmentId: input.assignmentId,
           episodeId: input.episodeId!,
-          recipeRevision: ROLLOVER_NOTE_RECIPE,
+          recipeRevision: COMPACTION_RECIPE,
           runId: input.runId,
           phase,
           source: "runtime",

@@ -631,6 +631,8 @@ export function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fi
   );
 }
 
+const AUTO_COMPACT_WINDOW_PATTERN = /^(?:|[1-9]\d{5}|1000000)$/;
+
 export const CodexSettings = makeProviderSettingsSchema(
   {
     setupMode: Schema.optionalKey(Schema.Literals(["managed", "existing"])).pipe(
@@ -681,14 +683,24 @@ export const CodexSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
+    autoCompactWindow: TrimmedString.check(Schema.isPattern(AUTO_COMPACT_WINDOW_PATTERN)).pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Auto-compact after",
+        description:
+          "Compact after 100,000 to 1,000,000 tokens. Leave empty to use Codex's default.",
+        providerSettingsForm: {
+          placeholder: "e.g. 300000",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "shadowHomePath", "launchArgs"],
+    order: ["binaryPath", "homePath", "shadowHomePath", "autoCompactWindow", "launchArgs"],
   },
 );
 export type CodexSettings = typeof CodexSettings.Type;
-
-const CLAUDE_AUTO_COMPACT_WINDOW_PATTERN = /^(?:|[1-9]\d{5}|1000000)$/;
 
 export const ClaudeSettings = makeProviderSettingsSchema(
   {
@@ -727,9 +739,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
-    autoCompactWindow: TrimmedString.check(
-      Schema.isPattern(CLAUDE_AUTO_COMPACT_WINDOW_PATTERN),
-    ).pipe(
+    autoCompactWindow: TrimmedString.check(Schema.isPattern(AUTO_COMPACT_WINDOW_PATTERN)).pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({
         title: "Auto-compact after",
@@ -1130,16 +1140,16 @@ export const ContextRolloverModelRule = Schema.Struct({
 export type ContextRolloverModelRule = typeof ContextRolloverModelRule.Type;
 
 /**
- * Context rollover: past the soft threshold the agent is asked to write a
- * handoff note at its next natural break; at the hard threshold it is asked
- * to stop and write it now. When the run ends, the thread continues on a
- * fresh provider session seeded with that note instead of the transcript.
+ * Context thresholds (the setting keeps its "rollover" name for stored settings): past the
+ * soft threshold the agent is asked to reach a natural break and record what compaction
+ * would lose; at the hard threshold, to finish the step in hand. The provider compacts the
+ * conversation itself, at its own auto-compact window.
  */
 export const ContextRolloverSettings = Schema.Struct({
   enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   softThreshold: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(220_000))),
   hardThreshold: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(280_000))),
-  /** Also roll over delegated child threads started with `delegate_task`. */
+  /** Also nudge delegated child threads started with `delegate_task`. */
   delegatedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   modelRules: Schema.Array(ContextRolloverModelRule).pipe(
     Schema.withDecodingDefault(

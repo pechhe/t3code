@@ -18,5 +18,4 @@ export const MANAGED_BROWSER_TOOL_NAMES = [
   "preview_resume",
   "t3_preview_list",
   "t3_preview_close",
-  "t3_write_rollover_note",
 ] as const;
