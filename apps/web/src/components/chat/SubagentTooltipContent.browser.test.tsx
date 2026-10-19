@@ -17,7 +17,10 @@ afterEach(async () => {
   container.remove();
   vi.unstubAllGlobals();
 });
-const text = async (boundary?: AgentExecutionBoundary) => {
+const text = async (
+  boundary?: AgentExecutionBoundary,
+  timing?: { startedAt?: string; elapsed?: string; totalTokens: number },
+) => {
   await act(async () => {
     root.render(
       <SubagentTooltipContent
@@ -26,6 +29,7 @@ const text = async (boundary?: AgentExecutionBoundary) => {
         providerInstanceId={ProviderInstanceId.make("claudeAgent")}
         origin="app_owned"
         status="running"
+        {...timing}
         childThread={{
           branch: null,
           worktreePath: null,
@@ -51,4 +55,19 @@ it("claims no boundary for a task without boundary evidence", async () => {
   const rendered = await text();
   expect(rendered).not.toContain("Execution");
   expect(rendered).not.toContain("sandbox");
+});
+
+it("shows when the agent started, how long it ran and its token use together", async () => {
+  const rendered = await text(undefined, {
+    startedAt: new Date().toISOString(),
+    elapsed: "4m 48s",
+    totalTokens: 149_000,
+  });
+  expect(rendered).toMatch(/Started .+ · 4m 48s · 149K tokens/);
+});
+
+it("keeps token use when the start time is unknown", async () => {
+  const rendered = await text(undefined, { totalTokens: 149_000 });
+  expect(rendered).toContain("149K tokens");
+  expect(rendered).not.toContain("Started");
 });

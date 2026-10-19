@@ -22,13 +22,15 @@ import {
   CheckIcon,
   CircleDashedIcon,
   CircleXIcon,
+  ClockIcon,
   FolderIcon,
   GitBranchIcon,
   ShieldAlertIcon,
   ShieldIcon,
   TerminalIcon,
 } from "lucide-react";
-import { AgentRoleChip } from "../AgentRoleChip";
+import { useClientSettings } from "../../hooks/useSettings";
+import { formatDayAwareTimestamp } from "../../timestampFormat";
 import { ThreadHoverCard } from "../ThreadHoverCard";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { ProviderInstanceIcon } from "./ProviderInstanceIcon";
@@ -45,6 +47,7 @@ export function SubagentTooltipContent(props: {
   provider?: ServerProvider | undefined;
   providers?: ReadonlyArray<ServerProvider> | undefined;
   driver?: ProviderDriverKind | undefined;
+  startedAt?: string | null | undefined;
   elapsed?: ReactNode;
   totalTokens?: number | undefined;
   parentThread?: Pick<OrchestrationV2ThreadShell, "projectId" | "worktreePath"> | undefined;
@@ -113,6 +116,10 @@ export function SubagentTooltipContent(props: {
         })
         .find(Boolean)
     : undefined;
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const startedLabel = props.startedAt
+    ? formatDayAwareTimestamp(props.startedAt, timestampFormat)
+    : null;
   const boundary = props.childThread?.agentTask?.executionBoundary;
   const role = props.childThread?.agentTask?.role;
   const BoundaryIcon = boundary === "trusted-host-access" ? ShieldAlertIcon : ShieldIcon;
@@ -161,32 +168,36 @@ export function SubagentTooltipContent(props: {
           ) : null}
         </span>
       </div>
-      <div className="flex min-w-0 items-center justify-between gap-4">
-        <span
-          className={cn(
-            "inline-flex items-center gap-1 rounded-sm font-medium capitalize",
-            working
-              ? "text-info"
-              : failed
-                ? "text-error"
-                : props.status === "completed"
-                  ? "text-success"
-                  : "text-muted-foreground",
-          )}
-        >
-          <StatusIcon aria-hidden className="size-3 shrink-0" />
-          {props.status.replaceAll("_", " ")}
-        </span>
-        {role ? <AgentRoleChip role={role} className="ms-auto" /> : null}
-        <span className={cn("inline-flex shrink-0 items-center gap-1.5", !role && "ms-auto")}>
-          {props.totalTokens === undefined ? null : (
-            <span className="tabular-nums text-muted-foreground">
-              {formatTokens(props.totalTokens)} tokens
-            </span>
-          )}
-          {props.elapsed}
-        </span>
-      </div>
+      <span
+        className={cn(
+          "inline-flex items-center gap-2 font-medium capitalize",
+          working
+            ? "text-info"
+            : failed
+              ? "text-error"
+              : props.status === "completed"
+                ? "text-success"
+                : "text-muted-foreground",
+        )}
+      >
+        <StatusIcon aria-hidden className="size-3 shrink-0" />
+        {props.status.replaceAll("_", " ")}
+      </span>
+      {startedLabel || props.totalTokens !== undefined ? (
+        <div className="flex min-w-0 items-center gap-2">
+          <ClockIcon aria-hidden className="size-3 shrink-0" />
+          <span className="min-w-0 tabular-nums">
+            {startedLabel ? (
+              <>
+                Started {startedLabel}
+                {props.elapsed ? <> · {props.elapsed}</> : null}
+                {props.totalTokens === undefined ? null : " · "}
+              </>
+            ) : null}
+            {props.totalTokens === undefined ? null : `${formatTokens(props.totalTokens)} tokens`}
+          </span>
+        </div>
+      ) : null}
       {metadata.map(({ label, value }) => {
         const Icon = label === "Branch" ? GitBranchIcon : FolderIcon;
         return (

@@ -556,6 +556,7 @@ function SubagentTimelineLink(props: {
       <ThreadHoverCardPopup>
         <SubagentTimelineTooltip
           {...props}
+          startedAtIso={timing.startedAt}
           elapsed={agent ? <AgentElapsed agent={projectedSubagentsToRuntime([agent])[0]!} /> : null}
           model={agent?.model ?? null}
           modelSelection={agent?.modelSelection}
@@ -573,6 +574,7 @@ function SubagentTimelineTooltip(
   props: Parameters<typeof SubagentTimelineLink>[0] & {
     model: string | null;
     modelSelection: OrchestrationV2Subagent["modelSelection"];
+    startedAtIso: string | null;
     elapsed: ReactNode;
     totalTokens: number | undefined;
   },
@@ -600,6 +602,7 @@ function SubagentTimelineTooltip(
       provider={providers.find((provider) => provider.instanceId === props.providerInstanceId)}
       providers={providers}
       driver={props.driver}
+      startedAt={props.startedAtIso}
       elapsed={props.elapsed}
       totalTokens={props.totalTokens}
       status={props.status}

@@ -669,7 +669,8 @@ it("shows the matching child agent details and refreshes them when the agent set
   expect(heading()).toBe("Lineage");
   expect(text()).toContain("Previous agents");
   expect(text()).toContain("Checker");
-  expect(text()).toContain("Checker 2m");
+  // A finished agent shows when it finished; its run time moves to the hover card.
+  expect(text()).toMatch(/Checker \d+d ago/);
   expect(text()).not.toContain("(1)");
   expect(text()).not.toContain("Done");
   expect(text()).not.toContain("running");

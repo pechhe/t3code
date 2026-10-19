@@ -2,6 +2,7 @@ import type { RuntimeSubagent } from "@t3tools/client-runtime/state/subagentRunt
 import { isOrchestrationV2WorkActive } from "@t3tools/contracts";
 import { deriveSubagentElapsedMs } from "@t3tools/shared/orchestrationTiming";
 import { useEffect, useRef } from "react";
+import { RelativeTime } from "../RelativeTime";
 
 function formatElapsedSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds));
@@ -67,4 +68,14 @@ export function AgentElapsed({
       {format(elapsedMs / 1000)}
     </span>
   );
+}
+
+/** A list row's time: how long a working agent has run, then how long ago it finished. */
+export function AgentRowTime({
+  agent,
+}: {
+  agent: Pick<RuntimeSubagent, "status" | "startedAt" | "completedAt" | "updatedAt">;
+}) {
+  if (isOrchestrationV2WorkActive(agent.status)) return <AgentElapsed agent={agent} compact />;
+  return <RelativeTime timestamp={agent.completedAt ?? agent.updatedAt} />;
 }

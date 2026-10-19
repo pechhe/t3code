@@ -28,6 +28,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-workflows";
 import {
   agentTaskTopic,
+  isOrchestrationV2WorkActive,
   NodeId,
   type EnvironmentId,
   type OrchestrationV2Subagent,
@@ -63,7 +64,7 @@ import { useEnvironmentProviders } from "../../state/environments";
 import { threadEnvironment } from "../../state/threads";
 import { orchestrationEnvironment } from "../../state/orchestration";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { AgentElapsed } from "./AgentElapsed";
+import { AgentElapsed, AgentRowTime } from "./AgentElapsed";
 import { ThreadRelationshipIcon, threadRelationshipStatusLabel } from "./ThreadRelationshipIcon";
 import { ThreadLineageWorkflowRow } from "./ThreadLineageWorkflowRow";
 
@@ -486,6 +487,7 @@ export function ThreadRelationshipsPanel(props: {
                   provider={provider}
                   providers={providers}
                   driver={providerDriver}
+                  startedAt={agent.startedAt}
                   elapsed={<AgentElapsed agent={agent} />}
                   totalTokens={agent.usage?.totalTokens}
                   status={agent.status}
@@ -522,11 +524,13 @@ export function ThreadRelationshipsPanel(props: {
                     <span className="shrink-0 text-2xs text-muted-foreground">Closed</span>
                   ) : agent &&
                     !failed &&
-                    (deriveSubagentElapsedMs(agent, 0) !== null || canStopWorkflow) ? (
+                    (!isOrchestrationV2WorkActive(agent.status) ||
+                      deriveSubagentElapsedMs(agent, 0) !== null ||
+                      canStopWorkflow) ? (
                     <span
                       className={`shrink-0 text-2xs font-normal tabular-nums text-muted-foreground ${canStopWorkflow ? "min-w-6 text-end" : ""} ${trailingVisibilityClass}`}
                     >
-                      <AgentElapsed agent={agent} compact />
+                      <AgentRowTime agent={agent} />
                     </span>
                   ) : !isMergeTarget ? (
                     <span

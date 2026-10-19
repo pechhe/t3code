@@ -6,7 +6,7 @@ import type { ProviderDriverKind, ProviderInstanceId, ServerProvider } from "@t3
 import { ChevronDownIcon, LoaderCircleIcon, SquareIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
-import { AgentElapsed } from "./AgentElapsed";
+import { AgentElapsed, AgentRowTime } from "./AgentElapsed";
 import { SubagentTooltipContent } from "./SubagentTooltipContent";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadRelationshipIcon } from "./ThreadRelationshipIcon";
@@ -82,9 +82,11 @@ function WorkflowMemberRow({
           <ThreadRelationshipIcon driver={driver} provider={provider} status={member.status} />
           <span className="min-w-0 flex-1 truncate">{member.title}</span>
           <span className="sr-only">{member.status}</span>
-          {member.startedAt ? (
+          {member.status === "failed" ? (
+            <span className="shrink-0 text-2xs text-destructive">Failed</span>
+          ) : member.startedAt ? (
             <span className="shrink-0 text-2xs font-normal tabular-nums text-muted-foreground">
-              <AgentElapsed agent={member} />
+              <AgentRowTime agent={member} />
             </span>
           ) : null}
         </TooltipTrigger>
@@ -97,6 +99,7 @@ function WorkflowMemberRow({
             provider={provider}
             providers={providers}
             driver={driver}
+            startedAt={member.startedAt}
             elapsed={<AgentElapsed agent={member} />}
             totalTokens={member.usage?.totalTokens}
             status={member.status}
