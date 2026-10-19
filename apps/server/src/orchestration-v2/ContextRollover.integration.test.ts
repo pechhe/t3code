@@ -703,10 +703,12 @@ const runHeldTurnScenario = (
           Stream.runDrain,
           Effect.forkScoped,
         );
+      // A user's own send releases a held queue, so the held-queue scenario's run comes from an agent.
       yield* orchestrator.dispatch({
         type: "message.dispatch",
-        createdBy: "user",
-        creationSource: "web",
+        ...(options.heldQueuedMessage === true
+          ? { createdBy: "agent" as const, creationSource: "mcp" as const }
+          : { createdBy: "user" as const, creationSource: "web" as const }),
         commandId: CommandId.make(`command:${name}:first`),
         threadId,
         messageId: MessageId.make(`message:${name}:first`),

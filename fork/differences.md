@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.1-nightly.20261019.3348 (`88d104a35f700fdd55c635db616ad60aae6dc98a`)
-- Fork: `2667f18ef10ce48f1f94312dadb81a8ea4d703ce`
+- Upstream: v0.1.1-nightly.20261019.3360 (`1451e7cb23034d29774338608368a15d8845df36`)
+- Fork: `0b9a778d6e02dd97fab9808be606939a6562f467`
 
 ## Coverage
 
@@ -55,7 +55,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known. Upstream has context handoff (provider switching), which rollover builds on.
 - **Retire when:** upstream ships an equivalent covering the requirements above.
 - **Constraints:** per-usage-report work must stay cached per attempt (#140, #135 finding 7); upstream now also reports Claude context usage from stream message deltas, so reports per turn rose. Fork migrations 063–071/073 sit before upstream's own: upstream migrations take the next free fork number in upstream order (`DropUnusedV1Projections` 072, `CanonicalizeThreadPullRequestLinks` 074), and released fork numbers never move.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): no upstream equivalent; ContextRollover tests pass with upstream's stream-delta usage reports.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3360, 2026-10-19): no upstream equivalent. Upstream now releases a held queue when the user sends from a client (#21473); rollover's own sends are agent/server and leave it held, so the held-queue integration test starts its run from an agent.
 - **Owner:** none open (rollover work predates the tracker; #140 closed).
 
 ### experiments
@@ -249,7 +249,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts; apps/web/src/components/scheduled/scheduledTasks.logic.test.ts.
 - **Upstream:** upstream has scheduled tasks; the extension is a delta (unverified: webhook trigger origin, which may be partly upstream).
 - **Retire when:** upstream ships equivalent machine/project/role scheduling.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3360, 2026-10-19): upstream's thread-bound runs follow the thread's current model adopted; a role (or the saved model) only picks the model of a fresh thread, so the editor locks the role picker for a bound task as it does the workspace.
 - **Owner:** none.
 
 ### linked-environments
@@ -273,7 +273,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** packages/shared/src/providerPools.test.ts; apps/server/src/orchestration-v2/UsageLimitRecoveryWorker.test.ts.
 - **Upstream:** upstream has provider instances and usage limits; pooling is the fork's.
 - **Retire when:** upstream ships equivalent pooled routing.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's provider card setup layout adopted inside the non-pool branch; upstream's usage-limit sweep and full-context-window fixes merged without overlap with pooled routing.
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3360, 2026-10-19): upstream's empty session for an account with no weekly quota (members carry `refillPercent`) adopted; pool columns keep the plan `capacity`, and a reset restores its refill weighted by plan capacity rather than divided evenly.
 - **Owner:** pechhe/t3code#103, #114, #115 (closed); #145 open (mobile pool account).
 
 ### phi-browser-backend

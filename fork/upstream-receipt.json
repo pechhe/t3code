@@ -3,295 +3,197 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.1-nightly.20261018.3315",
-      "sha": "9c161462c94f7d9d6d9169da5c841457cbadf213"
-    },
-    "target": {
       "tag": "v0.1.1-nightly.20261019.3348",
       "sha": "88d104a35f700fdd55c635db616ad60aae6dc98a"
+    },
+    "target": {
+      "tag": "v0.1.1-nightly.20261019.3360",
+      "sha": "1451e7cb23034d29774338608368a15d8845df36"
     }
   },
   "fork": {
-    "base": "07caf0d504a41b9542a0acfb183c8b7d090c7d99"
+    "base": "0b9a778d6e02dd97fab9808be606939a6562f467"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "710c64b1070c55930f09109b974134a04bd425d0"
+    "blob": "82e34cada653c8edfc283bdc001597522dbc970f"
   },
   "policy": {
     "requiredLandingVerificationSha256": "ac07eae35c61c5d270a2a7f003f0294ac337dc2a97d0f9736ba63cc1a02e5fdd"
   },
-  "attempt": "v0.1.1-nightly.20261019.3348@1792404742",
-  "reviewedAt": "2026-10-19T10:30:00Z",
+  "attempt": "v0.1.1-nightly.20261019.3360@1792412771",
+  "reviewedAt": "2026-10-19T13:10:00Z",
   "reviewer": {
-    "thread": "mcp:6bf14ad9-bae5-4902-af59-f45750500038",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:bc028085-40f0-49f3-b021-ae336340ff29",
     "model": "claude-opus-5-5"
   },
   "coverage": {
-    "upstreamCommits": 324,
+    "upstreamCommits": 17,
     "entriesConsidered": [
-      "context-rollover",
-      "perf-rollover-usage",
-      "managed-delegation",
-      "phi-browser-backend",
-      "managed-browser-roles",
-      "snapshot-overlay",
-      "no-project-chats",
-      "live-response-streaming",
-      "mobile-fork-screens",
+      "scheduled-tasks-extensions",
+      "agent-policy-roles",
       "account-pools",
-      "linked-environments",
-      "slipjay-workspaces",
-      "perf-persistence-reads",
-      "side-chat",
+      "phi-browser-backend",
+      "unattended-threads",
+      "context-rollover",
+      "live-response-streaming",
       "device-composer",
-      "thread-watches",
-      "experiments",
-      "build-items-hq"
+      "managed-delegation",
+      "linked-environments"
     ],
     "areas": [
-      "All 324 incoming commits by subject (9c161462c9..88d104a35f), mapped to entries by behaviour; the 33 conflicted files read in full on both sides",
-      "Persistence: upstream migrations 063 DropUnusedV1Projections (already fork 072) and 064 CanonicalizeThreadPullRequestLinks (fork 074)",
-      "Orchestration MCP service, toolkits and instructions (delegation, task_cancel, preview close, thread list/read)",
-      "Orchestration-v2: thread launch setup, fork, projection reads, run execution, Claude adapter streaming and context usage, finalization",
-      "Web chat timeline, ChatView, draft headline, settings (Integrations browser, project defaults, provider card)",
-      "Mobile React Compiler conversions of home actions, thread feed, git controls, composer state",
-      "Desktop SnapShot test capture errors",
-      "Fork commits landed during the attempt (807155fa..2667f18e): Scratch worktree folders, client compatibility, Spec #142 updater"
+      "All 17 incoming commits by subject and stat (88d104a35f..1451e7cb23), mapped to entries by behaviour; the 5 conflicted files read in full on both sides",
+      "Scheduled tasks: thread-bound runs no longer pass a model selection (#18467)",
+      "Orchestrator: a client message from the user releases a held queue (#21473); scheduled and agent sends excluded",
+      "Usage limits: empty session for an exhausted weekly quota and refill estimates (#20349), web and mobile pooled bars",
+      "Settings and preview: in-app browser search engine (#17688) beside the fork Agent browser backend picker",
+      "Web chat timeline citation reveal (#18423), DevicePanel thread scoping (#16040), terminal fish startup and script history (#19685, #13903)",
+      "Fork commits landed during the attempt (afe78d7d..228fcfe1): Spec 125 workspace attachments (Orchestrator, ThreadLaunchService, ChatView), shipped-client settings compatibility guard, delegation instruction wording, SlipJay generated paths, pull request discovery reads thread records (perf), Spec #152 meta threads (Build-item watches wake with agent sends, which upstream's held-queue release excludes); rebased without conflicts",
+      "Fork commits landed during the attempt (228fcfe1..0b9a778d): Spec 125 review fixes: occupancy across projects, one attachment filter, user docs (#161); no file overlap with the reconciled areas; rebased without conflicts"
     ],
     "exclusions": [
       {
-        "what": "Provider adapters other than Claude (Codex, Cursor, Grok, OpenCode, ACP, Muse, Antigravity), relay, devices, source-control hosts, telemetry ingest",
+        "what": "Mobile native fixes (Android terminal autofill, gallery close animation, browser paste, iOS device streams over HTTP), desktop browser notification permission, shared relay locale, Net IPv6 port checks, client-runtime cloud session loading, composer legacy labels",
         "why": "Auto-merged with no fork entry touching them; covered by typecheck only"
       },
       {
-        "what": "docs/, pnpm-lock.yaml and package metadata",
-        "why": "Mechanical or describe the entries above; lockfile auto-merged and installs cleanly"
+        "what": "docs/ other than usage.md",
+        "why": "Describe upstream behaviour; auto-merged"
       },
       {
         "what": "Web and mobile UI in a running client",
-        "why": "No browser or device pass in this attempt; covered by unit, compiler-coverage and typecheck"
+        "why": "No browser or device pass in this attempt; covered by unit tests and typecheck"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "context-rollover",
-      "upstream": "064 CanonicalizeThreadPullRequestLinks migration (#19129) and Claude context usage from stream deltas (#19416)",
-      "decision": "retain",
-      "requirements": [
-        "Released fork migration numbers never move",
-        "Fork migrations stay contiguous",
-        "Rollover reacts per usage report without uncached work"
-      ],
-      "evidence": [
-        "Upstream migration added as fork 074 after ReleaseApprovals 073; 055_OrchestrationV2.test.ts and 074_CanonicalizeThreadPullRequestLinks.test.ts pass",
-        "ContextRollover.test.ts, ContextRollover.integration.test.ts, ContextRolloverReactor.test.ts pass"
-      ]
-    },
-    {
-      "entry": "managed-delegation",
-      "upstream": "Worktree delegation outside the project (#20213), queued subagent status on cancel (#21487), setup skips main checkout (#18891), whole orchestration instructions for Codex (#18415), parent Stop clears delegated follow-ups (#20310)",
-      "decision": "retain",
-      "requirements": [
-        "SlipJay isolated writers start from the integration branch",
-        "Managed tasks never run project setup scripts",
-        "Fork orchestration guidance reaches every provider whole"
-      ],
-      "evidence": [
-        "OrchestratorMcpService.ts: base check only on the non-SlipJay path; queued-run cancel inside stopChild",
-        "ThreadLaunchService.ts: setup skipped when worktreePath is null or agentTask is set",
-        "orchestrationInstructions.ts: fork text split into five sections, each under 2,400 bytes",
-        "OrchestratorMcpService.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts, ManagedAgentService.test.ts, orchestrationInstructions.test.ts pass"
-      ]
-    },
-    {
-      "entry": "phi-browser-backend",
-      "upstream": "One Browser section in Integrations settings (#18264); t3_preview_close reports the server browser's refusal (#17429); per-thread tabs in a shared provider session (#18146)",
+      "entry": "scheduled-tasks-extensions",
+      "upstream": "Thread-bound scheduled tasks run on the thread's current provider (#18467)",
       "decision": "adapt",
       "requirements": [
-        "Agent browser backend selectable in settings",
-        "Preview close keeps Phi routing"
+        "Tasks run as a subagent with a role",
+        "A task names the thread it posts into",
+        "Scheduled prompts do not interrupt tools in the bound thread"
       ],
       "evidence": [
-        "IntegrationsSettings.tsx: AgentBrowserBackendsSetting beside upstream's AgentBrowserAccessSetting; ProjectDefaultsSettings no longer renders browser rows",
-        "previewControls/handlers.ts maps only preview-manager errors to unavailable; handlers.test.ts (upstream refusal test, mocking broker.close) passes",
-        "PreviewAutomationBroker.test.ts, PhiBrowser.test.ts, browserBackend.test.ts pass"
+        "ScheduledTaskService.ts: sendToThread passes no modelSelection and keeps mode queue; launch still uses runModel (role or saved model)",
+        "ScheduledTasksPage.tsx: role picker and its model summary locked for a bound task, like the workspace picker",
+        "ThreadLaunchService.test.ts keeps the fork SlipJay-root test and upstream's current-provider test; ScheduledTaskService.role.test.ts passes"
       ]
     },
     {
-      "entry": "snapshot-overlay",
-      "upstream": "Failed macOS test capture names its step (#18857)",
-      "decision": "adapt",
-      "requirements": [
-        "Capture helper pool pre-started on macOS"
-      ],
-      "evidence": [
-        "DesktopSnapShot.ts test-mac-capture uses captureMacWindowSnapshot(pool) with upstream's setup-failed errors",
-        "Upstream's window-lookup test removed: the pool finds and captures in one helper",
-        "DesktopSnapShot.test.ts, snapShot.test.ts pass"
-      ]
-    },
-    {
-      "entry": "no-project-chats",
-      "upstream": "Draft headline project name truncation and full No project label (#18858, #17208, #21504)",
+      "entry": "agent-policy-roles",
+      "upstream": "Thread-bound scheduled tasks run on the thread's current provider (#18467)",
       "decision": "retain",
-      "requirements": [
-        "New threads start as No project with a project chip row"
-      ],
+      "requirements": ["Scheduled-task roles resolve a model through the policy"],
       "evidence": [
-        "DraftHeroHeadline.tsx kept as the fork's chip row; upstream DraftProjectName left unused",
-        "web typecheck passes"
-      ]
-    },
-    {
-      "entry": "live-response-streaming",
-      "upstream": "Windows paths keep backslashes (#21069); answered questions stay visible (#21086); no Thinking after the provider turn ended (#21366)",
-      "decision": "retain",
-      "requirements": [
-        "Assistant text rendered through AssistantMessageText",
-        "A client that does not announce liveResponseStreaming is shown paragraph instead of live (recorded on t3peach in 07caf0d5 while this update was in flight)"
-      ],
-      "evidence": [
-        "MessagesTimeline imports only remarkKeepWindowsPaths; MessagesTimeline.logic.ts keeps folding notifications and adds the questionAnswer rule; turnEnded also gates the fork's bottom working row",
-        "MessagesTimeline.logic.test.ts passes, with upstream's two new tests expecting the fork's bottom working row",
-        "Upstream changes none of serverSettings.ts, contracts environment.ts or the client compatibility handshake; serverSettings.test.ts and compatibility.test.ts streaming tests pass on the rebased candidate"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "React Compiler conversions (#21133, #21268, #21141, #21142)",
-      "decision": "adapt",
-      "requirements": [
-        "Settle confirms background work",
-        "Jujutsu checkouts labelled",
-        "Build links open the Build item sheet"
-      ],
-      "evidence": [
-        "useThreadListActions.ts, ThreadFeed.tsx, ThreadGitControls.tsx, use-thread-composer-state.ts take upstream's compiler-ready structure with fork behaviour reapplied",
-        "reactCompilerCoverage.test.ts, useThreadListActions.test.ts, jujutsuCheckout.test.ts pass; mobile typecheck passes"
+        "Role resolution unchanged for fresh-thread runs; ScheduledTaskService.role.test.ts passes"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "Usage-limit sweep (#21191), full context window not a usage limit (#19848), provider card setup layout (#20088)",
-      "decision": "retain",
+      "upstream": "Show empty sessions when weekly quota is exhausted (#20349)",
+      "decision": "adapt",
       "requirements": [
-        "Pooled routing and switch on limit"
+        "Pool bars size segments by plan capacity",
+        "Pooled figure weighted by plan"
       ],
       "evidence": [
-        "UsageLimitRecoveryWorker.test.ts, providerPools.test.ts, ProviderRegistry.test.ts pass"
+        "usageLimits.ts: planCapacity and upstream poolMember both kept; columns carry the member (with refillPercent) plus capacity; restoresPercent = refillPercent x capacity share",
+        "usageLimits.test.ts (upstream's new refill tests) and providerPools.test.ts pass; web and mobile typecheck pass",
+        "docs/user/usage.md keeps the plan-size sentence and takes upstream's refill ordering text"
       ]
     },
     {
-      "entry": "linked-environments",
-      "upstream": "MCP thread list and read report every linked pull request (#17454)",
+      "entry": "phi-browser-backend",
+      "upstream": "Choose the in-app browser's search engine (#17688)",
       "decision": "retain",
-      "requirements": [
-        "Thread tools reach linked environments"
-      ],
+      "requirements": ["Agent browser selectable in settings"],
       "evidence": [
-        "tools.ts descriptions merged; ThreadDirectory.test.ts, PeerEnvironments.test.ts, McpHttpServer.test.ts pass"
+        "IntegrationsSettings.tsx imports both browserBackend choices and isValidSearchUrlTemplate; SettingsPanels.logic.test.ts and preview.test.ts pass; search engine applies to the built-in preview address bar only"
       ]
     },
     {
-      "entry": "perf-persistence-reads",
-      "upstream": "Thread reads skip item scans they filter to nothing (#17038)",
+      "entry": "unattended-threads",
+      "upstream": "A message you send resumes a held queue (#21473)",
       "decision": "retain",
-      "requirements": [
-        "Non-mutating projection reads use readers"
-      ],
+      "requirements": ["Unattended threads keep working without asking"],
       "evidence": [
-        "ProjectionStore.ts keeps readOnly routing and adds matchesNothing for runs; ProjectionStore.test.ts, DatabaseStorage.test.ts pass"
+        "Orchestrator.ts releases held runs only for createdBy user from web or mobile without scheduledTaskId; ThreadStop.test.ts and ThreadLaunchService.test.ts pass"
       ]
     },
     {
-      "entry": "slipjay-workspaces",
-      "upstream": "Disabled bootstrap provider no longer stops startup (#20035)",
+      "entry": "context-rollover",
+      "upstream": "A message you send resumes a held queue (#21473)",
       "decision": "retain",
       "requirements": [
-        "Explicit project-checkout launches stay in the root"
+        "Rollover continues past a held queue",
+        "The held queue stays held through rollover"
       ],
       "evidence": [
-        "serverRuntimeStartup.ts keeps rootIsDefault; serverRuntimeStartup.test.ts passes"
+        "ContextRolloverReactor.ts nudge and resume dispatches are createdBy agent, creationSource server, which upstream's release excludes",
+        "ContextRollover.integration.test.ts held-queue scenario failed on the landing gate because its first message was a user web send, which now releases the hold by upstream design; it now starts that run from an agent (mcp). ContextRollover.test.ts, ContextRollover.integration.test.ts, ContextRolloverReactor.test.ts pass (41 tests)"
       ]
     },
     {
-      "entry": "thread-watches",
-      "upstream": "Forks no longer inherit pull request watches (#16623)",
+      "entry": "live-response-streaming",
+      "upstream": "Reveal folded imported responses when opening citations (#18423)",
       "decision": "retain",
-      "requirements": [
-        "Fork keeps managed-task and side-chat handling"
-      ],
+      "requirements": ["Assistant text rendered through AssistantMessageText"],
       "evidence": [
-        "ThreadForkService.ts strips PR watches from the fork's sourceThread; ThreadForkService.test.ts, ThreadWatch.test.ts pass"
+        "MessagesTimeline.tsx auto-merged; upstream changes only the citation target reveal, not assistant text rendering; web typecheck passes"
       ]
     },
     {
       "entry": "device-composer",
-      "upstream": "Composer host and workspace tooltips show shortcuts (#21167)",
+      "upstream": "Keep device results in the thread that started them (#16040)",
       "decision": "retain",
-      "requirements": [
-        "Fork composer without the host/workspace selectors"
-      ],
+      "requirements": ["Composer look and controls unchanged"],
       "evidence": [
-        "BranchToolbarEnvModeSelector.tsx and BranchToolbarEnvironmentSelector.tsx stay deleted"
+        "Upstream touches DevicePanel.tsx (the device stream panel), not the fork composer components; no conflict"
       ]
     },
     {
-      "entry": "side-chat",
-      "upstream": "use* functions must call hooks (#21260)",
+      "entry": "managed-delegation",
+      "upstream": "Project script commands kept out of shell history (#13903)",
       "decision": "retain",
-      "requirements": [
-        "Side chat inserts answers into the composer"
-      ],
+      "requirements": ["Managed tasks never run project setup scripts"],
       "evidence": [
-        "ChatView.tsx keeps insertSideChatAnswer beside the renamed insertArtifactTemplate; useUpdateClientSettings call sites moved to updateClientSettings; web typecheck passes"
+        "ProjectSetupScriptRunner.ts change only prefixes the command for history; setup-skip logic in ThreadLaunchService.ts unchanged; ThreadLaunchService.test.ts passes"
+      ]
+    },
+    {
+      "entry": "linked-environments",
+      "upstream": "Loading cloud session no longer reported as a sign-in change (#11013)",
+      "decision": "retain",
+      "requirements": ["Thread tools reach linked environments"],
+      "evidence": [
+        "client-runtime authorization change concerns T3 Connect cloud sessions, not peer environment sessions; no fork file touched"
       ]
     }
   ],
-  "unresolved": [
-    {
-      "kind": "evidence",
-      "summary": "Cancelled worktree setup leaves the thread bound to the removed worktree (ThreadLaunchService cancellation tests fail on t3peach and after the merge, including upstream's new branch-rename test)",
-      "resumeBy": "Fix tracked separately; the next reconciliation re-runs ThreadLaunchService.test.ts"
-    }
-  ],
+  "unresolved": [],
   "checks": [
     {
-      "command": "pnpm exec vp test run (slipjay.json required tests: OrchestratorMcpService, ExperimentService, AgentPolicyService, ContextRollover, ContextRollover.integration)",
+      "command": "vp test run packages/shared/src/usageLimits.test.ts packages/shared/src/preview.test.ts apps/server/src/scheduledTasks/ apps/server/src/orchestration-v2/ThreadLaunchService.test.ts apps/server/src/orchestration-v2/ThreadStop.test.ts apps/server/src/terminal/Manager.test.ts apps/web/src/components/settings/SettingsPanels.logic.test.ts apps/web/src/components/scheduled/scheduledTasks.logic.test.ts packages/shared/src/providerPools.test.ts",
       "result": "passed",
-      "note": "merge clone and workspace"
+      "note": "workspace; 17 files, 449 tests; scheduledTasks re-run after review fix"
     },
     {
-      "command": "vp run typecheck for t3, @t3tools/web, @t3tools/mobile, @t3tools/desktop, contracts, shared, provider-core",
+      "command": "vp run typecheck in packages/shared, apps/server, apps/web, apps/mobile",
       "result": "passed",
-      "note": "merge clone; server and web re-run on the rebased candidate"
+      "note": "workspace"
     },
     {
-      "command": "vp test run on tests beside every resolved file (server persistence, mcp, orchestration-v2; web timeline and settings; desktop SnapShot; mobile; shared markdown; provider-core)",
+      "command": "vp test run ContextRollover.test.ts ContextRollover.integration.test.ts ContextRolloverReactor.test.ts",
       "result": "passed",
-      "note": "after fixing merge-caused failures; exceptions below"
+      "note": "after the landing gate failed the held-queue scenario on the first candidate"
     },
     {
-      "command": "vp test run apps/server: ExperimentWorkMcp, OrchestratorMcpToolkit.integration, TaskCancelNativeSubagent.integration, preview/tools, RunExecutionService cascade, ThreadLaunchService cancellation and delegated-worktree cancellation",
-      "result": "failed",
-      "note": "Also fail on unmerged t3peach 807155fa; left as found. Upstream's new 'stops an in-flight branch rename' test fails the same way"
-    },
-    {
-      "command": "vp test run packages/shared/src/nodeSqliteClient.test.ts",
-      "result": "failed",
-      "note": "'keeps large text and blob parameters off cached statements' also fails on t3peach 2667f18e; unchanged by the merge"
-    },
-    {
-      "command": "proof tests of considered entries (ManagedFollowup, ManagedDelegation, UsageLimitRecoveryWorker, ContextRolloverReactor, ThreadWatch, ThreadDirectory, PeerEnvironments, PhiBrowser, browserBackend, DatabaseStorage, snapShot, snapShotOverlayDock, jujutsuCheckout, providerPools, ThreadProjectMove, ManagedAgentService, ThreadForkService, migrations 055/074)",
+      "command": "vp test run (apps/server) shippedClientCompatibility, WorkspaceAttachment(s), ThreadLaunchService, ThreadStop, ContextRollover*, scheduledTasks, OrchestratorMcpService, ManagedDelegation, SideChat",
       "result": "passed",
-      "note": "workspace, rebased candidate"
-    },
-    {
-      "command": "vp test run apps/server/src/serverSettings.test.ts packages/client-runtime/src/connection/compatibility.test.ts",
-      "result": "passed",
-      "note": "streaming gating tests pass after rebase onto 07caf0d5; two symlink settings-watcher tests time out at 2s intermittently (different ones each run), file untouched by the merge"
+      "note": "rebased onto beb1d20e: 20 files, 308 tests"
     }
   ],
   "result": "reconciled"

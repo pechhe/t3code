@@ -813,7 +813,6 @@ export const layer = Layer.effect(
         const messageId = MessageId.make(`scheduled-task-message:${fireKey}`);
         // A webhook prompt was rendered from the row when the request arrived.
         const prompt = webhook?.prompt ?? active.prompt;
-        const modelSelection = yield* runModel(active);
 
         // Effect.exit (not Effect.result) so defects and interruptions in the
         // dispatch are also captured and recorded as a failed run instead of
@@ -821,27 +820,32 @@ export const layer = Layer.effect(
         const result =
           active.threadId === null
             ? yield* Effect.exit(
-                threadLaunch
-                  .launch({
-                    commandId,
-                    projectId: active.projectId,
-                    title: active.title,
-                    modelSelection,
-                    runtimeMode: active.runtimeMode,
-                    interactionMode: active.interactionMode,
-                    workspaceStrategy: active.workspaceStrategy,
-                    initialMessage: {
-                      messageId,
-                      scheduledTaskId: active.id,
-                      text: prompt,
-                      attachments: [],
-                    },
-                    createdBy: active.createdBy,
-                    creationSource: active.creationSource,
-                  })
-                  .pipe(Effect.map((launched): string => launched.threadId)),
+                runModel(active).pipe(
+                  Effect.flatMap((modelSelection) =>
+                    threadLaunch.launch({
+                      commandId,
+                      projectId: active.projectId,
+                      title: active.title,
+                      modelSelection,
+                      runtimeMode: active.runtimeMode,
+                      interactionMode: active.interactionMode,
+                      workspaceStrategy: active.workspaceStrategy,
+                      initialMessage: {
+                        messageId,
+                        scheduledTaskId: active.id,
+                        text: prompt,
+                        attachments: [],
+                      },
+                      createdBy: active.createdBy,
+                      creationSource: active.creationSource,
+                    }),
+                  ),
+                  Effect.map((launched): string => launched.threadId),
+                ),
               )
             : yield* Effect.exit(
+                // The stored or role-picked selection only seeds fresh threads.
+                // A bound run follows the thread's current provider, so it passes none.
                 threadManagement
                   .sendToThread({
                     projectId: active.projectId,
@@ -851,7 +855,6 @@ export const layer = Layer.effect(
                     scheduledTaskId: active.id,
                     text: prompt,
                     attachments: [],
-                    modelSelection,
                     // Scheduled prompts must not interrupt tools in the bound thread.
                     mode: "queue",
                     createdBy: active.createdBy,

@@ -425,8 +425,9 @@ function TaskDetail(props: {
     existing: group?.members ?? [],
     projects: projectChoices,
   });
+  // A bound run follows its thread's current model, so a role only picks one for fresh threads.
   const roleSummary =
-    draft.agentRole !== null && policy.data
+    !bound && draft.agentRole !== null && policy.data
       ? roleModelSummary(policy.data.snapshot.manifest, draft.agentRole)
       : null;
 
@@ -771,7 +772,7 @@ function TaskDetail(props: {
             value && update({ agentRole: value === "fixed" ? null : (value as AgentRole) })
           }
         >
-          <SelectTrigger size="xs" variant="ghost" aria-label="Subagent role">
+          <SelectTrigger size="xs" variant="ghost" aria-label="Subagent role" disabled={bound}>
             <SelectValue>
               {draft.agentRole !== null ? (
                 <AgentRoleChip role={draft.agentRole} />
@@ -817,7 +818,7 @@ function TaskDetail(props: {
               effort={roleSummary.effort}
             />
           </span>
-        ) : draft.agentRole !== null && policy.error ? (
+        ) : !bound && draft.agentRole !== null && policy.error ? (
           <span className="text-muted-foreground text-xs">
             No role policy on {machineLabel(policyMachine as EnvironmentId)}
           </span>
