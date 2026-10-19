@@ -162,3 +162,7 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## T3peach fork
+
+This checkout is the T3peach fork. Before a feature, behaviour change or performance fix, read [`fork/README.md`](fork/README.md): it decides when to adopt upstream's implementation, and every deliberate difference from upstream updates its entry in [`fork/differences.md`](fork/differences.md) in the same change.

@@ -2,14 +2,18 @@
 # Builds and installs the fork's server as the remote runtime for one release
 # version, on a Linux host the desktop app reaches over SSH. Run by
 # scripts/fork-nightly.sh from a clone of the fork on that host, checked out at
-# the commit to build, in two steps so the build runs while the Mac builds the app:
+# the landed commit to build, in two steps so the build runs while the Mac builds
+# the app:
 #
-#   scripts/fork-vps-runtime.sh build <version> [--check]   # exit 3: a check failed
-#   scripts/fork-vps-runtime.sh install <version>
+#   scripts/fork-vps-runtime.sh build <version>
+#   scripts/fork-vps-runtime.sh install <version> <source commit>
 #
-# `build` runs the fork's checks first when asked (an upstream merge has not been
-# through the landing gate), then builds and smoke-tests the archive and keeps it
-# beside the installed versions. `install` puts that archive in place.
+# `build` builds and smoke-tests the archive and keeps it beside the installed
+# versions with the commit it was built from. It runs no checks: only landed
+# source is built, and SlipJay's landing gate checked it. `install` puts that
+# archive in place only when it was built from the selected commit, and records
+# the commit in `<version>/.fork-source`, since fork builds share upstream's
+# version strings.
 #
 # The desktop's SSH launcher runs ~/.t3/runtime/versions/<version>/t3 and
 # downloads the official archive only when that directory is not marked
@@ -30,40 +34,39 @@ CLONE="$(cd "$(dirname "$0")/.." && pwd)"
 VERSIONS="$HOME/.t3/runtime/versions"
 TARGET="$VERSIONS/$VERSION"
 PENDING="$VERSIONS/.fork-pending-$VERSION.tar.gz"
+SOURCE="${3:-}"
 RELEASES=https://github.com/pingdotgg/t3code/releases/download
 ARCHIVE="t3-$VERSION-linux-x64.tar.gz"
 # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
 SEA_NODE_VERSION=26.8.2
 
 cd "$CLONE"
-commit="$(git rev-parse --short HEAD)"
 
 if [ "$MODE" = install ]; then
   [ -f "$PENDING" ] || { echo "no built fork runtime for $VERSION" >&2; exit 1; }
+  commit="$(cat "$PENDING.source" 2>/dev/null || true)"
+  if [ -z "$SOURCE" ] || [ "$commit" != "$SOURCE" ]; then
+    echo "the built fork runtime for $VERSION is from ${commit:-an unknown commit}, not ${SOURCE:-a named commit}; not installing" >&2
+    exit 1
+  fi
   staging="$(mktemp -d "$VERSIONS/.staging-XXXXXX")"
   tar -xzf "$PENDING" -C "$staging" --strip-components=1
+  printf '%s\n' "$commit" >"$staging/.fork-source"
   printf '%s\n' "$VERSION" >"$staging/.install-complete"
   # Only the newest official copy is worth keeping, as a one-move rollback.
   rm -rf "$VERSIONS"/*.official
   if [ -d "$TARGET" ]; then mv "$TARGET" "$TARGET.official"; fi
   mv "$staging" "$TARGET"
-  rm -f "$PENDING"
+  rm -f "$PENDING" "$PENDING.source"
   echo "installed fork runtime $VERSION ($commit)"
 else
-  [ "$MODE" = build ] || { echo "usage: $0 build <version> [--check] | install <version>" >&2; exit 2; }
+  [ "$MODE" = build ] || { echo "usage: $0 build <version> | install <version> <source commit>" >&2; exit 2; }
 
+commit="$(git rev-parse HEAD)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"; git -C "$CLONE" checkout --quiet -- .' EXIT
 
 command vp i
-if [ "${3:-}" = --check ]; then
-  command vp run --filter t3 typecheck &&
-    command vp run --filter @t3tools/web typecheck &&
-    (cd apps/server && command vp test run \
-      src/orchestration-v2/ContextRollover.test.ts \
-      src/orchestration-v2/ContextRollover.integration.test.ts) ||
-    exit 3
-fi
 node scripts/update-release-package-versions.ts "$VERSION" >/dev/null
 command vp run --filter t3 build
 PATH="$HOME/.local/share/vite-plus/fallback-bin:$PATH" VP_NODE_VERSION="$SEA_NODE_VERSION" \
@@ -80,6 +83,7 @@ node scripts/build-cli-archive.ts --platform linux --arch x64 --version "$VERSIO
 node scripts/smoke-cli-archive.ts --archive "$work/fork/$ARCHIVE" --expect-version "$VERSION"
 mkdir -p "$VERSIONS"
 mv "$work/fork/$ARCHIVE" "$PENDING"
+printf '%s\n' "$commit" >"$PENDING.source"
 echo "built fork runtime $VERSION ($commit)"
 exit 0
 fi
@@ -118,3 +122,7 @@ for state in "$HOME"/.t3/ssh-launch/*/; do
   curl -fsS --max-time 5 -o /dev/null "http://127.0.0.1:$port/"
   echo "restarted the server on port $port"
 done
+
+# Read back by scripts/fork-nightly.sh when an install's answer is lost: present
+# only once every step above succeeded.
+printf '%s %s\n' "$VERSION" "$commit" >"$VERSIONS/.fork-active"

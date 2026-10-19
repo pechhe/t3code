@@ -58,6 +58,10 @@ esac
             root,
             "archive",
           ]);
+          await NodeFSP.writeFile(
+            NodePath.join(versions, `.fork-pending-${version}.tar.gz.source`),
+            "fixture-commit\n",
+          );
           if (mode !== "absent") {
             await NodeFSP.mkdir(NodePath.join(home, ".config/systemd/user"), { recursive: true });
             await NodeFSP.writeFile(
@@ -67,7 +71,7 @@ esac
             await NodeFSP.mkdir(NodePath.join(versions, version));
             await NodeFSP.writeFile(NodePath.join(versions, version, "t3"), "old runtime\n");
           }
-          const install = execFile("bash", [script, "install", version], {
+          const install = execFile("bash", [script, "install", version, "fixture-commit"], {
             env: {
               ...process.env,
               HOME: home,
@@ -100,6 +104,13 @@ esac
           expect(
             await NodeFSP.readFile(NodePath.join(versions, version, ".install-complete"), "utf8"),
           ).toBe(`${version}\n`);
+          expect(
+            await NodeFSP.readFile(NodePath.join(versions, version, ".fork-source"), "utf8"),
+          ).toBe("fixture-commit\n");
+          // The completion marker exists only once the service steps succeeded too.
+          const active = NodeFSP.readFile(NodePath.join(versions, ".fork-active"), "utf8");
+          if (mode === "failure") await expect(active).rejects.toThrow();
+          else await expect(active).resolves.toBe(`${version} fixture-commit\n`);
           expect(await NodeFSP.readFile(NodePath.join(home, "pid"), "utf8")).toBe(
             mode === "older" ? "102\n" : mode === "same" ? "103\n" : "101\n",
           );
@@ -108,5 +119,32 @@ esac
         }
       },
     );
+
+    it("refuses a built runtime from a commit other than the selected one", async () => {
+      const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-source-"));
+      try {
+        const home = NodePath.join(root, "home");
+        const versions = NodePath.join(home, ".t3/runtime/versions");
+        const clone = NodePath.join(root, "clone");
+        const version = "0.0.46-nightly.20261015.3145";
+        await NodeFSP.mkdir(versions, { recursive: true });
+        await NodeFSP.mkdir(NodePath.join(clone, "scripts"), { recursive: true });
+        const script = NodePath.join(clone, "scripts/fork-vps-runtime.sh");
+        await NodeFSP.copyFile(NodePath.join(import.meta.dirname, "fork-vps-runtime.sh"), script);
+        const pending = NodePath.join(versions, `.fork-pending-${version}.tar.gz`);
+        await NodeFSP.writeFile(pending, "archive");
+        await NodeFSP.writeFile(`${pending}.source`, "older-commit\n");
+        await expect(
+          execFile("bash", [script, "install", version, "selected-commit"], {
+            env: { ...process.env, HOME: home },
+            timeout: 10000,
+          }),
+        ).rejects.toMatchObject({ code: 1 });
+        await expect(NodeFSP.stat(NodePath.join(versions, version))).rejects.toThrow();
+        await expect(NodeFSP.stat(pending)).resolves.toBeTruthy();
+      } finally {
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      }
+    });
   },
 );

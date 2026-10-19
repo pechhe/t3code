@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "kind": "seed",
+  "upstream": {
+    "baseline": {
+      "tag": "v0.1.1-nightly.20261018.3302",
+      "sha": "d0918f1659f4c19172796c8d1910ca6e4bc18b51"
+    },
+    "target": {
+      "tag": "v0.1.1-nightly.20261018.3315",
+      "sha": "9c161462c94f7d9d6d9169da5c841457cbadf213"
+    }
+  },
+  "fork": {
+    "base": "974556323051575431fa42e0326e30394dfdc1a2"
+  },
+  "record": {
+    "path": "fork/differences.md",
+    "blob": "9aa7c1f526afff8329b9c4e177cd26b69c06c2d6"
+  },
+  "policy": {
+    "requiredLandingVerificationSha256": "403b381f44f7f4be7f7343dafb84c11f723989aa8561b31576ac1cb2c67eff42"
+  },
+  "attempt": "seed",
+  "reviewedAt": "2026-10-19T09:30:00Z",
+  "reviewer": {
+    "thread": "42fc993c-974c-42e8-967f-0b782e2cafa9",
+    "model": "claude-opus-5-5 (lead); inventory by claude-sonnet-5-5 implementation-worker"
+  },
+  "coverage": {
+    "upstreamCommits": 5,
+    "entriesConsidered": [
+      "context-rollover",
+      "experiments",
+      "agent-policy-roles",
+      "managed-delegation",
+      "t3-agent-cli",
+      "run-setup-records",
+      "delegation-settings",
+      "slipjay-workspaces",
+      "slipjay-landing",
+      "slipjay-release-approvals",
+      "slipjay-settings",
+      "slipjay-delivery-config",
+      "build-items-hq",
+      "thread-workflow-chip",
+      "unattended-threads",
+      "thread-watches",
+      "scheduled-tasks-extensions",
+      "linked-environments",
+      "account-pools",
+      "phi-browser-backend",
+      "managed-browser-roles",
+      "screen-recording-video",
+      "snapshot-overlay",
+      "device-composer",
+      "image-annotation",
+      "side-chat",
+      "no-project-chats",
+      "project-themes",
+      "live-response-streaming",
+      "web-client-customisation",
+      "mobile-fork-screens",
+      "desktop-fork-build",
+      "fork-updater",
+      "fork-guidance",
+      "perf-persistence-reads",
+      "perf-landing-refresh",
+      "perf-rollover-usage",
+      "dev-state-tooling"
+    ],
+    "areas": [
+      "Seed inventory: every fork difference between upstream v0.1.1-nightly.20261018.3315 and fork d1d4354daf, classified by area in fork/differences.md (Coverage table)"
+    ],
+    "exclusions": [
+      {
+        "what": "Review of the incoming 3302..3315 upstream commits",
+        "why": "That merge landed before reconciliation existed (by hand, 2026-10-18); this seed records the fork as it stands on that baseline instead. The next upstream attempt reviews 3315..<tag>."
+      },
+      {
+        "what": "docs/, lockfile and package metadata",
+        "why": "Describe or regenerate with their owning entries"
+      }
+    ]
+  },
+  "dispositions": [],
+  "unresolved": [
+    {
+      "kind": "evidence",
+      "summary": "Unclassified areas: other orchestration-v2 edits (~50 files), server infrastructure edits (auth, ws.ts, serverSettings, terminal, relay), provider-* adapter edits",
+      "resumeBy": "The next upstream reconciliation classifies whichever of these its incoming changes touch"
+    },
+    {
+      "kind": "evidence",
+      "summary": "Fork migrations 063-071/073 sit before upstream DropUnusedV1Projections (072 here); how an upstream renumbering reconciles is unverified",
+      "resumeBy": "Checked when an upstream merge adds or renumbers migrations"
+    }
+  ],
+  "checks": [
+    {
+      "command": "node scripts/fork-upstream-receipt.ts verify",
+      "result": "passed",
+      "note": "run on the landing candidate"
+    }
+  ],
+  "result": "reconciled"
+}
