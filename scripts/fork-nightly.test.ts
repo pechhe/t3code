@@ -449,6 +449,52 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "waits instead of nesting apps while the replaced app still cannot be kept, then keeps the immediately prior build",
+      async () => {
+        await withFixture(async (f) => {
+          await installOld(f);
+          await stageBuild(f);
+          expect((await run(f, ["install"], { T3_TEST_DITTO: "fail-retain" })).code).toBe(0);
+          expect(await build(REPLACED_DIR(f))).toBe("old");
+
+          // A newer build is staged while keeping the replaced app still fails.
+          await NodeFSP.rm(stateFile(f, "staged"), { recursive: true, force: true });
+          await makeApp(stateFile(f, "staged", APP), "newer");
+          await writeJson(stateFile(f, "staged/receipt.json"), { source: "newer-src" });
+          await writeJson(stateFile(f, "selected.json"), { source: "newer-src" });
+          const waiting = await run(f, ["install"], { T3_TEST_DITTO: "fail-retain" });
+          expect(waiting.code).not.toBe(0);
+          expect(await build(f.installed)).toBe("new");
+          expect(await build(REPLACED_DIR(f))).toBe("old");
+          expect(await exists(NodePath.join(REPLACED_DIR(f), APP))).toBe(false);
+          expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({
+            source: "new-src",
+          });
+          expect(await exists(stateFile(f, "staged/receipt.json"))).toBe(true);
+          expect((await run(f, ["status"])).stdout).toContain(
+            'replaced, not yet kept as previous: {"source":"old-src"',
+          );
+
+          // Once keeping succeeds, the newer build installs and the build it
+          // replaced, not the older one, is the one-step rollback.
+          expect((await run(f, ["install"])).code).toBe(0);
+          expect(await build(f.installed)).toBe("newer");
+          expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({
+            source: "newer-src",
+          });
+          expect(await build(stateFile(f, "previous", APP))).toBe("new");
+          expect(await exists(stateFile(f, "previous", APP, APP))).toBe(false);
+          expect(await readJson(stateFile(f, "previous/receipt.json"))).toMatchObject({
+            source: "new-src",
+          });
+          expect(await exists(REPLACED_DIR(f))).toBe(false);
+          expect(await exists(stateFile(f, "replaced-receipt.json"))).toBe(false);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "leaves the installed app unchanged when the copy fails signature validation",
       async () => {
         await withFixture(async (f) => {
@@ -1063,6 +1109,68 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           expect(await curlCalls(f)).toEqual([]);
           expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "blocked" });
           expect(await exists(stateFile(f, "attempts", `${NEW_TAG}.json`))).toBe(false);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "keeps an owner decision through a delayed duplicate claim; only its holder or retry resumes it",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          await run(f, ["attempt", OLD_TAG, "blocked", "owner-decision", "keep the fork worker?"]);
+          const before = await attemptOf(f, OLD_TAG);
+
+          for (const args of [["threadB"], ["threadB", "--take-over"]]) {
+            const late = await run(f, ["attempt", OLD_TAG, "claim", ...args]);
+            expect(late.code).toBe(3);
+            expect(late.stderr).toContain("keep the fork worker?");
+          }
+          expect(await attemptOf(f, OLD_TAG)).toEqual(before);
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "0" });
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "blocked",
+            claimedBy: "threadA",
+            blocked: { kind: "owner-decision", summary: "keep the fork worker?" },
+          });
+
+          // Henry answers in the holding thread, which resumes the same attempt.
+          const resumed = await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          expect(resumed.code).toBe(0);
+          const after = await attemptOf(f, OLD_TAG);
+          expect(after).toMatchObject({ phase: "claimed", claimedBy: "threadA" });
+          expect(after.attempt).toBe(before.attempt);
+          expect(after.blocked).toBeUndefined();
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses another thread's ordinary claim of a blocked attempt but allows a take-over",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          await run(f, ["attempt", OLD_TAG, "blocked", "checks", "typecheck fails"]);
+          const late = await run(f, ["attempt", OLD_TAG, "claim", "threadB"]);
+          expect(late.code).toBe(3);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "blocked",
+            claimedBy: "threadA",
+          });
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadB", "--take-over"])).code).toBe(
+            0,
+          );
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: "threadB",
+          });
         });
       },
       TIMEOUT,

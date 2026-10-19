@@ -9,7 +9,7 @@ description: Bring an upstream T3 Code nightly tag into the fork's `t3peach` bra
 
 `fork-nightly.sh` below means `~/.t3fork/repo/scripts/fork-nightly.sh`, the installed copy.
 
-1. **Claim.** `fork-nightly.sh attempt <tag> claim <this thread id>`. A refusal names the thread that holds the attempt: stop and report it, unless `t3_thread_read` shows that thread is no longer running, then add `--take-over`. A refusal saying it is already active ends the task. Re-claiming in the same thread resumes the attempt.
+1. **Claim.** `fork-nightly.sh attempt <tag> claim <this thread id>`. A refusal names the thread that holds the attempt: stop and report it, unless `t3_thread_read` shows that thread is no longer running, then add `--take-over`. A refusal naming an owner decision is never taken over: report it and stop. A refusal saying it is already active ends the task. Re-claiming in the same thread resumes the attempt.
 2. **Workspace.** Work in this thread's SlipJay workspace; without one, `slipjay start --integration --json "upstream <tag>"` from the integration checkout and do everything there. Record it before anything else: `ws=$PWD; root=$(slipjay status --json | jq -r .integration.root)`; `$root` is the integration checkout, whose git store also holds the workspace's commits.
 3. **Merge.** Build the merge in a temporary git clone, based on the workspace's parent (jj commands run in `$ws`, git ones in the clone):
    ```

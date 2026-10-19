@@ -47,10 +47,12 @@ SEA_NODE_VERSION=26.8.2
 cd "$CLONE"
 
 if [ "$MODE" = state ]; then
-  if [ "$(cat "$VERSIONS/.fork-active" 2>/dev/null)" = "$VERSION $SOURCE" ]; then
-    echo installed
-  elif [ "$(cat "$VERSIONS/.fork-installing" 2>/dev/null)" = "$VERSION $SOURCE" ]; then
+  # An unfinished install outranks the success marker: a retry of the same
+  # version and source leaves the earlier .fork-active in place until it finishes.
+  if [ "$(cat "$VERSIONS/.fork-installing" 2>/dev/null)" = "$VERSION $SOURCE" ]; then
     echo partial
+  elif [ "$(cat "$VERSIONS/.fork-active" 2>/dev/null)" = "$VERSION $SOURCE" ]; then
+    echo installed
   else
     echo absent
   fi

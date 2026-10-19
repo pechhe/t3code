@@ -126,6 +126,68 @@ esac
       },
     );
 
+    it("reads a failed retry of the installed version and source back as partial, until a retry finishes", async () => {
+      const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-retry-"));
+      try {
+        const home = NodePath.join(root, "home");
+        const versions = NodePath.join(home, ".t3/runtime/versions");
+        const bin = NodePath.join(root, "bin");
+        const clone = NodePath.join(root, "clone");
+        const archive = NodePath.join(root, "archive");
+        const version = "0.0.46-nightly.20261015.3145";
+        for (const path of [versions, bin, NodePath.join(clone, "scripts"), archive]) {
+          await NodeFSP.mkdir(path, { recursive: true });
+        }
+        const script = NodePath.join(clone, "scripts/fork-vps-runtime.sh");
+        await NodeFSP.copyFile(NodePath.join(import.meta.dirname, "fork-vps-runtime.sh"), script);
+        await NodeFSP.writeFile(NodePath.join(bin, "systemctl"), "#!/bin/sh\necho 101\n", {
+          mode: 0o755,
+        });
+        await NodeFSP.writeFile(
+          NodePath.join(archive, "t3"),
+          '#!/bin/sh\n[ "$2" != install ] || [ "$T3_TEST_MODE" != failure ] || exit 9\n',
+          { mode: 0o755 },
+        );
+        await NodeFSP.mkdir(NodePath.join(home, ".config/systemd/user"), { recursive: true });
+        await NodeFSP.writeFile(NodePath.join(home, ".config/systemd/user/t3code.service"), "");
+        const env = (mode: string) => ({
+          ...process.env,
+          HOME: home,
+          PATH: `${bin}:${process.env.PATH}`,
+          T3_TEST_MODE: mode,
+        });
+        const install = async (mode: string) => {
+          const pending = NodePath.join(versions, `.fork-pending-${version}.tar.gz`);
+          await execFile("tar", ["-czf", pending, "-C", root, "archive"]);
+          await NodeFSP.writeFile(`${pending}.source`, "fixture-commit\n");
+          return execFile("bash", [script, "install", version, "fixture-commit"], {
+            env: env(mode),
+            timeout: 10000,
+          });
+        };
+        const state = async () =>
+          (
+            await execFile("bash", [script, "state", version, "fixture-commit"], {
+              env: env("ok"),
+              timeout: 10000,
+            })
+          ).stdout;
+
+        await install("ok");
+        expect(await state()).toBe("installed\n");
+        // The earlier success marker stays while the retry fails after the switch.
+        await expect(install("failure")).rejects.toMatchObject({ code: 9 });
+        await expect(
+          NodeFSP.readFile(NodePath.join(versions, ".fork-active"), "utf8"),
+        ).resolves.toBe(`${version} fixture-commit\n`);
+        expect(await state()).toBe("partial\n");
+        await install("ok");
+        expect(await state()).toBe("installed\n");
+      } finally {
+        await NodeFSP.rm(root, { recursive: true, force: true });
+      }
+    });
+
     it("refuses a built runtime from a commit other than the selected one", async () => {
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-source-"));
       try {

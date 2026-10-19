@@ -25,7 +25,8 @@
 #   attempt <tag> claim <thread> [--take-over] | landed <operation> <commit>
 #           | blocked <evidence|owner-decision|checks|publication> <summary> | retry
 #       Record an update attempt's progress. Only `retry` lets a blocked attempt
-#       be dispatched again; a new tag never answers an owner decision.
+#       be dispatched again; a new tag never answers an owner decision, and no
+#       other thread's claim, even with --take-over, resumes one.
 #   status
 #
 # The script works in its own git clone of the fork ($STATE/repo), never in the
@@ -210,6 +211,7 @@ recover_app() {
     if [ -d "$INCOMING" ]; then
       # The new copy never reached the install path: put the old app back.
       if ! app_present "$INSTALLED" && app_present "$REPLACED"; then mv "$REPLACED" "$INSTALLED"; fi
+      if [ ! -e "$REPLACED" ]; then rm -f "$REPLACED_RECEIPT"; fi
       rm -rf "$INCOMING"
       rm -f "$JOURNAL"
       log "an interrupted install of $(json_get "$STATE/staged/receipt.json" .version) left the app unchanged"
@@ -258,6 +260,10 @@ replace_app() {
     return 1
   fi
   cp "$2" "$JOURNAL"
+  # The receipt names the app this install replaces; mv into an existing
+  # $REPLACED would nest the app inside it, so install_staged waits for it first.
+  rm -f "$REPLACED_RECEIPT"
+  if [ -f "$STATE/active-mac.json" ]; then cp "$STATE/active-mac.json" "$REPLACED_RECEIPT"; fi
   if [ -e "$INSTALLED" ] && ! mv "$INSTALLED" "$REPLACED"; then
     rm -rf "$INCOMING" "$JOURNAL"
     return 1
@@ -287,6 +293,12 @@ install_staged() {
   if [ -f "$STATE/vps-unknown.json" ]; then
     log "staged $version waits: the VPS runtime's source is unknown until the next build"
     return 0
+  fi
+  # recover_app could not yet keep the app the last install replaced. Installing
+  # now would leave no complete, correctly named rollback, so the build waits.
+  if [ -e "$REPLACED" ]; then
+    notify "Staged fork build $version waits: the build it would replace could not be kept as the previous build; see $STATE/nightly.log"
+    return 1
   fi
   if t3_running; then
     log "staged $version ($source) waits for T3 Code to quit"
@@ -477,9 +489,18 @@ attempt_command() {
         echo "attempt $(json_get "$file" .attempt) is already landed and active" >&2
         exit 3
       fi
-      if [ "$phase" = claimed ] && [ -n "$holder" ] && [ "$holder" != "$thread" ] && [ "${4:-}" != --take-over ]; then
-        echo "attempt $(json_get "$file" .attempt) is claimed by $holder; resume it there, or pass --take-over once that thread is confirmed stopped" >&2
-        exit 3
+      # A blocked attempt stays its holder's: a duplicate dispatch delivered before
+      # the block must not clear it. Henry answers an owner decision in the holding
+      # thread, so only that thread or an explicit `retry` resumes one.
+      if [ -n "$holder" ] && [ "$holder" != "$thread" ]; then
+        if [ "$phase" = blocked ] && [ "$(json_get "$file" .blocked.kind)" = owner-decision ]; then
+          echo "attempt $(json_get "$file" .attempt) waits for Henry's decision in $holder: $(json_get "$file" .blocked.summary); his answer there resumes it, or run fork-nightly.sh attempt $tag retry" >&2
+          exit 3
+        fi
+        if { [ "$phase" = claimed ] || [ "$phase" = blocked ]; } && [ "${4:-}" != --take-over ]; then
+          echo "attempt $(json_get "$file" .attempt) is $phase by $holder; resume it there, or pass --take-over once that thread is confirmed stopped" >&2
+          exit 3
+        fi
       fi
       attempt_set "$tag" --arg t "$thread" '.phase = "claimed" | .claimedBy = $t | del(.blocked) | del(.quietNotified)'
       ;;
@@ -743,6 +764,9 @@ status() {
   done
   if [ -f "$STATE/staged/receipt.json" ]; then
     echo "staged: $(jq -c '{source, version}' "$STATE/staged/receipt.json")"
+  fi
+  if [ -e "$REPLACED" ]; then
+    echo "replaced, not yet kept as previous: $(jq -c '{source, version}' "$REPLACED_RECEIPT" 2>/dev/null || echo unidentified)"
   fi
   for file in "$STATE"/attempts/*.json; do
     [ -f "$file" ] && echo "attempt: $(jq -c '{attempt, phase, action, claimedBy, blocked, landing}' "$file")"
