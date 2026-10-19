@@ -827,6 +827,7 @@ describe("V2 environment commands", () => {
           sourcePoint: { type: "latest_finished" },
           title: "Chaser email",
           projectId,
+          moveWorkspaceAttachments: true,
         },
         { type: "thread.archive", commandId: "move:archive-source", threadId: v2ThreadId },
         {

@@ -7,19 +7,28 @@ import * as NodePath from "node:path";
 import { assert, describe, it } from "@effect/vitest";
 
 import {
+  budgetedRuns,
+  budgetLandingTests,
   candidateChanges,
   changesBetween,
-  landingCommands,
+  durationsFromReports,
+  estimateSeconds,
+  LANDING_BUDGET,
+  landingCommands as runCommands,
   planCandidate,
+  plannedRuns,
   readQuarantine,
   readWorkspaces,
   selectLandingTests,
   versionOnlyChange,
   writeManifest,
   type JjQuery,
+  type LandingTests,
   type LandingWorkspace,
+  type Quarantine,
 } from "./test-landing.ts";
 import { BUILD_ONLY_EDGES, EXTRA_EDGES, INPUT_RULES } from "./lib/test-landing-inputs.ts";
+import { runCommand, type RunRequest } from "./lib/test-landing-vitest.ts";
 
 const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "..");
 
@@ -47,6 +56,18 @@ const FIXTURE: ReadonlyArray<LandingWorkspace> = [
 // The fixture has no input rules: those name the real workspaces.
 const select = (changed: ReadonlyArray<string>, deleted: ReadonlyArray<string> = []) =>
   selectLandingTests({ changed, deleted }, FIXTURE, []);
+
+// The commands for a plan's runs, each over the workspace's whole suite.
+const landingCommands = (
+  plan: LandingTests,
+  workspaces: ReadonlyArray<LandingWorkspace>,
+  quarantine: ReadonlyArray<Quarantine>,
+  reportDir?: string,
+) => runCommands(plannedRuns(plan, workspaces), workspaces, quarantine, reportDir);
+
+// What a gate command asks the Vitest runner to do.
+const request = (command: { readonly command: ReadonlyArray<string> }): RunRequest =>
+  JSON.parse(command.command.at(-1)!) as RunRequest;
 
 const directories = (plan: ReturnType<typeof select>) =>
   plan.kind === "related" ? plan.runs.map((run) => run.directory) : [];
@@ -329,8 +350,14 @@ describe("failing closed", () => {
         "apps/web",
       ],
     );
-    assert.deepStrictEqual(commands[4]?.command.slice(0, 5), ["pnpm", "exec", "vp", "test", "run"]);
-    assert.include(commands[4]?.command ?? [], "browser");
+    assert.deepStrictEqual(request(commands[4]!).flags, [
+      "--passWithNoTests",
+      "--project",
+      "unit",
+      "--project",
+      "browser",
+    ]);
+    assert.isUndefined(request(commands[4]!).files);
   });
 
   it("runs a workspace whose test script it cannot read in full", () => {
@@ -535,6 +562,219 @@ describe("the exact candidate", () => {
   });
 });
 
+describe("the budget", () => {
+  const test = (file: string, directory = "apps/server") => ({ directory, file });
+  const budgetSeconds = LANDING_BUDGET.startupSeconds + 10;
+
+  it("estimates each workspace as one run spread across the workers", () => {
+    const durations = { "apps/server/a.test.ts": 40, "apps/server/b.test.ts": 8 };
+    // The largest file bounds a run whose sum spreads thinner than it.
+    assert.strictEqual(
+      estimateSeconds([test("apps/server/a.test.ts"), test("apps/server/b.test.ts")], durations),
+      LANDING_BUDGET.startupSeconds + 40,
+    );
+    const many = Array.from({ length: 16 }, (_, index) => test(`apps/server/${index}.test.ts`));
+    assert.strictEqual(
+      estimateSeconds(many, Object.fromEntries(many.map(({ file }) => [file, 10]))),
+      LANDING_BUDGET.startupSeconds + (16 * 10) / LANDING_BUDGET.workers,
+    );
+    assert.strictEqual(
+      estimateSeconds([test("apps/server/a.test.ts"), test("packages/shared/a.test.ts", "packages/shared")], durations),
+      2 * LANDING_BUDGET.startupSeconds + 40 + 2,
+    );
+  });
+
+  it("always runs a changed test, whatever it costs", () => {
+    const budget = budgetLandingTests(
+      [test("apps/server/src/slow.test.ts"), test("apps/server/src/other.test.ts")],
+      ["apps/server/src/slow.test.ts"],
+      { "apps/server/src/slow.test.ts": 500, "apps/server/src/other.test.ts": 1 },
+      budgetSeconds,
+    );
+    assert.deepStrictEqual(budget.selected.map(({ file }) => file), ["apps/server/src/slow.test.ts"]);
+    assert.deepStrictEqual(budget.deferred.map(({ file }) => file), ["apps/server/src/other.test.ts"]);
+  });
+
+  it("fills the budget nearest the change first, cheapest first within a rank", () => {
+    const durations = {
+      "apps/server/src/git/GitManager.test.ts": 6,
+      "apps/server/src/git/Other.test.ts": 3,
+      "apps/server/src/git/Cheap.test.ts": 1,
+      // Alone, either would outrun the budget.
+      "apps/server/src/far/Cheap.test.ts": 11,
+      "apps/server/src/far/Dear.test.ts": 12,
+    };
+    const budget = budgetLandingTests(
+      Object.keys(durations).map((file) => test(file)),
+      ["apps/server/src/git/GitManager.ts"],
+      durations,
+      budgetSeconds,
+    );
+    assert.deepStrictEqual(budget.selected.map(({ file }) => file), [
+      "apps/server/src/git/GitManager.test.ts",
+      "apps/server/src/git/Cheap.test.ts",
+      "apps/server/src/git/Other.test.ts",
+    ]);
+    assert.deepStrictEqual(budget.deferred.map(({ file }) => file), [
+      "apps/server/src/far/Cheap.test.ts",
+      "apps/server/src/far/Dear.test.ts",
+    ]);
+    assert.isAtMost(budget.seconds, budgetSeconds);
+  });
+
+  it("spreads a report's unattributed worker time evenly across its files", () => {
+    const durations = durationsFromReports(
+      [
+        {
+          cwd: "apps/server",
+          seconds: LANDING_BUDGET.startupSeconds + 10,
+          testResults: [
+            { name: "/repo/apps/server/src/a.test.ts", startTime: 0, endTime: 2000 },
+            { name: "/repo/apps/server/src/b.test.ts", startTime: 0, endTime: 10_000 },
+          ],
+        },
+      ],
+      "/repo",
+    );
+    // Two workers busy for the 10s past startup is 20s, 8s of it outside any file: 4s each.
+    assert.deepStrictEqual(durations, {
+      "apps/server/src/a.test.ts": 6,
+      "apps/server/src/b.test.ts": 14,
+    });
+  });
+
+  it("runs the budgeted files by path, in parallel, and an opaque workspace whole", async () => {
+    const workspaces = [
+      ...FIXTURE,
+      workspace("packages/odd", "@t3tools/odd", ["@t3tools/shared"], "opaque"),
+    ];
+    const listed: Record<string, ReadonlyArray<string>> = {
+      "packages/shared": ["packages/shared/src/a.test.ts", "packages/shared/src/flaky.test.ts"],
+      "apps/server": ["apps/server/src/s.test.ts"],
+      "packages/client-runtime": [],
+      "apps/web": [],
+    };
+    const plan = selectLandingTests(
+      { changed: ["packages/shared/src/a.ts"], deleted: [] },
+      workspaces,
+      [],
+    );
+    const budget = await budgetedRuns(
+      plan,
+      workspaces,
+      ["packages/shared/src/a.ts"],
+      {},
+      [{ file: "packages/shared/src/flaky.test.ts", issue: 1, reason: "flaky" }],
+      { list: async ({ directory }) => listed[directory] ?? [] },
+    );
+    assert.deepStrictEqual(budget.runs, [
+      { directory: "apps/server", tests: ["apps/server/src/s.test.ts"] },
+      { directory: "packages/odd" },
+      { directory: "packages/shared", tests: ["packages/shared/src/a.test.ts"] },
+    ]);
+    const commands = runCommands(budget.runs, workspaces, []);
+    const shared = request(commands.find((command) => command.cwd === "packages/shared")!);
+    assert.strictEqual(shared.workers, LANDING_BUDGET.workers);
+    assert.deepStrictEqual(shared.files, ["packages/shared/src/a.test.ts"]);
+    assert.deepStrictEqual(
+      commands.find((command) => command.cwd === "packages/odd")!.command,
+      ["pnpm", "run", "test"],
+    );
+  });
+});
+
+describe("an empty whole suite", () => {
+  it("still runs, so a configuration that matches no tests fails the gate", async () => {
+    const budget = await budgetedRuns(
+      { kind: "complete", reason: "test" },
+      [workspace("packages/shared", "@t3tools/shared")],
+      [],
+      {},
+      [],
+      { list: async () => [] },
+    );
+    assert.deepStrictEqual(budget.runs, [{ directory: "packages/shared" }]);
+  });
+});
+
+describe("the Vitest runner", () => {
+  it("runs exactly the requested files, not a sibling its path prefixes, and fails with them or their teardown", () => {
+    const root = NodeFS.realpathSync(
+      NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-landing-run-")),
+    );
+    try {
+      NodeFS.symlinkSync(NodePath.join(REPOSITORY_ROOT, "node_modules"), NodePath.join(root, "node_modules"), "dir");
+      NodeFS.mkdirSync(NodePath.join(root, "pkg/src"), { recursive: true });
+      const body = 'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n';
+      for (const file of ["a.test.ts", "a.test.tsx", "b.test.ts", "flaky.test.ts"]) {
+        NodeFS.writeFileSync(NodePath.join(root, "pkg/src", file), body);
+      }
+      const reportFile = NodePath.join(root, "report.json");
+      const [executable, ...args] = runCommand({
+        root,
+        directory: "pkg",
+        flags: [],
+        files: ["pkg/src/a.test.ts", "pkg/src/flaky.test.ts"],
+        exclude: ["pkg/src/flaky.test.ts"],
+        workers: 2,
+        reportFile,
+      });
+      const result = NodeChildProcess.spawnSync(executable!, args, {
+        cwd: NodePath.join(root, "pkg"),
+        encoding: "utf8",
+      });
+      assert.strictEqual(result.status, 0, result.stdout + result.stderr);
+      const report = JSON.parse(NodeFS.readFileSync(reportFile, "utf8")) as {
+        testResults: ReadonlyArray<{ name: string }>;
+      };
+      assert.deepStrictEqual(
+        report.testResults.map((file) => NodePath.relative(root, file.name)),
+        ["pkg/src/a.test.ts"],
+      );
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/src/b.test.ts"),
+        body.replace("toBe(1)", "toBe(2)"),
+      );
+      const [failExecutable, ...failArgs] = runCommand({
+        root,
+        directory: "pkg",
+        flags: [],
+        files: ["pkg/src/b.test.ts"],
+        workers: 2,
+      });
+      assert.strictEqual(
+        NodeChildProcess.spawnSync(failExecutable!, failArgs, { cwd: NodePath.join(root, "pkg") })
+          .status,
+        1,
+      );
+      // A global teardown that throws fails the run though every test passed.
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/teardown.ts"),
+        'export default () => () => {\n  throw new Error("teardown");\n};\n',
+      );
+      NodeFS.writeFileSync(
+        NodePath.join(root, "pkg/vitest.config.ts"),
+        'export default { test: { globalSetup: ["./teardown.ts"] } };\n',
+      );
+      const [teardownExecutable, ...teardownArgs] = runCommand({
+        root,
+        directory: "pkg",
+        flags: ["--config", "vitest.config.ts"],
+        files: ["pkg/src/a.test.ts"],
+        workers: 2,
+      });
+      assert.strictEqual(
+        NodeChildProcess.spawnSync(teardownExecutable!, teardownArgs, {
+          cwd: NodePath.join(root, "pkg"),
+        }).status,
+        1,
+      );
+    } finally {
+      NodeFS.rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+});
+
 describe("quarantine", () => {
   const entry = {
     file: "apps/server/src/flaky.test.ts",
@@ -548,30 +788,20 @@ describe("quarantine", () => {
       entry,
       { ...entry, file: "packages/shared/src/odd.test.ts" },
     ]);
-    const server = commands.find((command) => command.cwd === "apps/server")!;
-    assert.deepStrictEqual(
-      server.command.slice(
-        server.command.indexOf("--exclude"),
-        server.command.indexOf("--exclude") + 2,
-      ),
-      ["--exclude", "src/flaky.test.ts"],
-    );
-    const shared = commands.find((command) => command.cwd === "packages/shared")!;
-    assert.include(shared.command, "src/odd.test.ts");
-    assert.notInclude(shared.command, "src/flaky.test.ts");
+    const excluded = (cwd: string) =>
+      request(commands.find((command) => command.cwd === cwd)!).exclude;
+    assert.deepStrictEqual(excluded("apps/server"), ["apps/server/src/flaky.test.ts"]);
+    assert.deepStrictEqual(excluded("packages/shared"), ["packages/shared/src/odd.test.ts"]);
     const all = landingCommands({ kind: "complete", reason: "test" }, FIXTURE, [entry]);
-    assert.include(
-      all.find((command) => command.cwd === "apps/server")!.command,
-      "src/flaky.test.ts",
+    assert.deepStrictEqual(
+      request(all.find((command) => command.cwd === "apps/server")!).exclude,
+      ["apps/server/src/flaky.test.ts"],
     );
   });
 
-  it("is empty for now", () => {
-    assert.deepStrictEqual(
-      readQuarantine(
-        NodeFS.readFileSync(NodePath.join(REPOSITORY_ROOT, "tests/quarantine.json"), "utf8"),
-      ),
-      [],
+  it("reads the repository's quarantine", () => {
+    readQuarantine(
+      NodeFS.readFileSync(NodePath.join(REPOSITORY_ROOT, "tests/quarantine.json"), "utf8"),
     );
   });
 
@@ -606,11 +836,9 @@ describe("audit", () => {
       "packages/contracts",
       "packages/shared",
     ]);
-    assert.isFalse(audit.some((command) => command.command.includes("--exclude")));
+    assert.isFalse(audit.some((command) => request(command).exclude));
     assert.isTrue(
-      landingCommands(complete, FIXTURE, [entry]).some((command) =>
-        command.command.includes("--exclude"),
-      ),
+      landingCommands(complete, FIXTURE, [entry]).some((command) => request(command).exclude),
     );
   });
 
@@ -623,8 +851,8 @@ describe("audit", () => {
     assert.strictEqual(result.status, 0, result.stderr);
     assert.include(result.stdout, '"kind": "complete"');
     assert.include(result.stdout, "Landing quarantine exclusions: []");
-    assert.include(result.stdout, "(cd apps/server && pnpm exec vp test run");
-    assert.include(result.stdout, "(cd packages/shared && pnpm exec vp test run");
+    assert.match(result.stdout, /\(cd apps\/server && node \S+test-landing-vitest\.ts run /);
+    assert.match(result.stdout, /\(cd packages\/shared && node \S+test-landing-vitest\.ts run /);
   });
 
   it("is the test:audit package script", () => {
@@ -647,19 +875,13 @@ describe("test reports", () => {
       suite: "@t3tools/shared",
       cwd: "packages/shared",
     });
-    assert.include(shared.command, "--reporter=default");
-    assert.include(shared.command, "--reporter=json");
-    assert.include(shared.command, "--outputFile.json=/reports/vitest-packages-shared.json");
+    assert.strictEqual(request(shared).reportFile, "/reports/vitest-packages-shared.json");
   });
 
   it("adds no reporter or report without a report directory", () => {
     for (const command of landingCommands(plan, FIXTURE, [])) {
       assert.isUndefined(command.report);
-      assert.isFalse(
-        command.command.some(
-          (argument) => argument.startsWith("--reporter") || argument.startsWith("--outputFile"),
-        ),
-      );
+      assert.isUndefined(request(command).reportFile);
     }
   });
 
@@ -714,7 +936,7 @@ describe("the dependency edges the selection relies on", () => {
     }
     assert.isTrue(
       workspaces.every((entry) => entry.test !== "opaque"),
-      "every test script is `vp test run ...`",
+      "every test script is `vp test run` with flags the gate's runner reproduces",
     );
   });
 

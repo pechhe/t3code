@@ -1,1 +1,92 @@
-[]
+[
+  {
+    "file": "apps/mobile/src/features/threads/threadListV2.test.ts",
+    "issue": 3413,
+    "reason": "an unseen completion with only a background command presents as waiting, not ready"
+  },
+  {
+    "file": "apps/web/src/components/CommandPalette.focus.browser.test.tsx",
+    "issue": 3425,
+    "reason": "the file fails on t3peach run serially on the runner"
+  },
+  {
+    "file": "apps/web/src/components/chat/composerEventScope.browser.test.tsx",
+    "issue": 3425,
+    "reason": "the file fails on t3peach run serially on the runner"
+  },
+  {
+    "file": "apps/web/src/reactCompilerCoverage.test.ts",
+    "issue": 3425,
+    "reason": "the file fails on t3peach run serially on the runner"
+  },
+  {
+    "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
+    "issue": 3425,
+    "reason": "the file fails on t3peach run serially on the runner"
+  },
+  {
+    "file": "apps/desktop/scripts/browser-secret-native.test.mjs",
+    "issue": 3425,
+    "reason": "the file fails on t3peach run serially on the runner"
+  },
+  {
+    "file": "apps/desktop/src/preview/Manager.test.ts",
+    "issue": 3425,
+    "reason": "the file fails on t3peach run serially on the runner"
+  },
+  {
+    "file": "apps/web/src/components/chat/HtmlRenderDialog.browser.test.tsx",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/web/src/components/chat/WorkflowOpeningBlock.browser.test.tsx",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/web/src/components/files/AttachmentFilePreview.browser.test.tsx",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/web/src/hooks/useEnvironmentThemeSync.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/web/src/hooks/useTheme.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/server/src/orchestration-v2/Adapters/AcpRegistryAdapterV2.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/server/src/preview/ServerBrowserPage.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/desktop/src/backend/DesktopBackendManager.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/desktop/src/updates/DesktopUpdates.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "apps/desktop/src/window/DesktopWindow.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  },
+  {
+    "file": "packages/shared/src/nodeSqliteClient.test.ts",
+    "issue": 3426,
+    "reason": "fails under parallel load on the runner; passes serially"
+  }
+]
