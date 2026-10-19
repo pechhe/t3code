@@ -233,6 +233,7 @@ function makeHarness(options: HarnessOptions = {}) {
     options.managedFolders ??
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
+        scratchRoot: Effect.succeed(Option.none()),
         folderForThread: () => Effect.succeed(Option.none()),
       }),
   );
@@ -1228,6 +1229,7 @@ it.effect("runs a Scratch thread launched at the root in its own folder", () =>
     const harness = makeHarness({
       managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
         namedProjectsRoot: "/projects",
+        scratchRoot: Effect.succeed(Option.some("/repo")),
         folderForThread: (input) =>
           Effect.sync(() => {
             if (input.projectId !== projectId) return Option.none();
@@ -1269,6 +1271,32 @@ it.effect("runs a Scratch thread launched at the root in its own folder", () =>
       });
       assert.lengthOf(claimed, 1);
       assert.isNull(other.projection.thread.worktreePath);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("runs a scheduled worktree request in Scratch in its own folder", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        scratchRoot: Effect.succeed(Option.some("/repo")),
+        folderForThread: () => Effect.succeed(Option.some("/scratch/folder-1")),
+      }),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:scratch-worktree",
+          thread: "thread:launch:scratch-worktree",
+          message: "Scheduled run",
+          workspace: { type: "worktree", baseRef: "main", startFromOrigin: true },
+        }),
+      );
+      assert.equal(launched.projection.thread.worktreePath, "/scratch/folder-1");
+      yield* waitUntil(() => Effect.sync(() => harness.runSetup.mock.calls.length === 1));
+      assert.equal(harness.createWorktree.mock.calls.length, 0);
     }).pipe(Effect.provide(harness.layer));
   }),
 );

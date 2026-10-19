@@ -735,6 +735,7 @@ describe("orchestrator MCP toolkit", () => {
             Layer.provide(
               Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
                 namedProjectsRoot: "/unused",
+                scratchRoot: Effect.succeed(Option.none()),
               }),
             ),
             Layer.provide(
@@ -3963,6 +3964,7 @@ describe("orchestrator MCP toolkit", () => {
           Layer.provide(
             Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
               namedProjectsRoot: "/unused",
+              scratchRoot: Effect.succeed(Option.none()),
             }),
           ),
           Layer.provideMerge(

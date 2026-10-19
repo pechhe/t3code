@@ -950,10 +950,17 @@ const make = Effect.gen(function* () {
           yield* validateReusableThread(input, candidateThreadId);
         }
 
+        // The Scratch folder is not a repository, so a worktree request there,
+        // such as a scheduled task's default, means a folder of its own.
+        const requestedStrategy: ThreadLaunchWorkspaceStrategy =
+          input.workspaceStrategy.type === "worktree" &&
+          Option.getOrUndefined(yield* managedFolders.scratchRoot) === project.workspaceRoot
+            ? { type: "root" }
+            : input.workspaceStrategy;
         // A Scratch thread launched at the project root runs in a folder of its
         // own. Only the first attempt claims one; a retry replays its create.
         let workspaceStrategy: ThreadLaunchWorkspaceStrategy =
-          input.workspaceStrategy.type === "root" && Option.isNone(launchReceipt)
+          requestedStrategy.type === "root" && Option.isNone(launchReceipt)
             ? Option.match(
                 yield* managedFolders
                   .folderForThread({
@@ -963,11 +970,11 @@ const make = Effect.gen(function* () {
                   })
                   .pipe(Effect.mapError(mapError(input, "provision-worktree", candidateThreadId))),
                 {
-                  onNone: () => input.workspaceStrategy,
+                  onNone: () => requestedStrategy,
                   onSome: (worktreePath) => ({ type: "existing_worktree", worktreePath }),
                 },
               )
-            : input.workspaceStrategy;
+            : requestedStrategy;
         // A SlipJay conversation that chose no checkout owns one from its launch,
         // so a later first message never runs in the integration checkout. Client
         // drafts launch only when sent. Managed readers keep their parent's binding,
