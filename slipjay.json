@@ -1,6 +1,7 @@
 {
   "version": 1,
   "projectCode": "t3",
+  "tracker": "build",
   "integrationBranch": "t3peach",
   "remote": "origin",
   "spares": 8,
