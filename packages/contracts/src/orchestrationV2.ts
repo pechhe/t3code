@@ -569,6 +569,10 @@ export const OrchestrationV2AppThread = Schema.Struct({
   rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
   workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
+  /** When T3 replaced the thread's SlipJay workspace after SlipJay removed it; the next turn says so. */
+  workspaceReplacedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
+  /** The Build item the thread's SlipJay workspace belongs to; a replacement stays under it. */
+  workspaceIssue: Schema.optional(Schema.NullOr(PositiveInt)),
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
@@ -713,6 +717,8 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     baseRef: TrimmedNonEmptyString,
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
+    /** In a SlipJay project, the Build item whose workspace the thread resumes or creates. */
+    buildItem: Schema.optional(PositiveInt),
   }),
 ]);
 export type OrchestrationV2ThreadLaunchWorkspaceStrategy =
@@ -2237,6 +2243,8 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  workspaceReplacedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  workspaceIssue: Schema.optional(Schema.NullOr(PositiveInt)),
   readOnCompletionRunId: Schema.optional(Schema.NullOr(RunId)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtcFromString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
@@ -3021,6 +3029,10 @@ export const OrchestrationV2Command = Schema.Union([
     workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
     /** Link (object) or unlink (null) the thread's Build item; absent leaves it unchanged. */
     workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
+    /** Records that the new worktreePath replaces a SlipJay workspace SlipJay removed. */
+    workspaceReplaced: Schema.optional(Schema.Literal(true)),
+    /** The Build item the new worktreePath belongs to; a new worktreePath without one clears it. */
+    workspaceIssue: Schema.optional(PositiveInt),
     /** Record a suggested project, or dismiss the recorded one; absent leaves it unchanged. */
     projectSuggestion: Schema.optional(
       Schema.Union([

@@ -3591,10 +3591,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 ? { snoozedUntil: null, snoozedAt: null, lastSnoozeWakeAt: now }
                 : {}),
             ...(command.branch === undefined ? {} : { branch: command.branch }),
-            ...(command.worktreePath === undefined ? {} : { worktreePath: command.worktreePath }),
+            ...(command.worktreePath === undefined
+              ? {}
+              : {
+                  worktreePath: command.worktreePath,
+                  workspaceIssue:
+                    command.workspaceIssue ??
+                    (command.worktreePath === thread.worktreePath
+                      ? (thread.workspaceIssue ?? null)
+                      : null),
+                }),
             ...(command.keepSideChat === true ? { sideChat: false } : {}),
             ...(command.workflow === undefined ? {} : { workflow: command.workflow }),
             ...(command.workItem === undefined ? {} : { workItem: command.workItem }),
+            ...(command.workspaceReplaced === true ? { workspaceReplacedAt: now } : {}),
             ...(command.projectSuggestion === undefined
               ? {}
               : {

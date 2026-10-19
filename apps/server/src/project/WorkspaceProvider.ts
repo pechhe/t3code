@@ -34,7 +34,11 @@ export class WorkspaceProviderError extends Schema.TaggedError<WorkspaceProvider
   }
 }
 
-const SlipJayStartResult = Schema.Struct({ workspacePath: Schema.String });
+const SlipJayStartResult = Schema.Struct({
+  workspacePath: Schema.String,
+  // False when SlipJay bound or resumed a checkout that already existed, such as an Issue's.
+  created: Schema.optional(Schema.Boolean),
+});
 const decodeSlipJayStartResult = Schema.decodeUnknownEffect(
   Schema.fromJsonString(SlipJayStartResult),
 );
@@ -48,14 +52,18 @@ export class WorkspaceProvider extends Context.Service<
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, WorkspaceProviderError | GitCommandError>;
     /**
-     * Allocates a SlipJay workspace named after `task` and returns its path. `issue` is
-     * attached to the new workspace when no other workspace holds it.
+     * Allocates a SlipJay workspace named after `task`. With `issue`, that Build item's
+     * existing workspace is returned instead when it has one, with `created` false: the
+     * caller must not release a checkout it did not create.
      */
     readonly allocate: (input: {
       readonly projectRoot: string;
       readonly task: string;
       readonly issue?: number;
-    }) => Effect.Effect<string, WorkspaceProviderError>;
+    }) => Effect.Effect<
+      { readonly workspacePath: string; readonly created: boolean },
+      WorkspaceProviderError
+    >;
     /** Removes an allocated SlipJay workspace; SlipJay keeps one holding unfinished work. */
     readonly release: (input: {
       readonly projectRoot: string;
@@ -119,38 +127,33 @@ export const make = Effect.gen(function* () {
       Effect.gen(function* () {
         // A project registered in a subdirectory allocates from its SlipJay root.
         const root = (yield* slipJayProject(projectRoot))?.root ?? projectRoot;
-        const output = yield* slipjay("allocate", root, ["start", "--integration", "--json", task]);
+        // With an Issue, SlipJay resumes that item's workspace (or its surviving checkout)
+        // and creates one attached to it only when none exists.
+        const output = yield* slipjay("allocate", root, [
+          "start",
+          "--integration",
+          "--json",
+          ...(issue === undefined ? [] : ["--issue", String(issue)]),
+          task,
+        ]);
         const result = yield* decodeSlipJayStartResult(output.stdout.trim()).pipe(
           Effect.mapError(
             (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
           ),
         );
-        // `start --issue` would resume the Issue's existing workspace, which may be
-        // another thread's. Attaching refuses an Issue another workspace holds, so
-        // this checkout only ever belongs to the thread that asked for it.
-        if (issue !== undefined) {
-          yield* slipjay(
-            "allocate",
-            root,
-            ["attach-issue", String(issue)],
-            result.workspacePath,
-          ).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("SlipJay workspace allocated without its Issue", {
-                workspacePath: result.workspacePath,
-                issue,
-                error: error.message,
-              }),
-            ),
-          );
-        }
+        const allocation = {
+          workspacePath: result.workspacePath,
+          created: result.created ?? false,
+        };
         // SlipJay emits the path after preparation. Cancellation waits for that
-        // receipt so the allocated workspace can be returned rather than orphaned.
-        return yield* restore(Effect.succeed(result.workspacePath)).pipe(
+        // receipt so a workspace it created can be returned rather than orphaned.
+        return yield* restore(Effect.succeed(allocation)).pipe(
           Effect.onInterrupt(() =>
-            release({ projectRoot, path: result.workspacePath }).pipe(
-              Effect.ignoreCause({ log: true }),
-            ),
+            allocation.created
+              ? release({ projectRoot, path: allocation.workspacePath }).pipe(
+                  Effect.ignoreCause({ log: true }),
+                )
+              : Effect.void,
           ),
         );
       }),

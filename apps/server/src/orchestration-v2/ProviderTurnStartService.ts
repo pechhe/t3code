@@ -8,7 +8,9 @@ import {
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2ProviderThread,
+  type OrchestrationV2AppThread,
   type OrchestrationV2Run,
+  type OrchestrationV2ProviderTurn,
   type OrchestrationV2RunAttempt,
   type OrchestrationV2TurnItem,
   RunId,
@@ -113,26 +115,29 @@ export const replacedWorkspaceNote = (workspacePath: string): string =>
   `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. This turn runs in a fresh checkout at the integration head: ${workspacePath}. Work landed from earlier turns is on the integration branch; read the workspace's instruction files before working.`;
 
 /**
- * The fresh SlipJay workspace (which has no branch of its own) a turn starts in when the
- * thread's previous session ran in a workspace that no longer exists. The turn's own
- * preparation or a terminal opening may have replaced it. Null otherwise.
+ * The fresh SlipJay workspace a turn starts in when T3 replaced the thread's removed one and no
+ * turn has run since: the replacement may come from this turn's own preparation or from a
+ * terminal that opened first. Null otherwise.
  */
 export const replacedWorkspacePath = (
-  input: {
-    readonly previousCwd: string | null;
-    readonly previousCwdExists: boolean;
-    readonly worktreePath: string | null;
-    readonly branch: string | null;
-  },
-  path: Pick<Path.Path, "relative" | "isAbsolute">,
+  thread: Pick<OrchestrationV2AppThread, "worktreePath" | "workspaceReplacedAt">,
+  attempts: ReadonlyArray<Pick<OrchestrationV2RunAttempt, "id" | "runId" | "startedAt">>,
+  providerTurns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "runAttemptId">>,
+  runId: RunId,
 ): string | null => {
-  const { previousCwd, worktreePath } = input;
-  if (previousCwd === null || worktreePath === null || input.branch !== null) return null;
-  if (input.previousCwdExists) return null;
-  const relative = path.relative(worktreePath, previousCwd);
-  const insideCurrent =
-    relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-  return insideCurrent ? null : worktreePath;
+  const replacedAt = thread.workspaceReplacedAt;
+  if (replacedAt == null || thread.worktreePath === null) return null;
+  // Another run's attempt since the replacement already said so, but only if its provider
+  // took the prompt: a provider turn exists once the provider reports one.
+  const told = new Set(providerTurns.map((turn) => turn.runAttemptId));
+  const toldEarlier = attempts.some(
+    (attempt) =>
+      attempt.runId !== runId &&
+      attempt.startedAt !== null &&
+      DateTime.toEpochMillis(attempt.startedAt) >= DateTime.toEpochMillis(replacedAt) &&
+      told.has(attempt.id),
+  );
+  return toldEarlier ? null : thread.worktreePath;
 };
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
@@ -1192,17 +1197,11 @@ export const layer: Layer.Layer<
           Effect.orElseSucceed(() => false),
         ));
       const scheduled = message.scheduledTaskId !== undefined;
-      const previousCwd = existingSessionProjection?.cwd ?? null;
       const replacedWorkspace = replacedWorkspacePath(
-        {
-          previousCwd,
-          previousCwdExists:
-            previousCwd === null ||
-            (yield* fileSystem.exists(previousCwd).pipe(Effect.orElseSucceed(() => true))),
-          worktreePath: projection.thread.worktreePath,
-          branch: projection.thread.branch,
-        },
-        path,
+        projection.thread,
+        projection.attempts,
+        projection.providerTurns,
+        run.id,
       );
       const attachments = listedWorkspaceAttachments(projection.thread);
       const turnWorkspaces =

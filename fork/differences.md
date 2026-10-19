@@ -135,14 +135,14 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Threads run in SlipJay (Jujutsu) workspaces so parallel agent work lands through one guarded path.
-- **Requirements:** Jujutsu VCS driver (status, diff, files, per-turn checkpoints, restore); jj repositories detected, including colocated checkouts and repositories whose checkout predates `slipjay.json`; repository detection stops at the nearest `.git` or `.jj`; new threads get an automatic workspace except explicit project-checkout launches; a thread whose workspace SlipJay removed (landed, or idle with no unlanded work) gets a fresh workspace on its next message or terminal open, under its linked Build item when no other workspace holds it, its agent is told, and it keeps its strip after removal; a thread can move workspaces; Codex isolated writers can write the repository store; SlipJay errors keep their cause without raw CLI output; one owner for SlipJay project rules.
+- **Requirements:** Jujutsu VCS driver (status, diff, files, per-turn checkpoints, restore); jj repositories detected, including colocated checkouts and repositories whose checkout predates `slipjay.json`; repository detection stops at the nearest `.git` or `.jj`; new threads get an automatic workspace except explicit project-checkout launches; a launch with a Build item (`buildItem`) resumes that item's workspace or creates one attached to it, before the agent starts; a thread whose workspace SlipJay removed (landed, or idle with no unlanded work) gets a fresh workspace on its next message or terminal open, under its Build item (linked, or the one its workspace was attached to) through SlipJay's resume-or-create start, never removing a resumed workspace on cancel, and its agent is told on the first turn after, and it keeps its strip after removal; a thread can move workspaces; Codex isolated writers can write the repository store; SlipJay errors keep their cause without raw CLI output; one owner for SlipJay project rules.
 - **Integration points:** `VcsDriver`/`VcsDriverRegistry`/`JjVcsDriver`/`SlipJayProject`; `WorkspaceProvider` (workspace tools, allocation); checkpoint services; `VcsStatusBroadcaster`.
-- **Proof:** apps/server/src/vcs/JjVcsDriver.test.ts, SlipJayProject.test.ts; apps/server/src/project/WorkspaceProvider.test.ts; apps/server/src/orchestration-v2/ThreadLaunchService.test.ts; apps/mobile/src/features/threads/git/jujutsuCheckout.test.ts.
+- **Proof:** apps/server/src/vcs/JjVcsDriver.test.ts, SlipJayProject.test.ts; apps/server/src/project/WorkspaceProvider.test.ts; apps/server/src/orchestration-v2/ThreadLaunchService.test.ts, WorkspaceRebind.integration.test.ts; apps/server/src/mcp/toolkits/project/handlers.test.ts; apps/mobile/src/features/threads/git/jujutsuCheckout.test.ts.
 - **Upstream:** none known (upstream VCS is Git).
 - **Retire when:** upstream ships a VCS driver abstraction with Jujutsu/SlipJay workspace support covering the requirements, or the fork stops using SlipJay.
 - **Constraints:** status refresh must not scale with landings × watched checkouts (see perf-landing-refresh).
 - **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the bootstrap thread keeps `rootIsDefault` under upstream's tolerant launch.
-- **Owner:** pechhe/t3code#21–23, #41, #42, #45, #46, #50–54, #67 (closed); open: #108, #112, #125; Build #3352.
+- **Owner:** pechhe/t3code#21–23, #41, #42, #45, #46, #50–54, #67 (closed); open: #108, #112, #125; Build #3352, #3368.
 
 ### slipjay-landing
 

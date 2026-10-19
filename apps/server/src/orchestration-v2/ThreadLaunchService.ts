@@ -69,6 +69,7 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
+      readonly buildItem?: number | undefined;
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -351,6 +352,7 @@ const make = Effect.gen(function* () {
     const tracked = input.workspaceStrategy.type === "worktree" || reused !== undefined;
     let createdWorktreePath: string | null = null;
     let createdBySlipJay = false;
+    let workspaceIssue: number | null = null;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
     let runReleased = false;
@@ -444,22 +446,29 @@ const make = Effect.gen(function* () {
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         const task =
           requestedBranch ?? initialMessage?.text.trim().split("\n")[0]?.slice(0, 80) ?? "";
-        // A thread working on a Build item gets its workspace under that item again,
-        // for example when SlipJay removed the previous one while the thread was idle.
-        const issue = (yield* threads.getThreadShell(threadId))?.workItem?.number;
+        // A thread launched for a Build item, or linked to one, works in that item's
+        // workspace, including when SlipJay removed the previous one while it was idle.
+        const issue =
+          input.workspaceStrategy.buildItem ??
+          (yield* threads.getThreadShell(threadId))?.workItem?.number;
         // SlipJay reports the path after dependency preparation. Keep acquisition
         // and rollback registration atomic, so cancellation cannot lose that path.
+        // A resumed Build item workspace predates this launch, so cancelling never removes it.
         yield* Effect.gen(function* () {
-          worktreePath = yield* workspaces
+          const allocation = yield* workspaces
             .allocate({
               projectRoot: project.workspaceRoot,
               task: task || "T3 thread",
               ...(issue === undefined ? {} : { issue }),
             })
             .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+          worktreePath = allocation.workspacePath;
           branch = null;
-          createdWorktreePath = worktreePath;
-          createdBySlipJay = true;
+          workspaceIssue = issue ?? null;
+          if (allocation.created) {
+            createdWorktreePath = worktreePath;
+            createdBySlipJay = true;
+          }
         }).pipe(Effect.uninterruptible);
         yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
@@ -551,6 +560,7 @@ const make = Effect.gen(function* () {
             threadId,
             branch,
             worktreePath,
+            ...(workspaceIssue === null ? {} : { workspaceIssue }),
           })
           .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
       }
@@ -1293,18 +1303,35 @@ const make = Effect.gen(function* () {
     ) {
       return null;
     }
-    return { thread, worktreePath: thread.worktreePath, project };
+    // The replacement stays under the thread's Build item: its HQ link, or else the item
+    // its workspace was attached to, which needs no HQ connection.
+    const buildItem =
+      thread.workItem?.number ??
+      (yield* threads.getThreadRecords(threadId, [])).thread.workspaceIssue ??
+      undefined;
+    return { thread, worktreePath: thread.worktreePath, project, buildItem };
   });
 
   const prepareReleasedWorkspace: ThreadLaunchService["Service"]["prepareReleasedWorkspace"] =
     Effect.fn("ThreadLaunchService.prepareReleasedWorkspace")(function* (input) {
-      if ((yield* releasedWorkspace(input.threadId)) === null) return false;
+      const released = yield* releasedWorkspace(input.threadId);
+      if (released === null) return false;
+      yield* threads.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make(`${input.commandId}:workspace-replaced`),
+        threadId: input.threadId,
+        workspaceReplaced: true,
+      });
       yield* threads.dispatch({
         type: "prepared-run.defer",
         commandId: input.commandId,
         threadId: input.threadId,
         runId: input.runId,
-        workspaceStrategy: { type: "worktree", baseRef: "HEAD" },
+        workspaceStrategy: {
+          type: "worktree",
+          baseRef: "HEAD",
+          ...(released.buildItem === undefined ? {} : { buildItem: released.buildItem }),
+        },
       });
       yield* prepareRun(input);
       return true;
@@ -1323,11 +1350,10 @@ const make = Effect.gen(function* () {
       if (released === null) return unchanged;
       const relative = path.relative(released.worktreePath, input.cwd);
       if (relative.startsWith("..") || path.isAbsolute(relative)) return unchanged;
-      const issue = released.thread.workItem?.number;
-      const worktreePath = yield* workspaces.allocate({
+      const { workspacePath: worktreePath, created } = yield* workspaces.allocate({
         projectRoot: released.project.workspaceRoot,
         task: released.thread.title,
-        ...(issue === undefined ? {} : { issue }),
+        ...(released.buildItem === undefined ? {} : { issue: released.buildItem }),
       });
       // Compare-and-set: a turn preparing a workspace at the same time keeps its own.
       yield* threads
@@ -1338,12 +1364,16 @@ const make = Effect.gen(function* () {
           branch: null,
           worktreePath,
           expectedWorktreePath: released.worktreePath,
+          workspaceReplaced: true,
+          ...(released.buildItem === undefined ? {} : { workspaceIssue: released.buildItem }),
         })
         .pipe(
           Effect.onError(() =>
-            workspaces
-              .release({ projectRoot: released.project.workspaceRoot, path: worktreePath })
-              .pipe(Effect.ignoreCause({ log: true })),
+            created
+              ? workspaces
+                  .release({ projectRoot: released.project.workspaceRoot, path: worktreePath })
+                  .pipe(Effect.ignoreCause({ log: true }))
+              : Effect.void,
           ),
         );
       return { cwd: path.join(worktreePath, relative), worktreePath };
