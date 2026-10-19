@@ -5,6 +5,8 @@
   "remote": "origin",
   "parallelExecution": true,
   "spares": 8,
+  "generatedPaths": [".t3/userdata", "apps/*/dist-electron", ".pnpm-store"],
+  "evidencePaths": [".t3/review"],
   "requiredLandingVerification": [
     {
       "executable": "pnpm",
