@@ -6,6 +6,8 @@
   "spares": 8,
   "generatedPaths": [
     ".t3/userdata",
+    ".t3/caches",
+    ".t3/test-tmp",
     "apps/*/dist-electron",
     ".pnpm-store"
   ],
