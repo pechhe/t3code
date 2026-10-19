@@ -20,12 +20,16 @@
       "executable": "pnpm",
       "args": [
         "exec",
-        "vp",
-        "test",
-        "run",
-        "apps/server/src/mcp/OrchestratorMcpService.test.ts",
-        "apps/server/src/experiments/ExperimentService.test.ts",
-        "apps/server/src/agents/AgentPolicyService.test.ts"
+        "playwright",
+        "install",
+        "chromium-headless-shell"
+      ],
+      "cwd": "apps/web"
+    },
+    {
+      "executable": "node",
+      "args": [
+        "scripts/test-landing.ts"
       ]
     },
     {
@@ -49,18 +53,6 @@
         "@t3tools/web",
         "typecheck"
       ]
-    },
-    {
-      "executable": "pnpm",
-      "args": [
-        "exec",
-        "vp",
-        "test",
-        "run",
-        "src/orchestration-v2/ContextRollover.test.ts",
-        "src/orchestration-v2/ContextRollover.integration.test.ts"
-      ],
-      "cwd": "apps/server"
     },
     {
       "executable": "node",
