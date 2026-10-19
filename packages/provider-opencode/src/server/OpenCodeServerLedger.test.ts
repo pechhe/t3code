@@ -5,6 +5,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -13,6 +14,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Scope from "effect/Scope";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
+
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import * as OpenCodeServerLedger from "./OpenCodeServerLedger.ts";
@@ -56,7 +59,7 @@ const recordFromDeadServer = (stateDir: string, server: { readonly pid: number }
       stateDir,
       ownerPid: previousServer.pid,
     });
-    yield* Effect.asVoid(previousLedger.track({ pid: server.pid, port: 4096, args: SERVE_ARGS }));
+    yield* Effect.asVoid(previousLedger.track({ pid: server.pid, args: SERVE_ARGS }));
     process.kill(-previousServer.pid, "SIGKILL");
     yield* previousServer.exited;
   });
@@ -80,14 +83,14 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-ledger-" });
       const orphan = yield* spawnGroup(SERVE_ARGS);
       yield* recordFromDeadServer(stateDir, orphan);
-      expect(yield* fs.readDirectory(path.join(stateDir, "opencode-servers"))).toHaveLength(1);
+      expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toHaveLength(1);
 
       const restarted = yield* OpenCodeServerLedger.make({ stateDir });
-      yield* restarted.reapOrphans;
+      yield* restarted.reapOrphans();
 
       expect(yield* orphan.exited).toBe("SIGTERM");
       expect(groupExists(orphan.pid)).toBe(false);
-      expect(yield* fs.readDirectory(path.join(stateDir, "opencode-servers"))).toEqual([]);
+      expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toEqual([]);
     }).pipe(provideHost),
   );
 
@@ -104,13 +107,13 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       expect(groupExists(wrapper.pid)).toBe(true);
 
       yield* recordFromDeadServer(stateDir, wrapper);
-      expect(yield* fs.readDirectory(path.join(stateDir, "opencode-servers"))).toHaveLength(1);
+      expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toHaveLength(1);
 
       const restarted = yield* OpenCodeServerLedger.make({ stateDir });
-      yield* restarted.reapOrphans;
+      yield* restarted.reapOrphans();
 
       expect(groupExists(wrapper.pid)).toBe(false);
-      expect(yield* fs.readDirectory(path.join(stateDir, "opencode-servers"))).toEqual([]);
+      expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toEqual([]);
     }).pipe(provideHost),
   );
 
@@ -121,12 +124,12 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-ledger-" });
       const unrelated = yield* spawnGroup(SERVE_ARGS);
       yield* recordFromDeadServer(stateDir, unrelated);
-      const entryPath = path.join(stateDir, "opencode-servers", `${unrelated.pid}.json`);
+      const entryPath = path.join(stateDir, "provider-processes", `${unrelated.pid}.json`);
       const entry = yield* fs.readFileString(entryPath);
       yield* fs.writeFileString(entryPath, entry.replace(/"startTime":"[^"]+"/, '"startTime":"1"'));
 
       const restarted = yield* OpenCodeServerLedger.make({ stateDir });
-      yield* restarted.reapOrphans;
+      yield* restarted.reapOrphans();
 
       expect(groupExists(unrelated.pid)).toBe(true);
       expect(yield* fs.exists(entryPath)).toBe(false);
@@ -140,15 +143,38 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-ledger-" });
       const unrelated = yield* spawnGroup(SERVE_ARGS);
       yield* recordFromDeadServer(stateDir, unrelated);
-      const entryPath = path.join(stateDir, "opencode-servers", `${unrelated.pid}.json`);
+      const entryPath = path.join(stateDir, "provider-processes", `${unrelated.pid}.json`);
       const entry = yield* fs.readFileString(entryPath);
       yield* fs.writeFileString(entryPath, entry.replace("--port=4096", "--port=4097"));
 
       const restarted = yield* OpenCodeServerLedger.make({ stateDir });
-      yield* restarted.reapOrphans;
+      yield* restarted.reapOrphans();
 
       expect(groupExists(unrelated.pid)).toBe(true);
       expect(yield* fs.exists(entryPath)).toBe(false);
+    }).pipe(provideHost),
+  );
+
+  it.live("stops the servers of a T3 server that exits while the reaper waits for it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-ledger-" });
+      const stopping = yield* spawnGroup([]);
+      const server = yield* spawnGroup(SERVE_ARGS);
+      const stoppingLedger = yield* OpenCodeServerLedger.make({
+        stateDir,
+        ownerPid: stopping.pid,
+      });
+      yield* Effect.asVoid(stoppingLedger.track({ pid: server.pid, args: SERVE_ARGS }));
+
+      const reaping = yield* ProcessGroupLedger.reapOrphans({
+        stateDir,
+        ownerExitGrace: Duration.minutes(1),
+      }).pipe(Effect.forkChild);
+      process.kill(-stopping.pid, "SIGKILL");
+      yield* Fiber.join(reaping);
+
+      expect(yield* server.exited).toBe("SIGTERM");
     }).pipe(provideHost),
   );
 
@@ -159,14 +185,14 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-ledger-" });
       const running = yield* OpenCodeServerLedger.make({ stateDir });
       const server = yield* spawnGroup(SERVE_ARGS);
-      const forget = yield* running.track({ pid: server.pid, port: 4096, args: SERVE_ARGS });
+      const forget = yield* running.track({ pid: server.pid, args: SERVE_ARGS });
 
       const other = yield* OpenCodeServerLedger.make({ stateDir });
-      yield* other.reapOrphans;
+      yield* other.reapOrphans();
       expect(groupExists(server.pid)).toBe(true);
 
       yield* forget;
-      expect(yield* fs.readDirectory(path.join(stateDir, "opencode-servers"))).toEqual([]);
+      expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toEqual([]);
     }).pipe(provideHost),
   );
 });

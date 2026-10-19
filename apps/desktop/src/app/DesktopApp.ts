@@ -36,6 +36,7 @@ import * as DesktopSnapShot from "../snapShot/DesktopSnapShot.ts";
 import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 
 const DEFAULT_DESKTOP_BACKEND_PORT = 3773;
 const MAX_TCP_PORT = 65_535;
@@ -337,6 +338,7 @@ const scopedProgram = Effect.scoped(
 
     const shutdown = yield* DesktopShutdown.DesktopShutdown;
     const rendererHistory = yield* DesktopRendererHistory.DesktopRendererHistory;
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
 
     yield* Effect.addFinalizer(() =>
       // Stop every backend in the pool, not just the primary. The
@@ -345,6 +347,17 @@ const scopedProgram = Effect.scoped(
       // finalizer means it gets hard-killed by the OS instead of
       // receiving SIGTERM + grace.
       stopAllPoolInstances().pipe(
+        // A server killed after its grace period leaves its agents running. A stop that timed
+        // out returns just before that kill lands, so wait briefly for the server to exit.
+        Effect.andThen(
+          ProcessGroupLedger.reapOrphans({
+            stateDir: environment.stateDir,
+            ownerExitGrace: Duration.seconds(3),
+          }),
+        ),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not stop agents left by the server", { cause }),
+        ),
         Effect.ensuring(rendererHistory.shutdown),
         Effect.ensuring(shutdown.markComplete),
       ),

@@ -7,11 +7,13 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { ProviderSessionId, ThreadId } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import { vi } from "vite-plus/test";
 
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import { ProviderEventLoggers } from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
@@ -152,5 +154,67 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI pro
       yield* session.close;
       yield* Effect.promise(() => leftoverStopped);
     }).pipe(Effect.provide(realQueryRunner)),
+  );
+  // Claude Code runs each command in its own process group and stops them on SIGTERM, but
+  // they outlive a CLI killed outright. A server that died leaves the CLI running, so the
+  // next server must ask it to stop rather than kill it.
+  it.live("asks a CLI left by a server that died to stop, so it stops its commands", () =>
+    Effect.gen(function* () {
+      const cli = fakeClaudeCli(
+        [
+          'dir=$(dirname "$0")',
+          `perl -e 'setpgrp(0, 0); exec "sleep", "600"' > "$dir/alive" &`,
+          "command=$!",
+          'echo $command > "$dir/leftover.pid"',
+          'trap \'kill $command; exit 0\' TERM',
+          "tail -f /dev/null &",
+          "wait",
+        ].join("\n"),
+      );
+      const dir = NodePath.dirname(cli);
+      NodeChildProcess.execFileSync("mkfifo", [NodePath.join(dir, "alive")]);
+      const stateDir = NodePath.join(dir, "state");
+      const deadServer = NodeChildProcess.spawn("/bin/sh", ["-c", "sleep 600"], {
+        stdio: "ignore",
+      });
+      const deadServerExited = new Promise<void>((resolve) => deadServer.once("exit", () => resolve()));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => {
+          deadServer.kill("SIGKILL");
+          try {
+            process.kill(Number(NodeFS.readFileSync(NodePath.join(dir, "leftover.pid"), "utf8")));
+          } catch {}
+          NodeFS.rmSync(dir, { recursive: true, force: true });
+        }),
+      );
+      const alive = NodeFS.createReadStream(NodePath.join(dir, "alive"));
+      const commandStarted = new Promise<void>((resolve) => alive.once("open", () => resolve()));
+      const commandStopped = new Promise<void>((resolve) => alive.once("close", () => resolve()));
+      alive.resume();
+
+      const recorded = yield* Deferred.make<void>();
+      const deadServerLedger = yield* ProcessGroupLedger.make({
+        stateDir,
+        ownerPid: deadServer.pid ?? 0,
+      }).pipe(Effect.provide(NodeServices.layer));
+      const ledger = Layer.succeed(ProcessGroupLedger.ProcessGroupLedger, {
+        track: (group) =>
+          deadServerLedger
+            .track(group)
+            .pipe(Effect.tap(() => Deferred.succeed(recorded, undefined))),
+      });
+
+      yield* openFakeCli(cli).pipe(
+        Effect.provide(realQueryRunner.pipe(Layer.provide(ledger))),
+      );
+      yield* Effect.promise(() => commandStarted);
+      yield* Deferred.await(recorded);
+      deadServer.kill("SIGKILL");
+      yield* Effect.promise(() => deadServerExited);
+
+      yield* ProcessGroupLedger.reapOrphans({ stateDir }).pipe(Effect.provide(NodeServices.layer));
+      yield* Effect.promise(() => commandStopped);
+      assert.deepEqual(NodeFS.readdirSync(NodePath.join(stateDir, "provider-processes")), []);
+    }),
   );
 });

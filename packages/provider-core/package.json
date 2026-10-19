@@ -99,6 +99,10 @@
       "types": "./src/server/processGroup.ts",
       "import": "./src/server/processGroup.ts"
     },
+    "./server/ProcessGroupLedger": {
+      "types": "./src/server/ProcessGroupLedger.ts",
+      "import": "./src/server/ProcessGroupLedger.ts"
+    },
     "./server/ProviderAdapter": {
       "types": "./src/server/ProviderAdapter.ts",
       "import": "./src/server/ProviderAdapter.ts"

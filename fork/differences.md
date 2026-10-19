@@ -534,6 +534,19 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (new, 2026-10-19).
 - **Owner:** Build #3172.
 
+### agent-process-ledger
+
+- **Kind:** deliberate behaviour change (upstreamable)
+- **Why:** Claude Code runs each command in its own process group and stops them when it gets SIGTERM, but a server that crashes or is killed after the desktop's 5 s quit grace leaves the CLI running, and a CLI killed outright leaves its commands running (builds, `tail -f`, dev servers).
+- **Requirements:** every Claude CLI process group the server starts is recorded under the state directory and forgotten when it exits; at server start, and after the desktop has stopped its servers on quit (waiting up to 3 s for a server whose stop timed out to exit), a recorded group whose owning server is gone gets SIGTERM, then SIGKILL after 2 s; a recycled pid (start time, group or command line differ) is never signalled; OpenCode servers use the same ledger.
+- **Integration points:** `ProcessGroupLedger` in `provider-core/server` (upstream's OpenCode ledger, generalised; entries in `<stateDir>/provider-processes`); `OpenCodeServerLedger` wraps it; `layerQueryRunner`'s `spawnClaudeProcessGroup` in `ClaudeAdapterV2`; server layer in `server.ts`; the quit finalizer in desktop `DesktopApp.ts`.
+- **Proof:** apps/server/src/orchestration-v2/Adapters/ClaudeAgentSdkQueryRunner.test.ts ("asks a CLI left by a server that died to stop, so it stops its commands"); packages/provider-opencode/src/server/OpenCodeServerLedger.test.ts.
+- **Upstream:** upstream records only OpenCode servers (`opencode-servers`; an entry left there by an older build is not reaped).
+- **Retire when:** upstream records every provider process group it starts.
+- **Constraints:** Codex, Cursor, Grok, Antigravity and Pi processes are not recorded yet; Windows is not covered.
+- **Decision:** `retain` (new, 2026-10-19).
+- **Owner:** Build #3416 under Spec #3172.
+
 ### dev-state-tooling
 
 - **Kind:** deliberate behaviour change

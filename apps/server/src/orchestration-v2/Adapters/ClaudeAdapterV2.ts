@@ -38,7 +38,6 @@ import {
   type Query as ClaudeQuery,
   type Settings as ClaudeSdkSettings,
   type SpawnOptions as ClaudeSpawnOptions,
-  type SpawnedProcess as ClaudeSpawnedProcess,
   type SDKAssistantMessage,
   type SDKAPIRetryMessage,
   type SDKMessage,
@@ -125,6 +124,7 @@ import {
 import * as ServerConfig from "../../config.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import {
   claudeSignedOutMessage,
   makeClaudeEnvironment,
@@ -289,7 +289,7 @@ const WORKFLOW_MEMBER_TRANSCRIPT_FLUSH_MS = 500;
  * reads (#3089). Those stay in the CLI's group, so the rest of the group gets SIGKILL once the
  * CLI exits for any reason.
  */
-function spawnClaudeProcessGroup(options: ClaudeSpawnOptions): ClaudeSpawnedProcess {
+function spawnClaudeProcessGroup(options: ClaudeSpawnOptions) {
   const child = NodeChildProcess.spawn(options.command, options.args, {
     cwd: options.cwd,
     env: options.env,
@@ -769,6 +769,16 @@ export const layerQueryRunner: Layer.Layer<
     const agentScope = yield* AgentScope;
     const platform = yield* HostProcess.Platform;
     const self = yield* resolveSelfInvocation();
+    const processLedger = yield* ProcessGroupLedger.ProcessGroupLedger;
+    const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
+    const spawnTrackedClaudeProcessGroup = (options: ClaudeSpawnOptions) => {
+      const child = spawnClaudeProcessGroup(options);
+      if (child.pid !== undefined) {
+        const forget = runPromise(processLedger.track({ pid: child.pid, args: options.args }));
+        child.once("exit", () => void forget.then(runPromise));
+      }
+      return child;
+    };
 
     return ClaudeAgentSdkQueryRunner.of({
       allocateSessionId: crypto
@@ -822,7 +832,7 @@ export const layerQueryRunner: Layer.Layer<
         // Windows has no process groups, so there the SDK spawns the CLI itself.
         const spawnClaudeCodeProcess =
           options.spawnClaudeCodeProcess ??
-          (platform === "win32" ? undefined : spawnClaudeProcessGroup);
+          (platform === "win32" ? undefined : spawnTrackedClaudeProcessGroup);
         const queryRuntime = yield* Effect.uninterruptibleMask((restore) =>
           Effect.try({
             try: () =>
