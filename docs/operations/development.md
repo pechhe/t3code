@@ -122,6 +122,36 @@ Use `vp run lint:mobile` for native mobile changes. CI owns the full suite; see
 The [manual Windows lane](../../.github/workflows/windows-tests.yml) is available for focused
 Windows investigation while that suite is not a required gate.
 
+### Landing gate
+
+`slipjay.json` runs [scripts/test-landing.ts](../../scripts/test-landing.ts) with the two
+typechecks. It tests the exact rebased JJ candidate against its single integration parent and runs
+`vp test related` in each test workspace the change can reach, found from the manifests and
+`EXTRA_EDGES`. Tests whose inputs the import graph cannot see (replay transcripts and fixture
+scripts read from disk, source spawned in a child process, tests that read every source file) are
+mapped in `INPUT_RULES` in [test-landing-inputs.ts](../../scripts/lib/test-landing-inputs.ts).
+`scripts/test-landing.test.ts` fails when a test starts reading a file by path without a rule, or
+a workspace imports another by an edge nobody declared. Add the rule there rather than widening
+the selection.
+
+It fails closed. The candidate runs every workspace's complete suite when it changes the
+toolchain, a lockfile, a manifest (other than its version), TypeScript or Vitest configuration,
+or test setup; deletes a non-doc file; touches a path with no mapping and not in the harmless
+list; is a merge; or cannot be read or is not rebased onto the integration bookmark. A change
+to docs and other files no test reads runs no tests. `node scripts/test-landing.ts --plan` prints
+the selection and commands without running them, and `--replay` counts what the last 30
+first-parent integration commits would have run.
+
+A flaky test can be quarantined in `tests/quarantine.json` as
+`{"file": "<repository-relative test file>", "issue": 123, "reason": "..."}`. The gate leaves it
+out of every run it makes; `pnpm test` and CI still run it. Each entry names an open Issue, and
+the entry is removed when that Issue closes. `pnpm test:audit` (`--audit`) runs every workspace's
+complete suite with the quarantined tests included, for the nightly audit.
+
+When `SLIPJAY_TEST_REPORT_DIR` is set, each Vitest run also writes a JSON report there, and
+`slipjay-test-reports.json` lists them. Nothing is written otherwise, and a missing report never
+fails the gate. `budgets` in `slipjay.json` holds the verification time targets.
+
 ### Unused code
 
 `vp run knip:check` checks unused files and dependencies across the repo, then
