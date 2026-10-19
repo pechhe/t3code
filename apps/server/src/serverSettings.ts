@@ -136,6 +136,34 @@ export function redactServerSettingsForClient(settings: ServerSettings): ServerS
   );
 }
 
+/**
+ * Settings as one socket's client may decode them. A client that predates
+ * "live" response streaming rejects the whole config snapshot on that value,
+ * so it is shown "paragraph", the closest mode it knows.
+ */
+export function settingsForClient(
+  settings: ServerSettings,
+  client: { readonly liveResponseStreaming: boolean },
+): ServerSettings {
+  const redacted = redactServerSettingsForClient(settings);
+  if (client.liveResponseStreaming) {
+    return redacted;
+  }
+  const clamp = <T extends { readonly responseStreamingMode?: string }>(value: T): T =>
+    value.responseStreamingMode === "live"
+      ? { ...value, responseStreamingMode: "paragraph" }
+      : value;
+  return {
+    ...clamp(redacted),
+    projectSettingsOverrides: Object.fromEntries(
+      Object.entries(redacted.projectSettingsOverrides).map(([projectId, overrides]) => [
+        projectId,
+        clamp(overrides),
+      ]),
+    ),
+  };
+}
+
 export function applyProviderInstanceMutation(
   settings: ServerSettings,
   mutation: ProviderInstanceMutation,

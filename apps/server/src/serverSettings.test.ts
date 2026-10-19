@@ -216,6 +216,33 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
+  it("shows live response streaming only to clients that decode it", () => {
+    const settings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      responseStreamingMode: "live" as const,
+      projectSettingsOverrides: {
+        [ProjectId.make("live")]: { responseStreamingMode: "live" as const },
+        [ProjectId.make("buffered")]: { responseStreamingMode: "turn" as const },
+        [ProjectId.make("inherited")]: { defaultAutoPull: false },
+      },
+    };
+
+    const older = ServerSettingsModule.settingsForClient(settings, {
+      liveResponseStreaming: false,
+    });
+    assert.equal(older.responseStreamingMode, "paragraph");
+    assert.deepEqual(older.projectSettingsOverrides, {
+      [ProjectId.make("live")]: { responseStreamingMode: "paragraph" },
+      [ProjectId.make("buffered")]: { responseStreamingMode: "turn" },
+      [ProjectId.make("inherited")]: { defaultAutoPull: false },
+    });
+
+    const current = ServerSettingsModule.settingsForClient(settings, {
+      liveResponseStreaming: true,
+    });
+    assert.equal(current.responseStreamingMode, "live");
+    assert.deepEqual(current.projectSettingsOverrides, settings.projectSettingsOverrides);
+  });
   it.effect("saves through a symlinked settings file without replacing the link", () =>
     Effect.gen(function* () {
       const config = yield* ServerConfig.ServerConfig;

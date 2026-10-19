@@ -59,6 +59,7 @@ import {
   OrchestrationV2SearchThreadError,
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_V2_WS_METHODS,
+  LIVE_RESPONSE_STREAMING_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2DispatchCommandError,
@@ -1224,11 +1225,15 @@ const layerWsRpc = (
   currentSession: EnvironmentAuth.AuthenticatedSession,
   clientOrigin: OrchestrationClientOrigin,
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
+  liveResponseStreaming: boolean,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
 ) =>
   ServerWsCoreRpcGroup.toLayer(
     Effect.gen(function* () {
+      const settingsForClient = (
+        settings: Parameters<typeof ServerSettings.settingsForClient>[0],
+      ) => ServerSettings.settingsForClient(settings, { liveResponseStreaming });
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -1246,7 +1251,8 @@ const layerWsRpc = (
             Effect.map(
               Option.match({
                 onNone: () => context,
-                onSome: (managed) => Context.add(context, ManagedAgent.ManagedAgentService, managed),
+                onSome: (managed) =>
+                  Context.add(context, ManagedAgent.ManagedAgentService, managed),
               }),
             ),
           ),
@@ -1730,9 +1736,7 @@ const layerWsRpc = (
           const providers = options.usageLimitsCommand
             ? withUsageLimitsCommands(currentProviders, yield* usageLimitSources.current)
             : currentProviders;
-          const settings = ServerSettings.redactServerSettingsForClient(
-            yield* serverSettings.getSettings,
-          );
+          const settings = settingsForClient(yield* serverSettings.getSettings);
           const environment = yield* serverEnvironment.getDescriptor;
           const auth = yield* serverAuth.getDescriptor();
           const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
@@ -2444,7 +2448,7 @@ const layerWsRpc = (
         [WS_METHODS.serverGetStorageCleanupReport]: () => storageCleanup.reports,
         [WS_METHODS.serverGetDatabaseStorage]: () => databaseStorage.status,
         [WS_METHODS.serverGetSettings]: (_input) =>
-          serverSettings.getSettings.pipe(Effect.map(ServerSettings.redactServerSettingsForClient)),
+          serverSettings.getSettings.pipe(Effect.map(settingsForClient)),
         [WS_METHODS.serverUpdateSettings]: ({ patch, providerInstanceMutation }) =>
           Effect.gen(function* () {
             const deviceHosts = patch.deviceHosts
@@ -2456,7 +2460,7 @@ const layerWsRpc = (
             const settings = yield* providerInstanceMutation === undefined
               ? serverSettings.updateSettings(nextPatch)
               : serverSettings.updateProviderInstance(providerInstanceMutation, nextPatch);
-            return ServerSettings.redactServerSettingsForClient(settings);
+            return settingsForClient(settings);
           }),
         [WS_METHODS.serverDiscoverSourceControl]: (_input) => sourceControlDiscovery.discover,
         [WS_METHODS.serverGetTraceDiagnostics]: (_input) =>
@@ -3015,7 +3019,7 @@ const layerWsRpc = (
                     )
                   : Stream.empty;
               const settingsUpdates = serverSettings.streamChanges.pipe(
-                Stream.map((settings) => ServerSettings.redactServerSettingsForClient(settings)),
+                Stream.map(settingsForClient),
                 Stream.map((settings) => ({
                   version: 1 as const,
                   type: "settingsUpdated" as const,
@@ -3299,6 +3303,11 @@ export const layer = Layer.unwrap(
                 session,
                 clientOrigin,
                 clientAnalyticsProps,
+                HttpServerRequest.toURL(request).pipe(
+                  Option.exists(
+                    (url) => url.searchParams.get(LIVE_RESPONSE_STREAMING_QUERY_PARAM) === "1",
+                  ),
+                ),
                 previewAutomationBroker,
                 serverBrowser,
               ),

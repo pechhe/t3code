@@ -12,6 +12,11 @@ import {
 export const ORCHESTRATION_PROTOCOL_VERSION = 2;
 export const ORCHESTRATION_PROTOCOL_VERSION_TEXT = "2";
 export const ORCHESTRATION_PROTOCOL_QUERY_PARAM = "orchestrationProtocol";
+/**
+ * Sockets from clients that decode `responseStreamingMode: "live"` carry this
+ * param. Shipped clients reject the whole config snapshot on the unknown value.
+ */
+export const LIVE_RESPONSE_STREAMING_QUERY_PARAM = "liveResponseStreaming";
 export const ORCHESTRATION_PROTOCOL_HEADER = "x-t3-orchestration-protocol";
 
 export const ExecutionEnvironmentPlatformOs = Schema.Literals([
