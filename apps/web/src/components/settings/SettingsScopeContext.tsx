@@ -55,7 +55,16 @@ function useMemberProjectFiles(scope: ReturnType<typeof resolveSettingsScope>) {
   );
 }
 
-function useResolvedSettingsScope(rawSearch: SettingsScopeSearch, singleEnvironment: boolean) {
+function useResolvedSettingsScope(
+  routeSearch: SettingsScopeSearch,
+  singleEnvironment: boolean,
+  environmentOnly: boolean,
+) {
+  const rawSearch = environmentOnly
+    ? routeSearch.machine === undefined
+      ? {}
+      : { machine: routeSearch.machine }
+    : routeSearch;
   const groups = useSettingsProjectGroups();
   const { environments: availableEnvironments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -85,6 +94,7 @@ function useResolvedSettingsScope(rawSearch: SettingsScopeSearch, singleEnvironm
 const SettingsScopeContext = createContext<
   | (ReturnType<typeof useResolvedSettingsScope> & {
       singleEnvironment: boolean;
+      environmentOnly: boolean;
       search: SettingsScopeSearch;
       selectScope: (next: SettingsScopeSearch) => void;
     })
@@ -96,14 +106,23 @@ export function SettingsScopeProvider({
   onChange,
   children,
   singleEnvironment = false,
+  environmentOnly = false,
 }: {
   singleEnvironment?: boolean;
+  /** For pages whose settings never vary by project: the project axis is ignored, not lost. */
+  environmentOnly?: boolean;
   search: SettingsScopeSearch;
   onChange: (next: SettingsScopeSearch) => void;
   children: ReactNode;
 }) {
-  const resolved = useResolvedSettingsScope(search, singleEnvironment);
-  const value = { ...resolved, singleEnvironment, selectScope: onChange };
+  const resolved = useResolvedSettingsScope(search, singleEnvironment, environmentOnly);
+  const value = {
+    ...resolved,
+    singleEnvironment,
+    environmentOnly,
+    selectScope: (next: SettingsScopeSearch) =>
+      onChange(environmentOnly ? { ...search, machine: next.machine } : next),
+  };
   return <SettingsScopeContext value={value}>{children}</SettingsScopeContext>;
 }
 

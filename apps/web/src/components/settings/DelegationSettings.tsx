@@ -13,7 +13,6 @@ import {
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import { ArrowDownIcon, ArrowUpIcon, ChevronRightIcon, PlusIcon, XIcon } from "lucide-react";
 import { serverEnvironment } from "../../state/server";
-import { useEnvironmentQuery } from "../../state/query";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { Alert, AlertAction, AlertDescription } from "../ui/alert";
 import { Badge } from "../ui/badge";
@@ -58,6 +57,7 @@ import { PolicyEffortPicker, PolicyModelPicker } from "./PolicyModelPicker";
 import { SettingsPageContainer, SettingsRow, SettingsSection } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
 import { useSettingsScope } from "./SettingsScopeContext";
+import { useAgentPolicies } from "./useAgentPolicies";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 
 const isValid = Schema.is(AgentPolicyManifest);
@@ -96,77 +96,132 @@ function Choice({
 }
 
 export function DelegationSettings() {
-  const { environments } = useSettingsScope();
+  const { environments, environment } = useSettingsScope();
   return (
     <SettingsPageContainer>
       {environments.length === 0 ? (
         <p className="px-4 text-sm text-muted-foreground">
           Connect an environment to manage delegation.
         </p>
-      ) : null}
-      {environments.map((environment) => (
-        <EnvironmentDelegation
-          key={environment.environmentId}
-          environmentId={environment.environmentId}
-          title={environments.length > 1 ? environment.label : "Jobs"}
-          connected={environment.connection.phase === "connected"}
+      ) : (
+        <ScopedDelegation
+          environments={environments}
+          representativeId={environment?.environmentId ?? null}
         />
-      ))}
+      )}
       <PermissionsSection />
     </SettingsPageContainer>
   );
 }
 
-function EnvironmentDelegation({
-  environmentId,
-  title,
-  connected,
+/**
+ * One editor for the selected environments. Each keeps its own policy file, so the
+ * editor shows one environment's policy and a save writes it to every selected one.
+ */
+function ScopedDelegation({
+  environments,
+  representativeId,
 }: {
-  environmentId: EnvironmentId;
-  title: string;
-  connected: boolean;
+  environments: ReadonlyArray<{
+    environmentId: EnvironmentId;
+    label: string;
+    connection: { phase: string };
+  }>;
+  representativeId: EnvironmentId | null;
 }) {
-  const canEdit = useAtomValue(serverEnvironment.agentPolicySave.permissionAtom(environmentId));
-  const liveConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
-  const query = useEnvironmentQuery(
-    connected && canEdit ? serverEnvironment.agentPolicyRead({ environmentId, input: {} }) : null,
+  const connected = environments.filter(({ connection }) => connection.phase === "connected");
+  const { policies, reload } = useAgentPolicies(
+    connected.map(({ environmentId }) => environmentId),
   );
   const [error, setError] = useState<string | null>(null);
-  const notice = !connected
-    ? "Reconnect this environment to edit its delegation policy."
-    : !canEdit
-      ? "Owner settings permission is required to manage delegation."
-      : query.isPending && !query.data
-        ? "Loading policy…"
-        : null;
+  const label = (environmentId: EnvironmentId) =>
+    environments.find((environment) => environment.environmentId === environmentId)?.label ?? "";
+  const named = (environmentId: EnvironmentId, message: string) =>
+    environments.length > 1 ? `${label(environmentId)}: ${message}` : message;
+  const editable = policies.flatMap(({ environmentId, data }) =>
+    data ? [{ environmentId, label: label(environmentId), data }] : [],
+  );
+  const shown = editable.find((policy) => policy.environmentId === representativeId) ?? editable[0];
+  const differs =
+    shown !== undefined &&
+    editable.some(
+      (policy) =>
+        JSON.stringify(policy.data.snapshot.manifest) !==
+        JSON.stringify(shown.data.snapshot.manifest),
+    );
+  const liveConfig = useAtomValue(
+    serverEnvironment.configValueAtom(shown?.environmentId ?? representativeId),
+  );
+  const notices = [
+    ...environments
+      .filter(({ connection }) => connection.phase !== "connected")
+      .map(({ environmentId }) =>
+        named(environmentId, "Reconnect this environment to edit its delegation policy."),
+      ),
+    ...policies.flatMap(({ environmentId, canEdit, data, error: readError, isPending }) =>
+      !canEdit
+        ? [named(environmentId, "Owner settings permission is required to manage delegation.")]
+        : isPending && !data && !readError
+          ? [named(environmentId, "Loading policy…")]
+          : [],
+    ),
+  ];
   return (
     <>
-      {(error ?? query.error) ? (
-        <Alert variant="error">
-          <AlertDescription role="alert">{error ?? query.error}</AlertDescription>
+      {[
+        ...(error ? [error] : []),
+        ...policies.flatMap((policy) =>
+          policy.error ? [named(policy.environmentId, policy.error)] : [],
+        ),
+      ].map((message) => (
+        <Alert key={message} variant="error">
+          <AlertDescription role="alert">{message}</AlertDescription>
+        </Alert>
+      ))}
+      {notices.map((notice) => (
+        <p key={notice} className="px-4 text-sm text-muted-foreground">
+          {notice}
+        </p>
+      ))}
+      {policies
+        .filter((policy) => policy.error && !policy.data)
+        .map(({ environmentId }) => (
+          // Without a readable policy the checkout is unreadable too: say so, never "up to date".
+          <p key={environmentId} className="px-4 text-xs text-muted-foreground">
+            {named(
+              environmentId,
+              describeCheckout({ revision: null, hasLocalChanges: null, behindMain: null }),
+            )}
+          </p>
+        ))}
+      {differs ? (
+        <Alert variant="info">
+          <AlertDescription>
+            Policies differ across {editable.map((policy) => policy.label).join(", ")}. This shows{" "}
+            {shown.label}&apos;s; saving applies it to all of them.
+          </AlertDescription>
         </Alert>
       ) : null}
-      {notice ? <p className="px-4 text-sm text-muted-foreground">{notice}</p> : null}
-      {query.error && !query.data ? (
-        // Without a readable policy the checkout is unreadable too: say so, never "up to date".
-        <p className="px-4 text-xs text-muted-foreground">
-          {describeCheckout({ revision: null, hasLocalChanges: null, behindMain: null })}
-        </p>
-      ) : null}
-      {query.data ? (
+      {shown ? (
         <PolicyEditor
-          key={query.data.snapshot.hash}
-          environmentId={environmentId}
-          title={title}
-          data={{ ...query.data, providers: liveConfig?.providers ?? query.data.providers }}
-          onReload={query.refresh}
+          key={shown.data.snapshot.hash}
+          environmentId={shown.environmentId}
+          // A save to "all" must reach all: an unreadable environment would silently keep its old policy.
+          unsavedEnvironments={connected.length - editable.length}
+          targets={editable.map((policy) => ({
+            environmentId: policy.environmentId,
+            label: policy.label,
+            hash: policy.data.snapshot.hash,
+          }))}
+          data={{ ...shown.data, providers: liveConfig?.providers ?? shown.data.providers }}
+          onReload={reload}
           onSaved={() => {
             setError(null);
-            query.refresh();
+            reload();
           }}
           onError={(message) => {
             setError(message);
-            query.refresh();
+            reload();
           }}
         />
       ) : null}
@@ -176,14 +231,16 @@ function EnvironmentDelegation({
 
 function PolicyEditor({
   environmentId,
-  title,
+  targets,
+  unsavedEnvironments,
   data,
   onReload,
   onSaved,
   onError,
 }: {
   environmentId: EnvironmentId;
-  title: string;
+  targets: ReadonlyArray<{ environmentId: EnvironmentId; label: string; hash: string }>;
+  unsavedEnvironments: number;
   data: AgentPolicySettings;
   onReload: () => void;
   onSaved: () => void;
@@ -198,13 +255,20 @@ function PolicyEditor({
   const groups = roleGroups(draft);
   const submit = async () => {
     setPending(true);
-    const result = await save({
-      environmentId,
-      input: { expectedHash: data.snapshot.hash, manifest: draft },
-    });
+    const failures: string[] = [];
+    for (const target of targets) {
+      const result = await save({
+        environmentId: target.environmentId,
+        input: { expectedHash: target.hash, manifest: draft },
+      });
+      if (result._tag !== "Success") {
+        const message = String(squashAtomCommandFailure(result));
+        failures.push(targets.length > 1 ? `${target.label}: ${message}` : message);
+      }
+    }
     setPending(false);
-    if (result._tag === "Success") onSaved();
-    else onError(String(squashAtomCommandFailure(result)));
+    if (failures.length === 0) onSaved();
+    else onError(failures.join("; "));
   };
   return (
     <>
@@ -213,7 +277,7 @@ function PolicyEditor({
       ))}
       <SettingsSection
         id="delegation"
-        title={title}
+        title="Jobs"
         headerAction={
           <Button size="xs" variant="ghost-muted" disabled={pending} onClick={onReload}>
             Reload
@@ -238,9 +302,11 @@ function PolicyEditor({
       {dirty ? (
         <Alert variant="info">
           <AlertDescription>
-            {isValid(draft)
-              ? "Unsaved changes apply to new tasks once saved."
-              : "Every job needs at least one model before saving."}
+            {!isValid(draft)
+              ? "Every job needs at least one model before saving."
+              : unsavedEnvironments > 0
+                ? "Every selected environment needs a readable policy before saving. Choose one environment to save to it alone."
+                : "Unsaved changes apply to new tasks once saved."}
           </AlertDescription>
           <AlertAction>
             <Button
@@ -251,7 +317,11 @@ function PolicyEditor({
             >
               Discard
             </Button>
-            <Button size="xs" disabled={pending || !isValid(draft)} onClick={() => void submit()}>
+            <Button
+              size="xs"
+              disabled={pending || !isValid(draft) || unsavedEnvironments > 0}
+              onClick={() => void submit()}
+            >
               {pending ? "Saving…" : "Save"}
             </Button>
           </AlertAction>

@@ -123,7 +123,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Policy, pools and roles are editable by job from Settings on web and mobile.
-- **Requirements:** job-based delegation settings with a resolution preview; fast-tier switch per model; role brief shown on hover; default child permission and idle-advisor closing.
+- **Requirements:** job-based delegation settings with a resolution preview; fast-tier switch per model; role brief shown on hover; default child permission and idle-advisor closing; one editor under the environment picker (no project axis), where All environments saves one policy to every connected environment against each one's own revision.
 - **Integration points:** Settings → Delegation route/components; agent-policy RPC; shared settings state.
 - **Proof:** apps/web/src/components/settings/DelegationSettings.browser.test.tsx, DelegationSettings.logic.test.ts.
 - **Upstream:** none known.

@@ -164,12 +164,14 @@ function SettingsRouteLayout() {
   const rawSearch = Route.useSearch();
   const navigate = Route.useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
-  // The search view stacks pages, so only Providers' own block narrows to one environment.
+  // The search view stacks pages, so only Providers' own block narrows to one environment
+  // and only Delegation's own page drops the project axis.
   const isSearching = useSettingsSearchQuery((state) => state.query.trim().length > 0);
   return (
     <SettingsScopeProvider
       search={rawSearch}
       singleEnvironment={pathname === "/settings/providers" && !isSearching}
+      environmentOnly={pathname === "/settings/delegation" && !isSearching}
       onChange={(next) => {
         // Send every axis so the retain middleware sees an explicit target
         // even when the choice is "all", which is the absence of a key.

@@ -15,6 +15,9 @@ import {
 
 const state = vi.hoisted(() => ({
   data: null as AgentPolicySettings | null,
+  // Other environments' policies, by id; each reads as `data` unless listed here.
+  extra: {} as Record<string, AgentPolicySettings>,
+  unreadable: new Set<string>(),
   error: null as string | null,
   save: vi.fn(),
   refresh: vi.fn(),
@@ -33,22 +36,34 @@ vi.mock("../../state/server", () => ({
     agentPolicySave: { permissionAtom: () => ({}) },
   },
 }));
-vi.mock("../../state/query", () => ({
-  useEnvironmentQuery: () => ({
-    data: state.data,
-    isPending: false,
-    error: state.error,
-    refresh: state.refresh,
+vi.mock("./useAgentPolicies", () => ({
+  useAgentPolicies: (ids: string[]) => ({
+    policies: ids.map((environmentId) => ({
+      environmentId,
+      canEdit: true,
+      data: state.unreadable.has(environmentId)
+        ? null
+        : environmentId === "test-env"
+          ? state.data
+          : (state.extra[environmentId] ?? state.data),
+      error: state.unreadable.has(environmentId) ? "Could not read the policy." : state.error,
+      isPending: false,
+    })),
+    reload: state.refresh,
   }),
 }));
 vi.mock("../../state/use-atom-command", () => ({
   useAtomCommand: () => state.save,
 }));
+const scope = vi.hoisted(() => ({
+  environments: [
+    { environmentId: "test-env", label: "Test Mac", connection: { phase: "connected" } },
+  ],
+}));
 vi.mock("./SettingsScopeContext", () => ({
   useSettingsScope: () => ({
-    environments: [
-      { environmentId: "test-env", label: "Test Mac", connection: { phase: "connected" } },
-    ],
+    environments: scope.environments,
+    environment: scope.environments[0],
   }),
 }));
 vi.mock("./useScopedSettings", () => ({
@@ -163,6 +178,9 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   state.data = fixture();
+  state.extra = {};
+  state.unreadable.clear();
+  scope.environments.length = 1;
   state.error = null;
   state.save.mockReset();
   state.refresh.mockReset();
@@ -240,4 +258,63 @@ it("shows the checkout as unknown when the policy cannot be read", async () => {
   await mount();
   expect(text()).toContain("agent-config unknown");
   expect(text()).not.toContain("up to date");
+});
+
+const addEnvironment = (policy: AgentPolicySettings) => {
+  scope.environments.push({
+    environmentId: "other-env",
+    label: "Other Box",
+    connection: { phase: "connected" },
+  });
+  state.extra["other-env"] = policy;
+};
+
+it("saves one policy to every selected environment against each one's own revision", async () => {
+  const base = fixture();
+  addEnvironment({ ...base, snapshot: { ...base.snapshot, hash: "c".repeat(64) } });
+  await mount();
+  expect(text().match(/Implementer/g)).toHaveLength(1);
+  await click("Move claude-test up");
+  await click("Save");
+  expect(
+    state.save.mock.calls.map(([call]) => [call.environmentId, call.input.expectedHash]),
+  ).toEqual([
+    [EnvironmentId.make("test-env"), "a".repeat(64)],
+    [EnvironmentId.make("other-env"), "c".repeat(64)],
+  ]);
+});
+
+it("says when the selected environments hold different policies", async () => {
+  const base = fixture();
+  addEnvironment({
+    ...base,
+    snapshot: {
+      ...base.snapshot,
+      manifest: decodeManifest({ ...base.snapshot.manifest, revision: "fixture.2" }),
+    },
+  });
+  await mount();
+  expect(text()).toContain("Policies differ across Test Mac, Other Box");
+});
+
+it("names the environment whose save failed", async () => {
+  addEnvironment(fixture());
+  state.save
+    .mockResolvedValueOnce(AsyncResult.success(state.data))
+    .mockResolvedValueOnce(
+      AsyncResult.failure(Cause.fail(new AgentPolicySettingsError({ reason: "stale" }))),
+    );
+  await mount();
+  await click("Move claude-test up");
+  await click("Save");
+  expect(text()).toContain("Other Box:");
+});
+
+it("cannot save to all environments while one has no readable policy", async () => {
+  addEnvironment(fixture());
+  state.unreadable.add("other-env");
+  await mount();
+  expect(text()).toContain("Other Box: Could not read");
+  await click("Move claude-test up");
+  expect(button("Save").disabled).toBe(true);
 });
