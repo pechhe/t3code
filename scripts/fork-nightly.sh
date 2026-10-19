@@ -166,11 +166,26 @@ retain_previous() {
   rm -rf "$app"
 }
 
-# The journal's build is installed: keep the replaced app as previous (with the
-# receipt that still names it), then record the new one as active. Repeating
-# this after an interruption is safe.
+# Names the replaced app until it is kept as the previous build.
+REPLACED_RECEIPT="$STATE/replaced-receipt.json"
+
+# Keeps the replaced app as previous with its receipt; a failure leaves it in
+# place for the next run.
+retain_replaced() {
+  retain_previous "$REPLACED" "$REPLACED_RECEIPT" || return 1
+  rm -f "$REPLACED_RECEIPT"
+}
+
+# The journal's build is installed: record it as active and keep the replaced
+# app as previous. The new app is already in place, so failing to keep the old
+# one does not undo the install. Repeating this after an interruption is safe.
 finish_install() {
-  if [ -d "$REPLACED" ]; then retain_previous "$REPLACED" "$STATE/active-mac.json" || return 1; fi
+  if [ -d "$REPLACED" ]; then
+    if [ ! -f "$REPLACED_RECEIPT" ] && [ -f "$STATE/active-mac.json" ]; then
+      cp "$STATE/active-mac.json" "$REPLACED_RECEIPT"
+    fi
+    retain_replaced || log "could not keep the replaced app as the previous build; the next run retries"
+  fi
   stamp "$JOURNAL" >"$STATE/active-mac.json.tmp"
   mv "$STATE/active-mac.json.tmp" "$STATE/active-mac.json"
   if [ "$(json_get "$STATE/staged/receipt.json" .source)" = "$(json_get "$JOURNAL" .source)" ]; then
@@ -200,7 +215,7 @@ recover_app() {
   fi
   rm -rf "$INCOMING"
   if app_present "$INSTALLED"; then
-    if [ -d "$REPLACED" ]; then retain_previous "$REPLACED" || true; fi
+    if [ -d "$REPLACED" ]; then retain_replaced || true; fi
     return 0
   fi
   if [ -e "$INSTALLED" ]; then
@@ -211,6 +226,7 @@ recover_app() {
   fi
   if app_present "$REPLACED"; then
     mv "$REPLACED" "$INSTALLED"
+    if [ -f "$REPLACED_RECEIPT" ]; then mv "$REPLACED_RECEIPT" "$STATE/active-mac.json"; fi
     notify "Restored the T3 Code build an interrupted install replaced"
   elif app_valid "$STATE/previous/$APP_NAME" &&
     ditto "$STATE/previous/$APP_NAME" "$INCOMING" && app_valid "$INCOMING"; then
@@ -484,20 +500,21 @@ attempt_command() {
 
 # --- Build and selection ---------------------------------------------------
 
-# Installs the built runtime on the VPS. An install whose answer was lost is
-# read back from the runtime's recorded source: 0 installed, 1 not, 2 unknown.
+# Installs the built runtime on the VPS. A failed or lost install is read back
+# from the VPS: 0 installed, 1 not switched, 2 switched but unfinished or unknown.
 vps_install() {
   local version="$1" source="$2" remote
   if ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" \
     "bash -lc '$VPS_CLONE/scripts/fork-vps-runtime.sh install $version $source'"; then
     return 0
   fi
-  # `.fork-active` is written only once the install, service restart included, finished.
-  if ! remote="$(ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" \
-    "cat ~/.t3/runtime/versions/.fork-active 2>/dev/null || true")"; then
-    return 2
-  fi
-  [ "$remote" = "$version $source" ]
+  remote="$(ssh -n -o BatchMode=yes -o ConnectTimeout=30 "$VPS" \
+    "bash -lc '$VPS_CLONE/scripts/fork-vps-runtime.sh state $version $source'" 2>/dev/null || true)"
+  case "$remote" in
+    installed) return 0 ;;
+    absent) return 1 ;;
+    *) return 2 ;;
+  esac
 }
 
 build() {
@@ -528,16 +545,34 @@ build() {
   git checkout --quiet --force --detach "$source" && git clean --quiet -fd || return 1
 
   # Activation requires a current reconciliation receipt for the newest upstream
-  # integration in this source; SlipJay's gate already required it to land.
-  local check
-  if ! check="$(node scripts/fork-upstream-receipt.ts verify --rev "$source" 2>&1)"; then
+  # integration in this source; SlipJay's gate already required it to land. Source
+  # from before receipts existed is built only as an explicit recovery target.
+  local check tag upstream version checker="$STATE/receipt-check.ts"
+  if git cat-file -e "$source:fork/upstream-receipt.json" 2>/dev/null; then
+    # The landed head's checker judges every source, including one older than it.
+    check="$(git show "origin/$BRANCH:scripts/fork-upstream-receipt.ts" >"$checker" 2>&1 &&
+      node "$checker" verify --repo "$REPO" --rev "$source" 2>&1)" || {
+      notify "Not building $source: $check"
+      jq -n --arg s "$source" --arg r "$check" '{source: $s, reason: $r}' >"$STATE/build-failed.json"
+      return 1
+    }
+    tag="$(jq -r .upstream.target.tag fork/upstream-receipt.json)"
+    upstream="$(jq -r .upstream.target.sha fork/upstream-receipt.json)"
+  elif [ -n "$recovery" ]; then
+    git fetch --quiet upstream --tags || true
+    upstream="$(git rev-parse --verify --quiet "$(integration_of "$source")^2" || true)"
+    tag="$(git tag --points-at "${upstream:-HEAD}" --list 'v*-nightly.*' | tail -1)"
+    if [ -z "$upstream" ] || [ -z "$tag" ]; then
+      notify "Not building $source: its newest merge is not a tagged upstream nightly"
+      return 1
+    fi
+    check="predates upstream receipts; recovery: $recovery"
+  else
+    check="$source has no upstream receipt; a build from before receipts needs --recovery <reason>"
     notify "Not building $source: $check"
     jq -n --arg s "$source" --arg r "$check" '{source: $s, reason: $r}' >"$STATE/build-failed.json"
     return 1
   fi
-  local tag version upstream
-  tag="$(jq -r .upstream.target.tag fork/upstream-receipt.json)"
-  upstream="$(jq -r .upstream.target.sha fork/upstream-receipt.json)"
   version="${tag#v}"
   log "building $version from $source ($check)"
 
@@ -596,7 +631,7 @@ build() {
     if [ "$vps_status" -eq 2 ]; then
       echo "$receipt" >"$STATE/vps-unknown.json"
       rm -rf "$stage"
-      notify "The VPS install of $version ($source) gave no answer; Mac installs wait until a build confirms the VPS (partial activation)"
+      notify "The VPS install of $version ($source) did not finish or gave no answer; Mac installs wait until a build confirms the VPS (partial activation)"
       return 1
     elif [ "$vps_status" -ne 0 ]; then
       echo "$receipt" | jq '. + {reason: "the VPS runtime install failed"}' >"$STATE/build-failed.json"

@@ -7,13 +7,17 @@
 #
 #   scripts/fork-vps-runtime.sh build <version>
 #   scripts/fork-vps-runtime.sh install <version> <source commit>
+#   scripts/fork-vps-runtime.sh state <version> <source commit>
 #
 # `build` builds and smoke-tests the archive and keeps it beside the installed
 # versions with the commit it was built from. It runs no checks: only landed
 # source is built, and SlipJay's landing gate checked it. `install` puts that
 # archive in place only when it was built from the selected commit, and records
 # the commit in `<version>/.fork-source`, since fork builds share upstream's
-# version strings.
+# version strings. `state` reads back an install whose answer was lost: it prints
+# `installed` once every install step finished, `partial` when the runtime was
+# switched but a later step (service install, restart, health check) did not
+# finish, and `absent` when the switch never happened.
 #
 # The desktop's SSH launcher runs ~/.t3/runtime/versions/<version>/t3 and
 # downloads the official archive only when that directory is not marked
@@ -42,6 +46,17 @@ SEA_NODE_VERSION=26.8.2
 
 cd "$CLONE"
 
+if [ "$MODE" = state ]; then
+  if [ "$(cat "$VERSIONS/.fork-active" 2>/dev/null)" = "$VERSION $SOURCE" ]; then
+    echo installed
+  elif [ "$(cat "$VERSIONS/.fork-installing" 2>/dev/null)" = "$VERSION $SOURCE" ]; then
+    echo partial
+  else
+    echo absent
+  fi
+  exit 0
+fi
+
 if [ "$MODE" = install ]; then
   [ -f "$PENDING" ] || { echo "no built fork runtime for $VERSION" >&2; exit 1; }
   commit="$(cat "$PENDING.source" 2>/dev/null || true)"
@@ -55,12 +70,14 @@ if [ "$MODE" = install ]; then
   printf '%s\n' "$VERSION" >"$staging/.install-complete"
   # Only the newest official copy is worth keeping, as a one-move rollback.
   rm -rf "$VERSIONS"/*.official
+  # From here the runtime on disk is the new one until the steps below finish.
+  printf '%s %s\n' "$VERSION" "$commit" >"$VERSIONS/.fork-installing"
   if [ -d "$TARGET" ]; then mv "$TARGET" "$TARGET.official"; fi
   mv "$staging" "$TARGET"
   rm -f "$PENDING" "$PENDING.source"
   echo "installed fork runtime $VERSION ($commit)"
 else
-  [ "$MODE" = build ] || { echo "usage: $0 build <version> | install <version> <source commit>" >&2; exit 2; }
+  [ "$MODE" = build ] || { echo "usage: $0 build <version> | install <version> <source commit> | state <version> <source commit>" >&2; exit 2; }
 
 commit="$(git rev-parse HEAD)"
 work="$(mktemp -d)"
@@ -123,6 +140,6 @@ for state in "$HOME"/.t3/ssh-launch/*/; do
   echo "restarted the server on port $port"
 done
 
-# Read back by scripts/fork-nightly.sh when an install's answer is lost: present
-# only once every step above succeeded.
+# Present only once every step above succeeded; see `state`.
 printf '%s %s\n' "$VERSION" "$commit" >"$VERSIONS/.fork-active"
+rm -f "$VERSIONS/.fork-installing"

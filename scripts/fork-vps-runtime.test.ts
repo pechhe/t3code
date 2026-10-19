@@ -111,6 +111,12 @@ esac
           const active = NodeFSP.readFile(NodePath.join(versions, ".fork-active"), "utf8");
           if (mode === "failure") await expect(active).rejects.toThrow();
           else await expect(active).resolves.toBe(`${version} fixture-commit\n`);
+          // A failure after the switch reads back as partial, never as not installed.
+          const state = await execFile("bash", [script, "state", version, "fixture-commit"], {
+            env: { ...process.env, HOME: home },
+            timeout: 10000,
+          });
+          expect(state.stdout).toBe(mode === "failure" ? "partial\n" : "installed\n");
           expect(await NodeFSP.readFile(NodePath.join(home, "pid"), "utf8")).toBe(
             mode === "older" ? "102\n" : mode === "same" ? "103\n" : "101\n",
           );
@@ -142,6 +148,11 @@ esac
         ).rejects.toMatchObject({ code: 1 });
         await expect(NodeFSP.stat(NodePath.join(versions, version))).rejects.toThrow();
         await expect(NodeFSP.stat(pending)).resolves.toBeTruthy();
+        const state = await execFile("bash", [script, "state", version, "selected-commit"], {
+          env: { ...process.env, HOME: home },
+          timeout: 10000,
+        });
+        expect(state.stdout).toBe("absent\n");
       } finally {
         await NodeFSP.rm(root, { recursive: true, force: true });
       }

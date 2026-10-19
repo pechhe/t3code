@@ -10,7 +10,7 @@ T3peach (`pechhe/t3code`, branch `t3peach`) is T3 Code with upstream's nightlies
 1. Prefer upstream's implementation of shared behaviour when evidence shows it meets the fork's requirements. Keep required behaviour, not code because it was written here.
 2. When upstream covers part of a capability, use its implementation plus the smallest fork extension. Two complete implementations of one thing need a recorded reason and exit condition.
 3. Adopting equivalent upstream behaviour needs no confirmation. An unresolved loss of functionality, incompatible migration or product choice goes to Henry with its specific trade-off.
-4. Keep `t3peach`'s history: everything lands through `slipjay land`. Upstream arrives as merge commits so later updates can tell incorporated work from fork changes.
+4. Keep `t3peach`'s history: everything lands through `slipjay land`. Upstream arrives as merge commits so later updates can tell incorporated work from fork changes. Those are the only merges on `t3peach`'s first-parent history: the receipt check and the updater treat the newest one as the current upstream integration, so fork work lands as linear commits.
 5. Build on existing services, contracts and shared client code; no plugin framework or second architecture for fork code.
 
 ## Making a fork change

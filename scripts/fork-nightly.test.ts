@@ -36,6 +36,7 @@ const STUBS: Record<string, string> = {
   mkdir -p "$2/Contents/MacOS"
   exit 1
 fi
+case "$1" in *.replaced) [ "$T3_TEST_DITTO" != fail-retain ] || exit 1 ;; esac
 cp -R "$1" "$2"
 `,
   pgrep: `echo "$*" >> "$T3_TEST_ROOT/pgrep.log"
@@ -50,6 +51,10 @@ done
 jq -cn --arg url "$url" --arg body "$body" '{url: $url, body: $body}' >> "$T3_TEST_ROOT/curl.log"
 [ "$T3_TEST_CURL" = fail ] && exit 7
 exit 0
+`,
+  // A build that gets past selection stops at the app build.
+  vp: `printf '%s\\n' "vp $*" >> "$T3_TEST_ROOT/calls.log"
+exit 1
 `,
   // The script's waits shrink so polling loops finish quickly.
   sleep: `exec /bin/sleep 0.2
@@ -406,6 +411,34 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             source: "new-src",
           });
           expect(await exists(stateFile(f, "staged"))).toBe(false);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "records the install when keeping the replaced app fails, and keeps it on the next run",
+      async () => {
+        await withFixture(async (f) => {
+          await installOld(f);
+          await stageBuild(f);
+          const result = await run(f, ["install"], { T3_TEST_DITTO: "fail-retain" });
+          expect(result.code).toBe(0);
+          expect(await build(f.installed)).toBe("new");
+          expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({
+            source: "new-src",
+          });
+          expect(await build(REPLACED_DIR(f))).toBe("old");
+          expect(await exists(stateFile(f, "previous"))).toBe(false);
+          expect(await nightlyLog(f)).toContain("could not keep the replaced app");
+
+          expect((await run(f, ["install"])).code).toBe(0);
+          expect(await exists(REPLACED_DIR(f))).toBe(false);
+          expect(await build(stateFile(f, "previous", APP))).toBe("old");
+          expect(await readJson(stateFile(f, "previous/receipt.json"))).toMatchObject({
+            source: "old-src",
+          });
+          expect(await exists(stateFile(f, "replaced-receipt.json"))).toBe(false);
         });
       },
       TIMEOUT,
@@ -1238,6 +1271,40 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           await run(f, [], env);
           expect(await curlCalls(f)).toEqual([]);
           expect(await attemptOf(f, BUILD_TAG)).toMatchObject({ phase: "claimed" });
+        });
+      },
+      TIMEOUT,
+    );
+  });
+
+  describe("build selection", () => {
+    it(
+      "refuses source from before upstream receipts unless it is an explicit recovery target",
+      async () => {
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", "v0.1.0-nightly.20260103.1", "side"]);
+          await git(work, ["push", "-q", f.upstream, "v0.1.0-nightly.20260103.1"]);
+
+          const refused = await run(f, ["build", "--rev", head]);
+          expect(refused.code).not.toBe(0);
+          expect(await readJson(stateFile(f, "build-failed.json"))).toMatchObject({
+            source: head,
+            reason: expect.stringContaining("needs --recovery"),
+          });
+          expect(await calls(f, "vp")).toEqual([]);
+
+          const recovery = await run(f, ["build", "--rev", head, "--recovery", "roll back"]);
+          expect(recovery.code).not.toBe(0);
+          expect(await nightlyLog(f)).toContain(
+            `building 0.1.0-nightly.20260103.1 from ${head} (predates upstream receipts; recovery: roll back)`,
+          );
+          expect(await readJson(stateFile(f, "build-failed.json"))).toMatchObject({
+            source: head,
+            reason: "the app build failed",
+          });
+          expect(await readJson(stateFile(f, "selected.json"))).toEqual({ source: head });
         });
       },
       TIMEOUT,
