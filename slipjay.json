@@ -3,10 +3,15 @@
   "projectCode": "t3",
   "integrationBranch": "t3peach",
   "remote": "origin",
-  "parallelExecution": true,
   "spares": 8,
-  "generatedPaths": [".t3/userdata", "apps/*/dist-electron", ".pnpm-store"],
-  "evidencePaths": [".t3/review"],
+  "generatedPaths": [
+    ".t3/userdata",
+    "apps/*/dist-electron",
+    ".pnpm-store"
+  ],
+  "evidencePaths": [
+    ".t3/review"
+  ],
   "requiredLandingVerification": [
     {
       "executable": "pnpm",
@@ -22,11 +27,25 @@
     },
     {
       "executable": "pnpm",
-      "args": ["exec", "vp", "run", "--filter", "t3", "typecheck"]
+      "args": [
+        "exec",
+        "vp",
+        "run",
+        "--filter",
+        "t3",
+        "typecheck"
+      ]
     },
     {
       "executable": "pnpm",
-      "args": ["exec", "vp", "run", "--filter", "@t3tools/web", "typecheck"]
+      "args": [
+        "exec",
+        "vp",
+        "run",
+        "--filter",
+        "@t3tools/web",
+        "typecheck"
+      ]
     },
     {
       "executable": "pnpm",
@@ -39,6 +58,15 @@
         "src/orchestration-v2/ContextRollover.integration.test.ts"
       ],
       "cwd": "apps/server"
+    },
+    {
+      "executable": "node",
+      "args": [
+        "scripts/fork-upstream-receipt.ts",
+        "verify",
+        "--landed",
+        "origin/t3peach"
+      ]
     }
   ]
 }
