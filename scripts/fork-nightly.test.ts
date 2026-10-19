@@ -1177,6 +1177,79 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "refuses a late claim of a superseded attempt and lets the newer tag be claimed",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, []);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          await run(f, []);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "superseded" });
+
+          const late = await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          expect(late.code).toBe(3);
+          expect(late.stderr).toContain(`superseded by ${NEW_TAG}`);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "superseded" });
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"])).code).toBe(0);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses another tag's claim while an update is claimed or waits for an owner decision",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+
+          const whileClaimed = await run(f, ["attempt", NEW_TAG, "claim", "threadB"]);
+          expect(whileClaimed.code).toBe(3);
+          expect(whileClaimed.stderr).toContain("threadA");
+
+          await run(f, ["attempt", OLD_TAG, "blocked", "owner-decision", "keep the fork worker?"]);
+          const manual = await run(f, ["attempt", NEW_TAG, "claim", "threadB"]);
+          expect(manual.code).toBe(3);
+          expect(await attemptOf(f, NEW_TAG)).not.toMatchObject({ phase: "claimed" });
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "blocked",
+            blocked: { kind: "owner-decision" },
+          });
+
+          // Henry answers by retrying the older attempt, which then supersedes cleanly.
+          expect((await run(f, ["attempt", OLD_TAG, "retry"])).code).toBe(0);
+          await run(f, []);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "superseded" });
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"])).code).toBe(0);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "lets a landed attempt's build be claimed while an update is in flight",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await landIntegration(f, BUILD_TAG, "2026-02-01T00:00:00Z");
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          await run(f, []);
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadA"])).code).toBe(0);
+          const build = await run(f, ["attempt", BUILD_TAG, "claim", "threadB"]);
+          expect(build.code).toBe(0);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: "threadB",
+          });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "lets a newer tag supersede an attempt blocked on checks",
       async () => {
         await withFixture(async (f) => {

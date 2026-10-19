@@ -47,9 +47,10 @@ APP_NAME="T3 Code (Nightly).app"
 INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$APP_NAME"
 IDENTITY="${T3FORK_SIGNING_IDENTITY:-Peach Pi Local Signing}"
 # The SSH host whose remote runtime is the fork too; empty skips it. The host
-# reaches this Mac as `mac` and keeps a clone of the fork at VPS_CLONE.
+# reaches this Mac as `mac` and keeps a clone of the fork at VPS_CLONE, a path
+# on that host (a leading ~ is its home).
 VPS="${T3FORK_VPS-slipjay-test}"
-VPS_CLONE='~/projects/t3code-fork'
+VPS_CLONE="${T3FORK_VPS_CLONE:-~/projects/t3code-fork}"
 LABEL=com.pechhe.t3code-fork-nightly
 # A LaunchAgent that `install --on-quit` starts on demand. When T3 Code is
 # force-quit, macOS unloads jobs an agent inside it `launchctl submit`ted, but
@@ -501,6 +502,28 @@ attempt_command() {
           echo "attempt $(json_get "$file" .attempt) is $phase by $holder; resume it there, or pass --take-over once that thread is confirmed stopped" >&2
           exit 3
         fi
+      fi
+      # The rule update_attempts dispatches by, applied to a claim that arrives
+      # late or by hand: one unlanded update at a time, a newer tag never passes an
+      # owner decision, and a superseded tag stays superseded. A landed attempt's
+      # build claim is not an update and passes.
+      ensure_clone
+      git -C "$REPO" fetch --quiet origin || true
+      if ! git -C "$REPO" merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
+        if [ "$phase" = superseded ]; then
+          echo "attempt $(json_get "$file" .attempt) was superseded by $(json_get "$file" .supersededBy); claim that tag instead" >&2
+          exit 3
+        fi
+        local other
+        for other in "$STATE"/attempts/*.json; do
+          [ -f "$other" ] && [ "$other" != "$file" ] || continue
+          git -C "$REPO" merge-base --is-ancestor "$(json_get "$other" .sha)" "origin/$BRANCH" 2>/dev/null && continue
+          if [ "$(json_get "$other" .phase)" = claimed ] ||
+            { [ "$(json_get "$other" .phase)" = blocked ] && [ "$(json_get "$other" .blocked.kind)" = owner-decision ]; }; then
+            echo "attempt $(json_get "$other" .attempt) ($(json_get "$other" .phase) by $(json_get "$other" .claimedBy)) holds every other update back; resume it there, or run fork-nightly.sh attempt $(json_get "$other" .tag) retry" >&2
+            exit 3
+          fi
+        done
       fi
       attempt_set "$tag" --arg t "$thread" '.phase = "claimed" | .claimedBy = $t | del(.blocked) | del(.quietNotified)'
       ;;
