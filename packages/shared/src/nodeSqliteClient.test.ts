@@ -360,6 +360,71 @@ it.effect("lets the writer commit while a read-only transaction is open", () =>
   ),
 );
 
+it.effect("serves a read on another worker while a read-only transaction holds one", () =>
+  withReaderClient((sql) =>
+    Effect.gen(function* () {
+      const startedBefore = startedWorkers.length;
+      const read = () => sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly);
+      const readerHeld = yield* Deferred.make<void>();
+      const other = yield* Effect.forkChild(
+        Deferred.await(readerHeld).pipe(Effect.andThen(read())),
+      );
+      const counts = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            const held = yield* countEntries(sql);
+            yield* Deferred.succeed(readerHeld, undefined);
+            // Waiting for the only reader here would deadlock this join.
+            return [held, yield* Fiber.join(other)];
+          }),
+        )
+        .pipe(SqliteClient.readOnly);
+
+      assert.deepEqual(counts, [1, 1]);
+      assert.equal(yield* read(), 1);
+      assert.equal(startedWorkers.length, startedBefore + 2);
+    }),
+  ),
+);
+
+it.effect("lets a read waiting for a busy reader be cancelled", () =>
+  withReaderClient((sql) =>
+    Effect.gen(function* () {
+      const release = yield* Deferred.make<void>();
+      const holding = yield* Effect.forEach(
+        // Every reader the client keeps.
+        Array.from({ length: 4 }),
+        () =>
+          Effect.gen(function* () {
+            const held = yield* Deferred.make<void>();
+            const fiber = yield* Effect.forkChild(
+              sql
+                .withTransaction(
+                  countEntries(sql).pipe(
+                    Effect.andThen(Deferred.succeed(held, undefined)),
+                    Effect.andThen(Deferred.await(release)),
+                  ),
+                )
+                .pipe(SqliteClient.readOnly),
+            );
+            yield* Deferred.await(held);
+            return fiber;
+          }),
+      );
+      const waiting = yield* Effect.forkChild(
+        sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly),
+      );
+      yield* Effect.yieldNow;
+      // Returns only once the waiting read has given up its place.
+      yield* Fiber.interrupt(waiting);
+
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.joinAll(holding);
+      assert.equal(yield* sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly), 1);
+    }),
+  ),
+);
+
 it.effect("rejects a write in a read-only transaction", () =>
   withReaderClient((sql) =>
     Effect.gen(function* () {
@@ -723,7 +788,8 @@ it.effect("logs one warning when concurrent first reads find the reader unavaila
       );
 
       assert.deepEqual(counts, [0, 0]);
-      assert.equal(startedWorkers.length, startedBefore + 1);
+      // Overlapping reads each start a worker.
+      assert.equal(startedWorkers.length, startedBefore + 2);
       assert.lengthOf(warnings, 1);
     }),
   ).pipe(Effect.provide(logs));

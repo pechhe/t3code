@@ -3474,8 +3474,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           return projection;
         });
       }).pipe(
-        // Command decisions read this on the writer: the single reader also
-        // serves multi-second shell snapshots, which commands must not queue behind.
+        // Command decisions read this on the writer: readers serve multi-second
+        // background snapshots, and commands must not queue behind them.
         sql.withTransaction,
         Effect.flatten,
         Effect.mapError((cause) =>
