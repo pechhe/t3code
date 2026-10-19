@@ -178,6 +178,20 @@ export type ProjectionThreadPullRequests = Pick<
   "id" | "projectId" | "lineage" | "settledOverride" | "settledAt" | "pullRequests"
 >;
 
+export type ProjectionBranchPullRequestThread = Pick<
+  OrchestrationV2ThreadShell,
+  | "id"
+  | "projectId"
+  | "branch"
+  | "worktreePath"
+  | "archivedAt"
+  | "settledOverride"
+  | "settledAt"
+  | "pullRequests"
+  | "linkedPullRequest"
+  | "branchPullRequest"
+>;
+
 export type ProjectionSettlementCandidate = Pick<
   OrchestrationV2ThreadShell,
   | "id"
@@ -430,6 +444,18 @@ export interface ProjectionStoreV2Shape {
   ) => Effect.Effect<ReadonlyArray<ProjectionThreadPullRequests>, ProjectionStoreV2Error>;
   readonly getThreadWorktreePaths: () => Effect.Effect<
     ReadonlyArray<{ readonly threadId: ThreadId; readonly worktreePath: string }>,
+    ProjectionStoreV2Error
+  >;
+  /** Unarchived threads with a branch or branch pull request, read from the thread
+      records alone. `snapshotSequence` is at least each returned thread's latest event. */
+  readonly getBranchPullRequestThreads: (options: {
+    readonly threadId?: ThreadId;
+    readonly unsettledOnly: boolean;
+  }) => Effect.Effect<
+    {
+      readonly snapshotSequence: number;
+      readonly threads: ReadonlyArray<ProjectionBranchPullRequestThread>;
+    },
     ProjectionStoreV2Error
   >;
   readonly getTurnStartContext: (
@@ -1137,6 +1163,25 @@ const encodeContextTransferPayload = Schema.encodeEffect(
 
 const decodeThreadJson = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 const decodeThread = Schema.decodeUnknownEffect(OrchestrationV2AppThreadJsonSchema);
+const branchPullRequestThread = (
+  thread: OrchestrationV2AppThread,
+): ProjectionBranchPullRequestThread => ({
+  id: thread.id,
+  projectId: thread.projectId,
+  branch: thread.branch,
+  worktreePath: thread.worktreePath,
+  archivedAt: thread.archivedAt,
+  settledOverride: thread.settledOverride,
+  settledAt: thread.settledAt,
+  pullRequests: threadPullRequestsOf(thread),
+  ...(thread.linkedPullRequest === undefined
+    ? {}
+    : { linkedPullRequest: thread.linkedPullRequest }),
+  ...(thread.branchPullRequest === undefined
+    ? {}
+    : { branchPullRequest: thread.branchPullRequest }),
+});
+
 const decodeThreadPayload = (payload: unknown) =>
   decodeThreadJson(payload).pipe(
     Effect.flatMap((value) => decodeThread(normalizeFollowupSourceRevision(value))),
@@ -5892,6 +5937,47 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         );
       }).pipe(Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })));
 
+    const getBranchPullRequestThreads: ProjectionStoreV2Shape["getBranchPullRequestThreads"] = ({
+      threadId,
+      unsettledOnly,
+    }) =>
+      sql
+        .withTransaction(
+          Effect.all([
+            sql<{ readonly sequence: number | null }>`
+              SELECT MAX(sequence) AS sequence FROM orchestration_events
+            `,
+            sql<PayloadRow>`
+              SELECT payload_json
+              FROM orchestration_v2_projection_threads
+              WHERE deleted_at IS NULL${threadId === undefined ? sql`` : sql` AND thread_id = ${threadId}`}
+                AND json_extract(payload_json, '$.archivedAt') IS NULL
+                AND (
+                  json_extract(payload_json, '$.branch') IS NOT NULL
+                  OR json_extract(payload_json, '$.branchPullRequest') IS NOT NULL
+                )${
+                  unsettledOnly
+                    ? sql` AND json_extract(payload_json, '$.settledAt') IS NULL AND json_extract(payload_json, '$.settledOverride') IS NOT 'settled'`
+                    : sql``
+                }
+              ORDER BY updated_at ASC, thread_id ASC
+            `,
+          ]),
+        )
+        .pipe(
+          Effect.flatMap(([sequenceRows, rows]) =>
+            Effect.forEach(rows, (row) =>
+              decodeThreadPayload(row.payload_json).pipe(Effect.map(branchPullRequestThread)),
+            ).pipe(
+              Effect.map((threads) => ({
+                snapshotSequence: sequenceRows[0]?.sequence ?? 0,
+                threads,
+              })),
+            ),
+          ),
+          Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+        );
+
     const getThreadWorktreePaths: ProjectionStoreV2Shape["getThreadWorktreePaths"] = () =>
       sql<{ readonly thread_id: string; readonly worktree_path: string }>`
         SELECT thread_id, json_extract(payload_json, '$.worktreePath') AS worktree_path
@@ -6248,6 +6334,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getSettlementCandidates,
       getThreadsWithPullRequests,
       getThreadWorktreePaths,
+      getBranchPullRequestThreads,
       getThreadProjection,
       getTurnStartContext,
       getTurnStartHistory,
@@ -6410,6 +6497,31 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 : [],
             ),
           ),
+        ),
+      getBranchPullRequestThreads: ({ threadId, unsettledOnly }) =>
+        Effect.all([Ref.get(replayState), Ref.get(sequence)]).pipe(
+          Effect.map(([state, snapshotSequence]) => ({
+            snapshotSequence,
+            threads: [...state.projections.values()]
+              .map(({ thread }) => thread)
+              .filter(
+                (thread) =>
+                  (threadId === undefined || thread.id === threadId) &&
+                  thread.deletedAt === null &&
+                  thread.archivedAt === null &&
+                  (thread.branch !== null || thread.branchPullRequest != null) &&
+                  !(
+                    unsettledOnly &&
+                    (thread.settledAt !== null || thread.settledOverride === "settled")
+                  ),
+              )
+              .toSorted(
+                (left, right) =>
+                  DateTime.toEpochMillis(left.updatedAt) -
+                    DateTime.toEpochMillis(right.updatedAt) || left.id.localeCompare(right.id),
+              )
+              .map(branchPullRequestThread),
+          })),
         ),
       getThreadsWithPullRequests: (threadId) =>
         Ref.get(replayState).pipe(

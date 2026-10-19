@@ -722,6 +722,95 @@ const threadWorktreePathsReadActiveThreads = Effect.gen(function* () {
   ]);
 });
 
+const branchPullRequestThreadsReadUnarchivedBranches = Effect.gen(function* () {
+  const store = yield* ProjectionStore.ProjectionStoreV2;
+  const now = yield* DateTime.now;
+  const legacyLink = {
+    projectId: ProjectId.make("project:branch-prs"),
+    repository: "acme/project",
+    number: 7,
+    url: "https://github.com/acme/project/pull/7",
+  };
+  const create = (
+    id: string,
+    input: {
+      readonly branch: string | null;
+      readonly archived?: boolean;
+      readonly settled?: boolean;
+      readonly branchPullRequest?: typeof legacyLink;
+      readonly linkedPullRequest?: typeof legacyLink;
+    },
+  ) => {
+    const threadId = ThreadId.make(id);
+    return store.apply({
+      id: EventId.make(`event:${id}:created`),
+      type: "thread.created",
+      threadId,
+      occurredAt: now,
+      payload: {
+        createdBy: "user" as const,
+        creationSource: "web" as const,
+        id: threadId,
+        projectId: legacyLink.projectId,
+        title: id,
+        providerInstanceId,
+        modelSelection,
+        runtimeMode: "full-access" as const,
+        interactionMode: "default" as const,
+        branch: input.branch,
+        worktreePath: null,
+        ...(input.branchPullRequest === undefined
+          ? {}
+          : { branchPullRequest: input.branchPullRequest }),
+        ...(input.linkedPullRequest === undefined
+          ? {}
+          : { linkedPullRequest: input.linkedPullRequest }),
+        activeProviderThreadId: null,
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        forkedFrom: null,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: input.archived === true ? now : null,
+        settledOverride: input.settled === true ? ("settled" as const) : null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      },
+    });
+  };
+  yield* create("thread:branch", { branch: "feature/a", linkedPullRequest: legacyLink });
+  yield* create("thread:detected-only", { branch: null, branchPullRequest: legacyLink });
+  yield* create("thread:settled", { branch: "feature/b", settled: true });
+  yield* create("thread:no-branch", { branch: null });
+  yield* create("thread:archived", { branch: "feature/c", archived: true });
+
+  // The SQL test layer shares one database, so look only at this test's project.
+  const ids = (threads: ReadonlyArray<{ readonly id: ThreadId; readonly projectId: ProjectId }>) =>
+    threads
+      .filter((thread) => thread.projectId === legacyLink.projectId)
+      .map((thread) => thread.id)
+      .toSorted();
+  const all = yield* store.getBranchPullRequestThreads({ unsettledOnly: false });
+  assert.deepEqual(ids(all.threads), ["thread:branch", "thread:detected-only", "thread:settled"]);
+  assert.deepEqual(
+    ids((yield* store.getBranchPullRequestThreads({ unsettledOnly: true })).threads),
+    ["thread:branch", "thread:detected-only"],
+  );
+  assert.deepEqual(
+    ids(
+      (yield* store.getBranchPullRequestThreads({
+        threadId: ThreadId.make("thread:settled"),
+        unsettledOnly: false,
+      })).threads,
+    ),
+    ["thread:settled"],
+  );
+  // A legacy single link reads as the thread's pull request list, as the shell shows it.
+  const branch = all.threads.find((thread) => thread.id === "thread:branch");
+  assert.deepEqual(branch?.linkedPullRequest, legacyLink);
+  assert.equal(branch?.pullRequests?.length, 1);
+});
+
 const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
   const store = yield* ProjectionStore.ProjectionStoreV2;
   const now = yield* DateTime.now;
@@ -803,6 +892,10 @@ const commandReadsSkipSettledLeafNodes = Effect.gen(function* () {
 
 it.effect("memory command reads skip finished leaf nodes of finished runs", () =>
   commandReadsSkipSettledLeafNodes.pipe(Effect.provide(ProjectionStore.layerMemory)),
+);
+
+it.effect("memory branch pull request lookup reads unarchived threads with a branch", () =>
+  branchPullRequestThreadsReadUnarchivedBranches.pipe(Effect.provide(ProjectionStore.layerMemory)),
 );
 
 it.effect("memory worktree path lookup reads only active threads", () =>
@@ -1035,6 +1128,10 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
   it.effect(
     "worktree path lookup reads only active threads",
     () => threadWorktreePathsReadActiveThreads,
+  );
+  it.effect(
+    "branch pull request lookup reads unarchived threads with a branch",
+    () => branchPullRequestThreadsReadUnarchivedBranches,
   );
 
   it.effect(

@@ -24,6 +24,7 @@ import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as GitManager from "../git/GitManager.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
@@ -100,6 +101,7 @@ interface RefreshRequest {
 
 export const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projectStore = yield* ProjectStore.ProjectStoreV2;
   const git = yield* GitManager.GitManager;
   const pullRequests = yield* PullRequestService.PullRequestService;
@@ -120,21 +122,15 @@ export const make = Effect.gen(function* () {
     }
   };
 
+  // The sweep runs every minute over every unsettled thread, so it reads the
+  // thread records alone rather than the full shell the sidebar needs.
   const readThreadSnapshot = ({ threadId, backfill }: RefreshRequest) =>
-    threadId === null
-      ? orchestrator
-          .getShellSnapshot({
-            location: "active",
-            unsettledOnly: !(backfill || pendingBackfill.size > 0),
-          })
-          .pipe(NodeSqliteClient.readOnly)
-      : Effect.gen(function* () {
-          // Read the sequence first. The thread is then at least this new, so a
-          // sync guarded by the sequence is rejected rather than missing a change.
-          const snapshotSequence = yield* orchestrator.getThreadEventSequence(threadId);
-          const thread = yield* orchestrator.getThreadShell(threadId);
-          return { snapshotSequence, threads: thread === null ? [] : [thread] };
-        });
+    projections
+      .getBranchPullRequestThreads({
+        ...(threadId === null ? {} : { threadId }),
+        unsettledOnly: threadId === null && !(backfill || pendingBackfill.size > 0),
+      })
+      .pipe(NodeSqliteClient.readOnly);
 
   const synchronize = Effect.fn("ThreadPullRequestServiceV2.synchronize")(function* (
     request: RefreshRequest,
