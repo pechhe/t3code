@@ -96,7 +96,7 @@ function useEasedHeight(active: boolean) {
 
 type AssistantMessageTextProps = Omit<
   ComponentProps<typeof ChatMarkdown>,
-  "isStreaming" | "lineBreaks" | "headingLevelOffset"
+  "isStreaming" | "revealWords" | "lineBreaks" | "headingLevelOffset"
 > & {
   readonly streaming: boolean;
   /**
@@ -146,6 +146,7 @@ function CalmAssistantMessageText({
           className={cn("font-response", className)}
           text={reveal.text}
           isStreaming={active}
+          revealWords
           lineBreaks={shouldPreserveAssistantLineBreaks(reveal.text)}
           headingLevelOffset={MESSAGE_HEADING_LEVEL}
         />

@@ -28,7 +28,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 | apps/server/src/provider, usage, orchestration-v2 UsageLimitRecoveryWorker, packages/shared providerPools                                              | classified          | account-pools                                                                                                                                |
 | apps/server/src/persistence (Migrations 063–071, 073; DatabaseStorage; nodeSqliteClient)                                                               | classified          | migration numbering in context-rollover/experiments constraints; perf-persistence-reads                                                      |
 | apps/server/src/auth, relay/AgentAwarenessRelay, terminal, sourceControl, textGeneration, ws.ts, serverSettings.ts, serverRuntimeStartup.ts, server.ts | unknown             | Edits hook fork features (settings, MCP auth, shell snapshots); not individually classified                                                  |
-| apps/web components/chat (rollover band, device composer, side chat, streaming, annotator, fast switch)                                                | classified          | context-rollover, device-composer, image-annotation, side-chat, live-response-streaming, web-client-customisation                            |
+| apps/web components/chat (rollover band, device composer, side chat, streaming, annotator, fast switch)                                                | classified          | context-rollover, device-composer, image-annotation, side-chat, live-response-streaming, perf-markdown-blocks, web-client-customisation      |
 | apps/web components/settings, routes settings.*                                                                                                        | classified (partly) | delegation-settings, experiments (settings), linked-environments, slipjay-settings; settings search and Projects entry: unknown              |
 | apps/web SlipJay*/buildItem/ThreadWorkflowChip/AgentRoleChip/scheduled/usage/snapShot components                                                       | classified          | slipjay-landing, build-items-hq, thread-workflow-chip, scheduled-tasks-extensions, account-pools, snapshot-overlay                           |
 | apps/web themes/sounds/lib (project themes, interface sounds, motion)                                                                                  | classified          | project-themes, web-client-customisation                                                                                                     |
@@ -402,7 +402,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Kind:** opt-in extension (default is upstream's)
 - **Why:** Sentence-paced "live" streaming makes threads calmer to read, for whoever accepts its CPU cost.
 - **Requirements:** upstream's "paragraph" streaming and plain "Working for …" row are the default; choosing "Stream as it's written" ("live", per environment or project) turns on the calm look: sentence reveal, eased height and the `DotMatrixSpinner` working row; separate Response font; a client that does not announce `liveResponseStreaming` on its socket is shown "paragraph" instead of "live" (settings and project overrides), because shipped clients reject the whole config snapshot on the unknown value.
-- **Integration points:** `AssistantMessageText` (`calm`), `WorkingTimelineRow` (plain vs calm, via `calmStreaming`), `SideChatCard`, `assistantStreaming`; settings.
+- **Integration points:** `AssistantMessageText` (`calm`), `ChatMarkdown` (`revealWords`), `WorkingTimelineRow` (plain vs calm, via `calmStreaming`), `SideChatCard`, `assistantStreaming`; settings.
 - **Proof:** none.
 - **Upstream:** none known.
 - **Retire when:** measurement shows unacceptable cost, or upstream ships equivalent.
@@ -520,6 +520,19 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Constraints:** ACP-based adapters (Antigravity, Grok, ACP registry agents) still persist one turn-item update per chunk; OpenCode and Cursor were not checked. Most remaining cost is per-commit index maintenance (eight `orchestration_events` indexes, six or more on turn items).
 - **Decision:** `retain` (new, 2026-10-19).
 - **Owner:** YardSmith HQ Build #3350.
+
+### perf-markdown-blocks
+
+- **Kind:** deliberate behaviour change (upstreamable performance fix)
+- **Why:** Every streamed update re-parsed and re-rendered the whole message, and the renderer context changed with the text, so finished paragraphs, links and code blocks rendered again on every token.
+- **Requirements:** a message renders as its top-level markdown blocks, each memoised, so an update re-renders only the block it changed; a message whose meaning crosses blocks (link or footnote definitions, raw HTML, headings sharing an id, CRLF, extra remark plugins) renders whole; the calm word fade-in still covers only the newest two blocks; task checkboxes report offsets into the whole message; the file-link maps keep their identity while the message's links and code spans are unchanged.
+- **Integration points:** `ChatMarkdown` (`ChatMarkdownBlock`, `ChatMarkdownTextContext`, `resolveMarkdownFileLinks`); `splitMarkdownBlocks` in `shared/markdownBlocks`, which takes upstream's incremental parser (`markdown-incremental`) for the parse that finds blocks.
+- **Proof:** packages/shared/src/markdownBlocks.test.ts (block-by-block render equals whole render, for every prefix); apps/web/src/components/ChatMarkdown.browser.test.tsx ("does not re-render finished blocks", "later block" task edit, "fades in streamed words"). Replaying a ~1,200-word reply with headings, lists, code and links into `ChatMarkdown` in the browser test runner (dev build): 332 token updates took ~1.9 s before, ~0.85 s after; 39 paragraph updates ~250 ms before, ~190 ms after.
+- **Upstream:** pingdotgg/t3code#21194 (open) caches settled messages' parsed trees; it does not cover streaming. Both are upstreamable and touch the same render call.
+- **Retire when:** upstream renders streaming markdown incrementally.
+- **Constraints:** finding the blocks still parses the whole message per update (incrementally once a closed code fence exists).
+- **Decision:** `retain` (new, 2026-10-19).
+- **Owner:** Build #3172.
 
 ### dev-state-tooling
 

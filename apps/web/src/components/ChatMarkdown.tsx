@@ -19,6 +19,11 @@ import {
   CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS,
   createChatMarkdownRehypePlugins,
 } from "@t3tools/shared/markdownPipeline";
+import {
+  githubHeadingSlug,
+  splitMarkdownBlocks,
+  type MarkdownBlock,
+} from "@t3tools/shared/markdownBlocks";
 import { useAtomValue } from "@effect/atom-react";
 import {
   COMPOSER_CONTEXT_CLIPBOARD_MIME,
@@ -233,6 +238,8 @@ interface ChatMarkdownProps {
   environmentId?: EnvironmentId | undefined;
   onTaskListChange?: ((input: { markerOffset: number; checked: boolean }) => void) | undefined;
   isStreaming?: boolean;
+  /** Fades streamed words in as they arrive: the fork's opt-in calm streaming look. */
+  revealWords?: boolean;
   skills?: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
   className?: string;
   lineBreaks?: boolean;
@@ -1875,14 +1882,6 @@ type HeadingHastNode = {
   children?: HeadingHastNode[];
 };
 
-function githubHeadingSlug(text: string): string {
-  return text
-    .trim()
-    .toLowerCase()
-    .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, "")
-    .replace(/ /g, "-");
-}
-
 /**
  * Like the sanitizer's ids, they carry the `user-content-` prefix so they cannot clobber app
  * element ids; fragment lookup strips it.
@@ -2410,6 +2409,57 @@ const markdownServerConfigFieldsAtom = Atom.family((environmentId: EnvironmentId
   }).pipe(Atom.withLabel("markdown-server-config-fields")),
 );
 
+type MarkdownFileLinks = ReturnType<typeof resolveUncachedMarkdownFileLinks>;
+
+// The same links resolve to the same maps, so a streamed token that adds no link
+// or code span leaves the renderer context, and every rendered link, unchanged.
+const markdownFileLinksCache = new LRUCache<MarkdownFileLinks>(200, 4 * 1024 * 1024);
+
+function resolveMarkdownFileLinks(
+  text: string,
+  cwd: string | undefined,
+  baseDir: string | undefined,
+) {
+  const hrefs = extractMarkdownLinkHrefs(renderCodexInlineDirectivesAsMarkdown(text));
+  const spans = extractInlineCodeSpans(text);
+  const key = [cwd, baseDir, hrefs.join("\u0000"), spans.join("\u0000")].join("\u0001");
+  const cached = markdownFileLinksCache.get(key);
+  if (cached) return cached;
+  const links = resolveUncachedMarkdownFileLinks(hrefs, spans, cwd, baseDir);
+  markdownFileLinksCache.set(key, links, key.length * 2);
+  return links;
+}
+
+function resolveUncachedMarkdownFileLinks(
+  hrefs: ReadonlyArray<string>,
+  spans: ReadonlyArray<string>,
+  cwd: string | undefined,
+  baseDir: string | undefined,
+) {
+  const markdownFileLinkMetaByHref = new Map<
+    string,
+    NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>
+  >();
+  for (const href of hrefs) {
+    if (parseComposerContextHref(href)) continue;
+    const normalizedHref = normalizeMarkdownLinkHrefKey(href);
+    if (markdownFileLinkMetaByHref.has(normalizedHref)) continue;
+    const meta = resolveMarkdownFileLinkMeta(normalizedHref, cwd, baseDir);
+    if (meta) markdownFileLinkMetaByHref.set(normalizedHref, meta);
+  }
+  const inlineCodeFileLinkMetaByText = new Map<string, MarkdownFileLinkMeta>();
+  for (const span of spans) {
+    if (inlineCodeFileLinkMetaByText.has(span)) continue;
+    const meta = resolveInlineCodeFileLinkMeta(span, cwd, baseDir);
+    if (meta) inlineCodeFileLinkMetaByText.set(span, meta);
+  }
+  const fileLinkParentSuffixByPath = buildFileLinkParentSuffixByPath([
+    ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
+    ...[...inlineCodeFileLinkMetaByText.values()].map((meta) => meta.filePath),
+  ]);
+  return { markdownFileLinkMetaByHref, inlineCodeFileLinkMetaByText, fileLinkParentSuffixByPath };
+}
+
 function useChatMarkdownState({
   text,
   cwd,
@@ -2559,40 +2609,8 @@ function useChatMarkdownState({
     });
   };
   const diffThemeName = resolveDiffThemeName(resolvedTheme);
-  const markdownFileLinkMetaByHref = (() => {
-    const metaByHref = new Map<
-      string,
-      NonNullable<ReturnType<typeof resolveMarkdownFileLinkMeta>>
-    >();
-    for (const href of extractMarkdownLinkHrefs(renderCodexInlineDirectivesAsMarkdown(text))) {
-      if (parseComposerContextHref(href)) continue;
-      const normalizedHref = normalizeMarkdownLinkHrefKey(href);
-      if (metaByHref.has(normalizedHref)) continue;
-      const meta = resolveMarkdownFileLinkMeta(normalizedHref, cwd, imageBaseDir ?? cwd);
-      if (meta) {
-        metaByHref.set(normalizedHref, meta);
-      }
-    }
-    return metaByHref;
-  })();
-  const inlineCodeFileLinkMetaByText = (() => {
-    const metaByText = new Map<string, MarkdownFileLinkMeta>();
-    for (const span of extractInlineCodeSpans(text)) {
-      if (metaByText.has(span)) continue;
-      const meta = resolveInlineCodeFileLinkMeta(span, cwd, imageBaseDir ?? cwd);
-      if (meta) {
-        metaByText.set(span, meta);
-      }
-    }
-    return metaByText;
-  })();
-  const fileLinkParentSuffixByPath = (() => {
-    const filePaths = [
-      ...[...markdownFileLinkMetaByHref.values()].map((meta) => meta.filePath),
-      ...[...inlineCodeFileLinkMetaByText.values()].map((meta) => meta.filePath),
-    ];
-    return buildFileLinkParentSuffixByPath(filePaths);
-  })();
+  const { markdownFileLinkMetaByHref, inlineCodeFileLinkMetaByText, fileLinkParentSuffixByPath } =
+    resolveMarkdownFileLinks(text, cwd, imageBaseDir ?? cwd);
   const markdownUrlTransform = (href: string) => {
     if (parseAssistantCitationHref(href)) return href;
     if (parseComposerContextHref(href)) return href;
@@ -2850,9 +2868,10 @@ const ChatMarkdownRendererContext = React.createContext<
   ReturnType<typeof useChatMarkdownState>["componentState"]
 >(null!);
 
-// The markdown source changes on every streamed delta. Only the renderers that
-// slice it by node offset read it, so it sits apart from the renderer context.
-const ChatMarkdownTextContext = React.createContext("");
+// The block's markdown source changes on every streamed delta. Only the renderers
+// that slice it by node offset read it, so it sits apart from the renderer context.
+// Node offsets are block-relative; `offset` places them in the whole message.
+const ChatMarkdownTextContext = React.createContext<MarkdownBlock>({ source: "", offset: 0 });
 
 function markdownHeadingRenderer(level: 1 | 2 | 3 | 4 | 5 | 6) {
   const Tag = `h${level}` as const;
@@ -2934,7 +2953,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
   },
   input: function MarkdownInput({ node: _node, type, checked, disabled: _disabled, ...props }) {
     const { onTaskListChange } = use(ChatMarkdownRendererContext);
-    const text = use(ChatMarkdownTextContext);
+    const block = use(ChatMarkdownTextContext);
     if (type !== "checkbox" || !onTaskListChange) {
       return (
         <input
@@ -2956,9 +2975,12 @@ const CHAT_MARKDOWN_COMPONENTS = {
         onChange={(event) => {
           const listItemStart = Number(event.currentTarget.closest("li")?.dataset.listItemOffset);
           if (!Number.isSafeInteger(listItemStart)) return;
-          const markerOffset = findTaskListMarkerOffset(text, listItemStart);
+          const markerOffset = findTaskListMarkerOffset(block.source, listItemStart);
           if (markerOffset === null) return;
-          onTaskListChange({ markerOffset, checked: event.currentTarget.checked });
+          onTaskListChange({
+            markerOffset: block.offset + markerOffset,
+            checked: event.currentTarget.checked,
+          });
         }}
       />
     );
@@ -2993,7 +3015,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
       fileLinkChip,
       renderContextReference,
     } = use(ChatMarkdownRendererContext);
-    const text = use(ChatMarkdownTextContext);
+    const { source: text } = use(ChatMarkdownTextContext);
     const citation = href ? parseAssistantCitationHref(href) : null;
     if (citation) return <AssistantCitationChip citation={citation} />;
     // A thread link names a thread in this message's environment, or the environment it is
@@ -3442,7 +3464,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
     const { resolvedTheme, diffThemeName, expandMedia, isStreaming, onRunShellCommand } = use(
       ChatMarkdownRendererContext,
     );
-    const text = use(ChatMarkdownTextContext);
+    const { source: text } = use(ChatMarkdownTextContext);
     const codeBlock = extractCodeBlock(children);
     if (!codeBlock) {
       return <pre {...props}>{children}</pre>;
@@ -3503,12 +3525,45 @@ const CHAT_MARKDOWN_COMPONENTS = {
   },
 } satisfies Components;
 
+/**
+ * One top-level block of a message. Memoised, so a streamed token re-renders only
+ * the block it changed rather than re-parsing and re-rendering the whole message.
+ */
+const ChatMarkdownBlock = memo(function ChatMarkdownBlock({
+  source,
+  offset,
+  remarkPlugins,
+  rehypePlugins,
+  urlTransform,
+}: {
+  source: string;
+  offset: number;
+  remarkPlugins: NonNullable<ReactMarkdownOptions["remarkPlugins"]>;
+  rehypePlugins: NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+  urlTransform: ReactMarkdownOptions["urlTransform"];
+}) {
+  return (
+    <ChatMarkdownTextContext value={{ source, offset }}>
+      <ReactMarkdown
+        remarkPlugins={remarkPlugins}
+        rehypePlugins={rehypePlugins}
+        skipHtml={false}
+        components={CHAT_MARKDOWN_COMPONENTS}
+        urlTransform={urlTransform}
+      >
+        {source}
+      </ReactMarkdown>
+    </ChatMarkdownTextContext>
+  );
+});
+
 function ChatMarkdown({
   text,
   className,
   lineBreaks = false,
   parseRawHtml = true,
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
+  revealWords = false,
   ...props
 }: ChatMarkdownProps) {
   const {
@@ -3520,14 +3575,18 @@ function ChatMarkdown({
     localMediaPreview,
     closeLocalMediaPreview,
   } = useChatMarkdownState({ text, ...props });
-  const incrementalParsing =
-    props.isStreaming === true &&
-    extraRemarkPlugins.length === 0 &&
-    /(?:^|\n) {0,3}(?:`{3}|~{3})/.test(text);
+  // One parse cache per message, so finding the blocks of a streaming, code-heavy
+  // reply does not re-parse its completed prefix on every token.
+  const [incrementalParser] = useState(createIncrementalMarkdownPlugin);
+  const incrementalParsing = props.isStreaming === true && /(?:^|\n) {0,3}(?:`{3}|~{3})/.test(text);
+  // Extra syntax plugins can change the block structure, so those messages render whole.
+  const blocks =
+    extraRemarkPlugins.length === 0
+      ? splitMarkdownBlocks(text, incrementalParsing ? [incrementalParser] : [])
+      : [{ source: text, offset: 0 }];
   const remarkPlugins = [
     ...(lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS),
     ...extraRemarkPlugins,
-    ...(incrementalParsing ? [createIncrementalMarkdownPlugin()] : []),
   ];
 
   const rehypePlugins = (() => {
@@ -3539,8 +3598,10 @@ function ChatMarkdown({
       ? // Heading ids are added after sanitizing, which would prefix them a second time.
         [...createChatMarkdownRehypePlugins(mentions), rehypeHeadingIds]
       : [...mentions, ...CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS];
-    return props.isStreaming ? [...base, rehypeStreamWords] : base;
+    return base;
   })();
+  const streamWordsRehypePlugins =
+    revealWords && props.isStreaming ? [...rehypePlugins, rehypeStreamWords] : rehypePlugins;
 
   return (
     <div
@@ -3553,17 +3614,19 @@ function ChatMarkdown({
       onCopy={handleCopy}
     >
       <ChatMarkdownRendererContext value={componentState}>
-        <ChatMarkdownTextContext value={text}>
-          <ReactMarkdown
+        {blocks.map((block, index) => (
+          <ChatMarkdownBlock
+            // Appended text never moves an earlier block's start, so each keeps its subtree.
+            key={block.offset}
+            source={block.source}
+            offset={block.offset}
             remarkPlugins={remarkPlugins}
-            rehypePlugins={rehypePlugins}
-            skipHtml={false}
-            components={CHAT_MARKDOWN_COMPONENTS}
+            rehypePlugins={
+              index >= blocks.length - STREAM_WORD_BLOCKS ? streamWordsRehypePlugins : rehypePlugins
+            }
             urlTransform={markdownUrlTransform}
-          >
-            {text}
-          </ReactMarkdown>
-        </ChatMarkdownTextContext>
+          />
+        ))}
       </ChatMarkdownRendererContext>
       {localMediaPreview ? (
         <ExpandedImageDialog preview={localMediaPreview} onClose={closeLocalMediaPreview} />

@@ -375,6 +375,64 @@ describe("ChatMarkdown streaming", () => {
     expect(editedText).toBe("- [ ] A longer first task\n- [x] Second");
     await vi.waitFor(() => expect(checkboxes()[1]!.checked).toBe(true));
   });
+
+  it("edits a task marker in a later block of the message", async () => {
+    let editedText: string | undefined;
+    const text = "Intro paragraph.\n\n## Tasks\n\n- [ ] First\n- [ ] Second";
+    const { container } = await render(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={text}
+        onTaskListChange={({ markerOffset, checked }) => {
+          editedText = setMarkdownTaskChecked(text, markerOffset, checked);
+        }}
+      />,
+    );
+    await act(async () =>
+      container.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')[1]!.click(),
+    );
+    expect(editedText).toBe("Intro paragraph.\n\n## Tasks\n\n- [ ] First\n- [x] Second");
+  });
+
+  it("fades in streamed words of the newest blocks only when asked", async () => {
+    const text = "First paragraph.\n\nSecond paragraph.\n\nThird paragraph.";
+    const wordsIn = (container: HTMLElement) =>
+      [...container.querySelectorAll("p")].map(
+        (paragraph) => paragraph.querySelectorAll(".chat-stream-word").length > 0,
+      );
+    const plain = await render(<ChatMarkdown cwd="/tmp/project" text={text} isStreaming />);
+    expect(wordsIn(plain.container)).toEqual([false, false, false]);
+
+    const revealed = await render(
+      <ChatMarkdown cwd="/tmp/project" text={text} isStreaming revealWords />,
+    );
+    expect(wordsIn(revealed.container)).toEqual([false, true, true]);
+    await revealed.rerender(<ChatMarkdown cwd="/tmp/project" text={text} revealWords />);
+    expect(wordsIn(revealed.container)).toEqual([false, false, false]);
+  });
+
+  it("does not re-render finished blocks while a reply streams", async () => {
+    const renderContextReference = vi.fn(({ label }: { label: string }) => <span>{label}</span>);
+    const message = (text: string): ReactElement => (
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={text}
+        isStreaming
+        renderContextReference={renderContextReference}
+      />
+    );
+    const finished = "See [Terminal output](t3-context://v1/terminal/term-1).\n\n";
+    const { container, rerender } = await render(message(`${finished}Streaming`));
+    const renders = renderContextReference.mock.calls.length;
+    expect(renders).toBeGreaterThan(0);
+
+    for (const words of ["Streaming reply", "Streaming reply grows", "Streaming reply grows on"]) {
+      await rerender(message(`${finished}${words}`));
+    }
+
+    expect(container.textContent).toContain("Streaming reply grows on");
+    expect(renderContextReference).toHaveBeenCalledTimes(renders);
+  });
 });
 
 describe("ChatMarkdown skill chips", () => {

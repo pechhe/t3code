@@ -463,6 +463,10 @@
       "types": "./src/proposedPlanText.ts",
       "import": "./src/proposedPlanText.ts"
     },
+    "./markdownBlocks": {
+      "types": "./src/markdownBlocks.ts",
+      "import": "./src/markdownBlocks.ts"
+    },
     "./markdownPipeline": {
       "types": "./src/markdownPipeline.ts",
       "import": "./src/markdownPipeline.ts"
