@@ -231,14 +231,14 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 ### thread-watches
 
 - **Kind:** durable extension
-- **Why:** A thread can wait on another thread or a PR and wake when it finishes.
-- **Requirements:** wake a thread when a watched thread finishes; no firing between a background task ending and its wake; wake quotes the right earlier turn and does not repeat a result already read; settling a thread kills its pending background work and tells its watchers "Finished"; UI shows Watching label, links, and "Watched by".
-- **Integration points:** `threadWatch`, `ThreadWatchReactor` (alongside upstream `PullRequestWatchReactor`); `shellThreadWatches` client state; `orchestrationV2PendingBackgroundWork`.
+- **Why:** A thread can wait on another thread or a Build item with `watch` / `unwatch`, alongside upstream PR watches.
+- **Requirements:** wake a thread when a watched thread finishes; no firing between a background task ending and its wake; wake quotes the right earlier turn and does not repeat a result already read; settling a thread ends its watches, kills its pending background work and tells its watchers "Finished"; UI shows Watching label, links, and "Watched by". Build watches wake once when waits and holds clear (or Dropped), or on Landed/Accepted/Dropped for closed; they require the watcher’s project HQ connection and survive restarts.
+- **Integration points:** `OrchestrationV2WatchTarget` and legacy watch decoding; `BuildWatchReactor` with the shared one-minute `BuildWorkItems` summary cache; `threadWatch`, `ThreadWatchReactor` (alongside upstream `PullRequestWatchReactor`); `shellThreadWatches` client state; `orchestrationV2PendingBackgroundWork`.
 - **Proof:** apps/server/src/orchestration-v2/ThreadWatch.test.ts; packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts.
-- **Upstream:** PR watch exists upstream; thread watch is the fork's.
-- **Retire when:** upstream ships equivalent thread-to-thread waiting.
+- **Upstream:** PR watches exist upstream; thread and Build item watches are the fork's.
+- **Retire when:** upstream ships equivalent thread and Build item waiting.
 - **Decision:** `retain` (seed, 2026-10-19).
-- **Owner:** pechhe/t3code#91, #97, #98, #101 (closed).
+- **Owner:** pechhe/t3code#91, #97, #98, #101 (closed); #152 / #154 (thread and Build target watch surface).
 
 ### scheduled-tasks-extensions
 
@@ -384,6 +384,19 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (seed, 2026-10-19).
 - **Owner:** none.
 
+### fleet-summary
+
+- **Kind:** durable extension
+- **Why:** a fleet sweep needs one bounded state read across all projects and linked environments.
+- **Requirements:** `t3_fleet_summary` returns non-archived threads, rolls up subagents, reports watches, cached Build state, settlement eligibility, sender counts for the last hour, and landing/release/host health. No transcript text; unavailable peers retain their last known observation; opaque cursors return changed rows and removals.
+- **Integration points:** fleet contracts and service, projection tables, BuildWorkItems once-a-minute summary reads, ThreadSettlementService rules, SlipJayLandings runner, release approval projection, HostResources, peer MCP allowlist and toolkit registration.
+- **Proof:** `apps/server/src/fleet/FleetSummaryService.test.ts`.
+- **Upstream:** no equivalent identified in the assigned source; remote upstream research unavailable in the worker sandbox.
+- **Retire when:** upstream supplies an equivalent summary with cross-environment availability and delta semantics.
+- **Constraints:** Build state is read through the shared once-a-minute summary cache; release verification is the approval's stored observation, not a fresh promotion plan. No performance claim; #135 owns performance measurement.
+- **Decision:** `retain` (new, 2026-10-19).
+- **Owner:** pechhe/t3code#153, Spec #152.
+
 ### live-response-streaming
 
 - **Kind:** deliberate behaviour change (performance under investigation)
@@ -506,3 +519,15 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Retire when:** upstream dev runner recognises jj workspaces.
 - **Decision:** `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#66, #105, #127 (open); #49, #104, #106, #113 (closed).
+
+### quiet-run-read-state
+
+- **Kind:** durable extension
+- **Why:** an agent turn with nothing to report finishes without raising its thread.
+- **Requirements:** #155 / Spec #152: agents can finish a no-change sweep without making its bound thread unread or sending completion notifications. Failed/interrupted runs remain visible; explicit mark-unread overrides the quiet request.
+- **Integration points:** `t3_thread_organize.mark_read`, ThreadManagementService, `thread.mark-read` / existing `thread.visited` event, optional `readOnCompletionRunId` in thread contracts and shell projection; shared client unread derivation, web notification decisions, shared mobile agent-awareness projection. The run-bound request survives restarts and is evaluated with completion, avoiding a second command's notification race.
+- **Proof:** focused quiet-run cases in server `runtimeLayer.test.ts`, client-runtime projection and unread tests, web notification decision tests, and shared agent-awareness tests.
+- **Upstream:** existing read/visit command path reused; live upstream lookup unavailable in this network-restricted workspace. A focused mark-read reverse is suitable for upstream consideration.
+- **Retire when:** upstream supports successful-turn-bound read requests, explicit unread reversal, and quiet completion notification suppression on both clients.
+- **Decision:** `retain` (new, 2026-10-19).
+- **Owner:** pechhe/t3code#155, Spec #152.

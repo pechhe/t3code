@@ -1079,6 +1079,7 @@ interface SidebarProjectItemProps {
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
   markThreadUnread: ReturnType<typeof useThreadActions>["markThreadUnread"];
+  markThreadRead: ReturnType<typeof useThreadActions>["markThreadRead"];
   threadJumpLabelByKey: ReadonlyMap<string, string>;
   attachThreadListAutoAnimateRef: (node: HTMLElement | null) => void;
   expandThreadListForProject: (projectKey: string) => void;
@@ -1246,6 +1247,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     archiveThread,
     deleteThread,
     markThreadUnread,
+    markThreadRead,
     threadJumpLabelByKey,
     attachThreadListAutoAnimateRef,
     expandThreadListForProject,
@@ -1809,9 +1811,9 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       position,
     );
 
-    if (clicked === "mark-unread") {
+    if (clicked === "mark-read" || clicked === "mark-unread") {
       for (const { threadRef } of selectedThreadEntries) {
-        markThreadUnread(threadRef);
+        (clicked === "mark-read" ? markThreadRead : markThreadUnread)(threadRef);
       }
       clearSelection();
       return;
@@ -2153,6 +2155,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             ? [{ id: "new-thread-on-branch", label: `New thread on ${thread.branch}` }]
             : []),
           { id: "rename", label: "Rename thread", disabled: !canOperateThread },
+          { id: "mark-read", label: "Mark read" },
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
@@ -2204,8 +2207,8 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         return;
       }
 
-      if (clicked === "mark-unread") {
-        markThreadUnread(threadRef);
+      if (clicked === "mark-read" || clicked === "mark-unread") {
+        (clicked === "mark-read" ? markThreadRead : markThreadUnread)(threadRef);
         return;
       }
       if (clicked === "copy-path") {
@@ -2779,6 +2782,7 @@ interface SidebarProjectsContentProps {
   archiveThread: ReturnType<typeof useThreadActions>["archiveThread"];
   deleteThread: ReturnType<typeof useThreadActions>["deleteThread"];
   markThreadUnread: ReturnType<typeof useThreadActions>["markThreadUnread"];
+  markThreadRead: ReturnType<typeof useThreadActions>["markThreadRead"];
   sortedProjects: readonly SidebarProjectSnapshot[];
   sortedProjectKeys: string[];
   expandedThreadListsByProject: ReadonlySet<string>;
@@ -2822,6 +2826,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
     archiveThread,
     deleteThread,
     markThreadUnread,
+    markThreadRead,
     sortedProjects,
     sortedProjectKeys,
     expandedThreadListsByProject,
@@ -2950,6 +2955,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                         archiveThread={archiveThread}
                         deleteThread={deleteThread}
                         markThreadUnread={markThreadUnread}
+                        markThreadRead={markThreadRead}
                         threadJumpLabelByKey={threadJumpLabelByKey}
                         attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
                         expandThreadListForProject={expandThreadListForProject}
@@ -2984,6 +2990,7 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 archiveThread={archiveThread}
                 deleteThread={deleteThread}
                 markThreadUnread={markThreadUnread}
+                markThreadRead={markThreadRead}
                 threadJumpLabelByKey={threadJumpLabelByKey}
                 attachThreadListAutoAnimateRef={attachThreadListAutoAnimateRef}
                 expandThreadListForProject={expandThreadListForProject}
@@ -3244,7 +3251,7 @@ export default function LegacySidebar() {
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
   const sidebarThreadPreviewCount = useClientSettings((s) => s.sidebarThreadPreviewCount);
   const handleNewThread = useNewThreadHandler();
-  const { archiveThread, deleteThread, markThreadUnread } = useThreadActions();
+  const { archiveThread, deleteThread, markThreadUnread, markThreadRead } = useThreadActions();
   const { isMobile, setOpenMobile } = useSidebar();
   const routeTarget = useThreadRouteTarget();
   const routeDraftThread = useComposerDraftStore((store) =>
@@ -3636,6 +3643,7 @@ export default function LegacySidebar() {
         archiveThread={archiveThread}
         deleteThread={deleteThread}
         markThreadUnread={markThreadUnread}
+        markThreadRead={markThreadRead}
         sortedProjects={sortedProjects}
         sortedProjectKeys={sortedProjectKeys}
         expandedThreadListsByProject={expandedThreadListsByProject}

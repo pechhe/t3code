@@ -421,6 +421,7 @@ export function notificationChildThreadId(
       return source.childThreadId;
     case "command":
     case "monitor":
+    case "build_item":
     case "thread":
     case "background_task":
     case "system":

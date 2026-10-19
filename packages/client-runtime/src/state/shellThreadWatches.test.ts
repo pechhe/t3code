@@ -17,11 +17,29 @@ const shell = (
   threadWatches: watches.map((watch, index) => ({
     id: `thread-watch:${id}:${index}`,
     title: "Worker",
-    ...watch,
+    target: { kind: "thread" as const, threadId: watch.threadId },
+    startedAt: watch.startedAt,
   })),
 });
 
 describe("threadWatchers", () => {
+  it("does not list Build item watches as thread watchers", () => {
+    const watcher = {
+      id: ThreadId.make("thread:build-watcher"),
+      archivedAt: null,
+      deletedAt: null,
+      threadWatches: [
+        {
+          id: "build-watch",
+          title: "Build #1000001",
+          startedAt: "2026-10-17T09:00:00.000Z",
+          target: { kind: "build_item" as const, number: 1000001, until: "closed" as const },
+        },
+      ],
+    };
+    expect(threadWatchers([watcher], worker)).toEqual([]);
+  });
+
   it("lists the active watchers of a thread, oldest watch first", () => {
     const shells = [
       shell("thread:late", [{ threadId: worker, startedAt: "2026-10-17T10:00:00.000Z" }]),

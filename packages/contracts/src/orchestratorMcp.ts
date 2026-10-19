@@ -48,6 +48,7 @@ import {
 } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
 import {
+  OrchestrationV2WatchTarget,
   OrchestrationV2Actor,
   OrchestrationV2CreationSource,
   OrchestrationV2RunStatus,
@@ -586,12 +587,12 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
 export const OrchestratorMcpThreadWatchInput = Schema.Struct({
-  threadId: ThreadId,
+  target: OrchestrationV2WatchTarget,
 });
 export type OrchestratorMcpThreadWatchInput = typeof OrchestratorMcpThreadWatchInput.Type;
 
 export const OrchestratorMcpThreadWatchResult = Schema.Struct({
-  threadId: ThreadId,
+  target: OrchestrationV2WatchTarget,
   watching: Schema.Boolean,
   wasWatching: Schema.Boolean,
 });

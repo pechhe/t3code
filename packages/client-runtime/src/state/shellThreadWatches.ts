@@ -18,7 +18,9 @@ export function threadWatchers<Shell extends WatcherShell>(
   const watchers: Array<{ readonly shell: Shell; readonly startedAt: string }> = [];
   for (const shell of shells) {
     if (shell.archivedAt !== null || shell.deletedAt !== null || shell.id === threadId) continue;
-    const watch = shell.threadWatches?.find((candidate) => candidate.threadId === threadId);
+    const watch = shell.threadWatches?.find(
+      (candidate) => candidate.target.kind === "thread" && candidate.target.threadId === threadId,
+    );
     if (watch !== undefined) watchers.push({ shell, startedAt: watch.startedAt });
   }
   return watchers

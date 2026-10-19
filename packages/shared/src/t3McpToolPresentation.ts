@@ -170,6 +170,11 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_thread_read: tool(["Read", "Reading", "Read", "a T3 thread"], "thread-read"),
   t3_thread_send: tool(["Send", "Sending", "Sent", "to a T3 thread"], "thread-send"),
   t3_thread_wait: tool(["Wait", "Waiting", "Waited", "for a T3 thread"], "thread-wait"),
+  watch: tool(["Watch", "Watching", "Watching", "a target"], "thread-watch"),
+  unwatch: tool(
+    ["Stop watching", "Stopping watching", "Stopped watching", "a target"],
+    "thread-unwatch",
+  ),
   watch_thread: tool(["Watch", "Watching", "Watching", "a T3 thread"], "thread-watch"),
   unwatch_thread: tool(
     ["Stop watching", "Stopping watching", "Stopped watching", "a T3 thread"],

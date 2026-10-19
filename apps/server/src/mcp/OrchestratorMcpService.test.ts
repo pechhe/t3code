@@ -1,3 +1,4 @@
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ExternalAgentWork from "../agents/ExternalAgentWorkService.ts";
@@ -48,13 +49,113 @@ import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.t
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
-const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
-  Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
-  Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
-  Layer.provide(WorkspaceProvider.layerGitWorktree),
-);
+const orchestratorServiceWith = (build: Partial<BuildWorkItems.BuildWorkItems["Service"]>) =>
+  OrchestratorMcpService.layer.pipe(
+    Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)(build)),
+    Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+    Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+    Layer.provide(WorkspaceProvider.layerGitWorktree),
+  );
+const layerOrchestratorService = orchestratorServiceWith({
+  connected: () => Effect.succeed({ connected: false, origin: null }),
+});
 
 describe("OrchestratorMcpService", () => {
+  it.effect("refuses a Build watch without the watcher's project HQ connection", () =>
+    Effect.gen(function* () {
+      const watcherId = ThreadId.make("thread:build-watch-refusal");
+      const shell = liveThreadShell(watcherId);
+      const dependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(Experiments.ExperimentService)({}),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(shell),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("environment:watch"),
+        requestNamespace: "watch-refusal",
+        thread: {
+          threadId: watcherId,
+          providerSessionId: "watch-test",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const result = yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service
+          .watchThread(
+            scope,
+            { target: { kind: "build_item", number: 1000001, until: "closed" } },
+            true,
+          )
+          .pipe(Effect.flip);
+      }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
+      assert.equal(result.code, "invalid_request");
+      assert.include(result.message, "not connected to YardSmith HQ");
+    }),
+  );
+
+  it.effect("refuses a Build watch on a number the project's HQ cannot see", () =>
+    Effect.gen(function* () {
+      const watcherId = ThreadId.make("thread:build-watch-unknown");
+      const shell = liveThreadShell(watcherId);
+      const dependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(Experiments.ExperimentService)({}),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(shell),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("environment:watch"),
+        requestNamespace: "watch-unknown",
+        thread: {
+          threadId: watcherId,
+          providerSessionId: "watch-test",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const result = yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service
+          .watchThread(
+            scope,
+            { target: { kind: "build_item", number: 1000001, until: "closed" } },
+            true,
+          )
+          .pipe(Effect.flip);
+      }).pipe(Effect.provide(
+          orchestratorServiceWith({
+            connected: () => Effect.succeed({ connected: true, origin: "https://hq.test" }),
+            mentions: () => Effect.succeed({ items: [] }),
+          }).pipe(Layer.provide(dependencies)),
+        ),);
+      assert.equal(result.code, "invalid_request");
+      assert.include(result.message, "Build #1000001 is not a Spec or Ticket");
+    }),
+  );
+
   it.effect("retries terminal acknowledgement with a fresh command id", () =>
     Effect.gen(function* () {
       const parentThreadId = ThreadId.make("thread:mcp-ack-parent");

@@ -449,17 +449,47 @@ export const OrchestrationV2ThreadRolloverThresholds = Schema.Struct({
 export type OrchestrationV2ThreadRolloverThresholds =
   typeof OrchestrationV2ThreadRolloverThresholds.Type;
 
-/**
- * A watch this thread holds on another thread of its environment. It wakes this thread once,
- * when the watched thread finishes or needs attention, and then ends.
- */
-export const OrchestrationV2ThreadWatch = Schema.Struct({
+/** A one-shot watch, local to the watcher's environment. */
+export const OrchestrationV2WatchTarget = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+  Schema.Struct({
+    kind: Schema.Literal("build_item"),
+    number: PositiveInt,
+    until: Schema.Literals(["unblocked", "closed"]),
+  }),
+]);
+export type OrchestrationV2WatchTarget = typeof OrchestrationV2WatchTarget.Type;
+
+const ThreadWatchFields = {
   id: TrimmedNonEmptyString,
-  threadId: ThreadId,
-  /** The watched thread's title when the watch started, for the watcher's pending work. */
   title: TrimmedNonEmptyString,
   startedAt: IsoDateTime,
+};
+const TargetedThreadWatch = Schema.Struct({
+  ...ThreadWatchFields,
+  target: OrchestrationV2WatchTarget,
 });
+export const OrchestrationV2ThreadWatch = Schema.Struct({
+  ...ThreadWatchFields,
+  target: Schema.optional(OrchestrationV2WatchTarget),
+  threadId: Schema.optional(ThreadId),
+})
+  .check(
+    Schema.makeFilter(
+      (watch) =>
+        watch.target !== undefined || watch.threadId !== undefined || "A watch target is required.",
+    ),
+  )
+  .pipe(
+    Schema.decodeTo(Schema.toType(TargetedThreadWatch), {
+      decode: SchemaGetter.transform(({ threadId, target, ...watch }) => ({
+        ...watch,
+        // The filter guarantees a legacy thread id when target is absent.
+        target: target ?? { kind: "thread" as const, threadId: threadId! },
+      })),
+      encode: SchemaGetter.transform((watch) => watch),
+    }),
+  );
 export type OrchestrationV2ThreadWatch = typeof OrchestrationV2ThreadWatch.Type;
 
 /**
@@ -545,6 +575,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   // payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** A durable read request for one successful run; mark-unread clears it. */
+  readOnCompletionRunId: Schema.optional(Schema.NullOr(RunId)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtc).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1003,7 +1035,7 @@ export const OrchestrationV2PendingBackgroundTask = kindUnionWithFallback(
       /** What a watch task waits on, so a client can link to it. Absent from older servers. */
       watching: Schema.optional(
         Schema.Union([
-          Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+          OrchestrationV2WatchTarget,
           Schema.Struct({ kind: Schema.Literal("pull_request"), url: TrimmedNonEmptyString }),
         ]),
       ),
@@ -1226,6 +1258,11 @@ const SubagentNotificationSource = Schema.Struct({
   kind: Schema.Literal("subagent"),
   childThreadId: Schema.optional(ThreadId),
 });
+const BuildNotificationSource = Schema.Struct({
+  kind: Schema.Literal("build_item"),
+  number: PositiveInt,
+  until: Schema.Literals(["unblocked", "closed"]),
+});
 const CommandNotificationSource = Schema.Struct({ kind: Schema.Literal("command") });
 const ThreadNotificationSource = Schema.Struct({
   kind: Schema.Literal("thread"),
@@ -1281,6 +1318,7 @@ export const OrchestrationV2NotificationSource = kindUnionWithFallback(
     Schema.Struct({ kind: Schema.Literal("background_command").transform("command") }),
     SubagentNotificationSource,
     ThreadNotificationSource,
+    BuildNotificationSource,
     CommandNotificationSource,
     Schema.Struct({ kind: Schema.Literal("monitor") }),
     Schema.Struct({ kind: Schema.Literal("background_task") }),
@@ -2112,6 +2150,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   /** Slot in the user-arranged pinned order; omitted by pre-reorder servers. */
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  readOnCompletionRunId: Schema.optional(Schema.NullOr(RunId)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
@@ -2198,6 +2237,7 @@ export const OrchestrationV2AppThreadJson = OrchestrationV2AppThread.mapFields((
   lastSnoozeWakeAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  readOnCompletionRunId: Schema.optional(Schema.NullOr(RunId)),
   lastVisitedAt: Schema.NullOr(Schema.DateTimeUtcFromString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -2628,6 +2668,7 @@ export const OrchestrationV2ThreadShellJson = OrchestrationV2ThreadShell.mapFiel
   snoozedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
+  readOnCompletionRunId: Schema.optional(Schema.NullOr(RunId)),
   lastVisitedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtcFromString)),
   titleRegeneration: Schema.optional(
     Schema.NullOr(
@@ -2949,6 +2990,12 @@ export const OrchestrationV2Command = Schema.Union([
     visitedAt: IsoDateTime,
   }),
   Schema.Struct({
+    type: Schema.Literal("thread.mark-read"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    whenRunCompletes: Schema.optional(RunId),
+  }),
+  Schema.Struct({
     type: Schema.Literal("thread.mark-unread"),
     commandId: CommandId,
     threadId: ThreadId,
@@ -3017,7 +3064,9 @@ export const OrchestrationV2Command = Schema.Union([
     type: Schema.Literal("thread.thread-watch"),
     commandId: CommandId,
     threadId: ThreadId,
-    watchedThreadId: ThreadId,
+    watchedThreadId: Schema.optional(ThreadId),
+    target: Schema.optional(OrchestrationV2WatchTarget),
+    title: Schema.optional(TrimmedNonEmptyString),
     watching: Schema.Boolean,
   }),
   Schema.Struct({
@@ -3440,6 +3489,14 @@ const OrchestrationV2InternalCommand = Schema.Union([
     commandId: CommandId,
     threadId: ThreadId,
     watchId: TrimmedNonEmptyString,
+    build: Schema.optional(
+      Schema.Struct({
+        number: PositiveInt,
+        title: TrimmedNonEmptyString,
+        url: TrimmedNonEmptyString,
+        condition: Schema.Literals(["unblocked", "closed", "dropped"]),
+      }),
+    ),
   }),
   /**
    * Attaches a workspace in another project, marks one released, or removes one. The workspace
@@ -4107,3 +4164,12 @@ export const ProviderReplayNdjsonRecord = Schema.Union([
   ProviderReplayEntry,
 ]);
 export type ProviderReplayNdjsonRecord = typeof ProviderReplayNdjsonRecord.Type;
+
+/** A read request belongs to one successful run; failures and later runs still surface. */
+export function isQuietRunCompletion(
+  readOnCompletionRunId: RunId | null | undefined,
+  runId: RunId | null | undefined,
+  status: string | null | undefined,
+): boolean {
+  return readOnCompletionRunId != null && readOnCompletionRunId === runId && status === "completed";
+}

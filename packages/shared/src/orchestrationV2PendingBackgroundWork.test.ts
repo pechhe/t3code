@@ -23,7 +23,11 @@ describe("ownBackgroundWork", () => {
       ],
       turnItems: [],
       threadWatches: [
-        { id: "thread-watch:1" as never, threadId: "thread:worker" as never, title: "Worker" },
+        {
+          id: "thread-watch:1" as never,
+          target: { kind: "thread", threadId: "thread:worker" as never },
+          title: "Worker",
+        },
       ],
       pullRequests: [
         {

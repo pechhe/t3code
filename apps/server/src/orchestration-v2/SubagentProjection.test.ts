@@ -346,7 +346,7 @@ it("holds the result for pending background work and pull request watches, not t
     threadWatches: [
       {
         id: "thread-watch:a",
-        threadId: childThreadId,
+        target: { kind: "thread", threadId: childThreadId },
         title: "Child",
         startedAt: "2026-07-24T09:00:00.000Z",
       },

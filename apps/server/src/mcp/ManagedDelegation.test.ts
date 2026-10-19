@@ -1,3 +1,4 @@
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -225,6 +226,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
+              Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
               Layer.provide(transportDependencies),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
@@ -245,7 +247,11 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
   const harness = (
     occupantsFor: (
       helper: string,
-      where: { readonly projectId: string; readonly foreign: string; readonly foreignHelper: string },
+      where: {
+        readonly projectId: string;
+        readonly foreign: string;
+        readonly foreignHelper: string;
+      },
     ) => ReadonlyArray<OrchestrationV2ThreadShell> = () => [],
     bound = true,
     options: {
@@ -410,6 +416,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
+              Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
               Layer.provide(transport),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
@@ -433,6 +440,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
+              Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
               Layer.provide(transport),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),

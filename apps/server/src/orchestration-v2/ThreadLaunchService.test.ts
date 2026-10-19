@@ -1,3 +1,4 @@
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
@@ -529,7 +530,9 @@ it.effect("records its launcher's watch before the first message", () => {
     });
     const shell = yield* threads.getThreadShell(lead.threadId);
     assert.deepEqual(
-      shell?.threadWatches?.map((watch) => watch.threadId),
+      shell?.threadWatches?.map((watch) =>
+        watch.target.kind === "thread" ? watch.target.threadId : undefined,
+      ),
       [worker.threadId],
     );
     assert.isTrue(worker.projection.runs.length > 0);
@@ -3751,6 +3754,11 @@ it.effect.each(
               ),
       });
       const layerService = OrchestratorMcpService.layer.pipe(
+        Layer.provide(
+          Layer.mock(BuildWorkItems.BuildWorkItems)({
+            connected: () => Effect.succeed({ connected: false, origin: null }),
+          }),
+        ),
         Layer.provide(NodeCrypto.layer),
         Layer.provide(harness.layer),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({ resolveCommit })),

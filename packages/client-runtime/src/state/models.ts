@@ -1,3 +1,4 @@
+import { isQuietRunCompletion } from "@t3tools/contracts";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import type {
@@ -157,6 +158,7 @@ export interface EnvironmentThreadShell {
   readonly pullRequests: ReadonlyArray<import("@t3tools/contracts").ThreadPullRequestLink>;
   readonly linkedPullRequest?: ThreadLinkedPullRequest | null;
   readonly branchPullRequest?: ThreadLinkedPullRequest | null;
+  readonly readOnCompletionRunId?: RunId | null;
   /**
    * Server-tracked visited watermark. `undefined` means the environment's
    * server predates visited tracking and clients should fall back to any
@@ -315,6 +317,7 @@ export function presentThreadShell(
     rolloverThresholds: thread.rolloverThresholds ?? null,
     pinOrderKey: thread.pinOrderKey ?? null,
     activeOrderKey: thread.activeOrderKey ?? null,
+    readOnCompletionRunId: thread.readOnCompletionRunId ?? null,
     ...(thread.lastVisitedAt === undefined
       ? {}
       : { lastVisitedAt: nullableIso(thread.lastVisitedAt) }),
@@ -366,4 +369,24 @@ export function resolveThreadWorkingStartedAt(input: {
     return valid(run.startedAt) ?? valid(run.requestedAt);
   }
   return null;
+}
+
+export function hasUnseenThreadCompletion(thread: {
+  readonly latestRun: Pick<ThreadRunSummary, "runId" | "status" | "completedAt"> | null;
+  readonly lastVisitedAt?: string | null | undefined;
+  readonly readOnCompletionRunId?: RunId | null | undefined;
+}): boolean {
+  const run = thread.latestRun;
+  if (!run?.completedAt) return false;
+  if (isQuietRunCompletion(thread.readOnCompletionRunId, run.runId, run.status)) return false;
+  const completedAt = Date.parse(run.completedAt);
+  if (Number.isNaN(completedAt)) return false;
+  if (!thread.lastVisitedAt) {
+    return (
+      thread.readOnCompletionRunId === run.runId &&
+      (run.status === "failed" || run.status === "interrupted")
+    );
+  }
+  const lastVisitedAt = Date.parse(thread.lastVisitedAt);
+  return Number.isNaN(lastVisitedAt) || completedAt > lastVisitedAt;
 }

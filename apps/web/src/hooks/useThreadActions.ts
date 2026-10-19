@@ -231,6 +231,13 @@ export async function navigateAfterThreadDeletion(navigate: () => Promise<void>)
   }
 }
 
+function useMarkThreadRead() {
+  const markRead = useAtomCommand(threadEnvironment.markRead);
+  return (target: ScopedThreadRef) => {
+    void markRead({ environmentId: target.environmentId, input: { threadId: target.threadId } });
+  };
+}
+
 function useMarkThreadUnread() {
   const markThreadUnreadMutation = useAtomCommand(threadEnvironment.markUnread, {
     reportFailure: false,
@@ -318,6 +325,7 @@ export function useThreadActions() {
     reportFailure: false,
   });
   const markThreadUnread = useMarkThreadUnread();
+  const markThreadRead = useMarkThreadRead();
   const stopThreadSession = useOrchestrationCommand(threadEnvironment.stopSession);
   const removeWorktree = useAtomCommand(vcsEnvironment.removeWorktree, {
     reportFailure: false,
@@ -1042,6 +1050,7 @@ export function useThreadActions() {
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
+    markThreadRead,
     setThreadAutoSettle,
     setThreadRolloverHold,
   };

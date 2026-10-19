@@ -102,6 +102,7 @@ export function existingThreadIdsForCommand(
     // v1 transcript hydrated first. Visits fire on every thread-activity bump
     // while a thread is open, so keeping them off the import path matters.
     case "thread.visit":
+    case "thread.mark-read":
     case "thread.mark-unread":
       return [];
     case "thread.fork":
@@ -427,6 +428,14 @@ export interface ThreadManagementServiceShape {
     readonly byOwnAgent: boolean;
   }) => Effect.Effect<
     { readonly sequence: number } | { readonly settlesWhenTurnEnds: true },
+    Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
+  >;
+  readonly markThreadRead: (input: {
+    readonly threadId: ThreadId;
+    readonly commandId: CommandId;
+    readonly byOwnAgent: boolean;
+  }) => Effect.Effect<
+    { readonly sequence: number } | { readonly readsWhenTurnEnds: true },
     Orchestrator.OrchestratorV2Error | ThreadManagementProviderInstanceDisabledError
   >;
   readonly interruptThread: (
@@ -1128,6 +1137,20 @@ const make = Effect.gen(function* () {
     return { sequence: result.sequence };
   });
 
+  const markThreadRead: ThreadManagementServiceShape["markThreadRead"] = Effect.fn(
+    "orchestrationV2.threadManagement.markThreadRead",
+  )(function* (input) {
+    const shell = input.byOwnAgent ? yield* orchestrator.getThreadShell(input.threadId) : null;
+    const runId = shell?.activeRunId ?? undefined;
+    const result = yield* dispatch({
+      type: "thread.mark-read",
+      commandId: input.commandId,
+      threadId: input.threadId,
+      ...(runId === undefined ? {} : { whenRunCompletes: runId }),
+    });
+    return runId === undefined ? { sequence: result.sequence } : { readsWhenTurnEnds: true };
+  });
+
   const interruptThread: ThreadManagementServiceShape["interruptThread"] = (input) =>
     Effect.gen(function* () {
       const target = yield* getProjectThreadRecords(input, ["runs", "providerTurns"]);
@@ -1341,6 +1364,7 @@ const make = Effect.gen(function* () {
     waitForThread,
     settleAfterRun,
     settleThread,
+    markThreadRead,
     interruptThread,
     stopDelegatedTasks,
     stopWorkflow,

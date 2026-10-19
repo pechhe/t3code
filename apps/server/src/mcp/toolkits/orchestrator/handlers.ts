@@ -183,7 +183,7 @@ const handlers = {
       return yield* service.waitForThread(scope, input);
     }),
   ),
-  watch_thread: McpToolAccess.writesThreads(
+  watch: McpToolAccess.writesThreads(
     () => [],
     (input) =>
       Effect.gen(function* () {
@@ -192,7 +192,7 @@ const handlers = {
         return yield* service.watchThread(scope, input, true);
       }),
   ),
-  unwatch_thread: McpToolAccess.writesThreads(
+  unwatch: McpToolAccess.writesThreads(
     () => [],
     (input) =>
       Effect.gen(function* () {

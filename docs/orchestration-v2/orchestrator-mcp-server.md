@@ -354,7 +354,7 @@ its own under the environment's Scratch project. For stacked PRs, use the parent
 `startFromOrigin: false`. The new thread may not run with broader runtime or
 interaction modes than the caller. Launch has no retry key, so inspect existing threads after a failed or lost response before
 launching again. `create_threads` remains the batch option for a shared checkout.
-`watch: true` records the caller's `watch_thread` watch before the first message
+`watch: true` records the caller's watch on the new thread before the first message
 is dispatched, so a thread that finishes quickly cannot be missed.
 
 ### `t3_thread_list`
@@ -448,9 +448,18 @@ Waits for a selected run to become `completed`, `failed`, `cancelled`,
 time; an idle thread returns immediately. A timeout reports the latest durable
 status and does not cancel work.
 
-### `watch_thread` and `unwatch_thread`
+### `watch` and `unwatch`
 
-`watch_thread` wakes the calling thread once when another thread in its
+Both take `target: {kind: "thread", threadId}` or
+`target: {kind: "build_item", number, until: "unblocked" | "closed"}`.
+Build targets use the watcher's project HQ connection and are refused without one.
+`unblocked` means all waits and holds are clear; `closed` means Landed, Accepted
+or Dropped. An unblocked watch also wakes on Dropped. `BuildWatchReactor` polls
+on its own one-minute cadence through the shared Build summary cache, including
+after a restart. A Build wake names the item and condition and ends the watch.
+The same watcher lifecycle and duplicate-target rules apply to both targets.
+
+With a thread target, `watch` wakes the calling thread once when another thread in its
 environment has finished, so a lead needs no timer, repeated wait or report-back
 brief. The watched thread does nothing special. A watch is event-sourced state
 of the watcher (`threadWatches`), so it survives restarts. A thread has finished
@@ -473,11 +482,11 @@ picks the moment, from events and a periodic sweep of stored state. The
 the watch and queues the wake in one transaction, and derives the wake's message
 id from the watch, so a replay cannot wake twice.
 
-A watch ends without a wake on `unwatch_thread`, when the user stops the
+A watch ends without a wake on `unwatch`, when the user stops the
 watcher, or when the watcher is archived, settled or deleted. Reading the watched
 thread's result with `t3_thread_read` also ends it, since the wake would only
 repeat that result. A wake that fired while the watcher was busy waits queued
-behind its run, so ending the watch, by `unwatch_thread` or by that read,
+behind its run, so ending the watch, by `unwatch` or by that read,
 cancels a wake still queued. A thread cannot
 watch itself or a thread in another environment, and a subagent or a settled or
 archived thread cannot start a watch.

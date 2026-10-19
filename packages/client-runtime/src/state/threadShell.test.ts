@@ -445,7 +445,7 @@ describe("thread watchers", () => {
       threadWatches: [
         {
           id: "thread-watch:watcher:0",
-          threadId: watched.id,
+          target: { kind: "thread" as const, threadId: watched.id },
           title: watched.title,
           startedAt: "2026-06-20T00:00:00.000Z",
         },

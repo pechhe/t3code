@@ -2764,6 +2764,7 @@ export default function Sidebar() {
     reorderPinnedThread,
     reorderActiveThread,
     markThreadUnread,
+    markThreadRead,
     archiveThread,
     deleteThread,
   } = useThreadActions();
@@ -4012,6 +4013,7 @@ export default function Sidebar() {
                   },
                 ]
               : []),
+            { id: "mark-read", label: `Mark read (${count})` },
             { id: "mark-unread", label: `Mark unread (${count})` },
             {
               id: "delete",
@@ -4038,7 +4040,12 @@ export default function Sidebar() {
                 })
               : selectedThreads;
       if (clicked.value === "settle" && actionTargets.length === 0) return;
-      if (clicked.value !== "mark-unread" && !checkThreadOperations(actionTargets)) return;
+      if (
+        clicked.value !== "mark-read" &&
+        clicked.value !== "mark-unread" &&
+        !checkThreadOperations(actionTargets)
+      )
+        return;
       if (clicked.value?.startsWith("snooze:")) {
         const preset =
           clicked.value === "snooze:custom"
@@ -4116,10 +4123,13 @@ export default function Sidebar() {
         clearSelection();
         return;
       }
-      if (clicked.value === "mark-unread") {
+      if (clicked.value === "mark-read" || clicked.value === "mark-unread") {
         for (const threadKey of threadKeys) {
           const thread = threadByKeyRef.current.get(threadKey);
-          if (thread) markThreadUnread(scopeThreadRef(thread.environmentId, thread.id));
+          if (thread)
+            (clicked.value === "mark-read" ? markThreadRead : markThreadUnread)(
+              scopeThreadRef(thread.environmentId, thread.id),
+            );
         }
         clearSelection();
         return;
@@ -4405,6 +4415,9 @@ export default function Sidebar() {
             }
             return;
           }
+          case "mark-read":
+            markThreadRead(threadRef);
+            return;
           case "mark-unread":
             markThreadUnread(threadRef);
             return;

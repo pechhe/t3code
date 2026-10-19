@@ -110,8 +110,9 @@ const make = Effect.gen(function* () {
     }
     if (watcher.deletedAt !== null) return;
     for (const watch of watcher.threadWatches ?? []) {
-      byWatched.set(watch.threadId, [
-        ...(byWatched.get(watch.threadId) ?? []),
+      if (watch.target.kind !== "thread") continue;
+      byWatched.set(watch.target.threadId, [
+        ...(byWatched.get(watch.target.threadId) ?? []),
         { watcherId: watcher.id, watch },
       ]);
     }
@@ -121,8 +122,9 @@ const make = Effect.gen(function* () {
   // watcher's lock, with the restart-continuation hold only it can see.
   const evaluate = ({ watcherId, watch }: Watching) =>
     Effect.gen(function* () {
+      if (watch.target.kind !== "thread") return;
       const watched = yield* projections.getThreadRecords(
-        watch.threadId,
+        watch.target.threadId,
         watchedThreadRecords.fields,
         watchedThreadRecords.filter,
       );
@@ -138,7 +140,7 @@ const make = Effect.gen(function* () {
       Effect.catchCause((cause) =>
         Effect.logDebug("thread watch check failed", {
           watcherId,
-          watchedThreadId: watch.threadId,
+          target: watch.target,
           cause,
         }),
       ),

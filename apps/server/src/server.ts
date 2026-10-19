@@ -22,6 +22,7 @@ import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReact
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
 import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
+import * as BuildWatchReactor from "./orchestration-v2/BuildWatchReactor.ts";
 import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
 import * as ProjectMoveReactor from "./orchestration-v2/ProjectMoveReactor.ts";
 // @effect-diagnostics nodeBuiltinImport:off
@@ -80,6 +81,9 @@ import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceR
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
+import * as FleetSummaryService from "./fleet/FleetSummaryService.ts";
+import * as FleetProjection from "./fleet/FleetProjection.ts";
+import * as FleetPeers from "./peers/FleetPeers.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as HqAgentConnections from "./hq/HqAgentConnections.ts";
 import * as HqAgentLifecycleReactor from "./hq/HqAgentLifecycleReactor.ts";
@@ -646,6 +650,11 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ).pipe(Layer.provide(UnattendedReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
+      yield* (yield* BuildWatchReactor.BuildWatchReactor).start();
+    }),
+  ).pipe(Layer.provide(BuildWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
       yield* (yield* ThreadWatchReactor.ThreadWatchReactor).start();
     }),
   ).pipe(Layer.provide(ThreadWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
@@ -776,6 +785,13 @@ const layerMakeRoutes = Layer.mergeAll(
     Ws.layer,
   ),
   McpHttpServer.layer.pipe(
+    Layer.provide(
+      FleetSummaryService.layer.pipe(
+        Layer.provide(FleetProjection.layer),
+        Layer.provide(FleetPeers.layer),
+        Layer.provide(ProjectionStoreV2.layer),
+      ),
+    ),
     Layer.provide(ProviderAdapterRegistry.layerFromProviderInstanceRegistry),
     Layer.provide(McpOAuth.layerMcpClientAuthenticator),
   ),

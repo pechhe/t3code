@@ -304,7 +304,7 @@ const ThreadSendTool = Tool.make("t3_thread_send", {
 
 const ThreadWaitTool = Tool.make("t3_thread_wait", {
   description:
-    "Wait for a T3 thread run to reach a terminal durable state, within this turn. Without runId, the latest run at call time is selected; an idle thread returns immediately. Timeout does not interrupt work, so call again or use t3_thread_read/list after timedOut=true. Waiting reports status only and does not acknowledge a delegated result. A run can end while the thread still has work, such as a reviewer or background command. To wait for longer than one turn, or for the thread to finish all of its work, call watch_thread and end your turn instead.",
+    "Wait for a T3 thread run to reach a terminal durable state, within this turn. Without runId, the latest run at call time is selected; an idle thread returns immediately. Timeout does not interrupt work, so call again or use t3_thread_read/list after timedOut=true. Waiting reports status only and does not acknowledge a delegated result. A run can end while the thread still has work, such as a reviewer or background command. To wait for longer than one turn, or for the thread to finish all of its work, call watch and end your turn instead.",
   parameters: OrchestratorMcpThreadWaitInput,
   success: OrchestratorMcpThreadWaitResult,
   failure: OrchestratorMcpFailure,
@@ -316,30 +316,30 @@ const ThreadWaitTool = Tool.make("t3_thread_wait", {
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
-const WatchThreadTool = Tool.make("watch_thread", {
+const WatchThreadTool = Tool.make("watch", {
   description:
-    "Have T3 Code wake this thread once when another thread in this environment has finished its work. Use this instead of polling, sleeping, repeated t3_thread_wait calls, or asking a worker to message you when it is done. A thread has finished when no run is active or queued and it has no unfinished delegated task, background command or pull request watch; a run that ends with any of those still pending is a pause and does not wake you. The wake also comes, once, if the thread fails, is stopped, is archived or deleted, or is waiting for a person to answer a question or approval. The wake gives the thread's outcome and quotes its final message as that thread's own words. A thread that has already finished wakes you at once. Survives server restarts. After a wake, the watch has ended: call watch_thread again to be woken again. Watching ends without a wake when you call unwatch_thread, read the thread's final result with t3_thread_read, when the user stops this thread, or when this thread is archived or settled. While watching, this thread stays in the user's Working list. A thread cannot watch itself or a thread in another environment, a delegated subagent cannot watch (its parent thread does), and a settled or archived thread must be unsettled first. Watching a thread you already watch changes nothing.",
+    'Have T3 Code wake this thread once when a target is ready: another thread in this environment ({kind: "thread", threadId}) or a YardSmith Build item ({kind: "build_item", number, until}). Use this instead of polling, sleeping, repeated t3_thread_wait calls, or asking a worker to message you when it is done. A thread has finished when no run is active or queued and it has no unfinished delegated task, background command or pull request watch; a run that ends with any of those still pending is a pause and does not wake you. The wake also comes, once, if the thread fails, is stopped, is archived or deleted, or is waiting for a person to answer a question or approval. The wake gives the thread\'s outcome and quotes its final message as that thread\'s own words. A thread that has already finished wakes you at once. Survives server restarts. After a wake, the watch has ended: call watch again to be woken again. Watching ends without a wake when you call unwatch, read the thread\'s final result with t3_thread_read, when the user stops this thread, or when this thread is archived or settled. While watching, this thread stays in the user\'s Working list. A thread cannot watch itself or a thread in another environment, a delegated subagent cannot watch (its parent thread does), and a settled or archived thread must be unsettled first. Watching a target you already watch changes nothing. A Build item target needs this project\'s HQ connection and is checked at most once a minute: until "unblocked" wakes you when all its waits and holds are clear, until "closed" when it is Landed or Accepted; either wakes you if it is Dropped.',
   parameters: OrchestratorMcpThreadWatchInput,
   success: OrchestratorMcpThreadWatchResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies,
 })
-  .annotate(Tool.Title, "Watch a T3 thread")
+  .annotate(Tool.Title, "Watch a thread or Build item")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);
 
-const UnwatchThreadTool = Tool.make("unwatch_thread", {
+const UnwatchThreadTool = Tool.make("unwatch", {
   description:
-    "Stop T3 Code from waking this thread when another thread finishes, including a wake already queued behind your current turn. The watched thread is not affected.",
+    "Stop T3 Code from waking this thread for the given thread or Build item target, including a wake already queued behind your current turn. The target is not affected.",
   parameters: OrchestratorMcpThreadWatchInput,
   success: OrchestratorMcpThreadWatchResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
   dependencies,
 })
-  .annotate(Tool.Title, "Stop watching a T3 thread")
+  .annotate(Tool.Title, "Stop watching a target")
   .annotate(Tool.Readonly, false)
   .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, true);

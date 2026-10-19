@@ -26,6 +26,7 @@ import {
   setNotificationBadge,
   unlockNotificationAudio,
 } from "../threadNotifications";
+import { resolveThreadNotificationKind } from "./ThreadNotificationCoordinator.logic";
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 
@@ -156,12 +157,14 @@ function EnvironmentNotifications({
           : (prior?.completion ?? null);
       next.set(thread.id, { raw: rawThread, subagentRequest, attention, completion });
       if (!prior || thread.archivedAt !== null) continue;
-      const kind =
-        attention && attention !== prior.attention
-          ? "input"
-          : completion !== null && (prior.completion === null || completion > prior.completion)
-            ? "completion"
-            : null;
+      const kind = resolveThreadNotificationKind({
+        attention,
+        priorAttention: prior.attention,
+        completion,
+        priorCompletion: prior.completion,
+        readOnCompletionRunId: thread.readOnCompletionRunId,
+        latestRun: thread.latestRun,
+      });
       if (!kind) continue;
       const title =
         kind === "completion"

@@ -1,3 +1,4 @@
+import { isQuietRunCompletion } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import {
   type ThreadPullRequestLink,
@@ -5,6 +6,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
+  EventId,
   MessageId,
   ProjectId,
   ProviderInstanceId,
@@ -498,4 +500,49 @@ it("does not scan every row against every run for a streaming item update", () =
   expect(next?.visibleTurnItems.at(-1)?.item).toBe(payload);
   expect(next?.visibleTurnItems[0]).toBe(projection.visibleTurnItems[0]);
   expect(runReads).toBeLessThanOrEqual(100);
+});
+
+describe("quiet completion read state", () => {
+  it.each(["completed", "failed", "interrupted"] as const)(
+    "only reads a successful marked run (%s)",
+    (status) => {
+      const marked = applyOrchestrationV2ProjectionEvent(emptyProjection, {
+        id: EventId.make("quiet-request"),
+        type: "thread.visited",
+        threadId,
+        occurredAt: now,
+        payload: { ...emptyProjection.thread, readOnCompletionRunId: runId },
+      })!;
+      const ended = applyOrchestrationV2ProjectionEvent(marked, {
+        id: EventId.make("quiet-completion"),
+        type: "run.updated",
+        threadId,
+        runId,
+        occurredAt: now,
+        payload: { ...run, status },
+      })!;
+      expect(
+        isQuietRunCompletion(
+          ended.thread.readOnCompletionRunId,
+          ended.runs[0]?.id,
+          ended.runs[0]?.status,
+        ),
+      ).toBe(status === "completed");
+      const unread = applyOrchestrationV2ProjectionEvent(ended, {
+        id: EventId.make("explicit-unread"),
+        type: "thread.marked-unread",
+        threadId,
+        occurredAt: now,
+        payload: { ...ended.thread, readOnCompletionRunId: null },
+      })!;
+      expect(isQuietRunCompletion(unread.thread.readOnCompletionRunId, runId, status)).toBe(false);
+      expect(
+        isQuietRunCompletion(
+          ended.thread.readOnCompletionRunId,
+          RunId.make("later-run"),
+          "completed",
+        ),
+      ).toBe(false);
+    },
+  );
 });

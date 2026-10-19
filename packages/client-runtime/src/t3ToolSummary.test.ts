@@ -7,6 +7,26 @@ function completed(input: unknown, output?: unknown): T3ToolSummaryCall {
 }
 
 describe("summarizeT3ToolCalls", () => {
+  it("summarizes thread and Build targets, preserving historical thread calls", () => {
+    expect(
+      summarizeT3ToolCalls("thread-watch", [
+        completed({ target: { kind: "build_item", number: 1000001, until: "closed" } }),
+        completed({ target: { kind: "build_item", number: 1000001, until: "closed" } }),
+      ]).label,
+    ).toBe("Watching 1 Build item");
+    expect(
+      summarizeT3ToolCalls("thread-watch", [
+        completed({ target: { kind: "thread", threadId: "one" } }),
+        completed({ threadId: "one" }),
+      ]).label,
+    ).toBe("Watching 1 thread");
+    expect(
+      summarizeT3ToolCalls("thread-unwatch", [
+        completed({ target: { kind: "build_item", number: 1000001, until: "closed" } }),
+      ]).label,
+    ).toBe("Stopped watching 1 Build item");
+  });
+
   it("counts registered projects, repository destinations, and accepted thread launches", () => {
     expect(
       summarizeT3ToolCalls("project-create", [

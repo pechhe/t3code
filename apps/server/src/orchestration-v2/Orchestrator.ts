@@ -129,6 +129,8 @@ import {
 } from "./ProjectionStore.ts";
 import { ProviderAdapterRegistryV2 } from "./ProviderAdapterRegistry.ts";
 import {
+  buildWatchWake,
+  watchTargetsEqual,
   decideThreadWatch,
   queuedThreadWatchWakes,
   requestPrompt,
@@ -470,6 +472,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pin.reorder":
     case "thread.active.reorder":
     case "thread.visit":
+    case "thread.mark-read":
     case "thread.mark-unread":
     case "thread.metadata.update":
     case "thread.pull-request.link":
@@ -2568,8 +2571,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     const thread = yield* readThread(command.threadId);
     if (thread.deletedAt !== null) return yield* refuse(`Thread ${command.threadId} is deleted.`);
+    const target =
+      command.target ??
+      (command.watchedThreadId === undefined
+        ? undefined
+        : { kind: "thread" as const, threadId: command.watchedThreadId });
+    if (target === undefined) return yield* refuse("A watch target is required.");
     const watches = thread.threadWatches ?? [];
-    const existing = watches.find((watch) => watch.threadId === command.watchedThreadId);
+    const existing = watches.find((watch) => watchTargetsEqual(watch.target, target));
     if (!command.watching) {
       const watcher = yield* projectionStore
         .getThreadRecords(command.threadId, ["runs", "messages"], {
@@ -2581,7 +2590,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
           ),
         );
-      for (const run of queuedThreadWatchWakes(watcher, command.watchedThreadId)) {
+      for (const run of queuedThreadWatchWakes(watcher, target)) {
         yield* dispatchQueuedRunCancel(
           {
             type: "queued-run.cancel",
@@ -2600,19 +2609,25 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         watches.filter((watch) => watch !== existing),
       );
     }
-    const refusal = threadWatchRefusal(thread, command.watchedThreadId);
+    const refusal = threadWatchRefusal(
+      thread,
+      target.kind === "thread" ? target.threadId : undefined,
+    );
     if (refusal !== undefined) return yield* refuse(refusal);
     if (existing !== undefined) return;
-    const watched = yield* readThread(command.watchedThreadId);
-    if (watched.deletedAt !== null) {
-      return yield* refuse(`Thread ${command.watchedThreadId} is deleted.`);
+    const watched = target.kind === "thread" ? yield* readThread(target.threadId) : undefined;
+    if (watched !== undefined && watched.deletedAt !== null) {
+      return yield* refuse(`Thread ${watched.id} is deleted.`);
     }
     yield* emitThreadWatches(events, command, thread, [
       ...watches,
       {
         id: `thread-watch:${command.commandId}`,
-        threadId: watched.id,
-        title: watched.title,
+        target,
+        title:
+          watched?.title ??
+          command.title ??
+          `Build #${target.kind === "build_item" ? target.number : ""}`,
         startedAt: DateTime.formatIso(yield* DateTime.now),
       },
     ]);
@@ -2642,15 +2657,52 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         cause: "The thread watch has ended.",
       });
     }
+    if (watch.target.kind === "build_item") {
+      const build = command.build;
+      if (
+        build === undefined ||
+        build.number !== watch.target.number ||
+        (build.condition !== "dropped" && build.condition !== watch.target.until)
+      )
+        return;
+      yield* emitThreadWatches(
+        events,
+        command,
+        thread,
+        watches.filter((candidate) => candidate !== watch),
+      );
+      yield* dispatchMessage(
+        {
+          type: "message.dispatch",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          messageId: MessageId.make(`message:${watch.id}`),
+          ...buildWatchWake({
+            target: watch.target,
+            title: build.title,
+            url: build.url,
+            condition: build.condition,
+          }),
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        },
+        events,
+        effects,
+      );
+      return;
+    }
+    const watchedThreadId = watch.target.threadId;
     const readWatched = <K extends ProjectionRecordField>(
       keys: ReadonlyArray<K>,
       filter: ProjectionRecordFilter,
     ) =>
       projectionStore
-        .getThreadRecords(watch.threadId, keys, filter)
+        .getThreadRecords(watchedThreadId, keys, filter)
         .pipe(
           Effect.mapError(
-            (cause) => new OrchestratorProjectionError({ threadId: watch.threadId, cause }),
+            (cause) => new OrchestratorProjectionError({ threadId: watchedThreadId, cause }),
           ),
         );
     const watched = yield* readWatched(watchedThreadRecords.fields, watchedThreadRecords.filter);
@@ -2661,7 +2713,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       decision.kind !== "needs-input" &&
       (yield* childAwaitsRestartContinuation(watched.runs, decision.resultRun).pipe(
         Effect.mapError(
-          (cause) => new OrchestratorProjectionError({ threadId: watch.threadId, cause }),
+          (cause) => new OrchestratorProjectionError({ threadId: watchedThreadId, cause }),
         ),
       ))
     ) {
@@ -2683,7 +2735,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const result = subagentResultForRun(records, decision.resultRun);
       detail = result.messageId === null && result.turnItemId === null ? undefined : result.text;
     }
-    const wake = threadWatchWake({ watch, title: watched.thread.title, decision, detail });
+    const wake = threadWatchWake({
+      watch: { threadId: watchedThreadId },
+      title: watched.thread.title,
+      decision,
+      detail,
+    });
     yield* emitThreadWatches(
       events,
       command,
@@ -2894,6 +2951,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.unpin"
           | "thread.pin.reorder"
           | "thread.active.reorder"
+          | "thread.mark-read"
           | "thread.mark-unread"
           | "thread.metadata.update"
           | "thread.pull-request.link"
@@ -3339,7 +3397,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     let markUnreadVisitedAt: DateTime.Utc | null = null;
     if (command.type === "thread.mark-unread") {
       const projection = yield* loadProjectionForCommand(command, ["runs"]);
-      const latestRunCompletedAt = projection.runs.at(-1)?.completedAt ?? null;
+      const latestRun = projection.runs.at(-1);
+      const latestRunCompletedAt =
+        latestRun?.completedAt ??
+        (thread.readOnCompletionRunId != null && thread.readOnCompletionRunId === latestRun?.id
+          ? now
+          : null);
       if (latestRunCompletedAt === null) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
@@ -3481,8 +3544,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: thread.updatedAt,
           };
         }
+        case "thread.mark-read":
+          return {
+            ...thread,
+            readOnCompletionRunId: command.whenRunCompletes ?? null,
+            lastVisitedAt: command.whenRunCompletes === undefined ? now : thread.lastVisitedAt,
+          };
         case "thread.mark-unread":
-          return { ...thread, lastVisitedAt: markUnreadVisitedAt };
+          return { ...thread, readOnCompletionRunId: null, lastVisitedAt: markUnreadVisitedAt };
         case "thread.metadata.update": {
           const previousRecovery =
             thread.limitRecovery?.runId === command.limitRecovery?.runId &&
@@ -3841,6 +3910,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.pin-reordered" as const;
         case "thread.active.reorder":
           return "thread.active-reordered" as const;
+        case "thread.mark-read":
+          return "thread.visited" as const;
         case "thread.mark-unread":
           return "thread.marked-unread" as const;
         case "thread.metadata.update":
@@ -12114,6 +12185,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.unpin":
       case "thread.pin.reorder":
       case "thread.active.reorder":
+      case "thread.mark-read":
       case "thread.mark-unread":
       case "thread.metadata.update":
       case "thread.pull-request.link":

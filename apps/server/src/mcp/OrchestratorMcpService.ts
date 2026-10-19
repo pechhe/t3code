@@ -1,4 +1,5 @@
 import { defaultChildMode } from "../agents/delegationRuntime.ts";
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertExternalWorkOwner, canReadExternalWork } from "./threadAccess.ts";
 import * as Hex from "effect/encoding/Hex";
@@ -121,6 +122,7 @@ import { runOutcome } from "../orchestration-v2/RestartBackgroundNote.ts";
 import {
   decideThreadWatch,
   queuedThreadWatchWakes,
+  watchTargetsEqual,
   threadWatchRefusal,
   watchedThreadRecords,
 } from "../orchestration-v2/threadWatch.ts";
@@ -1052,6 +1054,7 @@ function timelineItem(input: {
 }
 
 const make = Effect.gen(function* () {
+  const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
   const experiments = yield* Experiments.ExperimentService;
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -3776,7 +3779,7 @@ const make = Effect.gen(function* () {
           scope.thread !== undefined &&
           (input.textOffset ?? 0) === 0 &&
           ((parent.thread.threadWatches ?? []).some(
-            (watch) => watch.threadId === target.thread.id,
+            (watch) => watch.target.kind === "thread" && watch.target.threadId === target.thread.id,
           ) ||
             queuedThreadWatchWakes(parent, target.thread.id).length > 0)
         ) {
@@ -3930,30 +3933,54 @@ const make = Effect.gen(function* () {
     watchThread: (scope, input, watching) =>
       Effect.gen(function* () {
         yield* requireCapability(scope);
-        const { thread } = yield* requireThreadScope(
-          scope,
-          watching ? "watch_thread" : "unwatch_thread",
-        );
+        const { thread } = yield* requireThreadScope(scope, watching ? "watch" : "unwatch");
         const watcher = yield* threadManagement
           .getThreadShell(thread.threadId)
           .pipe(Effect.mapError(threadManagementFailure));
         if (watcher === null || watcher.deletedAt !== null) {
           return yield* failure("thread_not_found", `Thread ${thread.threadId} was not found.`);
         }
-        const wasWatching = (watcher.threadWatches ?? []).some(
-          (watch) => watch.threadId === input.threadId,
+        const target = input.target;
+        const wasWatching = (watcher.threadWatches ?? []).some((watch) =>
+          watchTargetsEqual(watch.target, target),
         );
+        let title: string | undefined;
         if (watching) {
-          const refusal = threadWatchRefusal(watcher, input.threadId);
+          const refusal = threadWatchRefusal(
+            watcher,
+            target.kind === "thread" ? target.threadId : undefined,
+          );
           if (refusal !== undefined) return yield* failure("invalid_request", refusal);
-          const watched = yield* threadManagement
-            .getThreadShell(input.threadId)
-            .pipe(Effect.mapError(threadManagementFailure));
-          if (watched === null || watched.deletedAt !== null) {
-            return yield* failure(
-              "thread_not_found",
-              `Thread ${input.threadId} is not in this environment. A thread can watch only threads in its own environment.`,
-            );
+          if (target.kind === "thread") {
+            const watched = yield* threadManagement
+              .getThreadShell(target.threadId)
+              .pipe(Effect.mapError(threadManagementFailure));
+            if (watched === null || watched.deletedAt !== null) {
+              return yield* failure(
+                "thread_not_found",
+                `Thread ${target.threadId} is not in this environment. A thread can watch only threads in its own environment.`,
+              );
+            }
+          } else {
+            const connection = yield* buildWorkItems
+              .connected(watcher.projectId)
+              .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
+            if (!connection.connected)
+              return yield* failure(
+                "invalid_request",
+                "This thread's project is not connected to YardSmith HQ; it cannot watch Build items.",
+              );
+            // A mistyped number would otherwise wait forever; an unreachable HQ is retried by the sweep.
+            const found = yield* buildWorkItems
+              .mentions({ threadId: watcher.id, numbers: [target.number] })
+              .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
+            const view = found.items.find((candidate) => candidate.number === target.number);
+            if (view === undefined && found.unavailable !== true)
+              return yield* failure(
+                "invalid_request",
+                `Build #${target.number} is not a Spec or Ticket this project's HQ can see.`,
+              );
+            title = view?.item?.title.trim() || `Build #${target.number}`;
           }
         }
         yield* threadManagement
@@ -3962,23 +3989,21 @@ const make = Effect.gen(function* () {
             commandId: stableCommandId({
               scope,
               requestKey: yield* requestKey(undefined),
-              operation: watching ? "thread-watch" : "thread-unwatch",
+              operation: watching ? "watch" : "unwatch",
             }),
             threadId: watcher.id,
-            watchedThreadId: input.threadId,
+            target,
+            ...(title === undefined ? {} : { title }),
             watching,
           })
           .pipe(
             Effect.mapError((error) =>
               isThreadManagementError(error)
                 ? threadManagementFailure(error)
-                : failure(
-                    "orchestration_error",
-                    `Unable to ${watching ? "watch" : "unwatch"} thread ${input.threadId}: ${errorMessage(error)}`,
-                  ),
+                : failure("orchestration_error", `Unable to update watch: ${errorMessage(error)}`),
             ),
           );
-        return { threadId: input.threadId, watching, wasWatching };
+        return { target, watching, wasWatching };
       }),
     interruptThread: (scope, input) =>
       Effect.gen(function* () {
@@ -4029,6 +4054,7 @@ export const layer: Layer.Layer<
   OrchestratorMcpService,
   never,
   | Crypto.Crypto
+  | BuildWorkItems.BuildWorkItems
   | Experiments.ExperimentService
   | ThreadManagementService.ThreadManagementService
   | ThreadLaunchService.ThreadLaunchService

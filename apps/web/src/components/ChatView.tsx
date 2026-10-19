@@ -267,6 +267,7 @@ import {
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
+import { BuildMentionChip } from "./buildItem/BuildMentionChip";
 import { LinkBuildItemDialogHost } from "./buildItem/LinkBuildItemDialog";
 import { useDeviceState } from "~/state/device";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -5270,6 +5271,20 @@ export default function ChatView(props: ChatViewProps) {
         >
           {item.label}
         </InlineButton>
+      );
+    }
+    if (watching?.kind === "build_item" && activeThreadRef !== null) {
+      return (
+        <span>
+          Watching{" "}
+          <BuildMentionChip
+            threadRef={activeThreadRef}
+            number={watching.number}
+            copy={`#${watching.number}`}
+            fallback={`Build #${watching.number}`}
+          />{" "}
+          until {watching.until}
+        </span>
       );
     }
     if (watching?.kind === "pull_request") {

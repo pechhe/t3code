@@ -17,6 +17,7 @@ export type ThreadActionMenuId =
   | "unsnooze"
   | "rename"
   | "regenerate-title"
+  | "mark-read"
   | "mark-unread"
   | "link-build-item"
   | "copy"
@@ -96,6 +97,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
   return ![
     "new-thread-on-branch",
     "project-settings",
+    "mark-read",
     "mark-unread",
     "copy",
     "copy-path",
@@ -161,6 +163,7 @@ export function buildThreadActionMenuItems(
           },
         ]
       : []),
+    { id: "mark-read", label: "Mark read", icon: "mail-open" },
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
     ...(state.canLinkBuildItem
       ? [{ id: "link-build-item" as const, label: "Link Build item", icon: "link" }]

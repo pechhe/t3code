@@ -44,6 +44,8 @@ import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import * as PreviewControlsHandlers from "./toolkits/previewControls/handlers.ts";
 import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
+import { FleetToolkit } from "./toolkits/fleet/tools.ts";
+import * as FleetHandlers from "./toolkits/fleet/handlers.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
@@ -1130,6 +1132,7 @@ export const layer = Layer.mergeAll(
   layerAttachmentToolkit,
   layerProjectRegistration,
   layerEnvironmentToolkit,
+  toolkitRegistration(FleetToolkit, FleetHandlers.layer),
   layerPreviewControlsRegistration,
   layerWorktreeToolkitRegistration,
   toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(

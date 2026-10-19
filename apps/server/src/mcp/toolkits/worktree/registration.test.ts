@@ -1,4 +1,5 @@
 import * as Experiments from "../../../experiments/ExperimentService.ts";
+import * as FleetSummaryService from "../../../fleet/FleetSummaryService.ts";
 import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../../../orchestration-v2/ProjectionStore.ts";
 import * as DeviceService from "../../../device/DeviceService.ts";
@@ -43,6 +44,7 @@ import * as PreviewBrowser from "../../../preview/PreviewBrowser.ts";
 import * as TerminalManager from "../../../terminal/Manager.ts";
 
 const layerStubServices = Layer.mergeAll(
+  Layer.mock(FleetSummaryService.FleetSummaryService)({}),
   Layer.mock(Orchestrator.OrchestratorV2)({}),
   Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
   Layer.mock(DeviceService.DeviceService)({}),
@@ -154,6 +156,10 @@ it.effect("production mcp layer lists worktree tools over http", () =>
       expect(toolNames).toContain("t3_worktree_status");
       expect(toolNames).toContain("preview_status");
       expect(toolNames).toContain("delegate_task");
+      expect(toolNames).toContain("t3_fleet_summary");
+      const fleet = tools.find((tool) => tool.name === "t3_fleet_summary");
+      expect(fleet?.annotations?.readOnlyHint).toBe(true);
+      expect(fleet?.annotations?.destructiveHint).toBe(false);
 
       const handoff = tools.find((tool) => tool.name === "t3_worktree_handoff");
       expect(handoff?.annotations?.readOnlyHint).toBe(false);

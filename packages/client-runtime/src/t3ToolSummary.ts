@@ -160,15 +160,26 @@ export function summarizeT3ToolCalls(
       label = phrase("Listed", "list", `threads ${times}`);
       break;
     case "thread-watch":
-      label = phrase("Watching", "watch", quantity(countEntities(threadIds), "thread"));
-      break;
-    case "thread-unwatch":
-      label = phrase(
-        "Stopped watching",
-        "stop watching",
-        quantity(countEntities(threadIds), "thread"),
+    case "thread-unwatch": {
+      const targets = selected.map(
+        (call) => asRecord(call.output?.target) ?? asRecord(call.input?.target),
       );
+      const noun = targets.every((target) => target?.kind === "build_item")
+        ? "Build item"
+        : targets.every((target) => target === undefined || target.kind === "thread")
+          ? "thread"
+          : "target";
+      const ids = targets.map((target, index) =>
+        target?.kind === "build_item"
+          ? `build:${target.number}:${target.until}`
+          : (id(target?.threadId) ?? threadIds[index]),
+      );
+      label =
+        action === "thread-watch"
+          ? phrase("Watching", "watch", quantity(countEntities(ids), noun))
+          : phrase("Stopped watching", "stop watching", quantity(countEntities(ids), noun));
       break;
+    }
     case "thread-interrupt":
       label = phrase(
         "Requested interrupts for",

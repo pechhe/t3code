@@ -1,3 +1,4 @@
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import { assert, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -129,6 +130,11 @@ const dependencies = (input: {
       input.session?.(scope, key) ?? Effect.die("unexpected external session lookup"),
   });
   const serviceLayer = OrchestratorMcpService.layer.pipe(
+    Layer.provide(
+      Layer.mock(BuildWorkItems.BuildWorkItems)({
+        connected: () => Effect.succeed({ connected: false, origin: null }),
+      }),
+    ),
     Layer.provide(WorkspaceProvider.layerGitWorktree),
     Layer.provide(
       Layer.mergeAll(

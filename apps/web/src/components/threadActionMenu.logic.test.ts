@@ -83,6 +83,7 @@ describe("buildThreadActionMenuItems", () => {
     const denied = buildThreadActionMenuItems({ ...baseState, canOperate: false, branch: "main" });
     expect(denied.filter((item) => !item.disabled).map((item) => item.id)).toEqual([
       "new-thread-on-branch",
+      "mark-read",
       "mark-unread",
       "copy-thread-id",
       "copy",
@@ -106,6 +107,7 @@ describe("buildThreadActionMenuItems", () => {
       }),
     ).toEqual([
       "rename",
+      "mark-read",
       "mark-unread",
       "copy-thread-id",
       "copy",

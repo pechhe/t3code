@@ -412,6 +412,11 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
     Effect.gen(function* () {
       const { threads, projection, caller } = yield* readThread(input.threadId);
       const common = { commandId: yield* newCommandId(), threadId: projection.thread.id };
+      if (input.action === "mark_read") {
+        return yield* threads
+          .markThreadRead({ ...common, byOwnAgent: caller?.id === projection.thread.id })
+          .pipe(Effect.mapError(dispatchFailure));
+      }
       if (input.action === "settle") {
         return yield* threads
           .settleThread({ ...common, byOwnAgent: caller?.id === projection.thread.id })

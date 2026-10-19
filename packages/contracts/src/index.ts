@@ -74,3 +74,4 @@ export * from "./agentPolicySettings.ts";
 export * from "./runSetup.ts";
 
 export * from "./browserBackend.ts";
+export * from "./fleetSummary.ts";

@@ -22,6 +22,13 @@ import {
   TurnItemId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as TestClock from "effect/testing/TestClock";
+import * as Fiber from "effect/Fiber";
+import * as Schema from "effect/Schema";
+import { OrchestrationV2ThreadWatch, type BuildWorkItemSummary } from "@t3tools/contracts";
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
+import * as BuildWatchReactor from "./BuildWatchReactor.ts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -369,6 +376,56 @@ const seedBackgroundCommand = (worker: ThreadId) =>
     });
   });
 
+const seedBusyThread = (lead: ThreadId) =>
+  Effect.gen(function* () {
+    const providerThreadId = ProviderThreadId.make(`provider-thread:${lead}`);
+    const busy = { ...run(lead, 1, "running"), providerThreadId };
+    yield* (yield* EventSink.EventSinkV2).write({
+      commandId: CommandId.make(`command:queued-lead-busy:${lead}`),
+      events: [
+        {
+          id: EventId.make(`event:queued-lead-busy:provider-thread:${lead}`),
+          type: "provider-thread.updated",
+          threadId: lead,
+          runId: busy.id,
+          providerInstanceId: modelSelection.instanceId,
+          occurredAt: now,
+          driver,
+          payload: {
+            id: providerThreadId,
+            driver,
+            providerInstanceId: modelSelection.instanceId,
+            providerSessionId: null,
+            appThreadId: lead,
+            ownerNodeId: null,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            status: "active",
+            firstRunOrdinal: 1,
+            lastRunOrdinal: 1,
+            handoffIds: [],
+            forkedFrom: null,
+            pendingBackgroundTasks: [],
+            contextUsage: null,
+            nativeMetadata: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+        {
+          id: EventId.make(`event:queued-lead-busy:run:${lead}`),
+          type: "run.updated",
+          threadId: lead,
+          runId: busy.id,
+          nodeId: rootNodeId,
+          providerInstanceId: modelSelection.instanceId,
+          occurredAt: now,
+          payload: busy,
+        },
+      ],
+    });
+  });
+
 let watchCommands = 0;
 const watch = (watcherId: ThreadId, watchedThreadId: ThreadId, watching = true) =>
   Effect.gen(function* () {
@@ -378,7 +435,7 @@ const watch = (watcherId: ThreadId, watchedThreadId: ThreadId, watching = true) 
       type: "thread.thread-watch",
       commandId: CommandId.make(`command:watch:${(watchCommands += 1)}`),
       threadId: watcherId,
-      watchedThreadId,
+      target: { kind: "thread", threadId: watchedThreadId },
       watching,
     });
     // As the event stream would, so a watch on a thread that already finished fires at once.
@@ -427,6 +484,96 @@ it("refuses a watch from a subagent, which its parent owns", () => {
   );
 });
 
+const UNREACHABLE_BUILD_NUMBER = 1000099;
+
+const makeBuildHarness = Effect.gen(function* () {
+  const engine = yield* Orchestrator.OrchestratorV2;
+  const state: { item: BuildWorkItemSummary; reads: number; waits: number; resolutions: number } = {
+    item: {
+      kind: "ticket",
+      title: "Publish the candidate",
+      status: "in_progress",
+      holds: [],
+      waits: [{ number: 1000002, title: "Blocker", status: "in_progress", required: "landed" }],
+    },
+    reads: 0,
+    waits: 0,
+    resolutions: 0,
+  };
+  const connection = { origin: "https://hq.example", connection: "test-connection" };
+  const hq = Layer.mock(HqAgentConnections.HqAgentConnections)({
+    read: () => Effect.succeed(connection),
+    observe: (_project, tool, args) =>
+      Effect.sync(() => {
+        if (tool === "hq_build_waits") {
+          state.waits++;
+          return {
+            ...connection,
+            value: state.item.waits.map((wait) => ({
+              required: wait.required,
+              blocker: { number: wait.number, title: wait.title, status: wait.status },
+            })),
+          };
+        }
+        // An answer T3 cannot decode reads as HQ being unreachable for that number.
+        if (args.number === UNREACHABLE_BUILD_NUMBER) return { ...connection, value: {} };
+        if (args.number !== undefined) state.resolutions++;
+        else state.reads++;
+        return {
+          ...connection,
+          value: {
+            ...state.item,
+            id: "build-item",
+            number: 1000001,
+            holds: state.item.holds.map((hold) => ({ ...hold, clearedAt: null })),
+          },
+        };
+      }),
+  });
+  const build = yield* Effect.service(BuildWorkItems.BuildWorkItems).pipe(
+    Effect.provide(BuildWorkItems.layer.pipe(Layer.provide(hq))),
+  );
+  const restart = () =>
+    Effect.service(BuildWatchReactor.BuildWatchReactor).pipe(
+      Effect.provide(
+        BuildWatchReactor.layer.pipe(
+          Layer.provide(ProjectionStore.layer),
+          Layer.provide(Layer.succeed(BuildWorkItems.BuildWorkItems, build)),
+        ),
+      ),
+    );
+  const reactor = yield* restart();
+  const start = (threadId: ThreadId, until: "unblocked" | "closed", number = 1000001) =>
+    engine.dispatch({
+      type: "thread.thread-watch",
+      commandId: CommandId.make(`command:build-watch:${threadId}:${until}:${(watchCommands += 1)}`),
+      threadId,
+      target: { kind: "build_item", number, until },
+      watching: true,
+    });
+  const messages = (threadId: ThreadId) =>
+    engine
+      .getThreadRecords(threadId, ["messages"])
+      .pipe(
+        Effect.map(({ messages }) =>
+          messages.filter((message) => message.notification?.source.kind === "build_item"),
+        ),
+      );
+  return { state, reactor, restart, start, messages };
+});
+
+const decodeWatch = Schema.decodeUnknownSync(OrchestrationV2ThreadWatch);
+
+it("decodes a stored thread watch without a target", () => {
+  const watch = decodeWatch({
+    id: "legacy-watch",
+    threadId: "legacy-thread",
+    title: "Legacy",
+    startedAt: "2026-10-16T10:00:00.000Z",
+  });
+  assert.deepEqual(watch.target, { kind: "thread", threadId: ThreadId.make("legacy-thread") });
+});
+
 it.layer(layerTest)("thread watches", (it) => {
   it.effect("wakes its watcher once with the outcome, link, title and final message", () =>
     Effect.gen(function* () {
@@ -436,7 +583,7 @@ it.layer(layerTest)("thread watches", (it) => {
       const worker = yield* createThread("finish-worker", "Fix the login");
       yield* watch(lead, worker);
       const [started] = yield* watchesOf(lead);
-      assert.equal(started?.threadId, worker);
+      assert.deepEqual(started?.target, { kind: "thread", threadId: worker });
       assert.lengthOf(yield* wakes(lead), 0);
       // The watcher shows it is waiting, so it is not auto-settled.
       assert.deepEqual(
@@ -809,52 +956,7 @@ it.layer(layerTest)("thread watches", (it) => {
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const lead = yield* createThread("queued-lead");
       const worker = yield* createThread("queued-worker");
-      const providerThreadId = ProviderThreadId.make(`provider-thread:${lead}`);
-      const busy = { ...run(lead, 1, "running"), providerThreadId };
-      yield* (yield* EventSink.EventSinkV2).write({
-        commandId: CommandId.make("command:queued-lead-busy"),
-        events: [
-          {
-            id: EventId.make("event:queued-lead-busy:provider-thread"),
-            type: "provider-thread.updated",
-            threadId: lead,
-            runId: busy.id,
-            providerInstanceId: modelSelection.instanceId,
-            occurredAt: now,
-            driver,
-            payload: {
-              id: providerThreadId,
-              driver,
-              providerInstanceId: modelSelection.instanceId,
-              providerSessionId: null,
-              appThreadId: lead,
-              ownerNodeId: null,
-              nativeThreadRef: null,
-              nativeConversationHeadRef: null,
-              status: "active",
-              firstRunOrdinal: 1,
-              lastRunOrdinal: 1,
-              handoffIds: [],
-              forkedFrom: null,
-              pendingBackgroundTasks: [],
-              contextUsage: null,
-              nativeMetadata: null,
-              createdAt: now,
-              updatedAt: now,
-            },
-          },
-          {
-            id: EventId.make("event:queued-lead-busy:run"),
-            type: "run.updated",
-            threadId: lead,
-            runId: busy.id,
-            nodeId: rootNodeId,
-            providerInstanceId: modelSelection.instanceId,
-            occurredAt: now,
-            payload: busy,
-          },
-        ],
-      });
+      yield* seedBusyThread(lead);
       yield* watch(lead, worker);
       yield* observe(yield* seedRun(worker, { status: "completed", text: "Done." }));
       const [wake] = yield* wakes(lead);
@@ -949,6 +1051,196 @@ it.layer(layerTest)("thread watches", (it) => {
         threadId: lead,
       });
       assert.isTrue(yield* refused(lead, yield* createThread("refuse-third")));
+    }),
+  );
+  it.effect(
+    "wakes Build unblocked watchers only after waits and holds clear, once, sharing HQ reads",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeBuildHarness;
+        const first = yield* createThread("build-first");
+        const second = yield* createThread("build-second");
+        yield* h.start(first, "unblocked");
+        yield* h.start(second, "unblocked");
+        yield* h.start(first, "unblocked");
+        assert.lengthOf(yield* watchesOf(first), 1);
+        assert.include(
+          (yield* (yield* Orchestrator.OrchestratorV2).getThreadShell(first))
+            ?.pendingBackgroundTasks?.[0]?.description,
+          "Build #1000001",
+        );
+        yield* h.reactor.sweep;
+        yield* h.reactor.sweep;
+        assert.equal(h.state.reads, 1);
+        assert.equal(h.state.waits, 1);
+        assert.equal(h.state.resolutions, 1);
+        assert.lengthOf(yield* h.messages(first), 0);
+        h.state.item = {
+          ...h.state.item,
+          waits: [],
+          holds: [{ kind: "owner", note: "Wait for approval" }],
+        };
+        yield* TestClock.adjust("1 minute");
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* h.messages(first), 0);
+        h.state.item = { ...h.state.item, holds: [] };
+        // The cached blocked result still applies within its reread interval.
+        yield* h.reactor.sweep;
+        assert.equal(h.state.reads, 2);
+        yield* TestClock.adjust("1 minute");
+        yield* h.reactor.sweep;
+        for (const threadId of [first, second]) {
+          const [message, ...rest] = yield* h.messages(threadId);
+          assert.lengthOf(rest, 0);
+          assert.include(message?.text, "Build #1000001");
+          assert.include(message?.text, "Publish the candidate");
+          assert.include(message?.text, "all waits and holds are clear");
+          assert.lengthOf(yield* watchesOf(threadId), 0);
+        }
+        yield* TestClock.adjust("2 minutes");
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* h.messages(first), 1);
+        assert.equal(h.state.reads, 3);
+      }),
+  );
+
+  it.effect(
+    "Build closed watches wake once on Landed, Accepted or Dropped, including after restart",
+    () =>
+      Effect.gen(function* () {
+        for (const status of ["landed", "accepted", "dropped"] as const) {
+          const h = yield* makeBuildHarness;
+          const watcher = yield* createThread(`build-closed-${status}`);
+          yield* h.start(watcher, "closed");
+          // A ready item with no blockers is still open.
+          h.state.item = { ...h.state.item, status: "ready", waits: [], holds: [] };
+          yield* h.reactor.sweep;
+          assert.lengthOf(yield* h.messages(watcher), 0);
+          h.state.item = { ...h.state.item, status };
+          yield* TestClock.adjust("1 minute");
+          const restarted = yield* h.restart();
+          yield* restarted.sweep;
+          yield* restarted.sweep;
+          assert.lengthOf(yield* h.messages(watcher), 1);
+          assert.lengthOf(yield* watchesOf(watcher), 0);
+          assert.include(
+            (yield* h.messages(watcher))[0]?.text,
+            status === "dropped" ? "Dropped" : "closed",
+          );
+        }
+      }),
+  );
+
+  it.effect("a restarted unblocked watch wakes on Dropped even with waits and holds", () =>
+    Effect.gen(function* () {
+      const h = yield* makeBuildHarness;
+      const watcher = yield* createThread("build-dropped");
+      yield* h.start(watcher, "unblocked");
+      yield* h.reactor.sweep;
+      h.state.item = {
+        ...h.state.item,
+        status: "dropped",
+        holds: [{ kind: "owner", note: "Still held" }],
+      };
+      yield* TestClock.adjust("1 minute");
+      const restarted = yield* h.restart();
+      yield* restarted.sweep;
+      yield* restarted.sweep;
+      assert.lengthOf(yield* h.messages(watcher), 1);
+      assert.include((yield* h.messages(watcher))[0]?.text, "Dropped");
+    }),
+  );
+
+  it.effect("settling or unwatching a Build watcher prevents a wake", () =>
+    Effect.gen(function* () {
+      const h = yield* makeBuildHarness;
+      const engine = yield* Orchestrator.OrchestratorV2;
+      for (const action of ["settle", "unwatch"] as const) {
+        const watcher = yield* createThread(`build-ended-${action}`);
+        yield* h.start(watcher, "closed");
+        if (action === "settle")
+          yield* engine.dispatch({
+            type: "thread.settle",
+            commandId: CommandId.make("command:build-settle"),
+            threadId: watcher,
+          });
+        else
+          yield* engine.dispatch({
+            type: "thread.thread-watch",
+            commandId: CommandId.make("command:build-unwatch"),
+            threadId: watcher,
+            target: { kind: "build_item", number: 1000001, until: "closed" },
+            watching: false,
+          });
+        h.state.item = { ...h.state.item, status: "landed" };
+        yield* TestClock.adjust("1 minute");
+        yield* h.reactor.sweep;
+        assert.lengthOf(yield* h.messages(watcher), 0);
+      }
+    }),
+  );
+
+  it.effect("unwatch cancels a Build wake queued behind the watcher's active run", () =>
+    Effect.gen(function* () {
+      const h = yield* makeBuildHarness;
+      const watcher = yield* createThread("build-queued");
+      const engine = yield* Orchestrator.OrchestratorV2;
+      yield* seedBusyThread(watcher);
+      yield* h.start(watcher, "closed");
+      h.state.item = { ...h.state.item, status: "landed" };
+      yield* h.reactor.sweep;
+      const [message] = yield* h.messages(watcher);
+      const wakeRun = () =>
+        engine
+          .getThreadRecords(watcher, ["runs"])
+          .pipe(Effect.map(({ runs }) => runs.find((run) => run.userMessageId === message?.id)));
+      assert.equal((yield* wakeRun())?.status, "queued");
+      yield* engine.dispatch({
+        type: "thread.thread-watch",
+        commandId: CommandId.make("command:build-unwatch-queued"),
+        threadId: watcher,
+        target: { kind: "build_item", number: 1000001, until: "closed" },
+        watching: false,
+      });
+      assert.equal((yield* wakeRun())?.status, "cancelled");
+    }),
+  );
+  it.effect("one unreachable Build item does not hold back another watch on the same thread", () =>
+    Effect.gen(function* () {
+      const h = yield* makeBuildHarness;
+      const watcher = yield* createThread("build-partial");
+      yield* h.start(watcher, "unblocked");
+      yield* h.start(watcher, "unblocked", UNREACHABLE_BUILD_NUMBER);
+      h.state.item = { ...h.state.item, waits: [] };
+      yield* h.reactor.sweep;
+      assert.lengthOf(yield* h.messages(watcher), 1);
+    }),
+  );
+
+  it.effect("the Build reactor's own polling wakes within two minutes without thread events", () =>
+    Effect.gen(function* () {
+      const h = yield* makeBuildHarness;
+      const watcher = yield* createThread("build-periodic");
+      const engine = yield* Orchestrator.OrchestratorV2;
+      yield* h.start(watcher, "unblocked");
+      const fired = yield* engine.streamDomainEvents.pipe(
+        Stream.filter(
+          (event) =>
+            event.threadId === watcher &&
+            event.type === "message.updated" &&
+            event.payload.notification?.source.kind === "build_item",
+        ),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkScoped,
+      );
+      yield* h.reactor.start();
+      yield* TestClock.adjust("1 minute");
+      assert.lengthOf(yield* h.messages(watcher), 0);
+      h.state.item = { ...h.state.item, waits: [] };
+      yield* TestClock.adjust("1 minute");
+      assert.lengthOf(yield* Fiber.join(fired), 1);
+      assert.lengthOf(yield* h.messages(watcher), 1);
     }),
   );
 });

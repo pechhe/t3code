@@ -6,7 +6,7 @@ import type {
   Project,
   ThreadId,
 } from "@t3tools/contracts";
-import { ProviderInstanceId, RuntimeRequestId } from "@t3tools/contracts";
+import { RunId, ProviderInstanceId, RuntimeRequestId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 
 import { projectThreadAwarenessV2 } from "./agentAwareness.ts";
@@ -43,6 +43,24 @@ describe("projectThreadAwarenessV2", () => {
     pendingRuntimeRequest: null,
     updatedAt,
     ...overrides,
+  });
+
+  it("removes a quiet completion from mobile push activity while preserving failures and new runs", () => {
+    const runId = RunId.make("quiet-run");
+    const projectState = (status: "completed" | "failed", latestRunId = runId) =>
+      projectThreadAwarenessV2({
+        environmentId: "env-1" as EnvironmentId,
+        project,
+        thread: {
+          ...v2Thread({ status }),
+          latestRunId,
+
+          readOnCompletionRunId: runId,
+        },
+      });
+    expect(projectState("completed")).toBeNull();
+    expect(projectState("failed")?.phase).toBe("failed");
+    expect(projectState("completed", RunId.make("next-run"))?.phase).toBe("completed");
   });
 
   it("projects V2 run state", () => {

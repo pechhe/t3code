@@ -4,8 +4,10 @@ import type {
   OrchestrationV2Notification,
   OrchestrationV2Run,
   OrchestrationV2RuntimeRequest,
-  OrchestrationV2ThreadWatch,
+  OrchestrationV2WatchTarget,
+  BuildWorkItemSummary,
   OrchestrationV2TurnItem,
+  ThreadId,
 } from "@t3tools/contracts";
 import {
   delegatedTaskProgress,
@@ -41,19 +43,19 @@ export function threadWatchRefusal(
     OrchestrationV2AppThread,
     "id" | "lineage" | "archivedAt" | "settledOverride" | "settledAt" | "deletedAt"
   >,
-  watchedThreadId: string,
+  watchedThreadId?: string,
 ): string | undefined {
   if (watcher.deletedAt !== null) return `Thread ${watcher.id} is deleted.`;
   if (watchedThreadId === watcher.id) return "A thread cannot watch itself.";
   if (watcher.lineage.relationshipToParent === "subagent") {
-    return `Thread ${watcher.id} is a subagent; its parent thread watches threads.`;
+    return `Thread ${watcher.id} is a subagent; its parent thread watches targets.`;
   }
   if (
     watcher.archivedAt !== null ||
     watcher.settledOverride === "settled" ||
     watcher.settledAt !== null
   ) {
-    return `Thread ${watcher.id} is settled or archived and cannot watch threads. Unsettle it first.`;
+    return `Thread ${watcher.id} is settled or archived and cannot watch targets. Unsettle it first.`;
   }
   return undefined;
 }
@@ -100,14 +102,18 @@ export function queuedThreadWatchWakes(
     readonly runs: ReadonlyArray<OrchestrationV2Run>;
     readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage>;
   },
-  watchedThreadId: string,
+  target: string | OrchestrationV2WatchTarget,
 ): ReadonlyArray<OrchestrationV2Run> {
   const wakeMessageIds = new Set(
     watcher.messages
-      .filter(
-        (message) =>
-          message.notification?.source.kind === "thread" &&
-          message.notification.source.threadId === watchedThreadId,
+      .filter((message) =>
+        typeof target === "string" || target.kind === "thread"
+          ? message.notification?.source.kind === "thread" &&
+            message.notification.source.threadId ===
+              (typeof target === "string" ? target : target.threadId)
+          : message.notification?.source.kind === "build_item" &&
+            message.notification.source.number === target.number &&
+            message.notification.source.until === target.until,
       )
       .map((message) => message.id),
   );
@@ -174,7 +180,7 @@ function quote(text: string, threadId: string): string {
  * so a watched agent cannot pose as T3 Code to its watcher.
  */
 export function threadWatchWake(input: {
-  readonly watch: Pick<OrchestrationV2ThreadWatch, "threadId">;
+  readonly watch: { readonly threadId: ThreadId };
   readonly title: string;
   readonly decision: ThreadWatchDecision;
   /** The result, error or oldest request, in the watched thread's own words. */
@@ -210,11 +216,55 @@ export function threadWatchWake(input: {
   })();
   const label = reportLabel(input.title);
   return {
-    text: `${body}\n\nT3 Code has stopped watching it. Call watch_thread to be woken again.`,
+    text: `${body}\n\nT3 Code has stopped watching it. Call watch with a thread target to be woken again.`,
     notification: {
       source: { kind: "thread", threadId: watch.threadId },
       outcome: OUTCOME[decision.kind],
       summary: label === undefined ? LABEL[decision.kind] : `${LABEL[decision.kind]}: ${label}`,
+    },
+  };
+}
+
+/** Equality includes the Build condition: an item can be watched for both milestones. */
+export function watchTargetsEqual(
+  left: OrchestrationV2WatchTarget,
+  right: OrchestrationV2WatchTarget,
+): boolean {
+  return left.kind === "thread"
+    ? right.kind === "thread" && left.threadId === right.threadId
+    : right.kind === "build_item" && left.number === right.number && left.until === right.until;
+}
+
+export function decideBuildWatch(
+  target: Extract<OrchestrationV2WatchTarget, { readonly kind: "build_item" }>,
+  item: BuildWorkItemSummary,
+): "unblocked" | "closed" | "dropped" | undefined {
+  if (item.status === "dropped") return "dropped";
+  if (target.until === "closed") {
+    return item.status === "landed" || item.status === "accepted" ? "closed" : undefined;
+  }
+  return item.holds.length === 0 && item.waits.length === 0 ? "unblocked" : undefined;
+}
+
+export function buildWatchWake(input: {
+  readonly target: Extract<OrchestrationV2WatchTarget, { readonly kind: "build_item" }>;
+  readonly title: string;
+  readonly url: string;
+  readonly condition: "unblocked" | "closed" | "dropped";
+}): { readonly text: string; readonly notification: OrchestrationV2Notification } {
+  const { target, condition } = input;
+  const met =
+    condition === "dropped"
+      ? "was Dropped"
+      : condition === "unblocked"
+        ? "is unblocked: all waits and holds are clear"
+        : "is closed (Landed or Accepted)";
+  return {
+    text: `Build #${target.number} ${workName(input.title)} ${met}. ${input.url}\n\nT3 Code has stopped watching it. Call watch again to be woken again.`,
+    notification: {
+      source: { kind: "build_item", number: target.number, until: target.until },
+      outcome: condition === "dropped" ? "cancelled" : "completed",
+      summary: `Build #${target.number}: ${condition}`,
     },
   };
 }

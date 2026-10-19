@@ -229,7 +229,7 @@ export function derivePendingBackgroundWork(input: {
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
   /** Omitted by the finished rule: waiting on another thread is not this thread's own work. */
   readonly threadWatches?:
-    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "threadId" | "title">>
+    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "target" | "title">>
     | undefined;
 }): ReadonlyArray<PendingBackgroundWorkTask> {
   const hasActiveRun =
@@ -289,16 +289,19 @@ export function derivePendingBackgroundWork(input: {
 function watchTasks(input: {
   readonly pullRequests?: ReadonlyArray<PendingBackgroundWorkPullRequest> | undefined;
   readonly threadWatches?:
-    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "threadId" | "title">>
+    | ReadonlyArray<Pick<OrchestrationV2ThreadWatch, "id" | "target" | "title">>
     | undefined;
 }): Array<PendingBackgroundWorkTask> {
   return [
     ...pullRequestWatchTasks(input.pullRequests),
     ...(input.threadWatches ?? []).map((watch) => ({
       taskId: `${THREAD_WATCH_TASK_PREFIX}${watch.id}`,
-      description: `Watching thread ${watch.title}`,
+      description:
+        watch.target.kind === "thread"
+          ? `Watching thread ${watch.title}`
+          : `Watching Build #${watch.target.number} until ${watch.target.until}`,
       kind: "monitor" as const,
-      watching: { kind: "thread" as const, threadId: watch.threadId },
+      watching: watch.target,
     })),
   ];
 }

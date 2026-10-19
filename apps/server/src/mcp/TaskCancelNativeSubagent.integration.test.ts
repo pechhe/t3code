@@ -1,3 +1,4 @@
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -45,6 +46,11 @@ import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
+  Layer.provide(
+    Layer.mock(BuildWorkItems.BuildWorkItems)({
+      connected: () => Effect.succeed({ connected: false, origin: null }),
+    }),
+  ),
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
   Layer.provide(WorkspaceProvider.layerGitWorktree),

@@ -1,3 +1,4 @@
+import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import {
   EnvironmentId,
@@ -34,6 +35,11 @@ import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import { liveThreadShell } from "./McpToolAccess.testkit.ts";
 
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
+  Layer.provide(
+    Layer.mock(BuildWorkItems.BuildWorkItems)({
+      connected: () => Effect.succeed({ connected: false, origin: null }),
+    }),
+  ),
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
   Layer.provide(WorkspaceProvider.layerGitWorktree),

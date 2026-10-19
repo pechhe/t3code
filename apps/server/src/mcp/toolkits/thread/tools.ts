@@ -37,7 +37,7 @@ import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
 const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
   description:
-    "Pin, snooze, settle, archive, or mark a thread unread. Omit threadId for this thread. snooze requires snoozedUntil. Existing thread lifecycle rules apply. Settling this thread takes effect when your turn completes and any background work you left running has finished, returning settlesWhenTurnEnds=true; a turn that fails or is interrupted, or a queued message, leaves it active. Another thread with background work running is not settled: wait for it to finish (watch_thread wakes you), or stop it first.",
+    "Pin, snooze, settle, archive, or mark a thread read or unread. Marking this thread read during your turn takes effect only if that turn completes successfully, returning readsWhenTurnEnds=true; failed or interrupted turns still surface. Omit threadId for this thread. snooze requires snoozedUntil. Existing thread lifecycle rules apply. Settling this thread takes effect when your turn completes and any background work you left running has finished, returning settlesWhenTurnEnds=true; a turn that fails or is interrupted, or a queued message, leaves it active. Another thread with background work running is not settled: wait for it to finish (watch wakes you), or stop it first.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     action: Schema.Literals([
@@ -50,11 +50,13 @@ const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
       "archive",
       "unarchive",
       "mark_unread",
+      "mark_read",
     ]),
     snoozedUntil: Schema.optional(IsoDateTime),
   }),
   success: Schema.Union([
     OrchestrationV2DispatchCommandResult,
+    Schema.Struct({ readsWhenTurnEnds: Schema.Literal(true) }),
     Schema.Struct({ settlesWhenTurnEnds: Schema.Literal(true) }),
   ]),
   failure: OrchestratorMcpFailure,

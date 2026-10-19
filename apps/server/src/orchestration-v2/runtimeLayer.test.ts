@@ -1,3 +1,4 @@
+import { isQuietRunCompletion } from "@t3tools/contracts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
 import { limitRecoveryCommand } from "./UsageLimitRecoveryWorker.ts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -5253,6 +5254,131 @@ it.layer(layerSharedApplicationDataPlaneTest)("snooze projection", (it) => {
 });
 
 it.layer(layerSharedApplicationDataPlaneTest)("visited projection", (it) => {
+  it.effect.each(["completed", "failed", "interrupted", "explicit-unread"] as const)(
+    "honours mark_read only after successful completion (%s)",
+    (status) =>
+      Effect.gen(function* () {
+        const orchestrator = yield* Orchestrator.OrchestratorV2;
+        const eventSink = yield* EventSink.EventSinkV2;
+        const management = yield* ThreadManagementService.ThreadManagementService;
+        const threadId = ThreadId.make(`quiet-${status}`);
+        const projectId = ProjectId.make(`quiet-project-${status}`);
+        const commandId = (suffix: string) => CommandId.make(`quiet-${status}-${suffix}`);
+        const projects = yield* ProjectService.ProjectService;
+        yield* projects.create({
+          commandId: commandId("project"),
+          projectId,
+          title: "Quiet sweeps",
+          workspaceRoot: `/tmp/quiet-${status}`,
+        });
+        yield* orchestrator.dispatch({
+          type: "thread.create",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: commandId("create"),
+          threadId,
+          projectId,
+          title: "Quiet sweep",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+        });
+        const visitedAt = yield* DateTime.now;
+        yield* orchestrator.dispatch({
+          type: "thread.mark-read",
+          commandId: commandId("read-now"),
+          threadId,
+        });
+        assert.deepEqual(
+          (yield* orchestrator.getThreadProjection(threadId)).thread.lastVisitedAt,
+          visitedAt,
+        );
+        yield* orchestrator.dispatch({
+          type: "message.dispatch",
+          createdBy: "user",
+          creationSource: "web",
+          commandId: commandId("message"),
+          threadId,
+          messageId: MessageId.make(`quiet-message-${status}`),
+          text: "Sweep",
+          attachments: [],
+          modelSelection,
+          dispatchMode: { type: "start_immediately" },
+        });
+        const run = (yield* orchestrator.getThreadProjection(threadId)).runs[0]!;
+        const result = yield* management.markThreadRead({
+          threadId,
+          commandId: commandId("quiet"),
+          byOwnAgent: true,
+        });
+        assert.deepEqual(result, { readsWhenTurnEnds: true });
+        const pending = yield* orchestrator.getThreadShell(threadId);
+        assert.equal(pending!.readOnCompletionRunId, run.id);
+        assert.isFalse(
+          isQuietRunCompletion(
+            pending!.readOnCompletionRunId,
+            pending!.latestRunId,
+            pending!.status,
+          ),
+        );
+        if (status === "explicit-unread") {
+          yield* orchestrator.dispatch({
+            type: "thread.mark-unread",
+            commandId: commandId("unread-before-completion"),
+            threadId,
+          });
+        }
+        const completedAt = DateTime.add(visitedAt, { seconds: 1 });
+        yield* eventSink.write({
+          commandId: commandId("end"),
+          events: [
+            {
+              id: EventId.make(`quiet-event-${status}`),
+              type: "run.updated",
+              threadId,
+              runId: run.id,
+              occurredAt: completedAt,
+              payload: {
+                ...run,
+                status: status === "explicit-unread" ? "completed" : status,
+                startedAt: visitedAt,
+                completedAt,
+              },
+            },
+          ],
+        });
+        const shell = (yield* orchestrator.getThreadShell(threadId))!;
+        assert.equal(
+          isQuietRunCompletion(shell.readOnCompletionRunId, shell.latestRunId, shell.status),
+          status === "completed",
+        );
+        assert.isTrue(
+          DateTime.toEpochMillis(shell.latestRunCompletedAt!) >
+            DateTime.toEpochMillis(shell.lastVisitedAt!),
+        );
+        yield* orchestrator.dispatch({
+          type: "thread.mark-unread",
+          commandId: commandId("unread"),
+          threadId,
+        });
+        const unread = (yield* orchestrator.getThreadShell(threadId))!;
+        assert.isNull(unread.readOnCompletionRunId);
+        assert.isTrue(
+          DateTime.toEpochMillis(unread.latestRunCompletedAt!) >
+            DateTime.toEpochMillis(unread.lastVisitedAt!),
+        );
+        const external = yield* management.markThreadRead({
+          threadId,
+          commandId: commandId("external-read"),
+          byOwnAgent: false,
+        });
+        assert.isTrue("sequence" in external);
+        assert.isNull((yield* orchestrator.getThreadShell(threadId))!.readOnCompletionRunId);
+      }),
+  );
+
   it.effect("carries the visited watermark through the V2 shell projection", () =>
     Effect.gen(function* () {
       const projects = yield* ProjectService.ProjectService;

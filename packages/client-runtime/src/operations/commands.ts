@@ -122,6 +122,7 @@ export interface VisitThreadInput extends ThreadCommandInput {
 }
 
 export type MarkThreadUnreadInput = ThreadCommandInput;
+export type MarkThreadReadInput = ThreadCommandInput;
 
 export interface UpdateThreadMetadataInput extends ThreadCommandInput {
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecoveryUpdate | null;
@@ -609,6 +610,15 @@ export const markThreadUnread = Effect.fn("EnvironmentCommands.markThreadUnread"
     threadId: input.threadId,
   });
 });
+export const markThreadRead = Effect.fn("EnvironmentCommands.markThreadRead")(function* (
+  input: MarkThreadReadInput,
+) {
+  return yield* dispatch({
+    type: "thread.mark-read",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+  });
+});
 
 export const updateThreadMetadata = Effect.fn("EnvironmentCommands.updateThreadMetadata")(
   function* (input: UpdateThreadMetadataInput) {
@@ -886,7 +896,7 @@ export const interruptThreadTurn = Effect.fn("EnvironmentCommands.interruptThrea
           type: "thread.thread-watch",
           commandId: yield* allocateCommandId(result.sequence === 0 ? input : {}),
           threadId: input.threadId,
-          watchedThreadId: watch.threadId,
+          target: watch.target,
           watching: false,
         });
       }

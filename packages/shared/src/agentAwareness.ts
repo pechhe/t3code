@@ -1,3 +1,4 @@
+import { isQuietRunCompletion } from "@t3tools/contracts";
 import type {
   EnvironmentId,
   OrchestrationV2ThreadShell,
@@ -40,18 +41,20 @@ function buildAgentAwarenessDeepLink(input: {
 export interface ProjectThreadAwarenessV2Input {
   readonly environmentId: EnvironmentId;
   readonly project: Pick<Project, "title">;
-  readonly thread: Pick<
-    OrchestrationV2ThreadShell,
-    | "activityRunStatus"
-    | "id"
-    | "lineage"
-    | "modelSelection"
-    | "pendingBackgroundTasks"
-    | "pendingRuntimeRequest"
-    | "status"
-    | "title"
-    | "updatedAt"
-  >;
+  readonly thread: Partial<Pick<OrchestrationV2ThreadShell, "latestRunId">> &
+    Pick<
+      OrchestrationV2ThreadShell,
+      | "readOnCompletionRunId"
+      | "activityRunStatus"
+      | "id"
+      | "lineage"
+      | "modelSelection"
+      | "pendingBackgroundTasks"
+      | "pendingRuntimeRequest"
+      | "status"
+      | "title"
+      | "updatedAt"
+    >;
 }
 
 export function projectThreadAwarenessV2(
@@ -60,7 +63,11 @@ export function projectThreadAwarenessV2(
   const { environmentId, project, thread } = input;
   if (thread.lineage.relationshipToParent === "subagent") return null;
   const phase = resolveThreadAwarenessPhaseV2(thread);
-  if (phase === null) {
+  if (
+    phase === null ||
+    (phase === "completed" &&
+      isQuietRunCompletion(thread.readOnCompletionRunId, thread.latestRunId, thread.status))
+  ) {
     return null;
   }
   const detail =
