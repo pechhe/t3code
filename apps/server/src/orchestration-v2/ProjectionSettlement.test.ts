@@ -403,6 +403,86 @@ it.effect.each([
     }).pipe(Effect.provide(testLayer)),
 );
 
+it.effect(
+  "sql: the settle timer prefilter keeps every thread the timer or a pull request can settle",
+  () =>
+    Effect.gen(function* () {
+      const store = yield* ProjectionStore.ProjectionStoreV2;
+      const recentMessage = (threadId: ThreadId) =>
+        store.apply({
+          id: EventId.make(`event:timer:${threadId}`),
+          type: "message.updated",
+          threadId,
+          occurredAt: now,
+          payload: {
+            createdBy: "user",
+            creationSource: "web",
+            id: MessageId.make(`message:timer:${threadId}`),
+            threadId,
+            runId: null,
+            nodeId: null,
+            role: "user",
+            text: "Next turn",
+            attachments: [],
+            streaming: false,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+      const due = yield* createThread("timer-due", { branch: null });
+      yield* createRun(due);
+      const recent = yield* createThread("timer-recent", { branch: null });
+      yield* createRun(recent);
+      yield* recentMessage(recent);
+      yield* createThread("timer-never-ran", { branch: null });
+      const branch = yield* createThread("timer-branch");
+      yield* recentMessage(branch);
+      const linked = yield* createThread("timer-linked", {
+        branch: null,
+        pullRequests: [pullRequestLink(5)],
+      });
+      yield* recentMessage(linked);
+      const wokeOnCompletion = yield* createThread("timer-woke", {
+        branch: null,
+        snoozedUntil: DateTime.add(now, { days: 1 }),
+        snoozedAt: DateTime.subtract(old, { days: 1 }),
+      });
+      yield* createRun(wokeOnCompletion);
+      const timerWoke = yield* createThread("timer-snooze-passed", {
+        branch: null,
+        snoozedUntil: DateTime.subtract(now, { days: 1 }),
+        snoozedAt: DateTime.subtract(old, { days: 1 }),
+      });
+      yield* createRun(timerWoke);
+
+      const nowMs = DateTime.toEpochMillis(now);
+      const ids = (threads: ReadonlyArray<ProjectionStore.ProjectionSettlementCandidate>) =>
+        new Set(threads.map((thread) => thread.id));
+      const all = yield* store.getSettlementCandidates();
+      const prefiltered = yield* store.getSettlementCandidates(undefined, {
+        now,
+        inactiveBefore: DateTime.subtract(now, { days: 7 }),
+      });
+      assert.deepEqual(ids(prefiltered), new Set([due, branch, linked, wokeOnCompletion]));
+      const settledByTimer = all.filter(
+        (thread) =>
+          resolveAutoSettlementAt({
+            thread,
+            pullRequest: null,
+            nowMs,
+            autoSettleAfterDays: 7,
+            autoSettleOnMerge: true,
+          }) !== null,
+      );
+      assert.isNotEmpty(settledByTimer);
+      for (const thread of settledByTimer) assert.isTrue(ids(prefiltered).has(thread.id));
+      assert.deepEqual(
+        ids(yield* store.getSettlementCandidates(undefined, { now, inactiveBefore: null })),
+        new Set([branch, linked]),
+      );
+    }).pipe(Effect.provide(layerSql)),
+);
+
 it.effect.each([
   ["sql", layerSql],
   ["memory", ProjectionStore.layerMemory],

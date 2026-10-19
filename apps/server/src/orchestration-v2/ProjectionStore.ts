@@ -436,8 +436,12 @@ export interface ProjectionStoreV2Shape {
     /** Also return every limited thread still waiting on its reset, for pool failover. */
     readonly poolSwitch: boolean;
   }) => Effect.Effect<ReadonlyArray<ProjectionLimitRecoveryCandidate>, ProjectionStoreV2Error>;
+  /** With `timer`, the store may skip threads only the inactivity timer could settle that are
+      not yet due: no branch or pull request, and inactive since `inactiveBefore` or later
+      (every such thread when it is null). It may still return them. */
   readonly getSettlementCandidates: (
     threadId?: ThreadId,
+    timer?: { readonly now: DateTime.Utc; readonly inactiveBefore: DateTime.Utc | null },
   ) => Effect.Effect<ReadonlyArray<ProjectionSettlementCandidate>, ProjectionStoreV2Error>;
   readonly getThreadsWithPullRequests: (
     threadId?: ThreadId,
@@ -5787,12 +5791,51 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         return { providerThreadsByThreadId, pendingTurnItemsByThreadId };
       });
 
-    const getSettlementCandidates: ProjectionStoreV2Shape["getSettlementCandidates"] = (threadId) =>
+    // Mirrors resolveAutoSettlementAt's timer: inactivity is the latest user message or run
+    // time, a snooze wake, or a snooze timer that has passed. Threads with a branch or pull
+    // request always stay, because a pull request lookup can settle them at any time.
+    const settlementTimerFilter = (
+      timer:
+        | { readonly now: DateTime.Utc; readonly inactiveBefore: DateTime.Utc | null }
+        | undefined,
+    ) => {
+      if (timer === undefined) return sql``;
+      const payload = sql`candidate.payload_json`;
+      const pullRequestSource = sql`(
+        json_extract(${payload}, '$.branch') IS NOT NULL
+        OR json_extract(${payload}, '$.linkedPullRequest') IS NOT NULL
+        OR json_extract(${payload}, '$.branchPullRequest') IS NOT NULL
+        OR COALESCE(json_array_length(${payload}, '$.pullRequests'), 0) > 0
+      )`;
+      if (timer.inactiveBefore === null) return sql`WHERE ${pullRequestSource}`;
+      const activity = sql`MAX(
+        COALESCE(julianday(candidate.latest_user_message_at), 0),
+        COALESCE(julianday(candidate.latest_run_requested_at), 0),
+        COALESCE(julianday(candidate.latest_run_started_at), 0),
+        COALESCE(julianday(candidate.latest_run_completed_at), 0)
+      )`;
+      const snoozedUntil = sql`julianday(json_extract(${payload}, '$.snoozedUntil'))`;
+      return sql`WHERE ${pullRequestSource} OR (
+        ${activity} > 0
+        AND MAX(
+          ${activity},
+          COALESCE(julianday(json_extract(${payload}, '$.lastSnoozeWakeAt')), 0),
+          CASE WHEN ${snoozedUntil} <= julianday(${DateTime.formatIso(timer.now)})
+            THEN ${snoozedUntil} ELSE 0 END
+        ) < julianday(${DateTime.formatIso(timer.inactiveBefore)})
+      )`;
+    };
+
+    const getSettlementCandidates: ProjectionStoreV2Shape["getSettlementCandidates"] = (
+      threadId,
+      timer,
+    ) =>
       sql
         .withTransaction(
           Effect.gen(function* () {
             const rows = yield* sql<SettlementThreadRow>`
-            SELECT t.thread_id, t.payload_json,
+            SELECT candidate.* FROM (
+            SELECT t.thread_id, t.payload_json, t.updated_at AS thread_updated_at,
               r.run_id AS latest_run_id,
               r.status AS latest_run_status,
               r.requested_at AS latest_run_requested_at,
@@ -5834,7 +5877,9 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 SELECT 1 FROM orchestration_v2_projection_runtime_requests request
                 WHERE request.thread_id = t.thread_id AND request.status = 'pending'
               )
-            ORDER BY t.updated_at ASC, t.thread_id ASC
+            ) candidate
+            ${settlementTimerFilter(timer)}
+            ORDER BY candidate.thread_updated_at ASC, candidate.thread_id ASC
           `;
             if (rows.length === 0) {
               return { rows, providerThreadRows: [], pendingTurnItemRows: [] };

@@ -273,6 +273,18 @@ function autoSettlementConfigured(settings: import("@t3tools/contracts").ServerS
   );
 }
 
+function shortestAutoSettleAfterDays(
+  settings: import("@t3tools/contracts").ServerSettings,
+): number | null {
+  const days = [
+    settings.sidebarAutoSettleAfterDays,
+    ...Object.values(settings.projectSettingsOverrides).map(
+      (entry) => entry.sidebarAutoSettleAfterDays,
+    ),
+  ].filter((value) => value !== undefined && value !== null);
+  return days.length === 0 ? null : Math.min(...days);
+}
+
 /** @internal Exported for tests. */
 export function autoSettlementSettingsKey(
   settings: import("@t3tools/contracts").ServerSettings,
@@ -323,10 +335,16 @@ export const make = Effect.gen(function* () {
     if (!autoSettlementConfigured(settings)) {
       return;
     }
-    const threads = yield* projections.getSettlementCandidates(threadId);
+    const now = yield* DateTime.now;
+    const nowMs = DateTime.toEpochMillis(now);
+    const shortestTimerDays = shortestAutoSettleAfterDays(settings);
+    const threads = yield* projections.getSettlementCandidates(threadId, {
+      now,
+      inactiveBefore:
+        shortestTimerDays === null ? null : DateTime.makeUnsafe(nowMs - shortestTimerDays * DAY_MS),
+    });
     if (threads.length === 0) return;
     const projectShells = yield* projectStore.listShells();
-    const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
     const projects = new Map(projectShells.map((project) => [project.id, project]));
     // A merge event re-sweeps every candidate, not just the threads linked to
     // the merged pull request: most threads carry no link and settle from
