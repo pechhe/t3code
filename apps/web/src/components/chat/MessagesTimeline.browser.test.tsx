@@ -195,6 +195,42 @@ async function click(element: HTMLElement) {
 }
 
 describe("MessagesTimeline work rows", () => {
+  it.each([
+    ["Enter", "{Enter}"],
+    ["Space", " "],
+  ])("opens a nested diff with %s without collapsing the tool row", async (_name, key) => {
+    const onOpenTurnDiff = vi.fn();
+    await renderTimeline(
+      [
+        work("file-change-1", {
+          label: "Updated src/index.ts",
+          tone: "tool",
+          itemType: "file_change",
+          toolLifecycleStatus: "completed",
+          projectedItem: v2Item("file_change", { id: "file-change-1", fileName: "src/index.ts" }),
+        }),
+      ],
+      { onOpenTurnDiff },
+    );
+    const row = container.querySelector<HTMLElement>('[data-v2-item-type="file_change"]')!;
+    const press = async (target: HTMLElement) => {
+      await act(async () => {
+        target.focus();
+        await userEvent.keyboard(key);
+      });
+    };
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    await press(row);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    const openDiff = button("Open diff");
+    await press(openDiff);
+    expect(onOpenTurnDiff).toHaveBeenCalledWith("run-1", "src/index.ts");
+    expect(onOpenTurnDiff).toHaveBeenCalledTimes(1);
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    await press(row);
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("shows dynamic tool input without cached output when the row is expanded", async () => {
     await renderTimeline([
       work("tool-with-cached-output", {
@@ -895,6 +931,72 @@ describe("MessagesTimeline history and thread links", () => {
     expect(onOpenThread).toHaveBeenCalledWith("thread-parent");
   });
 
+  it("opens a thread at its newest message after an empty pane and restores it on return", async () => {
+    const props = baseProps();
+    const entries = Array.from({ length: 12 }, (_, index) =>
+      message(
+        Array.from({ length: 60 }, (_, line) => `Paragraph ${index}.${line}`).join("\n\n"),
+        { role: "assistant" },
+        `message-${index}`,
+      ),
+    );
+    await renderTimeline([], {
+      ...props,
+      routeThreadKey: `${props.routeThreadKey}-loading`,
+      hideEmptyPlaceholder: true,
+    });
+
+    // Each row is much taller than LegendList's estimate.
+    await act(async () =>
+      roots.at(-1)!.render(<MessagesTimeline {...props} timelineEntries={entries} />),
+    );
+    const viewport = props.listRef.current!.getScrollableNode();
+    await vi.waitFor(() => {
+      expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
+      expect(text()).toContain("Paragraph 11.59");
+      expect(
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+      ).toBeLessThanOrEqual(1);
+    });
+
+    const otherThreadKey = `${props.routeThreadKey}-other`;
+    await act(async () =>
+      roots
+        .at(-1)!
+        .render(
+          <MessagesTimeline
+            {...props}
+            routeThreadKey={otherThreadKey}
+            timelineEntries={entries}
+            liveFollowEnabled={false}
+          />,
+        ),
+    );
+    await vi.waitFor(() =>
+      expect(
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+      ).toBeLessThanOrEqual(1),
+    );
+    // Move beyond LegendList's one-viewport follow threshold so it cannot mask restoration.
+    await userEvent.wheel(viewport, { delta: { y: -2000 } });
+    await vi.waitFor(() => {
+      expect(readTimelinePosition(otherThreadKey)?.atEnd).toBe(false);
+      expect(viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop).toBeGreaterThan(
+        viewport.clientHeight,
+      );
+    });
+
+    await act(async () =>
+      roots.at(-1)!.render(<MessagesTimeline {...props} timelineEntries={entries} />),
+    );
+    await vi.waitFor(() => {
+      expect(text()).toContain("Paragraph 11.59");
+      expect(
+        viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop,
+      ).toBeLessThanOrEqual(1);
+    });
+  });
+
   it("does not render the transient V2 interruption request", async () => {
     await renderTimeline([
       {
@@ -1264,7 +1366,7 @@ describe("MessagesTimeline scroll position", () => {
     expect(maxNestedCommits).toBeLessThan(8);
   });
 
-  it("remembers a manual reading position when the chat closes", async () => {
+  it("restores a manual reading position after reopening and switching threads", async () => {
     const props = baseProps();
     function Chat() {
       const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
@@ -1291,6 +1393,39 @@ describe("MessagesTimeline scroll position", () => {
       atEnd: false,
       scrollOffset: offset,
     });
+
+    // The chat view stops following the live edge when a remembered reading
+    // position is restored; without that, the next scroll write would store
+    // the restored position as "at end" depending on frame timing.
+    function Reopened({ routeThreadKey }: { routeThreadKey: string }) {
+      const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
+      return (
+        <MessagesTimeline
+          {...props}
+          routeThreadKey={routeThreadKey}
+          timelineEntries={tallEntries}
+          liveFollowEnabled={liveFollowEnabled}
+          onManualNavigation={() => setLiveFollowEnabled(false)}
+        />
+      );
+    }
+    const timeline = (routeThreadKey: string) => <Reopened routeThreadKey={routeThreadKey} />;
+    await renderElement(timeline(props.routeThreadKey));
+    const reopenedViewport = await waitForList(props);
+    await vi.waitFor(() =>
+      expect(Math.abs(reopenedViewport.scrollTop - offset)).toBeLessThanOrEqual(1),
+    );
+
+    await act(async () => roots.at(-1)!.render(timeline(`${props.routeThreadKey}-other`)));
+    await vi.waitFor(() =>
+      expect(
+        reopenedViewport.scrollHeight - reopenedViewport.clientHeight - reopenedViewport.scrollTop,
+      ).toBeLessThanOrEqual(1),
+    );
+    await act(async () => roots.at(-1)!.render(timeline(props.routeThreadKey)));
+    await vi.waitFor(() =>
+      expect(Math.abs(reopenedViewport.scrollTop - offset)).toBeLessThanOrEqual(1),
+    );
   });
 
   it("restores the composer after closing tool output only at the end", async () => {

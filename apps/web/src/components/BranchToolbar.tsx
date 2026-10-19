@@ -466,9 +466,8 @@ export const BranchToolbar = memo(function BranchToolbar({
     });
   };
 
-  const showEnvironmentPicker = Boolean(
-    availableEnvironments && availableEnvironments.length > 1 && onEnvironmentChange,
-  );
+  const hasMultipleEnvironments = (availableEnvironments?.length ?? 0) > 1;
+  const showEnvironmentPicker = hasMultipleEnvironments && onEnvironmentChange !== undefined;
   const activeEnvironmentOption =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
   if (!hasActiveThread || !activeProject) return null;

@@ -18,7 +18,7 @@ function render(text: string): Tree[] {
     const { position: _position, children, ...rest } = node;
     return children ? { ...rest, children: children.map(strip) } : rest;
   };
-  const root = processor.runSync(processor.parse(text)) as Tree;
+  const root = processor.runSync(processor.parse(text)) as unknown as Tree;
   // Whitespace between top-level elements is not rendered content.
   return (root.children ?? [])
     .filter((child) => !(child.type === "text" && String(child.value).trim() === ""))

@@ -4565,6 +4565,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Target run ${targetRun.id} is ${targetRun.status} and cannot be steered.`,
         });
       }
+      // The run reads as running until its provider stops, but a steer accepted
+      // after Stop never reaches the agent.
+      if (yield* stopReachedRun(input.command, input.command.threadId, targetRun.id)) {
+        return yield* new OrchestratorDispatchError({
+          commandId: input.command.commandId,
+          commandType: input.command.type,
+          cause: `Target run ${targetRun.id} is stopping and cannot be steered.`,
+        });
+      }
       const providerThread = input.projection.providerThreads.find(
         (candidate) => candidate.id === targetRun.providerThreadId,
       );
@@ -5313,6 +5322,27 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         }
       }
 
+      if (projection.thread.lastVisitedAt === null && !isNativeMaintenanceCommand(command)) {
+        const now = yield* DateTime.now;
+        // Null keeps imported history read. The first fresh dispatch establishes
+        // a read watermark so its completion can be unread on every client.
+        // Offset it so a completion in the same millisecond is still unread.
+        const event = yield* emit(
+          events,
+          command,
+        )({
+          type: "thread.metadata-updated",
+          threadId: command.threadId,
+          providerInstanceId: projection.thread.providerInstanceId,
+          occurredAt: now,
+          payload: {
+            ...projection.thread,
+            lastVisitedAt: DateTime.subtract(now, { milliseconds: 1 }),
+          },
+        });
+        projection = applyToProjection(projection, event);
+      }
+
       const continuedRunId = command.restartContinuationOfRunId;
       const continuedTaskId =
         continuedRunId === undefined
@@ -5433,8 +5463,24 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           dispatchMode = { type: "start_immediately" };
         }
       }
-      // T3's own notices (a restart continuation, a context nudge) act on the thread's current work, so they steer into the running
-      // turn or start immediately rather than queueing like other wakes.
+      // Stop leaves the run reading as running until its provider stops. A plain
+      // send in that window queues behind the stopped queue instead of steering
+      // text the agent never receives, and like any user send it releases the
+      // hold; an explicit steer or restart still fails below.
+      if (
+        command.deliveryIntent === "auto" &&
+        !(
+          command.createdBy === "agent" &&
+          command.creationSource === "server" &&
+          command.notification?.source.kind === "system"
+        ) &&
+        (dispatchMode.type === "steer_active" || dispatchMode.type === "restart_active") &&
+        (yield* stopReachedRun(command, command.threadId, dispatchMode.targetRunId))
+      ) {
+        dispatchMode = { type: "queue_after_active" };
+      }
+      // T3's own notices (a restart continuation, a context nudge) act on the thread's current
+      // work. They steer or start immediately; Stop must reject them rather than queue them.
       if (
         command.notification !== undefined &&
         (command.createdBy !== "agent" ||

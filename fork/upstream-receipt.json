@@ -3,197 +3,207 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.1-nightly.20261019.3348",
-      "sha": "88d104a35f700fdd55c635db616ad60aae6dc98a"
-    },
-    "target": {
       "tag": "v0.1.1-nightly.20261019.3360",
       "sha": "1451e7cb23034d29774338608368a15d8845df36"
+    },
+    "target": {
+      "tag": "v0.1.1-nightly.20261019.3373",
+      "sha": "300a35670abc0f73662e17c9ce909bcc106be70f"
     }
   },
   "fork": {
-    "base": "0b9a778d6e02dd97fab9808be606939a6562f467"
+    "base": "b3f26c6f0370ad8e324e8c6fc65a38845a4898ad"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "82e34cada653c8edfc283bdc001597522dbc970f"
+    "blob": "a097e7ddaa319f1ae7cd1d4b24b2a2b1e434c21f"
   },
   "policy": {
     "requiredLandingVerificationSha256": "ac07eae35c61c5d270a2a7f003f0294ac337dc2a97d0f9736ba63cc1a02e5fdd"
   },
-  "attempt": "v0.1.1-nightly.20261019.3360@1792412771",
-  "reviewedAt": "2026-10-19T13:10:00Z",
+  "attempt": "v0.1.1-nightly.20261019.3373@1792438205",
+  "reviewedAt": "2026-10-19T20:00:26Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:bc028085-40f0-49f3-b021-ae336340ff29",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:76c5f196-d5bb-4804-9386-650cfabf9622",
     "model": "claude-opus-5-5"
   },
   "coverage": {
-    "upstreamCommits": 17,
+    "upstreamCommits": 53,
     "entriesConsidered": [
-      "scheduled-tasks-extensions",
-      "agent-policy-roles",
-      "account-pools",
-      "phi-browser-backend",
-      "unattended-threads",
       "context-rollover",
+      "quiet-run-read-state",
+      "account-pools",
+      "scheduled-tasks-extensions",
       "live-response-streaming",
-      "device-composer",
-      "managed-delegation",
-      "linked-environments"
+      "mobile-fork-screens",
+      "slipjay-workspaces",
+      "no-project-chats",
+      "screen-recording-video",
+      "linked-environments",
+      "unattended-threads"
     ],
     "areas": [
-      "All 17 incoming commits by subject and stat (88d104a35f..1451e7cb23), mapped to entries by behaviour; the 5 conflicted files read in full on both sides",
-      "Scheduled tasks: thread-bound runs no longer pass a model selection (#18467)",
-      "Orchestrator: a client message from the user releases a held queue (#21473); scheduled and agent sends excluded",
-      "Usage limits: empty session for an exhausted weekly quota and refill estimates (#20349), web and mobile pooled bars",
-      "Settings and preview: in-app browser search engine (#17688) beside the fork Agent browser backend picker",
-      "Web chat timeline citation reveal (#18423), DevicePanel thread scoping (#16040), terminal fish startup and script history (#19685, #13903)",
-      "Fork commits landed during the attempt (afe78d7d..228fcfe1): Spec 125 workspace attachments (Orchestrator, ThreadLaunchService, ChatView), shipped-client settings compatibility guard, delegation instruction wording, SlipJay generated paths, pull request discovery reads thread records (perf), Spec #152 meta threads (Build-item watches wake with agent sends, which upstream's held-queue release excludes); rebased without conflicts",
-      "Fork commits landed during the attempt (228fcfe1..0b9a778d): Spec 125 review fixes: occupancy across projects, one attachment filter, user docs (#161); no file overlap with the reconciled areas; rebased without conflicts"
+      "All 53 incoming commits by subject and stat (1451e7cb23..300a35670a), mapped to entries by behaviour; the 13 conflicted files resolved hunk by hunk on both sides",
+      "Orchestrator: unread watermark on first dispatch (#15607) and stopping-run queue fallback (#16926) against quiet-run read state, rollover nudges and restart continuations",
+      "Claude adapter: running compaction items (#15631) against the rollover reactor; mid-sentence skill commands (#15253) against video frame blocks; Auto fallback (#15687); failure reasons (#16303) beside ProviderSessionDetachedError",
+      "Usage: even-pace marks (#14477) on capacity-sized pool segments; <synthetic> model removed (#14672)",
+      "Scheduled tasks: webhook claim released when acceptance fails (#18820), auto-merged into the fork service",
+      "Web: ChatView, BranchToolbar machine label (#19900), Sidebar status slot (#11122, #15163, #14545), ChatComposer (#14332, #18440, #21763), DraftHeroHeadline NVDA (#17877), MessagesTimeline newest-message open (#19663) and banner fade (#8034), CommandPalette back search (#15940)",
+      "Mobile: Git sheet list rows (#21785), shared settings writer (#9356), streaming re-renders (#20963), threadActivity compaction",
+      "Fork commit landed during the attempt (f8f40e8d..b3f26c6f): compaction nudges bounded by the provider window and limited to Claude and Codex; touches ContextRollover and providerPools; rebased without conflicts; rollover, steering, stop and pool tests re-run (175 passed), server and shared typecheck pass"
     ],
     "exclusions": [
       {
-        "what": "Mobile native fixes (Android terminal autofill, gallery close animation, browser paste, iOS device streams over HTTP), desktop browser notification permission, shared relay locale, Net IPv6 port checks, client-runtime cloud session loading, composer legacy labels",
-        "why": "Auto-merged with no fork entry touching them; covered by typecheck only"
-      },
-      {
-        "what": "docs/ other than usage.md",
-        "why": "Describe upstream behaviour; auto-merged"
+        "what": "Desktop (annotation crops/border, WSL boot timeout), shell environment probes, terminal powerline, connections retry, MCP app full screen, keybinding and pull request error fixes",
+        "why": "Auto-merged with no fork entry touching their behaviour; covered by typecheck"
       },
       {
         "what": "Web and mobile UI in a running client",
-        "why": "No browser or device pass in this attempt; covered by unit tests and typecheck"
+        "why": "No browser or device pass in this attempt; covered by unit and vitest browser tests and typecheck"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "scheduled-tasks-extensions",
-      "upstream": "Thread-bound scheduled tasks run on the thread's current provider (#18467)",
-      "decision": "adapt",
+      "entry": "context-rollover",
+      "upstream": "Claude compaction reported while it runs (#15631); a send reaching a stopping run queues (#16926)",
+      "decision": "retain",
       "requirements": [
-        "Tasks run as a subagent with a role",
-        "A task names the thread it posts into",
-        "Scheduled prompts do not interrupt tools in the bound thread"
+        "A compaction resets the nudge phase",
+        "Nudges steer into the running turn or start immediately"
       ],
       "evidence": [
-        "ScheduledTaskService.ts: sendToThread passes no modelSelection and keeps mode queue; launch still uses runModel (role or saved model)",
-        "ScheduledTasksPage.tsx: role picker and its model summary locked for a bound task, like the workspace picker",
-        "ThreadLaunchService.test.ts keeps the fork SlipJay-root test and upstream's current-provider test; ScheduledTaskService.role.test.ts passes"
+        "ContextRolloverReactor.ts acts only on completed compaction items and dedupes by item id; upstream reuses the running item id for completion",
+        "Orchestrator.ts excludes server system notices from the stopping-run queue fallback; the steer path then rejects them at a stopping run",
+        "ContextRollover.test.ts, ContextRollover.integration.test.ts, ContextRolloverReactor.test.ts, SteeringCompletion.integration.test.ts, ThreadStop.test.ts pass"
       ]
     },
     {
-      "entry": "agent-policy-roles",
-      "upstream": "Thread-bound scheduled tasks run on the thread's current provider (#18467)",
+      "entry": "quiet-run-read-state",
+      "upstream": "First fresh dispatch sets a read watermark so completions show unread (#15607)",
       "decision": "retain",
-      "requirements": ["Scheduled-task roles resolve a model through the policy"],
+      "requirements": [
+        "A quiet run finishes without raising its thread",
+        "Failed or interrupted runs stay visible"
+      ],
       "evidence": [
-        "Role resolution unchanged for fresh-thread runs; ScheduledTaskService.role.test.ts passes"
+        "runtimeLayer.test.ts quiet-run cases, threadReadState.test.ts, orchestrationV2Projection.test.ts, ThreadNotificationCoordinator.logic.test.ts, agentAwareness.test.ts pass (125 tests)",
+        "Orchestrator.control-reads.test.ts passes"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "Show empty sessions when weekly quota is exhausted (#20349)",
+      "upstream": "Even-pace marks on Limits bars (#14477)",
       "decision": "adapt",
-      "requirements": [
-        "Pool bars size segments by plan capacity",
-        "Pooled figure weighted by plan"
-      ],
+      "requirements": ["Pool segments sized and weighted by plan capacity"],
       "evidence": [
-        "usageLimits.ts: planCapacity and upstream poolMember both kept; columns carry the member (with refillPercent) plus capacity; restoresPercent = refillPercent x capacity share",
-        "usageLimits.test.ts (upstream's new refill tests) and providerPools.test.ts pass; web and mobile typecheck pass",
-        "docs/user/usage.md keeps the plan-size sentence and takes upstream's refill ordering text"
+        "usageLimits.ts keeps planCapacity weighting beside paceRemainingPercent; UsageLimitsPooled.tsx keeps capacity grid columns with upstream marks",
+        "usageLimits.test.ts and providerPools.test.ts pass"
       ]
     },
     {
-      "entry": "phi-browser-backend",
-      "upstream": "Choose the in-app browser's search engine (#17688)",
-      "decision": "retain",
-      "requirements": ["Agent browser selectable in settings"],
+      "entry": "scheduled-tasks-extensions",
+      "upstream": "Webhook claims released when acceptance fails (#18820)",
+      "decision": "adapt",
+      "requirements": ["Webhook-started tasks (fork-nightly hand-off) work"],
       "evidence": [
-        "IntegrationsSettings.tsx imports both browserBackend choices and isValidSearchUrlTemplate; SettingsPanels.logic.test.ts and preview.test.ts pass; search engine applies to the built-in preview address bar only"
-      ]
-    },
-    {
-      "entry": "unattended-threads",
-      "upstream": "A message you send resumes a held queue (#21473)",
-      "decision": "retain",
-      "requirements": ["Unattended threads keep working without asking"],
-      "evidence": [
-        "Orchestrator.ts releases held runs only for createdBy user from web or mobile without scheduledTaskId; ThreadStop.test.ts and ThreadLaunchService.test.ts pass"
-      ]
-    },
-    {
-      "entry": "context-rollover",
-      "upstream": "A message you send resumes a held queue (#21473)",
-      "decision": "retain",
-      "requirements": [
-        "Rollover continues past a held queue",
-        "The held queue stays held through rollover"
-      ],
-      "evidence": [
-        "ContextRolloverReactor.ts nudge and resume dispatches are createdBy agent, creationSource server, which upstream's release excludes",
-        "ContextRollover.integration.test.ts held-queue scenario failed on the landing gate because its first message was a user web send, which now releases the hold by upstream design; it now starts that run from an agent (mcp). ContextRollover.test.ts, ContextRollover.integration.test.ts, ContextRolloverReactor.test.ts pass (41 tests)"
+        "ScheduledTaskService.ts auto-merged with the claim release; apps/server/src/scheduledTasks/ tests pass"
       ]
     },
     {
       "entry": "live-response-streaming",
-      "upstream": "Reveal folded imported responses when opening citations (#18423)",
+      "upstream": "Threads open at the newest message (#19663); composer banner fade (#8034)",
       "decision": "retain",
-      "requirements": ["Assistant text rendered through AssistantMessageText"],
+      "requirements": [
+        "Default follows upstream paragraph streaming; live calm look is opt-in with eased follow"
+      ],
       "evidence": [
-        "MessagesTimeline.tsx auto-merged; upstream changes only the citation target reveal, not assistant text rendering; web typecheck passes"
+        "MessagesTimeline.tsx keeps upstream listOpenedOnRef and fade wrapper; fork glidesToEnd replaces upstream smooth end pin",
+        "MessagesTimeline.browser.test.tsx: upstream's reopen/switch test races a scroll-driven position write that stores atEnd while liveFollowEnabled stays true; handleScroll, timelineScrollAnchoring.ts and the test body are identical to upstream's, so the race is not fork-specific (it also failed 1 in 3 runs alone). The test now turns live follow off on manual navigation, as ChatView does; assertions unchanged; 70/70 pass twice"
       ]
     },
     {
-      "entry": "device-composer",
-      "upstream": "Keep device results in the thread that started them (#16040)",
-      "decision": "retain",
-      "requirements": ["Composer look and controls unchanged"],
+      "entry": "mobile-fork-screens",
+      "upstream": "Git sheet standard list rows (#21785); shared settings writer (#9356)",
+      "decision": "adapt",
+      "requirements": [
+        "Jujutsu checkouts shown instead of \"Not a repo\"",
+        "Agent browser setting"
+      ],
       "evidence": [
-        "Upstream touches DevicePanel.tsx (the device stream panel), not the fork composer components; no conflict"
+        "GitOverviewSheet.tsx uses ListSection/ListRow with Jujutsu labels; SettingsServerControlsRouteScreen.tsx uses useSettingsWriter with the browser backend choice",
+        "jujutsuCheckout.test.ts, SettingsServerControlsRouteScreen.test.tsx pass; mobile typecheck passes"
       ]
     },
     {
-      "entry": "managed-delegation",
-      "upstream": "Project script commands kept out of shell history (#13903)",
+      "entry": "slipjay-workspaces",
+      "upstream": "Started threads show the machine as a label (#19900)",
       "decision": "retain",
-      "requirements": ["Managed tasks never run project setup scripts"],
+      "requirements": ["Run context lives in the details panel"],
       "evidence": [
-        "ProjectSetupScriptRunner.ts change only prefixes the command for history; setup-skip logic in ThreadLaunchService.ts unchanged; ThreadLaunchService.test.ts passes"
+        "BranchToolbar.tsx and ChatView.tsx pass onEnvironmentChange only when the environment can change; upstream composer-layout test adapted to the panel; BranchToolbar.panel.browser.test.tsx passes"
       ]
     },
     {
-      "entry": "linked-environments",
-      "upstream": "Loading cloud session no longer reported as a sign-in change (#11013)",
+      "entry": "no-project-chats",
+      "upstream": "NVDA browse mode reaches the headline project picker (#17877)",
       "decision": "retain",
-      "requirements": ["Thread tools reach linked environments"],
+      "requirements": ["New threads start as No project with a project chip"],
       "evidence": [
-        "client-runtime authorization change concerns T3 Connect cloud sessions, not peer environment sessions; no fork file touched"
+        "DraftHeroHeadline.tsx keeps the fork chip row outside the labelled h1, so the fixed defect is absent"
+      ]
+    },
+    {
+      "entry": "screen-recording-video",
+      "upstream": "Mid-sentence skill chips keep the full request (#15253)",
+      "decision": "retain",
+      "requirements": ["Attached video reaches agents as timestamped frames"],
+      "evidence": [
+        "ClaudeAdapterV2.test.ts parametrised upstream cases also expect frames before the prompt block; 701 server/shared tests pass"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp test run packages/shared/src/usageLimits.test.ts packages/shared/src/preview.test.ts apps/server/src/scheduledTasks/ apps/server/src/orchestration-v2/ThreadLaunchService.test.ts apps/server/src/orchestration-v2/ThreadStop.test.ts apps/server/src/terminal/Manager.test.ts apps/web/src/components/settings/SettingsPanels.logic.test.ts apps/web/src/components/scheduled/scheduledTasks.logic.test.ts packages/shared/src/providerPools.test.ts",
+      "command": "vp test run ClaudeAdapterV2.test.ts usageLimits.test.ts SteeringCompletion.integration.test.ts ThreadStop.test.ts ContextRollover*.test.ts Orchestrator.control-reads.test.ts ThreadLaunchService.test.ts provider-core failure.test.ts apps/server/src/scheduledTasks/ UnattendedReactor.test.ts providerPools.test.ts shippedClientCompatibility.test.ts",
       "result": "passed",
-      "note": "workspace; 17 files, 449 tests; scheduledTasks re-run after review fix"
+      "note": "workspace; 22 files, 701 tests"
     },
     {
-      "command": "vp run typecheck in packages/shared, apps/server, apps/web, apps/mobile",
+      "command": "vp test run runtimeLayer.test.ts orchestrationV2Projection.test.ts threadReadState.test.ts ThreadNotificationCoordinator.logic.test.ts agentAwareness.test.ts",
       "result": "passed",
-      "note": "workspace"
+      "note": "125 tests"
     },
     {
-      "command": "vp test run ContextRollover.test.ts ContextRollover.integration.test.ts ContextRolloverReactor.test.ts",
+      "command": "vp test run --project unit (web) BranchToolbar.logic, ChatView.logic, CommandPalette.logic, Sidebar.logic, Sidebar.snooze, MessagesTimeline.logic, MessagesTimeline.active-tools",
       "result": "passed",
-      "note": "after the landing gate failed the held-queue scenario on the first candidate"
+      "note": "582 tests"
     },
     {
-      "command": "vp test run (apps/server) shippedClientCompatibility, WorkspaceAttachment(s), ThreadLaunchService, ThreadStop, ContextRollover*, scheduledTasks, OrchestratorMcpService, ManagedDelegation, SideChat",
+      "command": "vp test run --project browser (web) MessagesTimeline.browser, BranchToolbar.panel.browser, Sidebar.pointer.browser",
       "result": "passed",
-      "note": "rebased onto beb1d20e: 20 files, 308 tests"
+      "note": "105 tests"
+    },
+    {
+      "command": "vp test run (mobile) SettingsServerControlsRouteScreen.test.tsx, threads/git/, lib/threadActivity.test.ts",
+      "result": "passed",
+      "note": "118 tests"
+    },
+    {
+      "command": "vp run typecheck in packages/provider-core, packages/shared, apps/server, packages/client-runtime, apps/mobile, apps/web",
+      "result": "passed",
+      "note": "packages/shared markdownBlocks.test.ts cast error predated the merge (fork base); fixed with an unknown cast"
+    },
+    {
+      "command": "vp test run --project browser (web) CommandPalette.focus.browser.test.tsx",
+      "result": "failed",
+      "note": "Pre-existing on the fork base: its mocks of useTheme and @tanstack/react-router lack exports fork modules import; not caused by this merge and not in the landing gate"
+    },
+    {
+      "command": "vp lint on the 16 resolved or edited files",
+      "result": "failed",
+      "note": "Pre-existing on t3peach b3f26c6f, unchanged by this merge: DraftHeroHeadline.tsx no-manual-memo (3, file identical to the fork base) and CommandPalette.tsx unused imports (2 warnings, same usage as the base); no new findings"
     }
   ],
   "result": "reconciled"

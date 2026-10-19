@@ -398,11 +398,19 @@ export class ProviderSessionDetachedError extends Schema.TaggedError<ProviderSes
   }
 }
 
+// Only fixed reasons reach failure messages; detail can contain private configuration.
+const ProviderAdapterFailureReason = Schema.Literals([
+  "previous_turn_active",
+  "attachment_unreadable",
+]);
+export type ProviderAdapterFailureReason = typeof ProviderAdapterFailureReason.Type;
+
 export class ProviderAdapterProtocolError extends Schema.TaggedError<ProviderAdapterProtocolError>()(
   "ProviderAdapterProtocolError",
   {
     driver: ProviderDriverKind,
     detail: Schema.String,
+    reason: Schema.optional(ProviderAdapterFailureReason),
     cause: Schema.optional(Schema.Defect()),
     payload: Schema.optional(Schema.Unknown),
   },

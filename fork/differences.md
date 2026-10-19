@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.1-nightly.20261019.3360 (`1451e7cb23034d29774338608368a15d8845df36`)
-- Fork: `0b9a778d6e02dd97fab9808be606939a6562f467`
+- Upstream: v0.1.1-nightly.20261019.3373 (`300a35670abc0f73662e17c9ce909bcc106be70f`)
+- Fork: `b3f26c6f0370ad8e324e8c6fc65a38845a4898ad`
 
 ## Coverage
 
@@ -55,7 +55,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent covering the requirements above.
 - **Constraints:** the Codex window is fixed per session (no live control), so changing it applies to new or resumed sessions; per-usage-report work must stay cached per attempt (#140, #135 finding 7); upstream now also reports Claude context usage from stream message deltas, so reports per turn rose. Fork migrations 063–071/073 sit before upstream's own: upstream migrations take the next free fork number in upstream order (`DropUnusedV1Projections` 072, `CanonicalizeThreadPullRequestLinks` 074), and released fork numbers never move.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3360, 2026-10-19): no upstream equivalent. Upstream now releases a held queue when the user sends from a client (#21473); nudges are server sends and leave it held.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): no upstream equivalent. Upstream's Claude adapter now reports compaction while it runs (#15631): a `running` compaction item, then `completed` (or failed/stopped) on the same item id; the reactor still acts only on `completed` and dedupes by item id. Upstream queues a plain send that reaches a stopping run (#16926); server system notices (nudges, restart continuations) are excluded from that fallback and are rejected there instead, since a queued nudge would be stale. Earlier (3360): upstream releases a held queue when the user sends from a client (#21473); nudges are server sends and leave it held.
 - **Owner:** none open (rollover work predates the tracker; #140 closed).
 
 ### experiments
@@ -141,7 +141,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known (upstream VCS is Git).
 - **Retire when:** upstream ships a VCS driver abstraction with Jujutsu/SlipJay workspace support covering the requirements, or the fork stops using SlipJay.
 - **Constraints:** status refresh must not scale with landings × watched checkouts (see perf-landing-refresh).
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the bootstrap thread keeps `rootIsDefault` under upstream's tolerant launch.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's "started threads show the machine as a label" rule (#19900) applied to the fork's details-panel run context; its composer-layout test adapted to the panel. Earlier (3348): the bootstrap thread keeps `rootIsDefault` under upstream's tolerant launch.
 - **Owner:** pechhe/t3code#21–23, #41, #42, #45, #46, #50–54, #67 (closed); open: #108, #112, #125; Build #3352, #3368, #3412.
 
 ### slipjay-landing
@@ -249,7 +249,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/scheduledTasks/ScheduledTaskService.role.test.ts; apps/web/src/components/scheduled/scheduledTasks.logic.test.ts.
 - **Upstream:** upstream has scheduled tasks; the extension is a delta (unverified: webhook trigger origin, which may be partly upstream).
 - **Retire when:** upstream ships equivalent machine/project/role scheduling.
-- **Decision:** `adapt` (v0.1.1-nightly.20261019.3360, 2026-10-19): upstream's thread-bound runs follow the thread's current model adopted; a role (or the saved model) only picks the model of a fresh thread, so the editor locks the role picker for a bound task as it does the workspace.
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3373, 2026-10-19: upstream's release of a webhook claim when acceptance fails (#18820) adopted unchanged; v0.1.1-nightly.20261019.3360): upstream's thread-bound runs follow the thread's current model adopted; a role (or the saved model) only picks the model of a fresh thread, so the editor locks the role picker for a bound task as it does the workspace.
 - **Owner:** none.
 
 ### linked-environments
@@ -273,7 +273,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** packages/shared/src/providerPools.test.ts; apps/server/src/orchestration-v2/UsageLimitRecoveryWorker.test.ts.
 - **Upstream:** upstream has provider instances and usage limits; pooling is the fork's.
 - **Retire when:** upstream ships equivalent pooled routing.
-- **Decision:** `adapt` (v0.1.1-nightly.20261019.3360, 2026-10-19): upstream's empty session for an account with no weekly quota (members carry `refillPercent`) adopted; pool columns keep the plan `capacity`, and a reset restores its refill weighted by plan capacity rather than divided evenly.
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's per-account even-pace marks (#14477) adopted on the fork's capacity-sized pool segments. Earlier (3360): upstream's empty session for an account with no weekly quota (members carry `refillPercent`) adopted; pool columns keep the plan `capacity`, and a reset restores its refill weighted by plan capacity rather than divided evenly.
 - **Owner:** pechhe/t3code#103, #114, #115 (closed); #145 open (mobile pool account).
 
 ### phi-browser-backend
@@ -309,7 +309,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/videoFrames/VideoFrames.test.ts, frameTimes.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships equivalent recording and agent video input.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): video frames still precede the prompt block under upstream's mid-sentence skill command handling (#15253).
 - **Owner:** pechhe/t3code#84–86, #89, #90 (closed); #83 open.
 
 ### snapshot-overlay
@@ -369,7 +369,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/orchestration-v2/ThreadProjectMove.test.ts, ProjectMoveReactor.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships equivalent.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's draft-headline picker fixes (full No project label, middle truncation) target the dropdown the fork replaced with its project chip row; upstream's `DraftProjectName` is left unused rather than deleted, to avoid a modify/delete conflict on every update.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's draft-headline picker fixes (full No project label, middle truncation) target the dropdown the fork replaced with its project chip row; upstream's `DraftProjectName` is left unused rather than deleted, to avoid a modify/delete conflict on every update. v0.1.1-nightly.20261019.3373, 2026-10-19: upstream's NVDA fix for the headline picker (#17877) not ported; it fixes an interactive picker inside the labelled `h1`, and the fork's chips sit outside it.
 - **Owner:** #76 (open, slice) ; #126 relates (updater started in No project).
 
 ### project-themes
@@ -407,7 +407,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known.
 - **Retire when:** measurement shows unacceptable cost, or upstream ships equivalent.
 - **Constraints:** measured renderer CPU (Build #3172 finding 8; production web build, one ~1,500-word reply streaming for ~16 s): live 95% of a core, paragraph 82%, turn 33% (the working indicators alone), idle about 1%. Turning off the reveal loop and eased height cut live by about 17 points; turning off the dot-matrix animation halved the working baseline (about 26% to 13%). Most of the remaining streaming cost is upstream behaviour: `ChatMarkdown` re-parses and re-renders the whole message on every text change, so live and paragraph cost about the same.
-- **Decision:** `retain` as opt-in (2026-10-19, Build #3172): the default follows upstream ("paragraph", plain working row) after the measurements above; the calm look stays selectable in Settings. Earlier (v0.1.1-nightly.20261019.3348): assistant line breaks stay in `AssistantMessageText`; upstream's Windows-path markdown plugin adopted in the timeline; upstream's hide-when-the-provider-turn-ended rule applied to the fork's bottom working row.
+- **Decision:** `retain` as opt-in (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's open-at-newest-message fix (#19663) and composer-banner fade wrapper (#8034) adopted; the fork's eased follow still replaces upstream's smooth end pin while a turn runs. Earlier (2026-10-19, Build #3172): the default follows upstream ("paragraph", plain working row) after the measurements above; the calm look stays selectable in Settings. Earlier (v0.1.1-nightly.20261019.3348): assistant line breaks stay in `AssistantMessageText`; upstream's Windows-path markdown plugin adopted in the timeline; upstream's hide-when-the-provider-turn-ended rule applied to the fork's bottom working row.
 - **Owner:** Build #3172 (formerly pechhe/t3code#135).
 
 ### web-client-customisation
@@ -431,7 +431,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/mobile/src/features/threads/git/jujutsuCheckout.test.ts.
 - **Upstream:** mobile is upstream; the Screens dependency (docs/operations/mobile-screens-fork.md) is unchanged since baseline and not a fork difference of this record.
 - **Retire when:** the corresponding server features retire.
-- **Decision:** `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's React Compiler versions of the home actions, thread feed, git controls and composer state adopted, with the fork's settle confirmation, Jujutsu labels and Build links reapplied without manual memoisation; the fork-only Agents and Build item sheets stay on the manual-memo allowlist.
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3373, 2026-10-19: upstream's standard list rows in the Git sheet (#21785) and shared settings writer (#9356) adopted, with the Jujutsu labels and agent browser setting kept; v0.1.1-nightly.20261019.3348): upstream's React Compiler versions of the home actions, thread feed, git controls and composer state adopted, with the fork's settle confirmation, Jujutsu labels and Build links reapplied without manual memoisation; the fork-only Agents and Build item sheets stay on the manual-memo allowlist.
 - **Owner:** #107, #129, #145 (open); #43 (closed).
 
 ### desktop-fork-build
@@ -555,5 +555,5 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** focused quiet-run cases in server `runtimeLayer.test.ts`, client-runtime projection and unread tests, web notification decision tests, and shared agent-awareness tests.
 - **Upstream:** existing read/visit command path reused; live upstream lookup unavailable in this network-restricted workspace. A focused mark-read reverse is suitable for upstream consideration.
 - **Retire when:** upstream supports successful-turn-bound read requests, explicit unread reversal, and quiet completion notification suppression on both clients.
-- **Decision:** `retain` (new, 2026-10-19).
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream now sets a read watermark on a thread's first fresh dispatch so its completion shows unread (#15607); the run-bound quiet request still marks it read at completion.
 - **Owner:** pechhe/t3code#155, Spec #152.
