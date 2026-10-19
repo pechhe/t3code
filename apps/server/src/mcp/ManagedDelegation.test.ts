@@ -711,7 +711,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           agentTask: request({ workId: "sharing", workspacePath: h.foreign }),
         });
         expect(sharing.code).toBe("capability_denied");
-        expect(sharing.message).toContain("no workspace of its own");
+        expect(sharing.message).toContain("no workspace of its own in that project");
         expect(
           (yield* h.delegate({
             task: "Write in the foreign main checkout",
@@ -797,8 +797,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           task: "Write in the foreign checkout",
           clientRequestId: "scratch-writer",
           agentTask: request({ workId: "scratch-writer", workspacePath: h.foreign }),
-        })).code,
-      ).toBe("capability_denied");
+        })).message,
+      ).toContain("no workspace of its own in that project");
       expect(h.dispatched).toHaveLength(2);
     }),
   );

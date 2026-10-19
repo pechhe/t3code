@@ -638,10 +638,13 @@ const make = Effect.gen(function* () {
           return yield* new ExternalAgentWorkError({ reason: "session" });
         const session = yield* readSession(scope, input.externalSessionKey);
         // The session's workspace is the lead's; an isolated helper workspace is validated
-        // against it by the managed service, under the same accountable session.
+        // against it by the managed service, under the same accountable session. An external
+        // session works only in its registered project, so it cannot name another.
         if (
           ((input.agentTask.workspaceAssignment ?? "lead") === "lead" &&
             input.agentTask.workspacePath !== session.workspacePath) ||
+          (input.agentTask.projectId !== undefined &&
+            input.agentTask.projectId !== session.projectId) ||
           input.interactionMode === "plan"
         )
           return yield* new ExternalAgentWorkError({ reason: "workspace" });

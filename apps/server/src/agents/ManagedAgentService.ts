@@ -317,6 +317,12 @@ const make = Effect.gen(function* () {
     const expected = request.workspacePath;
     if (!path.isAbsolute(expected))
       return yield* refuse(`workspacePath must be absolute, got ${expected}`);
+    // Another project holds no checkout of the caller's, so only pinned readers and isolated
+    // writers go there.
+    if (authority.foreignProject === true && assignment === "lead" && !pinnedReader)
+      return yield* refuse(
+        'this thread has no workspace of its own in that project; pin sourceRevision for read-only work there, or pass workspaceAssignment "isolated" with a separately allocated workspace',
+      );
     if (lead === undefined)
       return yield* refuse(
         'this thread has no workspace of its own for a writer to share; pass workspaceAssignment "isolated" with a separately allocated workspace',
@@ -351,10 +357,6 @@ const make = Effect.gen(function* () {
           return yield* refuse(occupied);
       }
     } else if (assignment === "lead") {
-      if (authority.foreignProject === true)
-        return yield* refuse(
-          'this thread has no workspace of its own in that project; pin sourceRevision for read-only work there, or pass workspaceAssignment "isolated" with a separately allocated workspace',
-        );
       if (expected !== lead)
         return yield* refuse(
           `a task sharing the lead's workspace must use ${lead}; pin sourceRevision for read-only work elsewhere, or pass workspaceAssignment "isolated" with a separately allocated workspace`,

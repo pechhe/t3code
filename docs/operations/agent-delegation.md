@@ -81,8 +81,9 @@ its revision and the role names, or the reason the policy is refused.
   which is logged as a deviation from the policy. Without a policy, unmanaged
   delegation is unchanged.
 - An `isolated` task runs in its own registered workspace of the lead's
-  repository on this computer, never the lead's checkout or the project's main
-  checkout, and is refused while another thread is writing there. The lead's
+  repository, or of any other registered project's repository, on this
+  computer, never the lead's checkout or the project's main checkout, and is
+  refused while another thread is writing there. The lead's
   thread need not have a workspace binding. Its child thread launches, resumes
   and checkpoints in that workspace, and a finished writer reports the revision
   its run handed back, even after later work changes that workspace. A Codex
@@ -90,12 +91,22 @@ its revision and the role names, or the reason the policy is refused.
   directory behind it) shared by every workspace of the repository, so it can
   commit and read its own history; a reviewer's stays read-only.
 - A read-only task pinned to a `sourceRevision`, such as a review or a pinned
-  advisor, may run in any workspace of the lead's repository on this computer,
+  advisor, may run in any workspace of the lead's repository, or of any other
+  registered project's repository, on this computer,
   even when the lead's thread has no workspace binding (for example a lead that
   allocated its SlipJay workspace from the shell), and its child thread runs
   there. It is refused while a writer is running there. An unpinned read-only task from an unbound thread runs only
   in the project's canonical root. A writer sharing the lead's checkout
   requires the lead's explicit workspace binding.
+- A task in another registered project's repository belongs to that project:
+  its child thread, provider enablement and browser settings are that
+  project's, while the caller's runtime ceiling still bounds it. T3 resolves the
+  project from the workspace path; `agentTask.projectId` names it when several
+  projects are registered in one repository, and a call without it is refused
+  as ambiguous. Only pinned readers and isolated writers go there, since the
+  caller holds no checkout of that project; its main checkout, too, is refused
+  while a writer of any project registered in the repository runs there. An
+  external session cannot name another project.
 - The pin matches the workspace's working copy, or, in jj, the single parent of
   an empty working copy such as the one `jj commit` leaves.
 - A role uses the first available model in its list. An account at a usage

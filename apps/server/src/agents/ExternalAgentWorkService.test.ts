@@ -587,6 +587,28 @@ it.effect(
     ),
 );
 
+it.effect("refuses a task that names a project other than the session's", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const client = yield* f.issueSession("client-other-project");
+      const session = yield* f.attach(client);
+      const other = yield* f
+        .submit(
+          client,
+          f.submitInput(session, {
+            agentTask: request({
+              workspacePath: session.workspacePath,
+              projectId: ProjectId.make("project:other"),
+            }),
+          }),
+        )
+        .pipe(Effect.flip);
+      expect(other.reason).toBe("workspace");
+      expect((yield* Ref.get(f.state)).calls).toHaveLength(0);
+    }),
+  ),
+);
+
 it.effect("rejects a new attempt while the prior attempt still has an active writer", () =>
   withFixture((f) =>
     Effect.gen(function* () {
