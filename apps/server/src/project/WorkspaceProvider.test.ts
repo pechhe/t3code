@@ -97,9 +97,9 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
     }),
   );
 
-  it.effect(
-    "releases a workspace when cancellation arrives before SlipJay emits the allocation receipt",
-    () =>
+  it.effect.each([true, false])(
+    "releases a workspace it created when cancellation arrives before SlipJay emits the allocation receipt: %s",
+    (created) =>
       Effect.gen(function* () {
         const entered = yield* Deferred.make<void>();
         const allowReceipt = yield* Deferred.make<void>();
@@ -114,7 +114,9 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
                     if (input.args[0] === "start") {
                       yield* Deferred.succeed(entered, undefined);
                       yield* Deferred.await(allowReceipt);
-                      return output(JSON.stringify({ workspacePath: "/allocated-jj-workspace" }));
+                      return output(
+                        JSON.stringify({ workspacePath: "/allocated-jj-workspace", created }),
+                      );
                     }
                     return output();
                   }),
@@ -130,16 +132,14 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
         yield* Effect.sync(() => allocation.interruptUnsafe());
         yield* Deferred.succeed(allowReceipt, undefined);
         expect(Exit.isFailure(yield* Fiber.await(allocation))).toBe(true);
+        // A resumed checkout predates this allocation, so it is kept.
         expect(commands).toEqual([
           ["slipjay", "start", "--integration", "--json", "Bounded work"],
-          ["slipjay", "remove", "/allocated-jj-workspace"],
+          ...(created ? [["slipjay", "remove", "/allocated-jj-workspace"]] : []),
         ]);
       }),
   );
-  it.effect.each([
-    { name: "attaches the Issue to the new workspace", attachCode: 0 },
-    { name: "keeps the workspace when another holds the Issue", attachCode: 1 },
-  ])("allocates for an Issue without resuming its workspace: $name", ({ attachCode }) =>
+  it.effect("allocates a Build item's workspace through SlipJay's resume-or-create start", () =>
     Effect.gen(function* () {
       const commands: Array<{ readonly args: string[]; readonly cwd: string | undefined }> = [];
       const service = yield* Workspaces.make.pipe(
@@ -149,21 +149,21 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
               run: (input) =>
                 Effect.sync(() => {
                   commands.push({ args: [input.command, ...input.args], cwd: input.cwd });
-                  return input.args[0] === "start"
-                    ? output(JSON.stringify({ workspacePath: "/allocated" }))
-                    : { ...output(), code: ChildProcessSpawner.ExitCode(attachCode) };
+                  return output(JSON.stringify({ workspacePath: "/item-42", created: false }));
                 }),
             }),
             Layer.mock(Git.GitVcsDriver)({}),
           ),
         ),
       );
-      expect(yield* service.allocate({ projectRoot: "/project", task: "work", issue: 42 })).toBe(
-        "/allocated",
+      expect(yield* service.allocate({ projectRoot: "/project", task: "work", issue: 42 })).toEqual(
+        { workspacePath: "/item-42", created: false },
       );
       expect(commands).toEqual([
-        { args: ["slipjay", "start", "--integration", "--json", "work"], cwd: "/project" },
-        { args: ["slipjay", "attach-issue", "42"], cwd: "/allocated" },
+        {
+          args: ["slipjay", "start", "--integration", "--json", "--issue", "42", "work"],
+          cwd: "/project",
+        },
       ]);
     }),
   );

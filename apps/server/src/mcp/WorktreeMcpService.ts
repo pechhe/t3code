@@ -511,7 +511,7 @@ const make = Effect.gen(function* () {
     baseRef: null,
     startedFromOrigin: false,
     create: workspaces.allocate({ projectRoot: projectCwd, task }).pipe(
-      Effect.map((path) => ({ path, branch: null })),
+      Effect.map(({ workspacePath }) => ({ path: workspacePath, branch: null })),
       Effect.mapError((error) => failure("operation_failed", error.message)),
     ),
     remove: (workspacePath) =>
