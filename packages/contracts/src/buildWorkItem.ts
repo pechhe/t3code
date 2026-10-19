@@ -1,12 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import {
-  IsoDateTime,
-  PositiveInt,
-  ProjectId,
-  ThreadId,
-  TrimmedNonEmptyString,
-} from "./baseSchemas.ts";
+import { IsoDateTime, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { OrchestrationV2ThreadWorkItem } from "./orchestrationV2.ts";
 
 /** A thread links only to a Build Spec or Ticket. */
@@ -50,7 +44,7 @@ export const BuildWorkItemView = Schema.Struct({
   url: Schema.String,
   /** The last summary Build returned; null when nothing has been read yet. */
   item: Schema.NullOr(BuildWorkItemSummary),
-  /** The latest read failed, or the project's HQ is no longer the one the link was made against. */
+  /** The latest read failed, or T3's HQ is no longer the one the link was made against. */
   unavailable: Schema.Boolean,
   /** When `item` was read from Build. */
   readAt: Schema.NullOr(IsoDateTime),
@@ -67,7 +61,7 @@ export const BuildWorkItemReadInput = Schema.Struct({
 });
 export type BuildWorkItemReadInput = typeof BuildWorkItemReadInput.Type;
 
-/** Null without a link, or when the thread's project is not connected to HQ. */
+/** Null without a link, or when T3 is not connected to HQ. */
 export const BuildWorkItemReadResult = Schema.NullOr(BuildWorkItemView);
 export type BuildWorkItemReadResult = typeof BuildWorkItemReadResult.Type;
 
@@ -133,7 +127,7 @@ export const BuildWorkItemCard = Schema.Struct({
 export type BuildWorkItemCard = typeof BuildWorkItemCard.Type;
 
 export const BuildWorkItemCardInput = Schema.Struct({
-  /** The thread whose project's HQ the item is read from. */
+  /** The thread the item is read for. */
   threadId: ThreadId,
   itemId: TrimmedNonEmptyString,
   /**
@@ -144,12 +138,12 @@ export const BuildWorkItemCardInput = Schema.Struct({
 });
 export type BuildWorkItemCardInput = typeof BuildWorkItemCardInput.Type;
 
-/** Null when the project is not connected to HQ. A first read Build fails is an error. */
+/** Null when T3 is not connected to HQ. A first read Build fails is an error. */
 export const BuildWorkItemCardResult = Schema.NullOr(BuildWorkItemCard);
 export type BuildWorkItemCardResult = typeof BuildWorkItemCardResult.Type;
 
-/** Whether a project is connected to YardSmith HQ, so its threads can link Build items. */
-export const BuildConnectionReadInput = Schema.Struct({ projectId: ProjectId });
+/** Whether T3 is connected to YardSmith HQ, so its threads can link Build items. */
+export const BuildConnectionReadInput = Schema.Struct({});
 export type BuildConnectionReadInput = typeof BuildConnectionReadInput.Type;
 export const BuildConnectionReadResult = Schema.Struct({
   connected: Schema.Boolean,
@@ -161,7 +155,7 @@ export const BuildConnectionReadResult = Schema.Struct({
 });
 export type BuildConnectionReadResult = typeof BuildConnectionReadResult.Type;
 
-/** Build items mentioned in a thread's messages, read from the thread's project HQ. */
+/** Build items mentioned in a thread's messages, read from T3's HQ. */
 export const BuildWorkItemMentionsInput = Schema.Struct({
   threadId: ThreadId,
   numbers: Schema.Array(PositiveInt).check(Schema.isMinLength(1), Schema.isMaxLength(50)),

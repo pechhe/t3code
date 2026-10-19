@@ -1,7 +1,6 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
-  ProjectId,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadShell,
   type OrchestrationV2ThreadWorkItem,
@@ -222,7 +221,7 @@ it.effect("refuses another HQ, unknown numbers and items that are not Specs or T
 it.effect("reads at once, then re-reads item and waits at most once a minute", () =>
   Effect.gen(function* () {
     const { service, add, buildReads } = yield* makeHarness;
-    assert.isTrue((yield* service.connected(projectId)).connected);
+    assert.isTrue((yield* service.connected).connected);
     const blocker = item(1_000_077, "spec", "Observer role", "landed");
     const ticket = item(1_000_079, "ticket", "Link and header", "ready");
     ticket.holds.push(
@@ -308,7 +307,6 @@ it.effect(
       add(item(1_000_078, "spec", "Show the Build item", "in_progress"));
       yield* service.link({ threadId, reference: "#1000078" });
       yield* connections.connect({
-        projectId,
         origin: otherOrigin,
         delegation: `yshqd_${"e".repeat(43)}`,
       });
@@ -318,27 +316,21 @@ it.effect(
       // Replacing the connection ended the observer it used.
       assert.isTrue(hq.agents[0]!.ended);
 
-      yield* connections.disconnect(projectId);
+      yield* connections.disconnect;
       assert.isNull(yield* service.view(threadId));
-      assert.isFalse((yield* service.connected(projectId)).connected);
+      assert.isFalse((yield* service.connected).connected);
     }),
 );
 
-it.effect("the shared observer ends only when the last project using it disconnects", () =>
+it.effect("one observer reads for the environment until it disconnects", () =>
   Effect.gen(function* () {
     const { hq, connections } = yield* makeHarness;
-    const otherProject = ProjectId.make("project-hq-other");
-    yield* connections.connect({ projectId: otherProject, origin, delegation });
-    yield* connections.observe(projectId, "hq_build_read", { number: 1 }).pipe(Effect.ignore);
-    yield* connections.observe(otherProject, "hq_build_read", { number: 1 }).pipe(Effect.ignore);
+    yield* connections.connect({ origin, delegation });
+    yield* connections.observe("hq_build_read", { number: 1 }).pipe(Effect.ignore);
+    yield* connections.observe("hq_build_read", { number: 1 }).pipe(Effect.ignore);
     assert.strictEqual(hq.agents.length, 1);
 
-    yield* connections.disconnect(projectId);
-    assert.isFalse(hq.agents[0]!.ended);
-    yield* connections.observe(otherProject, "hq_build_read", { number: 1 }).pipe(Effect.ignore);
-    assert.strictEqual(hq.agents.length, 1);
-
-    yield* connections.disconnect(otherProject);
+    yield* connections.disconnect;
     assert.isTrue(hq.agents[0]!.ended);
   }),
 );
@@ -631,7 +623,7 @@ it.effect("reads the items chat mentions by number, leaving out ones Build doesn
       item(1_000_081, "ticket", "Chat chips", "ready"),
       item(1_000_001, "decision", "Use Build", "accepted"),
     );
-    assert.strictEqual((yield* service.connected(projectId)).origin, origin);
+    assert.strictEqual((yield* service.connected).origin, origin);
 
     const { items } = yield* service.mentions({
       threadId,
@@ -647,11 +639,11 @@ it.effect("reads the items chat mentions by number, leaving out ones Build doesn
     assert.notInclude(JSON.stringify(items), "A body summary");
     assert.notInclude(JSON.stringify(items), BODY);
 
-    yield* connections.disconnect(projectId);
+    yield* connections.disconnect;
     assert.deepStrictEqual(yield* service.mentions({ threadId, numbers: [1_000_078] }), {
       items: [],
     });
-    assert.isNull((yield* service.connected(projectId)).origin);
+    assert.isNull((yield* service.connected).origin);
   }),
 );
 
@@ -697,7 +689,6 @@ it.effect("resolves mentions on the project's current HQ, never by number alone"
     const numberReads = () => hq.toolCalls.filter((call) => call.args.number !== undefined).length;
     yield* service.mentions({ threadId, numbers: [1_000_078] });
     yield* connections.connect({
-      projectId,
       origin: otherOrigin,
       delegation: `yshqd_${"e".repeat(43)}`,
     });
@@ -735,7 +726,6 @@ it.effect("a card for a link made against another HQ is unavailable and reads no
     add(spec, mentioned);
     yield* service.link({ threadId, reference: "#1000078" });
     yield* connections.connect({
-      projectId,
       origin: otherOrigin,
       delegation: `yshqd_${"e".repeat(43)}`,
     });

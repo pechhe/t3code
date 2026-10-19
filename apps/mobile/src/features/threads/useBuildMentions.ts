@@ -1,24 +1,17 @@
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import { presentBuildWorkItem } from "@t3tools/client-runtime/state/build-work-items";
 import type { BuildWorkItemView, EnvironmentId, ThreadId } from "@t3tools/contracts";
 import { findBuildMentions, labelBuildMentions } from "@t3tools/shared/buildLinks";
 import { useMemo } from "react";
 
 import { buildWorkItems } from "../../state/build-work-items";
-import { useThreadShell } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
 import { buildMentionLabel } from "./build-work-item-subtitle";
 
 /** The HQ whose Build links the thread's messages show as live items; null without one. */
 export function useThreadBuildOrigin(environmentId: EnvironmentId, threadId: ThreadId | null) {
-  const projectId =
-    useThreadShell(threadId === null ? null : scopeThreadRef(environmentId, threadId))?.projectId ??
-    null;
   return (
     useEnvironmentQuery(
-      projectId === null
-        ? null
-        : buildWorkItems.connection({ environmentId, input: { projectId } }),
+      threadId === null ? null : buildWorkItems.connection({ environmentId, input: {} }),
     ).data?.origin ?? null
   );
 }

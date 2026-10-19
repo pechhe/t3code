@@ -64,7 +64,7 @@ function LinkBuildItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
     }
     setError(null);
     setPending(true);
-    // The server resolves the reference against the project's HQ and explains any refusal.
+    // The server resolves the reference against T3's HQ and explains any refusal.
     const result = await link({
       environmentId: threadRef.environmentId,
       input: { threadId: threadRef.threadId, reference: trimmed },
@@ -84,8 +84,8 @@ function LinkBuildItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
         <DialogHeader>
           <DialogTitle>Link Build item</DialogTitle>
           <DialogDescription>
-            Show the Build Spec or Ticket this thread works on, from this project's YardSmith HQ.
-            Linking replaces any item already linked.
+            Show the Build Spec or Ticket this thread works on, from YardSmith HQ. Linking replaces
+            any item already linked.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

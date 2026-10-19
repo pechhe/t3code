@@ -34,7 +34,7 @@ import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectChip } from "../ProjectChip";
 import { ThreadWorkflowMenu } from "./ThreadWorkflowMenu";
 import { BuildWorkItemSegment } from "../buildItem/BuildWorkItemSegment";
-import { useProjectBuildConnected, useThreadBuildWorkItem } from "../../state/buildWorkItems";
+import { useBuildConnected, useThreadBuildWorkItem } from "../../state/buildWorkItems";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -107,10 +107,7 @@ export const ChatHeader = memo(function ChatHeader({
     reportFailure: false,
   });
   const buildWorkItem = useThreadBuildWorkItem(isServerThread ? activeThreadRef : null).data;
-  const buildConnected = useProjectBuildConnected(
-    isServerThread ? activeThreadEnvironmentId : null,
-    activeProject?.id ?? null,
-  );
+  const buildConnected = useBuildConnected(isServerThread ? activeThreadEnvironmentId : null);
   const [renaming, setRenaming] = useState<{
     threadId: ThreadId;
     environmentId: EnvironmentId;

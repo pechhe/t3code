@@ -1323,7 +1323,6 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
           const threadId = ThreadId.make("thread-claude-hq");
           yield* hq.connections.prepare({
             threadId,
-            projectId: HqTestkit.projectId,
             role: "lead",
             model: CLAUDE_TEST_MODEL_SELECTION.model,
           });

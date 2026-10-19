@@ -1,19 +1,20 @@
 /**
- * Agents act in YardSmith HQ as themselves (pechhe/yardsmith#2478). A project connected to HQ
- * keeps the person's HQ delegation in the server secret store. Each thread's agent reaches HQ
- * through T3's own `/mcp/yardsmith-hq` endpoint, authenticated by a credential bound to that
- * thread; T3 exchanges the delegation for the agent's HQ token, renews it, and presents it to
+ * Agents act in YardSmith HQ as themselves (pechhe/yardsmith#2478). The environment keeps one HQ
+ * connection, the person's HQ delegation, in the server secret store, and every project uses it.
+ * Each thread's agent reaches HQ through T3's own `/mcp/yardsmith-hq` endpoint, authenticated by
+ * a credential bound to that thread; T3 exchanges the delegation for the agent's HQ token, renews it, and presents it to
  * HQ's `/api/mcp` on the agent's behalf. The delegation and the agent token therefore never
  * leave this process: no provider config, argv, environment, workspace or prompt carries them,
  * and a long-lived provider process (Codex keeps a thread's MCP headers for its lifetime) never
  * holds a token that can expire.
  */
-import type { OrchestrationV2AppThread, ProjectId, ThreadId } from "@t3tools/contracts";
+import type { OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
@@ -26,13 +27,16 @@ import { mcpEndpointOrigin } from "../mcp/McpSessionRegistry.ts";
 export const HQ_MCP_SERVER_NAME = "yardsmith-hq";
 export const HQ_MCP_PATH = "/mcp/yardsmith-hq";
 
+const STORE_NAME = "hq-connection";
+/** Before the connection belonged to the environment, each project stored its own. */
+const PROJECT_STORE_FILE = /^(hq-connection-[0-9a-f]{32})\.bin$/;
+
 /** HQ tokens last at most 12 hours; renewing this early keeps a call from meeting an expired one. */
 const RENEW_BEFORE_EXPIRY_MS = 15 * 60 * 1_000;
 const HQ_REQUEST_TIMEOUT = "60 seconds";
 
 export interface HqAgent {
   readonly threadId: ThreadId;
-  readonly projectId: ProjectId;
   /** `lead` for a top-level thread, the canonical role of a delegated task. */
   readonly role: string;
   readonly model: string;
@@ -87,7 +91,7 @@ export class HqConnectionError extends Schema.TaggedError<HqConnectionError>()(
       case "invalid_delegation":
         return "That is not an HQ delegation; create one in HQ Settings → Connections → T3 agents.";
       case "store_failed":
-        return "T3 could not read or save the project's HQ connection.";
+        return "T3 could not read or save its HQ connection.";
     }
   }
 }
@@ -103,9 +107,9 @@ type HqRefusal =
   | "unavailable";
 
 const refusalMessages: Record<HqRefusal, string> = {
-  not_connected: "This project is no longer connected to YardSmith HQ.",
+  not_connected: "T3 is no longer connected to YardSmith HQ.",
   invalid_delegation:
-    "HQ refused T3's delegation: it was revoked or has expired. Create a new one in HQ Settings → Connections → T3 agents and reconnect the project.",
+    "HQ refused T3's delegation: it was revoked or has expired. Create a new one in HQ Settings → Connections → T3 agents and reconnect T3.",
   agent_revoked:
     "HQ refused this agent (agent_revoked): the person revoked it in HQ Settings → Connections. This thread can no longer act in HQ.",
   agent_role_conflict:
@@ -171,7 +175,7 @@ interface AgentToken {
   readonly delegation: string;
 }
 
-/** The server's own `observer` agent for one HQ connection, shared by every project using it. */
+/** The server's own `observer` agent for one HQ connection, shared by every project and thread. */
 interface ObserverToken {
   readonly value: string;
   readonly expiresAt: number;
@@ -188,32 +192,28 @@ export class HqAgentConnections extends Context.Service<
   HqAgentConnections,
   {
     readonly connect: (input: {
-      readonly projectId: ProjectId;
       readonly origin: string;
       readonly delegation: string;
     }) => Effect.Effect<{ readonly origin: string }, HqConnectionError>;
-    readonly disconnect: (projectId: ProjectId) => Effect.Effect<void, HqConnectionError>;
+    readonly disconnect: Effect.Effect<void, HqConnectionError>;
     /** `connection` stands for the stored origin and delegation without revealing either. */
-    readonly read: (
-      projectId: ProjectId,
-    ) => Effect.Effect<
+    readonly read: Effect.Effect<
       { readonly origin: string; readonly connection: string } | null,
       HqConnectionError
     >;
     /**
-     * Calls a read-only HQ MCP tool as T3's own `observer` agent for the project's connection,
-     * whether or not any provider runs. `connection` identifies the origin and delegation used,
+     * Calls a read-only HQ MCP tool as T3's own `observer` agent, whether or not any provider
+     * runs. `connection` identifies the origin and delegation used,
      * so callers can key what they cache by it without seeing the delegation.
      */
     readonly observe: (
-      projectId: ProjectId,
       tool: string,
       args: Record<string, unknown>,
     ) => Effect.Effect<
       { readonly origin: string; readonly connection: string; readonly value: unknown },
       HqObserveError
     >;
-    /** Gives the thread's agent a connection when its project is connected to HQ, and none otherwise. */
+    /** Gives the thread's agent a connection when T3 is connected to HQ, and none otherwise. */
     readonly prepare: (agent: HqAgent) => Effect.Effect<void>;
     readonly connection: (threadId: ThreadId) => Effect.Effect<HqMcpConnection | undefined>;
     /** Serves one MCP request from a thread's agent by forwarding it to HQ as that agent. */
@@ -228,6 +228,7 @@ export class HqAgentConnections extends Context.Service<
 const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
   const crypto = yield* Crypto.Crypto;
+  const fileSystem = yield* FileSystem.FileSystem;
   const httpClient = yield* HttpClient.HttpClient;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
   const endpoint = `${mcpEndpointOrigin((yield* HttpServer.HttpServer).address)}${HQ_MCP_PATH}`;
@@ -235,22 +236,17 @@ const make = Effect.gen(function* () {
   const threadByCredentialHash = new Map<string, ThreadId>();
   const tokenLock = yield* KeyedLock.make<ThreadId>();
   const observers = new Map<string, ObserverToken>();
-  /** The projects that have read through each connection's observer since it was exchanged. */
-  const observerProjects = new Map<string, Set<ProjectId>>();
   const observerLock = yield* KeyedLock.make<string>();
 
   const digest = (value: string) =>
     crypto
       .digest("SHA-256", new TextEncoder().encode(value))
       .pipe(Effect.map(bytesToHex), Effect.orDie);
-  // Project ids are not path-safe, and the store names its file after the entry.
-  const storeName = (projectId: ProjectId) =>
-    digest(projectId).pipe(Effect.map((hash) => `hq-connection-${hash.slice(0, 32)}`));
   const storeFailed = () => new HqConnectionError({ reason: "store_failed" });
 
-  const readStored = (projectId: ProjectId) =>
-    storeName(projectId).pipe(
-      Effect.flatMap(store.get),
+  const readStored = store
+    .get(STORE_NAME)
+    .pipe(
       Effect.map(Option.flatMap((bytes) => decodeStored(new TextDecoder().decode(bytes)))),
       Effect.mapError(storeFailed),
     );
@@ -365,17 +361,13 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  /** Ends the connection's observer once the project leaving it was the last one using it. */
-  const releaseObserver = (projectId: ProjectId, stored: StoredHqConnection) =>
+  /** Ends the observer of a connection T3 no longer uses. */
+  const releaseObserver = (stored: StoredHqConnection) =>
     Effect.gen(function* () {
       const key = yield* connectionKey(stored);
       yield* observerLock.withLock(
         key,
         Effect.gen(function* () {
-          const users = observerProjects.get(key);
-          users?.delete(projectId);
-          if (users !== undefined && users.size > 0) return;
-          observerProjects.delete(key);
           if (!observers.delete(key)) return;
           const { status } = yield* postAgents(stored, {
             action: "end",
@@ -392,15 +384,12 @@ const make = Effect.gen(function* () {
     });
 
   const observe: HqAgentConnections["Service"]["observe"] = Effect.fn("HqAgentConnections.observe")(
-    function* (projectId, tool, args) {
-      const stored = yield* readStored(projectId).pipe(
+    function* (tool, args) {
+      const stored = yield* readStored.pipe(
         Effect.mapError(() => new HqObserveError({ reason: "unavailable" })),
       );
       if (Option.isNone(stored)) return yield* new HqObserveError({ reason: "not_connected" });
       const key = yield* connectionKey(stored.value);
-      const users = observerProjects.get(key) ?? new Set<ProjectId>();
-      users.add(projectId);
-      observerProjects.set(key, users);
       const body = new TextEncoder().encode(
         encodeJson({
           jsonrpc: "2.0",
@@ -518,9 +507,7 @@ const make = Effect.gen(function* () {
       const attempt = Effect.gen(function* () {
         const connection = threads.get(threadId);
         if (connection === undefined) return yield* Effect.fail("unauthorized" as HqRefusal);
-        const stored = yield* readStored(connection.agent.projectId).pipe(
-          Effect.mapError((): HqRefusal => "unavailable"),
-        );
+        const stored = yield* readStored.pipe(Effect.mapError((): HqRefusal => "unavailable"));
         if (Option.isNone(stored)) return yield* Effect.fail("not_connected" as HqRefusal);
         // One read of the stored connection decides both the exchange and where the token goes.
         const token = yield* agentToken(threadId, stored.value);
@@ -562,9 +549,7 @@ const make = Effect.gen(function* () {
         agent.threadId,
         Effect.gen(function* () {
           dropToken(agent.threadId);
-          const stored = yield* readStored(agent.projectId).pipe(
-            Effect.mapError((): HqRefusal => "unavailable"),
-          );
+          const stored = yield* readStored.pipe(Effect.mapError((): HqRefusal => "unavailable"));
           if (Option.isNone(stored)) return;
           const { status } = yield* postAgents(stored.value, {
             action: "end",
@@ -584,6 +569,42 @@ const make = Effect.gen(function* () {
     },
   );
 
+  /**
+   * Adopts the connection a project stored before the environment owned one, then removes every
+   * project copy so the delegation is stored once.
+   */
+  yield* Effect.gen(function* () {
+    const directory = store.directory;
+    if (directory === undefined) return;
+    const projectEntries = (yield* fileSystem.readDirectory(directory))
+      .flatMap((file) => {
+        const name = PROJECT_STORE_FILE.exec(file)?.[1];
+        return name === undefined ? [] : [name];
+      })
+      .toSorted();
+    if (projectEntries.length === 0) return;
+    let adopted = Option.getOrUndefined(yield* readStored)?.origin;
+    for (const name of projectEntries) {
+      const bytes = yield* store.get(name);
+      const stored = Option.flatMap(bytes, (value) =>
+        decodeStored(new TextDecoder().decode(value)),
+      );
+      if (adopted === undefined && Option.isSome(bytes) && Option.isSome(stored)) {
+        yield* store.set(STORE_NAME, bytes.value);
+        adopted = stored.value.origin;
+      }
+      yield* store.remove(name);
+    }
+    yield* Effect.logInfo("Moved a project's HQ connection to the environment", {
+      origin: adopted ?? null,
+      projectEntries: projectEntries.length,
+    });
+  }).pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Could not move a project's HQ connection to the environment", cause),
+    ),
+  );
+
   return HqAgentConnections.of({
     connect: Effect.fn("HqAgentConnections.connect")(function* (input) {
       const origin = normalizeHqOrigin(input.origin);
@@ -592,46 +613,42 @@ const make = Effect.gen(function* () {
       if (!DELEGATION_PATTERN.test(delegation))
         return yield* new HqConnectionError({ reason: "invalid_delegation" });
       const encoded = yield* encodeStored({ origin, delegation }).pipe(Effect.orDie);
-      const previous = yield* readStored(input.projectId);
-      yield* storeName(input.projectId).pipe(
-        Effect.flatMap((name) => store.set(name, new TextEncoder().encode(encoded))),
-        Effect.mapError(storeFailed),
-      );
+      const previous = yield* readStored;
+      yield* store
+        .set(STORE_NAME, new TextEncoder().encode(encoded))
+        .pipe(Effect.mapError(storeFailed));
       // A new delegation or origin takes over at each thread's next exchange.
-      for (const connection of threads.values())
-        if (connection.agent.projectId === input.projectId) connection.token = undefined;
+      for (const connection of threads.values()) connection.token = undefined;
       if (
         Option.isSome(previous) &&
         (previous.value.origin !== origin || previous.value.delegation !== delegation)
       )
-        yield* releaseObserver(input.projectId, previous.value);
+        yield* releaseObserver(previous.value);
       return { origin };
     }),
-    disconnect: Effect.fn("HqAgentConnections.disconnect")(function* (projectId) {
-      const previous = yield* readStored(projectId);
-      yield* storeName(projectId).pipe(Effect.flatMap(store.remove), Effect.mapError(storeFailed));
-      for (const connection of threads.values())
-        if (connection.agent.projectId === projectId) connection.token = undefined;
-      if (Option.isSome(previous)) yield* releaseObserver(projectId, previous.value);
-    }),
-    read: (projectId) =>
-      readStored(projectId).pipe(
-        Effect.flatMap(
-          Option.match({
-            onNone: () => Effect.succeed(null),
-            onSome: (stored) =>
-              connectionKey(stored).pipe(
-                Effect.map((connection) => ({ origin: stored.origin, connection })),
-              ),
-          }),
-        ),
+    disconnect: Effect.gen(function* () {
+      const previous = yield* readStored;
+      yield* store.remove(STORE_NAME).pipe(Effect.mapError(storeFailed));
+      for (const connection of threads.values()) connection.token = undefined;
+      if (Option.isSome(previous)) yield* releaseObserver(previous.value);
+    }).pipe(Effect.withSpan("HqAgentConnections.disconnect")),
+    read: readStored.pipe(
+      Effect.flatMap(
+        Option.match({
+          onNone: () => Effect.succeed(null),
+          onSome: (stored) =>
+            connectionKey(stored).pipe(
+              Effect.map((connection) => ({ origin: stored.origin, connection })),
+            ),
+        }),
       ),
+    ),
     prepare: Effect.fn("HqAgentConnections.prepare")(function* (agent) {
-      const connected = yield* readStored(agent.projectId).pipe(
+      const connected = yield* readStored.pipe(
         Effect.map(Option.isSome),
         Effect.catch(() =>
-          Effect.logWarning("Could not read the project's HQ connection", {
-            projectId: agent.projectId,
+          Effect.logWarning("Could not read T3's HQ connection", {
+            threadId: agent.threadId,
           }).pipe(Effect.as(false)),
         ),
       );

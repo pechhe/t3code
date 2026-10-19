@@ -37,9 +37,7 @@ const make = Effect.gen(function* () {
     projections.getThread(threadId).pipe(
       Effect.flatMap((thread) => {
         const role = HqAgentConnections.hqAgentRole(thread);
-        return role === undefined
-          ? Effect.void
-          : act({ threadId, projectId: thread.projectId, role });
+        return role === undefined ? Effect.void : act({ threadId, role });
       }),
     );
 

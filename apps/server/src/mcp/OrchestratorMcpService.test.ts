@@ -57,11 +57,11 @@ const orchestratorServiceWith = (build: Partial<BuildWorkItems.BuildWorkItems["S
     Layer.provide(WorkspaceProvider.layerGitWorktree),
   );
 const layerOrchestratorService = orchestratorServiceWith({
-  connected: () => Effect.succeed({ connected: false, origin: null }),
+  connected: Effect.succeed({ connected: false, origin: null }),
 });
 
 describe("OrchestratorMcpService", () => {
-  it.effect("refuses a Build watch without the watcher's project HQ connection", () =>
+  it.effect("refuses a Build watch without T3's HQ connection", () =>
     Effect.gen(function* () {
       const watcherId = ThreadId.make("thread:build-watch-refusal");
       const shell = liveThreadShell(watcherId);
@@ -106,7 +106,7 @@ describe("OrchestratorMcpService", () => {
     }),
   );
 
-  it.effect("refuses a Build watch on a number the project's HQ cannot see", () =>
+  it.effect("refuses a Build watch on a number T3's HQ cannot see", () =>
     Effect.gen(function* () {
       const watcherId = ThreadId.make("thread:build-watch-unknown");
       const shell = liveThreadShell(watcherId);
@@ -145,12 +145,14 @@ describe("OrchestratorMcpService", () => {
             true,
           )
           .pipe(Effect.flip);
-      }).pipe(Effect.provide(
+      }).pipe(
+        Effect.provide(
           orchestratorServiceWith({
-            connected: () => Effect.succeed({ connected: true, origin: "https://hq.test" }),
+            connected: Effect.succeed({ connected: true, origin: "https://hq.test" }),
             mentions: () => Effect.succeed({ items: [] }),
           }).pipe(Layer.provide(dependencies)),
-        ),);
+        ),
+      );
       assert.equal(result.code, "invalid_request");
       assert.include(result.message, "Build #1000001 is not a Spec or Ticket");
     }),

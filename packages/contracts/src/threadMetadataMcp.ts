@@ -97,7 +97,7 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   }),
   workItem: Schema.optional(TrimmedNonEmptyString).annotate({
     description:
-      "The YardSmith HQ Build Spec or Ticket to link: its Build URL, #<number> or number, on the project's HQ. Required only when action is link_work_item; linking replaces any earlier item.",
+      "The YardSmith HQ Build Spec or Ticket to link: its Build URL, #<number> or number, on T3's HQ. Required only when action is link_work_item; linking replaces any earlier item.",
   }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(

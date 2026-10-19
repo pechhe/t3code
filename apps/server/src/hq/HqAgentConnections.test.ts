@@ -1,9 +1,12 @@
 import { assert, describe, it } from "@effect/vitest";
-import { AgentTaskBinding, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { AgentTaskBinding, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
 
+import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { claudeMcpQueryOverrides } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { codexThreadRuntimeParams } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { hqAgentRole } from "./HqAgentConnections.ts";
@@ -13,10 +16,10 @@ import {
   hqEndpoint,
   leadThread,
   makeHqHarness as makeHarness,
+  makeHqHarnessAt,
   origin,
   otherDelegation,
   otherOrigin,
-  projectId,
   reviewerThread,
 } from "./HqAgentConnections.testkit.ts";
 
@@ -55,7 +58,7 @@ it.effect("ending a finished agent makes the resumed thread a new agent", () =>
   Effect.gen(function* () {
     const { hq, connections, call } = yield* makeHarness;
     const before = yield* call(reviewerThread);
-    yield* connections.end({ threadId: reviewerThread, projectId, role: "spec-reviewer" });
+    yield* connections.end({ threadId: reviewerThread, role: "spec-reviewer" });
     assert.isTrue(hq.agents[0]!.ended);
     assert.isFalse(hq.agents[0]!.revoked);
     const after = yield* call(reviewerThread);
@@ -84,7 +87,6 @@ it.effect("a thread asking HQ for a second role is refused as agent_role_conflic
     yield* call(leadThread);
     yield* connections.prepare({
       threadId: leadThread,
-      projectId,
       role: "implementation-worker",
       model: "claude-opus-5-5",
     });
@@ -116,12 +118,12 @@ it.effect("renewal and reconnect failures report a reason and leak no credential
 it.effect("the delegation is kept only in the server secret store", () =>
   Effect.gen(function* () {
     const { connections, stored } = yield* makeHarness;
-    assert.strictEqual((yield* connections.read(projectId))?.origin, origin);
-    const [entry] = [...stored.values()];
-    assert.include(new TextDecoder().decode(entry), delegation);
-    yield* connections.disconnect(projectId);
+    assert.strictEqual((yield* connections.read)?.origin, origin);
+    assert.deepStrictEqual([...stored.keys()], ["hq-connection"]);
+    assert.include(new TextDecoder().decode(stored.get("hq-connection")), delegation);
+    yield* connections.disconnect;
     assert.strictEqual(stored.size, 0);
-    assert.isNull(yield* connections.read(projectId));
+    assert.isNull(yield* connections.read);
   }),
 );
 
@@ -156,18 +158,51 @@ it.effect("Claude and Codex get a yardsmith-hq server that carries no HQ credent
   }),
 );
 
-it.effect("a project not connected to HQ gives its threads no connection", () =>
+it.effect("one connection serves every thread, and disconnecting stops them all", () =>
   Effect.gen(function* () {
-    const { connections } = yield* makeHarness;
-    const other = ThreadId.make("thread-elsewhere");
-    yield* connections.prepare({
-      threadId: other,
-      projectId: ProjectId.make("project-other"),
-      role: "lead",
-      model: "gpt-5.5",
-    });
-    assert.isUndefined(yield* connections.connection(other));
+    const { hq, connections, call, assertNoSecretsIn } = yield* makeHarness;
+    // A thread T3 first sees after the connection was made, with no delegation of its own.
+    const later = ThreadId.make("thread-later");
+    yield* connections.prepare({ threadId: later, role: "lead", model: "gpt-5.5" });
+    const read = yield* call(later);
+    assert.isDefined(read.json.result);
+    assert.deepStrictEqual(
+      hq.agents.map(({ agentRef, role }) => ({ agentRef, role })),
+      [{ agentRef: "environment-hq/thread-later", role: "lead" }],
+    );
+
+    yield* connections.disconnect;
+    const refused = yield* call(later);
+    assert.strictEqual(refused.json.error?.data.reason, "not_connected");
+    const unprepared = ThreadId.make("thread-unconnected");
+    yield* connections.prepare({ threadId: unprepared, role: "lead", model: "gpt-5.5" });
+    assert.isUndefined(yield* connections.connection(unprepared));
+    assertNoSecretsIn(read, refused);
   }),
+);
+
+it.effect("a project's stored connection becomes the environment's, stored once", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped();
+    // What a project connection was stored as: an entry named after a hash of its project id.
+    const before = yield* Effect.service(ServerSecretStore.ServerSecretStore).pipe(
+      Effect.provide(ServerSecretStore.layerAtDirectory(directory)),
+    );
+    yield* before.set(
+      `hq-connection-${"a".repeat(32)}`,
+      new TextEncoder().encode(JSON.stringify({ origin, delegation })),
+    );
+
+    const { connections, call } = yield* makeHqHarnessAt(directory);
+    assert.strictEqual((yield* connections.read)?.origin, origin);
+    assert.deepStrictEqual(
+      (yield* fileSystem.readDirectory(directory)).filter((file) => file.startsWith("hq-")),
+      ["hq-connection.bin"],
+    );
+    yield* connections.prepare({ threadId: leadThread, role: "lead", model: "gpt-5.5" });
+    assert.isDefined((yield* call(leadThread)).json.result);
+  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
 );
 
 it.effect("a changed model renews the same agent and records the latest model", () =>
@@ -176,7 +211,6 @@ it.effect("a changed model renews the same agent and records the latest model", 
     const before = yield* call(leadThread);
     yield* connections.prepare({
       threadId: leadThread,
-      projectId,
       role: "lead",
       model: "claude-sonnet-5-5",
     });
@@ -191,7 +225,7 @@ it.effect("reconnecting to another HQ never presents one HQ's token to the other
   Effect.gen(function* () {
     const { hq, connections, call, assertNoSecretsIn } = yield* makeHarness;
     const first = yield* call(leadThread);
-    yield* connections.connect({ projectId, origin: otherOrigin, delegation: otherDelegation });
+    yield* connections.connect({ origin: otherOrigin, delegation: otherDelegation });
     const second = yield* call(leadThread);
     assert.isDefined(second.json.result);
     assert.deepStrictEqual(

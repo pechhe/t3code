@@ -1,12 +1,12 @@
 # Build items
 
-In a project connected to YardSmith HQ, a thread can show the Build Spec or Ticket it works on.
+When T3 Code is connected to YardSmith HQ, a thread in any project can show the Build Spec or Ticket it works on.
 The item's title and status sit in the thread header, between the workflow and the thread's
 title. Hover it to see a card with the item's current state from Build: a Spec's Tickets and
 progress, holds, what blocks a Ticket, and the thread leading or working on it. Click it to open
 the item in HQ.
 
-Projects without HQ show no Build items, and their Build links stay ordinary links.
+Without an HQ connection, threads show no Build items and Build links stay ordinary links.
 
 ## Link a thread
 

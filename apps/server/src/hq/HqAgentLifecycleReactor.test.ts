@@ -72,7 +72,7 @@ it.effect("a delegated task that completes, fails or is cancelled ends its agent
         calls,
         Array.from({ length: 3 }, () => ({
           kind: "end",
-          agent: { threadId: reviewer, projectId, role: "spec-reviewer" },
+          agent: { threadId: reviewer, role: "spec-reviewer" },
         })),
       );
     }),
@@ -96,7 +96,7 @@ it.effect("archiving ends a lead's agent and deleting also drops its connection"
     Effect.gen(function* () {
       yield* reactor.handle(threadEvent("thread.archived", lead));
       yield* reactor.handle(threadEvent("thread.deleted", lead));
-      const agent = { threadId: lead, projectId, role: "lead" };
+      const agent = { threadId: lead, role: "lead" };
       assert.deepStrictEqual(calls, [
         { kind: "end", agent },
         { kind: "forget", agent },

@@ -257,10 +257,9 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
         .pipe(Effect.mapError(projectFailure));
     }),
   ),
-  t3_project_hq_connection: McpToolAccess.writesEnvironment((input) =>
+  t3_hq_connection: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const context = yield* readCaller();
-      const projectId = yield* resolveProjectId(context, input.projectId);
       const connections = yield* HqAgentConnections.HqAgentConnections;
       const invalid = (message: string) =>
         new OrchestratorMcpFailure({ code: "invalid_request", message });
@@ -272,20 +271,26 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           return yield* invalid(
             "Connecting needs origin and delegation, a secretRef from request_secret.",
           );
+        // A secret ref is bound to the project of the thread that requested it.
+        if (context.caller === undefined)
+          return yield* invalid(
+            "Connect from inside a T3 thread: request_secret binds the delegation's ref to that thread.",
+          );
+        const projectId = context.caller.projectId;
         const delegation = yield* SecretRequests.SecretRequests.pipe(
           Effect.flatMap((secrets) => secrets.consume({ ref, projectId })),
           Effect.mapError((error) => invalid(error.message)),
         );
         const { origin } = yield* connections
-          .connect({ projectId, origin: requestedOrigin, delegation })
+          .connect({ origin: requestedOrigin, delegation })
           .pipe(Effect.mapError(hqFailure));
         return { connected: true, origin };
       }
       if (input.action === "disconnect") {
-        yield* connections.disconnect(projectId).pipe(Effect.mapError(hqFailure));
+        yield* connections.disconnect.pipe(Effect.mapError(hqFailure));
         return { connected: false, origin: null };
       }
-      const current = yield* connections.read(projectId).pipe(Effect.mapError(hqFailure));
+      const current = yield* connections.read.pipe(Effect.mapError(hqFailure));
       return { connected: current !== null, origin: current?.origin ?? null };
     }),
   ),

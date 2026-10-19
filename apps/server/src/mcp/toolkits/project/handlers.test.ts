@@ -4,6 +4,8 @@ import {
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
+  SecretRef,
+  SecretRequestError,
   ThreadId,
   type OrchestrationV2ThreadShell,
   type Project as ProjectRecord,
@@ -17,6 +19,11 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
+import { delegation, makeHqHarness, origin } from "../../../hq/HqAgentConnections.testkit.ts";
+import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
+import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
+import * as SecretRequests from "../../../secrets/SecretRequests.ts";
+import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ServerConfig from "../../../config.ts";
@@ -607,5 +614,80 @@ it.effect("a launch into a new worktree creates nothing when its base ref has no
 
     expect((yield* launchFrom("main")).at(-1)?.result).toMatchObject({ projectId });
     expect(launched).toHaveLength(1);
+  }),
+);
+
+const yardsmithThread = ThreadId.make("thread:yardsmith");
+const t3codeThread = ThreadId.make("thread:t3code");
+const projectOf = (threadId: ThreadId) =>
+  ProjectId.make(threadId === yardsmithThread ? "project:yardsmith" : "project:t3code");
+const delegationRef = SecretRef.make(`secret_${"r".repeat(43)}`);
+
+const asCaller = (threadId: ThreadId): McpInvocationContext.McpInvocationScope => ({
+  environmentId: EnvironmentId.make("environment-hq"),
+  requestNamespace: `provider:${threadId}`,
+  thread: {
+    threadId,
+    providerSessionId: `provider:${threadId}`,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  client: undefined,
+  capabilities: new Set(["orchestration" as const]),
+  issuedAt: 0,
+});
+
+it.effect("a connection one project's thread makes serves a thread in another project", () =>
+  Effect.gen(function* () {
+    const harness = yield* makeHqHarness;
+    yield* harness.connections.disconnect;
+    const call = (threadId: ThreadId, params: Record<string, unknown>) =>
+      Effect.gen(function* () {
+        const toolkit = yield* ProjectToolkit;
+        const results = yield* toolkit
+          .handle("t3_hq_connection", params as never)
+          .pipe(Stream.unwrap, Stream.runCollect);
+        return results.at(-1)?.result as { connected: boolean; origin: string | null };
+      }).pipe(
+        Effect.provide(
+          McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+            Layer.provideMerge(
+              Layer.mergeAll(
+                ThreadCommandExecutor.layer,
+                NodeCrypto.layer,
+                NodeServices.layer,
+                Layer.succeed(McpInvocationContext.McpInvocationContext, asCaller(threadId)),
+                Layer.mock(ThreadManagement.ThreadManagementService)({
+                  getThreadShell: (id) =>
+                    Effect.succeed({ ...liveThreadShell(id), projectId: projectOf(id) }),
+                }),
+                // A secret ref is bound to the project of the thread that asked for it.
+                Layer.mock(SecretRequests.SecretRequests)({
+                  consume: ({ ref, projectId }) =>
+                    ref === delegationRef && projectId === projectOf(yardsmithThread)
+                      ? Effect.succeed(delegation)
+                      : Effect.fail(new SecretRequestError({ reason: "invalid_ref" })),
+                }),
+                Layer.succeed(HqAgentConnections.HqAgentConnections, harness.connections),
+                Layer.mock(Project.ProjectService)({}),
+              ),
+            ),
+          ),
+        ),
+      );
+
+    expect(yield* call(t3codeThread, { action: "read" })).toStrictEqual({
+      connected: false,
+      origin: null,
+    });
+    yield* call(yardsmithThread, { action: "connect", origin, delegation: delegationRef });
+    expect(yield* call(t3codeThread, { action: "read" })).toStrictEqual({
+      connected: true,
+      origin,
+    });
+    yield* call(t3codeThread, { action: "disconnect" });
+    expect(yield* call(yardsmithThread, { action: "read" })).toStrictEqual({
+      connected: false,
+      origin: null,
+    });
   }),
 );

@@ -216,7 +216,7 @@ import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { openLinkBuildItemDialog } from "./buildItem/LinkBuildItemDialog";
-import { useProjectBuildConnected } from "../state/buildWorkItems";
+import { useBuildConnected } from "../state/buildWorkItems";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -745,10 +745,7 @@ function OpenCommandPaletteDialog(props: {
         ? scopeThreadRef(activeThread.environmentId, activeThread.id)
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
-  const activeThreadBuildConnected = useProjectBuildConnected(
-    activeThread?.environmentId ?? null,
-    activeThread?.projectId ?? null,
-  );
+  const activeThreadBuildConnected = useBuildConnected(activeThread?.environmentId ?? null);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );

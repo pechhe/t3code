@@ -2405,7 +2405,6 @@ describe("CodexAdapterV2 post-settle continuation", () => {
         const threadId = ThreadId.make(`thread-${scenario}`);
         yield* hq.connections.prepare({
           threadId,
-          projectId: HqTestkit.projectId,
           role: "spec-reviewer",
           model: "gpt-5.4",
         });

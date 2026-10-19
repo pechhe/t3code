@@ -1,5 +1,5 @@
 import { createBuildWorkItemAtoms } from "@t3tools/client-runtime/state/build-work-items";
-import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { useEnvironmentQuery } from "./query";
@@ -25,10 +25,10 @@ export function useThreadBuildWorkItem(
   ).data;
 }
 
-/** One request per project, shared by every row, decides whether threads offer linking. */
-export function useProjectBuildConnected(environmentId: EnvironmentId, projectId: ProjectId) {
+/** One request per environment, shared by every row, decides whether threads offer linking. */
+export function useBuildConnected(environmentId: EnvironmentId) {
   return (
-    useEnvironmentQuery(buildWorkItems.connection({ environmentId, input: { projectId } })).data
-      ?.connected === true
+    useEnvironmentQuery(buildWorkItems.connection({ environmentId, input: {} })).data?.connected ===
+    true
   );
 }

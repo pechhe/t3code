@@ -457,7 +457,7 @@ export const layerWithOptions = (
       const hqConnections = yield* Effect.serviceOption(HqAgentConnections.HqAgentConnections);
       /**
        * Only the Claude and Codex adapters attach the connection this prepares. It runs on attach
-       * and before every turn, so a newly connected project or a changed model reaches the next
+       * and before every turn, so a new HQ connection or a changed model reaches the next
        * turn: Claude reopens its process for a new MCP server, while a live Codex thread keeps the
        * servers it started with until it is next started or resumed.
        */
@@ -471,7 +471,6 @@ export const layerWithOptions = (
                   ? Effect.void
                   : hqConnections.value.prepare({
                       threadId,
-                      projectId: thread.projectId,
                       role,
                       model: model ?? thread.modelSelection.model,
                     });

@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert } from "@effect/vitest";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
@@ -167,7 +168,11 @@ const makeFakeHq = () => {
             result: { content: [], structuredContent: outcome },
           });
         }
-        return respond(request, 200, { jsonrpc: "2.0", id: message.id, result: { agent: agent.id } });
+        return respond(request, 200, {
+          jsonrpc: "2.0",
+          id: message.id,
+          result: { agent: agent.id },
+        });
       }
       return respond(request, 404, {});
     }),
@@ -177,27 +182,35 @@ const makeFakeHq = () => {
 
 /**
  * The real HqAgentConnections against a fake HQ, with every log line captured, a lead and a
- * spec-reviewer thread prepared in a connected project, and a check that no HQ credential
- * (the delegations and every token HQ minted) reached what a test collected.
+ * spec-reviewer thread prepared once T3 is connected, and a check that no HQ credential
+ * (the delegations and every token HQ minted) reached what a test collected. Given a secrets
+ * directory, it uses the real file store there and connects nothing itself.
  */
-export const makeHqHarness = Effect.gen(function* () {
+export const makeHqHarnessAt = Effect.fnUntraced(function* (secretsDirectory?: string) {
   const hq = makeFakeHq();
   const stored = new Map<string, Uint8Array>();
   const logs: Array<string> = [];
-  const store = ServerSecretStore.ServerSecretStore.of({
-    get: (name) => Effect.succeed(Option.fromNullishOr(stored.get(name))),
-    set: (name, value) => Effect.sync(() => void stored.set(name, value)),
-    create: (name, value) => Effect.sync(() => void stored.set(name, value)),
-    getOrCreateRandom: () => Effect.die("unused"),
-    remove: (name) => Effect.sync(() => void stored.delete(name)),
-  } as ServerSecretStore.ServerSecretStore["Service"]);
+  const store =
+    secretsDirectory === undefined
+      ? Layer.succeed(
+          ServerSecretStore.ServerSecretStore,
+          ServerSecretStore.ServerSecretStore.of({
+            get: (name) => Effect.sync(() => Option.fromNullishOr(stored.get(name))),
+            set: (name, value) => Effect.sync(() => void stored.set(name, value)),
+            create: (name, value) => Effect.sync(() => void stored.set(name, value)),
+            getOrCreateRandom: () => Effect.die("unused"),
+            remove: (name) => Effect.sync(() => void stored.delete(name)),
+          } as ServerSecretStore.ServerSecretStore["Service"]),
+        )
+      : ServerSecretStore.layerAtDirectory(secretsDirectory);
   const connections = yield* Effect.service(HqAgentConnections.HqAgentConnections).pipe(
     Effect.provide(
       HqAgentConnections.layer.pipe(
         Layer.provide(
           Layer.mergeAll(
             NodeCrypto.layer,
-            Layer.succeed(ServerSecretStore.ServerSecretStore, store),
+            NodeServices.layer,
+            store.pipe(Layer.provide(NodeServices.layer)),
             Layer.succeed(HttpClient.HttpClient, hq.client),
             Layer.succeed(
               ServerEnvironment.ServerEnvironment,
@@ -248,19 +261,15 @@ export const makeHqHarness = Effect.gen(function* () {
       };
     });
 
-  yield* connections.connect({ projectId, origin, delegation });
-  yield* connections.prepare({
-    threadId: leadThread,
-    projectId,
-    role: "lead",
-    model: "claude-opus-5-5",
-  });
-  yield* connections.prepare({
-    threadId: reviewerThread,
-    projectId,
-    role: "spec-reviewer",
-    model: "gpt-5.5",
-  });
+  if (secretsDirectory === undefined) {
+    yield* connections.connect({ origin, delegation });
+    yield* connections.prepare({ threadId: leadThread, role: "lead", model: "claude-opus-5-5" });
+    yield* connections.prepare({
+      threadId: reviewerThread,
+      role: "spec-reviewer",
+      model: "gpt-5.5",
+    });
+  }
 
   /** No HQ credential may reach anything outside T3's own requests to HQ. */
   const assertNoSecretsIn = (...surfaces: ReadonlyArray<unknown>) => {
@@ -273,3 +282,5 @@ export const makeHqHarness = Effect.gen(function* () {
 
   return { hq, connections, call, logs, logLayer, stored, assertNoSecretsIn };
 });
+
+export const makeHqHarness = makeHqHarnessAt();

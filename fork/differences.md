@@ -196,7 +196,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Threads link to YardSmith HQ Build Specs/Tickets and agents act in HQ as themselves.
-- **Requirements:** link a thread to a Build item with header display and cards; Build links and #numbers render as live chips with cards; unreachable mentions and links from a previous HQ report clearly; lead and worker thread links on cards; per-thread HQ MCP connection and lifecycle; a raw delegated child gets no HQ server; mobile shows the Build item.
+- **Requirements:** link a thread to a Build item with header display and cards; Build links and #numbers render as live chips with cards; unreachable mentions and links from a previous HQ report clearly; lead and worker thread links on cards; one HQ connection per environment, shared by every project; per-thread HQ MCP agent and lifecycle; a raw delegated child gets no HQ server; mobile shows the Build item.
 - **Integration points:** `hq/BuildWorkItems`, `HqAgentConnections`, `HqMcpRoute`, `HqAgentLifecycleReactor`; `buildWorkItem` contract; `shared/buildLinks`; web `buildItem/` components; client-runtime state.
 - **Proof:** apps/server/src/hq/BuildWorkItems.test.ts, HqAgentConnections.test.ts, HqAgentLifecycleReactor.test.ts; packages/shared/src/buildLinks.test.ts; docs/user/build-items.md.
 - **Upstream:** none known.
@@ -232,7 +232,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** A thread can wait on another thread or a Build item with `watch` / `unwatch`, alongside upstream PR watches.
-- **Requirements:** wake a thread when a watched thread finishes; no firing between a background task ending and its wake; wake quotes the right earlier turn and does not repeat a result already read; settling a thread ends its watches, kills its pending background work and tells its watchers "Finished"; UI shows Watching label, links, and "Watched by". Build watches wake once when waits and holds clear (or Dropped), or on Landed/Accepted/Dropped for closed; they require the watcher’s project HQ connection and survive restarts.
+- **Requirements:** wake a thread when a watched thread finishes; no firing between a background task ending and its wake; wake quotes the right earlier turn and does not repeat a result already read; settling a thread ends its watches, kills its pending background work and tells its watchers "Finished"; UI shows Watching label, links, and "Watched by". Build watches wake once when waits and holds clear (or Dropped), or on Landed/Accepted/Dropped for closed; they require T3’s HQ connection and survive restarts.
 - **Integration points:** `OrchestrationV2WatchTarget` and legacy watch decoding; `BuildWatchReactor` with the shared one-minute `BuildWorkItems` summary cache; `threadWatch`, `ThreadWatchReactor` (alongside upstream `PullRequestWatchReactor`); `shellThreadWatches` client state; `orchestrationV2PendingBackgroundWork`; `RunExecutionService` must ingest the published roster clear before detaching, even when the adapter's live roster has already cleared.
 - **Proof:** apps/server/src/orchestration-v2/ThreadWatch.test.ts; packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts; `claude_background_task_after_root` in apps/server/src/orchestration-v2/testkit/OrchestratorReplayFixtures.integration.test.ts.
 - **Upstream:** PR watches exist upstream; thread and Build item watches are the fork's.

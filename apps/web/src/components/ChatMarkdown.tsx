@@ -3013,7 +3013,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
         <span>{label}</span>
       );
     }
-    // A Build item on the project's HQ is a live chip. Until Build answers, or when it doesn't
+    // A Build item on T3's HQ is a live chip. Until Build answers, or when it doesn't
     // know the number, a `#<number>` stays text and a written link stays an ordinary link.
     const buildNumber =
       href && buildOrigin !== null && threadRef && buildFallback !== true

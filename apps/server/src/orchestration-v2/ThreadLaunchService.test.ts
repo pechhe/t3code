@@ -3970,7 +3970,7 @@ it.effect.each(
       const layerService = OrchestratorMcpService.layer.pipe(
         Layer.provide(
           Layer.mock(BuildWorkItems.BuildWorkItems)({
-            connected: () => Effect.succeed({ connected: false, origin: null }),
+            connected: Effect.succeed({ connected: false, origin: null }),
           }),
         ),
         Layer.provide(NodeCrypto.layer),

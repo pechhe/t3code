@@ -133,7 +133,7 @@ const dependencies = (input: {
   const serviceLayer = OrchestratorMcpService.layer.pipe(
     Layer.provide(
       Layer.mock(BuildWorkItems.BuildWorkItems)({
-        connected: () => Effect.succeed({ connected: false, origin: null }),
+        connected: Effect.succeed({ connected: false, origin: null }),
       }),
     ),
     Layer.provide(WorkspaceProvider.layerGitWorktree),

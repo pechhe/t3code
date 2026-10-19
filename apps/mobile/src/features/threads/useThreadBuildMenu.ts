@@ -5,15 +5,15 @@ import { useCallback, useMemo } from "react";
 import { Linking } from "react-native";
 
 import * as Dialog from "../../components/ui/Dialog";
-import { buildWorkItems, useProjectBuildConnected } from "../../state/build-work-items";
+import { buildWorkItems, useBuildConnected } from "../../state/build-work-items";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 /**
- * A thread row's Build link actions, offered only when its project is connected to
+ * A thread row's Build link actions, offered only when its environment is connected to
  * YardSmith HQ: link one, or open, change and unlink the linked Spec or Ticket.
  */
 export function useThreadBuildMenu(thread: EnvironmentThreadShell) {
-  const connected = useProjectBuildConnected(thread.environmentId, thread.projectId);
+  const connected = useBuildConnected(thread.environmentId);
   const link = useAtomCommand(buildWorkItems.link, { reportFailure: false });
   const workItem = thread.workItem ?? null;
 

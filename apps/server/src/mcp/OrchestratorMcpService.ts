@@ -3955,13 +3955,13 @@ const make = Effect.gen(function* () {
               );
             }
           } else {
-            const connection = yield* buildWorkItems
-              .connected(watcher.projectId)
-              .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
+            const connection = yield* buildWorkItems.connected.pipe(
+              Effect.mapError((error) => failure("invalid_request", error.message)),
+            );
             if (!connection.connected)
               return yield* failure(
                 "invalid_request",
-                "This thread's project is not connected to YardSmith HQ; it cannot watch Build items.",
+                "T3 is not connected to YardSmith HQ, so it cannot watch Build items.",
               );
             // A mistyped number would otherwise wait forever; an unreachable HQ is retried by the sweep.
             const found = yield* buildWorkItems
@@ -3971,7 +3971,7 @@ const make = Effect.gen(function* () {
             if (view === undefined && found.unavailable !== true)
               return yield* failure(
                 "invalid_request",
-                `Build #${target.number} is not a Spec or Ticket this project's HQ can see.`,
+                `Build #${target.number} is not a Spec or Ticket T3's HQ can see.`,
               );
             title = view?.item?.title.trim() || `Build #${target.number}`;
           }

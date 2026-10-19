@@ -502,8 +502,8 @@ const makeBuildHarness = Effect.gen(function* () {
   };
   const connection = { origin: "https://hq.example", connection: "test-connection" };
   const hq = Layer.mock(HqAgentConnections.HqAgentConnections)({
-    read: () => Effect.succeed(connection),
-    observe: (_project, tool, args) =>
+    read: Effect.succeed(connection),
+    observe: (tool, args) =>
       Effect.sync(() => {
         if (tool === "hq_build_waits") {
           state.waits++;

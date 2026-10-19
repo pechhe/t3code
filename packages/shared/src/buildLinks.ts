@@ -69,7 +69,7 @@ const SKIPPED_NODES = new Set([
   "definition",
 ]);
 
-/** The Build mentions in markdown, outside code, against the project's HQ `origin`. */
+/** The Build mentions in markdown, outside code, against T3's HQ `origin`. */
 export function findBuildMentions(markdown: string, origin: string): BuildMention[] {
   if (!markdown.includes("#") && !markdown.includes(`${origin}/build/`)) return [];
   const mentions: BuildMention[] = [];
@@ -150,7 +150,7 @@ type HastNode = {
 const IGNORED_TAGS = new Set(["a", "code", "pre", "script", "style"]);
 
 /**
- * Turns `#<number>` into a link to the item on the project's HQ, marked so the anchor can show
+ * Turns `#<number>` into a link to the item on T3's HQ, marked so the anchor can show
  * it as written when Build doesn't know the number. It runs on the HTML tree after raw HTML is
  * parsed, so `<code>` and `<a>` written as HTML leave mentions as written, like markdown code
  * and links. Build links already written stay as they are.

@@ -2094,7 +2094,7 @@ const layerWsRpc = (
               Effect.as(commandOutputHub.subscribe(input)),
             ),
           ),
-        [WS_METHODS.buildConnectionRead]: (input) => buildWorkItems.connected(input.projectId),
+        [WS_METHODS.buildConnectionRead]: () => buildWorkItems.connected,
         [WS_METHODS.buildWorkItemRead]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(buildWorkItems.view(input.threadId)),

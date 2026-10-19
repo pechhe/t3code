@@ -37,7 +37,7 @@ import { liveThreadShell } from "./McpToolAccess.testkit.ts";
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(
     Layer.mock(BuildWorkItems.BuildWorkItems)({
-      connected: () => Effect.succeed({ connected: false, origin: null }),
+      connected: Effect.succeed({ connected: false, origin: null }),
     }),
   ),
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),

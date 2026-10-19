@@ -1,5 +1,5 @@
 import { createBuildWorkItemAtoms } from "@t3tools/client-runtime/state/build-work-items";
-import type { EnvironmentId, ProjectId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
 
 import { connectionAtomRuntime } from "../connection/runtime";
 import { useEnvironmentQuery } from "./query";
@@ -23,31 +23,22 @@ export function useThreadBuildWorkItem(threadRef: ScopedThreadRef | null) {
   );
 }
 
-/** Whether the project is connected to YardSmith HQ, so its threads offer Link Build item. */
-export function useProjectBuildConnected(
-  environmentId: EnvironmentId | null,
-  projectId: ProjectId | null,
-): boolean {
+/** Whether the environment is connected to YardSmith HQ, so its threads offer Link Build item. */
+export function useBuildConnected(environmentId: EnvironmentId | null): boolean {
   return (
     useEnvironmentQuery(
-      environmentId === null || projectId === null
-        ? null
-        : buildWorkItems.connection({ environmentId, input: { projectId } }),
+      environmentId === null ? null : buildWorkItems.connection({ environmentId, input: {} }),
     ).data?.connected === true
   );
 }
 
 /** The HQ whose Build links the thread's messages show as live items; null without one. */
 export function useThreadBuildOrigin(threadRef: ScopedThreadRef | null | undefined): string | null {
-  const projectId = useThreadShell(threadRef ?? null)?.projectId ?? null;
   return (
     useEnvironmentQuery(
-      threadRef == null || projectId === null
+      threadRef == null
         ? null
-        : buildWorkItems.connection({
-            environmentId: threadRef.environmentId,
-            input: { projectId },
-          }),
+        : buildWorkItems.connection({ environmentId: threadRef.environmentId, input: {} }),
     ).data?.origin ?? null
   );
 }

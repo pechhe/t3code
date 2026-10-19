@@ -16,7 +16,6 @@ import {
   type BuildWorkItemSession,
   CommandId,
   type OrchestrationV2ThreadWorkItem,
-  type ProjectId,
   type ThreadId,
   type BuildWorkItemView,
 } from "@t3tools/contracts";
@@ -230,7 +229,7 @@ export class BuildWorkItems extends Context.Service<
       threadId: ThreadId,
     ) => Effect.Effect<BuildWorkItemReadResult, BuildWorkItemError>;
     /**
-     * The card for an item read from the thread's project HQ: its summary, Tickets or delivery,
+     * The card for an item read from T3's HQ: its summary, Tickets or delivery,
      * and who works on it. A new `open` reads Build at once; repeating it reads at most once a
      * minute.
      */
@@ -238,17 +237,15 @@ export class BuildWorkItems extends Context.Service<
       input: BuildWorkItemCardInput,
     ) => Effect.Effect<BuildWorkItemCardResult, BuildWorkItemError>;
     /**
-     * Items mentioned in the thread's messages, by number on its project HQ, as clients show
+     * Items mentioned in the thread's messages, by number on T3's HQ, as clients show
      * them. Shares the linked item's cache and cadence; a number Build doesn't know is absent, and
      * `unavailable` tells that apart from Build being unreachable.
      */
     readonly mentions: (
       input: BuildWorkItemMentionsInput,
     ) => Effect.Effect<BuildWorkItemMentionsResult, BuildWorkItemError>;
-    /** Whether the project's threads can link Build items at all. */
-    readonly connected: (
-      projectId: ProjectId,
-    ) => Effect.Effect<
+    /** Whether threads can link Build items at all. */
+    readonly connected: Effect.Effect<
       { readonly connected: boolean; readonly origin: string | null },
       BuildWorkItemError
     >;
@@ -292,22 +289,14 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const connectionOf = (projectId: ProjectId) =>
-    hq
-      .read(projectId)
-      .pipe(
-        Effect.mapError(() =>
-          error("unavailable", "T3 could not read the project's HQ connection."),
-        ),
-      );
+  const readConnection = hq.read.pipe(
+    Effect.mapError(() => error("unavailable", "T3 could not read its HQ connection.")),
+  );
 
   /** Item and waits together: a blocker's change does not move the item's own revision. */
-  const readSummary = (projectId: ProjectId, itemId: string) =>
+  const readSummary = (itemId: string) =>
     Effect.all(
-      [
-        hq.observe(projectId, "hq_build_read", { itemId }),
-        hq.observe(projectId, "hq_build_waits", { itemId }),
-      ],
+      [hq.observe("hq_build_read", { itemId }), hq.observe("hq_build_waits", { itemId })],
       { concurrency: 2 },
     ).pipe(
       Effect.map(([read, waits]) =>
@@ -323,7 +312,6 @@ const make = Effect.gen(function* () {
 
   /** An item as clients show it, read from Build at most once a minute however many ask. */
   const summaryView = (
-    projectId: ProjectId,
     connection: Connection,
     target: { readonly itemId: string; readonly number: number },
   ) =>
@@ -338,7 +326,7 @@ const make = Effect.gen(function* () {
             remember(cache, key, previous, ITEM_CACHE_LIMIT);
             return previous;
           }
-          const read = yield* readSummary(projectId, target.itemId);
+          const read = yield* readSummary(target.itemId);
           const next: CachedItem = Option.match(read, {
             onSome: (item) => ({ item, readAt: now, attemptedAt: now, unavailable: false }),
             onNone: () => ({
@@ -368,7 +356,7 @@ const make = Effect.gen(function* () {
   const view: BuildWorkItems["Service"]["view"] = Effect.fn("BuildWorkItems.view")(
     function* (threadId) {
       const shell = yield* shellOf(threadId);
-      const connection = yield* connectionOf(shell.projectId);
+      const connection = yield* readConnection;
       if (connection === null) return null;
       const workItem = shell.workItem ?? null;
       if (workItem === null) return null;
@@ -382,7 +370,7 @@ const make = Effect.gen(function* () {
           unavailable: true,
           readAt: null,
         };
-      return yield* summaryView(shell.projectId, connection, workItem);
+      return yield* summaryView(connection, workItem);
     },
   );
 
@@ -390,7 +378,7 @@ const make = Effect.gen(function* () {
    * The item a number names on this HQ. A known number stays resolved, since Build never reuses
    * one; an unknown one is asked again at most once a minute, and a failed read is not cached.
    */
-  const itemIdOf = (projectId: ProjectId, connection: Connection, number: number) =>
+  const itemIdOf = (connection: Connection, number: number) =>
     Effect.gen(function* () {
       const key = `${connection.connection}\n#${number}`;
       return yield* readLock.withLock(
@@ -405,7 +393,7 @@ const make = Effect.gen(function* () {
             remember(numberCache, key, previous, ITEM_CACHE_LIMIT);
             return Option.some(previous.itemId);
           }
-          const read = yield* hq.observe(projectId, "hq_build_read", { number }).pipe(
+          const read = yield* hq.observe("hq_build_read", { number }).pipe(
             Effect.map((result) =>
               Option.match(decodeBuildRead(result.value), {
                 onNone: () => Option.none<string | null>(),
@@ -430,17 +418,17 @@ const make = Effect.gen(function* () {
   const mentions: BuildWorkItems["Service"]["mentions"] = Effect.fn("BuildWorkItems.mentions")(
     function* (input) {
       const shell = yield* shellOf(input.threadId);
-      const connection = yield* connectionOf(shell.projectId);
+      const connection = yield* readConnection;
       if (connection === null) return { items: [] };
       let unreachable = false;
       const views = yield* Effect.forEach(
         [...new Set(input.numbers)],
         (number) =>
-          itemIdOf(shell.projectId, connection, number).pipe(
+          itemIdOf(connection, number).pipe(
             Effect.flatMap((itemId) => {
               if (Option.isNone(itemId)) unreachable = true;
               return Option.isSome(itemId) && itemId.value !== null
-                ? summaryView(shell.projectId, connection, { itemId: itemId.value, number }).pipe(
+                ? summaryView(connection, { itemId: itemId.value, number }).pipe(
                     Effect.map(Option.some),
                   )
                 : Effect.succeed(Option.none<BuildWorkItemView>());
@@ -455,16 +443,10 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const resolve = Effect.fn("BuildWorkItems.resolve")(function* (
-    projectId: ProjectId,
-    reference: string,
-  ) {
-    const connection = yield* connectionOf(projectId);
+  const resolve = Effect.fn("BuildWorkItems.resolve")(function* (reference: string) {
+    const connection = yield* readConnection;
     if (connection === null)
-      return yield* error(
-        "not_connected",
-        "This thread's project is not connected to YardSmith HQ.",
-      );
+      return yield* error("not_connected", "T3 is not connected to YardSmith HQ.");
     const parsed = parseBuildReference(reference);
     if (parsed === null)
       return yield* error(
@@ -474,16 +456,16 @@ const make = Effect.gen(function* () {
     if (parsed.origin !== null && parsed.origin !== connection.origin)
       return yield* error(
         "other_hq",
-        `That link is on ${parsed.origin}, but this project uses ${connection.origin}.`,
+        `That link is on ${parsed.origin}, but T3 uses ${connection.origin}.`,
       );
     const read = yield* hq
-      .observe(projectId, "hq_build_read", { number: parsed.number })
+      .observe("hq_build_read", { number: parsed.number })
       .pipe(
         Effect.mapError((cause) =>
           cause.reason === "failed"
             ? error("not_found", `Build has no item #${parsed.number} you can see.`)
             : cause.reason === "not_connected"
-              ? error("not_connected", "This thread's project is not connected to YardSmith HQ.")
+              ? error("not_connected", "T3 is not connected to YardSmith HQ.")
               : error("unavailable", "YardSmith HQ could not be reached. Try again shortly."),
         ),
       );
@@ -501,8 +483,7 @@ const make = Effect.gen(function* () {
   const link: BuildWorkItems["Service"]["link"] = Effect.fn("BuildWorkItems.link")(
     function* (input) {
       const shell = yield* shellOf(input.threadId);
-      const workItem =
-        input.reference === null ? null : yield* resolve(shell.projectId, input.reference);
+      const workItem = input.reference === null ? null : yield* resolve(input.reference);
       const commandId =
         input.commandId ??
         CommandId.make(
@@ -526,11 +507,11 @@ const make = Effect.gen(function* () {
   });
 
   /** Everything a card shows, or none when Build fails or answers with something unexpected. */
-  const readCard = (projectId: ProjectId, itemId: string) =>
+  const readCard = (itemId: string) =>
     Effect.gen(function* () {
       const none = Option.none<FreshCard>();
       const observe = (tool: string, args: Record<string, unknown>) =>
-        hq.observe(projectId, tool, args).pipe(Effect.map((result) => result.value));
+        hq.observe(tool, args).pipe(Effect.map((result) => result.value));
       const [readValue, waitsValue] = yield* Effect.all(
         [observe("hq_build_read", { itemId }), observe("hq_build_waits", { itemId })],
         { concurrency: 2 },
@@ -629,13 +610,13 @@ const make = Effect.gen(function* () {
   const card: BuildWorkItems["Service"]["card"] = Effect.fn("BuildWorkItems.card")(
     function* (input) {
       const shell = yield* shellOf(input.threadId);
-      const connection = yield* connectionOf(shell.projectId);
+      const connection = yield* readConnection;
       if (connection === null) return null;
       // The link's item is on another HQ: never read it, or its number, on this one.
       if (shell.workItem?.itemId === input.itemId && shell.workItem.origin !== connection.origin)
         return yield* error(
           "unavailable",
-          `This link is on ${shell.workItem.origin}, but this project uses ${connection.origin}.`,
+          `This link is on ${shell.workItem.origin}, but T3 uses ${connection.origin}.`,
         );
       const key = `${connection.connection}\n${input.itemId}`;
       const cached = yield* readLock.withLock(
@@ -656,7 +637,7 @@ const make = Effect.gen(function* () {
             input.open,
             ...(previous?.opens ?? []).filter((open) => open !== input.open),
           ].slice(0, CARD_OPENS_REMEMBERED);
-          const read = yield* readCard(shell.projectId, input.itemId);
+          const read = yield* readCard(input.itemId);
           const next: CachedCard = Option.match(read, {
             onSome: (fresh) => ({
               card: {
@@ -695,13 +676,12 @@ const make = Effect.gen(function* () {
     card,
     mentions,
     link,
-    connected: (projectId) =>
-      connectionOf(projectId).pipe(
-        Effect.map((connection) => ({
-          connected: connection !== null,
-          origin: connection?.origin ?? null,
-        })),
-      ),
+    connected: readConnection.pipe(
+      Effect.map((connection) => ({
+        connected: connection !== null,
+        origin: connection?.origin ?? null,
+      })),
+    ),
   });
 });
 
