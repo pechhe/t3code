@@ -349,6 +349,7 @@ const runHeldTurnScenario = (
               }),
           }),
           ServerSettings.layerTest({
+            providerInstances: { [providerInstanceId]: { driver } },
             contextRollover: {
               enabled: options.rolloverEnabled ?? true,
               softThreshold: 1_000,

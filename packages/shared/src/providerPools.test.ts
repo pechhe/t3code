@@ -11,7 +11,6 @@ import {
   needsUsageRefresh,
   pickPoolFailoverMember,
   pickPoolMember,
-  pickRolloverMember,
   withPoolSnapshots,
   type ProviderPool,
 } from "./providerPools.ts";
@@ -301,42 +300,6 @@ describe("preferred member", () => {
         limited: ProviderInstanceId.make("c"),
       }),
     ).toBe("b");
-  });
-
-  it("is where a rolled-over session moves to", () => {
-    const snapshots = withPoolSnapshots(providers, [preferB], NOW);
-    expect(snapshots.at(-1)?.poolPreferredMember).toBe("b");
-    expect(
-      pickRolloverMember({
-        providers: snapshots,
-        nowMs: NOW,
-        member: ProviderInstanceId.make("c"),
-      }),
-    ).toBe("b");
-    expect(
-      pickRolloverMember({
-        providers: snapshots,
-        nowMs: NOW,
-        member: ProviderInstanceId.make("outsider"),
-      }),
-    ).toBe("outsider");
-  });
-
-  it("keeps the thread's member when the pool has no usable preference", () => {
-    const providers = [
-      account("a", [{ usedPercent: 10, resetsAt: at(4) }]),
-      account("b", [{ usedPercent: 10, resetsAt: at(1) }]),
-      account("c", [{ usedPercent: 10, resetsAt: at(2) }]),
-    ];
-    const member = ProviderInstanceId.make("a");
-    const auto = withPoolSnapshots(providers, [pool], NOW);
-    expect(pickRolloverMember({ providers: auto, nowMs: NOW, member })).toBe("a");
-    const exhausted = withPoolSnapshots(
-      [account("a", []), account("b", [{ usedPercent: 100, resetsAt: at(1) }]), account("c", [])],
-      [preferB],
-      NOW,
-    );
-    expect(pickRolloverMember({ providers: exhausted, nowMs: NOW, member })).toBe("a");
   });
 });
 

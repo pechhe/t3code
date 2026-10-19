@@ -26,6 +26,8 @@ import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import {
   boundRolloverThresholds,
+  compactionBoundary,
+  compactsNatively,
   ROLLOVER_MIN_GROWTH_TOKENS,
   ROLLOVER_NUDGE_COMMAND_PREFIX,
   rolloverHardNudge,
@@ -116,6 +118,7 @@ export const make = Effect.gen(function* () {
     run: OrchestrationV2Run,
   ) {
     const settings = yield* settingsService.getSettings;
+    if (!compactsNatively(settings, run.modelSelection.instanceId)) return null;
     const thread = yield* projections.getThread(threadId);
     if (rolloverHeld(thread.rolloverHold, yield* Clock.currentTimeMillis)) return null;
     // A thread's own thresholds take it out of the rollover experiment.
@@ -126,7 +129,7 @@ export const make = Effect.gen(function* () {
         run.modelSelection.model,
         undefined,
       );
-      return own === null ? null : { thresholds: own, assignment: undefined };
+      return own === null ? null : { thresholds: own, assignment: undefined, settings };
     }
     if (
       assignedRolloverThresholds(settings.contextRollover, thread, run.modelSelection.model, {
@@ -174,7 +177,7 @@ export const make = Effect.gen(function* () {
       run.modelSelection.model,
       assignment?.variant.rollover,
     );
-    return thresholds === null ? null : { thresholds, assignment };
+    return thresholds === null ? null : { thresholds, assignment, settings };
   });
 
   const message = Effect.fn("ContextRolloverReactor.message")(function* (
@@ -316,7 +319,10 @@ export const make = Effect.gen(function* () {
     const used = state.used;
     const configured = yield* thresholdsFor(threadId, run);
     if (configured === null) return;
-    const thresholds = boundRolloverThresholds(configured.thresholds, state.maxTokens);
+    const thresholds = boundRolloverThresholds(
+      configured.thresholds,
+      compactionBoundary(state.maxTokens, configured.settings, run.modelSelection.instanceId),
+    );
     if (used < thresholds.soft) {
       state.phase = "idle";
       return;

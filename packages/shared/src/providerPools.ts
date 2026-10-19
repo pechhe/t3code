@@ -209,28 +209,6 @@ export const pickPoolFailoverMember = (input: {
   )[0]?.instanceId;
 
 /**
- * The member a fresh session after a context rollover should run on: the
- * pool's preferred member while it can take a turn, since the session starts
- * from a handoff note either way. Otherwise `member`, which also covers a
- * member in no pool.
- */
-export const pickRolloverMember = (input: {
-  readonly providers: ReadonlyArray<ServerProvider>;
-  readonly nowMs: number;
-  readonly member: ProviderInstanceId;
-}): ProviderInstanceId => {
-  const pool = input.providers.find((provider) => provider.poolMembers?.includes(input.member));
-  const preferred = pool?.poolPreferredMember;
-  if (pool?.poolMembers === undefined || preferred === undefined) return input.member;
-  const picked = pickPoolMember({
-    pool: { driver: pool.driver, members: pool.poolMembers, preferredMember: preferred },
-    providers: input.providers,
-    nowMs: input.nowMs,
-  });
-  return picked === preferred ? preferred : input.member;
-};
-
-/**
  * Append one snapshot per pool, presented as the member a turn would use now
  * (or its first configured member). Account-specific fields stay with the
  * members so usage, sign-in and native sessions are never shown twice.

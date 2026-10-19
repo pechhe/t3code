@@ -4,6 +4,8 @@ import * as Schema from "effect/Schema";
 
 import {
   boundRolloverThresholds,
+  compactionBoundary,
+  compactsNatively,
   assignedRolloverThresholds,
   lowestSoftThreshold,
   resolveRolloverThresholds,
@@ -97,6 +99,33 @@ describe("boundRolloverThresholds", () => {
     assert.equal(rolloverUsageAction("idle", 90_000, bounded, 84_000), "none");
     const explicit = boundRolloverThresholds({ soft: 80_000, hard: 95_000 }, 200_000);
     assert.equal(rolloverUsageAction("idle", 95_000, explicit, 84_000), "none");
+  });
+});
+
+describe("compactionBoundary", () => {
+  const instances = {
+    codex: { driver: "codex", config: { autoCompactWindow: "150000" } },
+    claude: { driver: "claudeAgent", config: {} },
+    cursor: { driver: "cursor" },
+  };
+  it("takes the smaller of the context window and the auto-compact window", () => {
+    assert.equal(compactionBoundary(400_000, { providerInstances: instances }, "codex"), 150_000);
+    assert.equal(compactionBoundary(100_000, { providerInstances: instances }, "codex"), 100_000);
+    assert.equal(compactionBoundary(200_000, { providerInstances: instances }, "claude"), 200_000);
+    assert.isNull(compactionBoundary(null, { providerInstances: instances }, "claude"));
+  });
+  it("pulls the nudges ahead of a window smaller than the thresholds", () => {
+    const bounded = boundRolloverThresholds(
+      { soft: 220_000, hard: 280_000 },
+      compactionBoundary(400_000, { providerInstances: instances }, "codex"),
+    );
+    assert.isBelow(bounded.hard, 150_000);
+  });
+  it("nudges only providers that compact natively", () => {
+    assert.isTrue(compactsNatively({ providerInstances: instances }, "codex"));
+    assert.isTrue(compactsNatively({ providerInstances: instances }, "claude"));
+    assert.isFalse(compactsNatively({ providerInstances: instances }, "cursor"));
+    assert.isTrue(compactsNatively({ providerInstances: {} }, "codex"));
   });
 });
 

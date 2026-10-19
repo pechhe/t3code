@@ -16,13 +16,13 @@ function clampPercent(value: number): number {
 /**
  * The segmented context readout inside the composer screen: filled segments for
  * the context in use, an amber marker where the provider compacts on its own,
- * a shaded band where context rollover asks for a handoff, and the token count. Empty
+ * a shaded band where context rollover nudges the agent, and the token count. Empty
  * until the thread reports usage. Dragging the band, or either of its edges, sets this
  * thread's own rollover thresholds.
  */
 export function DeviceContextBar(props: {
   usage: ContextWindowSnapshot | null;
-  /** Context sizes where rollover asks for a handoff: soft at a break, hard now. */
+  /** Context sizes where rollover nudges the agent: soft at a break, hard now. */
   rollover: RolloverBandThresholds | null;
   /** Whether the thread has its own thresholds rather than the settings'. */
   rolloverCustom?: boolean | undefined;
@@ -221,7 +221,7 @@ function RolloverBand(props: {
   const left = percent(shown.soft);
   const width = Math.max(0, percent(shown.hard) - left);
   const editable = props.onChange !== undefined;
-  const label = `Rollover asks for a handoff at the next break past ${formatContextWindowTokens(shown.soft)}, and right away at ${formatContextWindowTokens(shown.hard)}${
+  const label = `Rollover asks the agent to prepare for compaction at the next break past ${formatContextWindowTokens(shown.soft)}, and right away at ${formatContextWindowTokens(shown.hard)}${
     props.custom ? " (this thread only)" : ""
   }`;
 

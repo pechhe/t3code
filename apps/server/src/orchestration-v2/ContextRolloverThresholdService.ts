@@ -13,12 +13,14 @@ import * as Settings from "../serverSettings.ts";
 import {
   assignedRolloverThresholds,
   boundRolloverThresholds,
+  compactionBoundary,
+  compactsNatively,
   rolloverHeld,
 } from "./ContextRollover.ts";
 import * as Threads from "./ThreadManagementService.ts";
 
 /**
- * Where a thread would be asked for a handoff, so clients can mark it on their
+ * Where a thread would be nudged to prepare for compaction, so clients can mark it on their
  * context meter. Built from the same rules the rollover reactor applies: the
  * thread's hold, its experiment assignment, the per-model rules and the
  * provider's context window. A thread not yet assigned to an experiment reads
@@ -48,6 +50,7 @@ const make = Effect.gen(function* () {
         const { thread } = yield* threads.getThreadRecords(input.threadId, []);
         if (rolloverHeld(thread.rolloverHold, yield* Clock.currentTimeMillis)) return null;
         const settings = yield* settingsService.getSettings;
+        if (!compactsNatively(settings, thread.modelSelection.instanceId)) return null;
         const assignment = yield* experiments.getRolloverAssignment(input.threadId);
         const thresholds = assignedRolloverThresholds(
           settings.contextRollover,
@@ -56,7 +59,10 @@ const make = Effect.gen(function* () {
           assignment?.variant.rollover,
         );
         if (thresholds === null) return null;
-        const { soft, hard } = boundRolloverThresholds(thresholds, input.maxTokens);
+        const { soft, hard } = boundRolloverThresholds(
+          thresholds,
+          compactionBoundary(input.maxTokens, settings, thread.modelSelection.instanceId),
+        );
         return { soft, hard };
       },
       Effect.mapError((cause) => new ContextRolloverThresholdError({ cause })),

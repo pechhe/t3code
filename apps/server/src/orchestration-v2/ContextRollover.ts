@@ -42,6 +42,47 @@ export interface RolloverThresholds {
   readonly safetyHard?: number;
 }
 
+const NATIVE_COMPACTION_DRIVERS: ReadonlySet<string> = new Set(["claudeAgent", "codex"]);
+
+/**
+ * Whether the provider behind `instanceId` compacts its own conversation, so a nudge to prepare
+ * for compaction is true. Other providers are not nudged: nothing here falls back to a fresh session.
+ */
+export function compactsNatively(
+  settings: { readonly providerInstances: Readonly<Record<string, { readonly driver: string }>> },
+  instanceId: string,
+): boolean {
+  // A legacy instance id is its driver's name.
+  return NATIVE_COMPACTION_DRIVERS.has(
+    settings.providerInstances[instanceId]?.driver ?? instanceId,
+  );
+}
+
+/**
+ * The context size at which the provider will compact on its own: the smaller of its context
+ * window and the "Auto-compact after" size set on the model's provider instance. Nudges must
+ * come before this, so thresholds are bounded by it.
+ */
+export function compactionBoundary(
+  maxTokens: number | null | undefined,
+  settings: {
+    readonly providerInstances: Readonly<
+      Record<string, { readonly driver: string; readonly config?: unknown }>
+    >;
+  },
+  instanceId: string,
+): number | null {
+  const config = settings.providerInstances[instanceId]?.config;
+  const configured =
+    typeof config === "object" && config !== null
+      ? Number((config as { readonly autoCompactWindow?: unknown }).autoCompactWindow)
+      : Number.NaN;
+  const limits = [maxTokens, configured].filter(
+    (value): value is number => value != null && Number.isFinite(value) && value > 0,
+  );
+  return limits.length === 0 ? null : Math.min(...limits);
+}
+
 /** Unknown provider limits leave the explicit configured thresholds unchanged. */
 export function boundRolloverThresholds(
   thresholds: RolloverThresholds,
@@ -130,8 +171,7 @@ export function assignedRolloverThresholds(
 
 /**
  * Whether a thread's rollover hold stops new nudges at `nowMs`. A pause ends by
- * itself. A note already written or asked for is not withdrawn: only the
- * reactor's own nudges check this.
+ * itself. Only the reactor's own nudges check this.
  */
 export function rolloverHeld(
   hold: OrchestrationV2RolloverHold | null | undefined,
