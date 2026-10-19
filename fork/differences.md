@@ -388,7 +388,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** a fleet sweep needs one bounded state read across all projects and linked environments.
-- **Requirements:** `t3_fleet_summary` returns non-archived threads, rolls up subagents, reports watches, cached Build state, settlement eligibility, sender counts for the last hour, and landing/release/host health. No transcript text; unavailable peers retain their last known observation; opaque cursors return changed rows and removals.
+- **Requirements:** `t3_fleet_summary` returns unsettled, non-archived threads, rolls up subagents, reports watches, cached Build state, settlement eligibility, sender counts for the last hour, and landing/release/host health. No transcript text; unavailable peers retain their last known observation; opaque cursors return changed rows and removals.
 - **Integration points:** fleet contracts and service, projection tables, BuildWorkItems once-a-minute summary reads, ThreadSettlementService rules, SlipJayLandings runner, release approval projection, HostResources, peer MCP allowlist and toolkit registration.
 - **Proof:** `apps/server/src/fleet/FleetSummaryService.test.ts`.
 - **Upstream:** no equivalent identified in the assigned source; remote upstream research unavailable in the worker sandbox.

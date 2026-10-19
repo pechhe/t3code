@@ -112,8 +112,13 @@ const make = Effect.gen(function* () {
       settings.getSettings,
       fleetProjection.releases,
     ]).pipe(Effect.mapError(failure));
+    // Settled threads are finished work; hundreds of them would bury the live ones and bloat the cursor.
     const threads = snapshot.threads.filter(
-      (thread) => thread.archivedAt === null && thread.deletedAt === null,
+      (thread) =>
+        thread.archivedAt === null &&
+        thread.deletedAt === null &&
+        thread.settledOverride !== "settled" &&
+        (thread.settledOverride === "active" || thread.settledAt === null),
     );
     const threadIds = threads.map((thread) => thread.id);
     const [counts, requests] = yield* Effect.all([
@@ -246,9 +251,6 @@ const make = Effect.gen(function* () {
                 })),
             ],
             pullRequests: prs.map((pr) => ({ url: pr.url, state: pr.snapshot?.state ?? null })),
-            settled:
-              thread.settledOverride === "settled" ||
-              (thread.settledOverride !== "active" && thread.settledAt !== null),
             snoozed: isSnoozed(settlementInput, nowMs),
             settlement: { eligible, reason },
             receivedMessages: (messagesById.get(thread.id) ?? []).map(
@@ -270,8 +272,8 @@ const make = Effect.gen(function* () {
         visited.add(ancestor.threadId);
         parent = ancestor;
       }
-      if (parent === row && row.relationshipToParent !== "subagent") roots.push(row);
-      else if (parent !== row)
+      if (parent === row) roots.push(row);
+      else
         children.set(parent.threadId, [...(children.get(parent.threadId) ?? []), row]);
     }
     const rows = roots.map((row) => ({ ...row, subagents: children.get(row.threadId) ?? [] }));

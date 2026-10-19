@@ -50,7 +50,6 @@ const ThreadFields = {
   pullRequests: Schema.Array(
     Schema.Struct({ url: Schema.String, state: Schema.NullOr(Schema.String) }),
   ),
-  settled: Schema.Boolean,
   snoozed: Schema.Boolean,
   settlement: Schema.Struct({ eligible: Schema.Boolean, reason: Schema.String }),
   receivedMessages: Schema.Array(Schema.Struct({ senderThreadId: ThreadId, count: Schema.Number })),
@@ -70,7 +69,7 @@ export const FleetEnvironmentSummary = Schema.Struct({
   lastSeenAt: Schema.NullOr(Schema.String),
   unavailableReason: Schema.NullOr(Schema.String),
   threads: Schema.Array(FleetThreadSummary),
-  /** IDs removed since the cursor, including archived threads. */
+  /** IDs removed since the cursor, including archived and newly settled threads. */
   removedThreadIds: Schema.Array(ThreadId),
   health: Schema.NullOr(
     Schema.Struct({

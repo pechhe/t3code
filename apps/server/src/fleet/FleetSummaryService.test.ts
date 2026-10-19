@@ -372,6 +372,28 @@ it.effect(
 );
 
 it.effect(
+  "leaves settled threads out and keeps a live subagent whose parent settled",
+  () =>
+    Effect.gen(function* () {
+      const { service } = yield* harness;
+      yield* createThread("live");
+      yield* createThread("settled", { settledAt: old });
+      yield* createThread("kept", { settledAt: old, settledOverride: "active" });
+      yield* createThread("pinned-settled", { settledOverride: "settled" });
+      const parent = yield* createThread("settled-parent", { settledAt: old });
+      yield* createThread("orphan", {
+        lineage: { parentThreadId: parent, relationshipToParent: "subagent", rootThreadId: parent },
+      });
+      const first = yield* service.summary({}, { localOnly: true });
+      expect(first.environments[0]!.threads.map((row) => row.threadId).toSorted()).toEqual([
+        "kept",
+        "live",
+        "orphan",
+      ]);
+    }).pipe(Effect.provide(layer)),
+);
+
+it.effect(
   "reports cached Build state, existing settlement rules, watches and health without transcript growth",
   () =>
     Effect.gen(function* () {
