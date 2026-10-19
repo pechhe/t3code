@@ -19,8 +19,9 @@
 #       Build, select and activate a landed commit now (default: the landed head).
 #       An older commit than the selected one needs --recovery, and an explicit
 #       recovery target stays selected until the next `build`.
-#   install [--wait-for-quit]
-#       Install the staged build; the install-on-quit job waits for the app to quit.
+#   install [--on-quit | --wait-for-quit]
+#       Install the staged build. --on-quit starts the install-on-quit job, which
+#       runs --wait-for-quit: it waits for the app to quit, installs and reopens it.
 #   attempt <tag> claim <thread> [--take-over] | landed <operation> <commit>
 #           | blocked <evidence|owner-decision|checks|publication> <summary> | retry
 #       Record an update attempt's progress. Only `retry` lets a blocked attempt
@@ -49,8 +50,10 @@ IDENTITY="${T3FORK_SIGNING_IDENTITY:-Peach Pi Local Signing}"
 VPS="${T3FORK_VPS-slipjay-test}"
 VPS_CLONE='~/projects/t3code-fork'
 LABEL=com.pechhe.t3code-fork-nightly
-# Started with `launchctl submit -l $INSTALL_JOB -- <this script> install --wait-for-quit`.
-INSTALL_JOB=com.pechhe.t3code-install-on-quit
+# A LaunchAgent that `install --on-quit` starts on demand. When T3 Code is
+# force-quit, macOS unloads jobs an agent inside it `launchctl submit`ted, but
+# keeps agents in ~/Library/LaunchAgents, which Background Task Management manages.
+INSTALL_JOB="${T3FORK_INSTALL_JOB:-com.pechhe.t3code-install-on-quit}"
 # An unclaimed dispatch is sent again after this long, at most MAX_DISPATCHES times.
 REDISPATCH_SECONDS="${T3FORK_REDISPATCH_SECONDS:-10800}"
 MAX_DISPATCHES=3
@@ -96,13 +99,17 @@ EOF
 fi
 
 # A build checks out other commits in the clone, rewriting this file while bash
-# reads it; run from a private copy, which the copy removes once it is open.
-if [ -z "${T3FORK_FROM_COPY:-}" ]; then
-  copy="$(mktemp "$STATE/run.XXXXXX")"
-  cp "$0" "$copy"
-  T3FORK_FROM_COPY="$0" exec /bin/bash "$copy" "$@"
-fi
-rm -f "$0"
+# reads it; run from a private copy, which the copy removes once it is open. The
+# copy is known by its path, not an environment flag: the app the install job
+# reopens, and every agent inside it, would inherit the flag.
+case "$0" in
+  "$STATE"/run.*) rm -f "$0" ;;
+  *)
+    copy="$(mktemp "$STATE/run.XXXXXX")"
+    cp "$0" "$copy"
+    exec /bin/bash "$copy" "$@"
+    ;;
+esac
 
 log() { echo "$(date '+%F %T') $*" >>"$STATE/nightly.log"; }
 notify() {
@@ -131,8 +138,9 @@ acquire() {
 }
 release() { rm -rf "${STATE:?}/$1"; }
 
+# -a: run by an agent inside the app, the app's main process is an ancestor.
 t3_running() {
-  pgrep -f "$(printf '%s' "$INSTALLED/Contents/MacOS/" | sed 's/[][()\.^$*+?{}|]/\\&/g')" >/dev/null
+  pgrep -af "$(printf '%s' "$INSTALLED/Contents/MacOS/" | sed 's/[][()\.^$*+?{}|]/\\&/g')" >/dev/null
 }
 
 json_get() { jq -r "$2 // empty" "$1" 2>/dev/null || true; }
@@ -689,6 +697,44 @@ hourly() {
   release attempts.lock
 }
 
+# Leaves a job waiting from this plist alone; otherwise (re)loads the job from
+# its plist, which also replaces one an older version submitted, and starts it.
+start_install_on_quit() {
+  local domain="gui/$(id -u)" plist="$HOME/Library/LaunchAgents/$INSTALL_JOB.plist" env="" name value job
+  job="$(launchctl print "$domain/$INSTALL_JOB" 2>/dev/null || true)"
+  if grep -qxF $'\tstate = running' <<<"$job" && grep -qxF $'\tpath = '"$plist" <<<"$job"; then
+    echo "$INSTALL_JOB is already waiting for T3 Code to quit"
+    return 0
+  fi
+  # A rehearsal's overrides reach the job.
+  while IFS='=' read -r name value; do
+    value="${value//&/&amp;}"
+    env+="<key>$name</key><string>${value//</&lt;}</string>"
+  done < <(env | grep '^T3FORK_' || true)
+  mkdir -p "$(dirname "$plist")"
+  cat >"$plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$INSTALL_JOB</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string><string>-lic</string>
+    <string>exec /bin/bash "$REPO/scripts/fork-nightly.sh" install --wait-for-quit</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>$env</dict>
+  <key>StandardOutPath</key><string>$STATE/launchd.log</string>
+  <key>StandardErrorPath</key><string>$STATE/launchd.log</string>
+</dict>
+</plist>
+EOF
+  launchctl bootout "$domain/$INSTALL_JOB" 2>/dev/null || true
+  launchctl bootstrap "$domain" "$plist"
+  launchctl kickstart "$domain/$INSTALL_JOB"
+  echo "$INSTALL_JOB waits for T3 Code to quit, then installs the staged build"
+}
+
 status() {
   for name in selected active-mac active-vps vps-unknown build-failed; do
     if [ -f "$STATE/$name.json" ]; then
@@ -730,6 +776,10 @@ case "${1:-}" in
     exit "$rc"
     ;;
   install)
+    if [ "${2:-}" = --on-quit ]; then
+      start_install_on_quit
+      exit 0
+    fi
     if [ "${2:-}" = --wait-for-quit ]; then
       while t3_running; do sleep 3; done
     fi
@@ -741,8 +791,6 @@ case "${1:-}" in
     install_staged || rc=$?
     if [ "${2:-}" = --wait-for-quit ]; then
       if [ -n "$had_staged" ] && app_present "$INSTALLED"; then open "$INSTALLED" || true; fi
-      # A job from `launchctl submit` is restarted when it exits; this one is one-shot.
-      if [ "${XPC_SERVICE_NAME:-}" = "$INSTALL_JOB" ]; then launchctl remove "$INSTALL_JOB" || true; fi
     fi
     exit "$rc"
     ;;
@@ -752,7 +800,7 @@ case "${1:-}" in
     ;;
   status) status ;;
   *)
-    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] | install [--wait-for-quit] | attempt <tag> <action> ... | status]" >&2
+    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] | install [--on-quit | --wait-for-quit] | attempt <tag> <action> ... | status]" >&2
     exit 2
     ;;
 esac

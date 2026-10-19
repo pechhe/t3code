@@ -78,7 +78,16 @@ const annotateAcquired = (fiber: Fiber.Fiber<unknown, unknown>, acquired: Acquir
   span.attribute("db.lock_wait_ms", acquired.lockWaitMs);
 };
 
-const TransactionAcquire = Context.Reference<{ acquired?: Acquired } | undefined>(
+/**
+ * Restores the interruptibility of the code that asked for a connection. A
+ * request that can be cancelled leaves while it waits; a finalizer, which runs
+ * uninterruptibly, still gets its connection.
+ */
+type Restore = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
+
+const TransactionAcquire = Context.Reference<
+  { acquired?: Acquired; readonly restore: Restore } | undefined
+>(
   "@t3tools/shared/nodeSqliteClient/TransactionAcquire",
   { defaultValue: () => undefined },
 );
@@ -447,7 +456,7 @@ const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig) {
       }).pipe(Effect.as(undefined));
     });
 
-  const acquire = (slot: number) =>
+  const acquire = (slot: number, restore: Restore) =>
     Effect.suspend((): Effect.Effect<Connection | undefined> => {
       if (unavailable) return Effect.succeed(undefined);
       let reader: ReaderSlot;
@@ -456,10 +465,8 @@ const makeReaders = Effect.fnUntraced(function* (options: SqliteClientConfig) {
       } catch (cause) {
         return turnOff(String(cause));
       }
-      // SqlClient acquires transaction connections uninterruptibly, so let a
-      // request cancelled while its worker is still starting leave.
       return Effect.flatMap(
-        Effect.interruptible(
+        restore(
           Effect.timeoutOption(
             Effect.promise(() => reader.started),
             startupTimeout,
@@ -769,43 +776,48 @@ const make = Effect.fn("makeWithDatabase")(function* (
   const readerPermits = yield* Semaphore.make(READER_COUNT);
   const readerBusy = Array.from({ length: READER_COUNT }, () => false);
 
-  // Waits for a permit interruptibly, even inside SqlClient's uninterruptible
-  // transaction acquire, then claims it with no gap in which an interruption could
-  // strand it: the order `Semaphore.withPermits` uses. Run it uninterruptibly.
-  const claim = (permits: Semaphore.Semaphore): Effect.Effect<void> =>
-    Effect.interruptible(permits.withPermits(1)(Effect.void)).pipe(
+  // Waits for a permit as interruptibly as the caller, even inside SqlClient's
+  // uninterruptible transaction acquire, then claims it with no gap in which an
+  // interruption could strand it: the order `Semaphore.withPermits` uses. Run it
+  // uninterruptibly.
+  const claim = (permits: Semaphore.Semaphore, restore: Restore): Effect.Effect<void> =>
+    restore(permits.withPermits(1)(Effect.void)).pipe(
       Effect.andThen(permits.takeIfAvailable(1)),
-      Effect.flatMap((claimed) => (claimed ? Effect.void : claim(permits))),
+      Effect.flatMap((claimed) => (claimed ? Effect.void : claim(permits, restore))),
     );
 
-  const leaseWriter: Effect.Effect<Lease> = Effect.as(claim(semaphore), {
-    connection: "writer" as const,
-    value: connection,
-    release: Effect.asVoid(semaphore.release(1)),
-  });
+  const leaseWriter = (restore: Restore): Effect.Effect<Lease> =>
+    Effect.as(claim(semaphore, restore), {
+      connection: "writer" as const,
+      value: connection,
+      release: Effect.asVoid(semaphore.release(1)),
+    });
   // The lowest free slot, so later workers start only when reads overlap.
-  const leaseReader = (available: NonNullable<typeof readers>): Effect.Effect<Lease> =>
-    Effect.flatMap(claim(readerPermits), () => {
+  const leaseReader = (
+    available: NonNullable<typeof readers>,
+    restore: Restore,
+  ): Effect.Effect<Lease> =>
+    Effect.flatMap(claim(readerPermits, restore), () => {
       const slot = readerBusy.indexOf(false);
       readerBusy[slot] = true;
       const release = Effect.suspend(() => {
         readerBusy[slot] = false;
         return readerPermits.release(1);
       }).pipe(Effect.asVoid);
-      return available.acquire(slot).pipe(
+      return available.acquire(slot, restore).pipe(
         Effect.onError(() => release),
         Effect.flatMap((reader): Effect.Effect<Lease> =>
           reader === undefined
-            ? Effect.andThen(release, leaseWriter)
+            ? Effect.andThen(release, leaseWriter(restore))
             : Effect.succeed({ connection: "reader" as const, value: reader, release }),
         ),
       );
     });
-  const lease = (fiber: Fiber.Fiber<unknown, unknown>) =>
+  const lease = (fiber: Fiber.Fiber<unknown, unknown>, restore: Restore) =>
     Effect.uninterruptible(
       readers !== undefined && !readers.unavailable() && Context.get(fiber.context, ReadOnly)
-        ? leaseReader(readers)
-        : leaseWriter,
+        ? leaseReader(readers, restore)
+        : leaseWriter(restore),
     );
 
   const acquired = (
@@ -818,31 +830,33 @@ const make = Effect.fn("makeWithDatabase")(function* (
   });
 
   // A statement outside a transaction only waits for its connection to be free.
-  const acquirer = Effect.withFiber((fiber) => {
-    if (
-      !fiber.getRef(References.TracerEnabled) ||
-      !fiber.getRef(Statement.SpanPropagationEnabled)
-    ) {
-      return Effect.uninterruptible(
-        Effect.flatMap(lease(fiber), (taken) => Effect.as(taken.release, taken.value)),
-      );
-    }
-    const clock = fiber.getRef(Clock.Clock);
-    const start = clock.monotonicTimeNanosUnsafe();
-    return Effect.uninterruptible(
-      Effect.flatMap(lease(fiber), (taken) => {
+  const acquirer = Effect.uninterruptibleMask((restore) =>
+    Effect.withFiber((fiber) => {
+      if (
+        !fiber.getRef(References.TracerEnabled) ||
+        !fiber.getRef(Statement.SpanPropagationEnabled)
+      ) {
+        return Effect.flatMap(lease(fiber, restore), (taken) =>
+          Effect.as(taken.release, taken.value),
+        );
+      }
+      const clock = fiber.getRef(Clock.Clock);
+      const start = clock.monotonicTimeNanosUnsafe();
+      return Effect.flatMap(lease(fiber, restore), (taken) => {
         annotateAcquired(fiber, acquired(taken, clock, start));
         return Effect.as(taken.release, taken.value);
-      }),
-    );
-  });
+      });
+    }),
+  );
+  // SqlClient runs this uninterruptibly, so the caller's interruptibility comes
+  // from `withTransaction` below.
   const transactionAcquirer = Effect.withFiber((fiber) => {
     const scope = Context.getUnsafe(fiber.context, Scope.Scope);
     const clock = fiber.getRef(Clock.Clock);
     const start = clock.monotonicTimeNanosUnsafe();
+    const pending = fiber.getRef(TransactionAcquire);
     return Effect.uninterruptible(
-      Effect.flatMap(lease(fiber), (taken) => {
-        const pending = fiber.getRef(TransactionAcquire);
+      Effect.flatMap(lease(fiber, pending?.restore ?? Effect.interruptible), (taken) => {
         if (pending !== undefined) pending.acquired = acquired(taken, clock, start);
         return Effect.as(Scope.addFinalizer(scope, taken.release), taken.value);
       }),
@@ -866,13 +880,15 @@ const make = Effect.fn("makeWithDatabase")(function* (
   const withTransaction = client.withTransaction;
   return Object.assign(client, {
     withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      Effect.suspend(() => {
-        const pending: { acquired?: Acquired } = {};
+      Effect.uninterruptibleMask((restore) => {
+        const pending: { acquired?: Acquired; readonly restore: Restore } = { restore };
         const body = Effect.withFiber<A, E, R>((fiber) => {
           annotateAcquired(fiber, pending.acquired);
           return effect;
         });
-        return withTransaction(body).pipe(Effect.provideService(TransactionAcquire, pending));
+        return restore(
+          withTransaction(body).pipe(Effect.provideService(TransactionAcquire, pending)),
+        );
       }),
   });
 });

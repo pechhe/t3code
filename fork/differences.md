@@ -437,13 +437,13 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Upstream nightlies reach the owner's machines unattended, reconciled with the fork's behaviour, without trading away a usable app.
-- **Requirements:** every new upstream tag, clean or conflicting, is reconciled against this record and lands only through `slipjay land` with a fresh receipt (no direct push); one attempt per tag is in flight, duplicate deliveries and restarts resume it, and an owner decision holds newer tags until answered; builds run through the agent, which first checks that no agent turn is running on the VPS; only landed source with a passing receipt check is built and activated, selected by source commit rather than version text; the installed app is replaced only after a complete, signature-verified copy exists, and an interrupted replacement is repaired from the replaced or previous build, with a journal keeping each build's receipt with it; a VPS install that switched the runtime but did not finish, or gave no answer, holds Mac installs until a build confirms the VPS; an explicit recovery target stays selected until the next build, and source from before receipts is built only as one; failing to keep the replaced app as previous does not undo a finished install; a staged build that is no longer the selected target is never installed; status separates selected, staged, installed and active builds per destination.
-- **Integration points:** `scripts/fork-nightly.sh` (launchd job, `build`, `install --wait-for-quit`, `attempt`, `status`), `scripts/fork-vps-runtime.sh` (source-bound install, `.fork-source`, `state` readback), `scripts/fork-upstream-receipt.ts` in the landing gate, `.agents/skills/t3-fork-rebase`, the T3 Peach webhook scheduled task (unbound, so each run gets a fresh SlipJay workspace), `~/.t3fork` state (`attempts/`, `selected.json`, `active-*.json`, `staged/receipt.json`).
+- **Requirements:** every new upstream tag, clean or conflicting, is reconciled against this record and lands only through `slipjay land` with a fresh receipt (no direct push); one attempt per tag is in flight, duplicate deliveries and restarts resume it, and an owner decision holds newer tags until answered; builds run through the agent, which first checks that no agent turn is running on the VPS; only landed source with a passing receipt check is built and activated, selected by source commit rather than version text; the installed app is replaced only after a complete, signature-verified copy exists, and an interrupted replacement is repaired from the replaced or previous build, with a journal keeping each build's receipt with it; a VPS install that switched the runtime but did not finish, or gave no answer, holds Mac installs until a build confirms the VPS; an explicit recovery target stays selected until the next build, and source from before receipts is built only as one; failing to keep the replaced app as previous does not undo a finished install; a staged build that is no longer the selected target is never installed; the install-on-quit job, started by an agent inside the app, survives the app quitting or being force-quit; status separates selected, staged, installed and active builds per destination.
+- **Integration points:** `scripts/fork-nightly.sh` (launchd job, `build`, `install --on-quit` LaunchAgent, `attempt`, `status`), `scripts/fork-vps-runtime.sh` (source-bound install, `.fork-source`, `state` readback), `scripts/fork-upstream-receipt.ts` in the landing gate, `.agents/skills/t3-fork-rebase`, the T3 Peach webhook scheduled task (unbound, so each run gets a fresh SlipJay workspace), `~/.t3fork` state (`attempts/`, `selected.json`, `active-*.json`, `staged/receipt.json`).
 - **Proof:** scripts/fork-nightly.test.ts, scripts/fork-vps-runtime.test.ts, scripts/fork-upstream-receipt.test.ts; reviewer fixtures from scripts/fork-reconcile-fixtures.sh.
 - **Upstream:** none known.
 - **Retire when:** not applicable while the fork exists.
 - **Decision:** `retain` (2026-10-19, Spec #142): redesigned so a clean merge no longer bypasses review and publication failure cannot stage a build.
-- **Owner:** pechhe/t3code#142 (#122, #126, #143, #144).
+- **Owner:** pechhe/t3code#142 (#122, #126, #143, #144, #151).
 
 ### fork-guidance
 
@@ -461,14 +461,14 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** deliberate behaviour change (upstreamable performance fixes)
 - **Why:** Reads queued on the single SQLite writer and trace volume erased evidence (#135).
-- **Requirements:** non-mutating projection reads and client thread snapshots use readers (pool of up to four, started on overlap, interruptible waits); command decisions stay on the writer; decode outside transactions; event-store compaction completion is persisted so restarts do not rescan within 6 h; successful sub-1 ms spans are dropped (kept if waited ≥5 ms or warned), 60 trace files retained.
+- **Requirements:** non-mutating projection reads and client thread snapshots use readers (pool of up to four, started on overlap; a connection wait is as interruptible as its caller, so a cancelled request leaves and a finalizer still writes); command decisions stay on the writer; decode outside transactions; event-store compaction completion is persisted so restarts do not rescan within 6 h; successful sub-1 ms spans are dropped (kept if waited ≥5 ms or warned), 60 trace files retained.
 - **Integration points:** `shared/nodeSqliteClient`, `persistence/DatabaseStorage`, `ProjectionStore`, `ProjectionMaintenance`, observability config.
 - **Proof:** packages/shared/src/nodeSqliteClient.test.ts; apps/server/src/persistence/DatabaseStorage.test.ts; packages/shared/src/observability.test.ts.
 - **Upstream:** the base design is upstream; the fixes touch central persistence (merge cost medium).
 - **Retire when:** upstream ships equivalent reader routing, compaction watermark and trace sampling (retire per item).
 - **Constraints:** installed-build measurement of writer `db.lock_wait_ms` is pending (#135); the compaction pass still scans all history; the isolated replay benchmark has not been run.
 - **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): reader routing kept; upstream's empty-filter skip in thread reads adopted beside it.
-- **Owner:** pechhe/t3code#135 (open); #137–#139 (closed).
+- **Owner:** pechhe/t3code#135 (open); #137–#139, #149 (closed).
 
 ### perf-landing-refresh
 

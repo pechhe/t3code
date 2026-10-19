@@ -59,8 +59,12 @@ exit 1
   // The script's waits shrink so polling loops finish quickly.
   sleep: `exec /bin/sleep 0.2
 `,
+  // Describes the install-on-quit job as the test's job-state file says.
+  launchctl: `printf '%s\\n' "launchctl $*" >> "$T3_TEST_ROOT/calls.log"
+if [ "$1" = print ] && [ -e "$T3_TEST_ROOT/job-state" ]; then cat "$T3_TEST_ROOT/job-state"; fi
+`,
   ...Object.fromEntries(
-    ["osascript", "open", "launchctl"].map((name) => [
+    ["osascript", "open"].map((name) => [
       name,
       `printf '%s\\n' "${name} $*" >> "$T3_TEST_ROOT/calls.log"\n`,
     ]),
@@ -612,22 +616,17 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
         TIMEOUT,
       );
 
-      it.each([
-        { name: "removes its own launchd job when run by it", xpc: INSTALL_JOB },
-        { name: "never calls launchctl otherwise", xpc: undefined },
-      ])(
-        "install --wait-for-quit waits for the app to quit, installs and reopens it, and $name",
-        async ({ xpc }) => {
+      it(
+        "install --wait-for-quit waits for the app to quit, installs and reopens it",
+        async () => {
           await withFixture(async (f) => {
             await installOld(f);
             await stageBuild(f);
             const marker = NodePath.join(f.root, "running");
             await NodeFSP.writeFile(marker, "");
-            const pending = run(
-              f,
-              ["install", "--wait-for-quit"],
-              xpc ? { XPC_SERVICE_NAME: xpc } : {},
-            );
+            const pending = run(f, ["install", "--wait-for-quit"], {
+              XPC_SERVICE_NAME: INSTALL_JOB,
+            });
             // The script has entered its wait once it has asked pgrep.
             await pollUntil(
               async () => (await readText(NodePath.join(f.root, "pgrep.log"))) !== "",
@@ -653,14 +652,93 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
               source: "new-src",
             });
             expect(await calls(f, "open")).toEqual([`open ${f.installed}`]);
-            expect(await calls(f, "launchctl")).toEqual(
-              xpc ? [`launchctl remove ${INSTALL_JOB}`] : [],
+            // The job is started on demand and stays loaded for the next install.
+            expect(await calls(f, "launchctl")).toEqual([]);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "install --on-quit starts the waiting job from a LaunchAgent, never `launchctl submit`",
+        async () => {
+          await withFixture(async (f) => {
+            const result = await run(f, ["install", "--on-quit"]);
+            expect(result.code).toBe(0);
+            const plist = await readText(
+              NodePath.join(f.env.HOME!, "Library/LaunchAgents", `${INSTALL_JOB}.plist`),
             );
+            expect(plist).toContain(`<key>Label</key><string>${INSTALL_JOB}</string>`);
+            expect(plist).toContain(
+              `exec /bin/bash "${f.env.T3FORK_REPO}/scripts/fork-nightly.sh" install --wait-for-quit`,
+            );
+            // A rehearsal's overrides reach the job, so it never touches real state.
+            expect(plist).toContain(`<key>T3FORK_STATE</key><string>${f.state}</string>`);
+            expect(plist).not.toContain("<key>RunAtLoad</key>");
+            const domain = `gui/${process.getuid?.()}`;
+            expect(await calls(f, "launchctl")).toEqual([
+              `launchctl print ${domain}/${INSTALL_JOB}`,
+              `launchctl bootout ${domain}/${INSTALL_JOB}`,
+              `launchctl bootstrap ${domain} ${f.env.HOME}/Library/LaunchAgents/${INSTALL_JOB}.plist`,
+              `launchctl kickstart ${domain}/${INSTALL_JOB}`,
+            ]);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it.each([
+        { name: "leaves the LaunchAgent alone", type: "LaunchAgent", replaced: false },
+        { name: "replaces a job an older version submitted", type: "submitted", replaced: true },
+      ])(
+        "install --on-quit, while the job is already waiting, $name",
+        async ({ type, replaced }) => {
+          await withFixture(async (f) => {
+            const plist = `${f.env.HOME}/Library/LaunchAgents/${INSTALL_JOB}.plist`;
+            await NodeFSP.writeFile(
+              NodePath.join(f.root, "job-state"),
+              type === "LaunchAgent"
+                ? `\tpath = ${plist}\n\ttype = LaunchAgent\n\tstate = running\n`
+                : `\ttype = submitted\n\tstate = running\n`,
+            );
+            const result = await run(f, ["install", "--on-quit"]);
+            expect(result.code).toBe(0);
+            expect(result.stdout.includes("already waiting")).toBe(!replaced);
+            const domain = `gui/${process.getuid?.()}`;
+            expect(await calls(f, "launchctl")).toEqual([
+              `launchctl print ${domain}/${INSTALL_JOB}`,
+              ...(replaced
+                ? [
+                    `launchctl bootout ${domain}/${INSTALL_JOB}`,
+                    `launchctl bootstrap ${domain} ${plist}`,
+                    `launchctl kickstart ${domain}/${INSTALL_JOB}`,
+                  ]
+                : []),
+            ]);
           });
         },
         TIMEOUT,
       );
     });
+
+    it(
+      "keeps its own file when its environment carries a run copy's variables",
+      async () => {
+        await withFixture(async (f) => {
+          // An app the install job reopened passes its environment to every agent's run.
+          const script = NodePath.join(f.root, "fork-nightly.sh");
+          await NodeFSP.copyFile(SCRIPT, script);
+          await execFile("bash", [script, "status"], {
+            env: { ...f.env, T3FORK_FROM_COPY: script },
+          });
+          expect(await exists(script)).toBe(true);
+          expect(
+            (await NodeFSP.readdir(f.state)).filter((name) => name.startsWith("run.")),
+          ).toEqual([]);
+        });
+      },
+      TIMEOUT,
+    );
 
     it(
       "is not blocked by a stale lock left by a dead process",

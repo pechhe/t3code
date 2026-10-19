@@ -425,6 +425,40 @@ it.effect("lets a read waiting for a busy reader be cancelled", () =>
   ),
 );
 
+it.effect("lets an interrupted fiber's finalizer wait for the writer", () =>
+  withReaderClient((sql) =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+      const writerHeld = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const holder = yield* Effect.forkChild(
+        sql.withTransaction(
+          Deferred.succeed(writerHeld, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        ),
+      );
+      yield* Deferred.await(writerHeld);
+      const cancelled = yield* Effect.forkChild(
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.onInterrupt(() =>
+            sql`INSERT INTO entries VALUES ('statement')`.pipe(
+              Effect.andThen(sql.withTransaction(sql`INSERT INTO entries VALUES ('transaction')`)),
+              Effect.andThen(sql.withTransaction(countEntries(sql)).pipe(SqliteClient.readOnly)),
+            ),
+          ),
+        ),
+      );
+      yield* Deferred.await(started);
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(cancelled));
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(holder);
+      yield* Fiber.join(interrupting);
+
+      assert.equal(yield* countEntries(sql), 3);
+    }),
+  ),
+);
+
 it.effect("rejects a write in a read-only transaction", () =>
   withReaderClient((sql) =>
     Effect.gen(function* () {
