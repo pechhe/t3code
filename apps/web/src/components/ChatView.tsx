@@ -8395,6 +8395,7 @@ export default function ChatView(props: ChatViewProps) {
                     ? (heldPaintContext?.markdownCwd ?? undefined)
                     : (gitCwd ?? undefined)
                 }
+                calmStreaming={activeProjectSettings.settings.responseStreamingMode === "live"}
                 resolvedTheme={resolvedTheme}
                 timestampFormat={timestampFormat}
                 workspaceRoot={

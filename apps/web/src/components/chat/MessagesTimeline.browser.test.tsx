@@ -66,6 +66,7 @@ function baseProps(): Omit<TimelineProps, "timelineEntries"> {
     onImageExpand: () => {},
     activeThreadEnvironmentId: ENVIRONMENT_ID,
     markdownCwd: undefined,
+    calmStreaming: false,
     resolvedTheme: "light",
     timestampFormat: "locale",
     workspaceRoot: undefined,

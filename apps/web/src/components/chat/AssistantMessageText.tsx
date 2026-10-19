@@ -94,23 +94,47 @@ function useEasedHeight(active: boolean) {
   return { outerRef, innerRef };
 }
 
+type AssistantMessageTextProps = Omit<
+  ComponentProps<typeof ChatMarkdown>,
+  "isStreaming" | "lineBreaks" | "headingLevelOffset"
+> & {
+  readonly streaming: boolean;
+  /**
+   * The fork's opt-in "live" look: sentence-paced reveal and eased height. Off,
+   * text renders as it arrives, as upstream does, which costs far less to paint.
+   */
+  readonly calm: boolean;
+};
+
 /**
  * An assistant message's text, rendered the same way wherever one appears: the
  * main timeline and the side chat card. Changes to how assistant text streams
  * in or is formatted belong here or in `ChatMarkdown`, not in either caller.
  * Agent prose takes the Response font, not the interface font.
  */
-export function AssistantMessageText({
+export function AssistantMessageText({ calm, ...props }: AssistantMessageTextProps) {
+  if (calm) return <CalmAssistantMessageText {...props} />;
+  const { text, streaming, className, ...markdown } = props;
+  return (
+    <div className="flow-root">
+      <ChatMarkdown
+        {...markdown}
+        className={cn("font-response", className)}
+        text={text}
+        isStreaming={streaming}
+        lineBreaks={shouldPreserveAssistantLineBreaks(text)}
+        headingLevelOffset={MESSAGE_HEADING_LEVEL}
+      />
+    </div>
+  );
+}
+
+function CalmAssistantMessageText({
   text,
   streaming,
   className,
   ...markdown
-}: Omit<
-  ComponentProps<typeof ChatMarkdown>,
-  "isStreaming" | "lineBreaks" | "headingLevelOffset"
-> & {
-  readonly streaming: boolean;
-}) {
+}: Omit<AssistantMessageTextProps, "calm">) {
   const reveal = useSentenceReveal(text, streaming);
   const active = streaming || reveal.revealing;
   const { outerRef, innerRef } = useEasedHeight(active);

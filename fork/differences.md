@@ -399,15 +399,15 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 ### live-response-streaming
 
-- **Kind:** deliberate behaviour change (performance under investigation)
-- **Why:** Sentence-paced "live" streaming makes threads calmer to read.
-- **Requirements:** setting for response streaming (live vs paragraph); separate Response font; a client that does not announce `liveResponseStreaming` on its socket is shown "paragraph" instead of "live" (settings and project overrides), because shipped clients reject the whole config snapshot on the unknown value.
-- **Integration points:** `AssistantMessageText`, `assistantStreaming`, `DotMatrixSpinner` working indicator; settings.
+- **Kind:** opt-in extension (default is upstream's)
+- **Why:** Sentence-paced "live" streaming makes threads calmer to read, for whoever accepts its CPU cost.
+- **Requirements:** upstream's "paragraph" streaming and plain "Working for …" row are the default; choosing "Stream as it's written" ("live", per environment or project) turns on the calm look: sentence reveal, eased height and the `DotMatrixSpinner` working row; separate Response font; a client that does not announce `liveResponseStreaming` on its socket is shown "paragraph" instead of "live" (settings and project overrides), because shipped clients reject the whole config snapshot on the unknown value.
+- **Integration points:** `AssistantMessageText` (`calm`), `WorkingTimelineRow` (plain vs calm, via `calmStreaming`), `SideChatCard`, `assistantStreaming`; settings.
 - **Proof:** none.
 - **Upstream:** none known.
 - **Retire when:** measurement shows unacceptable cost, or upstream ships equivalent.
 - **Constraints:** measured renderer CPU (Build #3172 finding 8; production web build, one ~1,500-word reply streaming for ~16 s): live 95% of a core, paragraph 82%, turn 33% (the working indicators alone), idle about 1%. Turning off the reveal loop and eased height cut live by about 17 points; turning off the dot-matrix animation halved the working baseline (about 26% to 13%). Most of the remaining streaming cost is upstream behaviour: `ChatMarkdown` re-parses and re-renders the whole message on every text change, so live and paragraph cost about the same.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): assistant line breaks stay in `AssistantMessageText`; upstream's Windows-path markdown plugin adopted in the timeline; upstream's hide-when-the-provider-turn-ended rule applied to the fork's bottom working row.
+- **Decision:** `retain` as opt-in (2026-10-19, Build #3172): the default follows upstream ("paragraph", plain working row) after the measurements above; the calm look stays selectable in Settings. Earlier (v0.1.1-nightly.20261019.3348): assistant line breaks stay in `AssistantMessageText`; upstream's Windows-path markdown plugin adopted in the timeline; upstream's hide-when-the-provider-turn-ended rule applied to the fork's bottom working row.
 - **Owner:** Build #3172 (formerly pechhe/t3code#135).
 
 ### web-client-customisation

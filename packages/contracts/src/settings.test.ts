@@ -24,8 +24,8 @@ const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
 describe("ServerSettings response streaming", () => {
-  it("defaults to live streaming", () => {
-    expect(decodeServerSettings({}).responseStreamingMode).toBe("live");
+  it("defaults to paragraph streaming", () => {
+    expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");
   });
 
   it.each(["turn", "paragraph", "live"])(

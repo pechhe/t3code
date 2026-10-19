@@ -323,6 +323,7 @@ interface TimelineRowSharedState {
   routeThreadKey: string;
   threadRef: ScopedThreadRef | null;
   markdownCwd: string | undefined;
+  calmStreaming: boolean;
   resolvedTheme: "light" | "dark";
   workspaceRoot: string | undefined;
   skills: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">>;
@@ -501,6 +502,8 @@ interface MessagesTimelineProps {
   onFileDownload?: (attachment: ChatFileAttachment) => void;
   activeThreadEnvironmentId: EnvironmentId;
   markdownCwd: string | undefined;
+  /** The project streams responses "live", so assistant text and the working row take the fork's calm look. */
+  calmStreaming: boolean;
   resolvedTheme: "light" | "dark";
   timestampFormat: TimestampFormat;
   workspaceRoot: string | undefined;
@@ -597,6 +600,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onFileDownload = NOOP_OPEN_ATTACHMENT,
   activeThreadEnvironmentId,
   markdownCwd,
+  calmStreaming,
   resolvedTheme,
   timestampFormat,
   workspaceRoot,
@@ -1280,6 +1284,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     routeThreadKey,
     threadRef: citationThreadRef,
     markdownCwd,
+    calmStreaming,
     resolvedTheme,
     workspaceRoot,
     skills,
@@ -2700,6 +2705,7 @@ function AssistantTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "mess
               cwd={ctx.markdownCwd}
               threadRef={ctx.threadRef ?? undefined}
               streaming={Boolean(row.message.streaming)}
+              calm={ctx.calmStreaming}
               skills={ctx.skills}
               onUseArtifactTemplate={ctx.onUseArtifactTemplate}
               onRunShellCommand={ctx.onRunShellCommand}
@@ -3603,10 +3609,51 @@ function toolIconAcceptsTint(toolIcon: ToolActivityIcon | undefined): boolean {
 }
 
 /**
- * The live response's one status line, at its foot:
- * "⣿ 47s · 1 running task · Running tools…". It is the only animated row while a turn runs.
+ * The live response's one status line, at its foot. Upstream's plain
+ * "Working for 47s" by default; with live streaming, the fork's calm
+ * "⣿ 47s · 1 running task · Running tools…", the only animated row while a turn runs.
  */
 function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
+  const { calmStreaming } = use(TimelineRowCtx);
+  return calmStreaming ? (
+    <CalmWorkingTimelineRow row={row} />
+  ) : (
+    <PlainWorkingTimelineRow row={row} />
+  );
+}
+
+function PlainWorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
+  const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
+    use(TimelineRowActivityCtx);
+  const shimmer = isPreparingWorktree || isCompacting;
+  const label = isPreparingWorktree ? (
+    "Setting up worktree…"
+  ) : isCompacting ? (
+    <CompactingLabel />
+  ) : row.createdAt ? (
+    <>
+      Working for <WorkingTimer createdAt={row.createdAt} />
+    </>
+  ) : (
+    "Working…"
+  );
+  return (
+    <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
+      <span
+        ref={shimmer ? observeVisibleAnimation : undefined}
+        className="relative shrink-0 overflow-hidden whitespace-nowrap"
+      >
+        {label}
+        {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
+      </span>
+      {backgroundWorktreeSetup ? (
+        <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+      ) : null}
+    </div>
+  );
+}
+
+function CalmWorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "working" }> }) {
   const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
     use(TimelineRowActivityCtx);
   const phase = isPreparingWorktree ? (

@@ -196,7 +196,7 @@ const RESPONSE_STREAMING_MODE_LABELS: Record<ResponseStreamingMode, string> = {
 const RESPONSE_STREAMING_MODE_DESCRIPTIONS: Record<ResponseStreamingMode, string> = {
   turn: "Text appears once the agent finishes its turn.",
   paragraph: "Each paragraph or code block appears as soon as it is complete.",
-  live: "Text flows in smoothly, a sentence at a time, as the agent writes it.",
+  live: "Text flows in smoothly, a sentence at a time, with an animated working indicator. Uses more CPU while the agent writes.",
 };
 
 const SIDEBAR_PROJECT_SORT_ORDER_LABELS: Record<SidebarProjectSortOrder, string> = {

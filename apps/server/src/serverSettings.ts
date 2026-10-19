@@ -309,7 +309,7 @@ const ServerSettingsJson = fromLenientJson(
   Schema.Struct({
     ...ServerSettings.fields,
     responseStreamingMode: PersistedResponseStreamingMode.pipe(
-      Schema.withDecodingDefault(Effect.succeed("live" as const)),
+      Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
     ),
     projectSettingsOverrides: Schema.Record(
       ProjectId,

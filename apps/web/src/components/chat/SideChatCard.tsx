@@ -22,6 +22,7 @@ import { type KeyboardEvent, useMemo, useState } from "react";
 
 import { observeVisibleAnimation } from "../../lib/visibleAnimation";
 import { ActivityShimmerOverlay } from "./ActivityShimmer";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { AssistantMessageText } from "./AssistantMessageText";
 import { ScrollArea } from "../ui/scroll-area";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -324,6 +325,10 @@ export function SideChatCard(props: {
                     cwd={props.cwd}
                     threadRef={sideChatRef ?? parentRef}
                     streaming={item.streaming}
+                    calm={
+                      resolveProjectSettings(settings, parent.projectId).settings
+                        .responseStreamingMode === "live"
+                    }
                   />
                   {!item.streaming && item.text.trim().length > 0 ? (
                     <ThreadDetailsControl
