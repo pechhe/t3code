@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.1-nightly.20261018.3315 (`9c161462c94f7d9d6d9169da5c841457cbadf213`)
-- Fork: `d1d4354dafd4ab7ef14db06acae9f32b16937ca2`
+- Upstream: v0.1.1-nightly.20261019.3348 (`88d104a35f700fdd55c635db616ad60aae6dc98a`)
+- Fork: `2667f18ef10ce48f1f94312dadb81a8ea4d703ce`
 
 ## Coverage
 
@@ -54,8 +54,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/orchestration-v2/ContextRollover.test.ts, ContextRollover.integration.test.ts, ContextRolloverReactor.test.ts, ContextRolloverThresholdService.test.ts; apps/web/src/components/chat/rolloverCommand.test.ts; also in slipjay.json required verification.
 - **Upstream:** none known. Upstream has context handoff (provider switching), which rollover builds on.
 - **Retire when:** upstream ships an equivalent covering the requirements above.
-- **Constraints:** per-usage-report work must stay cached per attempt (#140, #135 finding 7). Fork migrations 063–071/073 were inserted before upstream's `DropUnusedV1Projections`, now numbered 072 here (unverified: how an upstream renumbering of that file reconciles).
-- **Decision:** `retain` (seed, 2026-10-19): fork-only feature, in landing gate.
+- **Constraints:** per-usage-report work must stay cached per attempt (#140, #135 finding 7); upstream now also reports Claude context usage from stream message deltas, so reports per turn rose. Fork migrations 063–071/073 sit before upstream's own: upstream migrations take the next free fork number in upstream order (`DropUnusedV1Projections` 072, `CanonicalizeThreadPullRequestLinks` 074), and released fork numbers never move.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): no upstream equivalent; ContextRollover tests pass with upstream's stream-delta usage reports.
 - **Owner:** none open (rollover work predates the tracker; #140 closed).
 
 ### experiments
@@ -92,7 +92,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/mcp/OrchestratorMcpService.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts, TaskCancelNativeSubagent.integration.test.ts; apps/server/src/agents/ManagedAgentService.test.ts, writerWorkspacePreflight.test.ts; orchestration-v2/AdvisorIdleClose.test.ts; in slipjay.json verification.
 - **Upstream:** upstream has the base orchestrator MCP and subagents; the managed layer is the fork's. Overlap risk is high on `OrchestratorMcpService`.
 - **Retire when:** upstream ships equivalent managed scope and follow-up covering the requirements.
-- **Decision:** `retain` (seed, 2026-10-19): heavily extended and gated.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit.
 - **Owner:** pechhe/t3code#14, #15, #17, #18, #31, #40, #62, #93, #131 (closed); open: #123, #136, #146.
 
 ### t3-agent-cli
@@ -141,7 +141,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known (upstream VCS is Git).
 - **Retire when:** upstream ships a VCS driver abstraction with Jujutsu/SlipJay workspace support covering the requirements, or the fork stops using SlipJay.
 - **Constraints:** status refresh must not scale with landings × watched checkouts (see perf-landing-refresh).
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the bootstrap thread keeps `rootIsDefault` under upstream's tolerant launch.
 - **Owner:** pechhe/t3code#21–23, #41, #42, #45, #46, #50–54, #67 (closed); open: #108, #112, #125.
 
 ### slipjay-landing
@@ -261,7 +261,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/peers/PeerEnvironments.test.ts, ThreadDirectory.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships equivalent cross-environment thread access.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the MCP thread list and read descriptions carry both upstream's `pullRequests` note and the linked-environment text.
 - **Owner:** pechhe/t3code#33–38 (closed).
 
 ### account-pools
@@ -273,7 +273,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** packages/shared/src/providerPools.test.ts; apps/server/src/orchestration-v2/UsageLimitRecoveryWorker.test.ts.
 - **Upstream:** upstream has provider instances and usage limits; pooling is the fork's.
 - **Retire when:** upstream ships equivalent pooled routing.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's provider card setup layout adopted inside the non-pool branch; upstream's usage-limit sweep and full-context-window fixes merged without overlap with pooled routing.
 - **Owner:** pechhe/t3code#103, #114, #115 (closed); #145 open (mobile pool account).
 
 ### phi-browser-backend
@@ -285,7 +285,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/preview/PhiBrowser.test.ts, PhiBrowserRunner.test.ts, PhiBrowserProtocol.test.ts; packages/shared/src/browserBackend.test.ts.
 - **Upstream:** upstream has the built-in preview browser.
 - **Retire when:** Phi is dropped.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream moved Agent browser access into the single Integrations → Browser section; the fork's Agent browser (backend) picker moved there beside it. `t3_preview_close` reports a browser backend's own refusal, as upstream now does, through the broker's Phi-aware close.
 - **Owner:** pechhe/t3code#27, #128 (closed); #26 open.
 
 ### managed-browser-roles
@@ -321,7 +321,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/web/src/components/snapShot/snapShotOverlayDock.test.ts; apps/desktop/src/snapShot/snapShot.test.ts.
 - **Upstream:** SnapShot itself is upstream; the overlay is the fork's.
 - **Retire when:** upstream ships an equivalent overlay.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's named macOS test-capture failures adopted on top of the fork's capture pool. The pool finds and captures the window in one helper, so a failed window lookup reports as a failed capture; upstream's separate window-lookup test does not apply and was dropped.
 - **Owner:** pechhe/t3code#76 (open, overlay slice).
 
 ### device-composer
@@ -333,7 +333,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** none found for look/feel; unverified browser tests (e.g. apps/web/src/components/Sidebar.motion.test.ts covers motion only).
 - **Upstream:** none known; composer and sidebar are high-churn upstream files, so merge conflicts are likely.
 - **Retire when:** the owner replaces the design.
-- **Decision:** `retain` (seed, 2026-10-19): visual identity of the fork.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): visual identity of the fork; the composer host and workspace selectors stay removed, so upstream's shortcut tooltips on them do not apply.
 - **Owner:** #117 (open, reasoning-effort step paths), #129 (open, mobile Fast switch).
 
 ### image-annotation
@@ -369,7 +369,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/orchestration-v2/ThreadProjectMove.test.ts, ProjectMoveReactor.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships equivalent.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's draft-headline picker fixes (full No project label, middle truncation) target the dropdown the fork replaced with its project chip row; upstream's `DraftProjectName` is left unused rather than deleted, to avoid a modify/delete conflict on every update.
 - **Owner:** #76 (open, slice) ; #126 relates (updater started in No project).
 
 ### project-themes
@@ -394,7 +394,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known.
 - **Retire when:** measurement shows unacceptable cost, or upstream ships equivalent.
 - **Constraints:** suspected renderer cost (rAF reveal loop, height transition, per-sentence markdown re-render); unmeasured A/B pending in #135.
-- **Decision:** `retain` (seed, 2026-10-19): suspected, not proven, cost.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): assistant line breaks stay in `AssistantMessageText`; upstream's Windows-path markdown plugin adopted in the timeline; upstream's hide-when-the-provider-turn-ended rule applied to the fork's bottom working row.
 - **Owner:** pechhe/t3code#135.
 
 ### web-client-customisation
@@ -418,7 +418,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/mobile/src/features/threads/git/jujutsuCheckout.test.ts.
 - **Upstream:** mobile is upstream; the Screens dependency (docs/operations/mobile-screens-fork.md) is unchanged since baseline and not a fork difference of this record.
 - **Retire when:** the corresponding server features retire.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's React Compiler versions of the home actions, thread feed, git controls and composer state adopted, with the fork's settle confirmation, Jujutsu labels and Build links reapplied without manual memoisation; the fork-only Agents and Build item sheets stay on the manual-memo allowlist.
 - **Owner:** #107, #129, #145 (open); #43 (closed).
 
 ### desktop-fork-build
@@ -467,7 +467,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** the base design is upstream; the fixes touch central persistence (merge cost medium).
 - **Retire when:** upstream ships equivalent reader routing, compaction watermark and trace sampling (retire per item).
 - **Constraints:** installed-build measurement of writer `db.lock_wait_ms` is pending (#135); the compaction pass still scans all history; the isolated replay benchmark has not been run.
-- **Decision:** `retain` (seed, 2026-10-19): measured on live traces, not yet re-measured post-install.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): reader routing kept; upstream's empty-filter skip in thread reads adopted beside it.
 - **Owner:** pechhe/t3code#135 (open); #137–#139 (closed).
 
 ### perf-landing-refresh

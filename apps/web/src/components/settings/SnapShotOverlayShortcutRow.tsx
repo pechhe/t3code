@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { isModifierPairShortcut, type SnapShotShortcut } from "@t3tools/contracts";
 import { useState } from "react";
 
-import { useClientSettings, useUpdateClientSettings } from "../../hooks/useSettings";
+import { updateClientSettings, useClientSettings } from "../../hooks/useSettings";
 import { getDesktopSnapShotBridge } from "../../lib/desktopSnapShot";
 import { sameSnapShotShortcut, snapShotKeybindingConflict } from "../../lib/snapShotShortcut";
 import { primaryServerKeybindingsAtom } from "../../state/server";
@@ -20,7 +20,6 @@ export function SnapShotOverlayShortcutRow({ disabled }: { readonly disabled: bo
     capture: current.snapShotShortcut,
     overlay: current.snapShotOverlayShortcut,
   }));
-  const updateSettings = useUpdateClientSettings();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -43,7 +42,7 @@ export function SnapShotOverlayShortcutRow({ disabled }: { readonly disabled: bo
         setMessage(availability.message);
         return;
       }
-      await updateSettings({ snapShotOverlayShortcut: shortcut });
+      await updateClientSettings({ snapShotOverlayShortcut: shortcut });
       setMessage(null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not save this shortcut.");

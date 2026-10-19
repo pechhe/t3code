@@ -19,6 +19,7 @@ import {
   DEFAULT_BROWSER_VIEWPORT,
   DEFAULT_PREVIEW_APPEARANCE,
   DEFAULT_PREVIEW_ZOOM_FACTOR,
+  DEFAULT_SERVER_SETTINGS,
   FILL_PREVIEW_VIEWPORT,
   PREVIEW_VIEWPORT_MAX_AREA,
   PREVIEW_VIEWPORT_MAX_DIMENSION,
@@ -31,6 +32,11 @@ import {
   type PreviewAppearancePreference,
   type PreviewViewportSetting,
 } from "@t3tools/contracts";
+import {
+  AGENT_BROWSER_BACKEND_CHOICES,
+  type AgentBrowserBackendChoiceId,
+  agentBrowserBackendChoiceId,
+} from "@t3tools/shared/browserBackend";
 import { PREVIEW_VIEWPORT_PRESETS } from "@t3tools/shared/previewViewport";
 import { MoreVertical, Plus as PlusIcon } from "lucide-react";
 import { useRef, useState } from "react";
@@ -44,6 +50,7 @@ import { useEnvironments, usePrimaryEnvironment } from "~/state/environments";
 import { deviceEnvironment, useDeviceState } from "~/state/device";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { formatEnvironmentQueryError } from "~/state/query";
 import { previewEnvironment } from "~/state/preview";
 import { useServerConfigs } from "~/state/entities";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
@@ -110,7 +117,6 @@ import {
   SettingsSection,
 } from "./settingsLayout";
 import { searchableSetting } from "./settingsSearch";
-import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
 import { useSettingsScope } from "./SettingsScopeContext";
 import { BrowserImportWizard, type WizardTarget } from "./BrowserImportWizard";
 import type { ImportOutcome } from "./browserImportWizard.logic";
@@ -728,7 +734,7 @@ function DeviceIntegrationSettings() {
   );
 }
 
-function DeviceIntegrationControls({
+export function DeviceIntegrationControls({
   environmentId,
   enabled,
   agentAccessEnabled,
@@ -820,11 +826,7 @@ function DeviceIntegrationControls({
                 void list({ environmentId, input: { updateTool: tool } })
                   .then((result) => {
                     if (result._tag === "Failure")
-                      setUpdateError({
-                        tool,
-                        message:
-                          "Update failed. Check this host's network connection and try again.",
-                      });
+                      setUpdateError({ tool, message: formatEnvironmentQueryError(result.cause) });
                   })
                   .finally(() => setPending(null));
               }}
@@ -971,6 +973,99 @@ function DeviceIntegrationControls({
       ) : null}
       <DeviceHostsSettings environmentId={environmentId} />
     </>
+  );
+}
+
+function AgentBrowserAccessSetting() {
+  const { scope } = useSettingsScope();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
+
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["enableAgentBrowserAccess"]}
+      {...searchableSetting("agent-browser-access")}
+      description={
+        isProjectScope
+          ? "Allow agents in this project to use the shared browser. Applies when the agent session next starts."
+          : "Allow agents to use the shared browser. Projects can override it."
+      }
+      resetAction={
+        settings.enableAgentBrowserAccess !== DEFAULT_SERVER_SETTINGS.enableAgentBrowserAccess ? (
+          <SettingResetButton
+            label="default browser access"
+            onClick={() =>
+              updateSettings({
+                enableAgentBrowserAccess: DEFAULT_SERVER_SETTINGS.enableAgentBrowserAccess,
+              })
+            }
+          />
+        ) : null
+      }
+      control={
+        <ScopedSwitch
+          settingKeys={["enableAgentBrowserAccess"]}
+          aria-label="Agent browser access"
+          checked={settings.enableAgentBrowserAccess}
+          onCheckedChange={(enabled) => updateSettings({ enableAgentBrowserAccess: enabled })}
+        />
+      }
+    />
+  );
+}
+
+function AgentBrowserBackendsSetting() {
+  const { targets } = useSettingsScope();
+  const settings = useScopedSettings();
+  const updateSettings = useUpdateScopedSettings();
+  // The pair is an object, so targets are compared by the choice it maps to.
+  const mixed = targets.some(
+    (entry) =>
+      agentBrowserBackendChoiceId(entry.settings.agentBrowserBackends) !==
+      agentBrowserBackendChoiceId(targets[0]!.settings.agentBrowserBackends),
+  );
+
+  return (
+    <SettingsRow
+      serverScoped
+      settingKeys={["agentBrowserBackends"]}
+      mixed={mixed}
+      {...searchableSetting("agent-browser-backends")}
+      description={
+        settings.enableAgentBrowserAccess
+          ? "Which browsers agents can open. Phi needs the phi-browser skill on the Mac. Applies when the agent session next starts; open tabs keep their browser."
+          : "Agent browser access is off, so agents cannot use either browser."
+      }
+      control={
+        <Select
+          value={agentBrowserBackendChoiceId(settings.agentBrowserBackends)}
+          onValueChange={(id) => {
+            const choice = AGENT_BROWSER_BACKEND_CHOICES.find((entry) => entry.id === id);
+            if (choice) updateSettings({ agentBrowserBackends: choice.value });
+          }}
+        >
+          <SelectTrigger size="sm" aria-label="Agent browser">
+            <SelectValue>
+              {(value: AgentBrowserBackendChoiceId | null) =>
+                mixed
+                  ? "Mixed"
+                  : (AGENT_BROWSER_BACKEND_CHOICES.find((entry) => entry.id === value)?.label ??
+                    "T3 browser")
+              }
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {AGENT_BROWSER_BACKEND_CHOICES.map((choice) => (
+              <SelectItem key={choice.id} value={choice.id}>
+                {choice.label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
   );
 }
 
@@ -1488,8 +1583,9 @@ export function IntegrationsSettingsPanel() {
 
   return (
     <SettingsPageContainer>
-      <ProjectDefaultsSettings category="integrations" />
       <SettingsSection id="browser" title="Browser">
+        <AgentBrowserAccessSetting />
+        <AgentBrowserBackendsSetting />
         {previewDefaultsDisabled ? (
           <SettingsUnavailableGroup message="Only available in the desktop app.">
             {previewDefaults}

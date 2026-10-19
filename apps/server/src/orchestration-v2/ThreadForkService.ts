@@ -96,6 +96,8 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         const targetThread: OrchestrationV2AppThread = {
           ...sourceThread,
           ...(agentTask === undefined || input.sideChat === true ? {} : { agentTask }),
+          // PR context follows the conversation; watching remains the source thread's responsibility.
+          pullRequests: sourceThread.pullRequests?.map(({ watch: _watch, ...link }) => link),
           createdBy: input.createdBy,
           creationSource: input.creationSource,
           id: input.targetThreadId,

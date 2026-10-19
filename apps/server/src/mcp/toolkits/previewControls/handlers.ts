@@ -17,7 +17,14 @@ export const layer = McpToolAccess.toLayer(PreviewControlsToolkit, {
     Effect.gen(function* () {
       const scope = yield* requireThreadMcpCapability("preview");
       const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
-      yield* broker.close({ scope, tabId: input.tabId }).pipe(Effect.mapError(unavailable));
+      // A browser backend's refusal says why; a preview manager failure does not.
+      yield* broker.close({ scope, tabId: input.tabId }).pipe(
+        Effect.catchTags({
+          PreviewSessionLookupError: () => Effect.fail(unavailable()),
+          PreviewInvalidUrlError: () => Effect.fail(unavailable()),
+          PreviewControlRequiredError: () => Effect.fail(unavailable()),
+        }),
+      );
       return {};
     }),
   ),

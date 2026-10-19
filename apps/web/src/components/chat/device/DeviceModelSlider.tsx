@@ -13,7 +13,7 @@ import {
 import {
   useClientSettings,
   useEnvironmentModelPreferences,
-  useUpdateClientSettings,
+  updateClientSettings,
 } from "~/hooks/useSettings";
 import { playRotary } from "~/lib/interfaceSounds";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
@@ -80,7 +80,6 @@ export function DeviceModelSlider(props: {
 }) {
   const { favorites } = useEnvironmentModelPreferences(props.environmentId);
   const slotLabels = useClientSettings(selectModelSlotLabels);
-  const updateClientSettings = useUpdateClientSettings();
   const [renamingKey, setRenamingKey] = useState<string | null>(null);
   const {
     activeInstanceId,

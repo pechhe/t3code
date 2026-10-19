@@ -7,11 +7,6 @@ import {
   type WorktreeSubmodules,
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
-import {
-  AGENT_BROWSER_BACKEND_CHOICES,
-  type AgentBrowserBackendChoiceId,
-  agentBrowserBackendChoiceId,
-} from "@t3tools/shared/browserBackend";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
 
@@ -125,13 +120,6 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
   const mixedSubmodules = useScopedSettingsMixed(["worktreeSubmodules"]);
-  const mixedBrowser = useScopedSettingsMixed(["enableAgentBrowserAccess"]);
-  // The pair is an object, so targets are compared by the choice it maps to.
-  const mixedBrowserBackends = targets.some(
-    (entry) =>
-      agentBrowserBackendChoiceId(entry.settings.agentBrowserBackends) !==
-      agentBrowserBackendChoiceId(targets[0]!.settings.agentBrowserBackends),
-  );
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
   const mixedAgentCredits = useScopedSettingsMixed(["removeAgentCreditsOnMerge"]);
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
@@ -308,20 +296,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
 
   return (
     <SettingsSection
-      id={
-        category === "general" || category === "project"
-          ? "project-defaults"
-          : category === "integrations"
-            ? "browser-access"
-            : "source-control-defaults"
-      }
-      title={
-        category === "general" || category === "project"
-          ? "New threads"
-          : category === "integrations"
-            ? "Browser"
-            : "Repositories"
-      }
+      id={category === "source-control" ? "source-control-defaults" : "project-defaults"}
+      title={category === "source-control" ? "Repositories" : "New threads"}
     >
       {category === "project" ? (
         <>
@@ -440,7 +416,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             }
           />
         </>
-      ) : category === "source-control" ? (
+      ) : (
         <>
           {member ? (
             <WorkspaceProviderRow
@@ -547,81 +523,6 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                   <SelectItem value="merge">{PULL_REQUEST_MERGE_METHOD_LABELS.merge}</SelectItem>
                   <SelectItem value="squash">{PULL_REQUEST_MERGE_METHOD_LABELS.squash}</SelectItem>
                   <SelectItem value="rebase">{PULL_REQUEST_MERGE_METHOD_LABELS.rebase}</SelectItem>
-                </SelectPopup>
-              </Select>
-            }
-          />
-        </>
-      ) : (
-        <>
-          <SettingsRow
-            serverScoped
-            settingKeys={["enableAgentBrowserAccess"]}
-            mixed={mixedBrowser}
-            id={searchableSetting("agent-browser-access").id}
-            title="Agent browser access"
-            description={
-              isProjectScope
-                ? "Allow agents in this project to use the shared browser. Applies when the agent session next starts."
-                : "Allow agents to use the shared browser. Projects can override it."
-            }
-            resetAction={
-              settings.enableAgentBrowserAccess !==
-              DEFAULT_SERVER_SETTINGS.enableAgentBrowserAccess ? (
-                <SettingResetButton
-                  label="default browser access"
-                  onClick={() =>
-                    updateSettings({
-                      enableAgentBrowserAccess: DEFAULT_SERVER_SETTINGS.enableAgentBrowserAccess,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Switch
-                aria-label="Agent browser access"
-                mixed={mixedBrowser}
-                checked={mixedBrowser ? false : settings.enableAgentBrowserAccess}
-                onCheckedChange={(enabled) => updateSettings({ enableAgentBrowserAccess: enabled })}
-              />
-            }
-          />
-          <SettingsRow
-            serverScoped
-            settingKeys={["agentBrowserBackends"]}
-            mixed={mixedBrowserBackends}
-            id={searchableSetting("agent-browser-backends").id}
-            title="Agent browser"
-            description={
-              settings.enableAgentBrowserAccess
-                ? "Which browsers agents can open. Phi needs the phi-browser skill on the Mac. Applies when the agent session next starts; open tabs keep their browser."
-                : "Agent browser access is off, so agents cannot use either browser."
-            }
-            control={
-              <Select
-                value={agentBrowserBackendChoiceId(settings.agentBrowserBackends)}
-                onValueChange={(id) => {
-                  const choice = AGENT_BROWSER_BACKEND_CHOICES.find((entry) => entry.id === id);
-                  if (choice) updateSettings({ agentBrowserBackends: choice.value });
-                }}
-              >
-                <SelectTrigger size="sm" aria-label="Agent browser">
-                  <SelectValue>
-                    {(value: AgentBrowserBackendChoiceId | null) =>
-                      mixedBrowserBackends
-                        ? "Mixed"
-                        : (AGENT_BROWSER_BACKEND_CHOICES.find((entry) => entry.id === value)
-                            ?.label ?? "T3 browser")
-                    }
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {AGENT_BROWSER_BACKEND_CHOICES.map((choice) => (
-                    <SelectItem key={choice.id} value={choice.id}>
-                      {choice.label}
-                    </SelectItem>
-                  ))}
                 </SelectPopup>
               </Select>
             }

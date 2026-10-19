@@ -61,6 +61,7 @@ import {
   type OrchestratorMcpListScheduledTasksInput,
   type ProjectId,
   type OrchestratorMcpThreadDetail,
+  type OrchestratorMcpThreadPullRequest,
   type OrchestratorMcpThreadInterruptInput,
   type OrchestratorMcpThreadInterruptResult,
   type OrchestratorMcpThreadWatchInput,
@@ -89,6 +90,10 @@ import {
   isReviewerRole,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
+import {
+  normalizeThreadPullRequestKey,
+  visibleThreadPullRequests,
+} from "@t3tools/shared/threadPullRequests";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -123,6 +128,7 @@ import * as ThreadManagementService from "../orchestration-v2/ThreadManagementSe
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { isSnoozed } from "../orchestration-v2/ThreadSettlementService.ts";
+import { userFacingDispatchErrorMessage } from "../orchestration-v2/UserFacingErrors.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { followupBinding, followupPrompt } from "../agents/followup.ts";
@@ -373,11 +379,16 @@ function providerConstraints(
     constraints.push("No V2 provider adapter is registered.");
   }
   if (provider === undefined) return constraints;
-  if (!provider.enabled) constraints.push("Provider instance is disabled.");
-  if (!provider.installed) constraints.push("Provider executable is not installed.");
+  // Driver availability comes from the registry, even when health probes are skipped.
   if (!isProviderAvailable(provider)) {
     constraints.push(provider.unavailableReason ?? "Provider driver is unavailable.");
   }
+  if (!provider.enabled) {
+    constraints.push("Provider instance is disabled.");
+    // Disabled snapshots contain placeholders for installation, health, and auth.
+    return constraints;
+  }
+  if (!provider.installed) constraints.push("Provider executable is not installed.");
   if (provider.status === "error" || provider.status === "disabled") {
     constraints.push(provider.message ?? `Provider status is ${provider.status}.`);
   }
@@ -808,6 +819,20 @@ function threadSnooze(
   };
 }
 
+/** The same links `list_thread_pull_requests` reports, without the snapshot details. */
+function threadPullRequests(
+  links: OrchestrationV2ThreadShell["pullRequests"],
+): OrchestratorMcpThreadPullRequest[] {
+  return visibleThreadPullRequests(links ?? []).map((link) => ({
+    host: normalizeThreadPullRequestKey(link).host,
+    repository: link.repository,
+    number: link.number,
+    url: link.url,
+    source: link.source,
+    state: link.snapshot?.state ?? null,
+  }));
+}
+
 function listItemFromShell(
   shell: OrchestrationV2ThreadShell,
   nowMs: number,
@@ -827,6 +852,7 @@ function listItemFromShell(
     runtimeMode: shell.runtimeMode,
     interactionMode: shell.interactionMode,
     linkedPullRequest: shell.linkedPullRequest ?? null,
+    pullRequests: threadPullRequests(shell.pullRequests),
     ...threadSettlement(shell),
     ...threadSnooze(shell, nowMs),
     parentThreadId: shell.lineage.parentThreadId,
@@ -859,6 +885,7 @@ function threadDetail(
     runtimeMode: projection.thread.runtimeMode,
     interactionMode: projection.thread.interactionMode,
     linkedPullRequest: projection.thread.linkedPullRequest ?? null,
+    pullRequests: threadPullRequests(projection.thread.pullRequests),
     titleRegeneration:
       projection.thread.titleRegeneration === undefined ||
       projection.thread.titleRegeneration === null
@@ -1037,11 +1064,13 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const listProjects = projects.listShells().pipe(
-    Effect.mapError((error) =>
-      failure("orchestration_error", `Unable to read projects: ${error.message}`),
-    ),
-  );
+  const listProjects = projects
+    .listShells()
+    .pipe(
+      Effect.mapError((error) =>
+        failure("orchestration_error", `Unable to read projects: ${error.message}`),
+      ),
+    );
 
   // Another project's workspace may be occupied by a thread of any project registered in its
   // repository, including one working unbound in its main checkout, so a task sent there is
@@ -1049,12 +1078,10 @@ const make = Effect.gen(function* () {
   const occupantsEverywhere = listProjects.pipe(
     Effect.flatMap((all) =>
       Effect.forEach(all, (project) =>
-        threadManagement
-          .listProjectThreads({ projectId: project.id, includeSubagents: true })
-          .pipe(
-            Effect.map((threads) => workspaceOccupants(threads, project.workspaceRoot)),
-            Effect.mapError(threadManagementFailure),
-          ),
+        threadManagement.listProjectThreads({ projectId: project.id, includeSubagents: true }).pipe(
+          Effect.map((threads) => workspaceOccupants(threads, project.workspaceRoot)),
+          Effect.mapError(threadManagementFailure),
+        ),
       ),
     ),
     Effect.map((occupants) => occupants.flat()),
@@ -2963,20 +2990,37 @@ const make = Effect.gen(function* () {
           );
           // A SlipJay workspace starts from the integration branch, so the
           // parent's commit (which a jj workspace may not expose to git) is unused.
-          const baseRef =
-            (yield* workspaces.resolve(project.workspaceRoot)) === "slipjay"
-              ? "HEAD"
-              : (yield* gitDriver
-                  .resolveCommit({
-                    cwd: parent.thread.worktreePath ?? project.workspaceRoot,
-                    revision: "HEAD",
-                  })
-                  .pipe(
-                    Effect.mapError(() =>
-                      failure("invalid_request", "Unable to resolve the parent checkout commit."),
+          let baseRef = "HEAD";
+          if ((yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay") {
+            const base = yield* gitDriver
+              .resolveCommit({
+                cwd: parent.thread.worktreePath ?? project.workspaceRoot,
+                revision: "HEAD",
+              })
+              .pipe(
+                Effect.mapError(() =>
+                  failure("invalid_request", "Unable to resolve the parent checkout commit."),
+                ),
+                Effect.tapError((error) => recordExperimentFailure(error.message)),
+              );
+            // Launch preparation creates the worktree from the project root, so a
+            // parent checkout in another repository (such as a Git folder inside
+            // Scratch) would hand it a commit it cannot find.
+            if (parent.thread.worktreePath !== null) {
+              yield* gitDriver
+                .resolveCommit({ cwd: project.workspaceRoot, revision: base.commitSha })
+                .pipe(
+                  Effect.mapError(() =>
+                    failure(
+                      "invalid_request",
+                      `Isolation "worktree" creates the child checkout in project "${project.title}" (${project.workspaceRoot}), which does not contain the parent checkout's commit. Use isolation "shared" to work in the parent's checkout.`,
                     ),
-                    Effect.tapError((error) => recordExperimentFailure(error.message)),
-                  )).commitSha;
+                  ),
+                  Effect.tapError((error) => recordExperimentFailure(error.message)),
+                );
+            }
+            baseRef = base.commitSha;
+          }
           workspaceStrategy = { type: "worktree", baseRef, startFromOrigin: false };
         }
         if (workUnit !== undefined && prepared !== undefined)
@@ -3318,6 +3362,30 @@ const make = Effect.gen(function* () {
                   ),
                 ),
               );
+            const stopped = yield* threadManagement
+              .getThreadRecords(current.childThreadId, ["runs"])
+              .pipe(Effect.mapError(threadManagementFailure));
+            for (const run of stopped.runs) {
+              if (
+                run.status !== "queued" ||
+                (run.delegatedTaskId !== input.taskId && run.id !== current.childRunId)
+              )
+                continue;
+              // Stop preserves the queue for Resume. Cancelling a task must also
+              // remove that task's queued turn, including a previously held one.
+              yield* threadManagement
+                .dispatch({
+                  type: "queued-run.cancel",
+                  commandId: stableCommandId({
+                    scope,
+                    requestKey: key,
+                    operation: `cancel-task-queued-run:${run.id}`,
+                  }),
+                  threadId: current.childThreadId,
+                  runId: run.id,
+                })
+                .pipe(Effect.mapError(threadManagementFailure));
+            }
           });
           // Checked above; a user raising one of these threads meanwhile is
           // caught again under that thread's lock, which leaves it running.
@@ -3356,7 +3424,12 @@ const make = Effect.gen(function* () {
           const child = yield* loadProjection(current.childThreadId);
           if (
             current.workState !== "waiting_for_children" &&
-            ThreadManagementService.latestActiveRun(child) === undefined
+            ThreadManagementService.latestActiveRun(child) === undefined &&
+            !child.runs.some(
+              (run) =>
+                run.status === "queued" &&
+                (run.delegatedTaskId === input.taskId || run.id === current.childRunId),
+            )
           ) {
             return yield* failure(
               "task_not_cancellable",
@@ -3802,7 +3875,7 @@ const make = Effect.gen(function* () {
                 ? threadManagementFailure(error)
                 : failure(
                     "orchestration_error",
-                    `Unable to send to thread ${input.threadId}: ${errorMessage(error)}`,
+                    `Unable to send to thread ${input.threadId}: ${userFacingDispatchErrorMessage(error) ?? errorMessage(error)}`,
                   ),
             ),
           );
