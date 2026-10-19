@@ -6,6 +6,7 @@ import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Scope from "effect/Scope";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as KeyedLock from "./KeyedLock.ts";
 
@@ -42,6 +43,31 @@ describe("KeyedLock", () => {
         "second",
         "third",
       ]);
+    }),
+  );
+
+  it.effect("records how long a holder waited for its key on the caller's span", () =>
+    Effect.gen(function* () {
+      const lock = yield* KeyedLock.make<string>();
+      const entered = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const first = yield* lock
+        .withLock(
+          "key",
+          Deferred.succeed(entered, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        )
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(entered);
+
+      const second = yield* lock
+        .withLock("key", Effect.currentSpan)
+        .pipe(Effect.withSpan("second"), Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("250 millis");
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(first);
+      const span = yield* Fiber.join(second);
+      assert.strictEqual(span.attributes.get("lock.wait_ms"), 250);
     }),
   );
 

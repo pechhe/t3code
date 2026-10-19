@@ -1,3 +1,4 @@
+import * as Clock from "effect/Clock";
 import * as Effect from "effect/Effect";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
@@ -14,6 +15,9 @@ interface LockEntry {
 
 /**
  * Not reentrant: taking a key while already holding it deadlocks.
+ *
+ * Records the wait for the key as `lock.wait_ms` on the caller's span, beside the SQLite
+ * client's `db.lock_wait_ms`, so a slow traced request shows which lock it queued on.
  */
 export const make = <Key>(): Effect.Effect<KeyedLock<Key>> =>
   Effect.gen(function* () {
@@ -47,7 +51,20 @@ export const make = <Key>(): Effect.Effect<KeyedLock<Key>> =>
       withLock: (key, effect) =>
         Effect.acquireUseRelease(
           acquire(key),
-          (semaphore) => semaphore.withPermit(effect),
+          (semaphore) =>
+            Effect.flatMap(Clock.currentTimeNanos, (start) =>
+              semaphore.withPermit(
+                Clock.currentTimeNanos.pipe(
+                  Effect.flatMap((entered) =>
+                    Effect.annotateCurrentSpan(
+                      "lock.wait_ms",
+                      Number((entered - start) / 1000n) / 1000,
+                    ),
+                  ),
+                  Effect.andThen(effect),
+                ),
+              ),
+            ),
           () => release(key),
         ),
       activeKeys: Effect.map(Ref.get(locks), (current) => Array.from(current.keys())),
