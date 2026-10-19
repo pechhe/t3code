@@ -390,7 +390,7 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
         <div
           data-snap-shot-overlay-slide
           data-snap-shot-overlay-shown={shown || undefined}
-          className="relative flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:ease-in-reversed motion-reduce:transition-none"
+          className="relative z-1 flex min-h-0 min-w-0 flex-1 translate-y-[calc(100%+var(--overlay-drop))] transition-transform duration-200 ease-in data-snap-shot-overlay-shown:translate-y-0 data-snap-shot-overlay-shown:ease-in-reversed motion-reduce:transition-none"
           style={{ "--overlay-drop": `${insets.composer}px` } as CSSProperties}
           onTransitionEnd={(event) => {
             if (event.target !== event.currentTarget || shown || !hidingRef.current) return;
@@ -399,6 +399,7 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
         >
           <div className="flex min-h-0 min-w-0 flex-1">{children}</div>
         </div>
+        {/* The pill rises over the composer; the outline morphing into it stays under both. */}
         <div
           ref={setFloor}
           className="pointer-events-none absolute inset-x-0 flex justify-center"

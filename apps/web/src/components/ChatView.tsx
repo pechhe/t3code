@@ -8741,7 +8741,11 @@ export default function ChatView(props: ChatViewProps) {
                 </div>
               </div>
               {overlayPresentation ? (
-                <SnapShotOverlayDockPill dock={overlayDock} title={overlayTitle} />
+                <SnapShotOverlayDockPill
+                  dock={overlayDock}
+                  title={overlayTitle}
+                  composerStack={overlayComposerStackRef}
+                />
               ) : null}
             </div>
 

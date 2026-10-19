@@ -13,6 +13,7 @@ import {
   type CSSProperties,
   type ReactElement,
   type ReactNode,
+  type RefObject,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -43,11 +44,88 @@ import type { SnapShotOverlayDock } from "./snapShotOverlayDock";
 import { useSnapShotOverlaySession } from "./snapShotOverlaySession";
 
 /**
- * Puts the composer away by fading it down, and brings it back up the same way; the pill takes
- * its place meanwhile.
+ * Fades the composer out at once when it is put away, and back in once its outline has grown
+ * most of the way out of the pill (see `useSnapShotOverlayMorph`).
  */
 export const SNAP_SHOT_DOCK_CLASS_NAME =
-  "transition-[translate,opacity] duration-300 ease-out data-snap-shot-docked:translate-y-6 data-snap-shot-docked:opacity-0 data-snap-shot-docked:duration-200 data-snap-shot-docked:ease-in motion-reduce:transition-none";
+  "transition-opacity delay-150 duration-200 ease-out data-snap-shot-docked:opacity-0 data-snap-shot-docked:delay-0 data-snap-shot-docked:duration-120 data-snap-shot-docked:ease-in motion-reduce:transition-none";
+
+/** How long the composer's outline takes to shrink into the pill or grow back out of it. */
+const MORPH_DURATION_MS = 440;
+
+/** The composer and the card above it, as one box on screen. */
+function composerOutline(composerStack: HTMLElement): DOMRect | null {
+  const parts = [
+    composerStack.querySelector<HTMLElement>("[data-snap-shot-card]"),
+    composerStack.querySelector<HTMLElement>('[data-slot="composer-shell"]'),
+  ].flatMap((part) => (part ? [part.getBoundingClientRect()] : []));
+  if (parts.length === 0) return null;
+  const top = Math.min(...parts.map((part) => part.top));
+  const left = Math.min(...parts.map((part) => part.left));
+  const right = Math.max(...parts.map((part) => part.right));
+  const bottom = Math.max(...parts.map((part) => part.bottom));
+  return new DOMRect(left, top, right - left, bottom - top);
+}
+
+/**
+ * Shrinks the composer's outline into the pill as the composer is put away, darkening to the
+ * pill's colour, and grows it back out as the composer comes up. The outline is drawn in `layer`,
+ * under the composer, so the contents fade over it.
+ */
+function useSnapShotOverlayMorph(
+  docked: boolean,
+  composerStack: RefObject<HTMLElement | null>,
+  pill: HTMLElement | null,
+  layer: HTMLElement | null,
+) {
+  const previousRef = useRef(docked);
+  useLayoutEffect(() => {
+    const previous = previousRef.current;
+    previousRef.current = docked;
+    const stack = composerStack.current;
+    if (previous === docked || !stack || !pill || !layer) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    // While the overlay itself slides in or away, the composer rides with it instead.
+    if (!stack.closest("[data-snap-shot-overlay-shown]")) return;
+    const outline = composerOutline(stack);
+    if (outline === null) return;
+    const target = pill.getBoundingClientRect();
+    const card = stack.querySelector<HTMLElement>("[data-snap-shot-card]") ?? stack;
+    const cardStyle = getComputedStyle(card);
+    const pillStyle = getComputedStyle(pill);
+    const composerShape = {
+      left: `${outline.left}px`,
+      top: `${outline.top}px`,
+      width: `${outline.width}px`,
+      height: `${outline.height}px`,
+      borderRadius: "1.25rem",
+      backgroundColor: cardStyle.backgroundColor,
+      boxShadow: cardStyle.boxShadow,
+    };
+    const pillShape = {
+      left: `${target.left}px`,
+      top: `${target.top}px`,
+      width: `${target.width}px`,
+      height: `${target.height}px`,
+      borderRadius: `${target.height / 2}px`,
+      backgroundColor: pillStyle.backgroundColor,
+      boxShadow: pillStyle.boxShadow,
+    };
+    const shape = document.createElement("div");
+    shape.style.position = "fixed";
+    layer.append(shape);
+    const morph = shape.animate(docked ? [composerShape, pillShape] : [pillShape, composerShape], {
+      duration: MORPH_DURATION_MS,
+      easing: "cubic-bezier(0.32, 0.72, 0, 1)",
+    });
+    const removeShape = () => shape.remove();
+    morph.finished.then(removeShape, removeShape);
+    return () => {
+      morph.cancel();
+      removeShape();
+    };
+  }, [docked, composerStack, pill, layer]);
+}
 
 // The pill inverts the theme, so it stands out over the app behind and the overlay's glass.
 const PILL_BUTTON_CLASS_NAME =
@@ -298,6 +376,7 @@ function SnapShotOverlayCard(props: {
     // Solid rather than glass: the window is transparent, so nothing behind it can be blurred.
     <div
       ref={setCard}
+      data-snap-shot-card
       data-snap-shot-expanded={expandedOnScreen || undefined}
       className={cn(
         "absolute inset-x-0 bottom-full mb-2 flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-background text-foreground shadow-lg",
@@ -386,16 +465,23 @@ function SnapShotOverlayPrompt({ message }: { readonly message: ChatMessage }) {
 export function SnapShotOverlayDockPill(props: {
   readonly dock: SnapShotOverlayDock;
   readonly title: string;
+  /** The composer the pill stands in for, which morphs into it. */
+  readonly composerStack: RefObject<HTMLElement | null>;
 }) {
   const { dock } = props;
   const controls = useSnapShotOverlayControls();
   const toggleShortcut = useToggleShortcutLabel();
+  const [pill, setPill] = useState<HTMLDivElement | null>(null);
+  useSnapShotOverlayMorph(dock.docked, props.composerStack, pill, controls?.floor ?? null);
   if (controls?.floor == null) return null;
   return createPortal(
+    // Its contents appear as the composer's outline settles into it, and go at once as it leaves.
+    // Raised over that outline, and over the composer as before.
     <div
+      ref={setPill}
       data-shown={dock.docked || undefined}
       inert={!dock.docked}
-      className="mb-4 flex h-9 max-w-[calc(100%-3rem)] translate-y-4 items-center gap-0.5 rounded-full bg-foreground/90 px-1 text-background opacity-0 shadow-xl transition-[opacity,translate] duration-200 data-shown:pointer-events-auto data-shown:translate-y-0 data-shown:opacity-100 data-shown:duration-300 motion-reduce:transition-none"
+      className="relative z-1 mb-4 flex h-9 max-w-[calc(100%-3rem)] items-center gap-0.5 rounded-full bg-foreground/90 px-1 text-background opacity-0 shadow-xl transition-opacity duration-90 data-shown:pointer-events-auto data-shown:opacity-100 data-shown:delay-240 data-shown:duration-160 motion-reduce:transition-none"
     >
       <OverlayTooltip
         label="Show"
