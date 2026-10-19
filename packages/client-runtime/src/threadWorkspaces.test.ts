@@ -1,8 +1,4 @@
-import {
-  ProjectId,
-  ThreadId,
-  type OrchestrationV2WorkspaceAttachment,
-} from "@t3tools/contracts";
+import { ProjectId, ThreadId, type OrchestrationV2WorkspaceAttachment } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -10,7 +6,7 @@ import {
   deriveWorkspaceChips,
   resolveSelectedWorkspace,
   resolveWorkspaceChipDetail,
-} from "./threadWorkspaces.logic";
+} from "./threadWorkspaces.ts";
 
 const home = ProjectId.make("home");
 const other = ProjectId.make("other");
@@ -94,9 +90,7 @@ describe("deriveWorkspaceChips", () => {
       attachments: [],
       selectedWorkspacePath: null,
     });
-    expect(
-      deriveWorkspaceChips({ primary: chipPrimary, attachments: [], selected }),
-    ).toEqual([]);
+    expect(deriveWorkspaceChips({ primary: chipPrimary, attachments: [], selected })).toEqual([]);
   });
 
   it("lists the primary then each attachment, marking the selected one", () => {
@@ -165,9 +159,9 @@ describe("resolveWorkspaceChipDetail", () => {
   });
 
   it("falls back to the recorded branch before status loads", () => {
-    expect(resolveWorkspaceChipDetail({ released: false, branch: "feature", status: null })).toEqual(
-      { label: "feature", editedFileCount: 0 },
-    );
+    expect(
+      resolveWorkspaceChipDetail({ released: false, branch: "feature", status: null }),
+    ).toEqual({ label: "feature", editedFileCount: 0 });
   });
 
   it("shows a released attachment without edits", () => {

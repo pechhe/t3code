@@ -4,7 +4,10 @@ import {
   type OrchestrationV2WorkspaceAttachment,
   ThreadId,
 } from "@t3tools/contracts";
-import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
+import {
+  listedWorkspaceAttachments,
+  liveWorkspaceAttachments,
+} from "@t3tools/shared/workspaceAttachments";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -13,7 +16,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
 
-import { workspaceOccupants } from "../agents/workspaceIdentity.ts";
+import { occupantsEverywhere } from "../agents/workspaceIdentity.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
@@ -183,8 +186,8 @@ const make = Effect.gen(function* () {
         refuse("failed", `${prefix}: ${cause.message}`),
       );
     const shell = yield* threads.getThreadShell(threadId).pipe(failed("Unable to read the thread"));
-    const attachment = (shell?.workspaceAttachments ?? []).find(
-      (candidate) => candidate.workspacePath === workspacePath && candidate.movedTo === undefined,
+    const attachment = (shell === null ? [] : listedWorkspaceAttachments(shell)).find(
+      (candidate) => candidate.workspacePath === workspacePath,
     );
     if (shell === null || attachment === undefined)
       return yield* refuse(
@@ -196,13 +199,11 @@ const make = Effect.gen(function* () {
     if (attachment.releasedAt === null) {
       if (yield* landings.isLanding(workspacePath))
         return yield* refuse("busy", `A Land is running in ${workspacePath}.`);
-      const others = (yield* threads
-        .listProjectThreads({ projectId: attachment.projectId, includeSubagents: true })
-        .pipe(failed("Unable to read the project's threads"))).filter(
-        (candidate) => candidate.id !== threadId,
+      const occupants = yield* occupantsEverywhere(projects, threads, threadId).pipe(
+        failed("Unable to read the workspace's occupants"),
       );
       if (
-        workspaceOccupants(others).some(
+        occupants.some(
           (occupant) =>
             occupant.workspacePath === workspacePath && occupant.running && occupant.writes,
         )

@@ -20,7 +20,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
-import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
+import {
+  listedWorkspaceAttachments,
+  liveWorkspaceAttachments,
+} from "@t3tools/shared/workspaceAttachments";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -690,7 +693,11 @@ const make = Effect.gen(function* () {
             .pipe(
               Effect.map((result): WorktreeMcpSetupScriptStatus =>
                 result.status === "started"
-                  ? { status: "started", scriptName: result.scriptName, terminalId: result.terminalId }
+                  ? {
+                      status: "started",
+                      scriptName: result.scriptName,
+                      terminalId: result.terminalId,
+                    }
                   : { status: "no-script" },
               ),
               Effect.catchCause((cause) =>
@@ -732,7 +739,10 @@ const make = Effect.gen(function* () {
           .detach({ threadId: scope.thread.threadId, workspacePath: input.workspacePath })
           .pipe(
             Effect.mapError((error) =>
-              failure(error.reason === "failed" ? "operation_failed" : "invalid_request", error.message),
+              failure(
+                error.reason === "failed" ? "operation_failed" : "invalid_request",
+                error.message,
+              ),
             ),
           ),
       );
@@ -757,9 +767,7 @@ const make = Effect.gen(function* () {
         branch: projection.thread.branch,
         projectWorkspaceRoot: project.workspaceRoot,
         defaultStartFromOrigin,
-        attachments: (projection.thread.workspaceAttachments ?? []).filter(
-          (attachment) => attachment.movedTo === undefined,
-        ),
+        attachments: listedWorkspaceAttachments(projection.thread),
       };
       return result;
     },

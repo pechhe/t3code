@@ -17,7 +17,7 @@ import { vcsEnvironment } from "../state/vcs";
 import {
   resolveWorkspaceChipDetail,
   type WorkspaceChip as WorkspaceChipModel,
-} from "../threadWorkspaces.logic";
+} from "@t3tools/client-runtime/thread-workspaces";
 import { cn } from "~/lib/utils";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";

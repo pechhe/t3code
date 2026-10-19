@@ -58,7 +58,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { clearThreadPreviewState } from "../previewStateStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
-import { attachmentsToRemoveOnDelete } from "../threadWorkspaces.logic";
+import { attachmentsToRemoveOnDelete } from "@t3tools/client-runtime/thread-workspaces";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useClientSettings } from "./useSettings";
@@ -542,11 +542,7 @@ export function useThreadActions() {
       },
     );
     let shouldDeleteAttachments = false;
-    if (
-      removableAttachments.length > 0 &&
-      canRemoveWorktrees &&
-      localApi
-    ) {
+    if (removableAttachments.length > 0 && canRemoveWorktrees && localApi) {
       const confirmationResult = await settlePromise(() =>
         localApi.dialogs.confirm(
           [
@@ -619,10 +615,7 @@ export function useThreadActions() {
       );
     }
 
-    const removeWorkspaceAfterDelete = async (workspace: {
-      projectRoot: string;
-      path: string;
-    }) => {
+    const removeWorkspaceAfterDelete = async (workspace: { projectRoot: string; path: string }) => {
       const displayPath = formatWorktreePathForDisplay(workspace.path);
       const removeResult = readEnvironmentScope(
         threadRef.environmentId,
@@ -673,9 +666,7 @@ export function useThreadActions() {
             title: removalFailed
               ? "Failed to delete worktree"
               : "Worktree deleted, but Git status refresh failed",
-            description: removalFailed
-              ? `Could not remove ${displayPath}. ${message}`
-              : message,
+            description: removalFailed ? `Could not remove ${displayPath}. ${message}` : message,
           }),
         );
         // The thread was deleted. Cleanup has its own toast; returning its

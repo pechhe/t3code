@@ -4,7 +4,10 @@ import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useSelectedWorkspaceStore } from "../selectedWorkspaceStore";
 import { useQuietThreadShell } from "../state/entities";
-import { resolveSelectedWorkspace, type SelectedWorkspace } from "../threadWorkspaces.logic";
+import {
+  resolveSelectedWorkspace,
+  type SelectedWorkspace,
+} from "@t3tools/client-runtime/thread-workspaces";
 
 /**
  * The workspace the thread's git panel, diff, terminal and Land act on. A draft has no

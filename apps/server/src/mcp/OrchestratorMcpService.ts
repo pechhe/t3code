@@ -135,7 +135,10 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { followupBinding, followupPrompt } from "../agents/followup.ts";
 import { managedTaskTitle } from "../agents/taskTitle.ts";
-import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
+import {
+  occupantsEverywhere as occupantsInAllProjects,
+  threadOwner,
+} from "../agents/workspaceIdentity.ts";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
@@ -287,7 +290,6 @@ export interface OrchestratorMcpServiceShape {
     watching: boolean,
   ) => Effect.Effect<OrchestratorMcpThreadWatchResult, OrchestratorMcpFailure>;
 }
-
 
 /**
  * The caller's checkout in a project: its primary workspace (null at its home project's main
@@ -1089,19 +1091,10 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  // Another project's workspace may be occupied by a thread of any project registered in its
-  // repository, including one working unbound in its main checkout, so a task sent there is
-  // checked against all of them.
-  const occupantsEverywhere = listProjects.pipe(
-    Effect.flatMap((all) =>
-      Effect.forEach(all, (project) =>
-        threadManagement.listProjectThreads({ projectId: project.id, includeSubagents: true }).pipe(
-          Effect.map((threads) => workspaceOccupants(threads, project.workspaceRoot)),
-          Effect.mapError(threadManagementFailure),
-        ),
-      ),
+  const occupantsEverywhere = occupantsInAllProjects(projects, threadManagement).pipe(
+    Effect.mapError((error) =>
+      failure("orchestration_error", `Unable to read workspace occupants: ${error.message}`),
     ),
-    Effect.map((occupants) => occupants.flat()),
   );
 
   const projectDefaultModelSelection = (
@@ -2742,19 +2735,19 @@ const make = Effect.gen(function* () {
             : attachedTarget !== undefined
               ? attachedTarget
               : yield* managedService
-                .targetProject({
-                  request: input.agentTask,
-                  callerProjectId: parent.thread.projectId,
-                  callerCheckout: parent.thread.worktreePath,
-                  projects: listProjects,
-                })
-                .pipe(
-                  Effect.mapError((error) =>
-                    Schema.is(ManagedAgent.ManagedAgentError)(error)
-                      ? failure("capability_denied", error.message)
-                      : error,
-                  ),
-                );
+                  .targetProject({
+                    request: input.agentTask,
+                    callerProjectId: parent.thread.projectId,
+                    callerCheckout: parent.thread.worktreePath,
+                    projects: listProjects,
+                  })
+                  .pipe(
+                    Effect.mapError((error) =>
+                      Schema.is(ManagedAgent.ManagedAgentError)(error)
+                        ? failure("capability_denied", error.message)
+                        : error,
+                    ),
+                  );
         // The caller's checkout in the task's project: its primary workspace at home, or a live
         // attachment elsewhere. Without one, the task never shares a workspace there.
         const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);

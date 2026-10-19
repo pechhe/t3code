@@ -49,7 +49,7 @@ import { followupBinding, followupPrompt } from "./followup.ts";
 import {
   containingRepositoryStore,
   repositoryStore,
-  workspaceOccupants,
+  occupantsEverywhere,
 } from "./workspaceIdentity.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { defaultChildMode, exceedsCaller } from "./delegationRuntime.ts";
@@ -424,13 +424,10 @@ const make = Effect.gen(function* () {
       if (request.workspaceAssignment !== "isolated" && request.sourceRevision === undefined)
         return {};
       const project = yield* storage(projects.getById(projectId));
-      const shells = yield* storage(
-        threads.listProjectThreads({ projectId, includeSubagents: true }),
-      );
       return {
         owner,
         ...(Option.isNone(project) ? {} : { projectRoot: project.value.workspaceRoot }),
-        occupants: workspaceOccupants(shells),
+        occupants: yield* storage(occupantsEverywhere(projects, threads)),
       };
     });
   const attach = (scope: McpInvocationScope, input: AgentSessionAttachInput) =>

@@ -21,6 +21,7 @@ import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 
 const threadId = ThreadId.make("thread:lead");
 const apiProject = ProjectId.make("project:api");
+const webProject = ProjectId.make("project:web");
 const workspacePath = "/workspaces/api-1";
 
 const attachment = (
@@ -42,6 +43,8 @@ interface Fixture {
   readonly landing?: boolean;
   readonly editedFiles?: ReadonlyArray<string>;
   readonly otherThreads?: ReadonlyArray<OrchestrationV2ThreadShell>;
+  /** Threads of another project, which may hold the workspace as an attachment. */
+  readonly webThreads?: ReadonlyArray<OrchestrationV2ThreadShell>;
 }
 
 const layerFor = (
@@ -57,7 +60,10 @@ const layerFor = (
               id: threadId,
               workspaceAttachments: [fixture.attachment ?? attachment()],
             } as unknown as OrchestrationV2ThreadShell),
-          listProjectThreads: () => Effect.succeed(fixture.otherThreads ?? []),
+          listProjectThreads: ({ projectId }) =>
+            Effect.succeed(
+              (projectId === apiProject ? fixture.otherThreads : fixture.webThreads) ?? [],
+            ),
           dispatch: (command) =>
             Effect.sync(() => {
               recorded.dispatched.push(command as OrchestrationV2ServerCommand);
@@ -66,6 +72,11 @@ const layerFor = (
         }),
         Layer.mock(ProjectService.ProjectService)({
           getById: () => Effect.succeed(Option.some({ workspaceRoot: "/repo/api" } as never)),
+          listShells: () =>
+            Effect.succeed([
+              { id: apiProject, workspaceRoot: "/repo/api" },
+              { id: webProject, workspaceRoot: "/repo/web" },
+            ] as never),
         }),
         Layer.mock(WorkspaceProvider.WorkspaceProvider)({
           contains: () => Effect.succeed(fixture.exists ?? true),
@@ -137,12 +148,20 @@ it.effect("refuses to detach a workspace with uncommitted edits, a Land or a wri
       lineage: { rootThreadId: threadId },
       agentTask: { workId: "w", sourceAccess: "scoped-write" },
     } as unknown as OrchestrationV2ThreadShell;
+    // A thread of another project working in the workspace through its own attachment.
+    const attachedWriter = {
+      id: "thread:web-lead",
+      worktreePath: null,
+      status: "running",
+      workspaceAttachments: [attachment({ origin: "adopted" })],
+    } as unknown as OrchestrationV2ThreadShell;
     const adopted = attachment({ origin: "adopted" });
     const refusals = yield* Effect.forEach(
       [
         { editedFiles: ["src/api.ts"] },
         { landing: true },
         { otherThreads: [writer] },
+        { webThreads: [attachedWriter] },
         { attachment: adopted, landing: true },
         { attachment: adopted, otherThreads: [writer] },
       ],
@@ -155,6 +174,7 @@ it.effect("refuses to detach a workspace with uncommitted edits, a Land or a wri
     ).toEqual([
       expect.stringContaining("uncommitted edits: src/api.ts"),
       expect.stringContaining("A Land is running"),
+      expect.stringContaining("Another agent is writing"),
       expect.stringContaining("Another agent is writing"),
       expect.stringContaining("A Land is running"),
       expect.stringContaining("Another agent is writing"),

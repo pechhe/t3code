@@ -17,7 +17,7 @@ import { type MouseEvent as ReactMouseEvent, memo, useState } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
 import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
-import { deriveWorkspaceChips } from "../threadWorkspaces.logic";
+import { deriveWorkspaceChips } from "@t3tools/client-runtime/thread-workspaces";
 import { WorkspaceAttachmentChips } from "./WorkspaceAttachmentChips";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject, useQuietThreadShell, useThreadShellsForProjectRefs } from "../state/entities";

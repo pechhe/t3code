@@ -1,10 +1,12 @@
-import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import type { OrchestrationV2ThreadShell, ThreadId } from "@t3tools/contracts";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as ProcessRunner from "../processRunner.ts";
+import type { ThreadManagementServiceShape } from "../orchestration-v2/ThreadManagementService.ts";
+import type { ProjectService } from "../project/ProjectService.ts";
 import type { WorkspaceOccupant } from "./ManagedAgentService.ts";
 
 export class WorkspaceIdentityError extends Schema.TaggedError<WorkspaceIdentityError>()(
@@ -162,3 +164,32 @@ export const workspaceOccupants = (
       running: !SETTLED.has(shell.status),
     }));
   });
+
+/**
+ * Occupants of every registered project. A workspace may be held by a thread of any project:
+ * one registered in the same repository and working unbound in its main checkout, or one
+ * holding it as an attachment, so a placement or release there is checked against all of them.
+ * `except` leaves out the asking thread itself.
+ */
+export const occupantsEverywhere = (
+  projects: ProjectService["Service"],
+  threads: Pick<ThreadManagementServiceShape, "listProjectThreads">,
+  except?: ThreadId,
+) =>
+  projects.listShells().pipe(
+    Effect.flatMap((all) =>
+      Effect.forEach(all, (project) =>
+        threads
+          .listProjectThreads({ projectId: project.id, includeSubagents: true })
+          .pipe(
+            Effect.map((shells) =>
+              workspaceOccupants(
+                except === undefined ? shells : shells.filter((shell) => shell.id !== except),
+                project.workspaceRoot,
+              ),
+            ),
+          ),
+      ),
+    ),
+    Effect.map((occupants) => occupants.flat()),
+  );

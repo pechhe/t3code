@@ -33,7 +33,8 @@ Each thread without a project works in its own folder under `~/.t3/scratch` (the
 of its first message, and a short id, like
 `2026-09-25-convert-these-pngs-to-webp-a1b2c3d4`. Deleting a thread keeps its
 folder, so the files the agent wrote stay until you delete them. Branch, worktree, and diff controls stay hidden because
-these folders are not Git repositories. This is unavailable when the data
+these folders are not Git repositories, until the agent attaches a workspace in a
+project; see [Work across projects](#work-across-projects). This is unavailable when the data
 directory itself sits inside a Git checkout.
 
 ### Start in the background
@@ -250,6 +251,22 @@ thread asks for it.
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
+
+## Work across projects
+
+When a thread's work spans another project, its agent can attach a workspace in
+that project and work, delegate and land there as in its own checkout. The
+thread's workspaces are then listed under the branch controls, with each one's
+base and count of uncommitted edits. Pick one to point the git panel, diff,
+terminal and Land at it; pick the first row to return to the thread's own
+workspace. After SlipJay lands and removes an attached workspace, its row shows
+**Released**.
+
+To drop an attachment, choose **Detach** from its row's menu. A workspace T3
+created for the thread is removed with it; a checkout the agent adopted stays
+where it is. Detach is refused while the workspace has uncommitted edits, a Land is
+running, or another agent is writing there. Deleting the thread asks whether to
+remove the workspaces T3 created for it in other projects.
 
 ## Snooze until later
 

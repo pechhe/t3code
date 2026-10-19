@@ -40,6 +40,7 @@ import { snapshot, request, codex, claude, changeReview } from "./agentPolicy.te
 
 const environmentId = EnvironmentId.make("environment:external-agent-test");
 const projectId = ProjectId.make("project:external-agent-test");
+const otherProjectId = ProjectId.make("project:external-agent-other");
 const policy = snapshot();
 
 interface LaunchState {
@@ -54,6 +55,8 @@ interface LaunchState {
   readonly queueNextLaunch: boolean;
   /** Threads whose run finished, for reading a terminal result and its handoff. */
   readonly completedThreads?: ReadonlySet<string>;
+  /** Threads of another project, which may hold a workspace here as an attachment. */
+  readonly otherProjectThreads?: ReadonlyArray<unknown>;
 }
 
 type FixtureEnvironment =
@@ -102,6 +105,11 @@ const makeTestLayer = (
     Projects.ProjectService.of({
       getById: () =>
         Effect.succeed(Option.some({ id: projectId, workspaceRoot: projectRoot } as never)),
+      listShells: () =>
+        Effect.succeed([
+          { id: projectId, workspaceRoot: projectRoot },
+          { id: otherProjectId, workspaceRoot: `${projectRoot}-other` },
+        ] as never),
     } as unknown as Projects.ProjectService["Service"]),
   );
   const providers = Layer.succeed(
@@ -191,21 +199,23 @@ const makeTestLayer = (
           activeThreads: new Set([...current.activeThreads, input.threadId]),
         })).pipe(Effect.as({} as never)),
       stopDelegatedTasks: () => Effect.void,
-      listProjectThreads: () =>
+      listProjectThreads: (input: { readonly projectId: ProjectId }) =>
         Effect.map(Ref.get(state), (current) =>
-          current.calls
-            .filter((call) => current.activeThreads.has(call.threadId!))
-            .map(
-              (call) =>
-                ({
-                  worktreePath:
-                    call.workspaceStrategy?.type === "existing_worktree"
-                      ? call.workspaceStrategy.worktreePath
-                      : null,
-                  status: "running",
-                  agentTask: call.agentTask,
-                }) as never,
-            ),
+          input.projectId === otherProjectId
+            ? ((current.otherProjectThreads ?? []) as never)
+            : current.calls
+                .filter((call) => current.activeThreads.has(call.threadId!))
+                .map(
+                  (call) =>
+                    ({
+                      worktreePath:
+                        call.workspaceStrategy?.type === "existing_worktree"
+                          ? call.workspaceStrategy.worktreePath
+                          : null,
+                      status: "running",
+                      agentTask: call.agentTask,
+                    }) as never,
+                ),
         ),
     } as unknown as Threads.ThreadManagementService["Service"]),
   );
@@ -1242,6 +1252,31 @@ it.effect("runs an isolated helper under the same lead session and hands back it
       expect(
         (yield* Effect.flip(f.submit(client, isolated(f.foreignWorkspace, "foreign")))).reason,
       ).toBe("policy");
+      // So is a writer in a workspace another project's thread holds as an attachment.
+      yield* Ref.update(f.state, (current) => ({
+        ...current,
+        otherProjectThreads: [
+          {
+            id: "thread:other-project-lead",
+            worktreePath: null,
+            status: "running",
+            workspaceAttachments: [
+              {
+                projectId,
+                workspacePath: second,
+                branch: null,
+                origin: "allocated",
+                attachedAt: "2026-10-19T09:00:00.000Z",
+                releasedAt: null,
+              },
+            ],
+          },
+        ],
+      }));
+      expect((yield* Effect.flip(f.submit(client, isolated(second, "attached")))).reason).toBe(
+        "policy",
+      );
+      yield* Ref.update(f.state, (current) => ({ ...current, otherProjectThreads: [] }));
       // A new attempt resumes the same work in its workspace, not a different one.
       yield* f.cancel(client, task.taskId);
       expect(

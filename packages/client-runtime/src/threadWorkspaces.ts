@@ -1,11 +1,5 @@
 import type { OrchestrationV2WorkspaceAttachment, ProjectId } from "@t3tools/contracts";
-
-/** The attachments a thread lists: every one except those handed to a moved chat. */
-export function listedWorkspaceAttachments(
-  attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment> | undefined,
-): ReadonlyArray<OrchestrationV2WorkspaceAttachment> {
-  return (attachments ?? []).filter((attachment) => attachment.movedTo === undefined);
-}
+import { listedWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 
 export interface SelectedWorkspace {
   /** The project whose root, scripts and icon this workspace uses. */
@@ -29,7 +23,7 @@ export function resolveSelectedWorkspace(input: {
   const attachment =
     input.selectedWorkspacePath === null
       ? undefined
-      : listedWorkspaceAttachments(input.attachments).find(
+      : listedWorkspaceAttachments({ workspaceAttachments: input.attachments }).find(
           (candidate) =>
             candidate.workspacePath === input.selectedWorkspacePath &&
             candidate.releasedAt === null,
@@ -65,7 +59,7 @@ export function deriveWorkspaceChips(input: {
   attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment> | undefined;
   selected: SelectedWorkspace;
 }): ReadonlyArray<WorkspaceChip> {
-  const attachments = listedWorkspaceAttachments(input.attachments);
+  const attachments = listedWorkspaceAttachments({ workspaceAttachments: input.attachments });
   if (attachments.length === 0) return [];
   const selectedPath = input.selected.attachment?.workspacePath ?? null;
   return [
@@ -100,7 +94,7 @@ export function deriveWorkspaceChips(input: {
 export function attachmentsToRemoveOnDelete(
   attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment> | undefined,
 ): ReadonlyArray<OrchestrationV2WorkspaceAttachment> {
-  return listedWorkspaceAttachments(attachments).filter(
+  return listedWorkspaceAttachments({ workspaceAttachments: attachments }).filter(
     (attachment) => attachment.origin === "allocated" && attachment.releasedAt === null,
   );
 }

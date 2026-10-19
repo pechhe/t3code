@@ -1,6 +1,7 @@
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { projectComposerContextForProvider } from "@t3tools/shared/composerContextReferences";
+import { listedWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import {
   CommandId,
   latestProviderTurnForAttempt,
@@ -1161,9 +1162,7 @@ export const layer: Layer.Layer<
           Effect.orElseSucceed(() => false),
         ));
       const scheduled = message.scheduledTaskId !== undefined;
-      const attachments = (projection.thread.workspaceAttachments ?? []).filter(
-        (attachment) => attachment.movedTo === undefined,
-      );
+      const attachments = listedWorkspaceAttachments(projection.thread);
       const turnWorkspaces =
         attachments.length === 0
           ? []
@@ -1180,9 +1179,7 @@ export const layer: Layer.Layer<
                   path: attachment.workspacePath,
                   branch: attachment.branch,
                   role:
-                    attachment.releasedAt === null
-                      ? ("attached" as const)
-                      : ("released" as const),
+                    attachment.releasedAt === null ? ("attached" as const) : ("released" as const),
                 })),
               ],
               (workspace) =>

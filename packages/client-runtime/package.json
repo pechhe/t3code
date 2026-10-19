@@ -11,6 +11,10 @@
       "types": "./src/composerThreadItems.ts",
       "default": "./src/composerThreadItems.ts"
     },
+    "./thread-workspaces": {
+      "types": "./src/threadWorkspaces.ts",
+      "default": "./src/threadWorkspaces.ts"
+    },
     "./thread-workflow": {
       "types": "./src/threadWorkflow.ts",
       "default": "./src/threadWorkflow.ts"
