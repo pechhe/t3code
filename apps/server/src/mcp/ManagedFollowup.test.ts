@@ -172,6 +172,7 @@ it.effect(
         Layer.mock(Projects.ProjectService)({
           getById: () =>
             Effect.succeed(Option.some({ workspaceRoot: binding.workspacePath } as never)),
+          listShells: () => Effect.succeed([{ workspaceRoot: binding.workspacePath } as never]),
         }),
         Layer.mock(Secrets.SecretRequests)({}),
         Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),

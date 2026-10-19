@@ -163,6 +163,75 @@ it.effect("tells the provider to answer briefly in a side chat", () =>
   }),
 );
 
+it.effect("lists the thread's workspaces in each turn once it has one attached", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<string>();
+    yield* Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const worker = yield* EffectWorker.OrchestrationEffectWorkerV2;
+      const threadId = ThreadId.make("workspaces-note");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("create-workspaces-note"),
+        threadId,
+        projectId,
+        title: "Workspaces note",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      // Recorded directly: the note depends only on the thread's attachments.
+      yield* (yield* EventSink.EventSinkV2).write({
+        commandId: CommandId.make("attach-workspaces-note"),
+        events: [
+          {
+            id: EventId.make("workspaces-note-attachment"),
+            type: "thread.metadata-updated",
+            threadId,
+            providerInstanceId: instanceId,
+            occurredAt: yield* DateTime.now,
+            payload: {
+              ...(yield* orchestrator.getThreadProjection(threadId)).thread,
+              workspaceAttachments: [
+                {
+                  projectId: ProjectId.make("api-project"),
+                  workspacePath: "/workspaces/api",
+                  branch: "feature/api",
+                  origin: "allocated",
+                  attachedAt: "2026-10-19T09:00:00.000Z",
+                  releasedAt: null,
+                },
+              ],
+            },
+          },
+        ],
+      });
+      yield* orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("ask-workspaces-note"),
+        threadId,
+        messageId: MessageId.make("ask-workspaces-note"),
+        text: "Carry on.",
+        attachments: [],
+        modelSelection,
+        dispatchMode: { type: "start_immediately" },
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* worker.drain();
+    }).pipe(Effect.provide(recordingLayer(started)));
+
+    const text = yield* Deferred.await(started);
+    assert.include(text, "side-chat-project (primary, where this session runs)");
+    assert.include(text, "api-project (attached): /workspaces/api on feature/api");
+    assert.isTrue(text.endsWith("Carry on."));
+  }),
+);
+
 it.effect("tells the provider a scheduled prompt is not a message from the user", () =>
   Effect.gen(function* () {
     const started = yield* Deferred.make<string>();

@@ -1,4 +1,5 @@
 import type { OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -139,25 +140,25 @@ export const threadOwner = (
   thread.agentTask?.externalOwner?.externalSessionKey ?? thread.lineage?.rootThreadId ?? thread.id;
 
 /**
- * Threads bound to a workspace; one without a managed read-only binding writes. Given its
- * project's main checkout, an unbound thread occupies that checkout, where it runs.
+ * Threads bound to a workspace, or holding one in another project as a live attachment; one
+ * without a managed read-only binding writes. Given its project's main checkout, an unbound
+ * thread occupies that checkout, where it runs.
  */
 export const workspaceOccupants = (
   shells: ReadonlyArray<OrchestrationV2ThreadShell>,
   projectRoot?: string,
 ): ReadonlyArray<WorkspaceOccupant> =>
   shells.flatMap((shell) => {
-    const workspacePath = shell.worktreePath ?? projectRoot;
-    return workspacePath === undefined
-      ? []
-      : [
-          {
-            workspacePath,
-            owner: threadOwner(shell),
-            workId: shell.agentTask?.workId ?? null,
-            attemptId: shell.agentTask?.attemptId ?? null,
-            writes: shell.agentTask?.sourceAccess !== "read-only",
-            running: !SETTLED.has(shell.status),
-          },
-        ];
+    const primary = shell.worktreePath ?? projectRoot;
+    return [
+      ...(primary === undefined ? [] : [primary]),
+      ...liveWorkspaceAttachments(shell).map((attachment) => attachment.workspacePath),
+    ].map((workspacePath) => ({
+      workspacePath,
+      owner: threadOwner(shell),
+      workId: shell.agentTask?.workId ?? null,
+      attemptId: shell.agentTask?.attemptId ?? null,
+      writes: shell.agentTask?.sourceAccess !== "read-only",
+      running: !SETTLED.has(shell.status),
+    }));
   });

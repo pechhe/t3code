@@ -134,6 +134,7 @@ import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { followupBinding, followupPrompt } from "../agents/followup.ts";
 import { managedTaskTitle } from "../agents/taskTitle.ts";
 import { threadOwner, workspaceOccupants } from "../agents/workspaceIdentity.ts";
+import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -285,6 +286,19 @@ export interface OrchestratorMcpServiceShape {
   ) => Effect.Effect<OrchestratorMcpThreadWatchResult, OrchestratorMcpFailure>;
 }
 
+
+/**
+ * The caller's checkout in a project: its primary workspace (null at its home project's main
+ * checkout) or a live attachment elsewhere; undefined when it holds none there.
+ */
+const callerCheckoutIn = (
+  thread: Pick<OrchestrationV2ThreadShell, "projectId" | "worktreePath" | "workspaceAttachments">,
+  projectId: ProjectId,
+): string | null | undefined =>
+  projectId === thread.projectId
+    ? thread.worktreePath
+    : liveWorkspaceAttachments(thread).find((attachment) => attachment.projectId === projectId)
+        ?.workspacePath;
 export class OrchestratorMcpService extends Context.Service<
   OrchestratorMcpService,
   OrchestratorMcpServiceShape
@@ -2552,9 +2566,11 @@ const make = Effect.gen(function* () {
                 "invalid_request",
                 "The agent is busy, awaiting result publication, or closed. If the advisor is closed, start a new advisor.",
               );
-            // A task sent to another project stays there, where the caller holds no workspace.
+            // A task sent to another project stays there, where the caller holds a workspace
+            // only while it has one attached.
             const taskProjectId = followupTarget.projectId ?? parent.thread.projectId;
-            const foreign = taskProjectId !== parent.thread.projectId;
+            const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);
+            const foreign = leadCheckout === undefined;
             const providers = yield* Effect.filter(yield* loadProviders, (provider) =>
               threadManagement.isProviderInstanceEnabledForProject({
                 projectId: taskProjectId,
@@ -2569,20 +2585,11 @@ const make = Effect.gen(function* () {
                 projectId: taskProjectId,
                 providers,
                 ceiling: parent.thread.runtimeMode,
-                workspacePath: foreign ? null : parent.thread.worktreePath,
+                workspacePath: leadCheckout ?? null,
                 owner: threadOwner(parent.thread),
                 projectRoot: (yield* requireProject(taskProjectId)).workspaceRoot,
                 ...(foreign ? { foreignProject: true } : {}),
-                occupants: foreign
-                  ? yield* occupantsEverywhere
-                  : workspaceOccupants(
-                      yield* threadManagement
-                        .listProjectThreads({
-                          projectId: taskProjectId,
-                          includeSubagents: true,
-                        })
-                        .pipe(Effect.mapError(threadManagementFailure)),
-                    ),
+                occupants: yield* occupantsEverywhere,
               })
               .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
             if (binding.workUnitId !== undefined)
@@ -2718,11 +2725,20 @@ const make = Effect.gen(function* () {
             );
           return yield* readTask(scope, deriveIds.delegatedTaskNode({ commandId }), false, true);
         }
-        // A managed task may work in any registered project's repository, not only the caller's.
+        // A managed task may work in any registered project's repository, not only the caller's;
+        // a workspace the caller has attached names its own project.
+        const attachedTarget =
+          input.agentTask?.projectId == null
+            ? liveWorkspaceAttachments(parent.thread).find(
+                (attachment) => attachment.workspacePath === input.agentTask?.workspacePath,
+              )?.projectId
+            : undefined;
         const taskProjectId =
           managedService === undefined || input.agentTask === undefined
             ? parent.thread.projectId
-            : yield* managedService
+            : attachedTarget !== undefined
+              ? attachedTarget
+              : yield* managedService
                 .targetProject({
                   request: input.agentTask,
                   callerProjectId: parent.thread.projectId,
@@ -2736,8 +2752,10 @@ const make = Effect.gen(function* () {
                       : error,
                   ),
                 );
-        // The caller holds no workspace in another project, so its task never shares one there.
-        const foreign = taskProjectId !== parent.thread.projectId;
+        // The caller's checkout in the task's project: its primary workspace at home, or a live
+        // attachment elsewhere. Without one, the task never shares a workspace there.
+        const leadCheckout = callerCheckoutIn(parent.thread, taskProjectId);
+        const foreign = leadCheckout === undefined;
         const eligibleProviders =
           input.agentTask === undefined
             ? providers
@@ -2787,15 +2805,13 @@ const make = Effect.gen(function* () {
           foreign ||
           isolated ||
           (input.agentTask?.sourceRevision !== undefined &&
-            input.agentTask.workspacePath !== parent.thread.worktreePath);
+            input.agentTask.workspacePath !== leadCheckout);
         // Read again inside the launch lock, so two helpers cannot both claim one workspace.
         const readWorkspaceAuthority = Effect.gen(function* () {
-          const bound = parent.thread.worktreePath !== null;
+          const bound = leadCheckout != null;
           if (!elsewhere && bound) return {};
-          const occupants = () =>
-            threadManagement
-              .listProjectThreads({ projectId: taskProjectId, includeSubagents: true })
-              .pipe(Effect.map(workspaceOccupants), Effect.mapError(threadManagementFailure));
+          // A thread of any project may hold a workspace here as an attachment.
+          const occupants = () => occupantsEverywhere;
           if (foreign)
             return {
               owner: threadOwner(parent.thread),
@@ -2808,13 +2824,13 @@ const make = Effect.gen(function* () {
           // leads compare against the project's main checkout.
           if (bound && !isolated)
             return { owner: threadOwner(parent.thread), occupants: yield* occupants() };
-          const projectRoot = (yield* requireProject(parent.thread.projectId)).workspaceRoot;
+          const projectRoot = (yield* requireProject(taskProjectId)).workspaceRoot;
           if (!elsewhere) return { projectRoot };
           return { owner: threadOwner(parent.thread), projectRoot, occupants: yield* occupants() };
         });
         const workspaceAuthority = yield* readWorkspaceAuthority;
         const agentTask =
-          input.agentTask === undefined || !foreign
+          input.agentTask === undefined || taskProjectId === parent.thread.projectId
             ? input.agentTask
             : { ...input.agentTask, projectId: taskProjectId };
         const prepared =
@@ -2853,7 +2869,7 @@ const make = Effect.gen(function* () {
                         ...(recordedBinding === undefined ? {} : { recordedBinding }),
                         providers,
                         ceiling: parent.thread.runtimeMode,
-                        workspacePath: parent.thread.worktreePath,
+                        workspacePath: leadCheckout ?? null,
                         ...workspaceAuthority,
                         callerModel: parent.thread.modelSelection.model,
                         ...(input.target?.model === undefined
@@ -3048,7 +3064,7 @@ const make = Effect.gen(function* () {
                 projectId: taskProjectId,
                 providers: eligibleProviders,
                 ceiling: parent.thread.runtimeMode,
-                workspacePath: parent.thread.worktreePath,
+                workspacePath: leadCheckout ?? null,
                 ...(yield* readWorkspaceAuthority),
               })
               .pipe(

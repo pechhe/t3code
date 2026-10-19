@@ -60,6 +60,7 @@ import {
   OrchestrationGetTurnDiffError,
   ORCHESTRATION_V2_WS_METHODS,
   LIVE_RESPONSE_STREAMING_QUERY_PARAM,
+  OrchestrationV2DetachWorkspaceError,
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
   OrchestrationV2DispatchCommandError,
@@ -227,6 +228,7 @@ import * as ProjectCloneTracker from "./project/ProjectCloneTracker.ts";
 import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolver.ts";
 import * as WorktreeSetupTracker from "./project/WorktreeSetupTracker.ts";
 import * as SlipJayLandings from "./project/SlipJayLandings.ts";
+import * as WorkspaceAttachments from "./orchestration-v2/WorkspaceAttachments.ts";
 import * as SlipJayReleases from "./project/SlipJayReleases.ts";
 import * as SlipJaySettings from "./project/SlipJaySettings.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
@@ -1312,6 +1314,7 @@ const layerWsRpc = (
       const directEndpoints = yield* DirectEndpoints.DirectEndpoints;
       const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
       const slipJayLandings = yield* SlipJayLandings.SlipJayLandings;
+      const workspaceAttachments = yield* WorkspaceAttachments.WorkspaceAttachments;
       const slipJayReleases = yield* SlipJayReleases.SlipJayReleases;
       const slipJaySettings = yield* SlipJaySettings.SlipJaySettings;
       const review = yield* ReviewService.ReviewService;
@@ -1911,6 +1914,13 @@ const layerWsRpc = (
             ),
           ),
         [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: (input) => threadManagement.stopWorkflow(input),
+        [ORCHESTRATION_V2_WS_METHODS.detachWorkspace]: (input) =>
+          workspaceAttachments.detach(input).pipe(
+            Effect.mapError(
+              (error) =>
+                new OrchestrationV2DetachWorkspaceError({ ...input, detail: error.message }),
+            ),
+          ),
         [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: (input) =>
           readWorkflowScript({ scriptPath: input.scriptPath }),
         [ORCHESTRATION_V2_WS_METHODS.getTurnItem]: (input) =>
@@ -2812,7 +2822,11 @@ const layerWsRpc = (
         [WS_METHODS.vcsSlipJayLandingDetail]: (input) =>
           gitWorkflow.readSlipJayLandingDetail(input),
         [WS_METHODS.vcsSlipJayLand]: (input) =>
-          gitWorkflow.landSlipJay(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
+          gitWorkflow.landSlipJay(input).pipe(
+            Effect.tap(() => refreshGitStatus(input.cwd)),
+            // A landed workspace SlipJay removed no longer holds its thread's attachment.
+            Effect.tap(() => workspaceAttachments.markReleasedAt(input.cwd)),
+          ),
         [WS_METHODS.vcsSlipJayCancel]: (input) => slipJayLandings.cancel(input),
         [WS_METHODS.vcsSlipJayPromotionPlan]: (input) => slipJayReleases.plan(input),
         [WS_METHODS.vcsSlipJayPromote]: (input) => slipJayReleases.promote(input),

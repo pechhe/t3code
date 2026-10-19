@@ -187,6 +187,8 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.fork":
     case "thread.merge_back":
       return [command.sourceThreadId, command.targetThreadId];
+    case "thread.workspace-attachments.reclaim":
+      return [command.threadId, command.fromThreadId];
   }
 }
 

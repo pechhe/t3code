@@ -236,6 +236,11 @@ export interface MoveThreadToProjectInput extends CommandMetadata {
   readonly title: string;
 }
 
+export interface UndoMoveThreadToProjectInput extends CommandMetadata {
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+}
+
 export type DismissProjectSuggestionInput = ThreadCommandInput;
 
 export interface MergeThreadBackInput extends CommandMetadata {
@@ -1063,6 +1068,7 @@ export const moveThreadToProject = Effect.fn("EnvironmentCommands.moveThreadToPr
     sourcePoint: { type: "latest_finished" },
     title: input.title,
     projectId: input.projectId,
+    moveWorkspaceAttachments: true,
   });
   return yield* dispatch({
     type: "thread.archive",
@@ -1070,6 +1076,29 @@ export const moveThreadToProject = Effect.fn("EnvironmentCommands.moveThreadToPr
     threadId: input.sourceThreadId,
   });
 });
+
+/** Restores a moved chat's original with the workspaces the move handed over, and removes the moved chat. */
+export const undoMoveThreadToProject = Effect.fn("EnvironmentCommands.undoMoveThreadToProject")(
+  function* (input: UndoMoveThreadToProjectInput) {
+    const commandId = yield* allocateCommandId(input);
+    yield* dispatch({
+      type: "thread.unarchive",
+      commandId,
+      threadId: input.sourceThreadId,
+    });
+    yield* dispatch({
+      type: "thread.workspace-attachments.reclaim",
+      commandId: CommandId.make(`${commandId}:reclaim-workspaces`),
+      threadId: input.sourceThreadId,
+      fromThreadId: input.targetThreadId,
+    });
+    return yield* dispatch({
+      type: "thread.delete",
+      commandId: CommandId.make(`${commandId}:delete-moved`),
+      threadId: input.targetThreadId,
+    });
+  },
+);
 
 /** Keeps a No project chat where it is; the chat is not suggested a project again. */
 export const dismissProjectSuggestion = Effect.fn("EnvironmentCommands.dismissProjectSuggestion")(

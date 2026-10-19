@@ -66,6 +66,7 @@ const make = Effect.gen(function* () {
         sourcePoint: { type: "latest_finished" },
         title: thread.title,
         projectId: suggestion.projectId,
+        moveWorkspaceAttachments: true,
         createdBy: "agent",
         creationSource: "server",
       });

@@ -103,10 +103,15 @@ its revision and the role names, or the reason the policy is refused.
   project's, while the caller's runtime ceiling still bounds it. T3 resolves the
   project from the workspace path; `agentTask.projectId` names it when several
   projects are registered in one repository, and a call without it is refused
-  as ambiguous. Only pinned readers and isolated writers go there, since the
-  caller holds no checkout of that project; its main checkout, too, is refused
-  while a writer of any project registered in the repository runs there. An
-  external session cannot name another project.
+  as ambiguous. Without a workspace attached there, only pinned readers and
+  isolated writers go there, since the caller holds no checkout of that
+  project; its main checkout, too, is refused while a writer of any project
+  registered in the repository runs there. An external session cannot name
+  another project.
+- A workspace a thread attached in another project with `t3_worktree_attach`
+  is the caller's checkout there while it is live: a `"lead"` writer may share
+  it, a task whose `workspacePath` is the attachment belongs to its project,
+  and it is occupied like a primary workspace.
 - The pin matches the workspace's working copy, or, in jj, the single parent of
   an empty working copy such as the one `jj commit` leaves.
 - A role uses the first available model in its list. An account at a usage

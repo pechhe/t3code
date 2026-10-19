@@ -10,6 +10,7 @@ import {
   usageLimitBlockedRun,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
+import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import {
   normalizeThreadPullRequestKey,
   visibleThreadPullRequests,
@@ -30,6 +31,7 @@ import {
   type OrchestrationV2ServerCommand,
   type ThreadPullRequestLink,
   type OrchestrationV2ThreadWatch,
+  type OrchestrationV2WorkspaceAttachment,
   type ThreadPullRequestWatch,
   type OrchestrationV2AppThread,
   type OrchestrationV2ContextHandoff,
@@ -477,6 +479,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.pull-request-watch.sync":
     case "thread.thread-watch":
     case "thread.thread-watch.fire":
+    case "thread.workspace-attachment.update":
     case "thread.pull-request.sync":
     case "thread.title.regeneration.complete":
     case "thread.runtime-mode.set":
@@ -519,6 +522,8 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.fork":
     case "thread.merge_back":
       return command.targetThreadId;
+    case "thread.workspace-attachments.reclaim":
+      return command.fromThreadId;
   }
 }
 
@@ -579,6 +584,14 @@ function withPullRequestWatch(
 function withoutThreadWatches(thread: OrchestrationV2AppThread): OrchestrationV2AppThread {
   const { threadWatches: _watches, ...rest } = thread;
   return rest;
+}
+
+function withWorkspaceAttachments(
+  thread: OrchestrationV2AppThread,
+  attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment>,
+): OrchestrationV2AppThread {
+  const { workspaceAttachments: _attachments, ...rest } = thread;
+  return attachments.length === 0 ? rest : { ...rest, workspaceAttachments: attachments };
 }
 
 function legacyPullRequestLink(
@@ -2717,6 +2730,152 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       });
     });
 
+  const emitWorkspaceAttachments = (
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+    command: OrchestrationV2ServerCommand,
+    thread: OrchestrationV2AppThread,
+    attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment>,
+  ) =>
+    Effect.gen(function* () {
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "thread.metadata-updated",
+        threadId: thread.id,
+        providerInstanceId: thread.providerInstanceId,
+        occurredAt: yield* DateTime.now,
+        payload: withWorkspaceAttachments(thread, attachments),
+      });
+    });
+
+  const dispatchWorkspaceAttachmentUpdate = Effect.fn(
+    "orchestrationV2.dispatch.workspaceAttachmentUpdate",
+  )(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.workspace-attachment.update" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const refuse = (cause: string) =>
+      new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause,
+      });
+    const thread = yield* projectionStore
+      .getThread(command.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    if (thread.deletedAt !== null) return yield* refuse(`Thread ${command.threadId} is deleted.`);
+    const attachments = thread.workspaceAttachments ?? [];
+    const { change } = command;
+    if (change.action === "attach") {
+      const { attachment } = change;
+      if (attachment.projectId === thread.projectId)
+        return yield* refuse(
+          "The thread's own project uses its primary workspace; hand the thread off to move it.",
+        );
+      const held = liveWorkspaceAttachments(thread).find(
+        (candidate) => candidate.projectId === attachment.projectId,
+      );
+      if (held !== undefined)
+        return yield* refuse(
+          `The thread already holds ${held.workspacePath} in project ${attachment.projectId}.`,
+        );
+      return yield* emitWorkspaceAttachments(events, command, thread, [
+        // A released workspace of the project, or an earlier record of this path, gives way.
+        ...attachments.filter(
+          (candidate) =>
+            candidate.workspacePath !== attachment.workspacePath &&
+            !(candidate.projectId === attachment.projectId && candidate.releasedAt !== null),
+        ),
+        {
+          projectId: attachment.projectId,
+          workspacePath: attachment.workspacePath,
+          branch: attachment.branch,
+          origin: attachment.origin,
+          ...(attachment.attemptId === undefined ? {} : { attemptId: attachment.attemptId }),
+          attachedAt: DateTime.formatIso(yield* DateTime.now),
+          releasedAt: null,
+        },
+      ]);
+    }
+    const target = attachments.find(
+      (candidate) => candidate.workspacePath === change.workspacePath,
+    );
+    if (target === undefined) return;
+    if (change.action === "detach")
+      return yield* emitWorkspaceAttachments(
+        events,
+        command,
+        thread,
+        attachments.filter((candidate) => candidate !== target),
+      );
+    if (target.releasedAt !== null) return;
+    const releasedAt = DateTime.formatIso(yield* DateTime.now);
+    yield* emitWorkspaceAttachments(
+      events,
+      command,
+      thread,
+      attachments.map((candidate) =>
+        candidate === target ? { ...candidate, releasedAt } : candidate,
+      ),
+    );
+  });
+
+  // Undoing a move hands back what the moved chat still holds; anything it has since released
+  // or detached stays gone.
+  const dispatchWorkspaceAttachmentsReclaim = Effect.fn(
+    "orchestrationV2.dispatch.workspaceAttachmentsReclaim",
+  )(function* (
+    command: Extract<
+      OrchestrationV2ServerCommand,
+      { readonly type: "thread.workspace-attachments.reclaim" }
+    >,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const read = (threadId: ThreadId) =>
+      projectionStore
+        .getThread(threadId)
+        .pipe(Effect.mapError((cause) => new OrchestratorProjectionError({ threadId, cause })));
+    const original = yield* read(command.threadId);
+    const moved = yield* read(command.fromThreadId);
+    const handed = (original.workspaceAttachments ?? []).filter(
+      (attachment) => attachment.movedTo === moved.id,
+    );
+    if (handed.length === 0) return;
+    const stillHeld = new Set([
+      ...liveWorkspaceAttachments(moved).map((attachment) => attachment.workspacePath),
+      ...(moved.worktreePath === null ? [] : [moved.worktreePath]),
+    ]);
+    yield* emitWorkspaceAttachments(
+      events,
+      command,
+      original,
+      (original.workspaceAttachments ?? []).flatMap((attachment) => {
+        if (attachment.movedTo !== moved.id) return [attachment];
+        if (!stillHeld.has(attachment.workspacePath)) return [];
+        const { movedTo: _movedTo, ...reclaimed } = attachment;
+        return [reclaimed];
+      }),
+    );
+    const returned = new Set(handed.map((attachment) => attachment.workspacePath));
+    if (moved.deletedAt === null && (moved.workspaceAttachments ?? []).length > 0)
+      yield* emitWorkspaceAttachments(
+        events,
+        command,
+        moved,
+        (moved.workspaceAttachments ?? []).filter(
+          (attachment) => !returned.has(attachment.workspacePath),
+        ),
+      );
+  });
+
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
     command: Extract<
       OrchestrationV2ServerCommand,
@@ -4120,13 +4279,38 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       })
       .pipe(mapDispatchError(command));
 
+    // A project move hands the source's live attachments to the fork, where one in the fork's
+    // project becomes its primary workspace. The source keeps a record of each for Undo.
+    const handed =
+      command.moveWorkspaceAttachments === true
+        ? liveWorkspaceAttachments(sourceProjection.thread)
+        : [];
+    const primary = handed.find((attachment) => attachment.projectId === targetThread.projectId);
     yield* emitEvent({
       type: "thread.created",
       threadId: command.targetThreadId,
       providerInstanceId: targetThread.providerInstanceId,
       occurredAt: now,
-      payload: targetThread,
+      payload: withWorkspaceAttachments(
+        primary === undefined
+          ? targetThread
+          : { ...targetThread, worktreePath: primary.workspacePath, branch: primary.branch },
+        handed
+          .filter((attachment) => attachment !== primary)
+          .map(({ movedTo: _movedTo, ...attachment }) => attachment),
+      ),
     });
+    if (handed.length > 0)
+      yield* emitWorkspaceAttachments(
+        events,
+        command,
+        sourceProjection.thread,
+        (sourceProjection.thread.workspaceAttachments ?? []).map((attachment) =>
+          handed.includes(attachment)
+            ? { ...attachment, movedTo: command.targetThreadId }
+            : attachment,
+        ),
+      );
     yield* emitEvent({
       type: "context-transfer.created",
       threadId: command.targetThreadId,
@@ -12131,6 +12315,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.fork":
         yield* dispatchThreadFork(command, events);
         break;
+      case "thread.workspace-attachment.update":
+        yield* dispatchWorkspaceAttachmentUpdate(command, events);
+        break;
+      case "thread.workspace-attachments.reclaim":
+        yield* dispatchWorkspaceAttachmentsReclaim(command, events);
+        break;
       case "thread.merge_back":
         yield* dispatchThreadMergeBack(command, events);
         break;
@@ -12377,6 +12567,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         commandThreadId(command),
         dispatchWithReceiptEffect(command),
       );
+      // A move writes its source's attachments and Undo writes the original's, so each also
+      // holds that thread's lock, taken before the moved chat's as both orders agree.
+      if (command.type === "thread.fork" && command.moveWorkspaceAttachments === true)
+        return yield* threadDispatch.withLock(command.sourceThreadId, dispatch);
+      if (command.type === "thread.workspace-attachments.reclaim")
+        return yield* threadDispatch.withLock(command.threadId, dispatch);
       if (
         command.type !== "advisor.idle.close" &&
         (command.type !== "message.dispatch" ||

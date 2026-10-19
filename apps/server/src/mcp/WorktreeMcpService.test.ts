@@ -3,7 +3,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   EnvironmentId,
+  type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2WorkspaceAttachment,
   type Project,
   ProjectId,
   ProviderInstanceId,
@@ -25,6 +27,7 @@ import {
   OrchestratorProjectionError,
 } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as WorkspaceAttachments from "../orchestration-v2/WorkspaceAttachments.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
@@ -58,7 +61,16 @@ interface ThreadFixture {
   readonly worktreePath?: string | null;
   readonly archivedAt?: string | null;
   readonly deletedAt?: string | null;
+  readonly workspaceAttachments?: ReadonlyArray<OrchestrationV2WorkspaceAttachment>;
 }
+
+const otherProjectId = ProjectId.make("project-worktree-other");
+const otherProject = {
+  id: otherProjectId,
+  title: "Other project",
+  workspaceRoot: "/repo/other",
+  scripts: [],
+} as unknown as Project;
 
 const makeProjection = (overrides: ThreadFixture = {}): OrchestrationV2ThreadProjection =>
   ({
@@ -114,13 +126,42 @@ interface HarnessOptions {
   readonly createWorktreeGate?: Effect.Effect<void>;
   /** Whether a path is a checkout of the project's repository. */
   readonly contains?: boolean;
+  /** Threads already holding the adopted path as an attachment. */
+  readonly holders?: ReadonlyArray<ThreadId>;
+  /** Another thread of the project that can attach through the same service. */
+  readonly peerThreadId?: ThreadId;
+  /** Holders are the other threads whose recorded attachments include the path. */
+  readonly holdersFromAttachments?: boolean;
+  /** Held open by the first holders lookup. */
+  readonly holdersGate?: Effect.Effect<void>;
 }
 
 const makeHarness = (options: HarnessOptions = {}) => {
   const thread = options.thread === undefined ? {} : options.thread;
   const scope = makeScope(options.capabilities ?? new Set(["preview", "worktree"]));
-  const dispatch = vi.fn((_: unknown) =>
-    (options.dispatchGate ?? Effect.void).pipe(
+  // Attachments each thread holds, including those this test's attach commands recorded.
+  const attachmentsByThread = new Map<ThreadId, Array<OrchestrationV2WorkspaceAttachment>>([
+    [threadId, [...((thread === null ? undefined : thread.workspaceAttachments) ?? [])]],
+  ]);
+  const attachmentsOf = (id: ThreadId) => {
+    const held = attachmentsByThread.get(id) ?? [];
+    attachmentsByThread.set(id, held);
+    return held;
+  };
+  const dispatch = vi.fn((command: unknown) =>
+    Effect.sync(() => {
+      const update = command as Extract<
+        OrchestrationV2ServerCommand,
+        { readonly type: "thread.workspace-attachment.update" }
+      >;
+      if (update.type === "thread.workspace-attachment.update" && update.change.action === "attach")
+        attachmentsOf(update.threadId).push({
+          ...update.change.attachment,
+          attachedAt: "2026-01-02T00:00:00.000Z",
+          releasedAt: null,
+        });
+    }).pipe(
+      Effect.andThen(options.dispatchGate ?? Effect.void),
       Effect.andThen(
         options.dispatchInterrupts
           ? (Effect.failCause(Cause.interrupt()) as never)
@@ -131,6 +172,30 @@ const makeHarness = (options: HarnessOptions = {}) => {
               : Effect.succeed({ sequence: 1, storedEvents: [] }),
       ),
     ),
+  );
+  const withAttachments = (fixture: ThreadFixture, id: ThreadId) => {
+    const attachments = attachmentsOf(id);
+    return makeProjection(
+      attachments.length === 0 ? fixture : { ...fixture, workspaceAttachments: attachments },
+    );
+  };
+  const holders = vi.fn(
+    (input: { readonly workspacePath: string; readonly threadId: ThreadId }) =>
+      Effect.gen(function* () {
+        const found =
+          options.holdersFromAttachments === true
+            ? [...attachmentsByThread]
+                .filter(
+                  ([id, held]) =>
+                    id !== input.threadId &&
+                    held.some((attachment) => attachment.workspacePath === input.workspacePath),
+                )
+                .map(([id]) => id)
+            : (options.holders ?? []);
+        // The first lookup answers from what it read before being held open.
+        if (holders.mock.calls.length === 1) yield* options.holdersGate ?? Effect.void;
+        return found;
+      }),
   );
   const listLocalBranchNames = vi.fn((_: string) =>
     Effect.succeed(
@@ -172,8 +237,8 @@ const makeHarness = (options: HarnessOptions = {}) => {
     ) {
       return Effect.succeed(makeProjection({ ...thread, archivedAt: "2026-01-02T00:00:00.000Z" }));
     }
-    return id === threadId && thread !== null
-      ? Effect.succeed(makeProjection(thread))
+    return (id === threadId || id === options.peerThreadId) && thread !== null
+      ? Effect.succeed(withAttachments(thread, id))
       : Effect.fail(new OrchestratorProjectionError({ threadId: id }));
   });
   const sendToThread = vi.fn((_: unknown) => {
@@ -198,7 +263,9 @@ const makeHarness = (options: HarnessOptions = {}) => {
       : Effect.succeed(
           id === projectId && options.projectMissing !== true
             ? Option.some(project)
-            : Option.none(),
+            : id === otherProjectId
+              ? Option.some(otherProject)
+              : Option.none(),
         ),
   );
   const removeWorktree = vi.fn((_: unknown) =>
@@ -299,6 +366,11 @@ const makeHarness = (options: HarnessOptions = {}) => {
       Effect.void,
   );
 
+  const detachAttachment = vi.fn(
+    (_input: Parameters<WorkspaceAttachments.WorkspaceAttachments["Service"]["detach"]>[0]) =>
+      Effect.void,
+  );
+
   const layer = WorktreeMcpService.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
@@ -309,6 +381,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
         } satisfies Partial<ThreadManagementService.ThreadManagementService["Service"]>),
         Layer.mock(ProjectService.ProjectService)({
           getById,
+          listShells: () => Effect.succeed([project, otherProject] as never),
         } satisfies Partial<ProjectService.ProjectService["Service"]>),
         ServerSettings.layerTest({
           newWorktreesStartFromOrigin: options.newWorktreesStartFromOrigin ?? false,
@@ -333,8 +406,18 @@ const makeHarness = (options: HarnessOptions = {}) => {
           resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
           allocate: allocateWorkspace,
           release: releaseWorkspace,
-          contains: () => Effect.succeed(options.contains ?? true),
+          // Each project's repository holds the paths under its root's name.
+          contains: (root, path) =>
+            Effect.succeed(
+              options.contains ??
+                (root === otherProject.workspaceRoot) === path.startsWith("/repo/other"),
+            ),
           remove: removeWorktree,
+        }),
+        Layer.mock(WorkspaceAttachments.WorkspaceAttachments)({
+          holders,
+          markReleased: () => Effect.void,
+          detach: detachAttachment,
         }),
         NodeServices.layer,
       ),
@@ -345,6 +428,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     layer,
     scope,
     dispatch,
+    holders,
     sendToThread,
     fetchRemote,
     resolveRemoteTrackingCommit,
@@ -355,6 +439,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
     runForThread,
     allocateWorkspace,
     releaseWorkspace,
+    detachAttachment,
   };
 };
 
@@ -384,6 +469,15 @@ const runHandoff = (
   Effect.gen(function* () {
     const service = yield* WorktreeMcpService.WorktreeMcpService;
     return yield* service.handoff(harness.scope, input);
+  }).pipe(Effect.provide(harness.layer));
+
+const runAttach = (
+  harness: ReturnType<typeof makeHarness>,
+  input: Parameters<WorktreeMcpService.WorktreeMcpService["Service"]["attach"]>[1],
+) =>
+  Effect.gen(function* () {
+    const service = yield* WorktreeMcpService.WorktreeMcpService;
+    return yield* service.attach(harness.scope, input);
   }).pipe(Effect.provide(harness.layer));
 
 const runStatus = (harness: ReturnType<typeof makeHarness>) =>
@@ -1040,6 +1134,7 @@ describe("t3_worktree_status", () => {
         branch: null,
         projectWorkspaceRoot: workspaceRoot,
         defaultStartFromOrigin: true,
+        attachments: [],
       });
     });
   });
@@ -1103,4 +1198,115 @@ describe("WorktreeMcpHandoffInput schema", () => {
       expect(Exit.isFailure(exit)).toBe(true);
     }),
   );
+
+  describe("attached workspaces", () => {
+    const held = (workspacePath: string): OrchestrationV2WorkspaceAttachment => ({
+      projectId: otherProjectId,
+      workspacePath,
+      branch: null,
+      origin: "allocated",
+      attachedAt: "2026-01-01T00:00:00.000Z",
+      releasedAt: null,
+    });
+
+    it.effect("allocates a SlipJay workspace in another project and attaches it", () => {
+      const harness = makeHarness({ slipjay: true });
+      return Effect.gen(function* () {
+        const result = yield* runAttach(harness, { projectId: otherProjectId, branch: "api" });
+        expect(harness.allocateWorkspace).toHaveBeenCalledWith({
+          projectRoot: "/repo/other",
+          task: "api",
+        });
+        expect(result.attachment).toMatchObject({
+          projectId: otherProjectId,
+          workspacePath: "/slipjay/workspaces/feature-handoff",
+          origin: "allocated",
+        });
+        expect(result.setupScript).toMatchObject({ status: "started" });
+        const status = yield* runStatus(harness);
+        expect(status.attachments.map((attachment) => attachment.workspacePath)).toEqual([
+          "/slipjay/workspaces/feature-handoff",
+        ]);
+      });
+    });
+
+    it.effect("adopts an existing checkout, finding its project from the path", () => {
+      const harness = makeHarness();
+      return Effect.gen(function* () {
+        const result = yield* runAttach(harness, { worktreePath: "/repo/other-checkout" });
+        expect(result.attachment).toMatchObject({
+          projectId: otherProjectId,
+          workspacePath: "/repo/other-checkout",
+          origin: "adopted",
+        });
+        expect(result.setupScript).toEqual({ status: "skipped" });
+        expect(harness.createWorktree).not.toHaveBeenCalled();
+      });
+    });
+
+    it.effect("refuses the thread's own project, a second live workspace, and a held one", () => {
+      const own = makeHarness();
+      const twice = makeHarness({ thread: { workspaceAttachments: [held("/repo/other-1")] } });
+      const taken = makeHarness({ holders: [ThreadId.make("thread-other-lead")] });
+      return Effect.gen(function* () {
+        const home = yield* Effect.flip(runAttach(own, { projectId, branch: "x" }));
+        expect(home.message).toContain("t3_worktree_handoff");
+        const second = yield* Effect.flip(
+          runAttach(twice, { projectId: otherProjectId, branch: "y" }),
+        );
+        expect(second.message).toContain("already holds /repo/other-1");
+        const holder = yield* Effect.flip(runAttach(taken, { worktreePath: "/repo/other-2" }));
+        expect(holder.message).toContain("attached to another thread");
+        expect([...own.dispatch.mock.calls, ...twice.dispatch.mock.calls]).toEqual([]);
+        expect(taken.dispatch).not.toHaveBeenCalled();
+      });
+    });
+
+    it.effect("lets only one of two threads adopting a checkout at once attach it", () =>
+      Effect.gen(function* () {
+        const gate = yield* Deferred.make<void>();
+        const peer = ThreadId.make("thread-peer-lead");
+        const harness = makeHarness({
+          peerThreadId: peer,
+          holdersFromAttachments: true,
+          holdersGate: Deferred.await(gate),
+        });
+        const peerScope = {
+          ...harness.scope,
+          thread: { ...harness.scope.thread!, threadId: peer },
+        } as McpInvocationContext.McpInvocationScope;
+        const input = { worktreePath: "/repo/other-2" };
+        yield* Effect.gen(function* () {
+          const service = yield* WorktreeMcpService.WorktreeMcpService;
+          const first = yield* Effect.forkChild(Effect.exit(service.attach(harness.scope, input)));
+          // The first adoption holds its lookup open; the peer's must not run beside it.
+          while (harness.holders.mock.calls.length === 0) yield* Effect.yieldNow;
+          const second = yield* Effect.forkChild(Effect.exit(service.attach(peerScope, input)));
+          yield* Effect.repeat(Effect.yieldNow, { times: 100 });
+          yield* Deferred.succeed(gate, undefined);
+          const exits = [yield* Fiber.join(first), yield* Fiber.join(second)];
+          expect(exits.map((exit) => exit._tag)).toEqual(["Success", "Failure"]);
+          expect(String(Exit.isFailure(exits[1]!) ? exits[1].cause : "")).toContain(
+            "attached to another thread",
+          );
+        }).pipe(Effect.provide(harness.layer));
+        expect(harness.dispatch).toHaveBeenCalledTimes(1);
+      }),
+    );
+
+    it.effect("detaches through the attachment service and reports a release", () => {
+      const harness = makeHarness({ thread: { workspaceAttachments: [held("/repo/other-1")] } });
+      return Effect.gen(function* () {
+        const result = yield* Effect.gen(function* () {
+          const service = yield* WorktreeMcpService.WorktreeMcpService;
+          return yield* service.detach(harness.scope, { workspacePath: "/repo/other-1" });
+        }).pipe(Effect.provide(harness.layer));
+        expect(result).toEqual({ released: true });
+        expect(harness.detachAttachment).toHaveBeenCalledWith({
+          threadId,
+          workspacePath: "/repo/other-1",
+        });
+      });
+    });
+  });
 });

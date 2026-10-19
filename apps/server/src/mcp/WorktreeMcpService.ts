@@ -3,7 +3,11 @@ import {
   MessageId,
   type ProjectId,
   WorktreeMcpFailure,
+  type WorktreeMcpAttachInput,
+  type WorktreeMcpAttachResult,
   type WorktreeMcpContinuationStatus,
+  type WorktreeMcpDetachInput,
+  type WorktreeMcpDetachResult,
   type WorktreeMcpHandoffInput,
   type WorktreeMcpHandoffResult,
   type WorktreeMcpSetupScriptStatus,
@@ -15,9 +19,12 @@ import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Semaphore from "effect/Semaphore";
+import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
+import * as WorkspaceAttachments from "../orchestration-v2/WorkspaceAttachments.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
@@ -35,6 +42,14 @@ export class WorktreeMcpService extends Context.Service<
     readonly status: (
       scope: McpInvocationScope,
     ) => Effect.Effect<WorktreeMcpStatusResult, WorktreeMcpFailure>;
+    readonly attach: (
+      scope: McpInvocationScope,
+      input: WorktreeMcpAttachInput,
+    ) => Effect.Effect<WorktreeMcpAttachResult, WorktreeMcpFailure>;
+    readonly detach: (
+      scope: McpInvocationScope,
+      input: WorktreeMcpDetachInput,
+    ) => Effect.Effect<WorktreeMcpDetachResult, WorktreeMcpFailure>;
   }
 >()("t3/mcp/WorktreeMcpService") {}
 
@@ -76,18 +91,21 @@ const make = Effect.gen(function* () {
   const setupScriptRunner = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const vcsStatusBroadcaster = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
+  const attachments = yield* WorkspaceAttachments.WorkspaceAttachments;
 
   // Serializes handoffs per thread: two concurrent calls could otherwise both
   // pass the binding check and each create a worktree, leaving one untracked
   // on disk.
   const handoffThreadsInFlight = new Set<string>();
+  // Serializes adoptions across threads, so two cannot both find a checkout unheld and attach it.
+  const adoptions = yield* Semaphore.make(1);
 
   const requireThreadScope = (scope: McpInvocationScope) =>
     scope.thread === undefined
       ? Effect.fail(
           failure(
             "thread_credential_required",
-            "Worktree handoff and status act as the calling T3 thread, so they need an agent running inside T3 Code.",
+            "Worktree tools act as the calling T3 thread, so they need an agent running inside T3 Code.",
           ),
         )
       : Effect.succeed(scope as McpThreadInvocationScope);
@@ -499,33 +517,228 @@ const make = Effect.gen(function* () {
         .pipe(Effect.ignoreCause({ log: true })),
   });
 
+  // uninterruptibleMask: the guard acquisition and the registration of the releasing finalizer
+  // happen with no interruptible gap in between. An interrupt landing between a bare add() and
+  // the start of an ensured effect would otherwise leak the guard entry and block every future
+  // workspace change for this thread until restart.
+  const oneAtATime = <A>(
+    scope: McpThreadInvocationScope,
+    effect: Effect.Effect<A, WorktreeMcpFailure>,
+  ): Effect.Effect<A, WorktreeMcpFailure> =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.suspend(() => {
+        if (handoffThreadsInFlight.has(scope.thread.threadId)) {
+          return Effect.fail(
+            failure(
+              "handoff_in_progress",
+              `A workspace change is already in progress for thread '${scope.thread.threadId}'.`,
+            ),
+          );
+        }
+        handoffThreadsInFlight.add(scope.thread.threadId);
+        return restore(effect).pipe(
+          Effect.ensuring(Effect.sync(() => handoffThreadsInFlight.delete(scope.thread.threadId))),
+        );
+      }),
+    );
+
   const handoff: WorktreeMcpService["Service"]["handoff"] = Effect.fn("WorktreeMcpService.handoff")(
     function* (callerScope, input) {
       yield* requireCapability(callerScope);
       const scope = yield* requireThreadScope(callerScope);
-      // uninterruptibleMask: the guard acquisition and the registration of the
-      // releasing finalizer happen with no interruptible gap in between. An
-      // interrupt landing between a bare add() and the start of an ensured
-      // effect would otherwise leak the guard entry and block every future
-      // handoff for this thread until restart.
-      return yield* Effect.uninterruptibleMask((restore) =>
-        Effect.suspend(() => {
-          if (handoffThreadsInFlight.has(scope.thread.threadId)) {
-            return Effect.fail(
-              failure(
-                "handoff_in_progress",
-                `A worktree handoff is already in progress for thread '${scope.thread.threadId}'.`,
+      return yield* oneAtATime(scope, performHandoff(scope, input));
+    },
+  );
+
+  // An adopted checkout's project, when the agent names only its path: the registered project
+  // whose repository holds it.
+  const projectHolding = Effect.fn("WorktreeMcpService.projectHolding")(function* (
+    worktreePath: string,
+  ) {
+    const all = yield* projects.listShells().pipe(asOperationFailed("Unable to read projects"));
+    const matches = yield* Effect.filter(all, (project) =>
+      workspaces.contains(project.workspaceRoot, worktreePath),
+    );
+    if (matches.length === 0)
+      return yield* failure(
+        "invalid_request",
+        `'${worktreePath}' is not a checkout of any registered project's repository.`,
+      );
+    if (matches.length > 1)
+      return yield* failure(
+        "invalid_request",
+        `'${worktreePath}' is in a repository several projects are registered in (${matches.map((project) => project.id).join(", ")}); pass projectId.`,
+      );
+    return matches[0]!.id;
+  });
+
+  const performAttach = Effect.fn("WorktreeMcpService.performAttach")(function* (
+    scope: McpThreadInvocationScope,
+    input: WorktreeMcpAttachInput,
+  ) {
+    const projection = yield* loadThread(scope);
+    if (projection.thread.archivedAt !== null)
+      return yield* failure("invalid_request", `Thread '${scope.thread.threadId}' is archived.`);
+    const projectId =
+      input.projectId ??
+      (input.worktreePath === undefined
+        ? yield* failure("invalid_request", "Pass projectId, or worktreePath to adopt a checkout.")
+        : yield* projectHolding(input.worktreePath));
+    const project = yield* loadProject(scope, projectId);
+    if (projectId === projection.thread.projectId)
+      return yield* failure(
+        "invalid_request",
+        "That is this thread's own project; use t3_worktree_handoff to change its primary workspace.",
+      );
+    // A workspace SlipJay released since the last turn frees its project's slot.
+    yield* attachments.markReleased(scope.thread.threadId);
+    const held = liveWorkspaceAttachments((yield* loadThread(scope)).thread).find(
+      (attachment) => attachment.projectId === projectId,
+    );
+    if (held !== undefined)
+      return yield* failure(
+        "invalid_request",
+        `This thread already holds ${held.workspacePath} in project ${projectId}; detach it first.`,
+      );
+    const projectCwd = project.workspaceRoot;
+    const slipjay = (yield* workspaces.resolve(projectCwd)) === "slipjay";
+    const adopted = input.worktreePath ?? (input.root === true ? projectCwd : undefined);
+    let checkout: CheckoutPlan;
+    if (adopted !== undefined) {
+      checkout =
+        adopted === projectCwd
+          ? {
+              baseRef: null,
+              startedFromOrigin: false,
+              create: gitWorkflow.localStatus({ cwd: projectCwd }).pipe(
+                Effect.map((status) => ({ path: projectCwd, branch: status.refName })),
+                asOperationFailed("Unable to read the project checkout's status"),
+              ),
+              remove: () => Effect.void,
+            }
+          : existingCheckout(projectCwd, adopted, slipjay);
+    } else if (input.branch === undefined) {
+      return yield* failure(
+        "invalid_request",
+        "Pass branch to create a workspace, worktreePath to adopt a checkout, or root to adopt the project's main checkout.",
+      );
+    } else {
+      checkout = slipjay
+        ? slipjayCheckout(projectCwd, input.branch)
+        : yield* prepareGitCheckout(projectCwd, { ...input, branch: input.branch });
+    }
+    const ids = yield* handoffIds(scope);
+    return yield* Effect.uninterruptibleMask((restore) =>
+      Effect.gen(function* () {
+        const record = Effect.gen(function* () {
+          if (adopted !== undefined) {
+            const holders = yield* attachments.holders({
+              workspacePath: adopted,
+              threadId: scope.thread.threadId,
+            });
+            if (holders.length > 0)
+              return yield* failure(
+                "invalid_request",
+                `'${adopted}' is attached to another thread (${holders.join(", ")}).`,
+              );
+          }
+          const created = yield* restore(checkout.create);
+          yield* threadManagement
+            .dispatch({
+              type: "thread.workspace-attachment.update",
+              commandId: ids.commandId,
+              threadId: scope.thread.threadId,
+              change: {
+                action: "attach",
+                attachment: {
+                  projectId,
+                  workspacePath: created.path,
+                  branch: created.branch,
+                  origin: adopted === undefined ? "allocated" : "adopted",
+                },
+              },
+            })
+            .pipe(
+              Effect.mapError((error) =>
+                failure(
+                  "invalid_request",
+                  `Unable to attach the workspace: ${errorMessage(error)}`,
+                ),
+              ),
+              Effect.onError((cause) =>
+                Cause.hasInterruptsOnly(cause)
+                  ? Effect.void
+                  : Effect.suspend(() => checkout.remove(created.path)),
               ),
             );
-          }
-          handoffThreadsInFlight.add(scope.thread.threadId);
-          return restore(performHandoff(scope, input)).pipe(
-            Effect.ensuring(
-              Effect.sync(() => handoffThreadsInFlight.delete(scope.thread.threadId)),
-            ),
-          );
-        }),
+          return created;
+        });
+        const created = yield* adopted === undefined ? record : adoptions.withPermits(1)(record);
+        yield* vcsStatusBroadcaster
+          .refreshStatus(created.path)
+          .pipe(Effect.ignoreCause({ log: true }), Effect.forkDetach);
+        let setupScript: WorktreeMcpSetupScriptStatus = { status: "skipped" };
+        if (input.runSetupScript ?? adopted === undefined) {
+          setupScript = yield* setupScriptRunner
+            .runForThread({
+              threadId: scope.thread.threadId,
+              projectId,
+              projectCwd,
+              worktreePath: created.path,
+              project: { id: project.id, workspaceRoot: projectCwd, scripts: project.scripts },
+            })
+            .pipe(
+              Effect.map((result): WorktreeMcpSetupScriptStatus =>
+                result.status === "started"
+                  ? { status: "started", scriptName: result.scriptName, terminalId: result.terminalId }
+                  : { status: "no-script" },
+              ),
+              Effect.catchCause((cause) =>
+                Effect.succeed<WorktreeMcpSetupScriptStatus>({
+                  status: "failed",
+                  detail: errorMessage(Cause.squash(cause)),
+                }),
+              ),
+            );
+        }
+        const attachment = liveWorkspaceAttachments((yield* loadThread(scope)).thread).find(
+          (candidate) => candidate.workspacePath === created.path,
+        );
+        if (attachment === undefined)
+          return yield* failure("operation_failed", "The attachment was not recorded.");
+        return { attachment, setupScript } satisfies WorktreeMcpAttachResult;
+      }),
+    );
+  });
+
+  const attach: WorktreeMcpService["Service"]["attach"] = Effect.fn("WorktreeMcpService.attach")(
+    function* (callerScope, input) {
+      yield* requireCapability(callerScope);
+      const scope = yield* requireThreadScope(callerScope);
+      return yield* oneAtATime(scope, performAttach(scope, input));
+    },
+  );
+
+  const detach: WorktreeMcpService["Service"]["detach"] = Effect.fn("WorktreeMcpService.detach")(
+    function* (callerScope, input) {
+      yield* requireCapability(callerScope);
+      const scope = yield* requireThreadScope(callerScope);
+      const before = (yield* loadThread(scope)).thread.workspaceAttachments?.find(
+        (attachment) => attachment.workspacePath === input.workspacePath,
       );
+      yield* oneAtATime(
+        scope,
+        attachments
+          .detach({ threadId: scope.thread.threadId, workspacePath: input.workspacePath })
+          .pipe(
+            Effect.mapError((error) =>
+              failure(error.reason === "failed" ? "operation_failed" : "invalid_request", error.message),
+            ),
+          ),
+      );
+      return {
+        released: before?.origin === "allocated" && before.releasedAt === null,
+      } satisfies WorktreeMcpDetachResult;
     },
   );
 
@@ -544,12 +757,15 @@ const make = Effect.gen(function* () {
         branch: projection.thread.branch,
         projectWorkspaceRoot: project.workspaceRoot,
         defaultStartFromOrigin,
+        attachments: (projection.thread.workspaceAttachments ?? []).filter(
+          (attachment) => attachment.movedTo === undefined,
+        ),
       };
       return result;
     },
   );
 
-  return WorktreeMcpService.of({ handoff, status });
+  return WorktreeMcpService.of({ handoff, status, attach, detach });
 });
 
 export const layer: Layer.Layer<
@@ -563,4 +779,5 @@ export const layer: Layer.Layer<
   | ProjectSetupScriptRunner.ProjectSetupScriptRunner
   | VcsStatusBroadcaster.VcsStatusBroadcaster
   | WorkspaceProvider.WorkspaceProvider
+  | WorkspaceAttachments.WorkspaceAttachments
 > = Layer.effect(WorktreeMcpService, make);

@@ -502,6 +502,10 @@
     "./PtyAdapter": {
       "types": "./src/PtyAdapter.ts",
       "import": "./src/PtyAdapter.ts"
+    },
+    "./workspaceAttachments": {
+      "types": "./src/workspaceAttachments.ts",
+      "import": "./src/workspaceAttachments.ts"
     }
   },
   "scripts": {

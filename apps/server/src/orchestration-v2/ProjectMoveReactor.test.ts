@@ -79,6 +79,7 @@ it.effect("moves the chat once its turn ends and continues there", () => {
         targetThreadId,
         sourcePoint: { type: "latest_finished" },
         projectId,
+        moveWorkspaceAttachments: true,
       },
       { type: "message.dispatch", threadId: targetThreadId, text: "Continue leading #2433." },
       { type: "thread.archive", threadId },

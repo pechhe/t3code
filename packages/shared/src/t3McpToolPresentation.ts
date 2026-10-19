@@ -44,6 +44,8 @@ export type T3McpToolSummaryAction =
   | "secret-request"
   | "release-approval-request"
   | "worktree-handoff"
+  | "worktree-attach"
+  | "worktree-detach"
   | "worktree-list"
   | "worktree-status"
   | "terminal-read"
@@ -184,6 +186,14 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_worktree_handoff: tool(
     ["Hand off", "Handing off", "Handed off", "thread to another workspace"],
     "worktree-handoff",
+  ),
+  t3_worktree_attach: tool(
+    ["Attach", "Attaching", "Attached", "a workspace in another project"],
+    "worktree-attach",
+  ),
+  t3_worktree_detach: tool(
+    ["Detach", "Detaching", "Detached", "a workspace from the thread"],
+    "worktree-detach",
   ),
   t3_worktree_status: tool(["Get", "Getting", "Got", "thread worktree status"], "worktree-status"),
   t3_terminal_read: tool(["Read", "Reading", "Read", "the thread terminal"], "terminal-read"),

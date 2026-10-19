@@ -380,6 +380,7 @@ import { threadEnvironment } from "../state/threads";
 import { resolveProviderSkillsForCwd } from "@t3tools/client-runtime/providerSkills";
 import { vcsEnvironment } from "../state/vcs";
 import { SlipJayLandingChip } from "./SlipJayLandingChip";
+import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
@@ -2955,7 +2956,11 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
+  // Git state, diff, terminals and Land follow the selected workspace: the primary one
+  // unless the thread has an attachment selected.
+  const selectedWorkspace = useSelectedWorkspace(activeThreadRef);
+  const gitStatusCwd =
+    selectedWorkspace?.attachment?.workspacePath ?? activeThread?.worktreePath ?? gitCwd;
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
       ? null
@@ -2987,7 +2992,7 @@ export default function ChatView(props: ChatViewProps) {
     environmentId: activeThread?.environmentId ?? environmentId,
     keybindings,
     availableEditors,
-    openInCwd: gitCwd,
+    openInCwd: gitStatusCwd,
   });
   const manualCompactionProviderAvailable = hasAvailableCompactionProvider({
     providers: providerInstanceEntries,
@@ -3066,8 +3071,12 @@ export default function ChatView(props: ChatViewProps) {
   const isGitRepo = liveIsGitRepo ?? recallCheckoutIsRepo(environmentId, gitStatusCwd) ?? true;
   const slipJayStatus = resolveSlipJayCheckoutStatus(gitStatusQuery.data, gitStatusCwd);
   const activeProjectId = activeProject?.id ?? null;
+  // The project's SlipJay-ness and the Git warning describe its primary checkout, not an
+  // attachment.
   const liveIsSlipJay =
-    gitStatusQuery.data == null ? undefined : gitStatusQuery.data.slipJay !== undefined;
+    gitStatusQuery.data == null || selectedWorkspace?.attachment
+      ? undefined
+      : gitStatusQuery.data.slipJay !== undefined;
   useEffect(() => {
     if (activeProjectId !== null && liveIsSlipJay !== undefined) {
       rememberSlipJayProject(environmentId, activeProjectId, liveIsSlipJay);
@@ -3517,7 +3526,7 @@ export default function ChatView(props: ChatViewProps) {
         return { ...current, [activeProject.id]: script.id };
       });
     }
-    const targetCwd = options?.cwd ?? gitCwd ?? activeProject.workspaceRoot;
+    const targetCwd = options?.cwd ?? gitStatusCwd ?? activeProject.workspaceRoot;
     const reusableTerminalId =
       options?.preferNewTerminal ||
       !canReuseTerminal ||
@@ -3533,7 +3542,7 @@ export default function ChatView(props: ChatViewProps) {
             panelTerminalIds,
             runningTerminalIds,
           });
-    const targetWorktreePath = options?.worktreePath ?? activeThread.worktreePath ?? null;
+    const targetWorktreePath = options?.worktreePath ?? selectedWorkspace?.worktreePath ?? null;
 
     setTerminalUiLaunchContext({
       threadId: activeThreadId,
@@ -5583,9 +5592,10 @@ export default function ChatView(props: ChatViewProps) {
       (activeProjectCwd !== null &&
         projectScriptCwd({
           project: { cwd: activeProjectCwd },
-          worktreePath: activeThreadWorktreePath,
+          worktreePath: selectedWorkspace?.worktreePath ?? activeThreadWorktreePath,
         }) === terminalUiLaunchContext.cwd &&
-        (activeThreadWorktreePath ?? null) === terminalUiLaunchContext.worktreePath))
+        (selectedWorkspace?.worktreePath ?? activeThreadWorktreePath ?? null) ===
+          terminalUiLaunchContext.worktreePath))
   ) {
     setTerminalUiLaunchContext(null);
   }
@@ -8019,7 +8029,7 @@ export default function ChatView(props: ChatViewProps) {
     keybindings,
     availableEditors,
     showOpenInPicker,
-    gitCwd,
+    gitCwd: gitStatusCwd,
     isGitRepo,
     slipJayStatus,
     envLocked,

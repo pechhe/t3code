@@ -462,6 +462,27 @@ export const OrchestrationV2ThreadWatch = Schema.Struct({
 });
 export type OrchestrationV2ThreadWatch = typeof OrchestrationV2ThreadWatch.Type;
 
+/**
+ * A workspace in another registered project that this thread works in beside its primary
+ * workspace. A project holds at most one live attachment per thread: one SlipJay has not
+ * released and the thread has not handed to a moved chat.
+ */
+export const OrchestrationV2WorkspaceAttachment = Schema.Struct({
+  projectId: ProjectId,
+  workspacePath: TrimmedNonEmptyString,
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  /** `allocated`: T3 created it for this thread, and Detach releases it. `adopted`: an
+      existing checkout or project root, which Detach leaves in place. */
+  origin: Schema.Literals(["allocated", "adopted"]),
+  attemptId: Schema.optional(TrimmedNonEmptyString),
+  attachedAt: IsoDateTime,
+  /** When SlipJay released it, for example after it landed. */
+  releasedAt: Schema.NullOr(IsoDateTime),
+  /** The chat a project move handed it to; Undo hands it back. */
+  movedTo: Schema.optional(ThreadId),
+});
+export type OrchestrationV2WorkspaceAttachment = typeof OrchestrationV2WorkspaceAttachment.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
   advisorResultObserved: Schema.optional(Schema.Struct({ runId: RunId, at: Schema.DateTimeUtc })),
@@ -480,6 +501,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
+  workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
   historyOrigin: Schema.optional(OrchestrationV2ThreadHistoryOrigin),
@@ -2031,6 +2053,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
+  workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,
   sideChat: Schema.optional(Schema.Boolean),
@@ -3218,7 +3241,17 @@ export const OrchestrationV2Command = Schema.Union([
     sideChat: Schema.optional(Schema.Boolean),
     /** Fork into this project, at its root, instead of the source's project and folder. */
     projectId: Schema.optional(ProjectId),
+    /** A project move: the fork takes over the source's live workspace attachments, and one in
+        the fork's project becomes its primary workspace. */
+    moveWorkspaceAttachments: Schema.optional(Schema.Boolean),
     createdAt: Schema.optional(Schema.DateTimeUtc),
+  }),
+  /** Undoes a project move: hands the attachments `fromThreadId` took over back to `threadId`. */
+  Schema.Struct({
+    type: Schema.Literal("thread.workspace-attachments.reclaim"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    fromThreadId: ThreadId,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.merge_back"),
@@ -3408,6 +3441,31 @@ const OrchestrationV2InternalCommand = Schema.Union([
     threadId: ThreadId,
     watchId: TrimmedNonEmptyString,
   }),
+  /**
+   * Attaches a workspace in another project, marks one released, or removes one. The workspace
+   * itself is allocated or released by the caller; this records the thread's hold on it.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.workspace-attachment.update"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    change: Schema.Union([
+      Schema.Struct({
+        action: Schema.Literal("attach"),
+        attachment: OrchestrationV2WorkspaceAttachment.mapFields((fields) => ({
+          projectId: fields.projectId,
+          workspacePath: fields.workspacePath,
+          branch: fields.branch,
+          origin: fields.origin,
+          attemptId: fields.attemptId,
+        })),
+      }),
+      Schema.Struct({
+        action: Schema.Literals(["release", "detach"]),
+        workspacePath: TrimmedNonEmptyString,
+      }),
+    ]),
+  }),
 ]);
 export type OrchestrationV2InternalCommand = typeof OrchestrationV2InternalCommand.Type;
 
@@ -3425,6 +3483,7 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   getRolloverThresholds: "orchestration.getRolloverThresholds",
   getWorkflowScript: "orchestration.getWorkflowScript",
   stopWorkflow: "orchestration.stopWorkflow",
+  detachWorkspace: "orchestration.detachWorkspace",
   getTurnItem: "orchestration.getTurnItem",
   launchThread: "orchestration.launchThread",
   subscribeArchivedShell: "orchestration.subscribeArchivedShell",
@@ -3709,6 +3768,25 @@ export class OrchestrationV2ThreadLaunchError extends Schema.TaggedError<Orchest
   },
 ) {}
 
+export const OrchestrationV2DetachWorkspaceInput = Schema.Struct({
+  threadId: ThreadId,
+  workspacePath: TrimmedNonEmptyString,
+});
+export type OrchestrationV2DetachWorkspaceInput = typeof OrchestrationV2DetachWorkspaceInput.Type;
+
+export class OrchestrationV2DetachWorkspaceError extends Schema.TaggedError<OrchestrationV2DetachWorkspaceError>()(
+  "OrchestrationV2DetachWorkspaceError",
+  {
+    threadId: ThreadId,
+    workspacePath: TrimmedNonEmptyString,
+    detail: Schema.String,
+  },
+) {
+  override get message(): string {
+    return this.detail;
+  }
+}
+
 export const OrchestrationV2StopWorkflowInput = Schema.Struct({
   threadId: ThreadId,
   subagentId: NodeId,
@@ -3948,6 +4026,10 @@ export const OrchestrationV2RpcSchemas = {
   },
   stopWorkflow: {
     input: OrchestrationV2StopWorkflowInput,
+    output: Schema.Void,
+  },
+  detachWorkspace: {
+    input: OrchestrationV2DetachWorkspaceInput,
     output: Schema.Void,
   },
   getWorkflowScript: {

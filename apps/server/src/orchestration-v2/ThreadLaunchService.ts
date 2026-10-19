@@ -53,6 +53,7 @@ import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
 import * as ThreadManagement from "./ThreadManagementService.ts";
+import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 
 export type ThreadLaunchWorkspaceStrategy =
   | { readonly type: "root"; readonly branch?: string | undefined }
@@ -1306,6 +1307,14 @@ export const layerReleasedWorkspacePreparation = Layer.effect(
   ReleasedWorkspacePreparation,
   Effect.gen(function* () {
     const launch = yield* ThreadLaunchService;
-    return { prepare: launch.prepareReleasedWorkspace };
+    const attachments = yield* WorkspaceAttachments.WorkspaceAttachments;
+    // The turn also learns which attached workspaces SlipJay has released, for example after
+    // the agent's own `slipjay land`.
+    return {
+      prepare: (input) =>
+        attachments
+          .markReleased(input.threadId)
+          .pipe(Effect.andThen(launch.prepareReleasedWorkspace(input))),
+    };
   }),
 );

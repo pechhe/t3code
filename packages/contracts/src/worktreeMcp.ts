@@ -1,6 +1,9 @@
 import * as Schema from "effect/Schema";
 
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { OrchestrationV2WorkspaceAttachment } from "./orchestrationV2.ts";
+
+const AbsolutePath = TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/));
 
 /**
  * The server picks the location in its managed worktrees folder.
@@ -16,7 +19,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
     }),
   ),
   worktreePath: Schema.optional(
-    TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/)).annotate({
+    AbsolutePath.annotate({
       description:
         "Absolute path of an existing checkout of the project's repository, such as a SlipJay workspace allocated with `slipjay start`, to attach instead of creating one. The other creation fields are ignored.",
     }),
@@ -98,6 +101,68 @@ export const WorktreeMcpHandoffResult = Schema.Struct({
 });
 export type WorktreeMcpHandoffResult = typeof WorktreeMcpHandoffResult.Type;
 
+/**
+ * Attaches a workspace in another registered project beside the thread's primary workspace.
+ * The provider session keeps running where it is; the thread's tools, helpers, strip and Land
+ * can use the attached workspace.
+ */
+export const WorktreeMcpAttachInput = Schema.Struct({
+  projectId: Schema.optional(
+    ProjectId.annotate({
+      description:
+        "Registered project to attach a workspace in. Required unless worktreePath is given; pass it with worktreePath when several projects are registered in that repository.",
+    }),
+  ),
+  worktreePath: Schema.optional(
+    AbsolutePath.annotate({
+      description:
+        "Absolute path of an existing checkout of the project's repository to adopt, such as a SlipJay workspace or the project's own root. Detach leaves it in place.",
+    }),
+  ),
+  root: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Adopt the project's main checkout, for an ordinary repository worked on in place. Detach leaves it in place.",
+    }),
+  ),
+  branch: Schema.optional(
+    TrimmedNonEmptyString.annotate({
+      description:
+        "Branch for a new worktree; in a SlipJay project, the new workspace's task name. Used when neither worktreePath nor root is given.",
+    }),
+  ),
+  baseRef: WorktreeMcpHandoffInput.fields.baseRef,
+  startFromOrigin: WorktreeMcpHandoffInput.fields.startFromOrigin,
+  runSetupScript: Schema.optional(
+    Schema.Boolean.annotate({
+      description:
+        "Run the project's configured setup script in the workspace. Defaults to true for a new workspace and false for an existing one.",
+    }),
+  ),
+});
+export type WorktreeMcpAttachInput = typeof WorktreeMcpAttachInput.Type;
+
+export const WorktreeMcpAttachResult = Schema.Struct({
+  attachment: OrchestrationV2WorkspaceAttachment,
+  setupScript: WorktreeMcpSetupScriptStatus,
+});
+export type WorktreeMcpAttachResult = typeof WorktreeMcpAttachResult.Type;
+
+export const WorktreeMcpDetachInput = Schema.Struct({
+  workspacePath: AbsolutePath.annotate({
+    description: "The attached workspace to detach, as t3_worktree_status lists it.",
+  }),
+});
+export type WorktreeMcpDetachInput = typeof WorktreeMcpDetachInput.Type;
+
+export const WorktreeMcpDetachResult = Schema.Struct({
+  released: Schema.Boolean.annotate({
+    description:
+      "True when the workspace was one T3 allocated and was released; false when it was adopted and left in place, or already released.",
+  }),
+});
+export type WorktreeMcpDetachResult = typeof WorktreeMcpDetachResult.Type;
+
 export const WorktreeMcpStatusResult = Schema.Struct({
   attached: Schema.Boolean.annotate({
     description: "True when this thread is attached to a worktree or SlipJay workspace.",
@@ -109,6 +174,10 @@ export const WorktreeMcpStatusResult = Schema.Struct({
   }),
   defaultStartFromOrigin: Schema.Boolean.annotate({
     description: "Server default used by t3_worktree_handoff when startFromOrigin is omitted.",
+  }),
+  attachments: Schema.Array(OrchestrationV2WorkspaceAttachment).annotate({
+    description:
+      "Workspaces attached in other projects. One with releasedAt set was released by SlipJay, for example after landing, and its project can take a fresh attachment.",
   }),
 });
 export type WorktreeMcpStatusResult = typeof WorktreeMcpStatusResult.Type;

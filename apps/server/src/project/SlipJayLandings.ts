@@ -197,6 +197,8 @@ export class SlipJayLandings extends Context.Service<
     readonly land: (
       input: VcsSlipJayLandInput,
     ) => Effect.Effect<VcsSlipJayLandResult, SlipJayCommandError>;
+    /** Whether a landing this service started is still running for the workspace holding `cwd`. */
+    readonly isLanding: (cwd: string) => Effect.Effect<boolean>;
     /**
      * The runner's lanes and recent deploys, current value first. Following it starts the
      * watch on a host with SlipJay installed; elsewhere it stays disconnected and empty.
@@ -690,6 +692,13 @@ export const make = Effect.gen(function* () {
     return yield* Deferred.await(landing);
   });
 
+  const isLanding: SlipJayLandings["Service"]["isLanding"] = (cwd) =>
+    workspaceRootOf(cwd).pipe(
+      Effect.flatMap((root) =>
+        root === null ? Effect.succeed(false) : Ref.get(lands).pipe(Effect.map((current) => current.has(root))),
+      ),
+    );
+
   // A host without SlipJay has no runner to follow, so it never starts a watch to retry.
   // Each new follower asks again until the watch starts, so installing SlipJay later works.
   const slipJayInstalled = processes
@@ -756,6 +765,7 @@ export const make = Effect.gen(function* () {
     followRunnerChange,
     cancel,
     land,
+    isLanding,
     landingFor,
     removedWorkspaceLanding,
     changes: Stream.fromPubSub(changed),
@@ -786,6 +796,7 @@ export const layerNone = Layer.succeed(
         }),
       ),
     repositoryOf: () => Effect.succeed(null),
+    isLanding: () => Effect.succeed(false),
     land: ({ cwd }) =>
       Effect.fail(
         new SlipJayCommandError({

@@ -470,6 +470,41 @@ it.effect("requires task permission before attaching a prepared worktree to a th
   }).pipe(Effect.scoped),
 );
 
+it.effect("requires source-control permission before detaching a workspace", () =>
+  Effect.gen(function* () {
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (
+          tag,
+        ): tag is Exclude<
+          keyof typeof RPC_REQUIRED_SCOPES,
+          typeof ORCHESTRATION_V2_WS_METHODS.detachWorkspace
+        > => tag !== ORCHESTRATION_V2_WS_METHODS.detachWorkspace,
+      ),
+    );
+    let handled = false;
+    const client = yield* RpcTest.makeClient(group).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          group.toLayerHandler(ORCHESTRATION_V2_WS_METHODS.detachWorkspace, () =>
+            Effect.sync(() => {
+              handled = true;
+            }).pipe(Effect.andThen(Effect.never)),
+          ),
+          RpcAuthorization.layer([AuthOrchestrationOperateScope]),
+        ),
+      ),
+    );
+    expect(
+      yield* client[ORCHESTRATION_V2_WS_METHODS.detachWorkspace]({
+        threadId: ThreadId.make("thread"),
+        workspacePath: "/repo/workspace",
+      }).pipe(Effect.flip),
+    ).toMatchObject({ requiredPermission: AuthSourceControlWriteScope });
+    expect(handled).toBe(false);
+  }).pipe(Effect.scoped),
+);
+
 it.effect("separates host file URLs from readable attachment URLs", () =>
   Effect.gen(function* () {
     const group = WsRpcGroup.omit(

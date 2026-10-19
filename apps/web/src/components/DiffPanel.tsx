@@ -31,6 +31,7 @@ import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
 import { useLocalStorage } from "../hooks/useLocalStorage";
+import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { useTheme } from "../hooks/useTheme";
 import { useStableCallback } from "../hooks/useStableCallback";
 import {
@@ -224,7 +225,9 @@ export default function DiffPanel({
   const activeThread = useQuietThreadShell(routeThreadRef);
   const fileAccess = useFilesystemReadAccess(activeThread?.environmentId ?? null);
   const { canReadFiles } = fileAccess;
-  const activeProjectId = activeThread?.projectId ?? null;
+  // The git sources diff the workspace the thread has selected, which may be an attachment.
+  const selectedWorkspace = useSelectedWorkspace(routeThreadRef);
+  const activeProjectId = selectedWorkspace?.projectId ?? null;
   const activeProject = useProject(
     activeThread && activeProjectId
       ? {
@@ -233,8 +236,9 @@ export default function DiffPanel({
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const activeRepositoryRoot = activeThread?.worktreePath
+  const activeWorktreePath = selectedWorkspace?.worktreePath ?? null;
+  const activeCwd = activeWorktreePath ?? activeProject?.workspaceRoot;
+  const activeRepositoryRoot = activeWorktreePath
     ? undefined
     : activeProject?.repositoryIdentity?.rootPath;
   const serverConfig = useAtomValue(

@@ -100,6 +100,10 @@ export function createOrchestrationEnvironmentAtoms<R, E>(
       label: "environment-data:orchestration:stop-workflow",
       tag: ORCHESTRATION_V2_WS_METHODS.stopWorkflow,
     }),
+    detachWorkspace: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:orchestration:detach-workspace",
+      tag: ORCHESTRATION_V2_WS_METHODS.detachWorkspace,
+    }),
     turnItem: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:orchestration:turn-item",
       tag: ORCHESTRATION_V2_WS_METHODS.getTurnItem,

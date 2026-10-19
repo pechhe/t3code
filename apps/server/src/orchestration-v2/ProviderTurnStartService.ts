@@ -70,6 +70,40 @@ export const SIDE_CHAT_NOTE =
 export const NO_PROJECT_NOTE =
   "This chat is in No project: it runs in its own scratch folder and cannot see project code. When the user's request is work in one of their projects (t3_project_list), call t3_thread_move_to_project with that project and a continuationPrompt before doing the work, then end your turn; the chat continues in the project. When the fit is likely but unclear, call t3_thread_suggest_project once with a one-line reason instead; the user then chooses Move or Keep.";
 
+const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
+
+/** One of a thread's workspaces, as the workspaces note lists it. */
+export interface TurnWorkspace {
+  readonly project: string;
+  readonly path: string;
+  readonly branch: string | null;
+  readonly role: "primary" | "attached" | "released";
+  readonly instructionFiles: ReadonlyArray<string>;
+}
+
+/**
+ * Sent with each turn of a thread that has workspaces attached in other projects, so the agent
+ * knows where it works after compaction or a rollover.
+ */
+export const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string =>
+  [
+    "This thread works in these workspaces. Read a workspace's instruction files before working there, and land each repository from its own workspace.",
+    ...workspaces.map((workspace) => {
+      const role =
+        workspace.role === "primary"
+          ? "primary, where this session runs"
+          : workspace.role === "attached"
+            ? "attached"
+            : "released by SlipJay; attach a fresh workspace to work in this project again";
+      const branch = workspace.branch === null ? "" : ` on ${workspace.branch}`;
+      const instructions =
+        workspace.instructionFiles.length === 0
+          ? ""
+          : `; instructions: ${workspace.instructionFiles.join(", ")}`;
+      return `- ${workspace.project} (${role}): ${workspace.path}${branch}${instructions}`;
+    }),
+  ].join("\n");
+
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
   {
@@ -1111,6 +1145,71 @@ export const layer: Layer.Layer<
                 !coveredItemIds.has(item.id) &&
                 historicalMessage(item) !== null,
             );
+      // The notes this turn adds to the user's message. A turn with any of them goes through
+      // context delivery, which writes them.
+      const offersProjectSuggestion =
+        projection.thread.sideChat !== true &&
+        projection.thread.projectSuggestion == null &&
+        (yield* projects.getById(projection.thread.projectId).pipe(
+          Effect.map(
+            Option.exists(
+              (project) =>
+                path.resolve(project.workspaceRoot) ===
+                ManagedProjectFolders.scratchFolder(path, serverConfig.baseDir),
+            ),
+          ),
+          Effect.orElseSucceed(() => false),
+        ));
+      const scheduled = message.scheduledTaskId !== undefined;
+      const attachments = (projection.thread.workspaceAttachments ?? []).filter(
+        (attachment) => attachment.movedTo === undefined,
+      );
+      const turnWorkspaces =
+        attachments.length === 0
+          ? []
+          : yield* Effect.forEach(
+              [
+                {
+                  projectId: projection.thread.projectId,
+                  path: projection.thread.worktreePath,
+                  branch: projection.thread.branch,
+                  role: "primary" as const,
+                },
+                ...attachments.map((attachment) => ({
+                  projectId: attachment.projectId,
+                  path: attachment.workspacePath,
+                  branch: attachment.branch,
+                  role:
+                    attachment.releasedAt === null
+                      ? ("attached" as const)
+                      : ("released" as const),
+                })),
+              ],
+              (workspace) =>
+                Effect.gen(function* () {
+                  const project = Option.getOrUndefined(
+                    yield* projects
+                      .getById(workspace.projectId)
+                      .pipe(Effect.orElseSucceed(() => Option.none())),
+                  );
+                  const root = workspace.path ?? project?.workspaceRoot ?? "";
+                  const instructionFiles =
+                    workspace.role === "released"
+                      ? []
+                      : yield* Effect.filter(INSTRUCTION_FILES, (file) =>
+                          fileSystem
+                            .exists(path.join(root, file))
+                            .pipe(Effect.orElseSucceed(() => false)),
+                        );
+                  return {
+                    project: project?.title ?? workspace.projectId,
+                    path: root,
+                    branch: workspace.branch,
+                    role: workspace.role,
+                    instructionFiles,
+                  } satisfies TurnWorkspace;
+                }),
+            );
       const startWithHandoffs = (
         turnInput: Parameters<typeof session.startTurn>[0],
         compact = false,
@@ -1187,25 +1286,12 @@ export const layer: Layer.Layer<
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
-          const offersProjectSuggestion =
-            projection.thread.sideChat !== true &&
-            projection.thread.projectSuggestion == null &&
-            (yield* projects.getById(projection.thread.projectId).pipe(
-              Effect.map(
-                Option.exists(
-                  (project) =>
-                    path.resolve(project.workspaceRoot) ===
-                    ManagedProjectFolders.scratchFolder(path, serverConfig.baseDir),
-                ),
-              ),
-              Effect.orElseSucceed(() => false),
-            ));
-          const scheduled = message.scheduledTaskId !== undefined;
           const context = [
             delivery.context,
             restartNote,
             projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
             offersProjectSuggestion ? NO_PROJECT_NOTE : "",
+            turnWorkspaces.length === 0 ? "" : workspacesNote(turnWorkspaces),
             scheduled ? SCHEDULED_TASK_NOTE : "",
           ]
             .filter((part) => part !== "")
@@ -1262,7 +1348,9 @@ export const layer: Layer.Layer<
         restartNote === "" &&
         !noteContinuation &&
         projection.thread.sideChat !== true &&
-        message.scheduledTaskId === undefined
+        !scheduled &&
+        !offersProjectSuggestion &&
+        turnWorkspaces.length === 0
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);

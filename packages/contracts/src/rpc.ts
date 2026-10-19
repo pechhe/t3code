@@ -263,6 +263,7 @@ import {
   ORCHESTRATION_V2_WS_METHODS,
   OrchestrationGetWorkflowScriptError,
   OrchestrationV2StopWorkflowError,
+  OrchestrationV2DetachWorkspaceError,
   OrchestrationV2DispatchCommandError,
   OrchestrationV2GetShellSnapshotError,
   OrchestrationV2GetRolloverThresholdsError,
@@ -1889,6 +1890,15 @@ const WsOrchestrationV2StopWorkflowRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.st
   error: Schema.Union([OrchestrationV2StopWorkflowError, EnvironmentAuthorizationError]),
 });
 
+const WsOrchestrationV2DetachWorkspaceRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.detachWorkspace,
+  {
+    payload: OrchestrationV2RpcSchemas.detachWorkspace.input,
+    success: OrchestrationV2RpcSchemas.detachWorkspace.output,
+    error: Schema.Union([OrchestrationV2DetachWorkspaceError, EnvironmentAuthorizationError]),
+  },
+);
+
 const WsOrchestrationV2GetWorkflowScriptRpc = Rpc.make(
   ORCHESTRATION_V2_WS_METHODS.getWorkflowScript,
   {
@@ -2346,6 +2356,7 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsOrchestrationV2DispatchCommandRpc,
   WsOrchestrationV2GetWorkflowScriptRpc,
   WsOrchestrationV2StopWorkflowRpc,
+  WsOrchestrationV2DetachWorkspaceRpc,
   WsOrchestrationV2GetTurnItemRpc,
   WsOrchestrationV2GetTurnDiffRpc,
   WsOrchestrationV2GetFullThreadDiffRpc,

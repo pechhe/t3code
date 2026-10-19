@@ -7,11 +7,11 @@ import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { isAtomCommandInterrupted } from "@t3tools/client-runtime/state/runtime";
 import { projectScriptCwd, projectScriptRuntimeEnv } from "@t3tools/shared/projectScripts";
 import { nextTerminalId } from "@t3tools/shared/terminalLabels";
-import { useComposerDraftStore } from "../../composerDraftStore";
+import { useSelectedWorkspace } from "../../hooks/useSelectedWorkspace";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { randomUUID } from "~/lib/utils";
 import { selectThreadRightPanelState, useRightPanelStore } from "../../rightPanelStore";
-import { useProject, useQuietThreadShell } from "../../state/entities";
+import { useProject } from "../../state/entities";
 import { readEnvironmentScope } from "../../state/session";
 import { terminalEnvironment } from "../../state/terminal";
 import { useKnownTerminalSessions } from "../../state/terminalSessions";
@@ -34,17 +34,14 @@ export function useThreadTerminalActions(threadRef: ScopedThreadRef | null) {
   const openTerminalCommand = useAtomCommand(terminalEnvironment.open, "terminal open");
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const closeTerminalCommand = useAtomCommand(terminalEnvironment.close, "terminal close");
-  const serverThread = useQuietThreadShell(threadRef);
-  const draftThread = useComposerDraftStore((store) =>
-    threadRef ? store.getDraftThreadByRef(threadRef) : null,
-  );
-  const projectRef = serverThread
-    ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
-    : draftThread
-      ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
+  // New terminals start in the workspace the thread has selected, which may be an attachment.
+  const selectedWorkspace = useSelectedWorkspace(threadRef);
+  const projectRef =
+    threadRef && selectedWorkspace
+      ? scopeProjectRef(threadRef.environmentId, selectedWorkspace.projectId)
       : null;
   const project = useProject(projectRef);
-  const threadWorktreePath = serverThread?.worktreePath ?? draftThread?.worktreePath ?? null;
+  const threadWorktreePath = selectedWorkspace?.worktreePath ?? null;
   const knownSessions = useKnownTerminalSessions({
     environmentId: threadRef?.environmentId ?? null,
     threadId: threadRef?.threadId ?? null,

@@ -99,6 +99,8 @@ export interface EnvironmentThreadShell {
   readonly interactionMode: OrchestrationV2ThreadShell["interactionMode"];
   readonly branch: string | null;
   readonly worktreePath: string | null;
+  /** Workspaces in other projects this thread holds beside its primary one. */
+  readonly workspaceAttachments?: OrchestrationV2ThreadShell["workspaceAttachments"];
   readonly lineage: OrchestrationV2ThreadShell["lineage"];
   /** Shown in its parent's side chat card, never in thread lists. */
   readonly sideChat: boolean;
@@ -257,6 +259,9 @@ export function presentThreadShell(
     interactionMode: thread.interactionMode,
     branch: thread.branch,
     worktreePath: thread.worktreePath,
+    ...(thread.workspaceAttachments === undefined
+      ? {}
+      : { workspaceAttachments: thread.workspaceAttachments }),
     pullRequests: threadPullRequestsOf(thread),
     linkedPullRequest: thread.linkedPullRequest ?? null,
     branchPullRequest: thread.branchPullRequest ?? null,

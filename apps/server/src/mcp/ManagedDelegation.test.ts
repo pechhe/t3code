@@ -251,6 +251,8 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
     options: {
       readonly register?: ReadonlyArray<"foreign" | "twin">;
       readonly scratch?: boolean;
+      /** The lead holds the other project's isolated workspace as a live attachment. */
+      readonly attached?: boolean;
     } = {},
   ) =>
     Effect.gen(function* () {
@@ -301,6 +303,20 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           interactionMode: "default",
           worktreePath: options.scratch ? scratchFolder : bound ? lead : null,
           modelSelection: { instanceId: codex.instanceId, model: codex.models[0]!.slug },
+          ...(options.attached
+            ? {
+                workspaceAttachments: [
+                  {
+                    projectId: ProjectId.make("foreign-project"),
+                    workspacePath: foreignHelper,
+                    branch: null,
+                    origin: "allocated",
+                    attachedAt: "2026-10-19T09:00:00.000Z",
+                    releasedAt: null,
+                  },
+                ],
+              }
+            : {}),
         },
         runs: [
           {
@@ -864,6 +880,73 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       });
       expect(helper.message).toContain("another thread is working in");
       expect([...root.dispatched, ...unbound.dispatched, ...twin.dispatched]).toHaveLength(0);
+    }),
+  );
+
+  it.effect("treats a workspace the lead attached in another project as its own checkout", () =>
+    Effect.gen(function* () {
+      const h = yield* harness(() => [], true, { register: ["foreign"], attached: true });
+      const commands = h.dispatched as Array<{ agentTask: AgentTaskBinding }>;
+      // A writer shares the attached workspace, which names its project.
+      yield* h.delegate({
+        task: "Write in the attached workspace",
+        clientRequestId: "attached-sharing",
+        agentTask: request({ workId: "attached-work", workspacePath: h.foreignHelper }),
+      });
+      expect(commands[0]?.agentTask).toMatchObject({
+        workspacePath: h.foreignHelper,
+        projectId: "foreign-project",
+        sourceAccess: "scoped-write",
+      });
+      // Only the attached workspace is the lead's there, not the project's main checkout.
+      const elsewhere = yield* h.delegate({
+        task: "Write in the foreign main checkout",
+        clientRequestId: "attached-root-sharing",
+        agentTask: request({ workId: "attached-root", workspacePath: h.foreign }),
+      });
+      expect(elsewhere.message).toContain(`must use ${h.foreignHelper}`);
+      expect(h.dispatched).toHaveLength(1);
+    }),
+  );
+
+  it.effect("keeps helpers out of a workspace another lead holds as a live attachment", () =>
+    Effect.gen(function* () {
+      const holder = (helper: string, where: { readonly projectId: string }) =>
+        where.projectId === "lead-project"
+          ? [
+              {
+                id: "other-lead",
+                projectId: "lead-project",
+                lineage: { rootThreadId: "other-lead" },
+                worktreePath: null,
+                status: "running",
+                workspaceAttachments: [
+                  {
+                    projectId: "foreign-project",
+                    workspacePath: helper,
+                    branch: null,
+                    origin: "allocated",
+                    attachedAt: "2026-10-19T09:00:00.000Z",
+                    releasedAt: null,
+                  },
+                ],
+              } as unknown as OrchestrationV2ThreadShell,
+            ]
+          : [];
+      const h = yield* harness((_, where) => holder(where.foreignHelper, where), true, {
+        register: ["foreign"],
+      });
+      const refused = yield* h.delegate({
+        task: "Implement it there",
+        clientRequestId: "attached-occupied",
+        agentTask: request({
+          workId: "foreign-work",
+          workspacePath: h.foreignHelper,
+          workspaceAssignment: "isolated",
+        }),
+      });
+      expect(refused.message).toContain("another thread is working in");
+      expect(h.dispatched).toHaveLength(0);
     }),
   );
 });

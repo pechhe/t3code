@@ -16,18 +16,16 @@ import * as ThreadUndo from "./threadUndo";
 
 /**
  * Moves a No project chat into a project and opens the moved chat. The move
- * forks the conversation into the project and archives the original; Undo
- * restores the original and deletes the fork while the fork has no turn of its own.
+ * forks the conversation into the project and archives the original, and the fork
+ * takes over the original's attached workspaces. Undo restores the original with
+ * them and deletes the fork while the fork has no turn of its own.
  */
 export function useMoveThreadToProject() {
   const moveToProject = useOrchestrationCommand(threadEnvironment.moveToProject, {
     label: "move chat to project",
   });
-  const unarchiveThread = useOrchestrationCommand(threadEnvironment.unarchive, {
-    label: "restore moved chat",
-  });
-  const deleteThread = useOrchestrationCommand(threadEnvironment.delete, {
-    label: "remove moved chat",
+  const undoMove = useOrchestrationCommand(threadEnvironment.undoMoveToProject, {
+    label: "undo chat move",
   });
   const router = useRouter();
 
@@ -59,17 +57,12 @@ export function useMoveThreadToProject() {
           if (readThreadShell(movedRef)?.latestRun != null) {
             throw new Error("The moved chat has a new turn, so it stays in the project.");
           }
-          const restored = await unarchiveThread({
+          const undone = await undoMove({
             environmentId,
-            input: { threadId: source.id },
+            input: { sourceThreadId: source.id, targetThreadId: movedRef.threadId },
           });
-          if (restored._tag === "Failure") return restored;
           refreshArchivedThreadsForEnvironment(environmentId);
-          const removed = await deleteThread({
-            environmentId,
-            input: { threadId: movedRef.threadId },
-          });
-          if (removed._tag === "Failure") return removed;
+          if (undone._tag === "Failure") return undone;
           return settlePromise(() =>
             router.navigate({
               to: "/$environmentId/$threadId",
@@ -85,6 +78,6 @@ export function useMoveThreadToProject() {
         }),
       );
     },
-    [deleteThread, moveToProject, router, unarchiveThread],
+    [moveToProject, router, undoMove],
   );
 }

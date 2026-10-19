@@ -16,6 +16,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
+import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 import * as CheckpointCaptureService from "./CheckpointCaptureService.ts";
 import * as CheckpointService from "./CheckpointService.ts";
 import * as CheckpointRollbackService from "./CheckpointRollbackService.ts";
@@ -289,6 +290,11 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
     ),
   ),
 );
+export const layerWorkspaceAttachmentsProvided = WorkspaceAttachments.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(layerProjectService, WorkspaceProvider.layer, layerThreadManagementProvided),
+  ),
+);
 const layerThreadLifecycleProvided = ThreadLifecycleService.layer.pipe(
   Layer.provide(layerThreadManagementProvided),
 );
@@ -383,12 +389,14 @@ export const layerProduction = Layer.mergeAll(
     Layer.provide(
       ThreadLaunchService.layerReleasedWorkspacePreparation.pipe(
         Layer.provide(layerThreadLaunchProvided),
+        Layer.provide(layerWorkspaceAttachmentsProvided),
       ),
     ),
   ),
   layerProjectService,
   layerManagedProjectFoldersProvided,
   layerThreadLaunchProvided,
+  layerWorkspaceAttachmentsProvided,
   layerThreadLifecycleProvided,
   layerScheduledTaskProvided,
   RunSetupRecorder.storeLayer,

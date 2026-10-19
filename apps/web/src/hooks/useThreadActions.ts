@@ -58,6 +58,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { clearThreadPreviewState } from "../previewStateStore";
 import { useTerminalUiStateStore } from "../terminalUiStateStore";
 import { buildThreadRouteParams, resolveThreadRouteRef } from "../threadRoutes";
+import { attachmentsToRemoveOnDelete } from "../threadWorkspaces.logic";
 import { formatWorktreePathForDisplay, getOrphanedWorktreePathForThread } from "../worktreeCleanup";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useClientSettings } from "./useSettings";
@@ -480,20 +481,24 @@ export function useThreadActions() {
       .get(environmentServerConfigsAtom)
       .get(threadRef.environmentId);
     const localApi = readLocalApi();
-    let canDeleteWorktree = false;
-    if (
+    const canOfferPrimaryRemoval =
       orphanedWorktreePath !== null &&
       threadProject !== null &&
-      !isScratchProject(threadProject, environmentConfig?.scratchWorkspaceRoot) &&
-      localApi
+      !isScratchProject(threadProject, environmentConfig?.scratchWorkspaceRoot);
+    let canRemoveWorktrees = false;
+    if (
+      localApi &&
+      (canOfferPrimaryRemoval ||
+        attachmentsToRemoveOnDelete(thread.workspaceAttachments).length > 0)
     ) {
       const sessionResult = await loadSessionState(threadRef.environmentId);
       const permissionFailure = threadOperationFailure(threadRef);
       if (permissionFailure) return permissionFailure;
-      canDeleteWorktree =
+      canRemoveWorktrees =
         sessionResult._tag === "Success" &&
         sessionGrantsScope(sessionResult.value, AuthSourceControlWriteScope);
     }
+    const canDeleteWorktree = canRemoveWorktrees && canOfferPrimaryRemoval;
     let shouldDeleteWorktree = false;
     const environmentSettings = environmentConfig?.settings;
     const automaticWorktreeCleanup = environmentSettings
@@ -515,6 +520,43 @@ export function useThreadActions() {
         return confirmationResult;
       }
       shouldDeleteWorktree = confirmationResult.value;
+    }
+
+    // Allocated attachments are removed the way the primary worktree is, after one confirmation.
+    // Automatic worktree cleanup covers only the primary worktree, so they are always asked about.
+    const removableAttachments = attachmentsToRemoveOnDelete(thread.workspaceAttachments).flatMap(
+      (attachment) => {
+        const project = readProject({
+          environmentId: threadRef.environmentId,
+          projectId: attachment.projectId,
+        });
+        return project === null ? [] : [{ attachment, project }];
+      },
+    );
+    let shouldDeleteAttachments = false;
+    if (
+      removableAttachments.length > 0 &&
+      canRemoveWorktrees &&
+      localApi
+    ) {
+      const confirmationResult = await settlePromise(() =>
+        localApi.dialogs.confirm(
+          [
+            "This thread holds workspaces in other projects:",
+            ...removableAttachments.map(
+              ({ attachment, project }) =>
+                `${project.title}: ${formatWorktreePathForDisplay(attachment.workspacePath)}`,
+            ),
+            "",
+            "Delete the workspaces too?",
+          ].join("\n"),
+          { variant: "destructive" },
+        ),
+      );
+      if (confirmationResult._tag === "Failure") {
+        return confirmationResult;
+      }
+      shouldDeleteAttachments = confirmationResult.value;
     }
 
     if (thread.runtime !== null) {
@@ -569,63 +611,83 @@ export function useThreadActions() {
       );
     }
 
-    if (!shouldDeleteWorktree || !orphanedWorktreePath || !threadProject) {
-      return deleteResult;
-    }
-
-    const removeResult = readEnvironmentScope(threadRef.environmentId, AuthSourceControlWriteScope)
-      ? await removeWorktree({
-          environmentId: threadRef.environmentId,
-          input: {
-            cwd: threadProject.workspaceRoot,
-            path: orphanedWorktreePath,
-            force: true,
-          },
-        })
-      : AsyncResult.failure(
-          Cause.fail(
-            new EnvironmentAuthorizationError({
-              message: "This connection can no longer remove worktrees.",
-              requiredScope: AuthSourceControlWriteScope,
-            }),
-          ),
-        );
-    const refreshResult =
-      removeResult._tag === "Success"
-        ? await refreshVcsStatus({
+    const removeWorkspaceAfterDelete = async (workspace: {
+      projectRoot: string;
+      path: string;
+    }) => {
+      const displayPath = formatWorktreePathForDisplay(workspace.path);
+      const removeResult = readEnvironmentScope(
+        threadRef.environmentId,
+        AuthSourceControlWriteScope,
+      )
+        ? await removeWorktree({
             environmentId: threadRef.environmentId,
-            input: { cwd: threadProject.workspaceRoot },
+            input: {
+              cwd: workspace.projectRoot,
+              path: workspace.path,
+              force: true,
+            },
           })
-        : null;
-    const cleanupFailure =
-      removeResult._tag === "Failure"
-        ? removeResult
-        : refreshResult?._tag === "Failure"
-          ? refreshResult
+        : AsyncResult.failure(
+            Cause.fail(
+              new EnvironmentAuthorizationError({
+                message: "This connection can no longer remove worktrees.",
+                requiredScope: AuthSourceControlWriteScope,
+              }),
+            ),
+          );
+      const refreshResult =
+        removeResult._tag === "Success"
+          ? await refreshVcsStatus({
+              environmentId: threadRef.environmentId,
+              input: { cwd: workspace.projectRoot },
+            })
           : null;
-    if (cleanupFailure) {
-      const removalFailed = removeResult._tag === "Failure";
-      const error = squashAtomCommandFailure(cleanupFailure);
-      const message = error instanceof Error ? error.message : "An error occurred.";
-      console.error("Worktree cleanup failed after thread deletion", {
-        threadId: threadRef.threadId,
-        projectCwd: threadProject.workspaceRoot,
-        worktreePath: orphanedWorktreePath,
-        error,
+      const cleanupFailure =
+        removeResult._tag === "Failure"
+          ? removeResult
+          : refreshResult?._tag === "Failure"
+            ? refreshResult
+            : null;
+      if (cleanupFailure) {
+        const removalFailed = removeResult._tag === "Failure";
+        const error = squashAtomCommandFailure(cleanupFailure);
+        const message = error instanceof Error ? error.message : "An error occurred.";
+        console.error("Worktree cleanup failed after thread deletion", {
+          threadId: threadRef.threadId,
+          projectCwd: workspace.projectRoot,
+          worktreePath: workspace.path,
+          error,
+        });
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: removalFailed
+              ? "Failed to delete worktree"
+              : "Worktree deleted, but Git status refresh failed",
+            description: removalFailed
+              ? `Could not remove ${displayPath}. ${message}`
+              : message,
+          }),
+        );
+        // The thread was deleted. Cleanup has its own toast; returning its
+        // failure would make callers incorrectly report a thread deletion error.
+      }
+    };
+
+    if (shouldDeleteWorktree && orphanedWorktreePath && threadProject) {
+      await removeWorkspaceAfterDelete({
+        projectRoot: threadProject.workspaceRoot,
+        path: orphanedWorktreePath,
       });
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: removalFailed
-            ? "Failed to delete worktree"
-            : "Worktree deleted, but Git status refresh failed",
-          description: removalFailed
-            ? `Could not remove ${displayWorktreePath ?? orphanedWorktreePath}. ${message}`
-            : message,
-        }),
-      );
-      // The thread was deleted. Cleanup has its own toast; returning its
-      // failure would make callers incorrectly report a thread deletion error.
+    }
+    if (shouldDeleteAttachments) {
+      for (const { attachment, project } of removableAttachments) {
+        await removeWorkspaceAfterDelete({
+          projectRoot: project.workspaceRoot,
+          path: attachment.workspacePath,
+        });
+      }
     }
     return deleteResult;
   };

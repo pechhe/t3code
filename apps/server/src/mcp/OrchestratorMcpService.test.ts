@@ -1107,6 +1107,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         title: "MCP parent",
         createdBy: "user",
         creationSource: "web",
+        worktreePath: "/tmp/mcp-parent-worktree",
         modelSelection,
         runtimeMode: "full-access",
         interactionMode: "default",

@@ -89,6 +89,8 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           agentTask,
           sideChat: _sourceSideChat,
           projectSuggestion: _sourceProjectSuggestion,
+          // Only a project move hands workspace attachments over; the fork command does that.
+          workspaceAttachments: _sourceWorkspaceAttachments,
           ...sourceThread
         } = input.sourceProjection.thread;
         const targetProjectId =

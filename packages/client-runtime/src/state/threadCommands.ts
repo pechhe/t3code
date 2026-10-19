@@ -30,6 +30,7 @@ import {
   type ForkThreadFromRunInput,
   type KeepSideChatInput,
   type MoveThreadToProjectInput,
+  type UndoMoveThreadToProjectInput,
   type DismissProjectSuggestionInput,
   type OpenSideChatInput,
   type MergeThreadBackInput,
@@ -69,6 +70,7 @@ import {
   forkThreadFromRun,
   keepSideChat,
   moveThreadToProject,
+  undoMoveThreadToProject,
   dismissProjectSuggestion,
   openSideChat,
   markThreadUnread,
@@ -123,6 +125,7 @@ export type {
   ForkThreadFromRunInput,
   MergeThreadBackInput,
   MoveThreadToProjectInput,
+  UndoMoveThreadToProjectInput,
   OpenSideChatInput,
   PromoteQueuedRunInput,
   ReorderQueuedRunInput,
@@ -373,6 +376,15 @@ export function createThreadEnvironmentAtoms<R, E>(
     moveToProject: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:move-to-project",
       execute: (input: MoveThreadToProjectInput) => moveThreadToProject(input),
+      scheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
+      },
+    }),
+    undoMoveToProject: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:undo-move-to-project",
+      execute: (input: UndoMoveThreadToProjectInput) => undoMoveThreadToProject(input),
       scheduler,
       concurrency: {
         mode: "serial",

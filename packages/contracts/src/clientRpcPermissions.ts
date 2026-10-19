@@ -65,6 +65,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.scheduledTasksRotateWebhookToken]: AuthOrchestrationOperateScope,
   [WS_METHODS.releaseApprovalsAnswer]: AuthOrchestrationOperateScope,
   [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: AuthOrchestrationOperateScope,
+  [ORCHESTRATION_V2_WS_METHODS.detachWorkspace]: AuthOrchestrationOperateScope,
 } as const;
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
@@ -79,6 +80,9 @@ export function clientRpcRequiredScopes(
     if (payload.mode === "worktree" && payload.threadId !== undefined)
       return [AuthSourceControlWriteScope, AuthOrchestrationOperateScope];
   }
+  // Detaching a workspace the thread allocated removes it from disk, like removing a worktree.
+  if (method === ORCHESTRATION_V2_WS_METHODS.detachWorkspace)
+    return [AuthOrchestrationOperateScope, AuthSourceControlWriteScope];
   return Object.hasOwn(CLIENT_GUARDED_RPC_SCOPES, method)
     ? [CLIENT_GUARDED_RPC_SCOPES[method as ClientGuardedRpcTag]]
     : [];

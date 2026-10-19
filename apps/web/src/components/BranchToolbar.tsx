@@ -16,6 +16,9 @@ import {
 import { type MouseEvent as ReactMouseEvent, memo, useState } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
+import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
+import { deriveWorkspaceChips } from "../threadWorkspaces.logic";
+import { WorkspaceAttachmentChips } from "./WorkspaceAttachmentChips";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject, useQuietThreadShell, useThreadShellsForProjectRefs } from "../state/entities";
 import {
@@ -409,6 +412,7 @@ export const BranchToolbar = memo(function BranchToolbar({
       : null;
   const activeProject = useProject(activeProjectRef);
   const hasActiveThread = serverThread !== null || draftThread !== null;
+  const selectedWorkspace = useSelectedWorkspace(threadRef);
   const activeWorktreePath = forceNewWorktree
     ? null
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
@@ -468,6 +472,18 @@ export const BranchToolbar = memo(function BranchToolbar({
   const activeEnvironmentOption =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
   if (!hasActiveThread || !activeProject) return null;
+  const workspaceChips =
+    serverThread === null || selectedWorkspace === null
+      ? []
+      : deriveWorkspaceChips({
+          primary: {
+            projectId: serverThread.projectId,
+            statusCwd: serverThread.worktreePath ?? activeProject.workspaceRoot,
+            branch: serverThread.branch,
+          },
+          attachments: serverThread.workspaceAttachments,
+          selected: selectedWorkspace,
+        });
 
   return (
     <div className="flex w-full flex-col" data-thread-panel-run-context>
@@ -490,6 +506,13 @@ export const BranchToolbar = memo(function BranchToolbar({
           previousWorktreeLabel={previousWorktreeLabel}
           previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
           onUsePreviousWorktree={onUsePreviousWorktree}
+        />
+      ) : null}
+      {panelSection !== "branch" && workspaceChips.length > 0 ? (
+        <WorkspaceAttachmentChips
+          environmentId={environmentId}
+          threadId={threadId}
+          chips={workspaceChips}
         />
       ) : null}
       {panelSection !== "workspace" && slipJayRows ? (

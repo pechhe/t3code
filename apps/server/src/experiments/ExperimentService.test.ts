@@ -42,6 +42,7 @@ import {
   request as agentTaskRequest,
   snapshot as agentPolicySnapshot,
 } from "../agents/agentPolicy.testkit.ts";
+import { ROLLOVER_NOTE_RECIPE } from "../orchestration-v2/ContextRollover.ts";
 
 const encodeExperiment = Schema.encodeSync(Schema.fromJsonString(Experiment));
 const SchemaEncodeExpired = (value: typeof import("@t3tools/contracts").Experiment.Type) =>
@@ -1709,7 +1710,7 @@ describe("rollover capture", () => {
         });
         assert.equal(before.rubric?.revision, "rollover-quality-v1");
         const artifacts = before.captures.flatMap((capture) => capture.artifacts);
-        assert.equal(before.captures[0]?.recipeRevision, "rollover-v2");
+        assert.equal(before.captures[0]?.recipeRevision, ROLLOVER_NOTE_RECIPE);
         assert.equal(
           artifacts
             .filter((artifact) => artifact.reference.startsWith("message:message:brief"))
