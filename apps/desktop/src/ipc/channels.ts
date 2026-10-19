@@ -56,7 +56,7 @@ export const SET_SNAP_SHOT_OVERLAY_INTERACTIVE_CHANNEL =
   "desktop:set-snap-shot-overlay-interactive";
 export const SET_MAIN_COMPOSER_FRAME_CHANNEL = "desktop:set-main-composer-frame";
 export const GET_SNAP_SHOT_OVERLAY_INSETS_CHANNEL = "desktop:get-snap-shot-overlay-insets";
-export const SNAP_SHOT_OVERLAY_HIDE_REQUEST_CHANNEL = "desktop:snap-shot-overlay-hide-request";
+export const SNAP_SHOT_OVERLAY_TOGGLE_REQUEST_CHANNEL = "desktop:snap-shot-overlay-toggle-request";
 export const SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL =
   "desktop:snap-shot-overlay-handoff-request";
 export const HAND_OFF_SNAP_SHOT_DRAFT_CHANNEL = "desktop:hand-off-snap-shot-draft";

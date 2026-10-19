@@ -26,7 +26,7 @@ import { useStableCallback } from "../../hooks/useStableCallback";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { buildThreadRouteParams, resolveThreadRouteTarget } from "../../threadRoutes";
 import { SnapShotCoordinator } from "../desktop/SnapShotCoordinator";
-import { useSnapShotOverlaySession } from "./snapShotOverlaySession";
+import { isSnapShotOverlayDocked, useSnapShotOverlaySession } from "./snapShotOverlaySession";
 
 // Ending a conversation and a capture arriving just after both ask for a fresh chat; they share
 // one, so the capture lands in the chat the overlay shows.
@@ -106,7 +106,7 @@ function snapShotDraftHandoff(draftId: DraftId): DesktopSnapShotDraftHandoff | n
 
 /**
  * When the main window takes focus while the overlay is up, an unsent chat moves onto the main
- * window's new-chat page. A conversation stays in the overlay until the user hides or ends it.
+ * window's new-chat page. A conversation stays in the overlay until the user ends it.
  */
 function useSnapShotOverlayHandoff() {
   const router = useRouter();
@@ -177,8 +177,13 @@ function prefersReducedMotion(): boolean {
 
 /** What the overlay's chat can ask of the overlay around it. */
 export interface SnapShotOverlayControls {
-  /** Slides the overlay away, keeping its chat for the next time it shows. */
+  /**
+   * Puts a conversation's composer away behind the pill, or slides an unsent chat away, keeping
+   * it for the next time the overlay shows.
+   */
   readonly hide: () => void;
+  /** Brings a conversation's composer back up from behind the pill. */
+  readonly show: () => void;
   /** Ends the conversation on screen: the overlay slides away and the next capture starts fresh. */
   readonly end: () => void;
   /** Ends the conversation on screen for a fresh chat, taking the composer's content along. */
@@ -199,9 +204,10 @@ export function useSnapShotOverlayControls(): SnapShotOverlayControls | null {
 /**
  * The overlay's composer, floating exactly where the main window's composer sits. The window
  * reaches the bottom of the screen, so the composer slides up from the screen edge when the
- * overlay shows and drops back down when it hides, keeping the chat for next time. Escape ends a
- * conversation instead, so the next capture starts fresh. Only the composer and its menus take
- * the pointer; elsewhere clicks reach the app behind.
+ * overlay shows. Hiding a conversation leaves a pill on screen to bring it back; hiding an unsent
+ * chat drops the composer back down and hides the overlay, keeping the chat for next time. Escape
+ * ends a conversation, so the next capture starts fresh. Only the composer, the pill and their
+ * menus take the pointer; elsewhere clicks reach the app behind.
  */
 export function SnapShotOverlayFrame({ children }: { readonly children: ReactNode }) {
   const router = useRouter();
@@ -256,10 +262,29 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
     });
   });
 
+  const hide = useStableCallback(() => {
+    if (currentOverlayConversation(router)) useSnapShotOverlaySession.getState().hide();
+    else slideAway();
+  });
+
+  // The show-or-hide shortcut, pressed while the overlay is on screen.
+  const toggle = useStableCallback(() => {
+    const session = useSnapShotOverlaySession.getState();
+    if (
+      currentOverlayConversation(router) &&
+      isSnapShotOverlayDocked(session, session.workingTurn)
+    ) {
+      session.show();
+    } else {
+      hide();
+    }
+  });
+
   const resume = useStableCallback((draftId: DraftId) => {
-    const { ended, forgetEnded } = useSnapShotOverlaySession.getState();
+    const { ended, forgetEnded, show } = useSnapShotOverlaySession.getState();
     if (!ended) return;
     forgetEnded();
+    show();
     useComposerDraftStore.getState().moveComposerPromptAndImages(draftId, ended.threadRef);
     void router.navigate({
       to: "/$environmentId/$threadId",
@@ -272,7 +297,9 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
     const slideIn = () => {
       hidingRef.current = null;
       setShown(false);
-      useSnapShotOverlaySession.getState().forgetStaleEnded(Date.now());
+      const session = useSnapShotOverlaySession.getState();
+      session.show();
+      session.forgetStaleEnded(Date.now());
       void (
         window.desktopBridge?.getSnapShotOverlayInsets?.() ??
         Promise.resolve({ composer: 0, workArea: 0 })
@@ -297,13 +324,12 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
       setShown(false);
       hiding?.afterHide?.();
     });
-    // The show-or-hide shortcut, pressed while the overlay is up.
-    const stopHideRequest = window.desktopBridge?.onSnapShotOverlayHideRequest?.(() => slideAway());
+    const stopToggleRequest = window.desktopBridge?.onSnapShotOverlayToggleRequest?.(toggle);
     return () => {
       stopVisibility?.();
-      stopHideRequest?.();
+      stopToggleRequest?.();
     };
-  }, [setShown, slideAway]);
+  }, [setShown, toggle]);
 
   useEffect(() => {
     // Escape ends the conversation from anywhere, the composer included, or hides an unsent chat,
@@ -345,7 +371,8 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
   }, []);
 
   const controls: SnapShotOverlayControls = {
-    hide: () => slideAway(),
+    hide,
+    show: () => useSnapShotOverlaySession.getState().show(),
     end,
     startNewChat,
     resume,
@@ -355,7 +382,8 @@ export function SnapShotOverlayFrame({ children }: { readonly children: ReactNod
   return (
     <SnapShotOverlayControlsContext value={controls}>
       <div
-        className="pointer-events-none relative flex h-svh min-h-0 overflow-hidden"
+        // Clipped rather than hidden, so focusing the composer mid-slide cannot scroll it.
+        className="pointer-events-none relative flex h-svh min-h-0 overflow-clip"
         style={{ paddingBottom: insets.composer }}
       >
         {/* Sliding in plays the slide out backwards: the same duration and the reversed curve. */}

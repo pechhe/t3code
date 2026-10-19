@@ -1149,8 +1149,11 @@ export interface DesktopBridge {
   acknowledgeSnapShot?: (id: string) => Promise<void>;
   /** Hides the SnapShot overlay window; its chat and draft stay as they are. */
   hideSnapShotOverlay?: () => Promise<void>;
-  /** The overlay's show-or-hide shortcut asks the visible overlay to slide away. */
-  onSnapShotOverlayHideRequest?: (listener: () => void) => () => void;
+  /**
+   * The overlay's show-or-hide shortcut, pressed while the overlay is on screen: it puts its
+   * conversation away behind its pill or brings it back, or slides an unsent chat away.
+   */
+  onSnapShotOverlayToggleRequest?: (listener: () => void) => () => void;
   /** Lets the overlay take the pointer over its content; elsewhere clicks reach the app behind. */
   setSnapShotOverlayInteractive?: (interactive: boolean) => Promise<void>;
   /**

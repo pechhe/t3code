@@ -152,12 +152,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
     ipcRenderer.invoke(IpcChannels.SET_MAIN_COMPOSER_FRAME_CHANNEL, frame),
   getSnapShotOverlayInsets: () =>
     ipcRenderer.invoke(IpcChannels.GET_SNAP_SHOT_OVERLAY_INSETS_CHANNEL),
-  onSnapShotOverlayHideRequest: (listener) => {
+  onSnapShotOverlayToggleRequest: (listener) => {
     const wrappedListener = () => listener();
-    ipcRenderer.on(IpcChannels.SNAP_SHOT_OVERLAY_HIDE_REQUEST_CHANNEL, wrappedListener);
+    ipcRenderer.on(IpcChannels.SNAP_SHOT_OVERLAY_TOGGLE_REQUEST_CHANNEL, wrappedListener);
     return () => {
       ipcRenderer.removeListener(
-        IpcChannels.SNAP_SHOT_OVERLAY_HIDE_REQUEST_CHANNEL,
+        IpcChannels.SNAP_SHOT_OVERLAY_TOGGLE_REQUEST_CHANNEL,
         wrappedListener,
       );
     };

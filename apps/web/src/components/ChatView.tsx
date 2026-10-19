@@ -412,8 +412,6 @@ import {
   SNAP_SHOT_DOCK_CLASS_NAME,
   SnapShotOverlayAbove,
   SnapShotOverlayDockPill,
-  SnapShotOverlayExpandedHeader,
-  SNAP_SHOT_EXPANDED_CLASS_NAME,
 } from "./snapShot/SnapShotOverlayChat";
 import { useSnapShotOverlayDock } from "./snapShot/snapShotOverlayDock";
 import { ExpandedImageDialogHost, openExpandedImagePreview } from "./chat/ExpandedImageDialog";
@@ -2834,7 +2832,9 @@ export default function ChatView(props: ChatViewProps) {
   const overlayDock = useSnapShotOverlayDock(
     timelineMessages,
     isWorking || (activeLatestRun !== null && !latestRunSettled),
+    overlayPresentation,
   );
+  const overlayTitle = activeThread?.title ?? overlayDock.prompt?.text ?? "";
   const displayedTimeline = resolveThreadSwitchTimeline({
     loading: timelineEntries.length === 0 && threadSyncPhase !== null,
     activeThreadKey,
@@ -3324,11 +3324,21 @@ export default function ChatView(props: ChatViewProps) {
     composerRef.current?.focusAtEnd();
   };
   const focusComposerStable = useStableCallback(focusComposer);
-  // The overlay's composer comes back from its dock ready for a follow-up.
+  // The overlay's composer comes back from its dock ready for a follow-up, once it has risen:
+  // focusing it on the way up would scroll the overlay to it.
+  const overlayComposerStackRef = useRef<HTMLDivElement>(null);
   const overlayComposerRaised =
     overlayPresentation && overlayDock.prompt !== null && !overlayDock.docked;
   useEffect(() => {
-    if (overlayComposerRaised) focusComposerStable();
+    if (!overlayComposerRaised) return;
+    let cancelled = false;
+    const rising = overlayComposerStackRef.current?.getAnimations() ?? [];
+    void Promise.allSettled(rising.map((animation) => animation.finished)).then(() => {
+      if (!cancelled) focusComposerStable();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [focusComposerStable, overlayComposerRaised]);
   const canInterruptRunningThread =
     canOperateThread && deriveCanInterruptRunningThread(activeThread !== undefined, activeRuntime);
@@ -8206,21 +8216,10 @@ export default function ChatView(props: ChatViewProps) {
             <div
               className={cn(
                 "relative flex min-h-0 flex-1 flex-col",
-                // The overlay shows only its composer, unless asked for the whole conversation.
-                !overlayPresentation
-                  ? "bg-background"
-                  : overlayDock.expanded
-                    ? cn(SNAP_SHOT_EXPANDED_CLASS_NAME, "pointer-events-auto")
-                    : "invisible",
+                // The overlay shows only its composer and what sits above it.
+                overlayPresentation ? "invisible" : "bg-background",
               )}
             >
-              {overlayPresentation && overlayDock.expanded ? (
-                <SnapShotOverlayExpandedHeader
-                  dock={overlayDock}
-                  title={activeThread?.title ?? overlayDock.prompt?.text ?? ""}
-                  threadRef={isServerThread ? activeThreadRef : null}
-                />
-              ) : null}
               <MessagesTimeline
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
@@ -8405,6 +8404,7 @@ export default function ChatView(props: ChatViewProps) {
                 className={cn("chat-composer-lane w-full", overlayPresentation && "px-6")}
               >
                 <div
+                  ref={overlayComposerStackRef}
                   data-chat-composer-stack="true"
                   data-snap-shot-docked={(overlayPresentation && overlayDock.docked) || undefined}
                   inert={overlayPresentation && overlayDock.docked}
@@ -8421,6 +8421,7 @@ export default function ChatView(props: ChatViewProps) {
                       projectTitle={activeProject?.title ?? null}
                       threadRef={isServerThread ? activeThreadRef : null}
                       composerTarget={composerDraftTarget}
+                      title={overlayTitle}
                       cwd={gitCwd ?? undefined}
                     />
                   ) : null}
@@ -8694,7 +8695,9 @@ export default function ChatView(props: ChatViewProps) {
                   </div>
                 </div>
               </div>
-              {overlayPresentation ? <SnapShotOverlayDockPill dock={overlayDock} /> : null}
+              {overlayPresentation ? (
+                <SnapShotOverlayDockPill dock={overlayDock} title={overlayTitle} />
+              ) : null}
             </div>
 
             {canOperatePreview && activeThreadRef && activeEnvironmentServerBrowser ? (

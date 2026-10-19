@@ -33,7 +33,7 @@ import {
   SNAP_SHOT_DRAFT_HANDOFF_CHANNEL,
   SNAP_SHOT_EVENT_CHANNEL,
   SNAP_SHOT_OVERLAY_HANDOFF_REQUEST_CHANNEL,
-  SNAP_SHOT_OVERLAY_HIDE_REQUEST_CHANNEL,
+  SNAP_SHOT_OVERLAY_TOGGLE_REQUEST_CHANNEL,
   SNAP_SHOT_OVERLAY_VISIBILITY_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
@@ -137,8 +137,8 @@ export class DesktopWindow extends Context.Service<
     readonly showSnapShotOverlay: Effect.Effect<boolean>;
     readonly hideSnapShotOverlay: Effect.Effect<void>;
     /**
-     * The overlay's show-or-hide shortcut: a visible overlay slides away, keeping its chat; a
-     * hidden one comes back as it was, without a snapshot.
+     * The overlay's show-or-hide shortcut: a visible overlay puts its conversation away behind
+     * its pill or brings it back; a hidden one comes back as it was, without a snapshot.
      */
     readonly toggleSnapShotOverlay: Effect.Effect<void>;
     /** Takes the pointer while it is over the overlay's content; elsewhere clicks pass through. */
@@ -1120,8 +1120,8 @@ export const make = Effect.gen(function* () {
   const toggleSnapShotOverlay = Effect.gen(function* () {
     const overlay = yield* liveSnapShotOverlay;
     if (Option.isSome(overlay) && overlay.value.isVisible()) {
-      // The overlay slides its composer away, then asks to be hidden.
-      overlay.value.webContents.send(SNAP_SHOT_OVERLAY_HIDE_REQUEST_CHANNEL);
+      // The overlay decides: it shows or hides its conversation, or slides an unsent chat away.
+      overlay.value.webContents.send(SNAP_SHOT_OVERLAY_TOGGLE_REQUEST_CHANNEL);
       return;
     }
     if (Option.isNone(yield* placeSnapShotOverlay)) return;

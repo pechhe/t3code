@@ -409,6 +409,8 @@ export function SnapShotCoordinator({
     (bridge: DesktopSnapShotBridge, event: DesktopSnapShotEvent) => {
       switch (event.type) {
         case "requested": {
+          // A capture brings the overlay's composer back up from behind its pill to take it.
+          if (overlay) useSnapShotOverlaySession.getState().show();
           const current = readSettledTarget(readLastRouteTarget());
           const target = reusableSnapShotTarget(
             current ? resolveExistingSnapShotTarget(current, routeThreadRef) : null,

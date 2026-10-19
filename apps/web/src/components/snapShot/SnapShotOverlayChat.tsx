@@ -1,20 +1,32 @@
 import type { ScopedProjectRef, ScopedThreadRef } from "@t3tools/contracts";
 import {
+  ChevronUpIcon,
   EyeOffIcon,
+  ImageIcon,
   Maximize2Icon,
   MessageSquareDashedIcon,
   Minimize2Icon,
   RotateCcwIcon,
   XIcon,
 } from "lucide-react";
-import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 
 import type { ComposerThreadTarget, DraftId } from "~/composerDraftStore";
 import { useClientSettings } from "~/hooks/useSettings";
 import { formatShortcutLabel } from "~/keybindings";
+import { observeResize } from "~/lib/observeResize";
 import { cn } from "~/lib/utils";
 import { useThreadShell } from "~/state/entities";
+import type { ChatMessage } from "~/types";
 import ChatMarkdown from "../ChatMarkdown";
 import { ProjectChip } from "../ProjectChip";
 import { ProjectChipRow } from "../chat/DraftHeroHeadline";
@@ -30,25 +42,36 @@ import {
 import type { SnapShotOverlayDock } from "./snapShotOverlayDock";
 import { useSnapShotOverlaySession } from "./snapShotOverlaySession";
 
-/** Sends the composer below the screen edge, with the slide the overlay itself uses. */
-export const SNAP_SHOT_DOCK_CLASS_NAME =
-  "transition-transform duration-200 ease-in-reversed data-snap-shot-docked:translate-y-[100svh] data-snap-shot-docked:ease-in motion-reduce:transition-none";
-
 /**
- * The whole conversation, shown in the overlay as a frosted panel behind the composer. Its bottom
- * edge meets the composer's, above the spacer under it.
+ * Puts the composer away by fading it down, and brings it back up the same way; the pill takes
+ * its place meanwhile.
  */
-export const SNAP_SHOT_EXPANDED_CLASS_NAME =
-  "surface-glass mx-6 mt-4 mb-4 overflow-hidden rounded-2xl border border-border/60 shadow-lg sm:mb-5";
+export const SNAP_SHOT_DOCK_CLASS_NAME =
+  "transition-[translate,opacity] duration-300 ease-out data-snap-shot-docked:translate-y-6 data-snap-shot-docked:opacity-0 data-snap-shot-docked:duration-200 data-snap-shot-docked:ease-in motion-reduce:transition-none";
 
 // The pill inverts the theme, so it stands out over the app behind and the overlay's glass.
 const PILL_BUTTON_CLASS_NAME =
   "flex h-7 shrink-0 items-center rounded-full outline-none hover:bg-background/15 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset";
 
-/**
- * An icon button with its name, and shortcut if it has one, in a tooltip. On the pill it is a
- * plain round button in the pill's inverted colours.
- */
+/** Names a control, and its shortcut if it has one, in a tooltip. */
+function OverlayTooltip(props: {
+  readonly label: string;
+  readonly shortcut?: string | undefined;
+  /** The control, without its content. */
+  readonly trigger: ReactElement;
+  readonly children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={props.trigger}>{props.children}</TooltipTrigger>
+      <TooltipPopup side="top">
+        {props.shortcut ? `${props.label} · ${props.shortcut}` : props.label}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
+/** An icon button; on the pill, a plain round one in the pill's inverted colours. */
 function OverlayIconButton(props: {
   readonly label: string;
   readonly shortcut?: string | undefined;
@@ -57,65 +80,47 @@ function OverlayIconButton(props: {
   readonly children: ReactNode;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          props.onPill ? (
-            <button
-              type="button"
-              aria-label={props.label}
-              onClick={props.onClick}
-              className={cn(
-                PILL_BUTTON_CLASS_NAME,
-                "w-7 justify-center text-background/70 hover:text-background [&_svg]:size-3.5",
-              )}
-            />
-          ) : (
-            <Button
-              size="icon-xs"
-              variant="ghost"
-              aria-label={props.label}
-              onClick={props.onClick}
-            />
-          )
-        }
-      >
-        {props.children}
-      </TooltipTrigger>
-      <TooltipPopup side="top">
-        {props.shortcut ? `${props.label} · ${props.shortcut}` : props.label}
-      </TooltipPopup>
-    </Tooltip>
+    <OverlayTooltip
+      label={props.label}
+      shortcut={props.shortcut}
+      trigger={
+        props.onPill ? (
+          <button
+            type="button"
+            aria-label={props.label}
+            onClick={props.onClick}
+            className={cn(
+              PILL_BUTTON_CLASS_NAME,
+              "w-7 justify-center text-background/70 hover:text-background [&_svg]:size-3.5",
+            )}
+          />
+        ) : (
+          <Button size="icon-xs" variant="ghost" aria-label={props.label} onClick={props.onClick} />
+        )
+      }
+    >
+      {props.children}
+    </OverlayTooltip>
   );
 }
 
-function useHideShortcutLabel(): string {
+function useToggleShortcutLabel(): string {
   return formatShortcutLabel(useClientSettings((settings) => settings.snapShotOverlayShortcut));
 }
 
-/** Hides the overlay, keeping the conversation, or ends it. */
-function OverlayHideAndEnd({
-  controls,
-  onPill,
-}: {
+function OverlayEndButton(props: {
   readonly controls: SnapShotOverlayControls;
   readonly onPill?: boolean | undefined;
 }) {
-  const hideShortcut = useHideShortcutLabel();
   return (
-    <>
-      <OverlayIconButton
-        label="Hide"
-        shortcut={hideShortcut}
-        onClick={controls.hide}
-        onPill={onPill}
-      >
-        <EyeOffIcon />
-      </OverlayIconButton>
-      <OverlayIconButton label="End" shortcut="Esc" onClick={controls.end} onPill={onPill}>
-        <XIcon />
-      </OverlayIconButton>
-    </>
+    <OverlayIconButton
+      label="End"
+      shortcut="Esc"
+      onClick={props.controls.end}
+      onPill={props.onPill}
+    >
+      <XIcon />
+    </OverlayIconButton>
   );
 }
 
@@ -132,8 +137,9 @@ function OpenInT3Button({ threadRef }: { readonly threadRef: ScopedThreadRef }) 
 }
 
 /**
- * Above the overlay's composer: the project chip while the chat is unsent, then the reply to the
- * latest message. Both ride with the composer when it docks.
+ * Above the overlay's composer: the project chip while the chat is unsent, then a card with the
+ * reply to the latest message, or the whole conversation. Both ride with the composer when it
+ * docks.
  */
 export function SnapShotOverlayAbove(props: {
   readonly dock: SnapShotOverlayDock;
@@ -142,10 +148,12 @@ export function SnapShotOverlayAbove(props: {
   readonly projectTitle: string | null;
   readonly threadRef: ScopedThreadRef | null;
   readonly composerTarget: ComposerThreadTarget | null;
+  readonly title: string;
   readonly cwd: string | undefined;
 }) {
-  const { dock, threadRef, composerTarget } = props;
+  const { dock } = props;
   const controls = useSnapShotOverlayControls();
+  const toggleShortcut = useToggleShortcutLabel();
   if (controls === null) return null;
   if (dock.prompt === null && !dock.working) {
     return props.draftId === null ? null : (
@@ -153,18 +161,169 @@ export function SnapShotOverlayAbove(props: {
         draftId={props.draftId}
         projectRef={props.projectRef}
         projectTitle={props.projectTitle}
-        aside={<SnapShotOverlayResumeChip draftId={props.draftId} controls={controls} />}
+        aside={
+          <>
+            <SnapShotOverlayResumeChip draftId={props.draftId} controls={controls} />
+            <OverlayTooltip
+              label="Hide"
+              shortcut="Esc"
+              trigger={
+                <button
+                  type="button"
+                  onClick={controls.hide}
+                  className={cn(NO_PROJECT_CHIP_CLASS_NAME, "ms-auto border-solid")}
+                />
+              }
+            >
+              <EyeOffIcon aria-hidden className="size-3" />
+              Hide
+            </OverlayTooltip>
+          </>
+        }
       />
     );
   }
-  if (dock.prompt === null || dock.reply === null || dock.expanded) return null;
+  if (dock.prompt === null) return null;
   return (
-    <div className="surface-glass absolute inset-x-0 bottom-full mb-2 flex max-h-80 flex-col overflow-hidden rounded-2xl border border-border/60 text-foreground shadow-lg">
+    <SnapShotOverlayCard {...props} prompt={dock.prompt} controls={controls}>
+      <OverlayTooltip
+        label="Hide"
+        shortcut={toggleShortcut}
+        trigger={<Button size="compact" variant="ghost" onClick={controls.hide} />}
+      >
+        Hide
+      </OverlayTooltip>
+    </SnapShotOverlayCard>
+  );
+}
+
+/** How far an element sits below the top of the page, leaving out the overlay's slides. */
+function offsetTopInPage(element: HTMLElement): number {
+  let top = 0;
+  for (let node: Element | null = element; node instanceof HTMLElement; node = node.offsetParent) {
+    top += node.offsetTop;
+  }
+  return top;
+}
+
+/**
+ * The reply to the latest message, or, expanded, the whole conversation, sized to its messages
+ * up to the room above the composer.
+ */
+function SnapShotOverlayCard(props: {
+  readonly dock: SnapShotOverlayDock;
+  readonly prompt: ChatMessage;
+  readonly controls: SnapShotOverlayControls;
+  readonly threadRef: ScopedThreadRef | null;
+  readonly composerTarget: ComposerThreadTarget | null;
+  readonly title: string;
+  readonly cwd: string | undefined;
+  /** The hide button. */
+  readonly children: ReactNode;
+}) {
+  const { dock, controls, threadRef, composerTarget } = props;
+  const { expanded, setExpanded } = dock;
+  const [card, setCard] = useState<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  // The room between the top of the window and the composer the card sits on.
+  const [roomAbove, setRoomAbove] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const composer = card?.parentElement;
+    if (!expanded || !composer) return;
+    const measure = () => setRoomAbove(offsetTopInPage(composer));
+    measure();
+    const stopObserving = observeResize(composer, measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      stopObserving();
+      window.removeEventListener("resize", measure);
+    };
+  }, [card, expanded]);
+
+  // The conversation opens at its latest message, and follows new ones and a streaming reply
+  // unless the user has scrolled back.
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    const content = transcriptRef.current;
+    if (!expanded || !body || !content) return;
+    let following = true;
+    const onScroll = () => {
+      following = body.scrollHeight - body.scrollTop - body.clientHeight < 24;
+    };
+    const follow = () => {
+      if (following) body.scrollTop = body.scrollHeight;
+    };
+    follow();
+    body.addEventListener("scroll", onScroll, { passive: true });
+    const stopObserving = observeResize(content, follow);
+    return () => {
+      body.removeEventListener("scroll", onScroll);
+      stopObserving();
+    };
+  }, [expanded]);
+
+  // Behind the pill, the conversation is out of sight and Escape ends it as usual.
+  const expandedOnScreen = expanded && !dock.docked;
+  useEffect(() => {
+    if (!expandedOnScreen) return;
+    // Escape shrinks the conversation once any popup over it has closed; the overlay waits while
+    // it is open.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector(SNAP_SHOT_OPEN_POPUP_SELECTOR)) return;
+      setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expandedOnScreen, setExpanded]);
+
+  const markdown = (message: ChatMessage) => (
+    <ChatMarkdown
+      text={message.text}
+      cwd={props.cwd}
+      threadRef={threadRef ?? undefined}
+      isStreaming={message.streaming}
+    />
+  );
+  const working = dock.working ? (
+    <p className="flex items-center gap-2 text-muted-foreground text-xs">
+      <Spinner className="size-3.5" />
+      Working
+    </p>
+  ) : null;
+
+  return (
+    // Solid rather than glass: the window is transparent, so nothing behind it can be blurred.
+    <div
+      ref={setCard}
+      data-snap-shot-expanded={expandedOnScreen || undefined}
+      className={cn(
+        "absolute inset-x-0 bottom-full mb-2 flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-background text-foreground shadow-lg",
+        !expanded && "max-h-80",
+      )}
+      // A 1rem gap above, as below the composer.
+      style={expanded && roomAbove !== null ? { maxHeight: roomAbove - 24 } : undefined}
+    >
       <div className="flex shrink-0 items-center gap-1 py-1.5 ps-3.5 pe-1.5">
-        <p className="min-w-0 flex-1 truncate text-muted-foreground text-xs">{dock.prompt.text}</p>
-        <OverlayIconButton label="Show whole conversation" onClick={() => dock.setExpanded(true)}>
-          <Maximize2Icon />
-        </OverlayIconButton>
+        <p
+          className={cn(
+            "min-w-0 flex-1 truncate text-xs",
+            expanded ? "font-medium text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {expanded ? props.title : props.prompt.text}
+        </p>
+        {expanded ? (
+          <OverlayIconButton label="Show latest reply only" onClick={() => setExpanded(false)}>
+            <Minimize2Icon />
+          </OverlayIconButton>
+        ) : (
+          <OverlayIconButton label="Show whole conversation" onClick={() => setExpanded(true)}>
+            <Maximize2Icon />
+          </OverlayIconButton>
+        )}
         {threadRef ? <OpenInT3Button threadRef={threadRef} /> : null}
         {composerTarget ? (
           <Button
@@ -175,83 +334,98 @@ export function SnapShotOverlayAbove(props: {
             New chat
           </Button>
         ) : null}
-        <OverlayHideAndEnd controls={controls} />
+        {props.children}
+        <OverlayEndButton controls={controls} />
       </div>
-      <div className="min-h-0 overflow-y-auto px-3.5 pb-3 text-sm">
-        <ChatMarkdown
-          text={dock.reply.text}
-          cwd={props.cwd}
-          threadRef={threadRef ?? undefined}
-          isStreaming={dock.reply.streaming}
-        />
+      <div ref={bodyRef} className="min-h-0 overflow-y-auto px-3.5 pb-3 text-sm">
+        {expanded ? (
+          <div ref={transcriptRef} className="flex flex-col gap-3 pt-1">
+            {dock.truncated ? (
+              <p className="text-center text-muted-foreground text-xs">
+                Earlier messages are in T3
+              </p>
+            ) : null}
+            {dock.transcript.map((message) =>
+              message.role === "user" ? (
+                <SnapShotOverlayPrompt key={message.id} message={message} />
+              ) : (
+                <div key={message.id}>{markdown(message)}</div>
+              ),
+            )}
+            {dock.reply === null ? working : null}
+          </div>
+        ) : dock.reply ? (
+          markdown(dock.reply)
+        ) : (
+          working
+        )}
       </div>
     </div>
   );
 }
 
-/** Heads the whole conversation while the overlay shows it, and shrinks it back to the reply. */
-export function SnapShotOverlayExpandedHeader(props: {
-  readonly dock: SnapShotOverlayDock;
-  readonly title: string;
-  readonly threadRef: ScopedThreadRef | null;
-}) {
-  const { dock } = props;
-  const { setExpanded } = dock;
-  const controls = useSnapShotOverlayControls();
-  useEffect(() => {
-    // Escape shrinks the conversation once any popup over it has closed; the overlay waits while
-    // it is open.
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (document.querySelector(SNAP_SHOT_OPEN_POPUP_SELECTOR)) return;
-      setExpanded(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setExpanded]);
-  if (controls === null) return null;
+function SnapShotOverlayPrompt({ message }: { readonly message: ChatMessage }) {
+  const images = message.attachments?.length ?? 0;
   return (
-    <div
-      data-snap-shot-expanded
-      className="flex shrink-0 items-center gap-1 border-border/60 border-b py-1.5 ps-3.5 pe-1.5 text-foreground"
-    >
-      <p className="min-w-0 flex-1 truncate font-medium text-sm">{props.title}</p>
-      <OverlayIconButton label="Show latest reply only" onClick={() => dock.setExpanded(false)}>
-        <Minimize2Icon />
-      </OverlayIconButton>
-      {props.threadRef ? <OpenInT3Button threadRef={props.threadRef} /> : null}
-      <OverlayHideAndEnd controls={controls} />
+    <div className="ms-auto flex max-w-[85%] flex-col gap-1 rounded-xl bg-muted px-3 py-1.5">
+      {message.text ? <p className="whitespace-pre-wrap break-words">{message.text}</p> : null}
+      {images > 0 ? (
+        <p className="flex items-center gap-1 text-muted-foreground text-xs">
+          <ImageIcon aria-hidden className="size-3" />
+          {images === 1 ? "1 image" : `${images} images`}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 /**
- * Stands in for the docked composer at the bottom of the screen: says the agent is working, and
- * brings the composer back when clicked.
+ * Stands in for the composer while it is put away, at the bottom of the screen: says the agent
+ * is working, and brings the composer back when clicked.
  */
-export function SnapShotOverlayDockPill({ dock }: { readonly dock: SnapShotOverlayDock }) {
+export function SnapShotOverlayDockPill(props: {
+  readonly dock: SnapShotOverlayDock;
+  readonly title: string;
+}) {
+  const { dock } = props;
   const controls = useSnapShotOverlayControls();
+  const toggleShortcut = useToggleShortcutLabel();
   if (controls?.floor == null) return null;
   return createPortal(
     <div
       data-shown={dock.docked || undefined}
       inert={!dock.docked}
-      className="mb-4 flex h-9 max-w-[calc(100%-3rem)] translate-y-4 items-center gap-0.5 rounded-full bg-foreground/85 px-1 text-background opacity-0 shadow-xl backdrop-blur-(--glass-blur) backdrop-saturate-(--glass-saturation) transition-[opacity,translate] duration-200 data-shown:pointer-events-auto data-shown:translate-y-0 data-shown:opacity-100 motion-reduce:transition-none"
+      className="mb-4 flex h-9 max-w-[calc(100%-3rem)] translate-y-4 items-center gap-0.5 rounded-full bg-foreground/90 px-1 text-background opacity-0 shadow-xl transition-[opacity,translate] duration-200 data-shown:pointer-events-auto data-shown:translate-y-0 data-shown:opacity-100 data-shown:duration-300 motion-reduce:transition-none"
     >
-      <button
-        type="button"
-        onClick={dock.raise}
-        className={cn(PILL_BUTTON_CLASS_NAME, "min-w-0 gap-2 ps-2.5 pe-2 font-medium text-xs")}
+      <OverlayTooltip
+        label="Show"
+        shortcut={toggleShortcut}
+        trigger={
+          <button
+            type="button"
+            onClick={controls.show}
+            className={cn(PILL_BUTTON_CLASS_NAME, "min-w-0 gap-2 ps-2.5 pe-2 font-medium text-xs")}
+          />
+        }
       >
-        <Spinner className="size-3.5 shrink-0" />
-        Working
-        {dock.prompt ? (
-          <span className="min-w-0 truncate font-normal text-background/60">
-            · {dock.prompt.text}
-          </span>
-        ) : null}
-      </button>
-      <OverlayHideAndEnd controls={controls} onPill />
+        {dock.working ? (
+          <>
+            <Spinner className="size-3.5 shrink-0" />
+            Working
+            {dock.prompt ? (
+              <span className="min-w-0 truncate font-normal text-background/60">
+                · {dock.prompt.text}
+              </span>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <ChevronUpIcon aria-hidden className="size-3.5 shrink-0" />
+            <span className="min-w-0 truncate">{props.title}</span>
+          </>
+        )}
+      </OverlayTooltip>
+      <OverlayEndButton controls={controls} onPill />
     </div>,
     controls.floor,
   );
