@@ -112,6 +112,7 @@ import {
   type OrchestrationV2ThreadLaunchInput,
 } from "@t3tools/contracts";
 import { resolveServerBackgroundActivitySettings } from "@t3tools/shared/backgroundActivitySettings";
+import { readOnly } from "@t3tools/shared/nodeSqliteClient";
 import {
   HttpRouter,
   HttpServerRequest,
@@ -1062,6 +1063,8 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       });
     });
 
+    // Every subscriber reads a shell per committed event, so these reads stay
+    // off the writer that the events themselves wait on.
     const projectShellItems = Effect.fn("ws.orchestrationV2.projectShellItems")(function* (
       events: ReadonlyArray<ShellApplicationEvent>,
     ) {
@@ -1076,7 +1079,7 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
             return shellStreamItemFromThreadShell({ stored, shell });
           }),
         { concurrency: 8 },
-      );
+      ).pipe(readOnly);
     });
 
     const toShellStream = <E, R>(stream: Stream.Stream<ShellApplicationEvent, E, R>) =>
@@ -1833,13 +1836,12 @@ const layerWsRpc = (
               Effect.forEach(
                 coalesceStoredThreadEvents(Array.from(events)),
                 (stored) =>
-                  threadManagement
-                    .getThreadShell(stored.event.threadId)
-                    .pipe(
-                      Effect.map((shell) =>
-                        archivedShellStreamItemFromThreadShell({ stored, shell }),
-                      ),
+                  threadManagement.getThreadShell(stored.event.threadId).pipe(
+                    readOnly,
+                    Effect.map((shell) =>
+                      archivedShellStreamItemFromThreadShell({ stored, shell }),
                     ),
+                  ),
                 { concurrency: 8 },
               ),
             ),
@@ -1915,12 +1917,14 @@ const layerWsRpc = (
           ),
         [ORCHESTRATION_V2_WS_METHODS.stopWorkflow]: (input) => threadManagement.stopWorkflow(input),
         [ORCHESTRATION_V2_WS_METHODS.detachWorkspace]: (input) =>
-          workspaceAttachments.detach(input).pipe(
-            Effect.mapError(
-              (error) =>
-                new OrchestrationV2DetachWorkspaceError({ ...input, detail: error.message }),
+          workspaceAttachments
+            .detach(input)
+            .pipe(
+              Effect.mapError(
+                (error) =>
+                  new OrchestrationV2DetachWorkspaceError({ ...input, detail: error.message }),
+              ),
             ),
-          ),
         [ORCHESTRATION_V2_WS_METHODS.getWorkflowScript]: (input) =>
           readWorkflowScript({ scriptPath: input.scriptPath }),
         [ORCHESTRATION_V2_WS_METHODS.getTurnItem]: (input) =>

@@ -7,10 +7,11 @@ const mode = process.argv[3];
 const withHandoff = mode.startsWith("handoff");
 const require = NodeModule.createRequire(root + "/apps/server/package.json");
 const load = (name) => import(NodeURL.pathToFileURL(require.resolve("effect/" + name)));
-const [Effect, Layer, FileSystem, Path] = await Promise.all([
+const [Effect, Layer, FileSystem, Option, Path] = await Promise.all([
   load("Effect"),
   load("Layer"),
   load("FileSystem"),
+  load("Option"),
   load("Path"),
 ]);
 const app = (file) => import(NodeURL.pathToFileURL(root + "/apps/server/src/" + file + ".ts"));
@@ -30,6 +31,7 @@ const [
   Auth,
   Config,
   Settings,
+  VideoFrames,
 ] = await Promise.all([
   app("orchestration-v2/ProviderTurnStartService"),
   app("orchestration-v2/ProjectionStore"),
@@ -44,6 +46,7 @@ const [
   app("provider/ProviderAuthService"),
   app("config"),
   app("serverSettings"),
+  app("videoFrames/VideoFrames"),
 ]);
 let current;
 let fullReads = 0;
@@ -62,12 +65,13 @@ const session = {
   compactThread: () => Effect.void,
 };
 const dependencies = Layer.mergeAll(
+  Layer.mock(VideoFrames.VideoFrames)({ framesForMessage: () => Effect.succeed([]) }),
   Layer.mock(Handoff.ContextHandoffServiceV2)({}),
   Id.layer,
   FileSystem.layerNoop({}),
   Path.layer,
   Layer.mock(Git.GitWorkflowService)({}),
-  Layer.mock(Project.ProjectService)({}),
+  Layer.mock(Project.ProjectService)({ getById: () => Effect.succeed(Option.none()) }),
   Layer.mock(Auth.ProviderAuthService)({}),
   Layer.mock(Config.ServerConfig)({ worktreesDir: "/synthetic-worktrees" }),
   Settings.layerTest(),
