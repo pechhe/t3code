@@ -388,7 +388,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** deliberate behaviour change (performance under investigation)
 - **Why:** Sentence-paced "live" streaming makes threads calmer to read.
-- **Requirements:** setting for response streaming (live vs paragraph); separate Response font.
+- **Requirements:** setting for response streaming (live vs paragraph); separate Response font; a client that does not announce `liveResponseStreaming` on its socket is shown "paragraph" instead of "live" (settings and project overrides), because shipped clients reject the whole config snapshot on the unknown value.
 - **Integration points:** `AssistantMessageText`, `assistantStreaming`; settings.
 - **Proof:** none.
 - **Upstream:** none known.
