@@ -38,6 +38,7 @@ import * as Exit from "effect/Exit";
 import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Result from "effect/Result";
@@ -196,6 +197,7 @@ function makeHarness(options: HarnessOptions = {}) {
     FileSystem.layerNoop({
       exists: (path) => Effect.sync(() => recreatedPaths.has(path) || !releasedPaths.has(path)),
     }),
+    Path.layer,
     WorktreeSetupTracker.layer,
     Layer.mock(ProjectCloneTracker.ProjectCloneTracker)({ get: () => Effect.succeed(null) }),
     Layer.mock(TerminalManager.TerminalManager)({ close: closeTerminal }),
@@ -1730,6 +1732,122 @@ it.effect.each([false, true])(
     }),
 );
 
+const buildItem = { itemId: "build-item:42", number: 42, origin: "https://hq.example" };
+
+/** A SlipJay thread working on a Build item whose first run ended, so it is idle. */
+const idleSlipJayThread = (thread: string) =>
+  Effect.gen(function* () {
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const first = yield* launchSlipJayRun(thread);
+    yield* threads.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make(`command:${thread}:work-item`),
+      threadId: first.threadId,
+      workItem: buildItem,
+    });
+    yield* threads.dispatch({
+      type: "run.interrupt",
+      commandId: CommandId.make(`command:${thread}:interrupt`),
+      threadId: first.threadId,
+      runId: first.runId,
+    });
+    yield* waitUntil(() =>
+      threads
+        .getThreadProjection(first.threadId)
+        .pipe(Effect.map((projection) => projection.runs[0]?.status === "interrupted")),
+    );
+    return first.threadId;
+  });
+
+it.effect("runs the next turn in a fresh checkout under the thread's Build item", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: allocateInTurn("/slipjay/workspaces/first", "/slipjay/workspaces/fresh"),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const threadId = yield* idleSlipJayThread("thread:launch:removed-between-turns");
+      // SlipJay housekeeping removes the idle workspace.
+      harness.releasedPaths.add("/slipjay/workspaces/first");
+
+      yield* threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:removed-between-turns:next"),
+        threadId,
+        messageId: MessageId.make("message:removed-between-turns:next"),
+        text: "Next turn",
+        attachments: [],
+        mode: "auto",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const next = (yield* threads.getThreadProjection(threadId)).runs.at(-1)!;
+      assert.equal(next.status, "starting");
+
+      assert.isTrue(
+        yield* launches.prepareReleasedWorkspace({
+          commandId: CommandId.make("command:removed-between-turns:released"),
+          threadId,
+          runId: next.id,
+        }),
+      );
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(threadId)
+          .pipe(
+            Effect.map(
+              (projection) =>
+                projection.thread.worktreePath === "/slipjay/workspaces/fresh" &&
+                projection.runs.at(-1)?.status === "starting",
+            ),
+          ),
+      );
+      assert.deepInclude(harness.allocateWorkspace.mock.calls[1]![0], { issue: 42 });
+      assert.isFalse(harness.releasedPaths.has("/slipjay/workspaces/fresh"));
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("opens a terminal of a thread whose workspace was removed in a fresh checkout", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: allocateInTurn("/slipjay/workspaces/first", "/slipjay/workspaces/fresh"),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const threadId = yield* idleSlipJayThread("thread:launch:terminal-removed");
+      const open = {
+        threadId,
+        cwd: "/slipjay/workspaces/first/apps/web",
+        worktreePath: "/slipjay/workspaces/first",
+      };
+      // A terminal of a kept workspace opens where it asked.
+      assert.deepEqual(yield* launches.terminalCwd(open), {
+        cwd: open.cwd,
+        worktreePath: open.worktreePath,
+      });
+
+      // SlipJay removed the checkout, and an empty folder was left in its place.
+      harness.releasedPaths.add("/slipjay/workspaces/first");
+      harness.releasedPaths.add("/slipjay/workspaces/first/.jj");
+      harness.recreatedPaths.add("/slipjay/workspaces/first");
+      assert.deepEqual(yield* launches.terminalCwd(open), {
+        cwd: "/slipjay/workspaces/fresh/apps/web",
+        worktreePath: "/slipjay/workspaces/fresh",
+      });
+      assert.equal(
+        (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
+        "/slipjay/workspaces/fresh",
+      );
+      assert.deepInclude(harness.allocateWorkspace.mock.calls[1]![0], { issue: 42 });
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("leaves a run alone when SlipJay kept its workspace", () =>
   Effect.gen(function* () {
     const harness = makeHarness({ slipjay: true });
@@ -3251,6 +3369,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
         retryPreparation: launches.retryPreparation,
         prepareRun: launches.prepareRun,
         prepareReleasedWorkspace: launches.prepareReleasedWorkspace,
+        terminalCwd: launches.terminalCwd,
       }),
       Effect.flip,
     );

@@ -167,8 +167,12 @@ export const PreviewAutomationDialogInput = Schema.Struct({
 export type PreviewAutomationDialogInput = typeof PreviewAutomationDialogInput.Type;
 
 export const PreviewAutomationOpenInput = Schema.Struct({
-  backend: Schema.optional(BrowserBackend),
-  phiLane: Schema.optional(PhiBrowserLane),
+  backend: Schema.optional(BrowserBackend).annotate({
+    description: "Browser backend for the new tab. Omit for the effective default.",
+  }),
+  phiLane: Schema.optional(PhiBrowserLane).annotate({
+    description: "Phi lane for a Phi tab: shadow, agents or user.",
+  }),
   ...PreviewAutomationTabTargetFields,
   url: Schema.optional(BoundedUrl).annotate({
     description: `Optional initial page URL. ${URL_GUIDANCE} Omit to open a blank tab.`,

@@ -47,10 +47,14 @@ export class WorkspaceProvider extends Context.Service<
     readonly remove: (
       input: VcsRemoveWorktreeInput,
     ) => Effect.Effect<void, WorkspaceProviderError | GitCommandError>;
-    /** Allocates a SlipJay workspace named after `task` and returns its path. */
+    /**
+     * Allocates a SlipJay workspace named after `task` and returns its path. `issue` is
+     * attached to the new workspace when no other workspace holds it.
+     */
     readonly allocate: (input: {
       readonly projectRoot: string;
       readonly task: string;
+      readonly issue?: number;
     }) => Effect.Effect<string, WorkspaceProviderError>;
     /** Removes an allocated SlipJay workspace; SlipJay keeps one holding unfinished work. */
     readonly release: (input: {
@@ -71,12 +75,13 @@ export const make = Effect.gen(function* () {
     operation: WorkspaceProviderError["operation"],
     projectRoot: string,
     args: ReadonlyArray<string>,
+    cwd = projectRoot,
   ) =>
     processes
       .run({
         command: "slipjay",
         args,
-        cwd: projectRoot,
+        cwd,
         // A cold allocation installs the repository's dependencies.
         timeout: "10 minutes",
         maxOutputBytes: 64 * 1024,
@@ -109,7 +114,7 @@ export const make = Effect.gen(function* () {
 
   const allocate: WorkspaceProvider["Service"]["allocate"] = Effect.fn(
     "WorkspaceProvider.allocate",
-  )(({ projectRoot, task }) =>
+  )(({ projectRoot, task, issue }) =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         // A project registered in a subdirectory allocates from its SlipJay root.
@@ -120,6 +125,25 @@ export const make = Effect.gen(function* () {
             (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
           ),
         );
+        // `start --issue` would resume the Issue's existing workspace, which may be
+        // another thread's. Attaching refuses an Issue another workspace holds, so
+        // this checkout only ever belongs to the thread that asked for it.
+        if (issue !== undefined) {
+          yield* slipjay(
+            "allocate",
+            root,
+            ["attach-issue", String(issue)],
+            result.workspacePath,
+          ).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("SlipJay workspace allocated without its Issue", {
+                workspacePath: result.workspacePath,
+                issue,
+                error: error.message,
+              }),
+            ),
+          );
+        }
         // SlipJay emits the path after preparation. Cancellation waits for that
         // receipt so the allocated workspace can be returned rather than orphaned.
         return yield* restore(Effect.succeed(result.workspacePath)).pipe(

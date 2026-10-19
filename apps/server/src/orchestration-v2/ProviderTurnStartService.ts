@@ -105,6 +105,36 @@ export const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string
     }),
   ].join("\n");
 
+/**
+ * Sent with the turn that runs in a SlipJay workspace allocated after SlipJay removed the
+ * thread's previous one, which it does only once that workspace holds no unlanded work.
+ */
+export const replacedWorkspaceNote = (workspacePath: string): string =>
+  `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. This turn runs in a fresh checkout at the integration head: ${workspacePath}. Work landed from earlier turns is on the integration branch; read the workspace's instruction files before working.`;
+
+/**
+ * The fresh SlipJay workspace (which has no branch of its own) a turn starts in when the
+ * thread's previous session ran in a workspace that no longer exists. The turn's own
+ * preparation or a terminal opening may have replaced it. Null otherwise.
+ */
+export const replacedWorkspacePath = (
+  input: {
+    readonly previousCwd: string | null;
+    readonly previousCwdExists: boolean;
+    readonly worktreePath: string | null;
+    readonly branch: string | null;
+  },
+  path: Pick<Path.Path, "relative" | "isAbsolute">,
+): string | null => {
+  const { previousCwd, worktreePath } = input;
+  if (previousCwd === null || worktreePath === null || input.branch !== null) return null;
+  if (input.previousCwdExists) return null;
+  const relative = path.relative(worktreePath, previousCwd);
+  const insideCurrent =
+    relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  return insideCurrent ? null : worktreePath;
+};
+
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
   "ProviderTurnStartError",
   {
@@ -1162,6 +1192,18 @@ export const layer: Layer.Layer<
           Effect.orElseSucceed(() => false),
         ));
       const scheduled = message.scheduledTaskId !== undefined;
+      const previousCwd = existingSessionProjection?.cwd ?? null;
+      const replacedWorkspace = replacedWorkspacePath(
+        {
+          previousCwd,
+          previousCwdExists:
+            previousCwd === null ||
+            (yield* fileSystem.exists(previousCwd).pipe(Effect.orElseSucceed(() => true))),
+          worktreePath: projection.thread.worktreePath,
+          branch: projection.thread.branch,
+        },
+        path,
+      );
       const attachments = listedWorkspaceAttachments(projection.thread);
       const turnWorkspaces =
         attachments.length === 0
@@ -1289,6 +1331,7 @@ export const layer: Layer.Layer<
             projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
             offersProjectSuggestion ? NO_PROJECT_NOTE : "",
             turnWorkspaces.length === 0 ? "" : workspacesNote(turnWorkspaces),
+            replacedWorkspace === null ? "" : replacedWorkspaceNote(replacedWorkspace),
             scheduled ? SCHEDULED_TASK_NOTE : "",
           ]
             .filter((part) => part !== "")
@@ -1347,7 +1390,8 @@ export const layer: Layer.Layer<
         projection.thread.sideChat !== true &&
         !scheduled &&
         !offersProjectSuggestion &&
-        turnWorkspaces.length === 0
+        turnWorkspaces.length === 0 &&
+        replacedWorkspace === null
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);

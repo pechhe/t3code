@@ -130,6 +130,7 @@ describe("pickSharedServerSettings", () => {
       "sidebarAutoSettleOnMerge",
       "snoozeLimitedThreads",
       "sourceControlWritingStyle",
+      "switchPooledAccountOnLimit",
       "textGenerationModelSelection",
     ]);
   });

@@ -315,7 +315,9 @@ const PreviewHandoffTool = browserTool(
       "Hand a Phi Agents tab to the human for login or another manual step. Input stays blocked until the human hands back. Not supported in an incognito shadow window.",
     parameters: Schema.Struct({
       ...PreviewAutomationTabTargetInput.fields,
-      message: Schema.String.check(Schema.isMaxLength(500)),
+      message: Schema.String.check(Schema.isMaxLength(500)).annotate({
+        description: "What the human should do in the tab before handing it back.",
+      }),
     }),
     success: PreviewActionResult,
     failure: PreviewToolFailure,

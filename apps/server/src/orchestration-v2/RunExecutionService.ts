@@ -1217,6 +1217,11 @@ export const layer: Layer.Layer<
             // thread-scoped probe: session-wide pending work (siblings, wake
             // buffers, session subagents) must not pin this root subscription.
             const latestProviderThreadSnapshot = yield* Ref.get(latestProviderThread);
+            // The adapter can clear its live roster before the queued roster update reaches us.
+            // Keep ingesting until the published background work has also cleared.
+            if ((latestProviderThreadSnapshot.pendingBackgroundTasks?.length ?? 0) > 0) {
+              return false;
+            }
             if (input.session.hasPendingBackgroundWorkForThread !== undefined) {
               const hasPendingWork = yield* input.session
                 .hasPendingBackgroundWorkForThread(latestProviderThreadSnapshot)

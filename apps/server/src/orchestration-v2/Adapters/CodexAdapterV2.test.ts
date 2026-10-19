@@ -541,10 +541,10 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.equal(params.collaborationMode?.mode, "default");
       assert.include(
         params.additionalContext?.t3_code_orchestration_01?.value ?? "",
-        "Use `delegate_task`",
+        "call `agent_roles`, then `delegate_task`",
       );
       assert.include(
-        params.additionalContext?.t3_code_orchestration_02?.value ?? "",
+        params.additionalContext?.t3_code_orchestration_03?.value ?? "",
         "structured object, never as JSON text",
       );
     }),
@@ -694,6 +694,7 @@ describe("CodexAdapterV2 process spawning", () => {
     assert.equal(params.model, "gpt-5.4");
     assert.deepEqual(params.config, {
       "tools.update_plan.enabled": true,
+      mcp_optional_startup_grace_ms: 10_000,
       "features.multi_agent": false,
       "features.apps": false,
       "features.plugins": false,
@@ -1988,6 +1989,7 @@ describe("CodexAdapterV2 session initialize", () => {
                     model: CODEX_TEST_MODEL_SELECTION.model,
                     config: {
                       "tools.update_plan.enabled": true,
+                      mcp_optional_startup_grace_ms: 10_000,
                       "features.multi_agent": false,
                       "features.apps": false,
                       "features.plugins": false,

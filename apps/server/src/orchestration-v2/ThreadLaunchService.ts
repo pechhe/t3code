@@ -26,8 +26,10 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -209,6 +211,16 @@ export class ThreadLaunchService extends Context.Service<
       | ThreadManagement.ThreadManagementProviderInstanceDisabledError
       | ProjectService.ProjectOperationError
     >;
+    /**
+     * Where a terminal of the thread opens. When SlipJay released the thread's workspace,
+     * the thread is moved to a fresh one first and the terminal opens there; any failure
+     * leaves the requested directory, which the terminal then reports as missing.
+     */
+    readonly terminalCwd: (input: {
+      readonly threadId: string;
+      readonly cwd: string;
+      readonly worktreePath?: string | null | undefined;
+    }) => Effect.Effect<{ readonly cwd: string; readonly worktreePath: string | null }>;
   }
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
@@ -231,6 +243,8 @@ const make = Effect.gen(function* () {
   const git = yield* GitWorkflow.GitWorkflowService;
   const setupScripts = yield* ProjectSetupScriptRunner.ProjectSetupScriptRunner;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
+  const path = yield* Path.Path;
+  const fileSystem = yield* FileSystem.FileSystem;
   const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const textGeneration = yield* TextGeneration.TextGeneration;
@@ -430,11 +444,18 @@ const make = Effect.gen(function* () {
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         const task =
           requestedBranch ?? initialMessage?.text.trim().split("\n")[0]?.slice(0, 80) ?? "";
+        // A thread working on a Build item gets its workspace under that item again,
+        // for example when SlipJay removed the previous one while the thread was idle.
+        const issue = (yield* threads.getThreadShell(threadId))?.workItem?.number;
         // SlipJay reports the path after dependency preparation. Keep acquisition
         // and rollback registration atomic, so cancellation cannot lose that path.
         yield* Effect.gen(function* () {
           worktreePath = yield* workspaces
-            .allocate({ projectRoot: project.workspaceRoot, task: task || "T3 thread" })
+            .allocate({
+              projectRoot: project.workspaceRoot,
+              task: task || "T3 thread",
+              ...(issue === undefined ? {} : { issue }),
+            })
             .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
           branch = null;
           createdWorktreePath = worktreePath;
@@ -1245,31 +1266,39 @@ const make = Effect.gen(function* () {
     );
   });
 
+  /** The thread's own SlipJay workspace, when SlipJay has released it. */
+  const releasedWorkspace = Effect.fn("ThreadLaunchService.releasedWorkspace")(function* (
+    threadId: ThreadId,
+  ) {
+    // Only a conversation's own SlipJay workspace is replaced. A git
+    // worktree has a branch to recreate it from, and a managed task's
+    // workspace belongs to the work that assigned it.
+    const thread = yield* threads.getThreadShell(threadId);
+    if (
+      thread === null ||
+      thread.worktreePath === null ||
+      thread.branch !== null ||
+      thread.agentTask !== undefined
+    ) {
+      return null;
+    }
+    const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
+    // Released means no longer a checkout of the project: SlipJay may have
+    // removed or recycled the folder, and a shell left inside can recreate
+    // it empty, so the folder existing proves nothing.
+    if (
+      project === undefined ||
+      (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay" ||
+      (yield* workspaces.contains(project.workspaceRoot, thread.worktreePath))
+    ) {
+      return null;
+    }
+    return { thread, worktreePath: thread.worktreePath, project };
+  });
+
   const prepareReleasedWorkspace: ThreadLaunchService["Service"]["prepareReleasedWorkspace"] =
     Effect.fn("ThreadLaunchService.prepareReleasedWorkspace")(function* (input) {
-      // Only a conversation's own SlipJay workspace is replaced. A git
-      // worktree has a branch to recreate it from, and a managed task's
-      // workspace belongs to the work that assigned it.
-      const thread = yield* threads.getThreadShell(input.threadId);
-      if (
-        thread === null ||
-        thread.worktreePath === null ||
-        thread.branch !== null ||
-        thread.agentTask !== undefined
-      ) {
-        return false;
-      }
-      const project = Option.getOrUndefined(yield* projects.getById(thread.projectId));
-      // Released means no longer a checkout of the project: SlipJay may have
-      // removed or recycled the folder, and a shell left inside can recreate
-      // it empty, so the folder existing proves nothing.
-      if (
-        project === undefined ||
-        (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay" ||
-        (yield* workspaces.contains(project.workspaceRoot, thread.worktreePath))
-      ) {
-        return false;
-      }
+      if ((yield* releasedWorkspace(input.threadId)) === null) return false;
       yield* threads.dispatch({
         type: "prepared-run.defer",
         commandId: input.commandId,
@@ -1281,12 +1310,63 @@ const make = Effect.gen(function* () {
       return true;
     });
 
+  const replaceTerminalWorkspace = Effect.fn("ThreadLaunchService.replaceTerminalWorkspace")(
+    function* (input: Parameters<ThreadLaunchService["Service"]["terminalCwd"]>[0]) {
+      const unchanged = { cwd: input.cwd, worktreePath: input.worktreePath ?? null };
+      // A live Jujutsu checkout keeps its `.jj`, unlike a removed one or an empty folder left
+      // in its place, so most terminals open without asking SlipJay.
+      const root = input.worktreePath ?? input.cwd;
+      if (yield* fileSystem.exists(path.join(root, ".jj")).pipe(Effect.orElseSucceed(() => true)))
+        return unchanged;
+      const threadId = ThreadId.make(input.threadId);
+      const released = yield* releasedWorkspace(threadId);
+      if (released === null) return unchanged;
+      const relative = path.relative(released.worktreePath, input.cwd);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) return unchanged;
+      const issue = released.thread.workItem?.number;
+      const worktreePath = yield* workspaces.allocate({
+        projectRoot: released.project.workspaceRoot,
+        task: released.thread.title,
+        ...(issue === undefined ? {} : { issue }),
+      });
+      // Compare-and-set: a turn preparing a workspace at the same time keeps its own.
+      yield* threads
+        .dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`command:terminal-workspace:${threadId}:${worktreePath}`),
+          threadId,
+          branch: null,
+          worktreePath,
+          expectedWorktreePath: released.worktreePath,
+        })
+        .pipe(
+          Effect.onError(() =>
+            workspaces
+              .release({ projectRoot: released.project.workspaceRoot, path: worktreePath })
+              .pipe(Effect.ignoreCause({ log: true })),
+          ),
+        );
+      return { cwd: path.join(worktreePath, relative), worktreePath };
+    },
+  );
+
+  const terminalCwd: ThreadLaunchService["Service"]["terminalCwd"] = (input) =>
+    replaceTerminalWorkspace(input).pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not replace a released workspace for a terminal", {
+          threadId: input.threadId,
+          error: error.message,
+        }).pipe(Effect.as({ cwd: input.cwd, worktreePath: input.worktreePath ?? null })),
+      ),
+    );
+
   return ThreadLaunchService.of({
     launch,
     checkWorktreeBase,
     retryPreparation,
     prepareRun,
     prepareReleasedWorkspace,
+    terminalCwd,
   });
 });
 

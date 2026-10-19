@@ -12,6 +12,7 @@ import {
   ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
+import * as Path from "effect/Path";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
@@ -21,7 +22,7 @@ import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import { SIDE_CHAT_NOTE } from "./ProviderTurnStartService.ts";
+import { replacedWorkspacePath, SIDE_CHAT_NOTE } from "./ProviderTurnStartService.ts";
 import { SCHEDULED_TASK_NOTE } from "./ScheduledTaskPrompt.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -230,6 +231,60 @@ it.effect("lists the thread's workspaces in each turn once it has one attached",
     assert.include(text, "api-project (attached): /workspaces/api on feature/api");
     assert.isTrue(text.endsWith("Carry on."));
   }),
+);
+
+it.effect.each([
+  {
+    name: "its previous SlipJay workspace is gone",
+    previousCwd: "/slipjay/removed",
+    previousCwdExists: false,
+    branch: null,
+    expected: "/slipjay/fresh",
+  },
+  {
+    name: "it moved away from a workspace that still exists",
+    previousCwd: "/slipjay/kept",
+    previousCwdExists: true,
+    branch: null,
+    expected: null,
+  },
+  {
+    name: "its session ran in a subdirectory of the current workspace",
+    previousCwd: "/slipjay/fresh/packages/app",
+    previousCwdExists: false,
+    branch: null,
+    expected: null,
+  },
+  {
+    name: "it works in a git worktree",
+    previousCwd: "/worktrees/removed",
+    previousCwdExists: false,
+    branch: "feature/x",
+    expected: null,
+  },
+  {
+    name: "it has no earlier session",
+    previousCwd: null,
+    previousCwdExists: true,
+    branch: null,
+    expected: null,
+  },
+] as const)("tells the provider its workspace was replaced only when $name", (row) =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    assert.equal(
+      replacedWorkspacePath(
+        {
+          previousCwd: row.previousCwd,
+          previousCwdExists: row.previousCwdExists,
+          worktreePath: "/slipjay/fresh",
+          branch: row.branch,
+        },
+        path,
+      ),
+      row.expected,
+    );
+  }).pipe(Effect.provide(Path.layer)),
 );
 
 it.effect("tells the provider a scheduled prompt is not a message from the user", () =>

@@ -2713,7 +2713,8 @@ it.effect(
               ingestNormalized: (input) =>
                 Ref.update(ingested, (current) => [...current, input.event]).pipe(Effect.as([])),
             }),
-            ServerSettings.layerTest(),
+            // Paragraph mode holds the unfinished child draft, so the cascade never saw it.
+            ServerSettings.layerTest({ responseStreamingMode: "paragraph" }),
           ),
         ),
       );

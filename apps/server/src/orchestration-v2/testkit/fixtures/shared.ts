@@ -1226,7 +1226,8 @@ export function assertProviderNativeSubagentRootTurns(result: OrchestratorV2Scen
             ? [index]
             : [],
         );
-        const subagentEndIndex = result.domainEvents.findLastIndex(
+        // Later token-usage updates can repeat the terminal status after the wake has ended.
+        const subagentEndIndex = result.domainEvents.findIndex(
           (event) =>
             event.type === "subagent.updated" &&
             event.payload.id === subagent.id &&

@@ -136,4 +136,35 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
         ]);
       }),
   );
+  it.effect.each([
+    { name: "attaches the Issue to the new workspace", attachCode: 0 },
+    { name: "keeps the workspace when another holds the Issue", attachCode: 1 },
+  ])("allocates for an Issue without resuming its workspace: $name", ({ attachCode }) =>
+    Effect.gen(function* () {
+      const commands: Array<{ readonly args: string[]; readonly cwd: string | undefined }> = [];
+      const service = yield* Workspaces.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(Processes.ProcessRunner)({
+              run: (input) =>
+                Effect.sync(() => {
+                  commands.push({ args: [input.command, ...input.args], cwd: input.cwd });
+                  return input.args[0] === "start"
+                    ? output(JSON.stringify({ workspacePath: "/allocated" }))
+                    : { ...output(), code: ChildProcessSpawner.ExitCode(attachCode) };
+                }),
+            }),
+            Layer.mock(Git.GitVcsDriver)({}),
+          ),
+        ),
+      );
+      expect(yield* service.allocate({ projectRoot: "/project", task: "work", issue: 42 })).toBe(
+        "/allocated",
+      );
+      expect(commands).toEqual([
+        { args: ["slipjay", "start", "--integration", "--json", "work"], cwd: "/project" },
+        { args: ["slipjay", "attach-issue", "42"], cwd: "/allocated" },
+      ]);
+    }),
+  );
 });

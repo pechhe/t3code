@@ -2853,18 +2853,36 @@ const layerWsRpc = (
           vcsProvisioning.initRepository(input).pipe(Effect.tap(() => refreshGitStatus(input.cwd))),
         [WS_METHODS.reviewGetDiffPreview]: (input) => review.getDiffPreview(input),
         [WS_METHODS.reviewGetDiffFileContents]: (input) => review.getDiffFileContents(input),
-        [WS_METHODS.terminalOpen]: (input) => terminalManager.open(input),
+        [WS_METHODS.terminalOpen]: (input) =>
+          threadLaunch
+            .terminalCwd(input)
+            .pipe(Effect.flatMap((workspace) => terminalManager.open({ ...input, ...workspace }))),
         [WS_METHODS.terminalAttach]: (input) =>
           Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
             Effect.acquireRelease(
-              terminalManager.attachStream(input, (event) => Queue.offer(queue, event)),
+              // Attaching to an unknown or stopped terminal starts its shell.
+              (input.cwd === undefined
+                ? Effect.succeed(input)
+                : threadLaunch
+                    .terminalCwd({ ...input, cwd: input.cwd })
+                    .pipe(Effect.map((workspace) => ({ ...input, ...workspace })))
+              ).pipe(
+                Effect.flatMap((attach) =>
+                  terminalManager.attachStream(attach, (event) => Queue.offer(queue, event)),
+                ),
+              ),
               (unsubscribe) => Effect.sync(unsubscribe),
             ).pipe(Effect.catchCause((cause) => Queue.failCause(queue, cause))),
           ),
         [WS_METHODS.terminalWrite]: (input) => terminalManager.write(input),
         [WS_METHODS.terminalResize]: (input) => terminalManager.resize(input),
         [WS_METHODS.terminalClear]: (input) => terminalManager.clear(input),
-        [WS_METHODS.terminalRestart]: (input) => terminalManager.restart(input),
+        [WS_METHODS.terminalRestart]: (input) =>
+          threadLaunch
+            .terminalCwd(input)
+            .pipe(
+              Effect.flatMap((workspace) => terminalManager.restart({ ...input, ...workspace })),
+            ),
         [WS_METHODS.terminalClose]: (input) => terminalManager.close(input),
         [WS_METHODS.terminalObserve]: (input) =>
           Stream.callback<TerminalAttachStreamEvent, TerminalError>((queue) =>
