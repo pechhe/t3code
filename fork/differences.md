@@ -92,7 +92,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/mcp/OrchestratorMcpService.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts, TaskCancelNativeSubagent.integration.test.ts; apps/server/src/agents/ManagedAgentService.test.ts, writerWorkspacePreflight.test.ts; orchestration-v2/AdvisorIdleClose.test.ts; in slipjay.json verification.
 - **Upstream:** upstream has the base orchestrator MCP and subagents; the managed layer is the fork's. Overlap risk is high on `OrchestratorMcpService`.
 - **Retire when:** upstream ships equivalent managed scope and follow-up covering the requirements.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit.
+- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit. Those instructions say only when and why to delegate; field mechanics live once, in the `delegate_task` description.
 - **Owner:** pechhe/t3code#14, #15, #17, #18, #31, #40, #62, #93, #131 (closed); open: #123, #136, #146.
 
 ### t3-agent-cli
