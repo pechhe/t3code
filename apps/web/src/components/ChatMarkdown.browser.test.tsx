@@ -433,6 +433,41 @@ describe("ChatMarkdown streaming", () => {
     expect(container.textContent).toContain("Streaming reply grows on");
     expect(renderContextReference).toHaveBeenCalledTimes(renders);
   });
+
+  // Regression budget: rendering the whole message per token grows with the square of
+  // the reply length; rendering only the changing block keeps it linear.
+  it("replays a long streamed reply within a linear render budget", async () => {
+    const sections = Array.from({ length: 8 }, (_, index) =>
+      [
+        `## Section ${index + 1}`,
+        `Most of the time goes to [Terminal ${index}](t3-context://v1/terminal/term-${index}) and \`apps/web/src/components/ChatMarkdown.tsx\` while a reply streams, so long replies cost more than short ones.`,
+        "- First point with **bold** text.\n- Second point with a [link](https://example.com).",
+        "```ts\nexport const answer = 42;\n```",
+      ].join("\n\n"),
+    );
+    const reply = sections.join("\n\n");
+    const renderContextReference = vi.fn(({ label }: { label: string }) => <span>{label}</span>);
+    const message = (text: string, isStreaming = true): ReactElement => (
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={text}
+        isStreaming={isStreaming}
+        renderContextReference={renderContextReference}
+      />
+    );
+
+    const { container, rerender } = await render(message(reply.slice(0, 24)));
+    let updates = 1;
+    for (let end = 48; end < reply.length; end += 24, updates += 1) {
+      await rerender(message(reply.slice(0, end)));
+    }
+    await rerender(message(reply, false));
+
+    expect(container.querySelectorAll("h2")).toHaveLength(sections.length);
+    // Rendering only the block being written costs about 1.4 renders per update here;
+    // re-rendering the whole message costs about 4.3, and grows with the reply.
+    expect(renderContextReference.mock.calls.length).toBeLessThanOrEqual(updates * 2);
+  });
 });
 
 describe("ChatMarkdown skill chips", () => {

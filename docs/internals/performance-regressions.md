@@ -118,3 +118,15 @@ continuous traffic during an outage.
 Focused coverage: `ProjectionSettlement.test.ts`, `ThreadSettlementService.test.ts`,
 `runtimeLayer.test.ts`, `AgentAwarenessRelay.test.ts`, `GitVcsDriverCore.test.ts`,
 `ThreadStatusIndicators.subscriptions.browser.test.tsx`, and `desktopLocal.test.ts`.
+
+## Streaming replies
+
+A streamed reply re-renders only the top-level markdown block that changed: finished blocks
+keep their source and offset, so `ChatMarkdown` skips them
+([`splitMarkdownBlocks`](../../packages/shared/src/markdownBlocks.ts)). Anything derived per
+render from the whole text, such as file-link resolution, must be cached by content rather
+than by `text`, or every token rebuilds it and the finished blocks re-render. The React Compiler
+memoises by `text`, so it does not prevent this.
+
+`ChatMarkdown.browser.test.tsx` replays a long reply token by token against a render budget
+that a whole-message render exceeds about twofold, and by more as the reply grows.
