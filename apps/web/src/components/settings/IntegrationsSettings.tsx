@@ -2,6 +2,7 @@ import { DeviceHostUpdates } from "../device/DeviceHostUpdates";
 import { DeviceToolVersions } from "../device/DeviceToolVersions";
 import { useScopedSettings, useUpdateScopedSettings } from "./useScopedSettings";
 import { ScopedSwitch } from "./ScopedSwitch";
+import { BuildDecisionsSettings } from "./BuildDecisionsSettings";
 import { DeviceHostsSettings } from "./DeviceHostsSettings";
 import { EasDeviceHostsSettings } from "./EasDeviceHostsSettings";
 import {
@@ -804,6 +805,17 @@ function PullRequestLinksOpenInAppSetting() {
         />
       }
     />
+  );
+}
+
+function BuildDecisionsSection() {
+  const { environment: selected } = useSettingsScope();
+  const connected = selected?.connection.phase === "connected" && selected.serverConfig !== null;
+  if (!connected || selected === null) return null;
+  return (
+    <SettingsSection id="build-decisions" title="Build decisions">
+      <BuildDecisionsSettings key={selected.environmentId} environmentId={selected.environmentId} />
+    </SettingsSection>
   );
 }
 
@@ -1700,6 +1712,7 @@ export function IntegrationsSettingsPanel() {
         <BrowserSearchEngineSetting />
         <PullRequestLinksOpenInAppSetting />
       </SettingsSection>
+      <BuildDecisionsSection />
       <DeviceIntegrationSettings />
     </SettingsPageContainer>
   );

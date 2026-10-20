@@ -59,6 +59,28 @@ export function createBuildWorkItemAtoms<R, E>(
       label: "environment-data:build:work-item:link",
       tag: WS_METHODS.buildWorkItemLink,
     }),
+    /** Build Home for the Build button; the server paces its own reads of HQ. */
+    home: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:build:home",
+      tag: WS_METHODS.buildHomeRead,
+      ...polling,
+    }),
+    homeConnect: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:build:home:connect",
+      tag: WS_METHODS.buildHomeConnect,
+    }),
+    homeDisconnect: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:build:home:disconnect",
+      tag: WS_METHODS.buildHomeDisconnect,
+    }),
+    homeDecide: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:build:home:decide",
+      tag: WS_METHODS.buildHomeDecide,
+    }),
+    homeFix: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:build:home:fix",
+      tag: WS_METHODS.buildHomeFix,
+    }),
   };
 }
 

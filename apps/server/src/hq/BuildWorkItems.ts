@@ -40,16 +40,16 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
  * starts at this interval and backs off unchanged results to five minutes. No timer reads HQ here.
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
-const BUILD_MAX_REREAD_INTERVAL_MS = 5 * BUILD_REREAD_INTERVAL_MS;
-const fingerprintOf = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+export const BUILD_MAX_REREAD_INTERVAL_MS = 5 * BUILD_REREAD_INTERVAL_MS;
+export const fingerprintOf = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-interface ReadCadence {
+export interface ReadCadence {
   readonly intervalMs: number;
   readonly writeVersion: number;
   readonly fingerprint: string | undefined;
 }
 
-const nextInterval = (
+export const nextInterval = (
   previous: ReadCadence | undefined,
   fingerprint: string | undefined,
   writeVersion: number,

@@ -42,3 +42,10 @@ export function useThreadBuildOrigin(threadRef: ScopedThreadRef | null | undefin
     ).data?.origin ?? null
   );
 }
+
+/** Build Home for the Build button and its settings: the token is never part of it. */
+export function useBuildHome(environmentId: EnvironmentId | null) {
+  return useEnvironmentQuery(
+    environmentId === null ? null : buildWorkItems.home({ environmentId, input: {} }),
+  );
+}

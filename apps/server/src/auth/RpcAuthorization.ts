@@ -121,6 +121,7 @@ export const RPC_REQUIRED_SCOPES = {
   [WS_METHODS.buildWorkItemRead]: AuthOrchestrationReadScope,
   [WS_METHODS.buildWorkItemCard]: AuthOrchestrationReadScope,
   [WS_METHODS.buildWorkItemMentions]: AuthOrchestrationReadScope,
+  [WS_METHODS.buildHomeRead]: AuthOrchestrationReadScope,
   [WS_METHODS.scheduledTasksList]: AuthOrchestrationReadScope,
   [WS_METHODS.scheduledTasksSubscribe]: AuthOrchestrationReadScope,
   [WS_METHODS.peersList]: AuthAccessReadScope,

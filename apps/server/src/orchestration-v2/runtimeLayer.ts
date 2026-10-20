@@ -54,6 +54,7 @@ import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as BuildHome from "../hq/BuildHome.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
@@ -405,6 +406,16 @@ export const layerProduction = Layer.mergeAll(
   layerSecretRequestsProvided,
   ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   BuildWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
+  BuildHome.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        layerThreadManagementProvided,
+        layerThreadLaunchProvided,
+        layerProjectService,
+        WorkspaceProvider.layer,
+      ),
+    ),
+  ),
   UsageLimitRecoveryWorker.layer.pipe(
     Layer.provide(
       Layer.mergeAll(

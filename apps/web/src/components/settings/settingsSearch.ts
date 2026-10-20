@@ -806,6 +806,13 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["phi t3 integrated backend default preview tools project override"],
   },
   {
+    id: "build-decisions",
+    title: "Build decisions",
+    to: "/settings/integrations",
+    searchTerms: ["build button accept send back hq decision token endpoint weave yardsmith"],
+    environmentOnly: true,
+  },
+  {
     id: "device-hosts",
     title: "Device hosts",
     to: "/settings/integrations",

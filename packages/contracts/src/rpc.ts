@@ -196,6 +196,17 @@ import {
   OrchestrationSearchThreadsResult,
 } from "./threadSearch.ts";
 import {
+  BuildHomeConnectInput,
+  BuildHomeDecideInput,
+  BuildHomeDecideResult,
+  BuildHomeDisconnectInput,
+  BuildHomeError,
+  BuildHomeFixInput,
+  BuildHomeFixResult,
+  BuildHomeReadInput,
+  BuildHomeState,
+} from "./buildHome.ts";
+import {
   BuildConnectionReadInput,
   BuildConnectionReadResult,
   BuildWorkItemError,
@@ -599,6 +610,11 @@ export const WS_METHODS = {
   buildWorkItemCard: "build.workItem.card",
   buildWorkItemMentions: "build.workItem.mentions",
   buildWorkItemLink: "build.workItem.link",
+  buildHomeRead: "build.home.read",
+  buildHomeConnect: "build.home.connect",
+  buildHomeDisconnect: "build.home.disconnect",
+  buildHomeDecide: "build.home.decide",
+  buildHomeFix: "build.home.fix",
 
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
@@ -2050,6 +2066,36 @@ const WsBuildWorkItemLinkRpc = Rpc.make(WS_METHODS.buildWorkItemLink, {
   error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
 });
 
+const WsBuildHomeReadRpc = Rpc.make(WS_METHODS.buildHomeRead, {
+  payload: BuildHomeReadInput,
+  success: BuildHomeState,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsBuildHomeConnectRpc = Rpc.make(WS_METHODS.buildHomeConnect, {
+  payload: BuildHomeConnectInput,
+  success: BuildHomeState,
+  error: Schema.Union([BuildHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsBuildHomeDisconnectRpc = Rpc.make(WS_METHODS.buildHomeDisconnect, {
+  payload: BuildHomeDisconnectInput,
+  success: BuildHomeState,
+  error: Schema.Union([BuildHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsBuildHomeDecideRpc = Rpc.make(WS_METHODS.buildHomeDecide, {
+  payload: BuildHomeDecideInput,
+  success: BuildHomeDecideResult,
+  error: Schema.Union([BuildHomeError, EnvironmentAuthorizationError]),
+});
+
+const WsBuildHomeFixRpc = Rpc.make(WS_METHODS.buildHomeFix, {
+  payload: BuildHomeFixInput,
+  success: BuildHomeFixResult,
+  error: Schema.Union([BuildHomeError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
   payload: ScheduledTaskListInput,
   success: ScheduledTaskListResult,
@@ -2268,6 +2314,11 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsBuildWorkItemCardRpc,
   WsBuildWorkItemMentionsRpc,
   WsBuildWorkItemLinkRpc,
+  WsBuildHomeReadRpc,
+  WsBuildHomeConnectRpc,
+  WsBuildHomeDisconnectRpc,
+  WsBuildHomeDecideRpc,
+  WsBuildHomeFixRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,

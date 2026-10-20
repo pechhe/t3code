@@ -78,6 +78,7 @@ import * as RepositoryIdentityResolver from "./project/RepositoryIdentityResolve
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
+import * as BuildHome from "./hq/BuildHome.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ContextRolloverThresholdService from "./orchestration-v2/ContextRolloverThresholdService.ts";
@@ -523,6 +524,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ResourceTelemetry.ResourceTelemetry)({}),
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(BuildWorkItems.BuildWorkItems)({}),
+  Layer.mock(BuildHome.BuildHome)({}),
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
   Layer.mock(AgentPolicySettings.AgentPolicySettingsService)({}),
   Layer.mock(ContextRolloverThresholdService.ContextRolloverThresholdService)({}),

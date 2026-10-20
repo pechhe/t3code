@@ -392,6 +392,7 @@ import { vcsEnvironment } from "../state/vcs";
 import { SlipJayLandingChip } from "./SlipJayLandingChip";
 import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
+import { BuildHomeButton } from "./buildItem/BuildHomeButton";
 import { sourceControlEnvironment } from "../state/sourceControl";
 import { useProjectClone } from "../state/projectClones";
 import { projectCloneDisplayName, projectCloneProgressSummary } from "@t3tools/contracts";
@@ -8400,18 +8401,25 @@ export default function ChatView(props: ChatViewProps) {
                 : {})}
               actions={
                 isServerThread ? (
-                  <SlipJayRunnerControl
-                    environmentId={activeThread.environmentId}
-                    releaseProject={
-                      isSlipJayProject && activeProject
-                        ? {
-                            cwd: activeProject.workspaceRoot,
-                            name: activeProject.title,
-                          }
-                        : null
-                    }
-                    onOpenThread={onOpenRelatedThreadStable}
-                  />
+                  <>
+                    <BuildHomeButton
+                      environmentId={activeThread.environmentId}
+                      threadId={activeThread.id}
+                      onOpenThread={onOpenRelatedThreadStable}
+                    />
+                    <SlipJayRunnerControl
+                      environmentId={activeThread.environmentId}
+                      releaseProject={
+                        isSlipJayProject && activeProject
+                          ? {
+                              cwd: activeProject.workspaceRoot,
+                              name: activeProject.title,
+                            }
+                          : null
+                      }
+                      onOpenThread={onOpenRelatedThreadStable}
+                    />
+                  </>
                 ) : null
               }
             />

@@ -132,6 +132,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
+import * as BuildHome from "./hq/BuildHome.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
@@ -1330,6 +1331,7 @@ export const layerWsRpc = (
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
+      const buildHome = yield* BuildHome.BuildHome;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2156,6 +2158,11 @@ export const layerWsRpc = (
             Effect.andThen(buildWorkItems.link(input)),
             Effect.map(({ workItem }) => ({ workItem })),
           ),
+        [WS_METHODS.buildHomeRead]: () => buildHome.read,
+        [WS_METHODS.buildHomeConnect]: (input) => buildHome.connect(input),
+        [WS_METHODS.buildHomeDisconnect]: () => buildHome.disconnect,
+        [WS_METHODS.buildHomeDecide]: (input) => buildHome.decide(input),
+        [WS_METHODS.buildHomeFix]: (input) => buildHome.fix(input),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
