@@ -88,8 +88,8 @@ it has usage left, whichever way the pool picks.
 ## Compact long conversations
 
 Set **Auto-compact after** in the Claude provider settings to an integer between
-`100000` and `1000000`. For example, `300000` asks Claude to summarize at about
-300,000 tokens. This changes when compaction happens, not the model's context
+`100000` and `1000000`. Claude Code compacts about 30,000 to 40,000 tokens below
+this size, so `300000` means roughly 260,000 to 270,000 tokens. This changes when compaction happens, not the model's context
 window. Leave it empty for Claude Code's default. With **Context rollover** on in
 General settings, the agent is also asked to reach a stopping point before this
 happens.

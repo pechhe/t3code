@@ -90,6 +90,7 @@ const capture = (
       ],
     } as never,
     rolloverSettings: rolloverOn,
+    nudged: true,
     rollover: undefined,
     assignments: [{ experimentId: "trial", variantId: "a" }],
     instructionOverlay: null,

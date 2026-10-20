@@ -36,6 +36,8 @@ import {
   COMPACTION_RECIPE,
   assignedRolloverThresholds,
   boundRolloverThresholds,
+  compactionBoundary,
+  compactsNatively,
   rolloverHeld,
 } from "../orchestration-v2/ContextRollover.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
@@ -149,6 +151,8 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
   /** The run's model capabilities from the provider snapshot, or null when unknown. */
   readonly capabilities: ModelCapabilities | null;
   readonly rolloverSettings: ContextRolloverSettings;
+  /** False for a provider that is never nudged, so no compaction policy is recorded for it. */
+  readonly nudged: boolean;
   readonly rollover: ExperimentRolloverPolicy | undefined;
   readonly assignments: ReadonlyArray<{
     readonly experimentId: string;
@@ -167,7 +171,9 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
     input.rollover,
   );
   const thresholds =
-    configured === null ? null : boundRolloverThresholds(configured, input.maxTokens);
+    configured === null || !input.nudged
+      ? null
+      : boundRolloverThresholds(configured, input.maxTokens);
   const policy = root === null ? null : yield* input.policy(root);
   return {
     runId: input.run.id,
@@ -485,16 +491,20 @@ export const make = Effect.gen(function* () {
               driver: provider.driver,
             });
       const assignments = yield* experiments.assignments({ threadId: run.threadId });
+      const settings = yield* settingsService.getSettings;
+      const instanceId = run.modelSelection.instanceId;
       const record = yield* captureRunSetup({
         run,
         thread,
-        maxTokens,
+        // The point the nudges are bounded by, as the threshold service computes it.
+        maxTokens: compactionBoundary(maxTokens, settings, instanceId),
+        nudged: compactsNatively(settings, instanceId),
         workingDirectory:
           thread.worktreePath ?? Option.getOrNull(Option.map(project, (row) => row.workspaceRoot)),
         capabilities:
           provider?.models.find((model) => model.slug === run.modelSelection.model)?.capabilities ??
           null,
-        rolloverSettings: (yield* settingsService.getSettings).contextRollover,
+        rolloverSettings: settings.contextRollover,
         rollover: (yield* experiments.getRolloverAssignment(run.threadId))?.variant.rollover,
         instructionOverlay: overlay,
         assignments: assignments.map((assignment) => ({
