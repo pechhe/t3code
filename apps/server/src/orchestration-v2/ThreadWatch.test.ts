@@ -503,6 +503,7 @@ const makeBuildHarness = Effect.gen(function* () {
   const connection = { origin: "https://hq.example", connection: "test-connection" };
   const hq = Layer.mock(HqAgentConnections.HqAgentConnections)({
     read: Effect.succeed(connection),
+    buildWriteVersion: Effect.succeed(0),
     observe: (tool, args) =>
       Effect.sync(() => {
         if (tool === "hq_build_waits") {
@@ -1217,30 +1218,35 @@ it.layer(layerTest)("thread watches", (it) => {
     }),
   );
 
-  it.effect("the Build reactor's own polling wakes within two minutes without thread events", () =>
-    Effect.gen(function* () {
-      const h = yield* makeBuildHarness;
-      const watcher = yield* createThread("build-periodic");
-      const engine = yield* Orchestrator.OrchestratorV2;
-      yield* h.start(watcher, "unblocked");
-      const fired = yield* engine.streamDomainEvents.pipe(
-        Stream.filter(
-          (event) =>
-            event.threadId === watcher &&
-            event.type === "message.updated" &&
-            event.payload.notification?.source.kind === "build_item",
-        ),
-        Stream.take(1),
-        Stream.runCollect,
-        Effect.forkScoped,
-      );
-      yield* h.reactor.start();
-      yield* TestClock.adjust("1 minute");
-      assert.lengthOf(yield* h.messages(watcher), 0);
-      h.state.item = { ...h.state.item, waits: [] };
-      yield* TestClock.adjust("1 minute");
-      assert.lengthOf(yield* Fiber.join(fired), 1);
-      assert.lengthOf(yield* h.messages(watcher), 1);
-    }),
+  it.effect(
+    "the Build reactor's own polling wakes on the backed-off cadence without thread events",
+    () =>
+      Effect.gen(function* () {
+        const h = yield* makeBuildHarness;
+        const watcher = yield* createThread("build-periodic");
+        const engine = yield* Orchestrator.OrchestratorV2;
+        yield* h.start(watcher, "unblocked");
+        const fired = yield* engine.streamDomainEvents.pipe(
+          Stream.filter(
+            (event) =>
+              event.threadId === watcher &&
+              event.type === "message.updated" &&
+              event.payload.notification?.source.kind === "build_item",
+          ),
+          Stream.take(1),
+          Stream.runCollect,
+          Effect.forkScoped,
+        );
+        yield* h.reactor.start();
+        yield* TestClock.adjust("1 minute");
+        assert.lengthOf(yield* h.messages(watcher), 0);
+        h.state.item = { ...h.state.item, waits: [] };
+        // The unchanged read at one minute backed the item off to two minutes.
+        yield* TestClock.adjust("1 minute");
+        assert.lengthOf(yield* h.messages(watcher), 0);
+        yield* TestClock.adjust("1 minute");
+        assert.lengthOf(yield* Fiber.join(fired), 1);
+        assert.lengthOf(yield* h.messages(watcher), 1);
+      }),
   );
 });

@@ -5611,6 +5611,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command.dispatchMode,
       command.deliveryIntent,
     );
+    const contextNudge = command.commandId.startsWith(ROLLOVER_NUDGE_COMMAND_PREFIX);
     if (dispatchMode.type === "steer_active") {
       const targetRunId = dispatchMode.targetRunId;
       const target = projection.runs.find((run) => run.id === targetRunId);
@@ -5618,25 +5619,32 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projection.providerTurns.filter((candidate) => candidate.nodeId === target?.rootNodeId),
         target?.activeAttemptId,
       );
+      const live = target?.status === "running" || target?.status === "waiting";
+      // A context nudge only prepares a running task for compaction; it never starts work.
+      if (contextNudge && (!live || turn?.status === "completed")) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "The run ended before the context nudge could be delivered.",
+        });
+      }
       // The client may still show a running turn while its completion is being
       // projected. Preserve the submission as a new turn when steering is too late.
       if (
         target !== undefined &&
         (target.status === "completed" ||
-          ((target.status === "running" || target.status === "waiting") &&
-            turn !== undefined &&
-            turn.status === "completed"))
+          (live && turn !== undefined && turn.status === "completed"))
       ) {
-        // A context nudge only prepares a running task for compaction; it never starts work.
-        if (command.commandId.startsWith(ROLLOVER_NUDGE_COMMAND_PREFIX)) {
-          return yield* new OrchestratorDispatchError({
-            commandId: command.commandId,
-            commandType: command.type,
-            cause: "The run ended before the context nudge could be delivered.",
-          });
-        }
         dispatchMode = { type: "start_immediately" };
       }
+    } else if (contextNudge) {
+      // A run that cannot take steering (a native /compact, say) would queue the nudge,
+      // and the queued nudge would start a new run after compaction.
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "The context nudge's run cannot take steering input.",
+      });
     }
     // Stop leaves the run reading as running until its provider stops. A plain
     // send in that window queues behind the stopped queue instead of steering

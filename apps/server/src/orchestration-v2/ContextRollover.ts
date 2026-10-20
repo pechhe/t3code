@@ -7,7 +7,7 @@ import {
 } from "@t3tools/contracts";
 
 /** Identifies the compaction nudges in experiment evidence; bump it when they change. */
-export const COMPACTION_RECIPE = "native-compaction-v1";
+export const COMPACTION_RECIPE = "native-compaction-v2";
 
 const k = (tokens: number) => `${Math.round(tokens / 1000)}k`;
 

@@ -59,6 +59,11 @@ interface ThreadRollover {
    * again and again.
    */
   floor: number | "pending" | null;
+  /**
+   * The provider's own count of the compacted context. Claude reports it as usage too, but it
+   * leaves out the system prompt and tools, so a report of exactly this size never sets the floor.
+   */
+  compactedCount?: number;
   /** The warning that a threshold sits below this floor was logged. */
   floorWarned: boolean;
   /** The run attempt whose nudge was last weighed, so a turn's start is weighed once. */
@@ -275,11 +280,18 @@ export const make = Effect.gen(function* () {
       });
       delete state.recovery;
     }
-    if (state.floor === "pending" || (state.floor !== null && used < state.floor)) {
+    if (
+      state.floor === "pending"
+        ? used !== state.compactedCount
+        : state.floor !== null && used < state.floor
+    ) {
       state.floor = used;
+      delete state.compactedCount;
     }
     state.attemptId = turn.runAttemptId;
     threads.set(event.threadId, state);
+    // A report that leaves the floor pending is the provider's own count, which measures nothing.
+    if (state.floor === "pending") return;
     yield* nudgeIfDue(event.threadId, run, turn, state, turn.tokenUsage!.updatedAt);
   });
 
@@ -387,7 +399,7 @@ export const make = Effect.gen(function* () {
       item.providerTurnId === null
     )
       return;
-    if (compactions.get(event.threadId)?.has(item.id)) return;
+    const repeated = compactions.get(event.threadId)?.has(item.id) === true;
     const { runs, providerTurns } = yield* projections.getThreadRecords(event.threadId, [
       "runs",
       "providerTurns",
@@ -404,8 +416,21 @@ export const make = Effect.gen(function* () {
       return;
     if (runs.some((candidate) => candidate.ordinal > run.ordinal && candidate.status !== "queued"))
       return;
-    const assignment = yield* experiments.getRolloverAssignment(event.threadId);
     const state = threads.get(event.threadId);
+    if (repeated) {
+      // Claude completes a compaction twice and sends its own count as usage in between, so the
+      // floor may already hold that count; the count arrives only with the second completion.
+      if (
+        state !== undefined &&
+        state.providerThreadId === item.providerThreadId &&
+        item.afterTokenCount !== undefined
+      ) {
+        if (state.floor === item.afterTokenCount) state.floor = "pending";
+        if (state.floor === "pending") state.compactedCount = item.afterTokenCount;
+      }
+      return;
+    }
+    const assignment = yield* experiments.getRolloverAssignment(event.threadId);
     const id = `rollover:${assignment?.id}:${run.id}:native-compaction:${item.id}`;
     if (assignment !== null) {
       yield* experiments.recordObservation({
@@ -439,8 +464,12 @@ export const make = Effect.gen(function* () {
         DateTime.toEpochMillis(item.updatedAt) >= state.usageUpdatedAt)
     ) {
       state.phase = "idle";
-      state.floor = item.afterTokenCount ?? "pending";
-      if (item.afterTokenCount !== undefined) {
+      // The next usage report measures the compacted context; see compactedCount.
+      state.floor = "pending";
+      if (item.afterTokenCount === undefined) {
+        delete state.compactedCount;
+      } else {
+        state.compactedCount = item.afterTokenCount;
         state.recovery = { usedTokens: item.afterTokenCount, observationId: id };
       }
     }

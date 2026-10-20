@@ -97,6 +97,106 @@ function makeAdapter(
       Effect.gen(function* () {
         const events = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
         const now = yield* DateTime.now;
+        const startTurn = (input: ProviderAdapter.ProviderAdapterV2TurnInput) =>
+          Effect.gen(function* () {
+            const turnCount = yield* Ref.modify(captured, (current) => [
+              current.started.length + 1,
+              { ...current, started: [...current.started, input] },
+            ]);
+            const startedAt = yield* DateTime.now;
+            const providerTurnId = ProviderTurnId.make(`provider-turn:${input.attemptId}`);
+            const providerTurn = {
+              id: providerTurnId,
+              providerThreadId: input.providerThread.id,
+              nodeId: input.rootNodeId,
+              runAttemptId: input.attemptId,
+              nativeTurnRef: {
+                driver,
+                nativeId: `native:${providerTurnId}`,
+                strength: "strong" as const,
+              },
+              ordinal: input.providerTurnOrdinal,
+              startedAt,
+            };
+            const complete = Effect.gen(function* () {
+              yield* Queue.offer(events, {
+                type: "provider_turn.updated",
+                driver,
+                providerTurn: {
+                  ...providerTurn,
+                  status: "completed",
+                  completedAt: yield* DateTime.now,
+                },
+              });
+              yield* Queue.offer(events, {
+                type: "turn.terminal",
+                driver,
+                providerThreadId: input.providerThread.id,
+                providerTurnId,
+                runOrdinal: input.runOrdinal,
+                status: "completed",
+                failure: null,
+                threadDisposition: "reusable",
+              });
+            }).pipe(Effect.asVoid);
+            if (held === undefined || (turnCount > 1 && held.holdEveryTurn !== true)) {
+              return yield* complete;
+            }
+            const reportUsage = (usedTokens: number, updatedAt?: string) =>
+              Effect.gen(function* () {
+                yield* Queue.offer(events, {
+                  type: "provider_turn.updated",
+                  driver,
+                  providerTurn: {
+                    ...providerTurn,
+                    status: "running",
+                    completedAt: null,
+                    tokenUsage: {
+                      usedTokens,
+                      ...(held.maxTokens === undefined ? {} : { maxTokens: held.maxTokens }),
+                      updatedAt: updatedAt ?? DateTime.formatIso(yield* DateTime.now),
+                    },
+                  },
+                });
+              }).pipe(Effect.asVoid);
+            const reportCompaction: HeldControl["reportCompaction"] = (id, counts) =>
+              Effect.gen(function* () {
+                const at = yield* DateTime.now;
+                yield* Queue.offer(events, {
+                  type: "turn_item.updated",
+                  driver,
+                  turnItem: {
+                    id: TurnItemId.make(id),
+                    threadId: input.threadId,
+                    runId: input.runId,
+                    nodeId: input.rootNodeId,
+                    providerThreadId: input.providerThread.id,
+                    providerTurnId,
+                    nativeItemRef: null,
+                    parentItemId: null,
+                    ordinal: 100,
+                    status: "completed",
+                    title: null,
+                    startedAt: at,
+                    completedAt: at,
+                    updatedAt: at,
+                    type: "compaction",
+                    driver,
+                    ...counts,
+                  },
+                });
+              }).pipe(Effect.asVoid);
+            // Like the real adapters, a turn is announced as running before any usage.
+            yield* Queue.offer(events, {
+              type: "provider_turn.updated",
+              driver,
+              providerTurn: { ...providerTurn, status: "running", completedAt: null },
+            });
+            if (turnCount === 1 || held.laterTurnsReportUsage !== false) {
+              yield* reportUsage(held.usedTokens);
+            }
+            yield* Queue.offer(held.running, { reportUsage, reportCompaction, complete });
+          });
         return {
           instanceId: providerInstanceId,
           driver,
@@ -155,106 +255,9 @@ function makeAdapter(
               } satisfies OrchestrationV2ProviderThread;
             }),
           resumeThread: ({ providerThread }) => Effect.succeed(providerThread),
-          startTurn: (input) =>
-            Effect.gen(function* () {
-              const turnCount = yield* Ref.modify(captured, (current) => [
-                current.started.length + 1,
-                { ...current, started: [...current.started, input] },
-              ]);
-              const startedAt = yield* DateTime.now;
-              const providerTurnId = ProviderTurnId.make(`provider-turn:${input.attemptId}`);
-              const providerTurn = {
-                id: providerTurnId,
-                providerThreadId: input.providerThread.id,
-                nodeId: input.rootNodeId,
-                runAttemptId: input.attemptId,
-                nativeTurnRef: {
-                  driver,
-                  nativeId: `native:${providerTurnId}`,
-                  strength: "strong" as const,
-                },
-                ordinal: input.providerTurnOrdinal,
-                startedAt,
-              };
-              const complete = Effect.gen(function* () {
-                yield* Queue.offer(events, {
-                  type: "provider_turn.updated",
-                  driver,
-                  providerTurn: {
-                    ...providerTurn,
-                    status: "completed",
-                    completedAt: yield* DateTime.now,
-                  },
-                });
-                yield* Queue.offer(events, {
-                  type: "turn.terminal",
-                  driver,
-                  providerThreadId: input.providerThread.id,
-                  providerTurnId,
-                  runOrdinal: input.runOrdinal,
-                  status: "completed",
-                  failure: null,
-                  threadDisposition: "reusable",
-                });
-              }).pipe(Effect.asVoid);
-              if (held === undefined || (turnCount > 1 && held.holdEveryTurn !== true)) {
-                return yield* complete;
-              }
-              const reportUsage = (usedTokens: number, updatedAt?: string) =>
-                Effect.gen(function* () {
-                  yield* Queue.offer(events, {
-                    type: "provider_turn.updated",
-                    driver,
-                    providerTurn: {
-                      ...providerTurn,
-                      status: "running",
-                      completedAt: null,
-                      tokenUsage: {
-                        usedTokens,
-                        ...(held.maxTokens === undefined ? {} : { maxTokens: held.maxTokens }),
-                        updatedAt: updatedAt ?? DateTime.formatIso(yield* DateTime.now),
-                      },
-                    },
-                  });
-                }).pipe(Effect.asVoid);
-              const reportCompaction: HeldControl["reportCompaction"] = (id, counts) =>
-                Effect.gen(function* () {
-                  const at = yield* DateTime.now;
-                  yield* Queue.offer(events, {
-                    type: "turn_item.updated",
-                    driver,
-                    turnItem: {
-                      id: TurnItemId.make(id),
-                      threadId: input.threadId,
-                      runId: input.runId,
-                      nodeId: input.rootNodeId,
-                      providerThreadId: input.providerThread.id,
-                      providerTurnId,
-                      nativeItemRef: null,
-                      parentItemId: null,
-                      ordinal: 100,
-                      status: "completed",
-                      title: null,
-                      startedAt: at,
-                      completedAt: at,
-                      updatedAt: at,
-                      type: "compaction",
-                      driver,
-                      ...counts,
-                    },
-                  });
-                }).pipe(Effect.asVoid);
-              // Like the real adapters, a turn is announced as running before any usage.
-              yield* Queue.offer(events, {
-                type: "provider_turn.updated",
-                driver,
-                providerTurn: { ...providerTurn, status: "running", completedAt: null },
-              });
-              if (turnCount === 1 || held.laterTurnsReportUsage !== false) {
-                yield* reportUsage(held.usedTokens);
-              }
-              yield* Queue.offer(held.running, { reportUsage, reportCompaction, complete });
-            }),
+          startTurn: (input) => startTurn(input),
+          // A native /compact runs as a turn of its own, held like any other.
+          compactThread: (input) => startTurn(input),
           steerTurn: (input) =>
             Effect.gen(function* () {
               yield* Ref.update(captured, (current) => ({
@@ -277,7 +280,10 @@ const runHeldTurnScenario = (
   name: string,
   options: {
     readonly assignment?: ExperimentAssignment;
-    readonly duringFirst?: (control: HeldControl) => Effect.Effect<void>;
+    readonly duringFirst?: (
+      control: HeldControl,
+      steered: Queue.Queue<ProviderAdapter.ProviderAdapterV2SteerInput>,
+    ) => Effect.Effect<void>;
     readonly rolloverEnabled?: boolean;
     readonly queueMessage?: boolean;
     readonly usedTokens?: number;
@@ -286,6 +292,7 @@ const runHeldTurnScenario = (
     /** The thread's own thresholds, as set by dragging its composer's context band. */
     readonly thresholds?: { readonly soft: number; readonly hard: number };
     readonly nudged?: boolean;
+    readonly queuedText?: string;
     readonly laterTurnsReportUsage?: boolean;
     /** Holds the queued run's turn too and runs this against it before completing it. */
     readonly duringSecond?: (
@@ -453,7 +460,7 @@ const runHeldTurnScenario = (
           commandId: CommandId.make(`command:${name}:queued`),
           threadId,
           messageId: MessageId.make(`message:${name}:queued`),
-          text: "queued",
+          text: options.queuedText ?? "queued",
           attachments: [],
           modelSelection: selection,
           dispatchMode: { type: "queue_after_active" },
@@ -463,7 +470,7 @@ const runHeldTurnScenario = (
       // Without a nudge to wait for, make sure the usage report was handled first.
       yield* Fiber.join(usageReported);
       yield* reactor.drain;
-      if (options.duringFirst !== undefined) yield* options.duringFirst(running);
+      if (options.duringFirst !== undefined) yield* options.duringFirst(running, held.steered);
       yield* running.complete;
       if (options.duringSecond !== undefined) {
         const second = yield* Queue.take(held.running);
@@ -570,6 +577,27 @@ it.live("drops a nudge that arrives after its run ended instead of starting new 
   ),
 );
 
+it.live("never nudges a user's /compact, so no run follows the compaction", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      let compactSteered = false;
+      const { after, captured } = yield* runHeldTurnScenario("context-compaction-user-compact", {
+        queueMessage: true,
+        queuedText: "/compact",
+        // The /compact turn reports no usage: it starts from the 1.5k the first turn reported.
+        laterTurnsReportUsage: false,
+        duringSecond: (_control, steered) =>
+          Queue.poll(steered).pipe(
+            Effect.map((steer) => void (compactSteered = steer._tag === "Some")),
+          ),
+      });
+      assert.isFalse(compactSteered);
+      assert.lengthOf(after.runs, 2);
+      assert.lengthOf(captured.steered, 1);
+    }),
+  ),
+);
+
 it.live("asks again as the next turn starts when a turn ends unanswered", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -667,8 +695,8 @@ it.live(
           queueMessage: true,
           duringFirst: (control) =>
             control.reportCompaction("compaction:floor", {
-              beforeTokenCount: 1_500,
-              afterTokenCount: 1_500,
+              beforeTokenCount: 3_000,
+              afterTokenCount: 1_000,
             }),
           duringSecond: (control, steered) =>
             Effect.gen(function* () {
@@ -688,6 +716,34 @@ it.live(
         assert.lengthOf(captured.steered, 2);
       }),
     ),
+);
+
+it.live("measures a compacted context from its next usage report, not the provider's count", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const { captured } = yield* runHeldTurnScenario("context-compaction-undercount", {
+        duringFirst: (control, steered) =>
+          Effect.gen(function* () {
+            // Claude completes a compaction, reports its own after-count as usage, then completes it
+            // again with the counts. That count leaves out the system prompt and tools, and it can
+            // be reported again; past the soft threshold, neither report may nudge.
+            yield* control.reportCompaction("compaction:undercount");
+            yield* control.reportUsage(1_200);
+            yield* control.reportCompaction("compaction:undercount", {
+              beforeTokenCount: 1_500,
+              afterTokenCount: 1_200,
+            });
+            yield* control.reportUsage(1_200);
+            yield* control.reportUsage(21_000);
+            yield* control.reportUsage(21_000 + ROLLOVER_MIN_GROWTH_TOKENS);
+            // Had the 21k report nudged, that steer would arrive first.
+            yield* Queue.take(steered);
+          }),
+      });
+      assert.lengthOf(captured.steered, 2);
+      assert.include(JSON.stringify(captured.steered[1]!.message), "41k");
+    }),
+  ),
 );
 
 const testAssignment: ExperimentAssignment = {
