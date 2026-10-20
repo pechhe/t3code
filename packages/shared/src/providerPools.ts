@@ -251,6 +251,28 @@ export const pickPoolFailoverMember = (input: {
   )[0]?.instanceId;
 
 /**
+ * The member a user-requested switch moves a running thread to: the next one
+ * in the pool's own order after `current`, wrapping around, skipping members
+ * with no allowance left (at the pool's reserve limit). `undefined` when no
+ * other member qualifies.
+ */
+export const pickPoolSwitchMember = (input: {
+  readonly pool: PoolRoute;
+  readonly providers: ReadonlyArray<ServerProvider>;
+  readonly nowMs: number;
+  readonly current: ProviderInstanceId;
+}): ProviderInstanceId | undefined => {
+  const members = routableMembers(input.pool, input.providers);
+  const start = members.findIndex((provider) => provider.instanceId === input.current);
+  const limitPercent = limitPercentOf(input.pool);
+  return [...members.slice(start + 1), ...members.slice(0, Math.max(start, 0))].find(
+    (provider) =>
+      provider.instanceId !== input.current &&
+      !isProviderUsageExhausted(provider, input.nowMs, limitPercent),
+  )?.instanceId;
+};
+
+/**
  * Append one snapshot per pool, presented as the member a turn would use now
  * (or its first configured member). Account-specific fields stay with the
  * members so usage, sign-in and native sessions are never shown twice.

@@ -82,8 +82,10 @@ Open the pool in **Settings → Providers** to change how it works:
   follow **Settings → General → Switch pooled account on limit**.
 
 On the composer, the lamp beside the model slider shows the account the next
-message uses. Click it to prefer an account for new threads: it goes first while
-it has usage left, whichever way the pool picks.
+message uses. In a thread that has already run, click it to move the thread to the
+next account in your pool's order that has usage left; accounts you switched off
+or that have run out are skipped. On a new thread, click it to prefer an account:
+it goes first while it has usage left, whichever way the pool picks.
 
 ## Compact long conversations
 

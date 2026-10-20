@@ -1,10 +1,12 @@
 import type {
   EnvironmentId,
+  ModelSelection,
   ProviderInstanceConfig,
   ProviderInstanceId,
   ServerProvider,
+  ThreadId,
 } from "@t3tools/contracts";
-import { pickPoolMember } from "@t3tools/shared/providerPools";
+import { pickPoolMember, pickPoolSwitchMember } from "@t3tools/shared/providerPools";
 import type { CSSProperties } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
@@ -12,6 +14,8 @@ import {
   useEnvironmentSettings,
   usePersistEnvironmentProviderInstanceMutation,
 } from "~/hooks/useSettings";
+import { threadEnvironment } from "~/state/threads";
+import { useAtomCommand } from "~/state/use-atom-command";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, type ComposerControlSize } from "./ComposerControl";
 import { DeviceUnit } from "./device/DeviceUnit";
@@ -27,8 +31,14 @@ export interface ComposerPoolAccountState {
   readonly next: PoolAccount;
   /** The account new threads use first, or null when the pool picks. */
   readonly preferred: PoolAccount | null;
-  /** The preference a click moves to: Auto, then each account in turn, then Auto. */
+  /**
+   * What a click does. On a thread that has run, it moves the thread to this
+   * account (null: no other account has usage left). On a new thread it moves
+   * the pool's preference: Auto, then each account in turn, then Auto.
+   */
   readonly following: PoolAccount | null;
+  /** The thread has run, so a click switches its account instead of the preference. */
+  readonly started: boolean;
   /** The pool picks by the user's own account order rather than by spending allowance. */
   readonly ordered: boolean;
   readonly cycle: () => void;
@@ -50,17 +60,31 @@ export function useComposerPoolAccount(input: {
   selectedInstanceId: ProviderInstanceId;
   providers: ReadonlyArray<ServerProvider>;
   current: ProviderInstanceId | undefined;
+  /** The thread a started composer switches; its selection keeps the model and options. */
+  thread: { readonly id: ThreadId; readonly modelSelection: ModelSelection } | undefined;
 }): ComposerPoolAccountState | null {
-  const poolConfig = useEnvironmentSettings(
-    input.environmentId,
-    (settings) => settings.providerInstances?.[input.selectedInstanceId],
+  // The draft's choice can name a member once a thread has run, since the server stores the
+  // member a pooled turn ran on; a started thread finds its pool through that member.
+  const pool =
+    input.providers.find(
+      (provider) =>
+        provider.instanceId === input.selectedInstanceId && provider.poolMembers !== undefined,
+    ) ??
+    (input.current === undefined
+      ? undefined
+      : input.providers.find((provider) => provider.poolMembers?.includes(input.current!)));
+  const poolConfig = useEnvironmentSettings(input.environmentId, (settings) =>
+    pool === undefined ? undefined : settings.providerInstances?.[pool.instanceId],
   );
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(
     input.environmentId,
   );
+  const updateThreadMetadata = useAtomCommand(
+    threadEnvironment.updateMetadata,
+    "thread account switch",
+  );
   // Ticks each minute, so the prediction moves on when an allowance resets.
   const nowMinute = useNowMinute();
-  const pool = input.providers.find((provider) => provider.instanceId === input.selectedInstanceId);
   const memberIds = pool?.poolMembers;
   if (pool === undefined || memberIds === undefined || poolConfig?.pool === undefined) return null;
   const disabledMembers = pool.poolPolicy?.disabledMembers ?? [];
@@ -86,20 +110,46 @@ export function useComposerPoolAccount(input: {
     (member) => member.instanceId === pool.poolPreferredMember,
   );
   const preferred = preferredIndex < 0 ? null : members[preferredIndex]!;
-  const followingProvider = members[preferredIndex + 1] ?? null;
-  const following = followingProvider === null ? null : toAccount(followingProvider);
+  const started = input.current !== undefined && input.thread !== undefined;
+  const followingId = started
+    ? pickPoolSwitchMember({
+        pool: {
+          driver: pool.driver,
+          members: memberIds,
+          preferredMember: pool.poolPreferredMember,
+          policy: pool.poolPolicy,
+        },
+        providers: input.providers,
+        nowMs: Date.parse(`${nowMinute}Z`),
+        current: next.instanceId,
+      })
+    : members[preferredIndex + 1]?.instanceId;
+  const followingProvider = members.find((member) => member.instanceId === followingId);
+  const following = followingProvider === undefined ? null : toAccount(followingProvider);
   const config: ProviderInstanceConfig = poolConfig;
 
   return {
     next: toAccount(next),
     preferred: preferred === null ? null : toAccount(preferred),
     following,
+    started,
     ordered: pool.poolPolicy?.strategy === "order",
     cycle: () => {
+      if (started) {
+        if (following === null || input.thread === undefined) return;
+        void updateThreadMetadata({
+          environmentId: input.environmentId,
+          input: {
+            threadId: input.thread.id,
+            modelSelection: { ...input.thread.modelSelection, instanceId: following.instanceId },
+          },
+        });
+        return;
+      }
       const { preferredMember: _previous, ...rest } = config;
       void persistProviderInstance({
         operation: "upsert",
-        instanceId: input.selectedInstanceId,
+        instanceId: pool.instanceId,
         instance: following === null ? rest : { ...rest, preferredMember: following.instanceId },
       });
     },
@@ -107,6 +157,11 @@ export function useComposerPoolAccount(input: {
 }
 
 function poolAccountTooltip(state: ComposerPoolAccountState, isNew: boolean): string {
+  if (state.started) {
+    return state.following === null
+      ? `This thread uses ${state.next.name}. No other account has usage left.`
+      : `This thread uses ${state.next.name}. Click to switch it to ${state.following.name}.`;
+  }
   const target = isNew ? "This thread" : "The next message";
   const now =
     state.preferred === null
@@ -151,7 +206,8 @@ export function ComposerPoolAccount(props: {
                 className="device-cap device-cap--account"
                 style={light}
                 aria-label={tooltip}
-                aria-pressed={state.preferred !== null}
+                aria-pressed={state.started ? undefined : state.preferred !== null}
+                disabled={state.started && state.following === null}
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={state.cycle}
               />
@@ -174,13 +230,16 @@ export function ComposerPoolAccount(props: {
             className="shrink-0 whitespace-nowrap"
             style={light}
             aria-label={tooltip}
+            disabled={state.started && state.following === null}
             onClick={state.cycle}
           />
         }
       >
         <span aria-hidden="true" className="size-2 rounded-full bg-(--account-light)" />
         {state.next.name}
-        {state.preferred === null ? <span className="text-muted-foreground/70">auto</span> : null}
+        {state.started || state.preferred !== null ? null : (
+          <span className="text-muted-foreground/70">auto</span>
+        )}
       </TooltipTrigger>
       <TooltipPopup side="top">{tooltip}</TooltipPopup>
     </Tooltip>

@@ -3104,6 +3104,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     providers: providerStatuses,
     // A thread that has not run yet is placed like a new one, as the server does.
     current: activeThread?.latestRun ? activeThreadModelSelection?.instanceId : undefined,
+    thread:
+      activeThread?.latestRun && activeThreadModelSelection
+        ? { id: activeThread.id, modelSelection: activeThreadModelSelection }
+        : undefined,
   });
   const [inlineRestingControlsHost, setInlineRestingControlsHost] = useState<HTMLDivElement | null>(
     null,

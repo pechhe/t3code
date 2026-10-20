@@ -11,6 +11,7 @@ import {
   needsUsageRefresh,
   pickPoolFailoverMember,
   pickPoolMember,
+  pickPoolSwitchMember,
   withPoolSnapshots,
   type ProviderPool,
 } from "./providerPools.ts";
@@ -390,5 +391,45 @@ describe("withPoolSnapshots", () => {
   it("omits a pool none of whose members exist", () => {
     const providers = [account("outsider", [])];
     expect(withPoolSnapshots(providers, [pool], NOW)).toEqual(providers);
+  });
+});
+
+describe("pickPoolSwitchMember", () => {
+  const id = ProviderInstanceId.make;
+  const fresh = (name: string) => account(name, [{ usedPercent: 10, resetsAt: at(2) }]);
+  const out = (name: string) => account(name, [{ usedPercent: 100, resetsAt: at(2) }]);
+  const switchFrom = (
+    current: string,
+    providers: ReadonlyArray<ServerProvider>,
+    policy?: ProviderPool["policy"],
+  ) =>
+    pickPoolSwitchMember({
+      pool: { ...pool, ...(policy === undefined ? {} : { policy }) },
+      providers,
+      nowMs: NOW,
+      current: id(current),
+    });
+
+  it("moves to the next member in the pool's order and wraps around", () => {
+    const all = [fresh("a"), fresh("b"), fresh("c")];
+    expect(switchFrom("a", all)).toBe("b");
+    expect(switchFrom("b", all)).toBe("c");
+    expect(switchFrom("c", all)).toBe("a");
+  });
+
+  it("skips members without allowance and members switched off", () => {
+    expect(switchFrom("a", [fresh("a"), out("b"), fresh("c")])).toBe("c");
+    expect(
+      switchFrom("a", [fresh("a"), fresh("b"), fresh("c")], { disabledMembers: [id("b")] }),
+    ).toBe("c");
+  });
+
+  it("skips members past the reserve threshold", () => {
+    const used = (name: string) => account(name, [{ usedPercent: 85, resetsAt: at(2) }]);
+    expect(switchFrom("a", [fresh("a"), used("b"), fresh("c")], { reservePercent: 80 })).toBe("c");
+  });
+
+  it("offers nothing when no other member can take a turn", () => {
+    expect(switchFrom("a", [fresh("a"), out("b"), out("c")])).toBeUndefined();
   });
 });
