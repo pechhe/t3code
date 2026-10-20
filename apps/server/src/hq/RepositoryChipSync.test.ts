@@ -171,7 +171,7 @@ const harness = Effect.gen(function* () {
         ...repository!,
         revision: repository!.revision + 1,
         colour: "rose",
-        icon: { kind: "emoji", emoji: "🌹" },
+        icon: { kind: "emoji" as const, emoji: "🌹" },
         updatedSource: "hq",
       };
     },
@@ -194,7 +194,7 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
           key: "pechhe/yardsmith",
           name: "YardSmith",
           colour: identity.color,
-          icon: { kind: "monogram", text: identity.monogram },
+          icon: { kind: "monogram" as const, text: identity.monogram },
         },
       ]);
       assert.equal((yield* h.row).hqSyncedRevision, 1);
@@ -210,7 +210,7 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
         name: "YardSmith",
         aliases: [],
         colour: "rose",
-        icon: { kind: "monogram", text: "YSX" },
+        icon: { kind: "monogram" as const, text: "YSX" },
         revision: 4,
         updatedAt: "2026-10-20T12:00:00.000Z",
         updatedSource: "hq",
@@ -223,6 +223,58 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
     }),
   );
 
+  it.effect("a project with no baseline pushes its look over a repository HQ only registered", () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      h.hqHas({
+        key: "pechhe/yardsmith",
+        name: "yardsmith",
+        aliases: [],
+        colour: "amber",
+        icon: { kind: "monogram" as const, text: "YA" },
+        revision: 1,
+        updatedAt: "2026-10-20T12:00:00.000Z",
+        updatedSource: "registered",
+      });
+      yield* h.edit({ projectIcon: { kind: "lucide", name: "server", color: "violet" } });
+      yield* h.sync;
+      assert.deepEqual(h.pushes.at(-1)?.icon, { kind: "lucide", name: "server" });
+      assert.equal(h.pushes.at(-1)?.colour, "violet");
+      assert.equal((yield* h.row).hqSyncedRevision, 2);
+    }),
+  );
+  // The first sync against a recorded snapshot of T3 project looks: HQ ends up with each one.
+  it.effect.each([
+    {
+      override: { kind: "lucide" as const, name: "server", color: "violet" as const },
+      colour: "violet" as const,
+      icon: { kind: "lucide" as const, name: "server" },
+    },
+    {
+      override: { kind: "emoji" as const, emoji: "🚀", color: "orange" as const },
+      colour: "orange" as const,
+      icon: { kind: "emoji" as const, emoji: "🚀" },
+    },
+    {
+      override: { kind: "monogram" as const, text: "YS", color: "teal" as const },
+      colour: "teal" as const,
+      icon: { kind: "monogram" as const, text: "YS" },
+    },
+  ])("first sync gives HQ the recorded look of a project: %#", (recorded) =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.edit({ projectIcon: recorded.override });
+      yield* h.sync;
+      assert.deepEqual(h.pushes, [
+        {
+          key: "pechhe/yardsmith",
+          name: "YardSmith",
+          colour: recorded.colour,
+          icon: recorded.icon,
+        },
+      ]);
+    }),
+  );
   it.effect("pulls newer HQ values and does not echo the pulled override", () =>
     Effect.gen(function* () {
       const h = yield* harness;
@@ -255,7 +307,7 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
         name: "Weave",
         aliases: ["pechhe/yardsmith"],
         colour: "rose",
-        icon: { kind: "monogram", text: "WV" },
+        icon: { kind: "monogram" as const, text: "WV" },
         revision: 2,
         updatedAt: "2026-10-20T12:00:00.000Z",
         updatedSource: "hq",

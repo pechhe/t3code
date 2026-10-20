@@ -19,21 +19,11 @@ const Repository = Schema.Struct({
   icon: RepositoryIcon,
   revision: Schema.Number,
   updatedAt: Schema.String,
-  updatedSource: Schema.Literals(["hq", "t3"]),
+  // `registered`: the repository was registered in HQ and nobody has chosen its look yet.
+  updatedSource: Schema.Literals(["hq", "t3", "registered"]),
 });
 export type Repository = typeof Repository.Type;
-// HQ lists every repository its Specs name, with a null revision until someone has edited it; only
-// edited ones are records T3 can compare against.
-const decodeRepositories = Schema.decodeUnknownEffect(
-  Schema.Array(
-    Schema.Struct({
-      ...Repository.fields,
-      revision: Schema.NullOr(Schema.Number),
-      updatedAt: Schema.NullOr(Schema.String),
-      updatedSource: Schema.NullOr(Schema.Literals(["hq", "t3"])),
-    }),
-  ),
-);
+const decodeRepositories = Schema.decodeUnknownEffect(Schema.Array(Repository));
 const decodeRepository = Schema.decodeUnknownEffect(Repository);
 
 export class HqRepositoryError extends Schema.TaggedError<HqRepositoryError>()(
@@ -63,21 +53,7 @@ const make = Effect.gen(function* () {
     listRepositories: Effect.fn("HqRepositories.listRepositories")(
       function* () {
         const result = yield* hq.observe("hq_build_repository_list", {});
-        const listed = yield* decodeRepositories(result.value);
-        return listed.flatMap((repository) =>
-          repository.revision === null ||
-          repository.updatedAt === null ||
-          repository.updatedSource === null
-            ? []
-            : [
-                {
-                  ...repository,
-                  revision: repository.revision,
-                  updatedAt: repository.updatedAt,
-                  updatedSource: repository.updatedSource,
-                },
-              ],
-        );
+        return yield* decodeRepositories(result.value);
       },
       Effect.mapError((cause) => new HqRepositoryError({ operation: "list", cause })),
     ),

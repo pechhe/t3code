@@ -73,8 +73,11 @@ const make = Effect.gen(function* () {
           [...repositories.values()].find((record) => record.aliases.includes(key));
         let projectIcon: ProjectIconOverride | undefined;
         // A project with no baseline adopts an HQ record someone has already edited; with no such
-        // record it establishes its own value once. After that a local edit is pushed and HQ
-        // stamps it on receipt, so the later receipt wins; a newer HQ revision is pulled.
+        // record (none, or one only registered with its default look) it establishes its own value
+        // once. After that a local edit is pushed and HQ stamps it on receipt, so the later receipt
+        // wins; a newer HQ revision is pulled.
+        const unedited = repository?.updatedSource === "registered";
+        const unsynced = (row.hqSyncedValueHash ?? null) === null;
         const adopt = () => {
           if (!repository) return;
           projectIcon = {
@@ -84,7 +87,7 @@ const make = Effect.gen(function* () {
             color: repository.colour,
           };
         };
-        if (repository && (row.hqSyncedValueHash ?? null) === null) {
+        if (repository && !unedited && unsynced) {
           adopt();
         } else if (!repository || row.hqSyncedValueHash !== localHash) {
           // A project matched through an alias edits the record it matched, not a new one.
