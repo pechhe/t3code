@@ -1086,6 +1086,56 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "notifies once when a quiet claim holds back a newer upstream tag",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          const env = { T3FORK_REDISPATCH_SECONDS: "0" };
+          await run(f, [], env);
+          await run(f, [], env);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "claimed",
+            quietNotified: true,
+          });
+          expect((await nightlyLog(f)).match(/has made no progress/g)).toHaveLength(1);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "keeps a publication block, and its retry route, when the update lands",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await landIntegration(f, BUILD_TAG, "2026-02-01T00:00:00Z");
+          await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), {
+            tag: BUILD_TAG,
+            sha: "0".repeat(40),
+            attempt: `${BUILD_TAG}@1`,
+            phase: "blocked",
+            blocked: { kind: "publication", summary: "release archive missing" },
+            dispatches: 1,
+          });
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "0" });
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "0" });
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "blocked",
+            blocked: { kind: "publication" },
+          });
+          await run(f, ["attempt", BUILD_TAG, "retry"]);
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "0" });
+          expect(await curlCalls(f)).toHaveLength(1);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "keeps an owner-decision block holding back a newer upstream tag across runs",
       async () => {
         await withFixture(async (f) => {
@@ -1514,7 +1564,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             quietNotified: true,
           });
           const log = await nightlyLog(f);
-          expect(log.match(/has not built it/g)).toHaveLength(1);
+          expect(log.match(/has made no progress/g)).toHaveLength(1);
           await run(f, ["attempt", BUILD_TAG, "retry"]);
           await run(f, [], env);
           expect(await requested(f)).toHaveLength(1);

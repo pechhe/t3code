@@ -378,6 +378,29 @@ redispatch_due() {
   fi
 }
 
+# Says once when a claim has made no progress for a redispatch interval, so an
+# agent that died holding it does not hold every update back unnoticed.
+notify_quiet_claim() {
+  local tag="$1" file="$2" what="$3" quiet
+  [ "$(json_get "$file" .phase)" = claimed ] || return 0
+  quiet="$(json_get "$file" .updatedEpoch)"
+  if [ $(($(now) - ${quiet:-0})) -ge "$REDISPATCH_SECONDS" ] && [ -z "$(json_get "$file" .quietNotified)" ]; then
+    notify "$what the claim of $tag by $(json_get "$file" .claimedBy), which has made no progress; once that thread has stopped, run fork-nightly.sh attempt $tag retry"
+    attempt_set "$tag" '.quietNotified = true'
+  fi
+}
+
+# A landing turns an open attempt into a landed one, except a publication block:
+# its build already failed, so the block and its resume route stay for the "retry" route.
+mark_landed() {
+  local tag="$1" phase="$2" reason="$3"
+  [ "$phase" = blocked ] && [ "$reason" = publication ] && return 0
+  case "$phase" in new | dispatched | dispatch-failed | awaiting-manual | retry | blocked | superseded)
+    attempt_set "$tag" '.phase = "landed" | del(.blocked)'
+    ;;
+  esac
+}
+
 # One update is in flight at a time, so two agents never build competing merges.
 # A claimed or owner-blocked update holds every newer tag back.
 update_attempts() {
@@ -389,16 +412,14 @@ update_attempts() {
     phase="$(json_get "$file" .phase)"
     reason="$(json_get "$file" .blocked.kind)"
     if git merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
-      case "$phase" in new | dispatched | dispatch-failed | awaiting-manual | retry | blocked | superseded)
-        attempt_set "$other" '.phase = "landed" | del(.blocked)'
-        ;;
-      esac
+      mark_landed "$other" "$phase" "$reason"
       continue
     fi
     case "$phase" in superseded) continue ;; esac
     [ "$other" = "$tag" ] && continue
     if [ "$phase" = claimed ] || { [ "$phase" = blocked ] && [ "$reason" = owner-decision ]; }; then
       log "upstream $tag waits for attempt $(json_get "$file" .attempt) ($phase${reason:+: $reason})"
+      notify_quiet_claim "$other" "$file" "upstream $tag is held back by"
       return 0
     fi
     attempt_set "$other" --arg by "$tag" '.phase = "superseded" | .supersededBy = $by'
@@ -451,17 +472,12 @@ request_build() {
   phase="$(json_get "$file" .phase)"
   case "$phase" in
     new | dispatched | dispatch-failed | awaiting-manual | retry | blocked | superseded)
-      attempt_set "$tag" '.phase = "landed" | del(.blocked)'
+      mark_landed "$tag" "$phase" "$(json_get "$file" .blocked.kind)"
       ;;
     claimed)
       # Its agent may still be waiting for the VPS to go quiet, so the claim is never
       # taken over here: say once who holds it and how to resume.
-      local quiet
-      quiet="$(json_get "$file" .updatedEpoch)"
-      if [ $(($(now) - ${quiet:-0})) -ge "$REDISPATCH_SECONDS" ] && [ -z "$(json_get "$file" .quietNotified)" ]; then
-        notify "Upstream $tag landed but its claim by $(json_get "$file" .claimedBy) has not built it; once that thread has stopped, run fork-nightly.sh attempt $tag retry"
-        attempt_set "$tag" '.quietNotified = true'
-      fi
+      notify_quiet_claim "$tag" "$file" "upstream $tag landed but is held by"
       ;;
   esac
   case "$(json_get "$file" .phase)" in
