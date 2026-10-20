@@ -261,6 +261,18 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
       assert.deepStrictEqual(need.card, hqHomeWithOwnerCard.needsYou[0]?.spec.card);
     }
 
+    // An HQ from before the checks were projected still shows the card, without checks.
+    const [entry] = hqHomeWithOwnerCard.needsYou;
+    const { checks: _checks, ...readiness } = entry!.spec.readiness;
+    home = { ...hqHomeWithOwnerCard, needsYou: [{ ...entry, spec: { ...entry!.spec, readiness } }] };
+    yield* TestClock.adjust(60_000);
+    const withoutChecks = (yield* service.read).home?.needsYou[0];
+    assert.strictEqual(withoutChecks?.kind, "acceptance");
+    if (withoutChecks?.kind === "acceptance") {
+      assert.deepStrictEqual(withoutChecks.checks, []);
+      assert.deepStrictEqual(withoutChecks.card, entry?.spec.card);
+    }
+
     home = hqHomeWithStuckLine;
     yield* TestClock.adjust(60_000);
     const withStuck = yield* service.read;

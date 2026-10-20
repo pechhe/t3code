@@ -97,8 +97,9 @@ const HqAcceptance = Schema.Struct({
           evidence: Schema.NullOr(Schema.String),
         }),
       ),
-      checks: Schema.Array(
-        Schema.Struct({ label: Schema.String, met: Schema.NullOr(Schema.Boolean) }),
+      // An HQ from before #4070's review fixes sends no checks; its card shows none.
+      checks: Schema.optional(
+        Schema.Array(Schema.Struct({ label: Schema.String, met: Schema.NullOr(Schema.Boolean) })),
       ),
     }),
     reviewSummary: Schema.optional(Schema.NullOr(Schema.String)),
@@ -346,7 +347,7 @@ const make = Effect.gen(function* () {
             spec: itemOf(spec),
             url: buildItemUrl(origin, spec.number),
             repositories: [...new Set((card?.published ?? []).map((source) => source.repository))],
-            checks: spec.readiness.checks,
+            checks: spec.readiness.checks ?? [],
             reviewSummary: spec.reviewSummary ?? null,
             tryIt: spec.tryIt ?? null,
             rows,
