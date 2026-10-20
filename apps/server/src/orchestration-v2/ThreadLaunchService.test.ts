@@ -2083,6 +2083,152 @@ it.effect.each(["link", "launch"] as const)(
     }),
 );
 
+it.effect("keeps the checkout a terminal opened while the same thread's turn was recovering", () =>
+  Effect.gen(function* () {
+    const turnAllocating = yield* Deferred.make<void>();
+    const turnAllocated = yield* Deferred.make<void>();
+    const setupStarted = yield* Deferred.make<void>();
+    let calls = 0;
+    const harness = makeHarness({
+      slipjay: true,
+      // The thread's first run also sets up, in its own checkout.
+      runSetup: (setup) =>
+        (setup.worktreePath === "/slipjay/workspaces/terminal"
+          ? Deferred.succeed(setupStarted, undefined)
+          : Effect.void
+        ).pipe(Effect.as({ status: "no-script" as const })),
+      allocateWorkspace: (input) => {
+        const call = calls++;
+        const issue = input.issue?.number ?? null;
+        if (call === 0) return Effect.succeed(allocated("/slipjay/workspaces/first", true, issue));
+        if (call === 2)
+          return Effect.succeed(allocated("/slipjay/workspaces/terminal", true, issue));
+        return Deferred.succeed(turnAllocating, undefined).pipe(
+          Effect.andThen(Deferred.await(turnAllocated)),
+          Effect.as(allocated("/slipjay/workspaces/turn", true, issue)),
+        );
+      },
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const threadId = yield* idleSlipJayThread("thread:launch:turn-and-terminal-recover");
+      harness.releasedPaths.add("/slipjay/workspaces/first");
+      harness.releasedPaths.add("/slipjay/workspaces/first/.jj");
+
+      yield* threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:turn-and-terminal-recover:next"),
+        threadId,
+        messageId: MessageId.make("message:turn-and-terminal-recover:next"),
+        text: "Next turn",
+        attachments: [],
+        mode: "auto",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const next = (yield* threads.getThreadProjection(threadId)).runs.at(-1)!;
+      assert.isTrue(
+        yield* launches.prepareReleasedWorkspace({
+          commandId: CommandId.make("command:turn-and-terminal-recover:released"),
+          threadId,
+          runId: next.id,
+        }),
+      );
+      // The turn is still allocating when a terminal opens and recovers the same workspace.
+      yield* Deferred.await(turnAllocating);
+      assert.deepEqual(
+        yield* launches.terminalCwd({
+          threadId,
+          cwd: "/slipjay/workspaces/first",
+          worktreePath: "/slipjay/workspaces/first",
+        }),
+        { cwd: "/slipjay/workspaces/terminal", worktreePath: "/slipjay/workspaces/terminal" },
+      );
+      yield* Deferred.succeed(turnAllocated, undefined);
+
+      yield* Deferred.await(setupStarted);
+      const projection = yield* threads.getThreadProjection(threadId);
+      assert.equal(projection.thread.worktreePath, "/slipjay/workspaces/terminal");
+      assert.equal(projection.thread.workspaceIssue, 42);
+      assert.deepEqual(
+        harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
+        ["/slipjay/workspaces/turn"],
+      );
+      assert.equal(
+        harness.runSetup.mock.calls.at(-1)![0].worktreePath,
+        "/slipjay/workspaces/terminal",
+      );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("does not unbind a terminal's checkout when the cancelled turn cleans up its own", () =>
+  Effect.gen(function* () {
+    const turnAllocating = yield* Deferred.make<void>();
+    const turnAllocated = yield* Deferred.make<void>();
+    let calls = 0;
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: (input) => {
+        const call = calls++;
+        const issue = input.issue?.number ?? null;
+        if (call === 0) return Effect.succeed(allocated("/slipjay/workspaces/first", true, issue));
+        if (call === 2)
+          return Effect.succeed(allocated("/slipjay/workspaces/terminal", true, issue));
+        return Deferred.succeed(turnAllocating, undefined).pipe(
+          Effect.andThen(Deferred.await(turnAllocated)),
+          Effect.as(allocated("/slipjay/workspaces/turn", true, issue)),
+        );
+      },
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const threadId = yield* idleSlipJayThread("thread:launch:turn-cancelled-terminal-recovers");
+      harness.releasedPaths.add("/slipjay/workspaces/first");
+      harness.releasedPaths.add("/slipjay/workspaces/first/.jj");
+
+      yield* threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:turn-cancelled-terminal-recovers:next"),
+        threadId,
+        messageId: MessageId.make("message:turn-cancelled-terminal-recovers:next"),
+        text: "Next turn",
+        attachments: [],
+        mode: "auto",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const next = (yield* threads.getThreadProjection(threadId)).runs.at(-1)!;
+      yield* launches.prepareReleasedWorkspace({
+        commandId: CommandId.make("command:turn-cancelled-terminal-recovers:released"),
+        threadId,
+        runId: next.id,
+      });
+      yield* Deferred.await(turnAllocating);
+      yield* launches.terminalCwd({
+        threadId,
+        cwd: "/slipjay/workspaces/first",
+        worktreePath: "/slipjay/workspaces/first",
+      });
+      // Cancelling waits for the turn's uninterruptible allocation to finish.
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const cancelling = yield* Effect.forkChild(tracker.cancel(threadId));
+      yield* Deferred.succeed(turnAllocated, undefined);
+      yield* Fiber.join(cancelling);
+      assert.deepEqual(
+        harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
+        ["/slipjay/workspaces/turn"],
+      );
+      assert.equal(
+        (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
+        "/slipjay/workspaces/terminal",
+      );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("keeps a Build item launched without a message through its workspace's removal", () =>
   Effect.gen(function* () {
     const harness = makeHarness({

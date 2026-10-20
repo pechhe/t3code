@@ -364,6 +364,8 @@ const make = Effect.gen(function* () {
     let createdWorktreePath: string | null = null;
     let createdBySlipJay = false;
     let workspaceIssue: number | null = null;
+    // The workspace the thread was bound to when a SlipJay checkout was chosen for it.
+    let boundWorktreePath: string | null | undefined;
     let setupTerminalId: string | null = null;
     let workspaceRecorded = false;
     let runReleased = false;
@@ -469,25 +471,42 @@ const make = Effect.gen(function* () {
             : owned !== undefined
               ? { number: owned, mode: "attach" as const }
               : undefined;
-        // SlipJay reports the path after dependency preparation. Keep acquisition
-        // and rollback registration atomic, so cancellation cannot lose that path.
-        // A resumed Build item workspace predates this launch, so cancelling never removes it.
-        yield* Effect.gen(function* () {
-          const allocation = yield* workspaces
-            .allocate({
-              projectRoot: project.workspaceRoot,
-              task: task || "T3 thread",
-              ...(issue === undefined ? {} : { issue }),
-            })
-            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-          worktreePath = allocation.workspacePath;
+        // A terminal recovering the same released workspace may have rebound the thread
+        // since this run was scheduled. Its checkout stands: a second one would leave the
+        // terminal in a workspace the thread is no longer bound to.
+        const bound = (yield* threads
+          .getThreadShell(threadId)
+          .pipe(Effect.mapError(mapError(input, "update-thread", threadId))))?.worktreePath;
+        boundWorktreePath = bound ?? null;
+        if (
+          bound != null &&
+          (yield* workspaces
+            .contains(project.workspaceRoot, bound)
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId))))
+        ) {
+          worktreePath = bound;
           branch = null;
-          workspaceIssue = allocation.issue;
-          if (allocation.created) {
-            createdWorktreePath = worktreePath;
-            createdBySlipJay = true;
-          }
-        }).pipe(Effect.uninterruptible);
+        } else {
+          // SlipJay reports the path after dependency preparation. Keep acquisition
+          // and rollback registration atomic, so cancellation cannot lose that path.
+          // A resumed Build item workspace predates this launch, so cancelling never removes it.
+          yield* Effect.gen(function* () {
+            const allocation = yield* workspaces
+              .allocate({
+                projectRoot: project.workspaceRoot,
+                task: task || "T3 thread",
+                ...(issue === undefined ? {} : { issue }),
+              })
+              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+            worktreePath = allocation.workspacePath;
+            branch = null;
+            workspaceIssue = allocation.issue;
+            if (allocation.created) {
+              createdWorktreePath = worktreePath;
+              createdBySlipJay = true;
+            }
+          }).pipe(Effect.uninterruptible);
+        }
         yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
       } else if (input.workspaceStrategy.type === "worktree") {
@@ -567,8 +586,36 @@ const make = Effect.gen(function* () {
             branch,
             worktreePath,
             ...(workspaceIssue === null ? {} : { workspaceIssue }),
+            // Compare-and-set, so a terminal that rebound the thread while this run
+            // allocated keeps its checkout; the run then adopts that checkout.
+            ...(boundWorktreePath === undefined ? {} : { expectedWorktreePath: boundWorktreePath }),
           })
-          .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
+          .pipe(
+            Effect.catch((error) =>
+              Effect.gen(function* () {
+                const current = (yield* threads.getThreadShell(threadId))?.worktreePath;
+                if (
+                  boundWorktreePath === undefined ||
+                  current == null ||
+                  current === boundWorktreePath ||
+                  !(yield* workspaces.contains(project.workspaceRoot, current))
+                ) {
+                  return yield* error;
+                }
+                if (createdBySlipJay && createdWorktreePath !== null) {
+                  yield* workspaces
+                    .release({ projectRoot: project.workspaceRoot, path: createdWorktreePath })
+                    .pipe(Effect.ignoreCause({ log: true }));
+                }
+                createdWorktreePath = null;
+                createdBySlipJay = false;
+                worktreePath = current;
+                branch = null;
+                workspaceIssue = null;
+              }),
+            ),
+            Effect.mapError(mapError(input, "update-thread", threadId)),
+          );
       }
       workspaceRecorded = true;
 
@@ -800,6 +847,8 @@ const make = Effect.gen(function* () {
                     threadId,
                     worktreePath: null,
                     branch: null,
+                    // A terminal may have rebound the thread to its own checkout meanwhile.
+                    expectedWorktreePath: removedPath,
                   })
                   .pipe(Effect.ignore),
               ),
