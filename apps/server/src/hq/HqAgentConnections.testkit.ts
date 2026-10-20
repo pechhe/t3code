@@ -55,7 +55,8 @@ const makeFakeHq = () => {
     agentId: string | undefined;
     body: string;
   }> = [];
-  const state = { unreachable: false, delegationRevoked: false };
+  /** `toolCallsHang` holds every `tools/call` open after HQ receives it, as a slow HQ would. */
+  const state = { unreachable: false, delegationRevoked: false, toolCallsHang: false };
   /** Answers a `tools/call` with HQ's structured outcome; tests replace it with Build data. */
   const tools: {
     call: (name: string, args: Record<string, unknown>) => Record<string, unknown>;
@@ -161,6 +162,7 @@ const makeFakeHq = () => {
             args: message.params.arguments,
             agentId: agent.id,
           });
+          if (state.toolCallsHang) return yield* Effect.never;
           const outcome = tools.call(message.params.name, message.params.arguments);
           return respond(request, 200, {
             jsonrpc: "2.0",

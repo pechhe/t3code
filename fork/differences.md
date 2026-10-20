@@ -197,13 +197,13 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Threads link to YardSmith HQ Build Specs/Tickets and agents act in HQ as themselves.
-- **Requirements:** link a thread to a Build item with header display and cards; Build links and #numbers render as live chips with cards; unreachable mentions and links from a previous HQ report clearly; lead and worker thread links on cards; one HQ connection per environment, shared by every project; per-thread HQ MCP agent and lifecycle; a raw delegated child gets no HQ server; mobile shows the Build item.
+- **Requirements:** link a thread to a Build item with header display and cards; Build links and #numbers render as live chips with cards; unreachable mentions and links from a previous HQ report clearly; lead and worker thread links on cards; one HQ connection per environment, shared by every project; per-thread HQ MCP agent and lifecycle; a raw delegated child gets no HQ server; mobile shows the Build item. Unchanged summaries and cards back off HQ rereads from one to two to four to five minutes; visible changes and proxied agent writes reset the cadence. Browser and Electron display queries pause while the document is hidden and stop when unmounted; native clients without a document keep their existing lifecycle. Durable agent Build watches still poll without a client, through the same adaptive summary cache.
 - **Integration points:** `hq/BuildWorkItems`, `HqAgentConnections`, `HqMcpRoute`, `HqAgentLifecycleReactor`; `buildWorkItem` contract; `shared/buildLinks`; web `buildItem/` components; client-runtime state.
-- **Proof:** apps/server/src/hq/BuildWorkItems.test.ts, HqAgentConnections.test.ts, HqAgentLifecycleReactor.test.ts; packages/shared/src/buildLinks.test.ts; docs/user/build-items.md.
+- **Proof:** apps/server/src/hq/BuildWorkItems.test.ts, HqAgentConnections.test.ts, HqAgentLifecycleReactor.test.ts; packages/client-runtime/src/state/runtime.test.ts; packages/shared/src/buildLinks.test.ts; docs/user/build-items.md. Cadence tests use a controlled clock; no live HQ cost measurement is claimed.
 - **Upstream:** none known.
 - **Retire when:** HQ integration is dropped.
 - **Decision:** `retain` (seed, 2026-10-19).
-- **Owner:** pechhe/t3code#74, #78–82, #92, #109–111 (closed).
+- **Owner:** pechhe/t3code#74, #78–82, #92, #109–111 (closed); YardSmith HQ Build #4296.
 
 ### repository-chips-hq
 
@@ -245,7 +245,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Kind:** durable extension
 - **Why:** A thread can wait on another thread or a Build item with `watch` / `unwatch`, alongside upstream PR watches.
 - **Requirements:** wake a thread when a watched thread finishes; no firing between a background task ending and its wake; wake quotes the right earlier turn and does not repeat a result already read; settling a thread ends its watches, kills its pending background work and tells its watchers "Finished"; the composer strip summarises every pending wait in one line ("Waiting on 8 · 6 threads · …") that expands to a row per item with its kind, a link and, for a watched thread, its live status; Lineage lists "Watching" and "Watched by" threads beside the relationship graph, not as graph edges, so the running count and mobile ignore them. Build watches wake once when waits and holds clear (or Dropped), or on Landed/Accepted/Dropped for closed; they require T3’s HQ connection and survive restarts.
-- **Integration points:** `OrchestrationV2WatchTarget` and legacy watch decoding; `BuildWatchReactor` with the shared one-minute `BuildWorkItems` summary cache; `threadWatch`, `ThreadWatchReactor` (alongside upstream `PullRequestWatchReactor`); `shellThreadWatches` client state; `presentPendingBackgroundWork`, `BackgroundWorkStrip`, `deriveThreadWatchRelationships` and `selectThreadRelationshipShells`; `orchestrationV2PendingBackgroundWork`; `RunExecutionService` must ingest the published roster clear before detaching, even when the adapter's live roster has already cleared.
+- **Integration points:** `OrchestrationV2WatchTarget` and legacy watch decoding; `BuildWatchReactor` with the shared adaptive `BuildWorkItems` summary cache; `threadWatch`, `ThreadWatchReactor` (alongside upstream `PullRequestWatchReactor`); `shellThreadWatches` client state; `presentPendingBackgroundWork`, `BackgroundWorkStrip`, `deriveThreadWatchRelationships` and `selectThreadRelationshipShells`; `orchestrationV2PendingBackgroundWork`; `RunExecutionService` must ingest the published roster clear before detaching, even when the adapter's live roster has already cleared.
 - **Proof:** apps/server/src/orchestration-v2/ThreadWatch.test.ts; packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts; packages/client-runtime/src/state/threadExecution.test.ts and threadRelationships.test.ts; `claude_background_task_after_root` in apps/server/src/orchestration-v2/testkit/OrchestratorReplayFixtures.integration.test.ts.
 - **Upstream:** PR watches exist upstream; thread and Build item watches are the fork's.
 - **Retire when:** upstream ships equivalent thread and Build item waiting.
@@ -401,11 +401,11 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Kind:** durable extension
 - **Why:** a fleet sweep needs one bounded state read across all projects and linked environments.
 - **Requirements:** `t3_fleet_summary` returns unsettled, non-archived threads, rolls up subagents, reports watches, cached Build state, settlement eligibility, sender counts for the last hour, and landing/release/host health. No transcript text; unavailable peers retain their last known observation; opaque cursors return changed rows and removals.
-- **Integration points:** fleet contracts and service, projection tables, BuildWorkItems once-a-minute summary reads, ThreadSettlementService rules, SlipJayLandings runner, release approval projection, HostResources, peer MCP allowlist and toolkit registration.
+- **Integration points:** fleet contracts and service, projection tables, BuildWorkItems adaptive summary reads, ThreadSettlementService rules, SlipJayLandings runner, release approval projection, HostResources, peer MCP allowlist and toolkit registration.
 - **Proof:** `apps/server/src/fleet/FleetSummaryService.test.ts`.
 - **Upstream:** no equivalent identified in the assigned source; remote upstream research unavailable in the worker sandbox.
 - **Retire when:** upstream supplies an equivalent summary with cross-environment availability and delta semantics.
-- **Constraints:** Build state is read through the shared once-a-minute summary cache; release verification is the approval's stored observation, not a fresh promotion plan. No performance claim; #135 owns performance measurement.
+- **Constraints:** Build state is read through the shared adaptive summary cache; release verification is the approval's stored observation, not a fresh promotion plan. No performance claim; #135 owns performance measurement.
 - **Decision:** `retain` (new, 2026-10-19).
 - **Owner:** pechhe/t3code#153, Spec #152.
 

@@ -37,9 +37,28 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
 
 /**
  * Build has no change feed. Clients re-request a shown item on this cadence, and the server
- * reads Build at most this often per item however many clients ask.
+ * starts at this interval and backs off unchanged results to five minutes. No timer reads HQ here.
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
+const BUILD_MAX_REREAD_INTERVAL_MS = 5 * BUILD_REREAD_INTERVAL_MS;
+const fingerprintOf = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+interface ReadCadence {
+  readonly intervalMs: number;
+  readonly writeVersion: number;
+  readonly fingerprint: string | undefined;
+}
+
+const nextInterval = (
+  previous: ReadCadence | undefined,
+  fingerprint: string | undefined,
+  writeVersion: number,
+) =>
+  fingerprint !== undefined &&
+  previous?.fingerprint === fingerprint &&
+  previous.writeVersion === writeVersion
+    ? Math.min(previous.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
+    : BUILD_REREAD_INTERVAL_MS;
 
 /** An older HQ omits `ref`; an older item has none, and an empty one is none. */
 const BuildRef = Schema.optionalKey(
@@ -205,7 +224,7 @@ type FreshCard = Omit<BuildWorkItemCard, "url" | "updatedAt" | "readAt" | "unava
   readonly updatedAt: string | undefined;
 };
 
-interface CachedCard {
+interface CachedCard extends ReadCadence {
   readonly card: Omit<BuildWorkItemCard, "unavailable"> | null;
   readonly attemptedAt: number;
   readonly unavailable: boolean;
@@ -218,7 +237,7 @@ const CARD_OPENS_REMEMBERED = 32;
 /** Cards kept for their last known state; the least recently asked for go first. */
 export const CARD_CACHE_LIMIT = 256;
 
-interface CachedItem {
+interface CachedItem extends ReadCadence {
   readonly item: BuildWorkItemSummary | null;
   readonly readAt: number | null;
   readonly attemptedAt: number;
@@ -340,24 +359,33 @@ const make = Effect.gen(function* () {
 
   type Connection = { readonly origin: string; readonly connection: string };
 
-  /** An item as clients show it, read from Build at most once a minute however many ask. */
-  const summaryView = (
+  /** An item as clients show it, on its adaptive cadence however many ask. */
+  const summaryView = Effect.fn("BuildWorkItems.summaryView")(function* (
     connection: Connection,
     target: { readonly itemId: string; readonly number: number },
-  ) =>
-    Effect.gen(function* () {
-      const key = `${connection.connection}\n${target.itemId}`;
-      const cached = yield* readLock.withLock(
-        key,
-        Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          const previous = cache.get(key);
-          if (previous !== undefined && now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS) {
-            remember(cache, key, previous, ITEM_CACHE_LIMIT);
-            return previous;
-          }
-          const read = yield* readSummary(target.itemId);
-          const next: CachedItem = Option.match(read, {
+  ) {
+    const key = `${connection.connection}\n${target.itemId}`;
+    const cached = yield* readLock.withLock(
+      key,
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const previous = cache.get(key);
+        const writeVersion = yield* hq.buildWriteVersion;
+        if (
+          previous !== undefined &&
+          previous.writeVersion === writeVersion &&
+          now - previous.attemptedAt < previous.intervalMs
+        ) {
+          remember(cache, key, previous, ITEM_CACHE_LIMIT);
+          return previous;
+        }
+        const read = yield* readSummary(target.itemId);
+        const fingerprint = Option.isSome(read) ? fingerprintOf(read.value) : undefined;
+        const next: CachedItem = {
+          fingerprint,
+          writeVersion,
+          intervalMs: nextInterval(previous, fingerprint, writeVersion),
+          ...Option.match(read, {
             onSome: (item) => ({ item, readAt: now, attemptedAt: now, unavailable: false }),
             onNone: () => ({
               item: previous?.item ?? null,
@@ -365,23 +393,24 @@ const make = Effect.gen(function* () {
               attemptedAt: now,
               unavailable: true,
             }),
-          });
-          if (Option.isNone(read))
-            yield* Effect.logWarning("Could not read a Build item", { itemId: target.itemId });
-          remember(cache, key, next, ITEM_CACHE_LIMIT);
-          return next;
-        }),
-      );
-      return {
-        itemId: target.itemId,
-        number: target.number,
-        url: buildItemUrl(connection.origin, target.number),
-        item: cached.item,
-        unavailable: cached.unavailable,
-        readAt:
-          cached.readAt === null ? null : DateTime.formatIso(DateTime.makeUnsafe(cached.readAt)),
-      } satisfies BuildWorkItemView;
-    });
+          }),
+        };
+        if (Option.isNone(read))
+          yield* Effect.logWarning("Could not read a Build item", { itemId: target.itemId });
+        remember(cache, key, next, ITEM_CACHE_LIMIT);
+        return next;
+      }),
+    );
+    return {
+      itemId: target.itemId,
+      number: target.number,
+      url: buildItemUrl(connection.origin, target.number),
+      item: cached.item,
+      unavailable: cached.unavailable,
+      readAt:
+        cached.readAt === null ? null : DateTime.formatIso(DateTime.makeUnsafe(cached.readAt)),
+    } satisfies BuildWorkItemView;
+  });
 
   const view: BuildWorkItems["Service"]["view"] = Effect.fn("BuildWorkItems.view")(
     function* (threadId) {
@@ -408,46 +437,48 @@ const make = Effect.gen(function* () {
    * The item a number names on this HQ. A known number stays resolved, since Build never reuses
    * one; an unknown one is asked again at most once a minute, and a failed read is not cached.
    */
-  const itemIdOf = (connection: Connection, number: number) =>
-    Effect.gen(function* () {
-      const key = `${connection.connection}\n#${number}`;
-      return yield* readLock.withLock(
-        key,
-        Effect.gen(function* () {
-          const now = yield* Clock.currentTimeMillis;
-          const previous = numberCache.get(key);
-          if (
-            previous !== undefined &&
-            (previous.itemId !== null || now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS)
-          ) {
-            remember(numberCache, key, previous, ITEM_CACHE_LIMIT);
-            return Option.some(previous.itemId);
-          }
-          const read = yield* hq.observe("hq_build_read", { number }).pipe(
-            Effect.map((result) =>
-              Option.match(decodeBuildRead(result.value), {
-                onNone: () => Option.none<string | null>(),
-                onSome: (found) =>
-                  Option.some(found.kind === "spec" || found.kind === "ticket" ? found.id : null),
-              }),
+  const itemIdOf = Effect.fn("BuildWorkItems.itemIdOf")(function* (
+    connection: Connection,
+    number: number,
+  ) {
+    const key = `${connection.connection}\n#${number}`;
+    return yield* readLock.withLock(
+      key,
+      Effect.gen(function* () {
+        const now = yield* Clock.currentTimeMillis;
+        const previous = numberCache.get(key);
+        if (
+          previous !== undefined &&
+          (previous.itemId !== null || now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS)
+        ) {
+          remember(numberCache, key, previous, ITEM_CACHE_LIMIT);
+          return Option.some(previous.itemId);
+        }
+        const read = yield* hq.observe("hq_build_read", { number }).pipe(
+          Effect.map((result) =>
+            Option.match(decodeBuildRead(result.value), {
+              onNone: () => Option.none<string | null>(),
+              onSome: (found) =>
+                Option.some(found.kind === "spec" || found.kind === "ticket" ? found.id : null),
+            }),
+          ),
+          // Build answers `failed` for a number it doesn't know or this observer can't see.
+          Effect.catch((cause) =>
+            Effect.succeed(
+              cause.reason === "failed" ? Option.some<string | null>(null) : Option.none(),
             ),
-            // Build answers `failed` for a number it doesn't know or this observer can't see.
-            Effect.catch((cause) =>
-              Effect.succeed(
-                cause.reason === "failed" ? Option.some<string | null>(null) : Option.none(),
-              ),
-            ),
-          );
-          if (Option.isSome(read))
-            remember(numberCache, key, { itemId: read.value, attemptedAt: now }, ITEM_CACHE_LIMIT);
-          return read;
-        }),
-      );
-    });
+          ),
+        );
+        if (Option.isSome(read))
+          remember(numberCache, key, { itemId: read.value, attemptedAt: now }, ITEM_CACHE_LIMIT);
+        return read;
+      }),
+    );
+  });
 
   const mentions: BuildWorkItems["Service"]["mentions"] = Effect.fn("BuildWorkItems.mentions")(
     function* (input) {
-      const shell = yield* shellOf(input.threadId);
+      yield* shellOf(input.threadId);
       const connection = yield* readConnection;
       if (connection === null) return { items: [] };
       let unreachable = false;
@@ -523,7 +554,7 @@ const make = Effect.gen(function* () {
 
   const link: BuildWorkItems["Service"]["link"] = Effect.fn("BuildWorkItems.link")(
     function* (input) {
-      const shell = yield* shellOf(input.threadId);
+      yield* shellOf(input.threadId);
       const workItem = input.reference === null ? null : yield* resolve(input.reference);
       const commandId =
         input.commandId ??
@@ -549,8 +580,8 @@ const make = Effect.gen(function* () {
   });
 
   /** Everything a card shows, or none when Build fails or answers with something unexpected. */
-  const readCard = (itemId: string) =>
-    Effect.gen(function* () {
+  const readCard = Effect.fn("BuildWorkItems.readCard")(
+    function* (itemId: string) {
       const none = Option.none<FreshCard>();
       const observe = (tool: string, args: Record<string, unknown>) =>
         hq.observe(tool, args).pipe(Effect.map((result) => result.value));
@@ -647,7 +678,10 @@ const make = Effect.gen(function* () {
           worker,
         },
       });
-    }).pipe(Effect.option, Effect.map(Option.flatten));
+    },
+    Effect.option,
+    Effect.map(Option.flatten),
+  );
 
   const card: BuildWorkItems["Service"]["card"] = Effect.fn("BuildWorkItems.card")(
     function* (input) {
@@ -666,11 +700,13 @@ const make = Effect.gen(function* () {
         Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
           const previous = cardCache.get(key);
+          const writeVersion = yield* hq.buildWriteVersion;
           // Opening a card reads at once; only a client's periodic re-reads are rate-limited.
           if (
             previous !== undefined &&
             previous.opens.includes(input.open) &&
-            now - previous.attemptedAt < BUILD_REREAD_INTERVAL_MS
+            previous.writeVersion === writeVersion &&
+            now - previous.attemptedAt < previous.intervalMs
           ) {
             remember(cardCache, key, previous, CARD_CACHE_LIMIT);
             return previous;
@@ -680,25 +716,31 @@ const make = Effect.gen(function* () {
             ...(previous?.opens ?? []).filter((open) => open !== input.open),
           ].slice(0, CARD_OPENS_REMEMBERED);
           const read = yield* readCard(input.itemId);
-          const next: CachedCard = Option.match(read, {
-            onSome: (fresh) => ({
-              card: {
-                ...fresh,
-                url: buildItemUrl(connection.origin, fresh.number),
-                updatedAt: fresh.updatedAt ?? DateTime.formatIso(DateTime.makeUnsafe(now)),
-                readAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
-              },
-              attemptedAt: now,
-              unavailable: false,
-              opens,
+          const fingerprint = Option.isSome(read) ? fingerprintOf(read.value) : undefined;
+          const next: CachedCard = {
+            fingerprint,
+            writeVersion,
+            intervalMs: nextInterval(previous, fingerprint, writeVersion),
+            ...Option.match(read, {
+              onSome: (fresh) => ({
+                card: {
+                  ...fresh,
+                  url: buildItemUrl(connection.origin, fresh.number),
+                  updatedAt: fresh.updatedAt ?? DateTime.formatIso(DateTime.makeUnsafe(now)),
+                  readAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
+                },
+                attemptedAt: now,
+                unavailable: false,
+                opens,
+              }),
+              onNone: () => ({
+                card: previous?.card ?? null,
+                attemptedAt: now,
+                unavailable: true,
+                opens,
+              }),
             }),
-            onNone: () => ({
-              card: previous?.card ?? null,
-              attemptedAt: now,
-              unavailable: true,
-              opens,
-            }),
-          });
+          };
           if (Option.isNone(read))
             yield* Effect.logWarning("Could not read a Build item's card", {
               itemId: input.itemId,

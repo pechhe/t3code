@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AgentTaskBinding, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
@@ -37,6 +38,104 @@ it.effect("a lead and its spec-reviewer reach HQ as two different agents", () =>
       ],
     );
     assertNoSecretsIn(lead, reviewer);
+  }),
+);
+
+it.effect("forwarded Build writes expire display caches, excluding reads and heartbeats", () =>
+  Effect.gen(function* () {
+    const { connections, hq } = yield* makeHarness;
+    const agent = yield* connections.connection(leadThread);
+    let version = yield* connections.buildWriteVersion;
+    for (const name of [
+      "hq_build_read",
+      "hq_build_list",
+      "hq_build_waits",
+      "hq_build_sessions",
+      "hq_build_acceptance",
+      "hq_build_attempts",
+      "hq_build_heartbeat",
+      "hq_build_set_status",
+      "hq_build_update",
+      "hq_build_bind",
+      "hq_build_start_session",
+      "hq_build_end_session",
+      "hq_build_report",
+      "hq_build_open_hold",
+      "hq_build_clear_hold",
+      "hq_build_relate",
+      "hq_build_associate_landing",
+      "hq_build_post_update",
+    ]) {
+      const body = new TextEncoder().encode(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 88,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        }),
+      );
+      const response = yield* connections.forward({
+        authorization: agent!.authorizationHeader,
+        contentType: undefined,
+        accept: undefined,
+        protocolVersion: undefined,
+        body,
+      });
+      assert.strictEqual(response.status, 200);
+      assert.strictEqual(hq.mcpCalls.at(-1)?.body, new TextDecoder().decode(body));
+      if (
+        ![
+          "hq_build_read",
+          "hq_build_list",
+          "hq_build_waits",
+          "hq_build_sessions",
+          "hq_build_acceptance",
+          "hq_build_attempts",
+          "hq_build_heartbeat",
+        ].includes(name)
+      )
+        version++;
+      assert.strictEqual(yield* connections.buildWriteVersion, version);
+    }
+    for (const message of [JSON.stringify({ jsonrpc: "2.0", id: 89, method: "tools/list" })]) {
+      yield* connections.forward({
+        authorization: agent!.authorizationHeader,
+        contentType: undefined,
+        accept: undefined,
+        protocolVersion: undefined,
+        body: new TextEncoder().encode(message),
+      });
+      assert.strictEqual(yield* connections.buildWriteVersion, version);
+    }
+  }),
+);
+
+it.effect("an interrupted Build write still expires display caches", () =>
+  Effect.gen(function* () {
+    const { connections, hq } = yield* makeHarness;
+    const agent = yield* connections.connection(leadThread);
+    const version = yield* connections.buildWriteVersion;
+    hq.state.toolCallsHang = true;
+    const forwarding = yield* connections
+      .forward({
+        authorization: agent!.authorizationHeader,
+        contentType: undefined,
+        accept: undefined,
+        protocolVersion: undefined,
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 90,
+            method: "tools/call",
+            params: { name: "hq_build_set_status", arguments: {} },
+          }),
+        ),
+      })
+      .pipe(Effect.forkChild);
+    // HQ has the write, and may commit it, before the agent goes away.
+    while (hq.toolCalls.length === 0) yield* Effect.yieldNow;
+    yield* Fiber.interrupt(forwarding);
+    assert.strictEqual(yield* connections.buildWriteVersion, version + 1);
   }),
 );
 

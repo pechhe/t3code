@@ -146,6 +146,54 @@ const decodeToolCall = Schema.decodeUnknownOption(ToolCallResponse);
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
+const BuildWriteCall = Schema.Struct({
+  method: Schema.Literal("tools/call"),
+  params: Schema.Struct({ name: Schema.String }),
+});
+const decodeBuildWriteCall = Schema.decodeUnknownOption(BuildWriteCall);
+/**
+ * HQ's Build tools that only read, and the heartbeat, which only renews a session and comes
+ * often. Any other `hq_build_*` call may change what a card shows, so a tool HQ adds later
+ * expires the display caches until it is listed here.
+ */
+const BUILD_TOOLS_KEEPING_CARDS = new Set([
+  "hq_build_acceptance",
+  "hq_build_acceptance_queue",
+  "hq_build_acceptance_readiness",
+  "hq_build_accounting",
+  "hq_build_attempts",
+  "hq_build_binds",
+  "hq_build_context",
+  "hq_build_eligibility",
+  "hq_build_heartbeat",
+  "hq_build_list",
+  "hq_build_pipeline",
+  "hq_build_pipeline_overview",
+  "hq_build_rd_entry_proposals",
+  "hq_build_read",
+  "hq_build_read_run_artifact",
+  "hq_build_release_plan",
+  "hq_build_reports",
+  "hq_build_repositories",
+  "hq_build_repository_list",
+  "hq_build_repository_release_line",
+  "hq_build_runs",
+  "hq_build_sessions",
+  "hq_build_usage",
+  "hq_build_waits",
+]);
+const isBuildWrite = (tool: string) =>
+  tool.startsWith("hq_build_") && !BUILD_TOOLS_KEEPING_CARDS.has(tool);
+
+const containsBuildWrite = (body: Uint8Array): boolean => {
+  const parsed = decodeJson(new TextDecoder().decode(body));
+  if (Option.isNone(parsed)) return false;
+  const messages = Array.isArray(parsed.value) ? parsed.value : [parsed.value];
+  return messages.some((message) =>
+    Option.exists(decodeBuildWriteCall(message), (call) => isBuildWrite(call.params.name)),
+  );
+};
+
 const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
 
 /** HQ's origin, or null when it is not https (http is allowed only for a local HQ). */
@@ -221,6 +269,8 @@ export class HqAgentConnections extends Context.Service<
     readonly connection: (threadId: ThreadId) => Effect.Effect<HqMcpConnection | undefined>;
     /** Serves one MCP request from a thread's agent by forwarding it to HQ as that agent. */
     readonly forward: (request: HqForwardRequest) => Effect.Effect<HqForwardResponse>;
+    /** Changes after proxied Build writes so display caches expire without another HQ call. */
+    readonly buildWriteVersion: Effect.Effect<number>;
     /** Ends the thread's HQ agent (never revokes it); its next HQ call starts a new agent. */
     readonly end: (agent: Omit<HqAgent, "model">) => Effect.Effect<void>;
     /** Ends the agent and drops the thread's connection, for a deleted thread. */
@@ -240,6 +290,7 @@ const make = Effect.gen(function* () {
   const threadByCredentialHash = new Map<string, ThreadId>();
   const tokenLock = yield* KeyedLock.make<ThreadId>();
   const observers = new Map<string, ObserverToken>();
+  let buildWriteVersion = 0;
   const observerLock = yield* KeyedLock.make<string>();
 
   const digest = (value: string) =>
@@ -523,7 +574,7 @@ const make = Effect.gen(function* () {
         dropToken(threadId);
         return Option.none<HqForwardResponse>();
       });
-      return yield* attempt.pipe(
+      const response = yield* attempt.pipe(
         Effect.flatMap(
           Option.match({
             onSome: Effect.succeed,
@@ -544,7 +595,15 @@ const make = Effect.gen(function* () {
             reason: refusal,
           }).pipe(Effect.as(refusalResponse(request.body, refusal))),
         ),
+        // Even an ambiguous or interrupted write may have committed in HQ, so expire the display
+        // caches once forwarding ends however it ends, without interpreting the response.
+        Effect.ensuring(
+          Effect.sync(() => {
+            if (containsBuildWrite(request.body)) buildWriteVersion += 1;
+          }),
+        ),
       );
+      return response;
     },
   );
 
@@ -685,6 +744,7 @@ const make = Effect.gen(function* () {
       }),
     observe,
     forward,
+    buildWriteVersion: Effect.sync(() => buildWriteVersion),
     end,
     forget: Effect.fn("HqAgentConnections.forget")(function* (agent) {
       yield* end(agent);

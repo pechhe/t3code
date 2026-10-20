@@ -96,6 +96,7 @@ interface EnvironmentQueryAtomOptions<Input, A, E, R> extends Omit<
   readonly staleTimeMs?: number;
   readonly idleTtlMs?: number;
   readonly refreshIntervalMs?: number;
+  readonly refreshWhile?: Atom.Atom<boolean>;
   readonly refreshTrigger?: (target: {
     readonly environmentId: EnvironmentIdType;
     readonly input: Input;
@@ -524,13 +525,13 @@ const refreshOnSignalWhileRead =
   };
 
 const refreshEveryUntilFinal =
-  <V>(intervalMs: number, isFinal: (value: V) => boolean) =>
+  <V>(intervalMs: number, isFinal: (value: V) => boolean, refreshWhile?: Atom.Atom<boolean>) =>
   <A extends V>(self: Atom.Atom<A>): Atom.Atom<A> =>
     Atom.transform(
       self,
       (get) => {
         const value = get(self);
-        if (!isFinal(value)) {
+        if (!isFinal(value) && (refreshWhile === undefined || get(refreshWhile))) {
           // @effect-diagnostics-next-line globalTimers:off - Mirrors `Atom.withRefresh`, outside an Effect runtime.
           const handle = setTimeout(() => get.refresh(self), intervalMs);
           get.addFinalizer(() => clearTimeout(handle));
@@ -591,6 +592,7 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
         | EnvironmentRegistry.EnvironmentNotRegisteredError
         | EnvironmentRpcUnavailableError
       >((get) => {
+        if (options.refreshWhile !== undefined && !get(options.refreshWhile)) return Effect.never;
         const connection = Option.getOrNull(
           AsyncResult.value(get(connectionAtom(target.environmentId))),
         );
@@ -688,7 +690,9 @@ export function createEnvironmentQueryAtomFamily<R, ER, Input, A, E>(
     const intervalQuery =
       options.refreshIntervalMs === undefined
         ? queryAtom
-        : queryAtom.pipe(refreshEveryUntilFinal(options.refreshIntervalMs, isFinal));
+        : queryAtom.pipe(
+            refreshEveryUntilFinal(options.refreshIntervalMs, isFinal, options.refreshWhile),
+          );
     const refreshTrigger = options.refreshTrigger?.(target);
     return (
       refreshTrigger === undefined
@@ -771,6 +775,7 @@ export function createEnvironmentRpcQueryAtomFamily<
     readonly staleTimeMs?: number;
     readonly idleTtlMs?: number;
     readonly refreshIntervalMs?: number;
+    readonly refreshWhile?: Atom.Atom<boolean>;
     readonly refreshTrigger?: (target: {
       readonly environmentId: EnvironmentIdType;
       readonly input: EnvironmentRpcInput<TTag>;
@@ -786,6 +791,7 @@ export function createEnvironmentRpcQueryAtomFamily<
     ...(options.refreshIntervalMs === undefined
       ? {}
       : { refreshIntervalMs: options.refreshIntervalMs }),
+    ...(options.refreshWhile === undefined ? {} : { refreshWhile: options.refreshWhile }),
     ...(options.refreshTrigger === undefined ? {} : { refreshTrigger: options.refreshTrigger }),
     ...(options.isFinal === undefined ? {} : { isFinal: options.isFinal }),
     execute: (

@@ -28,4 +28,6 @@ such as GitHub's `#78`, numbers inside code, and numbers Build doesn't know stay
 ## When Build can't be reached
 
 The header keeps the last title it knew, and the card says Build couldn't be reached and when it
-was last updated. Cards refresh about once a minute while they are on screen.
+was last updated. Cards check for changes while they are on screen, backing off to
+five minutes when unchanged. Changes made by a thread's agent appear within a minute.
+Hidden browser and desktop windows pause these checks until visible again.

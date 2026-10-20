@@ -95,6 +95,8 @@ const makeEnvironmentQueryHarness = Effect.fn("TestEnvironmentQuery.makeHarness"
   execute: Effect.Effect<A, E>,
   {
     refreshTrigger,
+    refreshWhile,
+    refreshIntervalMs,
     idleTtlMs,
     persistence,
     initialState,
@@ -102,6 +104,8 @@ const makeEnvironmentQueryHarness = Effect.fn("TestEnvironmentQuery.makeHarness"
     isFinal,
   }: {
     readonly refreshTrigger?: Atom.Atom<unknown>;
+    readonly refreshWhile?: Atom.Atom<boolean>;
+    readonly refreshIntervalMs?: number;
     readonly isFinal?: (value: A) => boolean;
     readonly idleTtlMs?: number;
     readonly persistence?: QueryPersistence<A>;
@@ -148,6 +152,8 @@ const makeEnvironmentQueryHarness = Effect.fn("TestEnvironmentQuery.makeHarness"
     ...(persistence === undefined ? {} : { persistence }),
     execute: () => execute,
     ...(refreshTrigger === undefined ? {} : { refreshTrigger: () => refreshTrigger }),
+    ...(refreshWhile === undefined ? {} : { refreshWhile }),
+    ...(refreshIntervalMs === undefined ? {} : { refreshIntervalMs }),
     ...(idleTtlMs === undefined ? {} : { idleTtlMs }),
     ...(isFinal === undefined ? {} : { isFinal }),
   });
@@ -471,6 +477,38 @@ describe("finite environment subscription lifecycle", () => {
 });
 
 describe("environment query lifecycle", () => {
+  it.effect("polls only while mounted and visible, resuming immediately when visible", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+        yield* Effect.addFinalizer(() => Effect.sync(() => vi.useRealTimers()));
+        const visible = Atom.make(false).pipe(Atom.keepAlive);
+        let executions = 0;
+        const harness = yield* makeEnvironmentQueryHarness(
+          Effect.sync(() => ++executions),
+          { refreshWhile: visible, refreshIntervalMs: 60_000, idleTtlMs: 0 },
+        );
+        const registry = AtomRegistry.make();
+        yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+        const unmount = registry.mount(harness.atom);
+        const advance = (ms: number) => Effect.promise(() => vi.advanceTimersByTimeAsync(ms));
+        yield* advance(5 * 60_000);
+        expect(executions).toBe(0);
+        registry.set(visible, true);
+        expect(yield* readEnvironmentQuery(registry, harness.atom)).toBe(1);
+        yield* advance(60_000);
+        expect(yield* readEnvironmentQuery(registry, harness.atom)).toBe(2);
+        registry.set(visible, false);
+        yield* advance(5 * 60_000);
+        expect(executions).toBe(2);
+        registry.set(visible, true);
+        expect(yield* readEnvironmentQuery(registry, harness.atom)).toBe(3);
+        unmount();
+        yield* advance(5 * 60_000);
+        expect(executions).toBe(3);
+      }),
+    ),
+  );
   it.effect(
     "terminal metadata waits for snapshots and retains known sessions across restarts",
     () =>

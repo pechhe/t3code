@@ -6,38 +6,49 @@ import {
   type BuildWorkItemView,
   type BuildWorkItemWait,
 } from "@t3tools/contracts";
-import type { Atom } from "effect/reactivity";
+import { Atom } from "effect/reactivity";
 
 import type { EnvironmentRegistry } from "../connection/registry.ts";
 import { createEnvironmentRpcCommand, createEnvironmentRpcQueryAtomFamily } from "./runtime.ts";
 
 /**
- * A thread's linked Build item. The server reads Build at most once a minute per item, so
- * refreshing on that cadence while shown keeps it current and costs nothing once hidden.
+ * Clients ask once a minute while visible; the server backs off unchanged HQ reads to five
+ * minutes and expires them after proxied agent writes. No mounted reader means no polling.
  */
 export function createBuildWorkItemAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | R, E>,
 ) {
+  const visible = Atom.make((get) => {
+    if (typeof document === "undefined") return true;
+    const update = () => get.setSelf(document.visibilityState === "visible");
+    document.addEventListener("visibilitychange", update);
+    get.addFinalizer(() => document.removeEventListener("visibilitychange", update));
+    return document.visibilityState === "visible";
+  }).pipe(Atom.setIdleTTL(0));
+  // Dispose polling immediately when the last reader unmounts, including the timer wrapper.
+  const polling = {
+    staleTimeMs: 60_000,
+    refreshIntervalMs: 60_000,
+    idleTtlMs: 0,
+    refreshWhile: visible,
+  };
   return {
     item: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:build:work-item",
       tag: WS_METHODS.buildWorkItemRead,
-      staleTimeMs: 60_000,
-      refreshIntervalMs: 60_000,
+      ...polling,
     }),
     /** Mounted only while a card or sheet is open, so a closed card costs nothing. */
     card: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:build:work-item-card",
       tag: WS_METHODS.buildWorkItemCard,
-      staleTimeMs: 60_000,
-      refreshIntervalMs: 60_000,
+      ...polling,
     }),
     /** Mounted only while a mention is on screen; the same item in many chips is one query. */
     mentions: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:build:mentions",
       tag: WS_METHODS.buildWorkItemMentions,
-      staleTimeMs: 60_000,
-      refreshIntervalMs: 60_000,
+      ...polling,
     }),
     connection: createEnvironmentRpcQueryAtomFamily(runtime, {
       label: "environment-data:build:connection",

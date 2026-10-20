@@ -15,6 +15,7 @@ import * as BuildWorkItems from "./BuildWorkItems.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 import {
   delegation,
+  leadThread,
   makeHqHarness,
   origin,
   otherOrigin,
@@ -22,6 +23,73 @@ import {
 } from "./HqAgentConnections.testkit.ts";
 
 const threadId = ThreadId.make("thread-build");
+
+it.effect.each(["summary", "card"] as const)(
+  "%s backs off unchanged reads, resets on changes and observes agent writes",
+  (surface) =>
+    Effect.gen(function* () {
+      const { hq, service, add, connections } = yield* makeHarness;
+      const spec = item(1_000_078, "spec", "Stable", "in_progress");
+      add(spec);
+      yield* service.link({ threadId, reference: "#1000078" });
+      const read = () =>
+        surface === "summary"
+          ? service.view(threadId)
+          : service.card({ threadId, itemId: spec.id, open: "same-opening" });
+      yield* read();
+      for (const minutes of [1, 2, 4, 5, 5]) {
+        const before = hq.toolCalls.length;
+        for (let minute = 1; minute < minutes; minute++) {
+          yield* TestClock.adjust(60_000);
+          yield* read();
+          assert.strictEqual(hq.toolCalls.length, before);
+        }
+        yield* TestClock.adjust(60_000);
+        yield* read();
+        assert.isAbove(hq.toolCalls.length, before);
+      }
+      spec.title = "Changed elsewhere";
+      for (let minute = 1; minute <= 5; minute++) {
+        yield* TestClock.adjust(60_000);
+        const result = yield* read();
+        assert.strictEqual(result?.item?.title, minute === 5 ? spec.title : "Stable");
+      }
+      // A changed read returns to one minute, even after reaching the cap.
+      let before = hq.toolCalls.length;
+      yield* TestClock.adjust(60_000);
+      yield* read();
+      assert.isAbove(hq.toolCalls.length, before);
+
+      spec.status = "landed";
+      const agent = yield* connections.connection(leadThread);
+      const body = new TextEncoder().encode(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 123,
+          method: "tools/call",
+          params: {
+            name: "hq_build_set_status",
+            arguments: { itemId: spec.id, status: "landed" },
+          },
+        }),
+      );
+      yield* connections.forward({
+        authorization: agent!.authorizationHeader,
+        contentType: undefined,
+        accept: undefined,
+        protocolVersion: undefined,
+        body,
+      });
+      before = hq.toolCalls.length;
+      yield* TestClock.adjust(60_000);
+      assert.strictEqual((yield* read())?.item?.status, "landed");
+      assert.isAbove(hq.toolCalls.length, before);
+      // Advancing the clock alone never makes the display cache read HQ.
+      before = hq.toolCalls.length;
+      yield* TestClock.adjust(60 * 60_000);
+      assert.strictEqual(hq.toolCalls.length, before);
+    }),
+);
 
 interface FakeItem {
   id: string;
