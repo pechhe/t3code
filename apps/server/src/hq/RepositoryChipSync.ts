@@ -68,9 +68,12 @@ const make = Effect.gen(function* () {
             .digest("SHA-256", new TextEncoder().encode(JSON.stringify({ key, ...value })))
             .pipe(Effect.map((bytes) => Buffer.from(bytes).toString("hex")));
         const localHash = yield* hash(local);
-        let repository =
+        const matched =
           repositories.get(key) ??
           [...repositories.values()].find((record) => record.aliases.includes(key));
+        // Only a person registers a repository, so a key HQ does not list is left alone: pushing it would only be refused.
+        if (!matched) return;
+        let repository = matched;
         let projectIcon: ProjectIconOverride | undefined;
         // A project with no baseline adopts an HQ record someone has already edited; with no such
         // record (none, or one only registered with its default look) it establishes its own value
@@ -79,7 +82,6 @@ const make = Effect.gen(function* () {
         const unedited = repository?.updatedSource === "registered";
         const unsynced = (row.hqSyncedValueHash ?? null) === null;
         const adopt = () => {
-          if (!repository) return;
           projectIcon = {
             ...(repository.icon.kind === "monogram"
               ? { ...repository.icon, text: Array.from(repository.icon.text).slice(0, 2).join("") }
@@ -87,13 +89,12 @@ const make = Effect.gen(function* () {
             color: repository.colour,
           };
         };
-        if (repository && !unedited && unsynced) {
+        if (!unedited && unsynced) {
           adopt();
-        } else if (!repository || row.hqSyncedValueHash !== localHash) {
+        } else if (row.hqSyncedValueHash !== localHash) {
           // A project matched through an alias edits the record it matched, not a new one.
           repository = yield* hq.setRepository({
-            key: repository?.key ?? key,
-            ...(repository ? {} : { name: row.title }),
+            key: repository.key,
             ...local,
           });
           repositories.set(repository.key, repository);

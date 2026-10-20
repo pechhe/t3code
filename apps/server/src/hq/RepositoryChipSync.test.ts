@@ -51,7 +51,17 @@ const harness = Effect.gen(function* () {
   let linked = true;
   let connected = true;
   let failed = false;
-  let repository: HqRepositories.Repository | undefined;
+  // HQ lists a repository only once a person registered it.
+  let repository: HqRepositories.Repository | undefined = {
+    key: "pechhe/yardsmith",
+    name: "yardsmith",
+    aliases: [],
+    colour: "amber",
+    icon: { kind: "monogram" as const, text: "YA" },
+    revision: 1,
+    updatedAt: now,
+    updatedSource: "registered",
+  };
   const pushes: Array<Parameters<HqRepositories.HqRepositories["Service"]["setRepository"]>[0]> =
     [];
   const edit = (
@@ -154,6 +164,7 @@ const harness = Effect.gen(function* () {
     edit,
     pushes,
     row: store.get(projectId).pipe(Effect.map(Option.getOrThrow)),
+    registered: repository!,
     hqHas: (value: HqRepositories.Repository) => {
       repository = value;
     },
@@ -192,12 +203,11 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       assert.deepEqual(h.pushes, [
         {
           key: "pechhe/yardsmith",
-          name: "YardSmith",
           colour: identity.color,
           icon: { kind: "monogram" as const, text: identity.monogram },
         },
       ]);
-      assert.equal((yield* h.row).hqSyncedRevision, 1);
+      assert.equal((yield* h.row).hqSyncedRevision, 2);
       yield* h.sync;
       assert.lengthOf(h.pushes, 1);
     }),
@@ -268,7 +278,6 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       assert.deepEqual(h.pushes, [
         {
           key: "pechhe/yardsmith",
-          name: "YardSmith",
           colour: recorded.colour,
           icon: recorded.icon,
         },
@@ -282,7 +291,7 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       h.changeHq();
       yield* h.sync;
       assert.deepEqual((yield* h.row).projectIcon, { kind: "emoji", emoji: "🌹", color: "rose" });
-      assert.equal((yield* h.row).hqSyncedRevision, 2);
+      assert.equal((yield* h.row).hqSyncedRevision, 3);
       yield* h.sync;
       assert.lengthOf(h.pushes, 1);
     }),
@@ -296,7 +305,7 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       yield* h.sync;
       assert.equal(h.pushes.at(-1)?.colour, "orange");
       assert.deepEqual(h.pushes.at(-1)?.icon, { kind: "emoji", emoji: "🦊" });
-      assert.equal((yield* h.row).hqSyncedRevision, 3);
+      assert.equal((yield* h.row).hqSyncedRevision, 4);
     }),
   );
   it.effect("a project matched through an alias pushes to the record it matched", () =>
@@ -339,6 +348,9 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       yield* h.sync;
       assert.isEmpty(h.pushes);
       yield* h.edit({ hqRepositoryKey: "pechhe/manual" });
+      yield* h.sync;
+      assert.isEmpty(h.pushes, "HQ lists no pechhe/manual, so there is nothing to sync");
+      h.hqHas({ ...h.registered, key: "pechhe/manual" });
       yield* h.sync;
       assert.equal(h.pushes[0]?.key, "pechhe/manual");
     }),
