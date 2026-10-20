@@ -149,14 +149,23 @@ const fatalStartupCause = <E>(stage: string, cause: Cause.Cause<E>) =>
   handleFatalStartupError(stage, Cause.pretty(cause)).pipe(Effect.andThen(Effect.failCause(cause)));
 
 export const stopAllPoolInstances = Effect.fn("desktop.app.stopAllPoolInstances")(
-  function* (): Effect.fn.Return<void, never, DesktopBackendPool.DesktopBackendPool> {
+  function* (): Effect.fn.Return<
+    ReadonlyArray<number>,
+    never,
+    DesktopBackendPool.DesktopBackendPool
+  > {
     const pool = yield* DesktopBackendPool.DesktopBackendPool;
     const instances = yield* pool.list;
-    yield* Effect.forEach(
+    const stopped = yield* Effect.forEach(
       instances,
-      (instance) => instance.stop({ timeout: Duration.seconds(5) }),
+      (instance) =>
+        instance.snapshot.pipe(
+          Effect.tap(() => instance.stop({ timeout: Duration.seconds(5) })),
+          Effect.map((snapshot) => Option.toArray(snapshot.activePid)),
+        ),
       { concurrency: "unbounded" },
     );
+    return stopped.flat();
   },
 );
 
@@ -349,10 +358,10 @@ const scopedProgram = Effect.scoped(
       stopAllPoolInstances().pipe(
         // A server killed after its grace period leaves its agents running. A stop that timed
         // out returns just before that kill lands, so wait briefly for the server to exit.
-        Effect.andThen(
+        Effect.flatMap((pids) =>
           ProcessGroupLedger.reapOrphans({
             stateDir: environment.stateDir,
-            ownerExitGrace: Duration.seconds(3),
+            stoppedOwners: { pids, exitGrace: Duration.seconds(3) },
           }),
         ),
         Effect.catchCause((cause) =>

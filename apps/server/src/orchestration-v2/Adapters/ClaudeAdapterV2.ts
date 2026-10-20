@@ -837,12 +837,19 @@ export const layerQueryRunner: Layer.Layer<
     const platform = yield* HostProcess.Platform;
     const self = yield* resolveSelfInvocation();
     const processLedger = yield* ProcessGroupLedger.ProcessGroupLedger;
-    const runPromise = Effect.runPromiseWith(yield* Effect.context<never>());
+    const runFork = Effect.runForkWith(yield* Effect.context<never>());
     const spawnTrackedClaudeProcessGroup = (options: ClaudeSpawnOptions) => {
       const child = spawnClaudeProcessGroup(options);
       if (child.pid !== undefined) {
-        const forget = runPromise(processLedger.track({ pid: child.pid, args: options.args }));
-        child.once("exit", () => void forget.then(runPromise));
+        const exited = Deferred.makeUnsafe<void>();
+        child.once("exit", () => Deferred.doneUnsafe(exited, Effect.void));
+        runFork(
+          ProcessGroupLedger.trackUntilExit(
+            processLedger,
+            { pid: child.pid, args: options.args },
+            Deferred.await(exited),
+          ),
+        );
       }
       return child;
     };

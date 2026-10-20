@@ -1495,14 +1495,12 @@ export const make = (
       );
 
     // Effect's POSIX spawner detaches by default, including Antigravity's launch.
-    if (options.ownDetachedProcessGroup !== false && (yield* HostProcess.Platform) !== "win32") {
-      const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
-      const forget = yield* ledger.track({
-        pid: Number(child.pid),
-        args: containedSpawnCommand.args,
-      });
-      // Exit observation outlives runtime scope teardown, which stops the child.
-      yield* child.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
+    if (options.ownDetachedProcessGroup !== false) {
+      yield* ProcessGroupLedger.trackUntilExit(
+        yield* ProcessGroupLedger.ProcessGroupLedger,
+        { pid: Number(child.pid), args: containedSpawnCommand.args },
+        child.exitCode,
+      );
     }
 
     const posixOwnershipLedger = new Map<string, AcpOwnedPosixProcess>();

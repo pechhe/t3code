@@ -436,19 +436,18 @@ it.layer(
 )("TerminalManager", (it) => {
   it.effect("records each PTY session group and forgets it when the PTY exits", () =>
     Effect.gen(function* () {
+      const recorded = yield* Deferred.make<number>();
       const forgotten = yield* Deferred.make<void>();
-      const groups: number[] = [];
       const { manager, ptyAdapter } = yield* createManager().pipe(
         Effect.provideService(ProcessGroupLedger.ProcessGroupLedger, {
           track: ({ pid }) =>
-            Effect.sync(() => {
-              groups.push(pid);
-              return Deferred.succeed(forgotten, undefined).pipe(Effect.asVoid);
-            }),
+            Deferred.succeed(recorded, pid).pipe(
+              Effect.as(Deferred.succeed(forgotten, undefined).pipe(Effect.asVoid)),
+            ),
         }),
       );
       yield* manager.open(openInput());
-      expect(groups).toEqual([ptyAdapter.processes[0]!.pid]);
+      assert.equal(yield* Deferred.await(recorded), ptyAdapter.processes[0]!.pid);
       ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 0 });
       yield* Deferred.await(forgotten);
     }).pipe(Effect.provideService(HostProcess.Platform, "darwin")),

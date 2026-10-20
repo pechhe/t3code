@@ -1485,7 +1485,6 @@ const layerCodexAppServerClientFactoryCommand = (
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
-      const platform = yield* HostProcess.Platform;
       return CodexAppServerClientFactory.of({
         open: (input) =>
           Effect.gen(function* () {
@@ -1507,10 +1506,11 @@ const layerCodexAppServerClientFactoryCommand = (
                   }),
               ),
             );
-            if (platform !== "win32") {
-              const forget = yield* ledger.track({ pid: Number(handle.pid), args: command.args });
-              yield* handle.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
-            }
+            yield* ProcessGroupLedger.trackUntilExit(
+              ledger,
+              { pid: Number(handle.pid), args: command.args },
+              handle.exitCode,
+            );
             const context = yield* Layer.build(CodexClient.layerChildProcess(handle, options));
             return yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
               Effect.provide(context),
@@ -1606,7 +1606,6 @@ export const layerAppServerClientFactory: Layer.Layer<
     const agentScope = yield* AgentScope;
 
     const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
-    const platform = yield* HostProcess.Platform;
 
     return CodexAppServerClientFactory.of({
       open: (input) =>
@@ -1648,10 +1647,11 @@ export const layerAppServerClientFactory: Layer.Layer<
                   logOutgoing: true,
                   logger: protocolLogger,
                 };
-          if (platform !== "win32") {
-            const forget = yield* ledger.track({ pid: Number(handle.pid), args: command.args });
-            yield* handle.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
-          }
+          yield* ProcessGroupLedger.trackUntilExit(
+            ledger,
+            { pid: Number(handle.pid), args: command.args },
+            handle.exitCode,
+          );
           const context = yield* Layer.build(CodexClient.layerChildProcess(handle, clientOptions));
           return yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
             Effect.provide(context),

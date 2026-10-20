@@ -112,6 +112,45 @@ effectIt.layer(NodeServices.layer)("asynchronous rotating file sink", (it) => {
     }),
   );
 
+  it.effect("touches only the backups that exist when rotating with many slots", () =>
+    Effect.gen(function* () {
+      const directory = makeTempDirectory();
+      const filePath = NodePath.join(directory, "trace.ndjson");
+      const fs = yield* FileSystem.FileSystem;
+      let fileOperations = 0;
+      const counted =
+        <A extends ReadonlyArray<unknown>, R>(operation: (...args: A) => R) =>
+        (...args: A) => {
+          fileOperations++;
+          return operation(...args);
+        };
+      const sink = yield* makeAsyncRotatingFileSink({
+        filePath,
+        maxBytes: 4,
+        maxFiles: 360,
+        compressRotated: true,
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          exists: counted(fs.exists),
+          rename: counted(fs.rename),
+          remove: counted(fs.remove),
+        }),
+      );
+      const lines = ["aaa\n", "bbb\n", "ccc\n", "ddd\n"];
+      yield* Effect.forEach(lines, (line) => sink.write(line), { discard: true });
+
+      expect(NodeFS.readdirSync(directory).sort()).toEqual([
+        "trace.ndjson",
+        "trace.ndjson.1.gz",
+        "trace.ndjson.2.gz",
+        "trace.ndjson.3.gz",
+      ]);
+      // Three rotations shift 0, 1 and 2 backups; probing every slot would take hundreds.
+      expect(fileOperations).toBeLessThan(20);
+    }),
+  );
+
   it.effect("reports a failed append and recovers its size before the next rotation", () =>
     Effect.gen(function* () {
       const directory = makeTempDirectory();

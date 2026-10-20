@@ -2205,18 +2205,15 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     );
 
     if (attempt._tag === "Success") {
-      if (platform !== "win32") {
-        const forget = yield* processLedger.track({ pid: attempt.success.pid, args: launch.args });
-        const exited = Deferred.makeUnsafe<void>();
-        const unsubscribe = attempt.success.onExit(() => Deferred.doneUnsafe(exited, Effect.void));
-        // Closing the terminal removes its UI listeners before the process exits.
-        // Keep ledger observation until exit, including during kill escalation.
-        yield* Deferred.await(exited).pipe(
-          Effect.ensuring(Effect.sync(unsubscribe)),
-          Effect.andThen(forget),
-          Effect.forkDetach,
-        );
-      }
+      const exited = Deferred.makeUnsafe<void>();
+      const unsubscribe = attempt.success.onExit(() => Deferred.doneUnsafe(exited, Effect.void));
+      // Closing the terminal removes its UI listeners before the process exits.
+      // Keep ledger observation until exit, including during kill escalation.
+      yield* ProcessGroupLedger.trackUntilExit(
+        processLedger,
+        { pid: attempt.success.pid, args: launch.args },
+        Deferred.await(exited).pipe(Effect.ensuring(Effect.sync(unsubscribe))),
+      );
       return {
         process: attempt.success,
         shellLabel: formatShellCandidate(candidate),

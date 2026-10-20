@@ -36,20 +36,34 @@ const encodeEntry = Schema.encodeEffect(ProcessGroupEntryJson);
  * groups a crashed or force-killed server left running are stopped by the next server, or by
  * the desktop app once its servers have exited. A provider such as Claude Code stops the
  * commands it started when it gets SIGTERM, but leaves them running when it is killed outright.
+ *
+ * Records nothing unless the server provides `layer`, so tests need no state directory.
  */
-export interface ProcessGroupLedgerShape {
+export class ProcessGroupLedger extends Context.Reference<{
   /** Returns the effect that forgets the group once it has stopped. */
   readonly track: (group: {
     readonly pid: number;
     readonly args: ReadonlyArray<string>;
   }) => Effect.Effect<Effect.Effect<void>>;
-}
+}>("@t3tools/provider-core/server/ProcessGroupLedger", {
+  defaultValue: () => ({ track: () => Effect.succeed(Effect.void) }),
+}) {}
 
-/** Records nothing unless the server provides `layer`, so tests need no state directory. */
-export const ProcessGroupLedger = Context.Reference<ProcessGroupLedgerShape>(
-  "@t3tools/provider-core/server/ProcessGroupLedger",
-  { defaultValue: () => ({ track: () => Effect.succeed(Effect.void) }) },
-);
+/**
+ * Records a spawned group until `exited` completes, in the background: recording inspects the
+ * process table, which should not hold up opening a session or terminal. `exited` must already
+ * be listening for the exit, so an early exit is not missed.
+ */
+export const trackUntilExit = <E>(
+  ledger: (typeof ProcessGroupLedger)["Service"],
+  group: Parameters<(typeof ProcessGroupLedger)["Service"]["track"]>[0],
+  exited: Effect.Effect<unknown, E>,
+) =>
+  ledger.track(group).pipe(
+    Effect.flatMap((forget) => Effect.ignore(exited).pipe(Effect.andThen(forget))),
+    Effect.forkDetach,
+    Effect.asVoid,
+  );
 
 const PROCESS_GROUP_DIRECTORY = "provider-processes";
 const ENTRY_FILE = /^\d+\.json$/;
@@ -106,6 +120,15 @@ const groupExists = (pgid: number) => {
     return (cause as NodeJS.ErrnoException | undefined)?.code !== "ESRCH";
   }
 };
+
+/**
+ * Servers the caller has just asked to stop. Their groups wait up to `exitGrace` for the server
+ * to exit; a live server the caller did not stop keeps its groups without any wait.
+ */
+interface StoppedOwners {
+  readonly pids: ReadonlyArray<number>;
+  readonly exitGrace: Duration.Duration;
+}
 
 export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
   readonly stateDir: string;
@@ -202,7 +225,7 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
   const owner =
     ownerProcess === undefined ? undefined : { pid: ownerPid, startTime: ownerProcess.startTime };
 
-  const track: ProcessGroupLedgerShape["track"] = (group) =>
+  const track: (typeof ProcessGroupLedger)["Service"]["track"] = (group) =>
     Effect.gen(function* () {
       if (!recordable) return Effect.void;
       const pgid = group.pid;
@@ -218,7 +241,8 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
         members.find((candidate) => candidate.command.endsWith(` ${group.args.join(" ")}`)) ??
         members[0];
       if (owner === undefined || member === undefined) {
-        if (groupExists(pgid)) {
+        // A live process that leads no group was spawned without `detached`.
+        if (groupExists(pgid) || pidExists(pgid)) {
           yield* Effect.logWarning(
             "Could not record a provider process; it will keep running if this server crashes",
             { pid: pgid },
@@ -292,11 +316,15 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
       return yield* isRunning(owner);
     });
 
-  const reapEntry = (entryPath: string, ownerExitGrace: Duration.Duration) =>
+  const reapEntry = (entryPath: string, stoppedOwners: StoppedOwners | undefined) =>
     Effect.gen(function* () {
       const entry = decodeEntry(yield* fs.readFileString(entryPath));
       if (Option.isSome(entry) && entry.value.stateDir === input.stateDir) {
-        if (yield* outlives(entry.value.owner, ownerExitGrace)) return;
+        const { owner } = entry.value;
+        const grace = stoppedOwners?.pids.includes(owner.pid)
+          ? stoppedOwners.exitGrace
+          : Duration.zero;
+        if (yield* outlives(owner, grace)) return;
         yield* stopOrphan(entry.value);
       }
       yield* fs.remove(entryPath, { force: true });
@@ -306,19 +334,15 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
       ),
     );
 
-  /**
-   * `ownerExitGrace` waits that long for an owning server that is still running to exit, for a
-   * caller that has just asked it to stop.
-   */
-  const reapOrphans = (ownerExitGrace: Duration.Duration = Duration.zero) =>
+  const reapOrphans = (stoppedOwners?: StoppedOwners) =>
     Effect.gen(function* () {
-    const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
-    yield* Effect.forEach(
-      names.filter((name) => ENTRY_FILE.test(name)),
-      (name) => reapEntry(path.join(directory, name), ownerExitGrace),
-      { concurrency: "unbounded", discard: true },
-    );
-  });
+      const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
+      yield* Effect.forEach(
+        names.filter((name) => ENTRY_FILE.test(name)),
+        (name) => reapEntry(path.join(directory, name), stoppedOwners),
+        { concurrency: "unbounded", discard: true },
+      );
+    });
 
   return { track, reapOrphans };
 });
@@ -326,8 +350,8 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
 /** Stops the recorded groups whose owning server is no longer running. */
 export const reapOrphans = (input: {
   readonly stateDir: string;
-  readonly ownerExitGrace?: Duration.Duration;
-}) => make(input).pipe(Effect.flatMap((ledger) => ledger.reapOrphans(input.ownerExitGrace)));
+  readonly stoppedOwners?: StoppedOwners;
+}) => make(input).pipe(Effect.flatMap((ledger) => ledger.reapOrphans(input.stoppedOwners)));
 
 export const layer = (input: { readonly stateDir: string }) =>
   Layer.effect(

@@ -245,11 +245,11 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   // pi process with no finalizer to reap it.
   yield* Scope.addFinalizer(scope, terminateProcess.pipe(Effect.ignore, Effect.uninterruptible));
 
-  if (platform !== "win32") {
-    const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
-    const forget = yield* ledger.track({ pid: Number(child.pid), args: spawnCommand.args });
-    yield* child.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
-  }
+  yield* ProcessGroupLedger.trackUntilExit(
+    yield* ProcessGroupLedger.ProcessGroupLedger,
+    { pid: Number(child.pid), args: spawnCommand.args },
+    child.exitCode,
+  );
 
   const pendingRequests = new Map<string, PendingPiRequest>();
   const events = yield* Queue.unbounded<PiRpcRecord, PiRpcError>();

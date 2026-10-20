@@ -15,8 +15,6 @@ export class OpenCodeServerLedger extends Context.Service<
   }
 >()("@t3tools/provider-opencode/server/OpenCodeServerLedger") {}
 
-export const make = ProcessGroupLedger.make;
-
 export const layer = Layer.effect(
   OpenCodeServerLedger,
   Effect.map(ProcessGroupLedger.ProcessGroupLedger, (ledger) =>

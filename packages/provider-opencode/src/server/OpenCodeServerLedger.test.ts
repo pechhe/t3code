@@ -55,7 +55,7 @@ const spawnGroup = (args: ReadonlyArray<string>, script = "sleep 600 & wait") =>
 const recordFromDeadServer = (stateDir: string, server: { readonly pid: number }) =>
   Effect.gen(function* () {
     const previousServer = yield* spawnGroup([]);
-    const previousLedger = yield* OpenCodeServerLedger.make({
+    const previousLedger = yield* ProcessGroupLedger.make({
       stateDir,
       ownerPid: previousServer.pid,
     });
@@ -85,7 +85,7 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       yield* recordFromDeadServer(stateDir, orphan);
       expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toHaveLength(1);
 
-      const restarted = yield* OpenCodeServerLedger.make({ stateDir });
+      const restarted = yield* ProcessGroupLedger.make({ stateDir });
       yield* restarted.reapOrphans();
 
       expect(yield* orphan.exited).toBe("SIGTERM");
@@ -109,7 +109,7 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       yield* recordFromDeadServer(stateDir, wrapper);
       expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toHaveLength(1);
 
-      const restarted = yield* OpenCodeServerLedger.make({ stateDir });
+      const restarted = yield* ProcessGroupLedger.make({ stateDir });
       yield* restarted.reapOrphans();
 
       expect(groupExists(wrapper.pid)).toBe(false);
@@ -128,7 +128,7 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const entry = yield* fs.readFileString(entryPath);
       yield* fs.writeFileString(entryPath, entry.replace(/"startTime":"[^"]+"/, '"startTime":"1"'));
 
-      const restarted = yield* OpenCodeServerLedger.make({ stateDir });
+      const restarted = yield* ProcessGroupLedger.make({ stateDir });
       yield* restarted.reapOrphans();
 
       expect(groupExists(unrelated.pid)).toBe(true);
@@ -147,7 +147,7 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const entry = yield* fs.readFileString(entryPath);
       yield* fs.writeFileString(entryPath, entry.replace("--port=4096", "--port=4097"));
 
-      const restarted = yield* OpenCodeServerLedger.make({ stateDir });
+      const restarted = yield* ProcessGroupLedger.make({ stateDir });
       yield* restarted.reapOrphans();
 
       expect(groupExists(unrelated.pid)).toBe(true);
@@ -161,7 +161,7 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-ledger-" });
       const stopping = yield* spawnGroup([]);
       const server = yield* spawnGroup(SERVE_ARGS);
-      const stoppingLedger = yield* OpenCodeServerLedger.make({
+      const stoppingLedger = yield* ProcessGroupLedger.make({
         stateDir,
         ownerPid: stopping.pid,
       });
@@ -169,7 +169,7 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
 
       const reaping = yield* ProcessGroupLedger.reapOrphans({
         stateDir,
-        ownerExitGrace: Duration.minutes(1),
+        stoppedOwners: { pids: [stopping.pid], exitGrace: Duration.minutes(1) },
       }).pipe(Effect.forkChild);
       process.kill(-stopping.pid, "SIGKILL");
       yield* Fiber.join(reaping);
@@ -183,12 +183,15 @@ describe.each(observedPlatforms)("OpenCodeServerLedger observing as %s", (platfo
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const stateDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-opencode-ledger-" });
-      const running = yield* OpenCodeServerLedger.make({ stateDir });
+      const running = yield* ProcessGroupLedger.make({ stateDir });
       const server = yield* spawnGroup(SERVE_ARGS);
       const forget = yield* running.track({ pid: server.pid, args: SERVE_ARGS });
 
-      const other = yield* OpenCodeServerLedger.make({ stateDir });
+      const other = yield* ProcessGroupLedger.make({ stateDir });
       yield* other.reapOrphans();
+      expect(groupExists(server.pid)).toBe(true);
+      // A caller stopping some other server does not wait out its grace on this one.
+      yield* other.reapOrphans({ pids: [server.pid], exitGrace: Duration.hours(1) });
       expect(groupExists(server.pid)).toBe(true);
 
       yield* forget;

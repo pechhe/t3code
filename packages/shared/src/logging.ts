@@ -224,12 +224,22 @@ export const makeAsyncRotatingFileSink = Effect.fnUntraced(function* (
   yield* fs
     .makeDirectory(directory, { recursive: true })
     .pipe(Effect.mapError(failure("initialize")));
+  // Backups in either format: those written before the format changed shift
+  // alongside the new ones, so they age out on the same schedule.
+  const listBackups = fs.readDirectory(directory).pipe(
+    Effect.map((entries) =>
+      entries.flatMap((entry) => {
+        if (!entry.startsWith(`${basename}.`)) return [];
+        const match = /^(\d+)(\.gz)?$/.exec(entry.slice(basename.length + 1));
+        return match === null
+          ? []
+          : [{ index: Number(match[1]), compressed: match[2] !== undefined, entry }];
+      }),
+    ),
+  );
   yield* Effect.gen(function* () {
-    for (const entry of yield* fs.readDirectory(directory)) {
-      if (!entry.startsWith(`${basename}.`)) continue;
-      const match = /^(\d+)(\.gz)?$/.exec(entry.slice(basename.length + 1));
-      if (match === null || Number(match[1]) <= options.maxFiles) continue;
-      yield* fs.remove(path.join(directory, entry), { force: true });
+    for (const { index, entry } of yield* listBackups) {
+      if (index > options.maxFiles) yield* fs.remove(path.join(directory, entry), { force: true });
     }
   }).pipe(Effect.mapError(failure("prune")));
   const readSize = fs.stat(options.filePath).pipe(
@@ -240,19 +250,12 @@ export const makeAsyncRotatingFileSink = Effect.fnUntraced(function* (
   );
   let currentSize = yield* readSize;
   const semaphore = yield* Semaphore.make(1);
-  // Backups written before the format changed shift alongside the new ones,
-  // so they age out on the same schedule instead of being lost or kept forever.
   const rotate = Effect.gen(function* () {
-    for (const format of [true, false]) {
-      yield* fs.remove(rotatedFilePath(options.filePath, options.maxFiles, format), {
-        force: true,
-      });
-      for (let index = options.maxFiles - 1; index >= 1; index--) {
-        const source = rotatedFilePath(options.filePath, index, format);
-        if (yield* fs.exists(source)) {
-          yield* fs.rename(source, rotatedFilePath(options.filePath, index + 1, format));
-        }
-      }
+    const backups = (yield* listBackups).sort((a, b) => b.index - a.index);
+    for (const { index, compressed: format, entry } of backups) {
+      const source = path.join(directory, entry);
+      if (index >= options.maxFiles) yield* fs.remove(source, { force: true });
+      else yield* fs.rename(source, rotatedFilePath(options.filePath, index + 1, format));
     }
     if (yield* fs.exists(options.filePath)) {
       if (compressed) {

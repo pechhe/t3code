@@ -11,8 +11,8 @@ import { makePiRpcConnection } from "./rpc.ts";
 describe.skipIf(process.platform === "win32")("Pi process groups", () => {
   it.effect("records the Pi group while JSONL works and forgets it on exit", () =>
     Effect.gen(function* () {
+      const recorded = yield* Deferred.make<number>();
       const forgotten = yield* Deferred.make<void>();
-      const groups: number[] = [];
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const stateDir = yield* fs.makeTempDirectoryScoped();
@@ -26,8 +26,8 @@ describe.skipIf(process.platform === "win32")("Pi process groups", () => {
         Effect.provideService(ProcessGroupLedger.ProcessGroupLedger, {
           track: ({ pid, args }) =>
             Effect.gen(function* () {
-              groups.push(pid);
               const forget = yield* ledger.track({ pid, args });
+              yield* Deferred.succeed(recorded, pid);
               return forget.pipe(
                 Effect.andThen(Deferred.succeed(forgotten, undefined)),
                 Effect.asVoid,
@@ -35,10 +35,10 @@ describe.skipIf(process.platform === "win32")("Pi process groups", () => {
             }),
         }),
       );
-      assert.lengthOf(groups, 1);
-      assert.doesNotThrow(() => process.kill(-groups[0]!, 0));
+      const group = yield* Deferred.await(recorded);
+      assert.doesNotThrow(() => process.kill(-group, 0));
       assert.deepEqual(yield* fs.readDirectory(path.join(stateDir, "provider-processes")), [
-        `${groups[0]}.json`,
+        `${group}.json`,
       ]);
       yield* connection.send({ type: "shutdown" });
       assert.equal(yield* connection.exited, 0);
