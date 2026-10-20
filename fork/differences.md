@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.1-nightly.20261019.3373 (`300a35670abc0f73662e17c9ce909bcc106be70f`)
-- Fork: `b3f26c6f0370ad8e324e8c6fc65a38845a4898ad`
+- Upstream: v0.1.1-nightly.20261020.3386 (`fb990765a49414a5bfbdc73365455fc8b5fbe691`)
+- Fork: `7af4f5db030613753db56fd7a414a2b1a0da487a`
 
 ## Coverage
 
@@ -92,7 +92,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/mcp/OrchestratorMcpService.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts, TaskCancelNativeSubagent.integration.test.ts; apps/server/src/agents/ManagedAgentService.test.ts, writerWorkspacePreflight.test.ts; orchestration-v2/AdvisorIdleClose.test.ts; the landing gate runs them when a change reaches them.
 - **Upstream:** upstream has the base orchestrator MCP and subagents; the managed layer is the fork's. Overlap risk is high on `OrchestratorMcpService`.
 - **Retire when:** upstream ships equivalent managed scope and follow-up covering the requirements.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit. Those instructions say only when and why to delegate; field mechanics live once, in the `delegate_task` description.
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's deduplicated terminal results and context transfers (#19759) combined with managed handoff evidence; ordinary Codex threads use upstream's dotted MCP overrides while managed tasks keep whole-table disabling. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit. Those instructions say only when and why to delegate; field mechanics live once, in the `delegate_task` description.
 - **Owner:** pechhe/t3code#14, #15, #17, #18, #31, #40, #62, #93, #131 (closed); open: #123, #136, #146.
 
 ### t3-agent-cli
@@ -141,7 +141,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known (upstream VCS is Git).
 - **Retire when:** upstream ships a VCS driver abstraction with Jujutsu/SlipJay workspace support covering the requirements, or the fork stops using SlipJay.
 - **Constraints:** status refresh must not scale with landings × watched checkouts (see perf-landing-refresh).
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's "started threads show the machine as a label" rule (#19900) applied to the fork's details-panel run context; its composer-layout test adapted to the panel. Earlier (3348): the bootstrap thread keeps `rootIsDefault` under upstream's tolerant launch.
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's configured-remote worktree base (#21032) runs inside the fork's Git checkout plan; SlipJay allocation stays independent of Git remotes. Earlier: `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's "started threads show the machine as a label" rule (#19900) applied to the fork's details-panel run context; its composer-layout test adapted to the panel. Earlier (3348): the bootstrap thread keeps `rootIsDefault` under upstream's tolerant launch.
 - **Owner:** pechhe/t3code#21–23, #41, #42, #45, #46, #50–54, #67 (closed); open: #108, #112, #125; Build #3352, #3368, #3412.
 
 ### slipjay-landing
@@ -165,7 +165,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/releases/ReleaseApprovals.test.ts, ReleaseApprovalShell.test.ts; apps/server/src/project/SlipJayReleases.test.ts.
 - **Upstream:** none known.
 - **Retire when:** SlipJay delivery is dropped.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream removed `RequestActionButton` (#21943); release approval cards use the same `Button` as upstream approval cards, keeping the duplicate-submit guard. Approval summaries sit beside upstream's nonblocking pending-request summaries (#15430). Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#124 (closed); #141 open.
 
 ### slipjay-settings
@@ -259,9 +259,9 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Requirements:** link/unlink environments in both directions from Settings; short-lived read-only peer sessions renewed; search/list/read threads across environments; attach linked threads in the composer.
 - **Integration points:** `PeerEnvironments`, `ThreadDirectory`; `peers` contract; migration none known; thread MCP toolkit.
 - **Proof:** apps/server/src/peers/PeerEnvironments.test.ts, ThreadDirectory.test.ts.
-- **Upstream:** none known.
+- **Upstream:** upstream resolves unqualified thread links across connected environments (#21505) and refuses foreign thread attachments (#18310); peer sessions, thread directory and linked-thread attachments are the fork's.
 - **Retire when:** upstream ships equivalent cross-environment thread access.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the MCP thread list and read descriptions carry both upstream's `pullRequests` note and the linked-environment text.
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's cross-environment thread-link resolution (#21505) adopted for unqualified links (unique match only); explicitly environment-qualified links never fall back to another environment, and copied remote links carry their environment. Upstream's blanket refusal of foreign thread attachments (#18310) is not applied to linked peers. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the MCP thread list and read descriptions carry both upstream's `pullRequests` note and the linked-environment text.
 - **Owner:** pechhe/t3code#33–38 (closed).
 
 ### account-pools
@@ -273,7 +273,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** packages/shared/src/providerPools.test.ts; apps/server/src/orchestration-v2/UsageLimitRecoveryWorker.test.ts.
 - **Upstream:** upstream has provider instances and usage limits; pooling is the fork's.
 - **Retire when:** upstream ships equivalent pooled routing.
-- **Decision:** `adapt` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's per-account even-pace marks (#14477) adopted on the fork's capacity-sized pool segments. Earlier (3360): upstream's empty session for an account with no weekly quota (members carry `refillPercent`) adopted; pool columns keep the plan `capacity`, and a reset restores its refill weighted by plan capacity rather than divided evenly.
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's fork under an instance's own Claude home (#18662) adopted in place of the fork's fork-session helper, extended to honour a custom `HOME`; handoff rows show upstream's instance badges beside the fork's account names. Earlier: `adapt` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's per-account even-pace marks (#14477) adopted on the fork's capacity-sized pool segments. Earlier (3360): upstream's empty session for an account with no weekly quota (members carry `refillPercent`) adopted; pool columns keep the plan `capacity`, and a reset restores its refill weighted by plan capacity rather than divided evenly.
 - **Owner:** pechhe/t3code#103, #114, #115 (closed); #145 open (mobile pool account).
 
 ### phi-browser-backend
@@ -309,7 +309,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/videoFrames/VideoFrames.test.ts, frameTimes.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships equivalent recording and agent video input.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): video frames still precede the prompt block under upstream's mid-sentence skill command handling (#15253).
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): OpenCode now sends pasted images as native files (upstream); sampled video frames keep their frame text beside them. Upstream's bounded recording warmup (#20085) sits beside the composer's main-window capture path. Earlier: `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): video frames still precede the prompt block under upstream's mid-sentence skill command handling (#15253).
 - **Owner:** pechhe/t3code#84–86, #89, #90 (closed); #83 open.
 
 ### snapshot-overlay
@@ -321,7 +321,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/web/src/components/snapShot/snapShotOverlayDock.test.ts; apps/desktop/src/snapShot/snapShot.test.ts.
 - **Upstream:** SnapShot itself is upstream; the overlay is the fork's.
 - **Retire when:** upstream ships an equivalent overlay.
-- **Decision:** `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's named macOS test-capture failures adopted on top of the fork's capture pool. The pool finds and captures the window in one helper, so a failed window lookup reports as a failed capture; upstream's separate window-lookup test does not apply and was dropped.
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's quit guards on window setup (#18380) adopted around the fork's overlay and display-media installation. Earlier: `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's named macOS test-capture failures adopted on top of the fork's capture pool. The pool finds and captures the window in one helper, so a failed window lookup reports as a failed capture; upstream's separate window-lookup test does not apply and was dropped.
 - **Owner:** pechhe/t3code#76 (open, overlay slice).
 
 ### device-composer
@@ -333,7 +333,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** none found for look/feel; unverified browser tests (e.g. apps/web/src/components/Sidebar.motion.test.ts covers motion only).
 - **Upstream:** none known; composer and sidebar are high-churn upstream files, so merge conflicts are likely.
 - **Retire when:** the owner replaces the design.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): visual identity of the fork; the composer host and workspace selectors stay removed, so upstream's shortcut tooltips on them do not apply.
+- **Decision:** `retain` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's composer environment strip (#21950) is not mounted (its `BranchToolbarEnvironmentSelector` file is kept to avoid a modify/delete conflict); idle server updates stay in the fork's banner. Upstream's implementation-menu focus fix (#17111) ported to the fork's primary actions. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): visual identity of the fork; the composer host and workspace selectors stay removed, so upstream's shortcut tooltips on them do not apply.
 - **Owner:** #117 (open, reasoning-effort step paths), #129 (open, mobile Fast switch).
 
 ### image-annotation
@@ -369,7 +369,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/orchestration-v2/ThreadProjectMove.test.ts, ProjectMoveReactor.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships equivalent.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's draft-headline picker fixes (full No project label, middle truncation) target the dropdown the fork replaced with its project chip row; upstream's `DraftProjectName` is left unused rather than deleted, to avoid a modify/delete conflict on every update. v0.1.1-nightly.20261019.3373, 2026-10-19: upstream's NVDA fix for the headline picker (#17877) not ported; it fixes an interactive picker inside the labelled `h1`, and the fork's chips sit outside it.
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's Scratch normalisation (`isScratchProject`) replaces the fork's duplicate scratch-root check in launches and scheduled tasks; Claude native forks still omit `dir` (upstream now passes the cwd), so a moved thread's session is found under its earlier folder. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's draft-headline picker fixes (full No project label, middle truncation) target the dropdown the fork replaced with its project chip row; upstream's `DraftProjectName` is left unused rather than deleted, to avoid a modify/delete conflict on every update. v0.1.1-nightly.20261019.3373, 2026-10-19: upstream's NVDA fix for the headline picker (#17877) not ported; it fixes an interactive picker inside the labelled `h1`, and the fork's chips sit outside it.
 - **Owner:** #76 (open, slice) ; #126 relates (updater started in No project).
 
 ### project-themes
@@ -407,7 +407,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known.
 - **Retire when:** measurement shows unacceptable cost, or upstream ships equivalent.
 - **Constraints:** measured renderer CPU (Build #3172 finding 8; production web build, one ~1,500-word reply streaming for ~16 s): live 95% of a core, paragraph 82%, turn 33% (the working indicators alone), idle about 1%. Turning off the reveal loop and eased height cut live by about 17 points; turning off the dot-matrix animation halved the working baseline (about 26% to 13%). Most of the remaining streaming cost is upstream behaviour: `ChatMarkdown` re-parses and re-renders the whole message on every text change, so live and paragraph cost about the same.
-- **Decision:** `retain` as opt-in (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's open-at-newest-message fix (#19663) and composer-banner fade wrapper (#8034) adopted; the fork's eased follow still replaces upstream's smooth end pin while a turn runs. Earlier (2026-10-19, Build #3172): the default follows upstream ("paragraph", plain working row) after the measurements above; the calm look stays selectable in Settings. Earlier (v0.1.1-nightly.20261019.3348): assistant line breaks stay in `AssistantMessageText`; upstream's Windows-path markdown plugin adopted in the timeline; upstream's hide-when-the-provider-turn-ended rule applied to the fork's bottom working row.
+- **Decision:** `retain` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's math and completed-Mermaid rendering integrated beside the opt-in word reveal and eased height; a message with math renders whole (see perf-markdown-blocks). Earlier: `retain` as opt-in (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream's open-at-newest-message fix (#19663) and composer-banner fade wrapper (#8034) adopted; the fork's eased follow still replaces upstream's smooth end pin while a turn runs. Earlier (2026-10-19, Build #3172): the default follows upstream ("paragraph", plain working row) after the measurements above; the calm look stays selectable in Settings. Earlier (v0.1.1-nightly.20261019.3348): assistant line breaks stay in `AssistantMessageText`; upstream's Windows-path markdown plugin adopted in the timeline; upstream's hide-when-the-provider-turn-ended rule applied to the fork's bottom working row.
 - **Owner:** Build #3172 (formerly pechhe/t3code#135).
 
 ### web-client-customisation
@@ -443,7 +443,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** scripts/build-desktop-artifact.test.ts.
 - **Upstream:** none known.
 - **Retire when:** the fork stops shipping its own desktop build.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `adopt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's partial-clone remote parsing (#16316) replaces the fork's identity regex; build identity, display media and overlay wiring retained. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#77, #144 (open).
 
 ### fork-updater
@@ -480,7 +480,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** the base design is upstream; the fixes touch central persistence (merge cost medium); open upstream #21628 batches settlement decoding but does not narrow the candidates, so the timer prefilter still applies when it merges.
 - **Retire when:** upstream ships equivalent reader routing, compaction watermark and trace sampling (retire per item).
 - **Constraints:** installed-build measurement of writer `db.lock_wait_ms` is pending (#135); the compaction pass still scans all history; the isolated replay benchmark has not been run.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): reader routing kept; upstream's empty-filter skip in thread reads adopted beside it.
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's borrower ownership through statement execution (#21798) combined with the reader leases and caller interruptibility; the settlement timer prefilter gains upstream's `createdAt` fallback for never-run threads (#15783). Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): reader routing kept; upstream's empty-filter skip in thread reads adopted beside it.
 - **Owner:** pechhe/t3code#135 (open); #137–#139, #149 (closed).
 
 ### perf-landing-refresh
@@ -531,7 +531,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** pingdotgg/t3code#21194 (open) caches settled messages' parsed trees; it does not cover streaming. Both are upstreamable and touch the same render call.
 - **Retire when:** upstream renders streaming markdown incrementally.
 - **Constraints:** finding the blocks still parses the whole message per update (incrementally once a closed code fence exists).
-- **Decision:** `retain` (new, 2026-10-19).
+- **Decision:** `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's math rendering integrated; a message with math or extra markdown plugins renders whole, since math can span blocks. Earlier: `retain` (new, 2026-10-19).
 - **Owner:** Build #3172.
 
 ### agent-process-ledger

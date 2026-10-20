@@ -1,7 +1,5 @@
 import {
   forkSession,
-  type ForkSessionOptions,
-  type ForkSessionResult,
   getSubagentMessages,
   type SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -77,23 +75,6 @@ async function runClaudeHistory(
   });
   return JSON.parse(stdout);
 }
-
-export const forkClaudeSession = (
-  sessionId: string,
-  options: ForkSessionOptions,
-  environment: NodeJS.ProcessEnv,
-  self: SelfInvocation,
-) =>
-  runClaudeHistory(
-    "forkSession",
-    sessionId,
-    {
-      ...(options.dir === undefined ? {} : { dir: options.dir }),
-      ...(options.upToMessageId === undefined ? {} : { upToMessageId: options.upToMessageId }),
-    },
-    environment,
-    self,
-  ) as Promise<ForkSessionResult>;
 
 export const readClaudeSubagentMessages = (
   sessionId: string,

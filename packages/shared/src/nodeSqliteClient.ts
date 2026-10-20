@@ -14,6 +14,7 @@ import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
 import * as References from "effect/References";
 import * as Schema from "effect/Schema";
+import * as Scheduler from "effect/Scheduler";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import * as Context from "effect/Context";
@@ -21,7 +22,7 @@ import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
 import * as Reactivity from "effect/reactivity/Reactivity";
 import * as Client from "effect/sql/SqlClient";
-import type { Connection } from "effect/sql/SqlConnection";
+import type { Borrower, Connection } from "effect/sql/SqlConnection";
 import { SqlError, classifySqliteError } from "effect/sql/SqlError";
 import * as Statement from "effect/sql/Statement";
 
@@ -86,7 +87,7 @@ const annotateAcquired = (fiber: Fiber.Fiber<unknown, unknown>, acquired: Acquir
 type Restore = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
 
 const TransactionAcquire = Context.Reference<
-  { acquired?: Acquired; readonly restore: Restore } | undefined
+  { acquired?: Acquired; restore: Restore | undefined } | undefined
 >("@t3tools/shared/nodeSqliteClient/TransactionAcquire", { defaultValue: () => undefined });
 
 export class UnsupportedNodeSqliteVersionError extends Schema.TaggedError<UnsupportedNodeSqliteVersionError>()(
@@ -829,42 +830,46 @@ const make = Effect.fn("makeWithDatabase")(function* (
     lockWaitMs: Number((clock.monotonicTimeNanosUnsafe() - start) / 1000n) / 1000,
   });
 
-  // A statement outside a transaction only waits for its connection to be free.
-  const acquirer = Effect.uninterruptibleMask((restore) =>
-    Effect.withFiber((fiber) => {
-      if (
-        !fiber.getRef(References.TracerEnabled) ||
-        !fiber.getRef(Statement.SpanPropagationEnabled)
-      ) {
-        return Effect.flatMap(lease(fiber, restore), (taken) =>
-          Effect.as(taken.release, taken.value),
+  const borrower: Borrower = (use) =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.withFiber((fiber) => {
+        const clock = fiber.getRef(Clock.Clock);
+        const start = clock.monotonicTimeNanosUnsafe();
+        return Effect.acquireUseRelease(
+          lease(fiber, restore),
+          (taken) => {
+            if (
+              fiber.getRef(References.TracerEnabled) &&
+              fiber.getRef(Statement.SpanPropagationEnabled)
+            ) {
+              annotateAcquired(fiber, acquired(taken, clock, start));
+            }
+            return restore(Effect.suspend(() => use(taken.value)));
+          },
+          (taken) => taken.release,
         );
-      }
-      const clock = fiber.getRef(Clock.Clock);
-      const start = clock.monotonicTimeNanosUnsafe();
-      return Effect.flatMap(lease(fiber, restore), (taken) => {
-        annotateAcquired(fiber, acquired(taken, clock, start));
-        return Effect.as(taken.release, taken.value);
-      });
-    }),
-  );
-  // SqlClient runs this uninterruptibly, so the caller's interruptibility comes
-  // from `withTransaction` below.
-  const transactionAcquirer = Effect.withFiber((fiber) => {
-    const scope = Context.getUnsafe(fiber.context, Scope.Scope);
-    const clock = fiber.getRef(Clock.Clock);
-    const start = clock.monotonicTimeNanosUnsafe();
-    const pending = fiber.getRef(TransactionAcquire);
-    return Effect.uninterruptible(
-      Effect.flatMap(lease(fiber, pending?.restore ?? Effect.interruptible), (taken) => {
-        if (pending !== undefined) pending.acquired = acquired(taken, clock, start);
-        return Effect.as(Scope.addFinalizer(scope, taken.release), taken.value);
       }),
     );
-  });
+  // SqlClient runs this uninterruptibly, so the caller's interruptibility comes
+  // from `withTransaction` below.
+  const transactionAcquirer = Effect.uninterruptibleMask((restore) =>
+    Effect.withFiber((fiber) => {
+      const scope = Context.getUnsafe(fiber.context, Scope.Scope);
+      const clock = fiber.getRef(Clock.Clock);
+      const start = clock.monotonicTimeNanosUnsafe();
+      const pending = fiber.getRef(TransactionAcquire);
+      return Effect.uninterruptible(
+        Effect.flatMap(lease(fiber, pending?.restore ?? restore), (taken) => {
+          if (pending !== undefined) pending.acquired = acquired(taken, clock, start);
+          return Effect.as(Scope.addFinalizer(scope, taken.release), taken.value);
+        }),
+      );
+    }),
+  ).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true));
 
   const client = yield* Client.make({
-    acquirer,
+    acquirer: transactionAcquirer,
+    borrower,
     compiler,
     transactionAcquirer,
     // A deferred BEGIN only takes the write lock at the first write. If another
@@ -881,9 +886,13 @@ const make = Effect.fn("makeWithDatabase")(function* (
   return Object.assign(client, {
     withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.uninterruptibleMask((restore) => {
-        const pending: { acquired?: Acquired; readonly restore: Restore } = { restore };
+        // SqlClient masks setup; acquisition must preserve the caller's interruptibility.
+        const pending: { acquired?: Acquired; restore: Restore | undefined } = {
+          restore,
+        };
         const body = Effect.withFiber<A, E, R>((fiber) => {
           annotateAcquired(fiber, pending.acquired);
+          pending.restore = undefined;
           return effect;
         });
         return restore(

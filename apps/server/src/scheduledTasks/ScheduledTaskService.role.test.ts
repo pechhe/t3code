@@ -1,3 +1,4 @@
+import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
@@ -58,6 +59,10 @@ const serviceLayer = (
       isProviderInstanceEnabledForProject: () => Effect.succeed(true),
     }),
     Layer.mock(SecretRequests.SecretRequests)({}),
+    Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+      namedProjectsRoot: "/projects",
+      isScratchProject: () => Effect.succeed(false),
+    }),
     NodeCrypto.layer,
     Scheduler.layer,
   );

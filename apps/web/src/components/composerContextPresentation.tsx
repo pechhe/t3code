@@ -371,6 +371,10 @@ function ImageAnnotationContextChip(props: {
   );
 }
 
+function ComposerThreadContextChip(props: { record: ThreadContextRecord }) {
+  return <ThreadContextChip record={props.record} />;
+}
+
 function UnresolvedContextChip(props: { label: string }) {
   return (
     <UnresolvedChip
@@ -501,7 +505,7 @@ const composerContextPresentationRegistry = createContextPresentationRegistry<
       canRender: (entry) => entry.kind === "thread",
       render: (entry, context) =>
         entry.kind === "thread" ? (
-          <ThreadContextChip record={entry.record} />
+          <ComposerThreadContextChip record={entry.record} />
         ) : (
           <UnresolvedContextChip label={context.label} />
         ),

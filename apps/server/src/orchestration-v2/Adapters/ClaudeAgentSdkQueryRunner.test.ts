@@ -10,7 +10,9 @@ import { ProviderSessionId, ThreadId } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import { vi } from "vite-plus/test";
 
 import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
@@ -87,6 +89,103 @@ it.effect("logs successful task stops for replay and omits failed stops", () =>
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
+const FORK_SESSION_ID = "11111111-1111-4111-8111-111111111111";
+
+const writeClaudeSession = Effect.fnUntraced(function* (configDir: string) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const projectDir = path.join(configDir, "projects", "-repo");
+  const entry = (uuid: string, parentUuid: string | null, message: unknown) => ({
+    type: parentUuid === null ? "user" : "assistant",
+    uuid,
+    parentUuid,
+    sessionId: FORK_SESSION_ID,
+    cwd: "/repo",
+    isSidechain: false,
+    timestamp: "2026-10-01T00:00:00.000Z",
+    message,
+  });
+  yield* fileSystem.makeDirectory(projectDir, { recursive: true });
+  yield* fileSystem.writeFileString(
+    path.join(projectDir, `${FORK_SESSION_ID}.jsonl`),
+    [
+      entry("aaaaaaaa-0000-4000-8000-000000000001", null, { role: "user", content: "hello" }),
+      entry("aaaaaaaa-0000-4000-8000-000000000002", "aaaaaaaa-0000-4000-8000-000000000001", {
+        role: "assistant",
+        content: [{ type: "text", text: "hi" }],
+      }),
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n"),
+  );
+  return projectDir;
+});
+
+const forkRunnerLayer = layerQueryRunner.pipe(
+  Layer.provide(Layer.succeed(ProviderEventLoggers, { native: undefined, canonical: undefined })),
+);
+
+it.effect.each(["config", "home"] as const)(
+  "forks a session stored under the instance's own %s",
+  (location) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const configDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-fork-config-",
+        });
+        const projectDir = yield* writeClaudeSession(
+          location === "home" ? path.join(configDir, ".claude") : configDir,
+        );
+        const hostConfigDir = process.env.CLAUDE_CONFIG_DIR;
+        const inProcessFork = vi.spyOn(ClaudeSdk, "forkSession");
+        yield* Effect.addFinalizer(() => Effect.sync(() => inProcessFork.mockRestore()));
+
+        const runner = yield* ClaudeAgentSdkQueryRunner;
+        const forked = yield* runner.forkSession({
+          sessionId: FORK_SESSION_ID,
+          options: { dir: "/repo" },
+          environment:
+            location === "home"
+              ? { ...process.env, HOME: configDir, CLAUDE_CONFIG_DIR: undefined }
+              : { ...process.env, CLAUDE_CONFIG_DIR: configDir },
+          threadId: ThreadId.make("thread-fork-config-dir"),
+          providerSessionId: ProviderSessionId.make("session-fork-config-dir"),
+        });
+
+        assert.notEqual(forked.sessionId, FORK_SESSION_ID);
+        const transcript = yield* fileSystem.readFileString(
+          path.join(projectDir, `${forked.sessionId}.jsonl`),
+        );
+        assert.include(transcript, '"content":"hello"');
+        assert.include(transcript, '"text":"hi"');
+        assert.equal(process.env.CLAUDE_CONFIG_DIR, hostConfigDir);
+        assert.equal(inProcessFork.mock.calls.length, 0);
+      }).pipe(Effect.provide(forkRunnerLayer)),
+    ).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("forks in-process when the instance shares the server's config dir", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const inProcessFork = vi
+        .spyOn(ClaudeSdk, "forkSession")
+        .mockResolvedValue({ sessionId: "forked-in-process" });
+      yield* Effect.addFinalizer(() => Effect.sync(() => inProcessFork.mockRestore()));
+      const runner = yield* ClaudeAgentSdkQueryRunner;
+      const forked = yield* runner.forkSession({
+        sessionId: FORK_SESSION_ID,
+        options: { dir: "/repo" },
+        environment: { ...process.env },
+        threadId: ThreadId.make("thread-fork-shared-config-dir"),
+        providerSessionId: ProviderSessionId.make("session-fork-shared-config-dir"),
+      });
+
+      assert.equal(forked.sessionId, "forked-in-process");
+    }).pipe(Effect.provide(forkRunnerLayer)),
+  ).pipe(Effect.provide(NodeServices.layer)),
+);
 const realQueryRunner = layerQueryRunner.pipe(
   Layer.provide(
     Layer.succeed(ProviderEventLoggers, {
@@ -166,7 +265,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI pro
           `perl -e 'setpgrp(0, 0); exec "sleep", "600"' > "$dir/alive" &`,
           "command=$!",
           'echo $command > "$dir/leftover.pid"',
-          'trap \'kill $command; exit 0\' TERM',
+          "trap 'kill $command; exit 0' TERM",
           "tail -f /dev/null &",
           "wait",
         ].join("\n"),
@@ -177,7 +276,9 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI pro
       const deadServer = NodeChildProcess.spawn("/bin/sh", ["-c", "sleep 600"], {
         stdio: "ignore",
       });
-      const deadServerExited = new Promise<void>((resolve) => deadServer.once("exit", () => resolve()));
+      const deadServerExited = new Promise<void>((resolve) =>
+        deadServer.once("exit", () => resolve()),
+      );
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => {
           deadServer.kill("SIGKILL");
@@ -204,9 +305,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("Claude CLI pro
             .pipe(Effect.tap(() => Deferred.succeed(recorded, undefined))),
       });
 
-      yield* openFakeCli(cli).pipe(
-        Effect.provide(realQueryRunner.pipe(Layer.provide(ledger))),
-      );
+      yield* openFakeCli(cli).pipe(Effect.provide(realQueryRunner.pipe(Layer.provide(ledger))));
       yield* Effect.promise(() => commandStarted);
       yield* Deferred.await(recorded);
       deadServer.kill("SIGKILL");

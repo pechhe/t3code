@@ -22,7 +22,7 @@ import { SymbolView } from "../../components/ui/AppSymbol";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/ui/AppText";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { RequestActionButton } from "./RequestActionButton";
+import { Button } from "../../components/ui/Button";
 
 export function ReleaseApprovalCard(props: {
   readonly environmentId: EnvironmentId;
@@ -149,12 +149,13 @@ function PendingReleaseApproval(props: {
           {error}
         </Text>
       ) : null}
-      <RequestActionButton
+      <Button
         label="Approve"
+        tone="primary"
         disabled={submitting}
         onPress={() => void send("approved")}
       />
-      <RequestActionButton
+      <Button
         label="Decline"
         tone="secondary"
         disabled={submitting}

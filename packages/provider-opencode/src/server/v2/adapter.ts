@@ -1,4 +1,6 @@
 import * as FileSystem from "effect/FileSystem";
+import * as NodeURL from "node:url";
+
 import {
   AbsolutePath,
   Agent,
@@ -15,6 +17,7 @@ import {
 import { Mcp } from "@opencode/schema/mcp";
 import {
   isOrchestrationV2WorkActive,
+  type ChatAttachment,
   type OrchestrationV2AppThread,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2ExecutionNode,
@@ -62,6 +65,7 @@ import { causeErrorTag } from "@t3tools/shared/observability";
 
 import {
   readProviderVideoFrames,
+  isProviderNativeImageAttachment,
   providerMessageTextWithAttachmentPaths,
 } from "@t3tools/provider-core/server/attachmentPrompt";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -670,6 +674,7 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
   const host = yield* ProviderHost.ProviderHost;
   const videoFileSystem = yield* FileSystem.FileSystem;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const fileSystem = yield* FileSystem.FileSystem;
   const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
   const crypto = yield* Crypto.Crypto;
   const driver = OPENCODE_PROVIDER;
@@ -795,6 +800,16 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
 
     const runningCalls = (thread: ThreadState): ReadonlyArray<SubagentCall> =>
       sessionsOf(thread).flatMap((state) => [...state.calls.values()]);
+
+    /**
+     * The calls a subagent session answers for: the one that launched it and
+     * the ones that joined it while it ran.
+     */
+    const callsAttachedTo = (child: ThreadState): ReadonlyArray<SubagentCall> => {
+      const parent = child.subagent?.call.state;
+      if (parent === undefined) return [];
+      return [...parent.calls.values()].filter((candidate) => candidate.child === child);
+    };
 
     const callsAbove = (sessionId: string) => {
       const calls: Array<SubagentCall> = [];
@@ -1554,6 +1569,17 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
         if (!call.background && terminal.status !== "completed") {
           yield* settleCall(call, terminal.status);
         }
+        if (terminal.status === "failed") {
+          // A background call is settled by the report its parent reads, and a
+          // child that failed has no report to read: every call attached to it
+          // has to end with the failure, or the background ones keep the thread
+          // showing work that is gone. Which of them joined the child last
+          // does not matter: a foreground call is one until it is marked
+          // background, and the earlier background call outlives that window.
+          for (const attached of callsAttachedTo(state)) {
+            yield* settleCall(attached, terminal.status, terminal.failure.message);
+          }
+        }
         return;
       }
       state.providerThread = {
@@ -2077,7 +2103,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             failure: makeProviderFailure({
               message: event.data.error.message,
               code: event.data.error.type,
-              class: "provider_error",
+              class:
+                event.data.error.type === "provider.quota" ||
+                event.data.error.type === "provider.rate-limit"
+                  ? "usage_limit"
+                  : "provider_error",
             }),
           });
         default:
@@ -2930,6 +2960,21 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       }).trim();
     });
 
+    const promptFiles = Effect.fnUntraced(function* (attachments: ReadonlyArray<ChatAttachment>) {
+      const files: Array<{ uri: string; name: string }> = [];
+      // An external server may not share T3's attachment directory.
+      if (connection.external) return files;
+      for (const attachment of attachments) {
+        if (!isProviderNativeImageAttachment(attachment)) continue;
+        const path = host.resolveAttachmentPath(attachment);
+        if (path === null) continue;
+        // OpenCode rejects the whole prompt if an attached file is missing.
+        const exists = yield* fileSystem.exists(path).pipe(Effect.orElseSucceed(() => false));
+        if (exists) files.push({ uri: NodeURL.pathToFileURL(path).href, name: attachment.name });
+      }
+      return files;
+    });
+
     const removeMcp = (mcp: { readonly name: string; readonly directory: string }) =>
       Effect.suspend(() =>
         client.mcp.remove({ server: mcp.name, location: { directory: mcp.directory } }),
@@ -3270,12 +3315,14 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
             ),
           )
         : [];
+      const files = yield* promptFiles(turnInput.message.attachments);
       if (!sending()) return;
       return yield* client.session
         .prompt({
           sessionID,
           id,
           text: yield* promptText(turnInput),
+          ...(files.length === 0 ? {} : { files }),
           ...(skills.length === 0
             ? {}
             : { skills: skills.map((id) => ({ id: Skill.ID.make(id) })) }),
@@ -3597,11 +3644,32 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
           if (turn.settledInbox.has(inboxID)) return;
           turn.steers.add(inboxID);
           state.strandedSteers.delete(inboxID);
+          const files = yield* promptFiles(steerInput.message.attachments);
+          if (state.active !== turn || turn.interrupted) {
+            yield* lock.withPermit(
+              Effect.gen(function* () {
+                turn.steers.delete(inboxID);
+                // Stop may have stranded this steer, but it never reached OpenCode.
+                state.strandedSteers.delete(inboxID);
+                if (state.active === turn) {
+                  if (turn.interrupted && turn.heldEnd !== undefined) {
+                    turn.heldEnd = { status: "interrupted" };
+                  }
+                  yield* endIfSettled(state, turn);
+                }
+              }),
+            );
+            return yield* new ProviderAdapter.ProviderAdapterProtocolError({
+              driver: OPENCODE_PROVIDER,
+              detail: `OpenCode turn ${steerInput.providerTurnId} is not active`,
+            });
+          }
           yield* client.session
             .prompt({
               sessionID: Session.ID.make(sessionId),
               id: inboxID,
               text: yield* promptText(steerInput),
+              ...(files.length === 0 ? {} : { files }),
               delivery: "steer",
             })
             .pipe(

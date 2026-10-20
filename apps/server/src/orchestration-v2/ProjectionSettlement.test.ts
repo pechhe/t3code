@@ -434,7 +434,7 @@ it.effect(
       const recent = yield* createThread("timer-recent", { branch: null });
       yield* createRun(recent);
       yield* recentMessage(recent);
-      yield* createThread("timer-never-ran", { branch: null });
+      const neverRan = yield* createThread("timer-never-ran", { branch: null });
       const branch = yield* createThread("timer-branch");
       yield* recentMessage(branch);
       const linked = yield* createThread("timer-linked", {
@@ -463,7 +463,10 @@ it.effect(
         now,
         inactiveBefore: DateTime.subtract(now, { days: 7 }),
       });
-      assert.deepEqual(ids(prefiltered), new Set([due, branch, linked, wokeOnCompletion]));
+      assert.deepEqual(
+        ids(prefiltered),
+        new Set([due, neverRan, branch, linked, wokeOnCompletion]),
+      );
       const settledByTimer = all.filter(
         (thread) =>
           resolveAutoSettlementAt({

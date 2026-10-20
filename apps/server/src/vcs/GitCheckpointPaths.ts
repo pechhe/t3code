@@ -1,9 +1,7 @@
 import * as Effect from "effect/Effect";
 import type { VcsError } from "@t3tools/contracts";
-import type { VcsListAuthoredPathsInput } from "./VcsDriver.ts";
+import { CHECKPOINT_DIFF_MAX_OUTPUT_BYTES, type VcsListAuthoredPathsInput } from "./VcsDriver.ts";
 import type { VcsProcessInput, VcsProcessOutput } from "./VcsProcess.ts";
-
-const CHECKPOINT_DIFF_MAX_OUTPUT_BYTES = 10_000_000;
 
 /** Filters clean imported upstream changes out of a turn's checkpoint summary. */
 export const listGitCheckpointAuthoredPaths = Effect.fn("listGitCheckpointAuthoredPaths")(

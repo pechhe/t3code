@@ -1,3 +1,4 @@
+import { Button } from "../../components/ui/Button";
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { ThreadMarkdownVideo, ThreadMediaVisibleContext } from "./ThreadMarkdownVideo";
@@ -34,7 +35,7 @@ import {
 } from "@t3tools/contracts";
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
-import { parseThreadLink } from "@t3tools/shared/threadLinks";
+import { parseThreadLink, resolveThreadLinkRef } from "@t3tools/shared/threadLinks";
 import { buildItemNumberFromUrl } from "@t3tools/shared/buildLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
 import {
@@ -788,14 +789,12 @@ function ArtifactTemplateCard(props: {
         </Text>
       </View>
       {props.onUse ? (
-        <Pressable
-          accessibilityRole="button"
+        <Button
+          label="Use template"
+          tone="secondary"
           accessibilityLabel={`Use ${props.template.displayName} template`}
-          className="min-h-9 justify-center rounded-lg border border-border bg-subtle px-3 active:opacity-65"
           onPress={() => props.onUse?.(props.template)}
-        >
-          <Text className="font-t3-bold text-xs text-foreground">Use template</Text>
-        </Pressable>
+        />
       ) : null}
     </View>
   );
@@ -1132,6 +1131,7 @@ function renderFeedEntry(
         environmentId={props.environmentId}
         projectedItem={entry.activities[0]!.projectedItem}
         iconColor={iconSubtleColor}
+        surfaceColor={props.screenColor}
       />
     );
   }
@@ -1853,14 +1853,21 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       });
       return;
     }
-    // A thread link names a thread in this feed's environment. One qualified with another
-    // environment shows its label here but is not opened.
     const threadLink = parseThreadLink(href);
     if (threadLink) {
+      const source = scopeThreadRef(
+        threadLink.environmentId ?? props.environmentId,
+        threadLink.threadId,
+      );
+      const refs = appAtomRegistry.get(environmentThreadShells.threadRefsAtom);
+      const target =
+        threadLink.environmentId === null
+          ? (resolveThreadLinkRef(source, refs) ?? source)
+          : (resolveThreadLinkRef(source, refs, false) ?? source);
       if (threadLink.environmentId === null || threadLink.environmentId === props.environmentId) {
         navigation.navigate("Thread", {
-          environmentId: String(props.environmentId),
-          threadId: String(threadLink.threadId),
+          environmentId: String(target.environmentId),
+          threadId: String(target.threadId),
         });
       }
       return;
@@ -2618,6 +2625,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
                   environmentId={props.environmentId}
                   endpoints={props.pendingHandoff}
                   iconColor={iconSubtleColor}
+                  surfaceColor={screenColor}
                   label="Context handoff pending"
                 />
               ) : null
@@ -2656,29 +2664,23 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
 function ThreadFeedLoadEarlierControl(props: ThreadFeedHistoryControls) {
   const theme = useUniwindTheme();
   const mutedColor = theme["--color-icon-subtle"];
-  const accentColor = theme["--color-primary"];
   if (!props.hasMoreHistory && props.error === null) {
     return null;
   }
   return (
     <View className="mb-3 items-center gap-1.5 px-2">
       {props.hasMoreHistory ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Load earlier activity"
-          disabled={props.loading}
-          onPress={props.onLoadEarlier}
-          className="min-h-9 flex-row items-center justify-center gap-2 rounded-full border border-border/60 bg-card/80 px-4 py-2 disabled:opacity-50"
-        >
-          {props.loading ? (
-            <AppActivityIndicator size="small" color={accentColor} />
-          ) : (
-            <SymbolView name="chevron.up" size={12} tintColor={accentColor} type="monochrome" />
-          )}
-          <Text className="text-sm font-medium text-foreground">
-            {props.loading ? "Loading earlier activity…" : "Load earlier activity"}
-          </Text>
-        </Pressable>
+        <View className="self-center">
+          <Button
+            label={props.loading ? "Loading earlier activity…" : "Load earlier activity"}
+            tone="secondary"
+            accessibilityLabel="Load earlier activity"
+            disabled={props.loading}
+            onPress={props.onLoadEarlier}
+            icon="chevron.up"
+            loading={props.loading}
+          />
+        </View>
       ) : null}
       {props.error !== null ? (
         <Text className="text-center text-xs" style={{ color: mutedColor }}>

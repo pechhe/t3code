@@ -64,7 +64,7 @@ const WorktreeStatusTool = Tool.make("t3_worktree_status", {
 
 const WorktreeAttachTool = Tool.make("t3_worktree_attach", {
   description:
-    "Needs an agent running inside a T3 thread. Attach a workspace in another registered project to this thread, beside its primary workspace, when authorised work needs that project: work there by path, share it with helpers (workspaceAssignment \"lead\"), and land from it. A new one is a SlipJay workspace in a repository with slipjay.json, otherwise a git worktree on branch; worktreePath or root adopts an existing checkout instead. The provider session keeps running where it is. A project holds one live attachment per thread; once SlipJay releases it (for example after it lands) the project can take a fresh one. Detach with t3_worktree_detach.",
+    'Needs an agent running inside a T3 thread. Attach a workspace in another registered project to this thread, beside its primary workspace, when authorised work needs that project: work there by path, share it with helpers (workspaceAssignment "lead"), and land from it. A new one is a SlipJay workspace in a repository with slipjay.json, otherwise a git worktree on branch; worktreePath or root adopts an existing checkout instead. The provider session keeps running where it is. A project holds one live attachment per thread; once SlipJay releases it (for example after it lands) the project can take a fresh one. Detach with t3_worktree_detach.',
   parameters: WorktreeMcpAttachInput,
   success: WorktreeMcpAttachResult,
   failure: WorktreeToolFailure,
