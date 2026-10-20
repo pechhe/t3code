@@ -651,6 +651,31 @@ type MessagesTimelineRowContent =
       mcpApp: McpAppReference;
     };
 
+export function subagentGroupDisclosureId(rowId: string): string {
+  return `subagent-group:${rowId}`;
+}
+
+export function findSubagentCardRow(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  subagentId: string,
+): { readonly index: number; readonly rowId: string; readonly groupId: string | null } | null {
+  for (let index = rows.length - 1; index >= 0; index--) {
+    const row = rows[index]!;
+    if (row.kind !== "event" || row.projectedItem.item.type !== "subagent") continue;
+    const isGroup = (row.subagents?.length ?? 1) > 1;
+    for (const { item } of isGroup ? row.subagents! : [row.projectedItem]) {
+      if (item.type === "subagent" && item.subagentId === subagentId) {
+        return {
+          index,
+          rowId: row.id,
+          groupId: isGroup ? subagentGroupDisclosureId(row.id) : null,
+        };
+      }
+    }
+  }
+  return null;
+}
+
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
   result: MessagesTimelineRow[];

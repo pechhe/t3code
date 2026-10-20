@@ -234,6 +234,8 @@ import {
   worktreeSetupAgentStarted,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
+  findSubagentCardRow,
+  subagentGroupDisclosureId,
   TIMELINE_MINIMAP_MIN_ITEMS,
   type TimelineLatestRun,
   type WorkGroupScrollAnchor,
@@ -297,7 +299,7 @@ import {
   isV2LifecycleItem,
   EnvironmentSubagentAvatar,
   SubagentElapsed,
-  SubagentNotificationLink,
+  SubagentReturnChip,
   V2LifecycleRow,
   type HandoffTimelineRun,
 } from "./V2LifecycleRow";
@@ -361,6 +363,10 @@ interface TimelineRowSharedState {
   onWorktreeSetupWorkLocally: (() => void) | null;
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
+  onHighlightSubagentCard: (subagentId: string, highlighted: boolean) => void;
+  onJumpToSubagentCard: (subagentId: string, childThreadId: ThreadId) => void;
+  /** Changes when a jump expanded a remembered subagent group, so a mounted group re-reads it. */
+  subagentGroupRevealRevision: number;
 }
 
 interface TimelineRowActivityState {
@@ -1335,6 +1341,80 @@ const ConversationTimeline = memo(function ConversationTimeline({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies -- Rows and chat width resize the content without resizing the viewport.
   }, [timelineViewportElement, rows.length, reportContentOverflow, chatWidth]);
 
+  // A resumed subagent can have a card in several runs; the jump targets the row the lookup chose,
+  // and a hover the latest card.
+  const subagentCardElement = (subagentId: string, rowId?: string) => {
+    const cards = listRef.current
+      ?.getScrollableNode()
+      ?.querySelectorAll<HTMLElement>(
+        `${rowId === undefined ? "" : `[data-timeline-row-id="${CSS.escape(rowId)}"] `}[data-subagent-id="${CSS.escape(subagentId)}"]`,
+      );
+    return cards && cards.length > 0 ? cards[cards.length - 1]! : null;
+  };
+  const flashingSubagentRef = useRef<{ card: HTMLElement; timer: number } | null>(null);
+  const onHighlightSubagentCard = (subagentId: string, highlighted: boolean) => {
+    const card = subagentCardElement(subagentId);
+    // A pointer leaving the chip after a jump must not cut the jump's flash short.
+    if (!card || (!highlighted && flashingSubagentRef.current?.card === card)) return;
+    card.toggleAttribute("data-return-highlight", highlighted);
+  };
+  const flashSubagentCard = (subagentId: string, rowId: string) => {
+    const previous = flashingSubagentRef.current;
+    if (previous) {
+      window.clearTimeout(previous.timer);
+      previous.card.removeAttribute("data-return-highlight");
+      flashingSubagentRef.current = null;
+    }
+    // An animated index scroll mounts the row before it arrives; flash once the card is in view,
+    // giving up after about two seconds.
+    const attempt = (framesLeft: number) => {
+      const card = subagentCardElement(subagentId, rowId);
+      const viewport = listRef.current?.getScrollableNode();
+      const inView =
+        card && viewport
+          ? (() => {
+              const cardRect = card.getBoundingClientRect();
+              const viewportRect = viewport.getBoundingClientRect();
+              return cardRect.bottom > viewportRect.top && cardRect.top < viewportRect.bottom;
+            })()
+          : false;
+      if (!card || !inView) {
+        if (framesLeft > 1) requestAnimationFrame(() => attempt(framesLeft - 1));
+        return;
+      }
+      card.setAttribute("data-return-highlight", "");
+      flashingSubagentRef.current = {
+        card,
+        timer: window.setTimeout(() => {
+          flashingSubagentRef.current = null;
+          card.removeAttribute("data-return-highlight");
+        }, 1200),
+      };
+    };
+    requestAnimationFrame(() => attempt(120));
+  };
+  const [subagentGroupRevealRevision, setSubagentGroupRevealRevision] = useState(0);
+  const onJumpToSubagentCard = (subagentId: string, childThreadId: ThreadId) => {
+    const target = findSubagentCardRow(rows, subagentId);
+    if (target === null) {
+      onOpenThread(childThreadId);
+      return;
+    }
+    onManualNavigation();
+    if (target.groupId !== null && !workGroupViewState.expandedEntries.has(target.groupId)) {
+      suspendEndScrollMaintenanceForDisclosure(target.rowId);
+      workGroupViewState.expandedEntries.add(target.groupId);
+      setSubagentGroupRevealRevision((revision) => revision + 1);
+    }
+    void Promise.resolve(
+      listRef.current?.scrollToIndex({
+        index: target.index,
+        animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        viewOffset: 24,
+      }),
+    ).then(() => flashSubagentCard(subagentId, target.rowId));
+  };
+
   const sharedState: TimelineRowSharedState = {
     citationRequest: readyCitationRequest,
     listRef,
@@ -1373,6 +1453,9 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onWorktreeSetupWorkLocally: onWorktreeSetupWorkLocally ?? null,
     onOpenWorktreeSetupTerminal: onOpenWorktreeSetupTerminal ?? null,
     workGroupViewState,
+    onHighlightSubagentCard,
+    onJumpToSubagentCard,
+    subagentGroupRevealRevision,
   };
   const compactionAwaitingRow =
     isCompacting && !rows.some((row) => row.kind === "context-compaction" && row.active);
@@ -3303,10 +3386,16 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
   row: Extract<TimelineRow, { kind: "event" }>;
 }) {
   const ctx = use(TimelineRowCtx);
-  const groupId = `subagent-group:${row.id}`;
+  const groupId = subagentGroupDisclosureId(row.id);
   const [expanded, setExpanded] = useState(() =>
     ctx.workGroupViewState.expandedEntries.has(groupId),
   );
+  // A return chip's jump records the expansion while this row may already be mounted.
+  const [seenRevealRevision, setSeenRevealRevision] = useState(ctx.subagentGroupRevealRevision);
+  if (seenRevealRevision !== ctx.subagentGroupRevealRevision) {
+    setSeenRevealRevision(ctx.subagentGroupRevealRevision);
+    if (!expanded && ctx.workGroupViewState.expandedEntries.has(groupId)) setExpanded(true);
+  }
   const members = (row.subagents ?? [row.projectedItem]).flatMap(({ item }) =>
     item.type === "subagent" ? [item] : [],
   );
@@ -5457,13 +5546,14 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEntryRowP
     return <WorkEntryLogRow {...props} />;
   }
   return (
-    <SubagentNotificationLink
+    <SubagentReturnChip
       parentRef={scopeThreadRef(ctx.activeThreadEnvironmentId, item.threadId)}
       childThreadId={childThreadId}
       outcome={item.outcome}
       createdAt={props.workEntry.createdAt}
       timestampFormat={ctx.timestampFormat}
-      onOpenThread={ctx.onOpenThread}
+      onHighlight={ctx.onHighlightSubagentCard}
+      onJump={ctx.onJumpToSubagentCard}
       fallback={<WorkEntryLogRow {...props} />}
     />
   );

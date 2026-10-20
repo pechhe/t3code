@@ -1,27 +1,30 @@
-import type { OrchestrationV2Subagent } from "@t3tools/contracts";
-import * as DateTime from "effect/DateTime";
+import type { OrchestrationV2Notification, OrchestrationV2TurnItem } from "@t3tools/contracts";
 
-const ACTIVE_SUBAGENT_STATUSES = new Set<OrchestrationV2Subagent["status"]>([
-  "pending",
-  "running",
-  "waiting",
-]);
+const SUBAGENT_RETURN_VERBS: Record<OrchestrationV2Notification["outcome"], string> = {
+  completed: "returned",
+  failed: "failed",
+  cancelled: "stopped",
+  updated: "sent an update",
+  unknown: "returned",
+};
 
-/**
- * Whether a subagent started another run after a notification reported its
- * final outcome, so that outcome no longer describes it. Claude resumes a
- * finished subagent under the same id. An active subagent is always on a later
- * run, even when the notification was delivered late from the queue; a settled
- * one is on a later run when it started after the notification arrived.
- */
-export function subagentResumedSince(
-  agent: Pick<OrchestrationV2Subagent, "status" | "startedAt">,
-  notifiedAt: string,
-): boolean {
-  if (ACTIVE_SUBAGENT_STATUSES.has(agent.status)) return true;
-  if (agent.startedAt === null) return false;
-  const notifiedAtMillis = Date.parse(notifiedAt);
-  return (
-    !Number.isNaN(notifiedAtMillis) && DateTime.toEpochMillis(agent.startedAt) > notifiedAtMillis
-  );
+const SUBAGENT_RETURN_STATUSES: Record<
+  OrchestrationV2Notification["outcome"],
+  OrchestrationV2TurnItem["status"] | null
+> = {
+  completed: "completed",
+  failed: "failed",
+  cancelled: "cancelled",
+  updated: null,
+  unknown: null,
+};
+
+export function subagentReturnVerb(outcome: OrchestrationV2Notification["outcome"]): string {
+  return SUBAGENT_RETURN_VERBS[outcome];
+}
+
+export function subagentReturnStatus(
+  outcome: OrchestrationV2Notification["outcome"],
+): OrchestrationV2TurnItem["status"] | null {
+  return SUBAGENT_RETURN_STATUSES[outcome];
 }

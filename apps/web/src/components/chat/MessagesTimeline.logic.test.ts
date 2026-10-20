@@ -25,6 +25,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
+  findSubagentCardRow,
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
   deriveMessagesTimelineRows,
@@ -4698,6 +4699,78 @@ describe("streaming v2 row projection", () => {
         status: "stale" as const,
       })),
     });
+  });
+});
+
+describe("findSubagentCardRow", () => {
+  const fixture = makeStreamingTimelineFixture("Writing the answer.");
+  const source = fixture.visibleTurnItems.find((row) => row.item.type === "dynamic_tool")!;
+  const child = (id: string, subagentId = id) =>
+    ({
+      item: { id: TurnItemId.make(id), type: "subagent", subagentId: NodeId.make(subagentId) },
+    }) as OrchestrationV2ProjectedTurnItem;
+  const eventRow = (
+    id: string,
+    projectedItem: OrchestrationV2ProjectedTurnItem,
+    subagents?: ReadonlyArray<OrchestrationV2ProjectedTurnItem>,
+  ): MessagesTimelineRow => ({
+    kind: "event",
+    id,
+    createdAt: fixture.time(5),
+    projectedItem,
+    ...(subagents ? { subagents } : {}),
+  });
+
+  it("finds a single card by its subagent node id rather than its item id", () => {
+    const rows = [eventRow("tool", source), eventRow("card", child("item", "node"))];
+    expect(findSubagentCardRow(rows, "node")).toEqual({ index: 1, rowId: "card", groupId: null });
+    expect(findSubagentCardRow(rows, "item")).toBeNull();
+  });
+
+  it("finds either group member and returns the group disclosure id", () => {
+    const first = child("first");
+    const second = child("second");
+    const rows = [eventRow("group", first, [first, second])];
+    for (const id of ["first", "second"]) {
+      expect(findSubagentCardRow(rows, id)).toEqual({
+        index: 0,
+        rowId: "group",
+        groupId: "subagent-group:group",
+      });
+    }
+  });
+
+  it("treats a one-member subagents array as a single card", () => {
+    const first = child("first");
+    expect(findSubagentCardRow([eventRow("card", first, [first])], "first")).toEqual({
+      index: 0,
+      rowId: "card",
+      groupId: null,
+    });
+  });
+
+  it("returns the last matching row for a resumed subagent", () => {
+    const earlier = child("earlier", "node");
+    const later = child("later", "node");
+    const peer = child("peer");
+    const rows = [eventRow("earlier-card", earlier), eventRow("later-group", peer, [peer, later])];
+    expect(findSubagentCardRow(rows, "node")).toEqual({
+      index: 1,
+      rowId: "later-group",
+      groupId: "subagent-group:later-group",
+    });
+    expect(findSubagentCardRow([...rows, eventRow("latest-card", later)], "node")).toEqual({
+      index: 2,
+      rowId: "latest-card",
+      groupId: null,
+    });
+  });
+
+  it("returns null when the subagent is absent", () => {
+    expect(findSubagentCardRow([], "missing")).toBeNull();
+    expect(
+      findSubagentCardRow([eventRow("tool", source), eventRow("card", child("other"))], "missing"),
+    ).toBeNull();
   });
 });
 
