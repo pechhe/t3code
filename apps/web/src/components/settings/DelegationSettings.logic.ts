@@ -43,9 +43,6 @@ export const ROLE_DESCRIPTIONS: Record<AgentRole, string> = {
   scout: "Maps the codebase",
 };
 
-/** Roles the server refuses until T3 has an enforceable Phi tool route. */
-export const UNAVAILABLE_ROLES: ReadonlySet<AgentRole> = new Set(["browser", "ui-verifier"]);
-
 export interface RoleGroup {
   readonly list: string;
   readonly roles: ReadonlyArray<AgentRole>;

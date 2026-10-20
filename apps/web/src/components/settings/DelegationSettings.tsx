@@ -45,7 +45,6 @@ import {
   rolePolicy,
   type RolePolicy,
   unavailableReason,
-  UNAVAILABLE_ROLES,
   type CatalogModel,
   type RoleGroup,
 } from "./DelegationSettings.logic";
@@ -366,10 +365,9 @@ function FallbackAlert({
   manifest: Manifest;
   providers: ReadonlyArray<ServerProvider>;
 }) {
-  const roles = group.roles.filter((role) => !UNAVAILABLE_ROLES.has(role));
   const entries = manifest.lists[group.list] ?? [];
   const first = entries[0];
-  if (roles.length === 0 || first === undefined) return null;
+  if (first === undefined) return null;
   const uiOnly = isUiOnly(manifest, group.roles);
   const reason = unavailableReason(manifest.models[first.model], providers, { uiOnly });
   if (reason === null) return null;
@@ -380,7 +378,7 @@ function FallbackAlert({
   return (
     <Alert variant="warning">
       <AlertDescription>
-        {label(first.model)} is {reason}. {roles.join(" and ")}{" "}
+        {label(first.model)} is {reason}. {group.roles.join(" and ")}{" "}
         {next
           ? `will use ${label(next.model)} instead.`
           : "will be refused until a model is available."}
@@ -498,11 +496,6 @@ function JobRow({
               {group.roles.map((role) => (
                 <span key={role} className="flex items-center gap-1">
                   <RoleBriefChip role={role} brief={briefs[role]?.text} rolesDir={rolesDir} />
-                  {UNAVAILABLE_ROLES.has(role) ? (
-                    <Badge variant="outline" size="sm">
-                      not available yet
-                    </Badge>
-                  ) : null}
                 </span>
               ))}
             </div>
