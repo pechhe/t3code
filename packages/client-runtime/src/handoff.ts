@@ -58,7 +58,12 @@ function routePoolSelection(
   if (pool === undefined || members === undefined) return selection;
   const member =
     pickPoolMember({
-      pool: { driver: pool.driver, members, preferredMember: pool.poolPreferredMember },
+      pool: {
+        driver: pool.driver,
+        members,
+        preferredMember: pool.poolPreferredMember,
+        policy: pool.poolPolicy,
+      },
       providers,
       nowMs,
       current,

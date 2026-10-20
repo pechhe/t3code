@@ -47,16 +47,19 @@ export function poolFailoverCommand(
   thread: ProjectionStore.ProjectionLimitRecoveryCandidate,
   providers: ReadonlyArray<ServerProvider>,
   nowMs: number,
+  switchOnLimit: boolean,
 ): OrchestrationV2Command | null {
   if (!isLimitBlocked(thread) || Date.parse(thread.usageLimitResetAt) <= nowMs) return null;
   const limited = thread.modelSelection.instanceId;
   for (const pool of providers) {
     if (pool.poolMembers?.includes(limited) !== true) continue;
+    if (!(pool.poolPolicy?.switchOnLimit ?? switchOnLimit)) continue;
     const member = pickPoolFailoverMember({
       pool: {
         driver: pool.driver,
         members: pool.poolMembers,
         preferredMember: pool.poolPreferredMember,
+        policy: pool.poolPolicy,
       },
       providers,
       nowMs,
@@ -137,6 +140,17 @@ export function limitRecoveryCommand(
 }
 
 /**
+ * Whether the sweep needs pool snapshots: a pool's own setting overrides the
+ * global one, so a pool that opts in is swept even while the global switch is off.
+ */
+export function wantsPoolSwitch(
+  globalSwitch: boolean,
+  providers: ReadonlyArray<ServerProvider>,
+): boolean {
+  return globalSwitch || providers.some((provider) => provider.poolPolicy?.switchOnLimit === true);
+}
+
+/**
  * The command that moves a limited thread on, skipping any the server has
  * already rejected: a rejection is recorded for good, so retrying it only
  * repeats the failure and, for a pool switch, hides the plain recovery below.
@@ -144,6 +158,8 @@ export function limitRecoveryCommand(
 export function nextRecoveryCommand(input: {
   readonly thread: ProjectionStore.ProjectionLimitRecoveryCandidate;
   readonly providers: ReadonlyArray<ServerProvider> | null;
+  /** The global setting, which a pool's own `switchOnLimit` overrides. */
+  readonly switchOnLimit: boolean;
   readonly nowMs: number;
   readonly autoResume: boolean;
   readonly snooze: boolean;
@@ -152,7 +168,7 @@ export function nextRecoveryCommand(input: {
   const poolSwitch =
     input.providers === null
       ? null
-      : poolFailoverCommand(input.thread, input.providers, input.nowMs);
+      : poolFailoverCommand(input.thread, input.providers, input.nowMs, input.switchOnLimit);
   const command =
     poolSwitch !== null && !input.rejected.has(poolSwitch.commandId)
       ? poolSwitch
@@ -173,7 +189,12 @@ const makeSweep = Effect.gen(function* () {
   return Effect.fn("UsageLimitRecoveryWorker.sweep")(function* () {
     const preferences = yield* settings.getSettings;
     const now = yield* DateTime.now;
-    const poolSwitch = preferences.switchPooledAccountOnLimit && Option.isSome(providerRegistry);
+    const registered = Option.isSome(providerRegistry)
+      ? yield* providerRegistry.value.getProviders
+      : [];
+    const poolSwitch =
+      Option.isSome(providerRegistry) &&
+      wantsPoolSwitch(preferences.switchPooledAccountOnLimit, registered);
     const candidates = yield* projections.getLimitRecoveryCandidates({
       now,
       autoResume: preferences.autoResumeLimitedThreads,
@@ -181,15 +202,13 @@ const makeSweep = Effect.gen(function* () {
       poolSwitch,
     });
     if (candidates.length === 0) return;
-    const providers =
-      poolSwitch && Option.isSome(providerRegistry)
-        ? yield* providerRegistry.value.getProviders
-        : null;
+    const providers = poolSwitch ? registered : null;
     const nowMs = DateTime.toEpochMillis(now);
     for (const thread of candidates) {
       const command = nextRecoveryCommand({
         thread,
         providers,
+        switchOnLimit: preferences.switchPooledAccountOnLimit,
         nowMs,
         autoResume: preferences.autoResumeLimitedThreads,
         snooze: preferences.snoozeLimitedThreads,

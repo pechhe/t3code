@@ -66,10 +66,24 @@ A thread keeps its account while that account has usage left. When it runs out,
 T3 Code continues the thread on the next account in that order, with the same
 model. If every account is at a limit, the thread waits for the
 reset as usual. This applies to any thread running on one of the pool's accounts,
-including one you picked that account for directly. Turn it off with **Settings →
-General → Switch pooled account on limit**; pick the pool again in the model
-picker to move a thread yourself. The pool's settings page lists its accounts;
-usage, sign-in and models stay on each account's own page.
+including one you picked that account for directly. Pick the pool again in the
+model picker to move a thread yourself.
+
+Open the pool in **Settings → Providers** to change how it works:
+
+- **How the pool picks:** the default spends the allowance that would lapse
+  soonest. **My order** uses the first account in your list that has usage left.
+- **Accounts:** drag to set your order, and switch an account off to keep it out
+  of the pool without removing it.
+- **Keep in reserve:** count an account as out once it is this much used, so new
+  threads and switches leave the rest alone. A running thread stays until the
+  account's real limit.
+- **When an account hits its limit:** switch at once, wait for the reset, or
+  follow **Settings → General → Switch pooled account on limit**.
+
+On the composer, the lamp beside the model slider shows the account the next
+message uses. Click it to prefer an account for new threads: it goes first while
+it has usage left, whichever way the pool picks.
 
 ## Compact long conversations
 

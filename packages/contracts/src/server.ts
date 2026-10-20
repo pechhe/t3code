@@ -25,7 +25,7 @@ import {
 import { EditorId, FileManagerRevealKind, RemoteOpenTarget } from "./editor.ts";
 import { ModelCapabilities, ProviderOptionDescriptor } from "./model.ts";
 import { RuntimeMode } from "./providerPolicy.ts";
-import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
+import { ProviderDriverKind, ProviderInstanceId, ProviderPoolPolicy } from "./providerInstance.ts";
 import { ServerProviderUsageLimits, UsageLimitSourceSnapshots } from "./providerUsageLimits.ts";
 import { ServerSettings } from "./settings.ts";
 
@@ -278,6 +278,7 @@ export const ServerProvider = Schema.Struct({
   // Set on an account pool: the instances a turn on it can be routed to.
   poolMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   poolPreferredMember: Schema.optionalKey(ProviderInstanceId),
+  poolPolicy: Schema.optionalKey(ProviderPoolPolicy),
   versionAdvisory: Schema.optionalKey(ServerProviderVersionAdvisory),
   compatibilityAdvisory: Schema.optionalKey(ServerProviderCompatibilityAdvisory),
   updateState: Schema.optionalKey(ServerProviderUpdateState),

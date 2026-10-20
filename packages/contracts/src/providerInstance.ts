@@ -46,6 +46,31 @@ export type ProviderInstanceEnvironmentVariable = typeof ProviderInstanceEnviron
 export const ProviderInstanceEnvironment = Schema.Array(ProviderInstanceEnvironmentVariable);
 export type ProviderInstanceEnvironment = typeof ProviderInstanceEnvironment.Type;
 
+export const ProviderPoolStrategy = Schema.Literals(["spend", "order"]);
+export type ProviderPoolStrategy = typeof ProviderPoolStrategy.Type;
+
+/** How an account pool picks and moves between its members; every field defaults when absent. */
+export const ProviderPoolPolicy = Schema.Struct({
+  /**
+   * `spend` (the default) uses the member whose allowance would lapse unused
+   * soonest; `order` uses the first member in the pool's list with allowance.
+   */
+  strategy: Schema.optionalKey(ProviderPoolStrategy),
+  /** Members kept in the pool's list but never routed to. */
+  disabledMembers: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
+  /**
+   * New threads and failover treat a member as out once a window is this
+   * percent used, keeping the rest in reserve. A running thread stays until
+   * the member's real limit.
+   */
+  reservePercent: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 99 })),
+  ),
+  /** Overrides the global "Switch pooled account on limit" for this pool. */
+  switchOnLimit: Schema.optionalKey(Schema.Boolean),
+});
+export type ProviderPoolPolicy = typeof ProviderPoolPolicy.Type;
+
 /**
  * The driver-specific config payload is left as `Schema.Unknown`; each driver
  * registers its own decoder with the runtime registry, and envelopes for
@@ -70,6 +95,7 @@ export const ProviderInstanceConfig = Schema.Struct({
    * the pool spends whichever allowance would lapse unused soonest.
    */
   preferredMember: Schema.optionalKey(ProviderInstanceId),
+  poolPolicy: Schema.optionalKey(ProviderPoolPolicy),
 });
 export type ProviderInstanceConfig = typeof ProviderInstanceConfig.Type;
 

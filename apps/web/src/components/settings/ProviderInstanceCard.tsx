@@ -62,6 +62,7 @@ import { RedactedSensitiveText } from "./RedactedSensitiveText";
 import { SettingResetButton, SettingsRow, SettingsSection } from "./settingsLayout";
 import { AcpSessionManagementSection } from "./AcpSessionManagementSection";
 import { FoldedSettingsSection } from "./FoldedSettingsSection";
+import { PoolAccountsSection } from "./PoolAccountsSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import {
   getProviderVersionAdvisoryPresentation,
@@ -1184,19 +1185,12 @@ export function ProviderInstanceCard({
       </SettingsSection>
 
       {instance.pool !== undefined ? (
-        <SettingsSection title="Accounts">
-          <SettingsRow
-            title="Pooled accounts"
-            description="New threads and delegated tasks use the account whose usage resets soonest, skipping any that have run out. A thread keeps its account while that account has usage left."
-            status={
-              <ul className="grid gap-0.5 pt-1 text-xs text-foreground">
-                {(poolMemberLabels ?? instance.pool.map(String)).map((label, index) => (
-                  <li key={`${index}:${label}`}>{label}</li>
-                ))}
-              </ul>
-            }
-          />
-        </SettingsSection>
+        <PoolAccountsSection
+          instance={{ ...instance, pool: instance.pool }}
+          memberLabels={poolMemberLabels ?? instance.pool.map(String)}
+          readOnly={readOnly}
+          onUpdate={onUpdate}
+        />
       ) : (
         <>
           {setup || environmentFields.length > 0 ? (

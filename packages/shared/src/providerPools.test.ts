@@ -303,6 +303,69 @@ describe("preferred member", () => {
   });
 });
 
+describe("pool policy", () => {
+  const id = ProviderInstanceId.make;
+  const providers = [
+    account("a", [{ usedPercent: 10, resetsAt: at(1) }]),
+    account("b", [{ usedPercent: 10, resetsAt: at(4) }]),
+    account("c", [{ usedPercent: 10, resetsAt: at(3) }]),
+  ];
+  const withPolicy = (policy: NonNullable<ProviderPool["policy"]>): ProviderPool => ({
+    ...pool,
+    members: [id("c"), id("b"), id("a")],
+    policy,
+  });
+
+  it("order strategy takes the first member in the pool's list with allowance", () => {
+    const ordered = withPolicy({ strategy: "order" });
+    expect(pickPoolMember({ pool: ordered, providers, nowMs: NOW })).toBe("c");
+    const cOut = [
+      providers[0]!,
+      providers[1]!,
+      account("c", [{ usedPercent: 100, resetsAt: at(2) }]),
+    ];
+    expect(pickPoolMember({ pool: ordered, providers: cOut, nowMs: NOW })).toBe("b");
+    expect(
+      pickPoolFailoverMember({ pool: ordered, providers: cOut, nowMs: NOW, limited: id("b") }),
+    ).toBe("a");
+  });
+
+  it("a preferred member still takes precedence over the order", () => {
+    const pinned = { ...withPolicy({ strategy: "order" }), preferredMember: id("a") };
+    expect(pickPoolMember({ pool: pinned, providers, nowMs: NOW })).toBe("a");
+  });
+
+  it("never routes to a disabled member, even as the only one left", () => {
+    const disabled = withPolicy({ disabledMembers: [id("a"), id("c")] });
+    expect(pickPoolMember({ pool: disabled, providers, nowMs: NOW })).toBe("b");
+    expect(
+      pickPoolFailoverMember({ pool: disabled, providers, nowMs: NOW, limited: id("b") }),
+    ).toBeUndefined();
+  });
+
+  it("a reserve counts a member as out before its real limit, but keeps a running thread", () => {
+    const reserve = withPolicy({ strategy: "order", reservePercent: 90 });
+    const nearLimit = [
+      providers[0]!,
+      providers[1]!,
+      account("c", [{ usedPercent: 92, resetsAt: at(2) }]),
+    ];
+    expect(pickPoolMember({ pool: reserve, providers: nearLimit, nowMs: NOW })).toBe("b");
+    expect(
+      pickPoolMember({ pool: reserve, providers: nearLimit, nowMs: NOW, current: id("c") }),
+    ).toBe("c");
+    expect(
+      pickPoolFailoverMember({ pool: reserve, providers: nearLimit, nowMs: NOW, limited: id("b") }),
+    ).toBe("a");
+  });
+
+  it("passes the policy on to the pool's snapshot", () => {
+    const policy = { strategy: "order", reservePercent: 90 } as const;
+    const snapshot = withPoolSnapshots(providers, [withPolicy(policy)], NOW).at(-1);
+    expect(snapshot?.poolPolicy).toEqual(policy);
+  });
+});
+
 describe("withPoolSnapshots", () => {
   it("presents a pool as the member a turn would use, without account details", () => {
     const providers = [

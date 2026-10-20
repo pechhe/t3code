@@ -222,6 +222,7 @@ const makeReconcile = <R>(input: {
             enabled: resolveEntryEnabled(entry, undefined),
             members: entry.pool,
             preferredMember: entry.preferredMember,
+            policy: entry.poolPolicy,
           });
           continue;
         }

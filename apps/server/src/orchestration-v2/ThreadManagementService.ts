@@ -737,7 +737,12 @@ const make = Effect.gen(function* () {
           DateTime.now.pipe(
             Effect.map((now) =>
               pickPoolMember({
-                pool: { driver: pool.driver, members, preferredMember: pool.poolPreferredMember },
+                pool: {
+                  driver: pool.driver,
+                  members,
+                  preferredMember: pool.poolPreferredMember,
+                  policy: pool.poolPolicy,
+                },
                 providers: candidates,
                 nowMs: DateTime.toEpochMillis(now),
                 current,

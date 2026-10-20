@@ -29,6 +29,8 @@ export interface ComposerPoolAccountState {
   readonly preferred: PoolAccount | null;
   /** The preference a click moves to: Auto, then each account in turn, then Auto. */
   readonly following: PoolAccount | null;
+  /** The pool picks by the user's own account order rather than by spending allowance. */
+  readonly ordered: boolean;
   readonly cycle: () => void;
 }
 
@@ -61,12 +63,19 @@ export function useComposerPoolAccount(input: {
   const pool = input.providers.find((provider) => provider.instanceId === input.selectedInstanceId);
   const memberIds = pool?.poolMembers;
   if (pool === undefined || memberIds === undefined || poolConfig?.pool === undefined) return null;
+  const disabledMembers = pool.poolPolicy?.disabledMembers ?? [];
   const members = memberIds.flatMap((id) => {
+    if (disabledMembers.includes(id)) return [];
     const provider = input.providers.find((candidate) => candidate.instanceId === id);
     return provider === undefined ? [] : [provider];
   });
   const nextId = pickPoolMember({
-    pool: { driver: pool.driver, members: memberIds, preferredMember: pool.poolPreferredMember },
+    pool: {
+      driver: pool.driver,
+      members: memberIds,
+      preferredMember: pool.poolPreferredMember,
+      policy: pool.poolPolicy,
+    },
     providers: input.providers,
     nowMs: Date.parse(`${nowMinute}Z`),
     current: input.current,
@@ -85,6 +94,7 @@ export function useComposerPoolAccount(input: {
     next: toAccount(next),
     preferred: preferred === null ? null : toAccount(preferred),
     following,
+    ordered: pool.poolPolicy?.strategy === "order",
     cycle: () => {
       const { preferredMember: _previous, ...rest } = config;
       void persistProviderInstance({
@@ -100,7 +110,11 @@ function poolAccountTooltip(state: ComposerPoolAccountState, isNew: boolean): st
   const target = isNew ? "This thread" : "The next message";
   const now =
     state.preferred === null
-      ? `${target} uses ${state.next.name}, picked to spend allowance before it resets.`
+      ? `${target} uses ${state.next.name}, ${
+          state.ordered
+            ? "the first account in your order with usage left."
+            : "picked to spend allowance before it resets."
+        }`
       : state.preferred.instanceId === state.next.instanceId
         ? `${target} uses ${state.next.name}, the preferred account.`
         : `${target} stays on ${state.next.name}; new threads use ${state.preferred.name}.`;
