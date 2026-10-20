@@ -14,8 +14,6 @@ export interface EnvironmentScheduledTasks {
   /** Null until the machine's list arrives. */
   readonly tasks: ReadonlyArray<ScheduledTask> | null;
   readonly error: string | null;
-  /** The machine's IANA zone, which fixed-time schedules run in. */
-  readonly timeZone: string | undefined;
 }
 
 /** Every connected machine's live task list; the Scheduled page and sidebar share it. */
@@ -26,7 +24,6 @@ export const allScheduledTasksAtom = Atom.make((get): ReadonlyArray<EnvironmentS
     return {
       environmentId,
       tasks: value?.tasks ?? null,
-      timeZone: value?.timeZone,
       error: result._tag === "Failure" ? formatEnvironmentQueryError(result.cause) : null,
     };
   }),

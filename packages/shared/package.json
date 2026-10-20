@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./changedFileKind": {
+      "types": "./src/changedFileKind.ts",
+      "import": "./src/changedFileKind.ts"
+    },
     "./buildLinks": {
       "types": "./src/buildLinks.ts",
       "import": "./src/buildLinks.ts"

@@ -19,10 +19,6 @@ vi.mock(import("../localApi"), async (original) => ({
 vi.mock(import("../hooks/useCopyToClipboard"), async (original) => ({
   ...(await original()),
   writeTextToClipboard: state.writeTextToClipboard,
-  useCopyToClipboard: ((options: { target: string }) => ({
-    copyToClipboard: (command: string) => state.writeTextToClipboard(command, options.target),
-    isCopied: false,
-  })) as never,
 }));
 vi.mock(import("./BranchToolbarBranchSelector"), async (original) => ({
   ...(await original()),

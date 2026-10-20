@@ -160,8 +160,7 @@ export const stopAllPoolInstances = Effect.fn("desktop.app.stopAllPoolInstances"
       instances,
       (instance) =>
         instance.snapshot.pipe(
-          // Exceeds the backend's 30s graceful termination and output drain budget.
-          Effect.tap(() => instance.stop({ timeout: Duration.seconds(45) })),
+          Effect.tap(() => instance.stop({ timeout: Duration.seconds(5) })),
           Effect.map((snapshot) => Option.toArray(snapshot.activePid)),
         ),
       { concurrency: "unbounded" },
@@ -250,7 +249,9 @@ const bootstrap = Effect.gen(function* () {
   }
 
   if (!(yield* Ref.get(state.quitting))) {
-    yield* desktopWindow.showConnectingSplash;
+    if (settings.wslOnly === true && settings.wslBackendEnabled === true) {
+      yield* desktopWindow.showConnectingSplash;
+    }
     yield* primaryBackend.start;
     yield* logBootstrapInfo("bootstrap backend start requested");
     yield* appActivation.start.pipe(

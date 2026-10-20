@@ -3,7 +3,12 @@ import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { ThreadMarkdownVideo, ThreadMediaVisibleContext } from "./ThreadMarkdownVideo";
 import { useMarkdownImageSource } from "../../native/useMarkdownImageSource";
-import { enrichedContextLinkPresentation } from "../../lib/enrichedLinkPresentation";
+import {
+  enrichedContextLinkPresentation,
+  enrichedSkillDisplayName,
+  enrichedSkillInstructionsPath,
+  enrichedSkillReference,
+} from "../../lib/enrichedLinkPresentation";
 import { ThreadContextDivider } from "./thread-context-divider";
 import { ThreadHandoffDivider, ThreadHandoffRow } from "./thread-handoff-row";
 import { ReleaseApprovalCard } from "./ReleaseApprovalCard";
@@ -1844,8 +1849,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const screenColor = theme["--color-screen"];
   const userBubbleColor = theme["--color-user-bubble"];
   const buildOrigin = useThreadBuildOrigin(props.environmentId, props.threadId);
-  // A link without an environment qualifier may name a thread in any connected environment;
-  // a qualified one names exactly that environment.
+  const openSkillInstructions = (path: string) => {
+    void Haptics.selectionAsync();
+    navigation.navigate("ThreadFile", {
+      environmentId: String(props.environmentId),
+      threadId: String(props.threadId),
+      path: fileRoutePathSegments(path),
+    });
+  };
+  // Qualified links must not resolve in a different environment.
   const resolveLinkedThread = (href: string) => {
     const threadLink = parseThreadLink(href);
     if (!threadLink) return null;
@@ -1868,6 +1880,12 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
         number: buildNumber,
         url: href,
       });
+      return;
+    }
+    const skill = enrichedSkillReference(href, props.skills);
+    if (skill) {
+      const instructionsPath = enrichedSkillInstructionsPath(skill);
+      if (instructionsPath) openSkillInstructions(instructionsPath);
       return;
     }
     const target = resolveLinkedThread(href);
@@ -1943,6 +1961,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     onImagePress: (href) => onMarkdownLinkPress(href, true),
     resolveImageSource,
     fileContextMenu: (href) => {
+      const skill = enrichedSkillReference(href, props.skills);
+      if (skill) {
+        return {
+          title: enrichedSkillDisplayName(skill),
+          actions: [
+            {
+              id: "open-skill",
+              title: "View instructions",
+              disabled: !enrichedSkillInstructionsPath(skill),
+            },
+            { id: "copy-skill", title: "Copy skill" },
+          ],
+        };
+      }
       const thread = resolveLinkedThread(href);
       if (thread) {
         return {
@@ -1958,6 +1990,13 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       return target ? fileChipMenu(target) : undefined;
     },
     onFileContextMenuAction: (href, actionId) => {
+      const skill = enrichedSkillReference(href, props.skills);
+      if (skill) {
+        const instructionsPath = enrichedSkillInstructionsPath(skill);
+        if (actionId === "open-skill" && instructionsPath) openSkillInstructions(instructionsPath);
+        else if (actionId === "copy-skill") copyTextWithHaptic(`$${skill.name}`);
+        return;
+      }
       if (resolveLinkedThread(href)) {
         if (actionId === "open-thread") onMarkdownLinkPress(href);
         else if (actionId === "copy-thread-link") copyTextWithHaptic(href);

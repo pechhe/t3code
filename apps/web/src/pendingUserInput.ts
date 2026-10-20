@@ -1,5 +1,4 @@
-import type { EnvironmentId, ThreadContextRecord } from "@t3tools/contracts";
-import type { ThreadUserInputQuestion as UserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
+import type { EnvironmentId, ThreadContextRecord, UserInputQuestion } from "@t3tools/contracts";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
 

@@ -419,8 +419,8 @@ the exact pair `t3_thread_read` accepts.
 List and read results report `snoozed` and `snoozedUntil`, and
 `t3_thread_list` filters on `snoozed`. The server's `isSnoozed` follows the
 client's `effectiveSnoozed`, so agents and the sidebar agree: a snoozed thread
-wakes early when it has a pending request, fails after snoozing, or completes a
-run requested after snoozing.
+wakes early only when it has a pending request or fails after snoozing. Completed
+runs, background wakes, and delegated completions keep it snoozed.
 
 ### `t3_thread_update`
 

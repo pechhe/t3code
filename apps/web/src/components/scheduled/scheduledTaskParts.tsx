@@ -42,11 +42,7 @@ import { stackedThreadToast, toastManager } from "../ui/toast";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-export function scheduleTimeZoneLabel(timeZone: string | undefined): string | undefined {
-  return timeZone === "Etc/UTC" ? "UTC" : timeZone;
-}
-
-export function scheduleLabel(schedule: ScheduledTaskSchedule, timeZone?: string): string {
+export function scheduleLabel(schedule: ScheduledTaskSchedule): string {
   if (schedule.type === "webhook") return "On webhook";
   if (schedule.type === "interval") {
     const minutes = schedule.everyMs / 60_000;
@@ -61,8 +57,7 @@ export function scheduleLabel(schedule: ScheduledTaskSchedule, timeZone?: string
       : weekdays.length === 5 && weekdays.every((day) => day >= 1 && day <= 5)
         ? "Weekdays"
         : weekdays.map((day) => WEEKDAY_LABELS[day]).join(", ");
-  const zone = scheduleTimeZoneLabel(timeZone);
-  return `${days} at ${schedule.timeOfDay}${zone === undefined ? "" : ` ${zone}`}`;
+  return `${days} at ${schedule.timeOfDay}`;
 }
 
 /**

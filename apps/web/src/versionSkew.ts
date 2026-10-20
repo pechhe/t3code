@@ -114,7 +114,6 @@ export function manualServerUpdateCommand(
   return `${runner} t3@${targetVersion}`;
 }
 
-// Upstream moved this guidance into its composer environment strip (#21950); the fork keeps the banner.
 export function serverUpdateGuidance(capability: ServerSelfUpdateCapability): string {
   return capability === "desktop-managed" ? "Update the desktop app" : "Update to stay in sync";
 }

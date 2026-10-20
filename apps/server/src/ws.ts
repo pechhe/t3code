@@ -220,6 +220,7 @@ import { linkCreatedPullRequest } from "./git/linkCreatedPullRequest.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
 import * as ProjectService from "./project/ProjectService.ts";
+import { threadWorkspaceRoot } from "./project/threadWorkspaceRoot.ts";
 import * as ManagedProjectFolders from "./project/ManagedProjectFolders.ts";
 import { projectMutationOperation } from "./project/ProjectMutation.ts";
 import * as ProjectSetupScriptRunner from "./project/ProjectSetupScriptRunner.ts";
@@ -234,6 +235,7 @@ import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
 import * as DirectEndpoints from "./environment/DirectEndpoints.ts";
 import * as RemoteOpenTargets from "./environment/RemoteOpenTargets.ts";
 import * as DefectReporter from "./observability/DefectReporter.ts";
+import * as EventLoopMonitor from "./observability/EventLoopMonitor.ts";
 import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
@@ -1308,6 +1310,7 @@ export const layerWsRpc = (
       const projectStore = yield* ProjectStore.ProjectStoreV2;
       const projectService = yield* ProjectService.ProjectService;
       const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+      const eventLoopMonitor = yield* EventLoopMonitor.EventLoopMonitor;
       const threadSearch = yield* ThreadSearch.ThreadSearch;
 
       const providerSessionsV2 = yield* ProviderSessionManager.ProviderSessionManagerV2;
@@ -1423,7 +1426,6 @@ export const layerWsRpc = (
         currentSession.scopes.includes(AuthOrchestrationOperateScope)
           ? result
           : {
-              ...result,
               tasks: result.tasks.map(({ webhook: _webhook, ...task }) => task),
             };
       const authorizeEffect = <A, E, R>(
@@ -1780,6 +1782,7 @@ export const layerWsRpc = (
         const environment = yield* serverEnvironment.getDescriptor;
         const auth = yield* serverAuth.getDescriptor();
         const scratchWorkspaceRoot = yield* managedFolders.scratchRoot;
+        const lastEventLoopStall = yield* eventLoopMonitor.latestNoticeableStall;
         const editorConfig = yield* resolveEditorConfig(
           yield* resolveAvailableEditorsForConfig(externalLauncher.resolveAvailableEditors()),
           resolveFileManagerRevealKindForConfig(externalLauncher.resolveFileManagerRevealKind()),
@@ -1821,6 +1824,7 @@ export const layerWsRpc = (
             onSome: (root) => ({ scratchWorkspaceRoot: root }),
           }),
           newProjectsRoot: managedFolders.namedProjectsRoot,
+          ...(lastEventLoopStall === undefined ? {} : { lastEventLoopStall }),
         };
       });
 
@@ -2792,10 +2796,9 @@ export const layerWsRpc = (
                 ...(project.value.faviconPath
                   ? { projectFaviconPath: project.value.faviconPath }
                   : {}),
-                projectCheckoutPending:
-                  clone !== null &&
-                  clone.phase !== "done" &&
-                  clone.destinationPath === project.value.workspaceRoot,
+                ...(clone !== null && clone.destinationPath === project.value.workspaceRoot
+                  ? { projectCheckout: clone.phase === "done" ? "cloned" : "pending" }
+                  : {}),
               });
             }
             const thread = yield* threadManagement
@@ -2982,6 +2985,7 @@ export const layerWsRpc = (
         [WS_METHODS.subscribePreviewEvents]: (_input) => previewManager.events,
         [WS_METHODS.deviceConfigure]: (input) => deviceService.configure(input),
         [WS_METHODS.deviceTestHost]: (input) => deviceService.testHost(input),
+        [WS_METHODS.deviceEasAccount]: (input) => deviceService.easAccount(input),
         [WS_METHODS.deviceList]: (input) =>
           input.inspectOnly && !input.updateTool
             ? deviceService.inspect
@@ -2993,7 +2997,10 @@ export const layerWsRpc = (
                     ? deviceService.retryHost(input.retryHostId)
                     : deviceService.list,
               ),
-        [WS_METHODS.deviceOpen]: (input) => deviceService.open(input),
+        [WS_METHODS.deviceOpen]: (input) =>
+          threadWorkspaceRoot(input.threadId).pipe(
+            Effect.flatMap((workspaceRoot) => deviceService.open(input, { workspaceRoot })),
+          ),
         [WS_METHODS.deviceClose]: (input) => deviceService.close(input),
         [WS_METHODS.deviceShutdown]: (input) => deviceService.shutdown(input),
         [WS_METHODS.deviceDetail]: (input) => deviceService.detail(input),
@@ -3262,6 +3269,8 @@ const layerWsPullRequestRpc = ServerWsPullRequestRpcGroup.toLayer(
         withPullRequestViewer(input, pullRequests.diffFileContents(input)),
       [WS_METHODS.pullRequestsFilesViewed]: (input) =>
         withPullRequestViewer(input, pullRequests.filesViewed(input)),
+      [WS_METHODS.pullRequestsChangeBreakdown]: (input) =>
+        withPullRequestViewer(input, pullRequests.changeBreakdown(input)),
       [WS_METHODS.pullRequestsSetFilesViewed]: (input) =>
         withPullRequestViewer(input, pullRequests.setFilesViewed(input)),
       [WS_METHODS.pullRequestsRunAction]: (input) =>
