@@ -33,6 +33,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 | apps/web SlipJay*/buildItem/ThreadWorkflowChip/AgentRoleChip/scheduled/usage/snapShot components                                                       | classified          | slipjay-landing, build-items-hq, thread-workflow-chip, scheduled-tasks-extensions, account-pools, snapshot-overlay                           |
 | apps/web themes/sounds/lib (project themes, interface sounds, motion)                                                                                  | classified          | project-themes, web-client-customisation                                                                                                     |
 | apps/desktop (snapShot, preview, window, ipc, build config)                                                                                            | classified          | snapshot-overlay, screen-recording-video, desktop-fork-build; other ipc/electron edits: unknown                                              |
+| assets/nightly, apps/mobile nightly Android icons and colours, scripts/export-android-icons.ts                                                         | classified          | nightly-app-icon                                                                                                                             |
 | apps/mobile                                                                                                                                            | classified (partly) | mobile-fork-screens; Fast switch (#129) and pool account (#145) are open tracker items, not in this diff                                     |
 | packages/contracts, packages/shared, packages/client-runtime                                                                                           | classified (partly) | Support types for the entries above; individual files not mapped                                                                             |
 | packages/provider-core, provider-acp/opencode/pi/muse/cursor                                                                                           | unknown             | Small adapter edits (MCP session, orchestration instructions, subagent projection); not classified                                           |
@@ -445,6 +446,18 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Retire when:** the fork stops shipping its own desktop build.
 - **Decision:** `adopt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's partial-clone remote parsing (#16316) replaces the fork's identity regex; build identity, display media and overlay wiring retained. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#77, #144 (open).
+
+### nightly-app-icon
+
+- **Kind:** deliberate behaviour change
+- **Why:** The fork's installed app, a nightly build, carries its own mark, drawn from the machined composer: a knurled dial with T3 engraved and a peach index.
+- **Requirements:** the desktop, web, iOS, Linux and Windows nightly icons show the dial; a simplified dial for 16–32px keeps T3 legible; Android nightly shows the white wordmark on anodised black (#1F2125), with peach as its notification colour.
+- **Integration points:** `assets/nightly` (`dial.svg`, `dial-small.svg`, the `app-icon.icon` raster layer and its outputs), `scripts/export-android-icons.ts` nightly background, `apps/mobile/app.config.ts` preview colours.
+- **Proof:** none automated; outputs inspected by eye. Rendered without Icon Composer, so `vp run icons:check` reports the nightly outputs stale until they are exported with it.
+- **Upstream:** none; upstream's nightly icon (night sky) is replaced. An upstream change to nightly assets or the Android exporter conflicts here.
+- **Retire when:** Henry drops the fork's own mark.
+- **Decision:** `retain` (2026-10-20): new.
+- **Owner:** none.
 
 ### fork-updater
 
