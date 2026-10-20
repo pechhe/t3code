@@ -62,7 +62,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Measures rollover, model and instruction policy on normal work instead of guessing.
-- **Requirements:** experiment enrolment before execution; recorded per-run setup and episode evidence; cut points when a thread's setup changes (correct across late capture and restart); instruction lever overlay; retrospective evidence accepted or refused with an actionable reason; inspectable and manageable from web and mobile settings; rollover reviews capture instructions and full handoff (#132).
+- **Requirements:** experiment enrolment before execution; recorded per-run setup and episode evidence; cut points when a thread's setup changes (correct across late capture and restart); instruction lever overlay; retrospective evidence accepted or refused with an actionable reason; inspectable and manageable from web and mobile settings; bundles captured for earlier fresh-session rollovers (#132) stay readable; nothing captures new ones.
 - **Integration points:** `ExperimentService`, `InstructionOverlay`; `experiments` MCP toolkit; migrations 063/066/068; `experiments` contracts/RPC; Settings → Experiments; `migrate-dev-db` copy rules (filtered rows' children).
 - **Proof:** apps/server/src/experiments/ExperimentService.test.ts, ExperimentWork.test.ts, InstructionOverlay.test.ts; apps/server/src/mcp/ExperimentWorkMcp.test.ts; the landing gate runs them when a change reaches them.
 - **Upstream:** none known.

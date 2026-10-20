@@ -50,16 +50,6 @@ export interface ContextHandoffServiceV2Shape {
     readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
-  /** A ready handoff carrying text written outside the transcript, such as a rollover note. */
-  readonly prepare: (input: {
-    readonly threadId: ThreadId;
-    readonly targetRunId: RunId;
-    readonly fromProviderThreadIds: ReadonlyArray<ProviderThreadId>;
-    readonly toProviderThreadId: ProviderThreadId;
-    readonly toProviderInstanceId: ProviderInstanceId;
-    readonly summaryText: string;
-    readonly createdAt: DateTime.Utc;
-  }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
   readonly prepareForkDelta: (input: {
     readonly sourceThreadId: ThreadId;
     readonly targetThreadId: ThreadId;
@@ -298,51 +288,6 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
       },
     );
 
-    const prepare = Effect.fn("orchestrationV2.contextHandoff.prepare")(function* (input: {
-      readonly threadId: ThreadId;
-      readonly targetRunId: RunId;
-      readonly fromProviderThreadIds: ReadonlyArray<ProviderThreadId>;
-      readonly toProviderThreadId: ProviderThreadId;
-      readonly toProviderInstanceId: ProviderInstanceId;
-      readonly summaryText: string;
-      readonly createdAt: DateTime.Utc;
-    }) {
-      const handoffId = yield* idAllocator.allocate
-        .contextHandoff({
-          threadId: input.threadId,
-          fromProviderInstanceId: input.toProviderInstanceId,
-          toProviderInstanceId: input.toProviderInstanceId,
-        })
-        .pipe(
-          Effect.mapError(
-            (cause) =>
-              new ContextHandoffPrepareError({
-                threadId: input.threadId,
-                targetRunId: input.targetRunId,
-                fromProviderThreadIds: Array.from(input.fromProviderThreadIds),
-                toProviderThreadId: input.toProviderThreadId,
-                cause,
-              }),
-          ),
-        );
-      return {
-        id: handoffId,
-        transferId: null,
-        threadId: input.threadId,
-        targetRunId: input.targetRunId,
-        fromProviderThreadIds: Array.from(input.fromProviderThreadIds),
-        toProviderThreadId: input.toProviderThreadId,
-        coveredRunOrdinals: { from: 1, to: 1 },
-        strategy: "manual_context",
-        status: "ready",
-        summaryMessageId: null,
-        summaryText: input.summaryText,
-        createdByProviderInstanceId: input.toProviderInstanceId,
-        createdAt: input.createdAt,
-        updatedAt: input.createdAt,
-      } satisfies OrchestrationV2ContextHandoff;
-    });
-
     const prepareForkDelta = Effect.fn("orchestrationV2.contextHandoff.prepareForkDelta")(
       function* (input: {
         readonly sourceThreadId: ThreadId;
@@ -493,7 +438,6 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
 
     return ContextHandoffServiceV2.of({
       prepareLegacyImport,
-      prepare,
       prepareForkDelta,
       prepareProviderHandoff,
     });
