@@ -177,7 +177,10 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
   },
   {
     when: /^packages\/effect-codex-app-server\/(?:src|test)\//,
-    select: ["packages/effect-codex-app-server/src/client.test.ts"],
+    select: [
+      "apps/server/src/orchestration-v2/Adapters/CodexProcessGroup.test.ts",
+      "packages/effect-codex-app-server/src/client.test.ts",
+    ],
     reason: "mock peer spawned in a child process",
   },
   {

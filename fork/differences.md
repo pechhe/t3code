@@ -415,8 +415,8 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** A set of small client behaviours the owner relies on.
-- **Requirements:** (unverified full list) thread IDs copied from title/pasted/dragged into composer; copy a cited selection to paste into another thread; inline code chips copy on click, run button on command blocks; sound for settling a thread; settings search; subagent hover cards (tokens, markdown briefs); selected sidebar row as raised card.
-- **Integration points:** chat components, settings route, sidebar.
+- **Requirements:** (unverified full list) thread IDs copied from title/pasted/dragged into composer; copy a cited selection to paste into another thread; inline code chips copy on click, run button on command blocks; sound for settling a thread; settings search; subagent hover cards (tokens, markdown briefs); selected sidebar row as raised card; once projects span machines, every sidebar thread row shows its machine icon in the corner, replacing upstream's machine-name line on Scratch rows.
+- **Integration points:** chat components, settings route, sidebar (`SidebarThreadRow` machine icon, upstream's `scratchMachineLabel`).
 - **Proof:** none systematic.
 - **Upstream:** none known.
 - **Retire when:** each item individually superseded.

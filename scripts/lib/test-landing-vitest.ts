@@ -74,7 +74,9 @@ async function listInProcess(request: ListRequest) {
       : await context.globTestSpecifications();
     // A file in two projects (web's unit and browser) is one file to run.
     return [
-      ...new Set(specifications.map((specification) => repositoryPath(root, specification.moduleId))),
+      ...new Set(
+        specifications.map((specification) => repositoryPath(root, specification.moduleId)),
+      ),
     ].toSorted();
   } finally {
     await context.close();
@@ -85,32 +87,66 @@ async function listInProcess(request: ListRequest) {
  * Runs exactly the requested files. Vitest's CLI filters match by prefix and substring, so
  * `a.test.ts` would also run `a.test.tsx`; specifications match by module id.
  */
+async function selected(context: Awaited<ReturnType<typeof vitest>>, request: RunRequest) {
+  const { root, files, exclude = [] } = request;
+  const wanted = files ? new Set(files) : undefined;
+  const excluded = new Set(exclude);
+  return (await context.globTestSpecifications()).filter((specification) => {
+    const file = repositoryPath(root, specification.moduleId);
+    return (!wanted || wanted.has(file)) && !excluded.has(file);
+  });
+}
+
 async function runInProcess(request: RunRequest) {
-  const { root, files, exclude = [], workers, reportFile } = request;
+  const { root, files, exclude = [] } = request;
   // A workspace whose every test is quarantined has nothing left to run.
   const passWithNoTests = request.flags.includes("--passWithNoTests") || exclude.length > 0;
+  const lister = await vitest(request, {});
+  let projects: ReadonlyArray<string>;
+  let unused: boolean;
+  try {
+    const specifications = await selected(lister, request);
+    const found = new Set(
+      specifications.map((specification) => repositoryPath(root, specification.moduleId)),
+    );
+    const missing = (files ?? []).filter((file) => !found.has(file) && !exclude.includes(file));
+    if (missing.length > 0)
+      throw new Error(`Not test files of ${request.directory}: ${missing.join(" ")}`);
+    if (specifications.length === 0) {
+      if (passWithNoTests) return 0;
+      throw new Error(`No test files found in ${request.directory}`);
+    }
+    projects = [...new Set(specifications.map((specification) => specification.project.name))];
+    unused = lister.projects.some((project) => !projects.includes(project.name));
+  } finally {
+    await lister.close();
+  }
+  // A browser project that runs no file never closes, so the run starts only the projects it uses.
+  return runProjects(
+    unused ? { ...request, flags: withProjects(request.flags, projects) } : request,
+  );
+}
+
+function withProjects(flags: ReadonlyArray<string>, projects: ReadonlyArray<string>) {
+  const others = flags.filter(
+    (flag, index) => flag !== "--project" && flags[index - 1] !== "--project",
+  );
+  return [...others, ...projects.flatMap((project) => ["--project", project])];
+}
+
+async function runProjects(request: RunRequest) {
+  const { files, workers, reportFile } = request;
   const context = await vitest(request, {
     fileParallelism: true,
     maxWorkers: workers,
-    passWithNoTests,
+    passWithNoTests: true,
     reporters: reportFile ? ["default", "json"] : ["default"],
     ...(reportFile ? { outputFile: { json: reportFile } } : {}),
   });
   try {
     // Starts the reporters and coverage, as `vitest run` does before its first run.
     await context.standalone();
-    const wanted = files ? new Set(files) : undefined;
-    const excluded = new Set(exclude);
-    const specifications = (await context.globTestSpecifications()).filter((specification) => {
-      const file = repositoryPath(root, specification.moduleId);
-      return (!wanted || wanted.has(file)) && !excluded.has(file);
-    });
-    const found = new Set(specifications.map((specification) => repositoryPath(root, specification.moduleId)));
-    const missing = [...(wanted ?? [])].filter((file) => !found.has(file) && !excluded.has(file));
-    if (missing.length > 0) throw new Error(`Not test files of ${request.directory}: ${missing.join(" ")}`);
-    if (specifications.length === 0 && !passWithNoTests) {
-      throw new Error(`No test files found in ${request.directory}`);
-    }
+    const specifications = await selected(context, request);
     const result = await context.runTestSpecifications(specifications, !files);
     const failed =
       result.unhandledErrors.length > 0 ||
@@ -167,7 +203,9 @@ export async function mapConcurrently<T, R>(
 if (import.meta.main) {
   const [mode, request] = process.argv.slice(2);
   if (mode === "list") {
-    console.log(`FILES ${JSON.stringify(await listInProcess(JSON.parse(request!) as ListRequest))}`);
+    console.log(
+      `FILES ${JSON.stringify(await listInProcess(JSON.parse(request!) as ListRequest))}`,
+    );
   } else if (mode === "run") {
     const exit = await runInProcess(JSON.parse(request!) as RunRequest);
     // Vitest reports a teardown failure in `close()` through the exit code alone; keep it.
