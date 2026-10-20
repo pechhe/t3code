@@ -115,7 +115,6 @@ import {
   deriveLatestThreadRun,
   deriveThreadRuntime,
   presentPendingBackgroundWork,
-  type PendingBackgroundWorkItem,
   presentProviderGoal,
 } from "@t3tools/client-runtime/state/thread-execution";
 import {
@@ -277,7 +276,6 @@ import {
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
 import { RightPanelTabs } from "./RightPanelTabs";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
-import { BuildMentionChip } from "./buildItem/BuildMentionChip";
 import { LinkBuildItemDialogHost } from "./buildItem/LinkBuildItemDialog";
 import { useDeviceState } from "~/state/device";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
@@ -414,7 +412,6 @@ import {
   useThreadHistory,
   useQuietThreadShell,
   useThreadShell,
-  useThreadWatchers,
   useChildThreadInputs,
   useThreadRefs,
   useThreadVisibleTurnItems,
@@ -488,6 +485,11 @@ import { useProactivePanels } from "../hooks/useProactivePanels";
 import { useIncrementalTimelineEntries } from "../hooks/useIncrementalTimelineEntries";
 import { useRightPanelSurfaceClose } from "../hooks/useRightPanelSurfaceClose";
 import { useAgentOpenedPreviews } from "./preview/useAgentOpenedPreviews";
+import {
+  BackgroundWorkLoneTitle,
+  BackgroundWorkRows,
+  type BackgroundWorkLinkHandlers,
+} from "./chat/BackgroundWorkStrip";
 import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ThreadStatusLine } from "./chat/ThreadStatusLine";
 import { formatRelativeTimeLabel, formatRelativeTimeUntilLabel } from "../timestampFormat";
@@ -5310,6 +5312,7 @@ export default function ChatView(props: ChatViewProps) {
   // The interrupt path also accepts a completed run while its provider still
   // has background work.
   const activeBackgroundTasks = !isWorking && activeThread ? pendingBackgroundTasks : [];
+  const [backgroundWorkExpanded, setBackgroundWorkExpanded] = useState(false);
   const [stoppingBackgroundWorkKey, setStoppingBackgroundWorkKey] = useState<string | null>(null);
   const isStoppingBackgroundWork =
     stoppingBackgroundWorkKey === `${environmentId}:${activeThreadId}`;
@@ -5498,56 +5501,10 @@ export default function ChatView(props: ChatViewProps) {
     };
   })() as ComposerBannerStackItem | null;
 
-  const backgroundWorkItemLink = (item: PendingBackgroundWorkItem, onlyItem = false) => {
-    const { childThreadId, watching } = item;
-    if (childThreadId !== undefined) {
-      return (
-        <InlineButton
-          tone="muted"
-          aria-label={`${onlyItem ? "Show" : "Open"} subagent ${item.label}`}
-          onClick={() => onOpenRelatedThreadStable(childThreadId)}
-        >
-          {onlyItem ? "Show" : item.label}
-        </InlineButton>
-      );
-    }
-    if (watching?.kind === "thread") {
-      return (
-        <InlineButton
-          tone="muted"
-          aria-label={`Open watched thread ${item.label}`}
-          onClick={() => onOpenRelatedThreadStable(watching.threadId)}
-        >
-          {item.label}
-        </InlineButton>
-      );
-    }
-    if (watching?.kind === "build_item" && activeThreadRef !== null) {
-      return (
-        <span>
-          Watching{" "}
-          <BuildMentionChip
-            threadRef={activeThreadRef}
-            number={watching.number}
-            copy={`#${watching.number}`}
-            fallback={`Build #${watching.number}`}
-          />{" "}
-          until {watching.until}
-        </span>
-      );
-    }
-    if (watching?.kind === "pull_request") {
-      return (
-        <InlineButton
-          tone="muted"
-          aria-label={`Open watched pull request ${item.label}`}
-          onClick={(event) => openPrLinkStable(event, watching.url)}
-        >
-          {item.label}
-        </InlineButton>
-      );
-    }
-    return null;
+  const backgroundWorkLinkHandlers: BackgroundWorkLinkHandlers = {
+    threadRef: activeThreadRef,
+    onOpenThread: onOpenRelatedThreadStable,
+    onOpenPullRequest: openPrLinkStable,
   };
   const backgroundWorkBannerItem = (() => {
     const presentation = presentPendingBackgroundWork(activeBackgroundTasks);
@@ -5555,8 +5512,8 @@ export default function ChatView(props: ChatViewProps) {
       return null;
     }
     const [onlyItem] = presentation.items;
-    const loneWatch =
-      presentation.items.length === 1 && onlyItem?.watching !== undefined ? onlyItem : undefined;
+    const several = presentation.items.length > 1;
+    const expanded = several && backgroundWorkExpanded;
     return {
       id: `background-work:${activeThread.id}`,
       variant: "default",
@@ -5570,65 +5527,45 @@ export default function ChatView(props: ChatViewProps) {
           aria-hidden="true"
         />
       ),
-      // A lone watch's label is the whole title, so the title itself is the link.
+      // A lone item's name is the whole title, so the title itself is the link.
       title:
-        loneWatch === undefined
-          ? presentation.title
-          : (backgroundWorkItemLink(loneWatch) ?? presentation.title),
-      description:
-        presentation.items.length === 1 && presentation.items[0]?.childThreadId === undefined
-          ? undefined
-          : presentation.items.map((item, index) => {
-              const separator = index < presentation.items.length - 1 ? "," : null;
-              const link = backgroundWorkItemLink(item, presentation.items.length === 1);
-              return (
-                <Fragment key={item.taskId}>
-                  {index > 0 ? " " : null}
-                  {link === null ? (
-                    <>
-                      {item.label}
-                      {separator}
-                    </>
-                  ) : (
-                    <span>
-                      {link}
-                      {separator}
-                    </span>
-                  )}
-                </Fragment>
-              );
-            }),
+        onlyItem === undefined || several ? (
+          presentation.title
+        ) : (
+          <BackgroundWorkLoneTitle
+            title={presentation.title}
+            item={onlyItem}
+            handlers={backgroundWorkLinkHandlers}
+          />
+        ),
+      children: expanded ? (
+        <BackgroundWorkRows items={presentation.items} handlers={backgroundWorkLinkHandlers} />
+      ) : undefined,
       actions: (
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={!canOperateThread || isStoppingBackgroundWork}
-          onClick={() => void handleStopBackgroundWorkStable()}
-        >
-          {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
-        </Button>
+        <>
+          {several ? (
+            <Button
+              size="icon-xs"
+              variant="ghost"
+              aria-expanded={expanded}
+              aria-label={
+                expanded ? "Hide what this turn is waiting on" : "Show what this turn is waiting on"
+              }
+              onClick={() => setBackgroundWorkExpanded((current) => !current)}
+            >
+              <ChevronDownIcon className={cn("size-3.5", !expanded && "rotate-180")} />
+            </Button>
+          ) : null}
+          <Button
+            size="xs"
+            variant="ghost"
+            disabled={!canOperateThread || isStoppingBackgroundWork}
+            onClick={() => void handleStopBackgroundWorkStable()}
+          >
+            {isStoppingBackgroundWork ? "Stopping..." : "Stop"}
+          </Button>
+        </>
       ),
-    };
-  })() as ComposerBannerStackItem | null;
-  const watchers = useThreadWatchers(isServerThread ? activeThreadRef : null);
-  const watchedByBannerItem = (() => {
-    if (!activeThread || watchers.length === 0) return null;
-    return {
-      id: `watched-by:${activeThread.id}`,
-      variant: "default",
-      icon: null,
-      title: "Watched by",
-      description: watchers.map((watcher, index) => (
-        <Fragment key={watcher.id}>
-          {index > 0 ? " " : null}
-          <span className="whitespace-nowrap">
-            <InlineButton tone="muted" onClick={() => onOpenRelatedThreadStable(watcher.id)}>
-              {watcher.title}
-            </InlineButton>
-            {index < watchers.length - 1 ? "," : null}
-          </span>
-        </Fragment>
-      )),
     };
   })() as ComposerBannerStackItem | null;
   // The relative times read the clock; nowMinute re-renders them on the minute.
@@ -5786,7 +5723,6 @@ export default function ChatView(props: ChatViewProps) {
       childInputBannerItem,
       goalBannerItem,
       backgroundWorkBannerItem,
-      watchedByBannerItem,
     ].filter((item) => item !== null);
     const usageLimitsItems = usageLimitsBanner === null ? [] : [usageLimitsBanner];
     const projectCloneItems = projectCloneBannerItem === null ? [] : [projectCloneBannerItem];

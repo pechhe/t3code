@@ -4,12 +4,14 @@ import * as DateTime from "effect/DateTime";
 
 import {
   deriveThreadRelationshipGraph,
+  deriveThreadWatchRelationships,
   immediateThreadRelationships,
   orderWebThreadLineageRows,
   relatedThreadIds,
   resolveMergeBackTargetThreadId,
   walkThreadRelationships,
   threadRelationshipRowStatus,
+  threadShellRelationshipStatus,
 } from "./threadRelationships.ts";
 
 describe("thread relationships", () => {
@@ -501,5 +503,45 @@ describe("web thread lineage ordering", () => {
         ],
       }),
     ).toEqual([first, second, third]);
+  });
+});
+
+describe("thread watch relationships", () => {
+  const self = ThreadId.make("self");
+  const other = ThreadId.make("other");
+  const watcher = ThreadId.make("watcher");
+  const watch = (target: unknown) => ({ id: "w", title: "t", startedAt: "x", target }) as never;
+
+  it("lists only thread watches, once each, and never the thread itself", () => {
+    const result = deriveThreadWatchRelationships({
+      threadId: self,
+      threadWatches: [
+        watch({ kind: "thread", threadId: other }),
+        watch({ kind: "thread", threadId: other }),
+        watch({ kind: "thread", threadId: self }),
+        watch({ kind: "build_item" }),
+      ],
+      watcherThreadIds: [watcher, watcher],
+    });
+    expect(result.watching).toEqual([{ threadId: other, kind: "watching" }]);
+    expect(result.watchedBy).toEqual([{ threadId: watcher, kind: "watchedBy" }]);
+  });
+
+  it("is empty without watches", () => {
+    expect(
+      deriveThreadWatchRelationships({
+        threadId: self,
+        threadWatches: undefined,
+        watcherThreadIds: [],
+      }),
+    ).toEqual({ watching: [], watchedBy: [] });
+  });
+
+  it("derives a thread's live status the way graph rows do", () => {
+    expect(
+      threadShellRelationshipStatus({ activityRunStatus: "running", status: "idle" } as never),
+    ).toBe("running");
+    expect(threadShellRelationshipStatus({ status: "completed" } as never)).toBe("completed");
+    expect(threadShellRelationshipStatus(undefined)).toBeNull();
   });
 });

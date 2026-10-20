@@ -282,19 +282,34 @@ export function threadRuntimeHasInterruptibleRun(
 
 type BackgroundWorkKind = OrchestrationV2PendingBackgroundTask["kind"];
 
-const BACKGROUND_WORK_KINDS: Record<
-  BackgroundWorkKind,
+/** What a row is, finer than the task kind: a watch reads as the thing it watches. */
+export type BackgroundWorkGroup =
+  | "thread"
+  | "pull_request"
+  | "build_item"
+  | "subagent"
+  | "command"
+  | "monitor"
+  | "background_task";
+
+const BACKGROUND_WORK_GROUPS: Record<
+  BackgroundWorkGroup,
   { readonly order: number; readonly singular: string; readonly plural: string }
 > = {
-  subagent: { order: 0, singular: "subagent", plural: "subagents" },
-  command: { order: 1, singular: "command", plural: "commands" },
-  monitor: { order: 2, singular: "monitor", plural: "monitors" },
-  background_task: { order: 3, singular: "background task", plural: "background tasks" },
+  thread: { order: 0, singular: "thread", plural: "threads" },
+  pull_request: { order: 1, singular: "pull request", plural: "pull requests" },
+  build_item: { order: 2, singular: "Build item", plural: "Build items" },
+  subagent: { order: 3, singular: "subagent", plural: "subagents" },
+  command: { order: 4, singular: "command", plural: "commands" },
+  monitor: { order: 5, singular: "monitor", plural: "monitors" },
+  background_task: { order: 6, singular: "background task", plural: "background tasks" },
 };
 
 export interface PendingBackgroundWorkItem {
   readonly taskId: string;
   readonly kind: BackgroundWorkKind;
+  readonly group: BackgroundWorkGroup;
+  /** Just the name: no "Watching ..." prefix, so a row can sit under its own kind label. */
   readonly label: string;
   readonly childThreadId: ThreadId | undefined;
   /** The thread or pull request a watch waits on, for a link. */
@@ -311,9 +326,36 @@ export interface PendingBackgroundWorkPresentation {
   readonly waiting: boolean;
 }
 
-function joinWithAnd(parts: ReadonlyArray<string>): string {
-  if (parts.length <= 1) return parts.join("");
-  return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+function groupOfTask(task: OrchestrationV2PendingBackgroundTask): BackgroundWorkGroup {
+  if (task.kind !== "monitor") return task.kind;
+  switch (task.watching?.kind) {
+    case "thread":
+      return "thread";
+    case "pull_request":
+      return "pull_request";
+    case "build_item":
+      return "build_item";
+    default:
+      return "monitor";
+  }
+}
+
+// The watch descriptions stay worded for the stop prompts and MCP, which read them whole.
+function watchLabel(
+  task: OrchestrationV2PendingBackgroundTask,
+  description: string | undefined,
+): string | undefined {
+  if (task.kind !== "monitor") return description;
+  switch (task.watching?.kind) {
+    case "thread":
+      return description?.replace(/^Watching thread /, "");
+    case "pull_request":
+      return description?.replace(/^Watching pull request /, "");
+    case "build_item":
+      return `Build #${task.watching.number}`;
+    default:
+      return description;
+  }
 }
 
 export function presentPendingBackgroundWork(
@@ -324,16 +366,20 @@ export function presentPendingBackgroundWork(
   const items = tasks
     .map((task): PendingBackgroundWorkItem => {
       const description = task.description?.trim();
-      const label =
+      const group = groupOfTask(task);
+      const label = watchLabel(
+        task,
         task.kind === "subagent" && description !== undefined
           ? formatSubagentDisplayTitle(description).trim()
-          : description;
+          : description,
+      )?.trim();
       return {
         taskId: task.taskId,
         kind: task.kind,
+        group,
         label:
           label === undefined || label.length === 0
-            ? BACKGROUND_WORK_KINDS[task.kind].singular
+            ? BACKGROUND_WORK_GROUPS[group].singular
             : label,
         childThreadId: task.kind === "subagent" ? task.childThreadId : undefined,
         watching: task.kind === "monitor" ? task.watching : undefined,
@@ -342,39 +388,25 @@ export function presentPendingBackgroundWork(
     // `map` returned a new array; Hermes has no `toSorted`.
     .sort(
       (left, right) =>
-        BACKGROUND_WORK_KINDS[left.kind].order - BACKGROUND_WORK_KINDS[right.kind].order,
+        BACKGROUND_WORK_GROUPS[left.group].order - BACKGROUND_WORK_GROUPS[right.group].order,
     );
+  const verb = waiting ? "Waiting on" : "Running";
   const [only] = items;
   if (items.length === 1 && only !== undefined) {
-    const noun = BACKGROUND_WORK_KINDS[only.kind].singular;
+    const noun = BACKGROUND_WORK_GROUPS[only.group].singular;
     const named = only.label !== noun;
-    const title = waiting
-      ? named
-        ? `${only.kind === "monitor" ? "" : `Waiting on ${noun} `}${only.label}`
-        : `Waiting on a ${noun}`
-      : named
-        ? `Running: ${only.label}`
-        : `Running a ${noun}`;
-    return { title, items, waiting };
+    // A thread or Build item is named on its own; the rest need their kind to read.
+    const bare = only.group === "thread" || only.group === "build_item";
+    const subject = !named ? `a ${noun}` : bare ? only.label : `${noun} ${only.label}`;
+    return { title: `${verb} ${subject}`, items, waiting };
   }
-  if (backgroundWorkIsOnlyWatches(tasks)) {
-    const threads = items.filter((item) => item.watching?.kind !== "pull_request").length;
-    const pullRequests = items.length - threads;
-    const groups = [
-      ...(threads === 0 ? [] : [`${threads} ${threads === 1 ? "thread" : "threads"}`]),
-      ...(pullRequests === 0
-        ? []
-        : [`${pullRequests} ${pullRequests === 1 ? "pull request" : "pull requests"}`]),
-    ];
-    return { title: `Watching ${joinWithAnd(groups)}`, items, waiting };
-  }
-  const counts = new Map<BackgroundWorkKind, number>();
-  for (const item of items) counts.set(item.kind, (counts.get(item.kind) ?? 0) + 1);
-  const groups = Array.from(counts, ([kind, count]) => {
-    const { singular, plural } = BACKGROUND_WORK_KINDS[kind];
+  const counts = new Map<BackgroundWorkGroup, number>();
+  for (const item of items) counts.set(item.group, (counts.get(item.group) ?? 0) + 1);
+  const breakdown = Array.from(counts, ([group, count]) => {
+    const { singular, plural } = BACKGROUND_WORK_GROUPS[group];
     return `${count} ${count === 1 ? singular : plural}`;
   });
-  return { title: `${waiting ? "Waiting on" : "Running"} ${joinWithAnd(groups)}`, items, waiting };
+  return { title: [`${verb} ${items.length}`, ...breakdown].join(" · "), items, waiting };
 }
 
 export interface ProviderGoalPresentation {

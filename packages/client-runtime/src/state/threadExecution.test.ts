@@ -569,7 +569,15 @@ describe("presentPendingBackgroundWork", () => {
 
     expect(presentation).toEqual({
       title: "Waiting on subagent Luna Window Properties",
-      items: [{ taskId: "luna", kind: "subagent", label: "Luna Window Properties", childThreadId }],
+      items: [
+        {
+          taskId: "luna",
+          kind: "subagent",
+          group: "subagent",
+          label: "Luna Window Properties",
+          childThreadId,
+        },
+      ],
       waiting: true,
     });
   });
@@ -581,7 +589,7 @@ describe("presentPendingBackgroundWork", () => {
       { taskId: "review", kind: "subagent", description: "Review src/math.ts" },
     ]);
 
-    expect(presentation?.title).toBe("Waiting on 2 subagents and 1 command");
+    expect(presentation?.title).toBe("Waiting on 3 · 2 subagents · 1 command");
     expect(presentation?.items.map((item) => item.label)).toEqual([
       "Luna Window Properties",
       "Review src/math.ts",
@@ -589,33 +597,81 @@ describe("presentPendingBackgroundWork", () => {
     ]);
   });
 
-  it("says Watching, with each watch's target, when only watches hold the thread", () => {
+  it("names a lone watch by its target, without the Watching prefix", () => {
     const worker = ThreadId.make("thread:worker");
     const threadWatch = {
       taskId: "thread-watch:1",
       kind: "monitor" as const,
-      description: "Watching thread Worker",
+      description: "Watching thread Doc file blocks",
       watching: { kind: "thread" as const, threadId: worker },
     };
+    expect(presentPendingBackgroundWork([threadWatch])).toMatchObject({
+      title: "Waiting on Doc file blocks",
+      items: [{ label: "Doc file blocks", group: "thread", watching: threadWatch.watching }],
+    });
+    expect(
+      presentPendingBackgroundWork([
+        {
+          taskId: "pull-request-watch:github.com/pechhe/t3code#98",
+          kind: "monitor",
+          description: "Watching pull request #98",
+          watching: { kind: "pull_request", url: "https://github.com/pechhe/t3code/pull/98" },
+        },
+      ]),
+    ).toMatchObject({
+      title: "Waiting on pull request #98",
+      items: [{ label: "#98", group: "pull_request" }],
+    });
+    expect(
+      presentPendingBackgroundWork([
+        {
+          taskId: "thread-watch:2",
+          kind: "monitor",
+          description: "Watching Build #4297 until closed",
+          watching: { kind: "build_item", number: 4297, until: "closed" },
+        },
+      ] as never),
+    ).toMatchObject({
+      title: "Waiting on Build #4297",
+      items: [{ label: "Build #4297", group: "build_item" }],
+    });
+  });
+
+  it("summarises several watches by count and kind", () => {
+    const watch = (id: string, title: string) => ({
+      taskId: `thread-watch:${id}`,
+      kind: "monitor" as const,
+      description: `Watching thread ${title}`,
+      watching: { kind: "thread" as const, threadId: ThreadId.make(`thread:${id}`) },
+    });
     const pullRequestWatch = {
       taskId: "pull-request-watch:github.com/pechhe/t3code#98",
       kind: "monitor" as const,
       description: "Watching pull request #98",
       watching: { kind: "pull_request" as const, url: "https://github.com/pechhe/t3code/pull/98" },
     };
-    expect(presentPendingBackgroundWork([threadWatch])).toMatchObject({
-      title: "Watching thread Worker",
-      items: [{ label: "Watching thread Worker", watching: threadWatch.watching }],
-    });
-    expect(presentPendingBackgroundWork([threadWatch, pullRequestWatch])?.title).toBe(
-      "Watching 1 thread and 1 pull request",
-    );
     expect(
-      presentPendingBackgroundWork([
-        threadWatch,
-        { taskId: "dev", kind: "command", description: "vp dev" },
-      ])?.title,
-    ).toBe("Waiting on 1 command and 1 monitor");
+      presentPendingBackgroundWork([watch("a", "A"), watch("b", "B"), pullRequestWatch])?.title,
+    ).toBe("Waiting on 3 · 2 threads · 1 pull request");
+  });
+
+  it("summarises mixed work with threads first", () => {
+    const threadWatches = Array.from({ length: 6 }, (_, index) => ({
+      taskId: `thread-watch:${index}`,
+      kind: "monitor" as const,
+      description: `Watching thread T${index}`,
+      watching: { kind: "thread" as const, threadId: ThreadId.make(`thread:${index}`) },
+    }));
+    const presentation = presentPendingBackgroundWork([
+      { taskId: "cmd", kind: "command", description: "vp dev" },
+      { taskId: "sub", kind: "subagent", description: "Review" },
+      ...threadWatches,
+    ]);
+    expect(presentation?.title).toBe("Waiting on 8 · 6 threads · 1 subagent · 1 command");
+    expect(presentation?.items.map((item) => item.group).slice(-2)).toEqual([
+      "subagent",
+      "command",
+    ]);
   });
 
   it("names a single piece of work by kind", () => {
@@ -645,13 +701,13 @@ describe("presentPendingBackgroundWork", () => {
         { taskId: "a", kind: "command", description: "vp run dev" },
         { taskId: "b", kind: "command", description: "tailscale serve" },
       ]),
-    ).toMatchObject({ title: "Waiting on 2 commands", waiting: true });
+    ).toMatchObject({ title: "Waiting on 2 · 2 commands", waiting: true });
     expect(
       presentPendingBackgroundWork([
         { taskId: "a", kind: "command", description: "vp run dev" },
         { taskId: "b", kind: "monitor", description: "Watch PR checks" },
       ]),
-    ).toMatchObject({ title: "Waiting on 1 command and 1 monitor", waiting: true });
+    ).toMatchObject({ title: "Waiting on 2 · 1 command · 1 monitor", waiting: true });
   });
 
   it("groups work by kind, subagents first, and keeps each name", () => {
@@ -665,7 +721,7 @@ describe("presentPendingBackgroundWork", () => {
       },
       { taskId: "a", kind: "subagent", description: "Review src/math.ts" },
     ]);
-    expect(presentation?.title).toBe("Waiting on 2 subagents and 1 command");
+    expect(presentation?.title).toBe("Waiting on 3 · 2 subagents · 1 command");
     expect(presentation?.items.map((item) => [item.kind, item.label, item.childThreadId])).toEqual([
       ["subagent", "Write tests", "thread:b"],
       ["subagent", "Review src/math.ts", undefined],
@@ -680,7 +736,7 @@ describe("presentPendingBackgroundWork", () => {
         { taskId: "watch", kind: "monitor" },
         { taskId: "other", kind: "background_task" },
       ])?.title,
-    ).toBe("Waiting on 1 command, 1 monitor and 1 background task");
+    ).toBe("Waiting on 3 · 1 command · 1 monitor · 1 background task");
     expect(presentPendingBackgroundWork([{ taskId: "old", kind: "background_task" }])?.title).toBe(
       "Waiting on a background task",
     );

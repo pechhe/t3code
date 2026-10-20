@@ -64,4 +64,22 @@ describe("selectThreadRelationshipShells", () => {
       ),
     ).toEqual(["current", "parent"]);
   });
+
+  it("keeps the threads the thread watches and the live threads watching it", () => {
+    const watching = (target: string) => ({
+      threadWatches: [{ target: { kind: "thread", threadId: target } }],
+    });
+    const threads = [
+      { ...shell("current"), ...watching("watched") },
+      shell("watched"),
+      { ...shell("watcher"), ...watching("current") },
+      { ...shell("archived-watcher"), ...watching("current"), archivedAt: "2026-01-01" },
+      { ...shell("elsewhere"), ...watching("unrelated") },
+      shell("unrelated"),
+    ] as OrchestrationV2ThreadShell[];
+
+    expect(
+      selectThreadRelationshipShells(threadId, null, threads).map((thread) => thread.id),
+    ).toEqual(["current", "watched", "watcher"]);
+  });
 });

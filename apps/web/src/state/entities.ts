@@ -415,8 +415,18 @@ export function selectThreadRelationshipShells(
   const current = threads.find((thread) => thread.id === threadId);
   const currentParentId = current === undefined ? null : shellParentThreadId(current);
   if (currentParentId !== null) named.add(currentParentId);
+  // Watched and watching threads show a live status in Lineage, so their shells come along.
+  for (const watch of current?.threadWatches ?? []) {
+    if (watch.target.kind === "thread") named.add(watch.target.threadId);
+  }
+  const isWatcher = (thread: OrchestrationV2ThreadShell) =>
+    !thread.archivedAt &&
+    (thread.threadWatches ?? []).some(
+      (watch) => watch.target.kind === "thread" && watch.target.threadId === threadId,
+    );
   return threads.filter(
-    (thread) => named.has(thread.id) || shellParentThreadId(thread) === threadId,
+    (thread) =>
+      named.has(thread.id) || isWatcher(thread) || shellParentThreadId(thread) === threadId,
   );
 }
 

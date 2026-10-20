@@ -204,9 +204,54 @@ export function threadRelationshipRowStatus(
   if (row.edge.kind === "transfer" || row.threadId === row.edge.targetThreadId) {
     return row.edge.status;
   }
-  const thread = graph.nodes.get(row.threadId)?.thread;
+  return threadShellRelationshipStatus(graph.nodes.get(row.threadId)?.thread);
+}
+
+/** The live status a relationship row shows for a thread, whichever way it is related. */
+export function threadShellRelationshipStatus(
+  thread:
+    | Pick<OrchestrationV2ThreadShell, "pendingBackgroundTasks" | "activityRunStatus" | "status">
+    | null
+    | undefined,
+): string | null {
   if (backgroundWorkIsOnlyWatches(thread?.pendingBackgroundTasks ?? [])) return "watching";
   return thread?.activityRunStatus ?? thread?.status ?? null;
+}
+
+export type ThreadWatchRelationshipKind = "watching" | "watchedBy";
+
+export interface ThreadWatchRelationshipRow {
+  readonly threadId: ThreadId;
+  readonly kind: ThreadWatchRelationshipKind;
+}
+
+/**
+ * The threads this one watches and the threads watching it. Kept beside the relationship graph,
+ * not in it: a watch is not a parent/child edge, and the graph's other consumers (mobile, the
+ * running count) would otherwise start treating watched threads as work this thread owns.
+ * Build-item and pull-request watches are not threads and stay out.
+ */
+export function deriveThreadWatchRelationships(input: {
+  readonly threadId: ThreadId;
+  readonly threadWatches: OrchestrationV2ThreadShell["threadWatches"];
+  readonly watcherThreadIds: ReadonlyArray<ThreadId>;
+}): {
+  readonly watching: ReadonlyArray<ThreadWatchRelationshipRow>;
+  readonly watchedBy: ReadonlyArray<ThreadWatchRelationshipRow>;
+} {
+  const watching = new Set<ThreadId>();
+  for (const watch of input.threadWatches ?? []) {
+    if (watch.target.kind === "thread" && watch.target.threadId !== input.threadId) {
+      watching.add(watch.target.threadId);
+    }
+  }
+  return {
+    watching: [...watching].map((threadId) => ({ threadId, kind: "watching" })),
+    watchedBy: [...new Set(input.watcherThreadIds)].map((threadId) => ({
+      threadId,
+      kind: "watchedBy",
+    })),
+  };
 }
 
 function threadCreatedAtMillis(node: ThreadRelationshipNode | undefined): number | null {
