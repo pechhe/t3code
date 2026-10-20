@@ -18,9 +18,12 @@ export type BuildReference =
   | { readonly kind: "number"; readonly number: number; readonly origin: string | null }
   | { readonly kind: "ref"; readonly ref: string };
 
+/** HQ's bound on Build numbers, sequences and ordinals (a Postgres `integer`), so a larger one is malformed, not unknown. */
+const MAX_BUILD_INTEGER = 2_147_483_647;
+
 const positiveInteger = (digits: string) => {
   const value = Number(digits);
-  return Number.isSafeInteger(value) && value > 0 ? value : null;
+  return Number.isInteger(value) && value > 0 && value <= MAX_BUILD_INTEGER ? value : null;
 };
 
 /** `YS-12` or `YS-12.1`, in any case: a letter, then letters or digits, `-`, then 1-based ordinals. */

@@ -83,6 +83,20 @@ describe("parseBuildReference", () => {
     for (const written of ["YS-12.x", "YS-0", "YS-", "YS-12.0", "3T-1", "YS-12.1.2", "0", "#0"])
       expect(parseBuildReference(written)).toBeNull();
     expect(parseBuildReference("9".repeat(20))).toBeNull();
+    // HQ's numbers are Postgres integers: one past the bound is malformed, not an unknown item.
+    for (const written of [
+      "#2147483648",
+      "2147483648",
+      "YS-2147483648",
+      "YS-1.2147483648",
+      "https://hq.example/build/2147483648",
+    ])
+      expect(parseBuildReference(written)).toBeNull();
+    expect(parseBuildReference("#2147483647")).toEqual({
+      kind: "number",
+      number: 2147483647,
+      origin: null,
+    });
   });
 });
 
