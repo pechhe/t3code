@@ -124,7 +124,12 @@ export const hqHomeWithOwnerCard = {
             state: "no_gate",
             evidenceRef: "hq_build_run:7a853c42-bc86-4e0e-ab91-79603dfa8ad9",
           },
-          reviewClean: true,
+          checks: [
+            { label: "Deployed on staging", met: true },
+            { label: "1 of 1 rows met", met: true },
+            { label: "No blocking finding", met: true },
+            { label: "Gate: No gate", met: null },
+          ],
         },
         holdsRelease: true,
         gateRemovalPending: false,

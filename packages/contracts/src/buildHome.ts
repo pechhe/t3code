@@ -33,16 +33,19 @@ export const BuildHomeRow = Schema.Struct({
 });
 export type BuildHomeRow = typeof BuildHomeRow.Type;
 
+export const BuildHomeCheck = Schema.Struct({
+  label: Schema.String,
+  met: Schema.NullOr(Schema.Boolean),
+});
+export type BuildHomeCheck = typeof BuildHomeCheck.Type;
+
 export const BuildHomeAcceptanceNeed = Schema.Struct({
   kind: Schema.Literal("acceptance"),
   spec: BuildHomeItem,
   url: Schema.String,
   repositories: Schema.Array(Schema.String),
-  staging: Schema.Literals(["unavailable", "not_carried", "carried", "not_required"]),
-  rowsMet: Schema.Int,
-  rowsTotal: Schema.Int,
-  /** Undecided review findings and person-raised ones still open. */
-  blockingFindings: Schema.Int,
+  /** Build's objective checks, as HQ's build-home projection words them; `met: null` is information only. */
+  checks: Schema.Array(BuildHomeCheck),
   reviewSummary: Schema.NullOr(Schema.String),
   tryIt: Schema.NullOr(Schema.String),
   rows: Schema.Array(BuildHomeRow),

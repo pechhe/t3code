@@ -21,7 +21,6 @@ import { buildWorkItems, useBuildHome } from "~/state/buildWorkItems";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { BuildItemLabel } from "./BuildItemLabel";
 import {
-  buildAcceptanceBadges,
   buildButtonCount,
   buildDecisionEnabled,
   latestBuildHomeState,
@@ -109,9 +108,13 @@ function AcceptanceCard(props: {
         <p className="m-0 text-muted-foreground">{need.repositories.join(", ")}</p>
       ) : null}
       <div className="flex flex-wrap gap-1">
-        {buildAcceptanceBadges(need).map((badge) => (
-          <Badge key={badge.label} size="sm" variant={badge.good ? "success" : "warning"}>
-            {badge.label}
+        {need.checks.map((check) => (
+          <Badge
+            key={check.label}
+            size="sm"
+            variant={check.met === null ? "outline" : check.met ? "success" : "warning"}
+          >
+            {check.label}
           </Badge>
         ))}
       </div>

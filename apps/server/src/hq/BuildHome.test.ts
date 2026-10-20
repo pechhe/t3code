@@ -29,7 +29,7 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
 const endpoint = "https://hq.example.test/api/build/decisions";
 const token = `yshqp_${"p".repeat(43)}`;
 const environmentId = EnvironmentId.make("environment-t3");
-const leadThread = ThreadId.make("thread-lead");
+const leadThread = ThreadId.make("mcp:thread-lead");
 const parseJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 
 const item = (number: number, title = `Spec ${number}`) => ({
@@ -50,6 +50,12 @@ const acceptance = {
     readiness: {
       rows: [{ rowId: "r1", text: "Home lists today first", verdict: "met", evidence: "seen" }],
       staging: { state: "carried" },
+      checks: [
+        { label: "Deployed on staging", met: true },
+        { label: "1 of 1 rows met", met: true },
+        { label: "No blocking finding", met: true },
+        { label: "Gate: No gate", met: null },
+      ],
     },
     undecidedFindings: [],
     personFindings: [],
@@ -211,7 +217,10 @@ it.effect(
       const need = state.home?.needsYou[0];
       assert.strictEqual(need?.kind, "acceptance");
       if (need?.kind === "acceptance") {
-        assert.deepStrictEqual([need.rowsMet, need.rowsTotal, need.staging], [1, 1, "carried"]);
+        assert.deepStrictEqual(
+          need.checks.map((check) => check.met),
+          [true, true, true, null],
+        );
         assert.deepStrictEqual(need.repositories, ["pechhe/yardsmith"]);
       }
       assert.strictEqual(state.home?.stuck[0]?.fix, "re-run it");
@@ -245,8 +254,8 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
     const need = withCard.home?.needsYou[0];
     assert.strictEqual(need?.kind, "acceptance");
     if (need?.kind === "acceptance") {
-      assert.strictEqual(need.staging, "carried");
-      assert.deepStrictEqual([need.rowsMet, need.rowsTotal, need.blockingFindings], [1, 1, 0]);
+      // The card shows HQ's own checks, so Weave and T3 cannot disagree about them.
+      assert.deepStrictEqual(need.checks, hqHomeWithOwnerCard.needsYou[0]?.spec.readiness.checks);
       assert.strictEqual(need.reviewSummary, "Exports now include every row");
       assert.strictEqual(need.tryIt, "https://staging.example/exports");
       assert.deepStrictEqual(need.card, hqHomeWithOwnerCard.needsYou[0]?.spec.card);
@@ -361,6 +370,11 @@ it("names the lead's T3 thread from either session form, and nothing else", () =
     environmentId: "env-1",
     threadId: "thread-1",
   });
+  // T3 thread ids carry their creation prefix (`mcp:` for a thread an agent launched); it is part of the id.
+  assert.deepStrictEqual(
+    BuildHome.leadThreadOf({ harness: "t3", sessionRef: "env-1/mcp:af171d33" }),
+    { environmentId: "env-1", threadId: "mcp:af171d33" },
+  );
   assert.strictEqual(
     BuildHome.leadThreadOf({ harness: "codex-cli", sessionRef: "thread-1" }),
     null,

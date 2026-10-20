@@ -2,7 +2,6 @@ import type { BuildHomeAcceptanceNeed, BuildHomeState } from "@t3tools/contracts
 import { describe, expect, it } from "vite-plus/test";
 
 import {
-  buildAcceptanceBadges,
   buildButtonCount,
   buildDecisionEnabled,
   latestBuildHomeState,
@@ -21,10 +20,7 @@ const need = (over: Partial<BuildHomeAcceptanceNeed> = {}): BuildHomeAcceptanceN
   spec: { id: "i", number: 1, title: "t", status: "landed" },
   url: "u",
   repositories: [],
-  staging: "carried",
-  rowsMet: 3,
-  rowsTotal: 3,
-  blockingFindings: 0,
+  checks: [],
   reviewSummary: null,
   tryIt: null,
   rows: [],
@@ -48,26 +44,6 @@ describe("the Build button", () => {
     expect(buildDecisionEnabled(need(), "send_back", "order is wrong")).toBe(true);
     expect(buildDecisionEnabled(need(), "accept", "")).toBe(true);
     expect(buildDecisionEnabled(need({ card: null }), "accept", "")).toBe(false);
-  });
-
-  it("badges Build's objective checks", () => {
-    expect(buildAcceptanceBadges(need()).map((badge) => badge.label)).toEqual([
-      "On staging",
-      "3 of 3 rows met",
-      "No blocking findings",
-    ]);
-    const bad = buildAcceptanceBadges(
-      need({ staging: "not_carried", rowsMet: 1, blockingFindings: 2 }),
-    );
-    expect(bad.map((badge) => badge.good)).toEqual([false, false, false]);
-    expect(buildAcceptanceBadges(need({ staging: "not_required" }))[0]).toEqual({
-      label: "Staging not required",
-      good: true,
-    });
-    expect(buildAcceptanceBadges(need({ staging: "unavailable" }))[0]).toEqual({
-      label: "No staging deploy yet",
-      good: false,
-    });
   });
 
   it("shows a decision's answer until a newer read arrives, so the count never freezes", () => {
