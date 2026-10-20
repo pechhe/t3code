@@ -234,6 +234,7 @@ import {
   worktreeSetupAgentStarted,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
+  findSubagentCardFoldRunId,
   findSubagentCardRow,
   subagentGroupDisclosureId,
   TIMELINE_MINIMAP_MIN_ITEMS,
@@ -1394,10 +1395,24 @@ const ConversationTimeline = memo(function ConversationTimeline({
     requestAnimationFrame(() => attempt(120));
   };
   const [subagentGroupRevealRevision, setSubagentGroupRevealRevision] = useState(0);
+  const pendingSubagentJumpRef = useRef<{ subagentId: string; childThreadId: ThreadId } | null>(
+    null,
+  );
   const onJumpToSubagentCard = (subagentId: string, childThreadId: ThreadId) => {
     const target = findSubagentCardRow(rows, subagentId);
     if (target === null) {
-      onOpenThread(childThreadId);
+      const foldRunId = findSubagentCardFoldRunId(
+        { timelineEntries, latestRun, runningRunId, isWorking, runlessWorkActive },
+        subagentId,
+      );
+      if (foldRunId === null || expandedRunIds.has(foldRunId)) {
+        onOpenThread(childThreadId);
+        return;
+      }
+      onManualNavigation();
+      suspendEndScrollMaintenanceForDisclosure(`turn-fold:${foldRunId}`);
+      pendingSubagentJumpRef.current = { subagentId, childThreadId };
+      expandCitedRun(foldRunId);
       return;
     }
     onManualNavigation();
@@ -1409,11 +1424,18 @@ const ConversationTimeline = memo(function ConversationTimeline({
     void Promise.resolve(
       listRef.current?.scrollToIndex({
         index: target.index,
-        animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+        animated: !prefersReducedMotion,
         viewOffset: 24,
       }),
     ).then(() => flashSubagentCard(subagentId, target.rowId));
   };
+  // Finishes a jump that first had to unfold the response holding the card.
+  useEffect(() => {
+    const pending = pendingSubagentJumpRef.current;
+    if (pending === null) return;
+    pendingSubagentJumpRef.current = null;
+    onJumpToSubagentCard(pending.subagentId, pending.childThreadId);
+  }, [onJumpToSubagentCard]);
 
   const sharedState: TimelineRowSharedState = {
     citationRequest: readyCitationRequest,

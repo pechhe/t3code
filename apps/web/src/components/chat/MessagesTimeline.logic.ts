@@ -2110,6 +2110,21 @@ export function timelineTurnFoldRunIdsByEntryId(
   return byEntryId;
 }
 
+// A settled response folds away the subagent cards it launched, while the notice that woke its
+// reply stays visible.
+export function findSubagentCardFoldRunId(
+  input: Parameters<typeof timelineTurnFoldRunIdsByEntryId>[0],
+  subagentId: string,
+): RunId | null {
+  const entry = input.timelineEntries.findLast(
+    (candidate) =>
+      candidate.kind === "event" &&
+      candidate.projectedItem.item.type === "subagent" &&
+      candidate.projectedItem.item.subagentId === subagentId,
+  );
+  return entry ? (timelineTurnFoldRunIdsByEntryId(input).get(entry.id) ?? null) : null;
+}
+
 function sameCheckpointSummaries(
   previous: MessagesTimelineRowsInput["turnDiffSummaries"],
   next: MessagesTimelineRowsInput["turnDiffSummaries"],

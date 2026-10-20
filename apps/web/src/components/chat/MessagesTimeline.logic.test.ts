@@ -25,6 +25,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
+  findSubagentCardFoldRunId,
   findSubagentCardRow,
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
@@ -4771,6 +4772,82 @@ describe("findSubagentCardRow", () => {
     expect(
       findSubagentCardRow([eventRow("tool", source), eventRow("card", child("other"))], "missing"),
     ).toBeNull();
+  });
+});
+
+describe("findSubagentCardFoldRunId", () => {
+  const time = (second: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
+  const answer = (id: string, run: string, second: number, role: "user" | "assistant") => ({
+    kind: "message" as const,
+    id,
+    createdAt: time(second),
+    message: {
+      id: MessageId.make(id),
+      role,
+      text: id,
+      runId: RunId.make(run),
+      createdAt: time(second),
+      updatedAt: time(second),
+      streaming: false,
+    },
+  });
+  const input = {
+    timelineEntries: [
+      answer("prompt", "initial", 0, "user"),
+      {
+        kind: "event" as const,
+        id: "card",
+        createdAt: time(1),
+        projectedItem: {
+          item: {
+            id: TurnItemId.make("card-item"),
+            type: "subagent",
+            runId: RunId.make("initial"),
+            subagentId: NodeId.make("node"),
+          },
+        } as OrchestrationV2ProjectedTurnItem,
+      },
+      answer("launched", "initial", 5, "assistant"),
+      {
+        kind: "work" as const,
+        id: "notification",
+        createdAt: time(20),
+        entry: {
+          id: "notification",
+          runId: RunId.make("wake"),
+          createdAt: time(20),
+          label: "Delegated task finished",
+          tone: "info" as const,
+          itemType: "notification" as const,
+        },
+      },
+      answer("ack", "wake", 25, "assistant"),
+    ],
+    latestRun: {
+      runId: RunId.make("wake"),
+      status: "completed" as const,
+      startedAt: time(20),
+      completedAt: time(25),
+    },
+    isWorking: false,
+    turnDiffSummaries: [],
+    supportsConversationRollback: false,
+  };
+
+  it("finds the folded response that hides a settled card the notification still shows", () => {
+    const rows = deriveMessagesTimelineRows(input);
+    expect(rows.map((row) => row.id)).toContain("notification");
+    expect(findSubagentCardRow(rows, "node")).toBeNull();
+    expect(findSubagentCardFoldRunId(input, "node")).toBe("initial");
+    const unfolded = deriveMessagesTimelineRows({
+      ...input,
+      expandedRunIds: new Set([RunId.make("initial")]),
+    });
+    expect(findSubagentCardRow(unfolded, "node")).toMatchObject({ rowId: "card", groupId: null });
+  });
+
+  it("returns null for a subagent without a card", () => {
+    expect(findSubagentCardFoldRunId(input, "missing")).toBeNull();
   });
 });
 
