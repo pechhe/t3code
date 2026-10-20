@@ -1,6 +1,12 @@
 import { useAtomValue } from "@effect/atom-react";
-import { DEFAULT_WEBHOOK_PROMPT } from "@t3tools/client-runtime/scheduled-task-webhook";
-import { parseMaxDeliveryAge } from "@t3tools/client-runtime/scheduled-task-webhook";
+import {
+  DEFAULT_WEBHOOK_PROMPT,
+  emptyWebhookFilterDraft,
+  parseWebhookFilterDrafts,
+  removeWebhookFilterDraft,
+  WEBHOOK_FILTER_OPS,
+  type WebhookFilterDraft,
+} from "@t3tools/client-runtime/scheduled-task-webhook";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -10,6 +16,7 @@ import {
   AuthOrchestrationOperateScope,
   type EnvironmentId,
   MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
+  MAX_WEBHOOK_FILTERS,
   type ModelSelection,
   type ScheduledTaskUpsertSchedule,
   resolveEnvironmentMachineKind,
@@ -81,6 +88,10 @@ import {
   scheduleDraftOf,
   soonestRunAt,
   timedScheduleOf,
+  webhookDraftErrors,
+  webhookDraftOf,
+  webhookScheduleOf,
+  type WebhookDraft,
   workspaceChoiceOf,
 } from "./scheduledTasks.logic";
 
@@ -100,7 +111,7 @@ const WORKSPACE_LABELS: Record<WorkspaceChoice, string> = {
 const ROLE_OPTIONS = AgentRole.literals;
 const DEFAULT_ROLE: AgentRole = "implementation-worker";
 
-interface EditorDraft extends ScheduleDraft {
+interface EditorDraft extends ScheduleDraft, WebhookDraft {
   readonly title: string;
   readonly prompt: string;
   readonly enabled: boolean;
@@ -110,13 +121,6 @@ interface EditorDraft extends ScheduleDraft {
   readonly workspace: WorkspaceChoice;
   readonly agentRole: AgentRole | null;
   readonly keepThread: boolean;
-  readonly signatureEnabled: boolean;
-  readonly signatureHeader: string;
-  readonly signatureEncoding: "hex" | "base64";
-  readonly signaturePrefix: string;
-  /** Write-only: empty keeps the secret already stored on each machine. */
-  readonly signatureSecret: string;
-  readonly maxDeliveryAgeMinutes: string;
 }
 
 const reportFailure = (title: string, error: unknown) =>
@@ -328,9 +332,9 @@ function draftOf(
   const schedule = lead
     ? scheduleDraftOf(lead.schedule)
     : { ...scheduleDraftOf({ type: "fixed_time", timeOfDay: "09:00", weekdays: [1, 2, 3, 4, 5] }) };
-  const signature = lead?.schedule.type === "webhook" ? lead.schedule.signature : null;
   return {
     ...schedule,
+    ...webhookDraftOf(lead?.schedule ?? null),
     title: lead?.title ?? "",
     prompt: lead?.prompt ?? "",
     enabled: lead?.enabled ?? true,
@@ -343,15 +347,6 @@ function draftOf(
     workspace: lead ? workspaceChoiceOf(lead.workspaceStrategy) : "fresh",
     agentRole: lead ? (lead.agentRole ?? null) : DEFAULT_ROLE,
     keepThread: lead?.threadId != null,
-    signatureEnabled: signature != null,
-    signatureHeader: signature?.header ?? "x-hub-signature-256",
-    signatureEncoding: signature?.encoding ?? "hex",
-    signaturePrefix: signature?.prefix ?? "sha256=",
-    signatureSecret: "",
-    maxDeliveryAgeMinutes:
-      lead?.schedule.type === "webhook" && lead.schedule.maxDeliveryAgeMinutes != null
-        ? String(lead.schedule.maxDeliveryAgeMinutes)
-        : "",
   };
 }
 
@@ -438,21 +433,7 @@ function TaskDetail(props: {
 
   const scheduleToSave = (): ScheduledTaskUpsertSchedule | null => {
     if (!isWebhook) return timedScheduleOf(draft);
-    const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
-    if (maxDeliveryAgeMinutes === undefined) return null;
-    const secret = draft.signatureSecret.trim();
-    return {
-      type: "webhook",
-      signature: draft.signatureEnabled
-        ? {
-            header: draft.signatureHeader.trim(),
-            encoding: draft.signatureEncoding,
-            prefix: draft.signaturePrefix,
-            ...(secret ? { secret } : {}),
-          }
-        : null,
-      maxDeliveryAgeMinutes,
-    };
+    return webhookScheduleOf(draft);
   };
 
   const save = async () => {
@@ -463,12 +444,14 @@ function TaskDetail(props: {
       return;
     }
     if (schedule === null) {
-      reportFailure(
-        "Check the trigger",
-        isWebhook
-          ? `Skip requests older than 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES} minutes, or leave it blank.`
-          : "Run every whole number of minutes, at least one.",
-      );
+      if (isWebhook) {
+        const errors = webhookDraftErrors(draft);
+        const parsed = parseWebhookFilterDrafts(draft.filters);
+        if (errors.length === 0 && "error" in parsed) reportFailure("Invalid filter", parsed.error);
+        for (const error of errors) reportFailure(error.title, error.description);
+      } else {
+        reportFailure("Check the trigger", "Run every whole number of minutes, at least one.");
+      }
       return;
     }
     if (plan.upserts.length === 0) {
@@ -516,6 +499,8 @@ function TaskDetail(props: {
       reportFailure("Some changes did not save", failures.join("\n"));
       return;
     }
+    // The editor stays open after a save, so later saves must diff against what was just stored.
+    update({ savedFilters: draft.filters });
     props.onSaved(groupId);
   };
 
@@ -1047,6 +1032,87 @@ function ChipRow(props: {
   );
 }
 
+function WebhookFiltersField(props: {
+  readonly filters: ReadonlyArray<WebhookFilterDraft>;
+  readonly onChange: (filters: ReadonlyArray<WebhookFilterDraft>) => void;
+}) {
+  const { filters, onChange } = props;
+  const update = (index: number, patch: Partial<WebhookFilterDraft>) =>
+    onChange(filters.map((filter, at) => (at === index ? { ...filter, ...patch } : filter)));
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-col gap-1">
+          <Label>Filters</Label>
+          <p className="text-muted-foreground text-xs">
+            Run only when every filter matches. Other requests are logged as filtered. Separate “is
+            one of” values with commas; a value can't contain a comma.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={filters.length >= MAX_WEBHOOK_FILTERS}
+          onClick={() => onChange([...filters, emptyWebhookFilterDraft()])}
+        >
+          <PlusIcon />
+          Add filter
+        </Button>
+      </div>
+      {filters.map((filter, index) => (
+        <div key={filter.id} className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <Input
+              aria-label={`Filter ${index + 1} path`}
+              placeholder="body.action"
+              value={filter.path}
+              onChange={(event) => update(index, { path: event.target.value })}
+            />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove filter ${index + 1}`}
+              onClick={() => onChange(removeWebhookFilterDraft(filters, filter.id))}
+            >
+              <Trash2Icon />
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select
+              value={filter.op}
+              onValueChange={(op) => {
+                const known = WEBHOOK_FILTER_OPS.find((option) => option.op === op);
+                if (known) update(index, { op: known.op });
+              }}
+            >
+              <SelectTrigger size="sm" aria-label={`Filter ${index + 1} test`}>
+                <SelectValue>
+                  {WEBHOOK_FILTER_OPS.find((option) => option.op === filter.op)?.label}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup>
+                {WEBHOOK_FILTER_OPS.map((option) => (
+                  <SelectItem key={option.op} value={option.op}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+            {filter.op === "exists" ? null : (
+              <Input
+                aria-label={`Filter ${index + 1} value`}
+                placeholder={filter.op === "in" ? "opened, reopened" : "opened"}
+                value={filter.value}
+                onChange={(event) => update(index, { value: event.target.value })}
+              />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function WebhookSettings(props: {
   readonly draft: EditorDraft;
   readonly update: (patch: Partial<EditorDraft>) => void;
@@ -1088,6 +1154,45 @@ function WebhookSettings(props: {
         />
         <span className="text-muted-foreground">minutes</span>
       </div>
+      <WebhookFiltersField filters={draft.filters} onChange={(filters) => update({ filters })} />
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="scheduled-task-replay-key">Replay key</Label>
+        <Input
+          id="scheduled-task-replay-key"
+          placeholder="{{headers.delivery-id}}"
+          value={draft.replayKey}
+          onChange={(event) => update({ replayKey: event.target.value })}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="scheduled-task-coalesce-key">Coalesce key</Label>
+        <Input
+          id="scheduled-task-coalesce-key"
+          placeholder="{{body.id}}"
+          value={draft.coalesceKey}
+          onChange={(event) => update({ coalesceKey: event.target.value })}
+        />
+      </div>
+      <div className="flex items-center gap-2 text-sm">
+        <Label htmlFor="scheduled-task-coalesce-window">Coalesce window</Label>
+        <Input
+          id="scheduled-task-coalesce-window"
+          type="number"
+          nativeInput
+          min={10}
+          max={3600}
+          className="w-24"
+          placeholder="120"
+          value={draft.coalesceWindowSeconds}
+          onChange={(event) => update({ coalesceWindowSeconds: event.target.value })}
+        />
+        <span className="text-muted-foreground">seconds, 10–3600</span>
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Replay and coalesce keys are templates, optional. Replay keys suppress repeat deliveries for
+        7 days. Coalescing runs the latest payload once when the window from the first delivery
+        closes. Empty keys run normally.
+      </p>
       <div className="flex items-center justify-between gap-4">
         <Label htmlFor="scheduled-task-signature">Require signature</Label>
         <Switch

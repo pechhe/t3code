@@ -2324,6 +2324,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           <div className="relative z-10 h-[4.875rem] px-(--sidebar-row-content-inset) py-(--sidebar-content-inset)">
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               {draftIndicator}
+              {/* Left of the status slot, the pin would slide when hover swaps the
+                label for the wider row controls. */}
+              {pinIndicator}
               {props.project && props.projectDisplayName ? (
                 <ProjectChip
                   project={props.project}
@@ -2343,7 +2346,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 />
               ) : null}
               <span className="flex-1" />
-              {pinIndicator}
               {sortable?.isDragging ? (
                 dragDestination
               ) : (

@@ -1,9 +1,9 @@
 import { HTML_RENDER_DEFAULT_FONTS, type HtmlRenderTheme } from "@t3tools/shared/htmlRender";
 import { BUILT_IN_THEME_IDS } from "@t3tools/shared/themePalettes";
-import { act, useEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { useEffect } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
 
+import { render } from "../../test/render";
 import {
   getStandardThemeColors,
   setEnvironmentThemes,
@@ -22,20 +22,12 @@ vi.mock(import("./useTheme"), async (original) => ({
   useTheme: (() => selection) as never,
 }));
 
-let root: Root | undefined;
+function setup(theme: ThemePreference, resolvedTheme: ThemeAppearance): Disposable {
+  Object.assign(selection, { activeTheme: theme, resolvedTheme });
+  return { [Symbol.dispose]: () => setEnvironmentThemes([]) };
+}
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-});
-
-afterEach(() => {
-  act(() => root?.unmount());
-  root = undefined;
-  setEnvironmentThemes([]);
-  vi.unstubAllGlobals();
-});
-
-function readRenderTheme(): HtmlRenderTheme {
+async function readRenderTheme(): Promise<HtmlRenderTheme> {
   let theme: HtmlRenderTheme | undefined;
   function Probe() {
     const resolved = useHtmlRenderTheme();
@@ -44,9 +36,7 @@ function readRenderTheme(): HtmlRenderTheme {
     }, [resolved]);
     return null;
   }
-  act(() => root?.unmount());
-  root = createRoot(document.createElement("div"));
-  act(() => root!.render(<Probe />));
+  await using _screen = await render(<Probe />);
   if (!theme) throw new Error("The HTML render theme was not resolved.");
   return theme;
 }
@@ -55,11 +45,10 @@ describe("useHtmlRenderTheme", () => {
   for (const appearance of ["light", "dark"] as const) {
     it.each([appearance, ...BUILT_IN_THEME_IDS])(
       `injects hex colors for %s in ${appearance} mode`,
-      (preference) => {
-        selection.activeTheme = preference;
-        selection.resolvedTheme = appearance;
+      async (preference) => {
+        using _selection = setup(preference, appearance);
 
-        const theme = readRenderTheme();
+        const theme = await readRenderTheme();
 
         expect(theme.appearance).toBe(appearance);
         for (const [variable, value] of Object.entries(theme.variables)) {
@@ -73,7 +62,8 @@ describe("useHtmlRenderTheme", () => {
     );
   }
 
-  it("preserves alpha when converting a published palette", () => {
+  it("preserves alpha when converting a published palette", async () => {
+    using _selection = setup("transparent", "dark");
     setEnvironmentThemes([
       {
         id: "transparent",
@@ -82,10 +72,8 @@ describe("useHtmlRenderTheme", () => {
         colors: { ...getStandardThemeColors("dark"), accent: "oklch(0.5 0 0 / 0.5)" },
       },
     ]);
-    selection.activeTheme = "transparent";
-    selection.resolvedTheme = "dark";
 
-    const theme = readRenderTheme();
+    const theme = await readRenderTheme();
 
     expect(theme.variables["--accent"]).toBe("#63636380");
     expect(theme.variables["--chart-1"]).toBe("#63636380");

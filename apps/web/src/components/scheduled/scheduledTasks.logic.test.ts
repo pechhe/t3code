@@ -15,6 +15,10 @@ import {
   scheduleDraftOf,
   scheduledSignal,
   timedScheduleOf,
+  webhookDeliveryLabel,
+  webhookDraftErrors,
+  webhookDraftOf,
+  webhookScheduleOf,
   type GroupDraftFields,
   type ProjectChoice,
 } from "./scheduledTasks.logic";
@@ -211,5 +215,116 @@ describe("schedule drafts", () => {
         intervalMinutes: "1.5",
       }),
     ).toBeNull();
+  });
+});
+
+describe("webhook drafts", () => {
+  const signature = { header: "x-sig", encoding: "hex", prefix: "sha256=" } as const;
+  const blank = webhookDraftOf({ type: "webhook", signature: null });
+
+  it("round-trips dedupe settings, clears them, and rejects invalid windows", () => {
+    const dedupe = {
+      replayKey: "{{headers.delivery-id}}",
+      coalesceKey: "{{body.id}}",
+      coalesceWindowSeconds: 10,
+    };
+    const draft = webhookDraftOf({ type: "webhook", signature: null, dedupe });
+    expect(webhookScheduleOf(draft)).toMatchObject({ dedupe });
+    expect(
+      webhookScheduleOf({
+        ...draft,
+        replayKey: " \n ",
+        coalesceKey: " \t ",
+        coalesceWindowSeconds: "",
+      }),
+    ).toMatchObject({ dedupe: {} });
+    expect(
+      webhookScheduleOf({
+        ...draft,
+        replayKey: `  ${dedupe.replayKey}  `,
+        coalesceKey: `\t${dedupe.coalesceKey}\n`,
+      }),
+    ).toMatchObject({ dedupe });
+    expect(webhookScheduleOf({ ...draft, coalesceWindowSeconds: "" })).toMatchObject({
+      dedupe: { replayKey: dedupe.replayKey, coalesceKey: dedupe.coalesceKey },
+    });
+    for (const coalesceWindowSeconds of ["9", "3601", "1.5", "abc"]) {
+      expect(webhookScheduleOf({ ...draft, coalesceWindowSeconds })).toBeNull();
+    }
+  });
+
+  it("sends filters only when the form changed them", () => {
+    const filters = [
+      { path: "headers.x-github-event", op: "equals", value: "pull_request" },
+      { path: "body.action", op: "in", value: ["opened", "reopened"] },
+    ] as const;
+    const draft = webhookDraftOf({ type: "webhook", signature, filters });
+    expect(draft.filters.map((filter) => filter.op)).toEqual(["equals", "in"]);
+    expect(webhookScheduleOf({ ...draft, signatureSecret: "s" })).not.toHaveProperty("filters");
+    expect(webhookScheduleOf({ ...draft, filters: draft.filters.slice(0, 1) })).toMatchObject({
+      filters: filters.slice(0, 1),
+    });
+    // Removing every row is a change, so it clears the stored filters.
+    expect(webhookScheduleOf({ ...draft, filters: [] })).toMatchObject({ filters: [] });
+    expect(
+      webhookScheduleOf({
+        ...draft,
+        filters: [{ id: "f1", path: "body.action", op: "in", value: " , " }],
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects dedupe templates without a request placeholder", () => {
+    expect(webhookScheduleOf({ ...blank, replayKey: "literal" })).toBeNull();
+    expect(webhookScheduleOf({ ...blank, coalesceKey: "{{body.bad" })).toBeNull();
+  });
+
+  it("keeps the signature secret write-only", () => {
+    const draft = webhookDraftOf({ type: "webhook", signature });
+    expect(draft.signatureSecret).toBe("");
+    expect(webhookScheduleOf(draft)?.signature).toEqual(signature);
+    expect(webhookScheduleOf({ ...draft, signatureSecret: " s " })?.signature).toMatchObject({
+      secret: "s",
+    });
+  });
+});
+
+describe("webhook delivery labels and validation messages", () => {
+  it("preserves Ran for dispatched deliveries and distinguishes pending windows", () => {
+    expect(webhookDeliveryLabel({ outcome: "accepted" })).toBe("Ran");
+    expect(webhookDeliveryLabel({ outcome: "accepted", pendingWindow: false })).toBe("Ran");
+    expect(webhookDeliveryLabel({ outcome: "accepted", pendingWindow: true })).toBe(
+      "Opened window",
+    );
+    expect(webhookDeliveryLabel({ outcome: "filtered" })).toBe("Filtered");
+    expect(webhookDeliveryLabel({ outcome: "some_new_outcome" })).toBe("some new outcome");
+  });
+
+  it("keeps the age-limit title and body", () => {
+    const draft = webhookDraftOf({ type: "webhook", signature: null });
+    expect(
+      webhookDraftErrors({ ...draft, maxDeliveryAgeMinutes: "0", replayKey: "literal" }),
+    ).toEqual([
+      {
+        title: "Invalid age limit",
+        description: "Enter whole minutes from 1 to 1440, or leave it blank.",
+      },
+    ]);
+  });
+
+  it("reports separate short errors when several dedupe fields fail", () => {
+    const draft = webhookDraftOf({ type: "webhook", signature: null });
+    expect(
+      webhookDraftErrors({
+        ...draft,
+        replayKey: "bad",
+        coalesceKey: "bad",
+        coalesceWindowSeconds: "0",
+      }).map((error) => error.description),
+    ).toEqual([
+      "Replay key must contain a valid request placeholder.",
+      "Coalesce key must contain a valid request placeholder.",
+      "Coalesce window must be whole seconds from 10 to 3600.",
+    ]);
   });
 });

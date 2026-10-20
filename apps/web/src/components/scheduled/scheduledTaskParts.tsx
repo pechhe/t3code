@@ -5,7 +5,6 @@ import type {
   EnvironmentId,
   ScheduledTask,
   ScheduledTaskSchedule,
-  ScheduledTaskWebhookDeliveryOutcome,
   ScheduledTaskWebhookDeliverySummary,
 } from "@t3tools/contracts";
 import {
@@ -39,6 +38,7 @@ import {
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { stackedThreadToast, toastManager } from "../ui/toast";
+import { webhookDeliveryLabel } from "./scheduledTasks.logic";
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
@@ -88,21 +88,19 @@ export function ScheduledRelativeLabel(props: { value: string | null }) {
   return relativeLabel(props.value, Date.parse(`${nowMinute}:00.000Z`));
 }
 
-const DELIVERY_OUTCOME_LABELS: Record<ScheduledTaskWebhookDeliveryOutcome, string> = {
-  accepted: "Ran",
-  dispatch_failed: "Run failed",
-  rejected_signature: "Bad signature",
-  disabled: "Task paused",
-  rate_limited: "Rate limited",
-  expired: "Too old",
-};
-
-function deliveryOutcomeVariant(outcome: ScheduledTaskWebhookDeliveryOutcome) {
+function deliveryOutcomeVariant(outcome: string) {
   if (outcome === "accepted") return "success";
-  if (outcome === "disabled" || outcome === "rate_limited" || outcome === "expired") {
+  if (
+    outcome === "duplicate" ||
+    outcome === "coalesced" ||
+    outcome === "disabled" ||
+    outcome === "rate_limited" ||
+    outcome === "expired"
+  ) {
     return "warning";
   }
-  return "error";
+  if (outcome === "dispatch_failed" || outcome === "rejected_signature") return "error";
+  return "outline";
 }
 
 export function statusVariant(status: ScheduledTask["lastRunStatus"]) {
@@ -122,7 +120,10 @@ export function WebhookDeliveriesDialog({
   readonly onClose: () => void;
 }) {
   const deliveriesQuery = useEnvironmentQuery(
-    serverEnvironment.scheduledTaskWebhookDeliveries({ environmentId, input: { id: task.id } }),
+    serverEnvironment.scheduledTaskWebhookDeliveries({
+      environmentId,
+      input: { id: task.id, acceptAnyOutcome: true },
+    }),
   );
   const [selectedId, setSelectedId] = useState<ScheduledTaskWebhookDeliverySummary["id"] | null>(
     null,
@@ -132,7 +133,7 @@ export function WebhookDeliveriesDialog({
       ? null
       : serverEnvironment.scheduledTaskWebhookDelivery({
           environmentId,
-          input: { id: task.id, deliveryId: selectedId },
+          input: { id: task.id, deliveryId: selectedId, acceptAnyOutcome: true },
         }),
   );
   const deliveries = deliveriesQuery.data?.deliveries ?? null;
@@ -160,8 +161,12 @@ export function WebhookDeliveriesDialog({
           ) : selected ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Badge variant={deliveryOutcomeVariant(selected.outcome)}>
-                  {DELIVERY_OUTCOME_LABELS[selected.outcome]}
+                <Badge
+                  variant={deliveryOutcomeVariant(
+                    selected.pendingWindow ? "coalesced" : selected.outcome,
+                  )}
+                >
+                  {webhookDeliveryLabel(selected)}
                 </Badge>
                 <span>
                   {selected.method} · {relativeLabel(selected.receivedAt)}
@@ -170,9 +175,24 @@ export function WebhookDeliveriesDialog({
                   <span className="text-muted-foreground">Signature verified</span>
                 ) : null}
               </div>
-              {selected.error ? <p className="text-sm text-destructive">{selected.error}</p> : null}
-              <DeliveryBlock title="Prompt sent to the agent">
-                {selected.renderedPrompt ?? "No run was started for this request."}
+              {selected.error ? (
+                <p
+                  className={
+                    selected.outcome === "filtered"
+                      ? "text-sm text-muted-foreground"
+                      : "text-sm text-destructive"
+                  }
+                >
+                  {selected.error}
+                </p>
+              ) : null}
+              <DeliveryBlock
+                title={selected.pendingWindow ? "Scheduled run" : "Prompt sent to the agent"}
+              >
+                {selected.renderedPrompt ??
+                  (selected.pendingWindow
+                    ? "Run scheduled when the window closes; no run started yet."
+                    : "No run was started for this request.")}
               </DeliveryBlock>
               {selected.missingFields.length > 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -206,13 +226,20 @@ export function WebhookDeliveriesDialog({
                     className="flex w-full flex-wrap items-center gap-2 py-2 text-left text-sm hover:bg-accent/40"
                     onClick={() => setSelectedId(delivery.id)}
                   >
-                    <Badge variant={deliveryOutcomeVariant(delivery.outcome)}>
-                      {DELIVERY_OUTCOME_LABELS[delivery.outcome]}
+                    <Badge
+                      variant={deliveryOutcomeVariant(
+                        delivery.pendingWindow ? "coalesced" : delivery.outcome,
+                      )}
+                    >
+                      {webhookDeliveryLabel(delivery)}
                     </Badge>
                     <span>{delivery.method}</span>
                     <span className="text-muted-foreground">
                       {relativeLabel(delivery.receivedAt)}
                     </span>
+                    {delivery.outcome === "filtered" && delivery.error ? (
+                      <span className="text-muted-foreground">{delivery.error}</span>
+                    ) : null}
                     {delivery.missingFields.length > 0 ? (
                       <span className="text-muted-foreground">
                         {delivery.missingFields.length} empty placeholder

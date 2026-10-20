@@ -1,5 +1,14 @@
 import {
+  parseMaxDeliveryAge,
+  parseWebhookFilterDrafts,
+  webhookFilterDrafts,
+  webhookFilterDraftsChanged,
+  type WebhookFilterDraft,
+} from "@t3tools/client-runtime/scheduled-task-webhook";
+import {
   EnvironmentId,
+  isWebhookDedupeTemplate,
+  MAX_WEBHOOK_DELIVERY_AGE_MINUTES,
   ScheduledTaskId,
   type AgentPolicyManifest,
   type AgentRole,
@@ -318,4 +327,135 @@ export function timedScheduleOf(
     return { type: "fixed_time", timeOfDay, weekdays: [...draft.weekdays].toSorted() };
   }
   return { type: "fixed_time", timeOfDay };
+}
+
+/** The webhook trigger's fields as the editor holds them. */
+export interface WebhookDraft {
+  readonly signatureEnabled: boolean;
+  readonly signatureHeader: string;
+  readonly signatureEncoding: "hex" | "base64";
+  readonly signaturePrefix: string;
+  /** Write-only: empty keeps the secret already stored on each machine. */
+  readonly signatureSecret: string;
+  readonly maxDeliveryAgeMinutes: string;
+  readonly replayKey: string;
+  readonly coalesceKey: string;
+  readonly coalesceWindowSeconds: string;
+  readonly filters: ReadonlyArray<WebhookFilterDraft>;
+  /** The filter rows the form opened with. */
+  readonly savedFilters: ReadonlyArray<WebhookFilterDraft>;
+}
+
+export function webhookDraftOf(schedule: ScheduledTask["schedule"] | null): WebhookDraft {
+  const webhook = schedule?.type === "webhook" ? schedule : null;
+  const signature = webhook?.signature ?? null;
+  const filters = webhookFilterDrafts(webhook?.filters);
+  return {
+    signatureEnabled: signature != null,
+    signatureHeader: signature?.header ?? "x-hub-signature-256",
+    signatureEncoding: signature?.encoding ?? "hex",
+    signaturePrefix: signature?.prefix ?? "sha256=",
+    signatureSecret: "",
+    maxDeliveryAgeMinutes:
+      webhook?.maxDeliveryAgeMinutes != null ? String(webhook.maxDeliveryAgeMinutes) : "",
+    replayKey: webhook?.dedupe?.replayKey ?? "",
+    coalesceKey: webhook?.dedupe?.coalesceKey ?? "",
+    coalesceWindowSeconds:
+      webhook?.dedupe?.coalesceWindowSeconds !== undefined
+        ? String(webhook.dedupe.coalesceWindowSeconds)
+        : "",
+    filters,
+    savedFilters: filters,
+  };
+}
+
+/** What is wrong with the webhook fields, one toast each; empty when they can be saved. */
+export function webhookDraftErrors(draft: WebhookDraft) {
+  if (parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes) === undefined) {
+    return [
+      {
+        title: "Invalid age limit",
+        description: `Enter whole minutes from 1 to ${MAX_WEBHOOK_DELIVERY_AGE_MINUTES}, or leave it blank.`,
+      },
+    ];
+  }
+  const errors: Array<{ title: string; description: string }> = [];
+  for (const [label, value] of [
+    ["Replay key", draft.replayKey],
+    ["Coalesce key", draft.coalesceKey],
+  ] as const) {
+    if (value.trim() && !isWebhookDedupeTemplate(value.trim())) {
+      errors.push({
+        title: "Invalid webhook settings",
+        description: `${label} must contain a valid request placeholder.`,
+      });
+    }
+  }
+  const window = draft.coalesceWindowSeconds.trim();
+  if (
+    window &&
+    (!Number.isInteger(Number(window)) || Number(window) < 10 || Number(window) > 3600)
+  ) {
+    errors.push({
+      title: "Invalid webhook settings",
+      description: "Coalesce window must be whole seconds from 10 to 3600.",
+    });
+  }
+  return errors;
+}
+
+/** The webhook trigger to save; null when the fields are invalid (see `webhookDraftErrors`). */
+export function webhookScheduleOf(
+  draft: WebhookDraft,
+): Extract<ScheduledTaskUpsertSchedule, { type: "webhook" }> | null {
+  if (webhookDraftErrors(draft).length > 0) return null;
+  const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
+  if (maxDeliveryAgeMinutes === undefined) return null;
+  const parsedFilters = parseWebhookFilterDrafts(draft.filters);
+  if (!("filters" in parsedFilters)) return null;
+  const secret = draft.signatureSecret.trim();
+  const replayKey = draft.replayKey.trim();
+  const coalesceKey = draft.coalesceKey.trim();
+  const coalesceWindowSeconds = draft.coalesceWindowSeconds.trim()
+    ? Number(draft.coalesceWindowSeconds)
+    : undefined;
+  return {
+    type: "webhook",
+    signature: draft.signatureEnabled
+      ? {
+          header: draft.signatureHeader.trim(),
+          encoding: draft.signatureEncoding,
+          prefix: draft.signaturePrefix,
+          ...(secret ? { secret } : {}),
+        }
+      : null,
+    maxDeliveryAgeMinutes,
+    dedupe: {
+      ...(replayKey ? { replayKey } : {}),
+      ...(coalesceKey ? { coalesceKey } : {}),
+      ...(coalesceWindowSeconds === undefined ? {} : { coalesceWindowSeconds }),
+    },
+    // Only edited filters are sent; the server keeps the stored ones otherwise.
+    ...(webhookFilterDraftsChanged(draft.savedFilters, draft.filters)
+      ? { filters: parsedFilters.filters }
+      : {}),
+  };
+}
+
+export function webhookDeliveryLabel(delivery: {
+  readonly outcome: string;
+  readonly pendingWindow?: boolean | undefined;
+}) {
+  if (delivery.outcome === "accepted") return delivery.pendingWindow ? "Opened window" : "Ran";
+  const labels: Record<string, string> = {
+    dispatch_failed: "Run failed",
+    duplicate: "Duplicate",
+    coalesced: "Coalesced",
+    filtered: "Filtered",
+    rejected_signature: "Bad signature",
+    disabled: "Task paused",
+    rate_limited: "Rate limited",
+    expired: "Too old",
+  };
+  return labels[delivery.outcome] ?? delivery.outcome.replaceAll("_", " ");
 }

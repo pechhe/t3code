@@ -79,9 +79,9 @@ import Migration0073 from "./Migrations/073_ReleaseApprovals.ts";
 import Migration0074 from "./Migrations/074_CanonicalizeThreadPullRequestLinks.ts";
 import Migration0075 from "./Migrations/075_CodexUsageNativeTurnIndex.ts";
 import Migration0076 from "./Migrations/076_RepairClientSettlementTimestamps.ts";
-
 import Migration0077 from "./Migrations/077_ProjectHqRepositorySync.ts";
 import Migration0078 from "./Migrations/078_BuildSendBackDeliveries.ts";
+import Migration0079 from "./Migrations/079_WebhookDedupe.ts";
 
 export const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -163,6 +163,7 @@ export const migrationEntries = [
   [76, "RepairClientSettlementTimestamps", Migration0076],
   [77, "ProjectHqRepositorySync", Migration0077],
   [78, "BuildSendBackDeliveries", Migration0078],
+  [79, "WebhookDedupe", Migration0079],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
