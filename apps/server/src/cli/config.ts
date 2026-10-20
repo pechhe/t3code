@@ -88,9 +88,10 @@ export const traceFileConfig = Config.String("T3CODE_TRACE_FILE").pipe(
   Config.option,
   Config.map(Option.getOrUndefined),
 );
-// The file keeps only spans worth diagnosing (see makeTraceSink), so 60 files hold hours.
+// Rotated files are gzipped to about a tenth of their size, so 360 hold a day
+// of a busy server in less disk than 60 plain files did.
 export const traceMaxFilesConfig = Config.Int("T3CODE_TRACE_MAX_FILES").pipe(
-  Config.withDefault(60),
+  Config.withDefault(360),
 );
 
 const EnvServerConfig = Config.all({

@@ -18,12 +18,19 @@ import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import * as Tracer from "effect/Tracer";
-import * as RpcTest from "effect/rpc/RpcTest";
+import type * as Rpc from "effect/rpc/Rpc";
+import * as RpcClient from "effect/rpc/RpcClient";
+import type * as RpcGroup from "effect/rpc/RpcGroup";
+import * as RpcServer from "effect/rpc/RpcServer";
 import * as TestClock from "effect/testing/TestClock";
 
 import { RPC_REQUIRED_SCOPES } from "../auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "../auth/RpcAuthorization.ts";
-import { RpcInstrumentation, rpcInstrumentationLayer } from "./RpcInstrumentation.ts";
+import {
+  RPC_SERVER_TRACING_OPTIONS,
+  RpcInstrumentation,
+  rpcInstrumentationLayer,
+} from "./RpcInstrumentation.ts";
 
 type WsRpcMethod = keyof typeof RPC_REQUIRED_SCOPES;
 
@@ -39,7 +46,28 @@ const connectionMiddleware = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>
   Layer.merge(RpcAuthorization.layer(scopes), rpcInstrumentationLayer);
 const readOnlyConnection = connectionMiddleware([AuthOrchestrationReadScope]);
 const taskId = ScheduledTaskId.make("scheduled-task:instrumented");
-const rpcSpanDefaults = { "rpc.transport": "websocket", "rpc.system": "effect-rpc" };
+const rpcSpanDefaults = {
+  "rpc.system.name": "effect_rpc",
+  "rpc.transport": "websocket",
+  "rpc.system": "effect-rpc",
+};
+
+// RpcTest's in-memory client and server, with the server traced as ws.ts traces it.
+const makeClient = Effect.fnUntraced(function* <Rpcs extends Rpc.Any>(
+  group: RpcGroup.RpcGroup<Rpcs>,
+) {
+  // oxlint-disable-next-line prefer-const
+  let client!: Effect.Success<ReturnType<typeof RpcClient.makeNoSerialization<Rpcs, never>>>;
+  const server = yield* RpcServer.makeNoSerialization(group, {
+    ...RPC_SERVER_TRACING_OPTIONS,
+    onFromServer: (response) => client.write(response),
+  });
+  client = yield* RpcClient.makeNoSerialization(group, {
+    supportsAck: true,
+    onFromClient: ({ message }) => server.write(0, message),
+  });
+  return client.client;
+});
 
 const withTelemetry = <A, E, R>(
   test: (ended: ReadonlyArray<Tracer.NativeSpan>) => Effect.Effect<A, E, R>,
@@ -66,10 +94,8 @@ const withTelemetry = <A, E, R>(
 const rpcSpans = (ended: ReadonlyArray<Tracer.NativeSpan>) =>
   ended.filter((span) => span.name.startsWith("ws.rpc."));
 
-// RpcTest keeps Effect's own RpcServer/RpcClient spans, which ws.ts turns off with
-// `disableTracing: true`.
-const appSpans = (ended: ReadonlyArray<Tracer.NativeSpan>) =>
-  ended.filter((span) => span.attributes.get("rpc.system.name") !== "effect_rpc");
+const serverSpans = (ended: ReadonlyArray<Tracer.NativeSpan>) =>
+  ended.filter((span) => span.kind !== "client");
 
 const exitTag = (span: Tracer.NativeSpan | undefined) =>
   span?.status._tag === "Ended" ? span.status.exit._tag : undefined;
@@ -110,7 +136,7 @@ describe("WS RPC instrumentation middleware", () => {
           WS_METHODS.scheduledTasksSubscribe,
           WS_METHODS.serverGetSettings,
         );
-        const client = yield* RpcTest.makeClient(group).pipe(
+        const client = yield* makeClient(group).pipe(
           Effect.provide(
             Layer.mergeAll(
               group.toLayerHandler(WS_METHODS.serverProbe, () =>
@@ -247,7 +273,7 @@ describe("WS RPC instrumentation middleware", () => {
       Effect.gen(function* () {
         const waiting = yield* Deferred.make<void>();
         const group = groupOf(WS_METHODS.pullRequestsSubscribeRefreshes);
-        const client = yield* RpcTest.makeClient(group).pipe(
+        const client = yield* makeClient(group).pipe(
           Effect.provide(
             Layer.mergeAll(
               group.toLayerHandler(WS_METHODS.pullRequestsSubscribeRefreshes, () =>
@@ -274,7 +300,7 @@ describe("WS RPC instrumentation middleware", () => {
         yield* Deferred.await(waiting);
         yield* TestClock.adjust(Duration.millis(250));
         yield* TestClock.setTime(0);
-        assert.deepStrictEqual(appSpans(ended), []);
+        assert.deepStrictEqual(serverSpans(ended), []);
 
         yield* Fiber.interrupt(consumer);
 
@@ -296,11 +322,35 @@ describe("WS RPC instrumentation middleware", () => {
     ),
   );
 
-  it.effect("records metrics but no spans for methods with tracing disabled", () =>
+  it.effect("parents the server span on the client's span for the same request", () =>
+    withTelemetry((ended) =>
+      Effect.gen(function* () {
+        const group = groupOf(WS_METHODS.serverProbe);
+        const client = yield* makeClient(group).pipe(
+          Effect.provide(
+            Layer.merge(
+              group.toLayerHandler(WS_METHODS.serverProbe, () => Effect.succeed({})),
+              readOnlyConnection,
+            ),
+          ),
+        );
+
+        yield* client[WS_METHODS.serverProbe]({});
+
+        const clientSpan = ended.find((span) => span.kind === "client");
+        const [serverSpan] = rpcSpans(ended);
+        assert.isDefined(clientSpan);
+        assert.equal(serverSpan?.traceId, clientSpan?.traceId);
+        assert.equal(parentSpanId(serverSpan), clientSpan?.spanId);
+      }),
+    ),
+  );
+
+  it.effect("records metrics and only the request span for methods with tracing disabled", () =>
     withTelemetry((ended) =>
       Effect.gen(function* () {
         const group = groupOf(WS_METHODS.serverSignalProcess);
-        const client = yield* RpcTest.makeClient(group).pipe(
+        const client = yield* makeClient(group).pipe(
           Effect.provide(
             Layer.mergeAll(
               group.toLayerHandler(WS_METHODS.serverSignalProcess, (input) =>
@@ -319,7 +369,10 @@ describe("WS RPC instrumentation middleware", () => {
         const input = { pid: 4242, startTimeMs: 0, signal: "SIGINT" } as const;
         assert.equal((yield* client[WS_METHODS.serverSignalProcess](input)).signaled, true);
 
-        assert.deepStrictEqual(appSpans(ended), []);
+        assert.deepStrictEqual(
+          serverSpans(ended).map((span) => span.name),
+          ["ws.rpc.server.signalProcess"],
+        );
         const snapshots = yield* Metric.snapshot;
         assert.equal(requestCount(snapshots, WS_METHODS.serverSignalProcess, "success")?.count, 1);
       }),

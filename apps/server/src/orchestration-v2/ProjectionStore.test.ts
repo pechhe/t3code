@@ -1234,6 +1234,17 @@ const assertProjectScopedShells = Effect.fn("assertProjectScopedShells")(functio
     all.archivedThreads.map((thread) => thread.id),
     [archivedThreadId],
   );
+  const chosen = yield* projectionStore.getShellSnapshot({
+    threadIds: [forkThreadId, archivedThreadId, otherThreadId],
+  });
+  assert.deepEqual(
+    chosen.threads,
+    unscoped.threads.filter((thread) => thread.id === forkThreadId || thread.id === otherThreadId),
+  );
+  assert.deepEqual(
+    chosen.archivedThreads,
+    unscoped.archivedThreads.filter((thread) => thread.id === archivedThreadId),
+  );
   return { projectId, activeThreadId, forkThreadId, otherThreadId };
 });
 

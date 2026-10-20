@@ -395,6 +395,7 @@ export interface ProjectionTimelinePage {
 export interface ShellSnapshotOptions {
   readonly location?: "active" | "archive";
   readonly projectId?: ProjectId;
+  readonly threadIds?: ReadonlyArray<ThreadId>;
   readonly unsettledOnly?: boolean;
 }
 
@@ -5620,7 +5621,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
 
     const selectShellThreadRows = (
       threadId?: ThreadId,
-      { location, projectId, unsettledOnly = false }: ShellSnapshotOptions = {},
+      { location, projectId, threadIds, unsettledOnly = false }: ShellSnapshotOptions = {},
     ) =>
       sql<ShellThreadRow>`
             SELECT
@@ -5803,7 +5804,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             ) AND blocked.status = 'failed'
             WHERE t.deleted_at IS NULL${threadId === undefined ? sql`` : sql` AND t.thread_id = ${threadId}`}${
               projectId === undefined ? sql`` : sql` AND t.project_id = ${projectId}`
-            }${
+            }${threadIds === undefined ? sql`` : sql` AND t.thread_id IN ${sql.in(threadIds)}`}${
               location === "active"
                 ? sql` AND json_extract(t.payload_json, '$.archivedAt') IS NULL`
                 : location === "archive"
@@ -6472,71 +6473,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         .pipe(Effect.mapError(shellSnapshotReadError), Effect.flatMap(decodeShellSnapshot));
 
     const getThreadShell: ProjectionStoreV2Shape["getThreadShell"] = (threadId) =>
-      sql
-        .withTransaction(
-          Effect.gen(function* () {
-            const rowsByThreadId = new Map<ThreadId, ShellThreadRow>();
-            const pending: Array<ThreadId> = [threadId];
-            while (pending.length > 0) {
-              const nextId = pending.pop();
-              if (nextId === undefined || rowsByThreadId.has(nextId)) {
-                continue;
-              }
-              const rows = yield* selectShellThreadRows(nextId);
-              const row = rows[0];
-              if (row === undefined) {
-                continue;
-              }
-              rowsByThreadId.set(nextId, row);
-              if (row.forked_from_run_source_thread_id !== null) {
-                pending.push(ThreadId.make(row.forked_from_run_source_thread_id));
-              }
-            }
-            if (!rowsByThreadId.has(threadId)) {
-              return null;
-            }
-
-            const threadIds = [...rowsByThreadId.keys()];
-            const forkSourceIds = shellForkSourceIds([...rowsByThreadId.values()]);
-            const [runRows, itemCountRows, providerThreadRows, pendingTurnItemRows] =
-              yield* Effect.all([
-                forkSourceIds.length === 0
-                  ? Effect.succeed([] as ReadonlyArray<ShellRunRow>)
-                  : selectShellRunRows(forkSourceIds),
-                forkSourceIds.length === 0
-                  ? Effect.succeed([] as ReadonlyArray<ShellRunItemCountRow>)
-                  : selectShellRunItemCounts(forkSourceIds),
-                selectShellProviderThreadRows(threadIds),
-                selectShellPendingTurnItemRows(threadIds),
-              ]);
-            const { runOrdinalsByThreadId, itemCountsByThreadId } = runMapsByThreadId({
-              runRows,
-              itemCountRows,
-            });
-            const { providerThreadsByThreadId, pendingTurnItemsByThreadId } =
-              yield* pendingBackgroundDataByThreadId({ providerThreadRows, pendingTurnItemRows });
-
-            const states = yield* Effect.forEach([...rowsByThreadId.values()], (row) =>
-              shellThreadStateFromRow({
-                row,
-                runOrdinalsByThreadId,
-                itemCountsByThreadId,
-                providerThreadsByThreadId,
-                pendingTurnItemsByThreadId,
-              }),
-            );
-            const statesByThreadId = new Map(states.map((state) => [state.thread.id, state]));
-            const state = statesByThreadId.get(threadId);
-            if (state === undefined) {
-              return null;
-            }
-            return shellFromState({
-              state,
-              visibleItemCount: visibleItemCountForShell({ threadId, statesByThreadId }),
-            });
-          }),
-        )
-        .pipe(Effect.mapError((cause) => new ProjectionStoreReadError({ threadId, cause })));
+      getShellSnapshot({ threadIds: [threadId] }).pipe(
+        Effect.map((snapshot) => [...snapshot.threads, ...snapshot.archivedThreads][0] ?? null),
+        Effect.mapError((error) => new ProjectionStoreReadError({ threadId, cause: error.cause })),
+      );
 
     return {
       apply,
@@ -6618,11 +6558,14 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
         Effect.gen(function* () {
           const existing = (yield* Ref.get(replayState)).projections;
           const selectedThreadIds = [...existing.entries()]
-            .filter(([, projection]) => {
+            .filter(([threadId, projection]) => {
               if (
                 options?.projectId !== undefined &&
                 projection.thread.projectId !== options.projectId
               ) {
+                return false;
+              }
+              if (options?.threadIds !== undefined && !options.threadIds.includes(threadId)) {
                 return false;
               }
               if (

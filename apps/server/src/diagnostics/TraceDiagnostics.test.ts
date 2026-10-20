@@ -1,3 +1,4 @@
+import * as NodeZlib from "node:zlib";
 import { assert, describe, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -152,11 +153,11 @@ describe("TraceDiagnostics", () => {
     }),
   );
 
-  it.effect("streams rotated files into the same result as reading them whole", () =>
+  it.effect("streams gzipped rotated files into the same result as reading them whole", () =>
     Effect.gen(function* () {
       const files = new Map([
         [
-          `${traceFilePath}.1`,
+          `${traceFilePath}.1.gz`,
           [
             record({
               name: "server.getConfig",
@@ -212,7 +213,12 @@ describe("TraceDiagnostics", () => {
       const diagnostics = yield* readTraces({
         stream: (path) =>
           Stream.fromIterable(
-            Array.from(encoder.encode(files.get(path)), (byte) => Uint8Array.of(byte)),
+            Array.from(
+              path.endsWith(".gz")
+                ? NodeZlib.gzipSync(files.get(path) ?? "")
+                : encoder.encode(files.get(path)),
+              (byte) => Uint8Array.of(byte),
+            ),
           ),
       });
 
@@ -259,7 +265,7 @@ describe("TraceDiagnostics", () => {
         module: "FileSystem",
         method: "open",
         description: "permission denied",
-        pathOrDescriptor: `${traceFilePath}.1`,
+        pathOrDescriptor: `${traceFilePath}.1.gz`,
       });
       const logAnnotations: Array<Record<string, unknown>> = [];
       const logger = Logger.make<unknown, void>((options) => {
@@ -268,19 +274,28 @@ describe("TraceDiagnostics", () => {
 
       const diagnostics = yield* readTraces({
         stream: (path) =>
-          path === `${traceFilePath}.1`
+          path === `${traceFilePath}.1.gz`
             ? Stream.fail(readFailure)
-            : Stream.make(
-                new TextEncoder().encode(
-                  record({
-                    name: "server.getConfig",
-                    traceId: "trace-a",
-                    spanId: "span-a",
-                    startMs: 1_000,
-                    durationMs: 50,
+            : path !== traceFilePath
+              ? Stream.fail(
+                  PlatformError.systemError({
+                    _tag: "NotFound",
+                    module: "FileSystem",
+                    method: "open",
+                    pathOrDescriptor: path,
                   }),
+                )
+              : Stream.make(
+                  new TextEncoder().encode(
+                    record({
+                      name: "server.getConfig",
+                      traceId: "trace-a",
+                      spanId: "span-a",
+                      startMs: 1_000,
+                      durationMs: 50,
+                    }),
+                  ),
                 ),
-              ),
       }).pipe(Effect.provide(Logger.layer([logger], { mergeWithExisting: false })));
 
       assert.equal(diagnostics.recordCount, 1);
@@ -290,16 +305,20 @@ describe("TraceDiagnostics", () => {
       );
       assert.deepStrictEqual(Option.getOrUndefined(diagnostics.error), {
         kind: "trace-file-read-failed",
-        message: `Failed to read local trace file '${traceFilePath}.1'.`,
+        message: `Failed to read local trace file '${traceFilePath}.1.gz'.`,
       });
-      assert.deepStrictEqual(diagnostics.scannedFilePaths, [`${traceFilePath}.1`, traceFilePath]);
+      assert.deepStrictEqual(diagnostics.scannedFilePaths, [
+        `${traceFilePath}.1`,
+        `${traceFilePath}.1.gz`,
+        traceFilePath,
+      ]);
 
       const failureLog = logAnnotations.find(
-        (annotations) => annotations.traceFilePath === `${traceFilePath}.1`,
+        (annotations) => annotations.traceFilePath === `${traceFilePath}.1.gz`,
       );
       assert.exists(failureLog);
       assert.deepStrictEqual(failureLog, {
-        traceFilePath: `${traceFilePath}.1`,
+        traceFilePath: `${traceFilePath}.1.gz`,
         errorTag: "TraceFileReadError",
         causeTag: "PermissionDenied",
       });

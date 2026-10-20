@@ -69,6 +69,7 @@ import {
   OrchestrationV2ThreadLaunchError,
   type OrchestrationProjectShell,
   type OrchestrationV2ShellSnapshot,
+  type OrchestrationV2ThreadShell,
   type ProjectEntriesFailure,
   type ProjectFileFailure,
   type ProjectFileOperation,
@@ -239,7 +240,11 @@ import * as BackgroundPolicy from "./background/BackgroundPolicy.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { requiredScopeForDeviceList, rpcAuthorizationError } from "./auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "./auth/RpcAuthorization.ts";
-import { RpcInstrumentation, rpcInstrumentationLayer } from "./observability/RpcInstrumentation.ts";
+import {
+  RPC_SERVER_TRACING_OPTIONS,
+  RpcInstrumentation,
+  rpcInstrumentationLayer,
+} from "./observability/RpcInstrumentation.ts";
 import * as ProcessDiagnostics from "./diagnostics/ProcessDiagnostics.ts";
 import * as ProcessResourceMonitor from "./diagnostics/ProcessResourceMonitor.ts";
 import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
@@ -1062,24 +1067,40 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
       });
     });
 
-    // Every subscriber reads a shell per committed event, so these reads stay
-    // off the writer that the events themselves wait on.
+    // Every subscriber reads shells per committed batch, so these reads stay
+    // off the writer that the events themselves wait on. A batch's threads are
+    // read together: per-thread reads cost several round trips each, and under
+    // host load every round trip waits on the event loop.
     const projectShellItems = Effect.fn("ws.orchestrationV2.projectShellItems")(function* (
       events: ReadonlyArray<ShellApplicationEvent>,
     ) {
+      const coalesced = coalesceShellApplicationEvents(events);
+      const threadIds = coalesced.flatMap((stored) =>
+        "aggregateKind" in stored ? [] : [stored.event.threadId],
+      );
+      const shells =
+        threadIds.length === 0
+          ? new Map<ThreadId, OrchestrationV2ThreadShell>()
+          : new Map(
+              (yield* threadManagement.getShellSnapshot({
+                location: "active",
+                threadIds,
+              })).threads.map((shell) => [shell.id, shell] as const),
+            );
       return yield* Effect.forEach(
-        coalesceShellApplicationEvents(events),
+        coalesced,
         (stored) =>
-          Effect.gen(function* () {
-            if ("aggregateKind" in stored) {
-              return yield* projectItem(stored);
-            }
-            const shell = yield* threadManagement.getThreadShell(stored.event.threadId);
-            return shellStreamItemFromThreadShell({ stored, shell });
-          }),
+          "aggregateKind" in stored
+            ? projectItem(stored)
+            : Effect.succeed(
+                shellStreamItemFromThreadShell({
+                  stored,
+                  shell: shells.get(stored.event.threadId) ?? null,
+                }),
+              ),
         { concurrency: 8 },
-      ).pipe(readOnly);
-    });
+      );
+    }, readOnly);
 
     const toShellStream = <E, R>(stream: Stream.Stream<ShellApplicationEvent, E, R>) =>
       stream.pipe(
@@ -1822,17 +1843,24 @@ const layerWsRpc = (
           .pipe(
             Stream.groupedWithin(512, Duration.millis(50)),
             Stream.mapEffect((events) =>
-              Effect.forEach(
-                coalesceStoredThreadEvents(Array.from(events)),
-                (stored) =>
-                  threadManagement.getThreadShell(stored.event.threadId).pipe(
-                    readOnly,
-                    Effect.map((shell) =>
-                      archivedShellStreamItemFromThreadShell({ stored, shell }),
-                    ),
-                  ),
-                { concurrency: 8 },
-              ),
+              Effect.gen(function* () {
+                const coalesced = coalesceStoredThreadEvents(Array.from(events));
+                const snapshot = yield* threadManagement
+                  .getShellSnapshot({
+                    location: "archive",
+                    threadIds: coalesced.map((stored) => stored.event.threadId),
+                  })
+                  .pipe(readOnly);
+                const shells = new Map(
+                  snapshot.archivedThreads.map((shell) => [shell.id, shell] as const),
+                );
+                return coalesced.map((stored) =>
+                  archivedShellStreamItemFromThreadShell({
+                    stored,
+                    shell: shells.get(stored.event.threadId) ?? null,
+                  }),
+                );
+              }),
             ),
             Stream.flatMap(Stream.fromIterable),
             Stream.filterMap((item) => (item === null ? Result.failVoid : Result.succeed(item))),
@@ -3245,7 +3273,7 @@ const layerWsPullRequestRpc = ServerWsPullRequestRpcGroup.toLayer(
 // sends a socket-level Defect frame instead, and the client ends every pending
 // request on the socket with it. DefectReporter logs these defects.
 export const WS_RPC_SERVER_OPTIONS = {
-  disableTracing: true,
+  ...RPC_SERVER_TRACING_OPTIONS,
   disableFatalDefects: true,
 } as const;
 

@@ -31,6 +31,7 @@ import { AgentScope, AgentScopeThreadId, RAISE_OOM_SCORE_LINE } from "@t3tools/s
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import { appendAcpStderrTail, sanitizeAcpStderrExcerpt } from "./stderr.ts";
 import {
   collectSessionConfigOptionValues,
@@ -1492,6 +1493,17 @@ export const make = (
             }),
         ),
       );
+
+    // Effect's POSIX spawner detaches by default, including Antigravity's launch.
+    if (options.ownDetachedProcessGroup !== false && (yield* HostProcess.Platform) !== "win32") {
+      const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
+      const forget = yield* ledger.track({
+        pid: Number(child.pid),
+        args: containedSpawnCommand.args,
+      });
+      // Exit observation outlives runtime scope teardown, which stops the child.
+      yield* child.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
+    }
 
     const posixOwnershipLedger = new Map<string, AcpOwnedPosixProcess>();
     const posixOwnershipFrontier = new Map<number, AcpOwnedPosixProcess>();

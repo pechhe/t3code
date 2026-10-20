@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off
+import * as NodeZlib from "node:zlib";
 import type {
   ServerTraceDiagnosticsErrorKind,
   ServerTraceDiagnosticsFailureSummary,
@@ -7,6 +9,8 @@ import type {
   ServerTraceDiagnosticsSpanOccurrence,
   ServerTraceDiagnosticsSpanSummary,
 } from "@t3tools/contracts";
+import * as NodeStream from "@effect/platform-node-shared/NodeStream";
+import { rotatedFilePath } from "@t3tools/shared/logging";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -78,10 +82,11 @@ export function toRotatedTracePaths(
   maxFiles: number,
 ): ReadonlyArray<string> {
   const backupCount = Math.max(0, Math.floor(maxFiles));
-  const backups = Array.from(
-    { length: backupCount },
-    (_, index) => `${traceFilePath}.${backupCount - index}`,
-  );
+  // A slot holds a gzipped backup, or a plain one written before compression.
+  const backups = Array.from({ length: backupCount }, (_, index) => [
+    rotatedFilePath(traceFilePath, backupCount - index, false),
+    rotatedFilePath(traceFilePath, backupCount - index, true),
+  ]).flat();
   return [...backups, traceFilePath];
 }
 
@@ -384,7 +389,10 @@ export function streamTraceFileLines(
   path: string,
   onLine: (line: string) => void,
 ): Effect.Effect<boolean, TraceFileReadError> {
-  return fileSystem.stream(path).pipe(
+  const bytes = fileSystem.stream(path);
+  return (
+    path.endsWith(".gz") ? NodeStream.pipeThroughSimple(bytes, NodeZlib.createGunzip) : bytes
+  ).pipe(
     Stream.decodeText,
     Stream.splitLines,
     Stream.runForEachArray((lines) => Effect.sync(() => lines.forEach(onLine))),
@@ -400,6 +408,8 @@ export function streamTraceFileLines(
                 cause,
               }),
             ),
+      UnknownError: (cause) =>
+        Effect.fail(new TraceFileReadError({ traceFilePath: path, causeTag: cause._tag, cause })),
     }),
   );
 }

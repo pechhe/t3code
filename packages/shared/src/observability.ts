@@ -134,6 +134,7 @@ export interface TraceSinkOptions {
   readonly maxBytes: number;
   readonly maxFiles: number;
   readonly batchWindowMs: number;
+  readonly compressRotated?: boolean | undefined;
   readonly retention?: {
     readonly minDurationMs: number;
     readonly minSqlLockWaitMs: number;
@@ -373,6 +374,7 @@ export const makeTraceSink = Effect.fn("makeTraceSink")(function* (options: Trac
     filePath: options.filePath,
     maxBytes: options.maxBytes,
     maxFiles: options.maxFiles,
+    compressRotated: options.compressRotated,
   }).pipe(Effect.orDie);
 
   let buffer: Array<{ readonly text: string; readonly bytes: number }> = [];

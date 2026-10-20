@@ -1,4 +1,5 @@
 import { COMPACTION_ADDENDUM } from "../ContextRollover.ts";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import {
   providerVideoFrameLabel,
   readProviderVideoFrames,
@@ -1483,6 +1484,8 @@ const layerCodexAppServerClientFactoryCommand = (
     CodexAppServerClientFactory,
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+      const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
+      const platform = yield* HostProcess.Platform;
       return CodexAppServerClientFactory.of({
         open: (input) =>
           Effect.gen(function* () {
@@ -1504,6 +1507,10 @@ const layerCodexAppServerClientFactoryCommand = (
                   }),
               ),
             );
+            if (platform !== "win32") {
+              const forget = yield* ledger.track({ pid: Number(handle.pid), args: command.args });
+              yield* handle.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
+            }
             const context = yield* Layer.build(CodexClient.layerChildProcess(handle, options));
             return yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
               Effect.provide(context),
@@ -1598,6 +1605,9 @@ export const layerAppServerClientFactory: Layer.Layer<
     const { native: nativeEventLogger } = yield* ProviderEventLoggers.ProviderEventLoggers;
     const agentScope = yield* AgentScope;
 
+    const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
+    const platform = yield* HostProcess.Platform;
+
     return CodexAppServerClientFactory.of({
       open: (input) =>
         Effect.gen(function* () {
@@ -1638,6 +1648,10 @@ export const layerAppServerClientFactory: Layer.Layer<
                   logOutgoing: true,
                   logger: protocolLogger,
                 };
+          if (platform !== "win32") {
+            const forget = yield* ledger.track({ pid: Number(handle.pid), args: command.args });
+            yield* handle.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
+          }
           const context = yield* Layer.build(CodexClient.layerChildProcess(handle, clientOptions));
           return yield* Effect.service(CodexClient.CodexAppServerClient).pipe(
             Effect.provide(context),

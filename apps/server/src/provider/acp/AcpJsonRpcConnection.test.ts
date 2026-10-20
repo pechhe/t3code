@@ -10,6 +10,8 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Scope from "effect/Scope";
 import * as Result from "effect/Result";
@@ -18,6 +20,7 @@ import * as Stream from "effect/Stream";
 import { describe, expect } from "vite-plus/test";
 
 import * as AcpSessionRuntime from "@t3tools/provider-acp/server/AcpSessionRuntime";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import type * as EffectAcpProtocol from "effect-acp/protocol";
 import * as EffectAcpErrors from "effect-acp/errors";
 
@@ -31,6 +34,52 @@ const mockRuntimeOptions = {
   clientInfo: { name: "t3-test", version: "0.0.0" },
   authMethodId: "test",
 } satisfies AcpSessionRuntime.AcpSessionRuntimeOptions;
+
+describe.skipIf(process.platform === "win32")("ACP process groups", () => {
+  it.effect.each([true, undefined])(
+    "records a detached group (option %s) and forgets it after teardown",
+    (ownDetachedProcessGroup) =>
+      Effect.gen(function* () {
+        const forgotten = yield* Deferred.make<void>();
+        const groups: number[] = [];
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const stateDir = yield* fs.makeTempDirectoryScoped();
+        const ledger = yield* ProcessGroupLedger.make({ stateDir });
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const runtime = yield* AcpSessionRuntime.make({
+              ...mockRuntimeOptions,
+              ...(ownDetachedProcessGroup === undefined ? {} : { ownDetachedProcessGroup }),
+              processGroupPlatform: process.platform,
+              processGroupTerminationGrace: 0,
+            });
+            yield* runtime.start();
+            expect(groups).toHaveLength(1);
+            expect(() => process.kill(-groups[0]!, 0)).not.toThrow();
+            expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toEqual([
+              `${groups[0]}.json`,
+            ]);
+          }).pipe(
+            Effect.provideService(ProcessGroupLedger.ProcessGroupLedger, {
+              track: ({ pid, args }) =>
+                Effect.gen(function* () {
+                  expect(args).toContain(mockAgentPath);
+                  groups.push(pid);
+                  const forget = yield* ledger.track({ pid, args });
+                  return forget.pipe(
+                    Effect.andThen(Deferred.succeed(forgotten, undefined)),
+                    Effect.asVoid,
+                  );
+                }),
+            }),
+          ),
+        );
+        yield* Deferred.await(forgotten);
+        expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toEqual([]);
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+});
 
 describe("AcpSessionRuntime", () => {
   it.effect.each(["session/new", "session/resume"] as const)(

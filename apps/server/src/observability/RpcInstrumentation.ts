@@ -243,10 +243,17 @@ const RPC_AGGREGATES = {
   [WS_METHODS.subscribeBackgroundPolicy]: "server",
 } as const satisfies Readonly<Record<WsRpcMethod, string>>;
 
-const RPC_SPAN_PREFIX = "ws.rpc";
-const DEFAULT_RPC_SPAN_ATTRIBUTES = {
-  "rpc.transport": "websocket",
-  "rpc.system": "effect-rpc",
+/**
+ * Effect's RpcServer opens each request's span, so it can take the client's span
+ * (sent with the request) as the parent and link the connection's span. Client
+ * and server traces of one request then share a trace id.
+ */
+export const RPC_SERVER_TRACING_OPTIONS = {
+  spanPrefix: "ws.rpc",
+  spanAttributes: {
+    "rpc.transport": "websocket",
+    "rpc.system": "effect-rpc",
+  },
 } as const;
 const RPC_METHODS_WITH_TRACING_DISABLED: ReadonlySet<string> = new Set([
   WS_METHODS.serverGetTraceDiagnostics,
@@ -272,13 +279,7 @@ export const rpcInstrumentationLayer = Layer.succeed(RpcInstrumentation)((effect
   if (RPC_METHODS_WITH_TRACING_DISABLED.has(method)) {
     return measured.pipe(Effect.provideService(References.TracerEnabled, false));
   }
-  return measured.pipe(
-    Effect.withSpan(`${RPC_SPAN_PREFIX}.${method}`, {
-      attributes: {
-        ...DEFAULT_RPC_SPAN_ATTRIBUTES,
-        "rpc.method": method,
-        "rpc.aggregate": RPC_AGGREGATES[method as WsRpcMethod],
-      },
-    }),
-  );
+  return Effect.annotateCurrentSpan({
+    "rpc.aggregate": RPC_AGGREGATES[method as WsRpcMethod],
+  }).pipe(Effect.andThen(measured));
 });

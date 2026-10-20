@@ -23,6 +23,7 @@ import {
 } from "@t3tools/shared/toolOutput";
 
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 
 export class PiRpcError extends Schema.TaggedError<PiRpcError>()("PiRpcError", {
   operation: Schema.String,
@@ -243,6 +244,12 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   // spawn and the rest of this constructor would otherwise leak a detached
   // pi process with no finalizer to reap it.
   yield* Scope.addFinalizer(scope, terminateProcess.pipe(Effect.ignore, Effect.uninterruptible));
+
+  if (platform !== "win32") {
+    const ledger = yield* ProcessGroupLedger.ProcessGroupLedger;
+    const forget = yield* ledger.track({ pid: Number(child.pid), args: spawnCommand.args });
+    yield* child.exitCode.pipe(Effect.ignore, Effect.andThen(forget), Effect.forkDetach);
+  }
 
   const pendingRequests = new Map<string, PendingPiRequest>();
   const events = yield* Queue.unbounded<PiRpcRecord, PiRpcError>();

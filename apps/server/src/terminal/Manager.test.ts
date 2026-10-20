@@ -1,4 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import { assert, it } from "@effect/vitest";
 import {
   DEFAULT_TERMINAL_ID,
@@ -433,6 +434,26 @@ it.layer(
   Layer.merge(NodeServices.layer, ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer))),
   { excludeTestServices: true },
 )("TerminalManager", (it) => {
+  it.effect("records each PTY session group and forgets it when the PTY exits", () =>
+    Effect.gen(function* () {
+      const forgotten = yield* Deferred.make<void>();
+      const groups: number[] = [];
+      const { manager, ptyAdapter } = yield* createManager().pipe(
+        Effect.provideService(ProcessGroupLedger.ProcessGroupLedger, {
+          track: ({ pid }) =>
+            Effect.sync(() => {
+              groups.push(pid);
+              return Deferred.succeed(forgotten, undefined).pipe(Effect.asVoid);
+            }),
+        }),
+      );
+      yield* manager.open(openInput());
+      expect(groups).toEqual([ptyAdapter.processes[0]!.pid]);
+      ptyAdapter.processes[0]!.emitExit({ exitCode: 0, signal: 0 });
+      yield* Deferred.await(forgotten);
+    }).pipe(Effect.provideService(HostProcess.Platform, "darwin")),
+  );
+
   it.effect("spawns lazily and reuses running terminal per thread", () =>
     Effect.gen(function* () {
       const { manager, ptyAdapter } = yield* createManager();
@@ -2017,30 +2038,44 @@ it.layer(
     }),
   );
 
-  it.effect("releases the exit listener when kill escalation is interrupted", () =>
-    Effect.gen(function* () {
-      const scope = yield* Scope.make("sequential");
-      const { manager, ptyAdapter } = yield* createManager(5, {
-        processKillGraceMs: 10_000,
-      }).pipe(Effect.provideService(Scope.Scope, scope));
-      yield* manager.open(openInput());
-      const process = ptyAdapter.processes[0];
-      expect(process).toBeDefined();
-      if (!process) return;
+  it.effect(
+    "releases kill escalation's listener while retaining ledger observation until exit",
+    () =>
+      Effect.gen(function* () {
+        const scope = yield* Scope.make("sequential");
+        const forgotten = yield* Deferred.make<void>();
+        const { manager, ptyAdapter } = yield* createManager(5, {
+          processKillGraceMs: 10_000,
+        }).pipe(
+          Effect.provideService(Scope.Scope, scope),
+          Effect.provideService(ProcessGroupLedger.ProcessGroupLedger, {
+            track: () => Effect.succeed(Deferred.succeed(forgotten, undefined).pipe(Effect.asVoid)),
+          }),
+        );
+        yield* manager.open(openInput());
+        const process = ptyAdapter.processes[0];
+        expect(process).toBeDefined();
+        if (!process) return;
 
-      const sigterm = yield* Deferred.make<void>();
-      process.onKill = (signal) => {
-        if (signal === "SIGTERM") Deferred.doneUnsafe(sigterm, Effect.void);
-      };
-      yield* manager.close({ threadId: "thread-1" });
-      yield* Deferred.await(sigterm);
-      assert.isAbove(process.exitListenerCount, 0);
+        const sigterm = yield* Deferred.make<void>();
+        process.onKill = (signal) => {
+          if (signal === "SIGTERM") Deferred.doneUnsafe(sigterm, Effect.void);
+        };
+        yield* manager.close({ threadId: "thread-1" });
+        yield* Deferred.await(sigterm);
+        assert.isAbove(process.exitListenerCount, 0);
 
-      yield* Scope.close(scope, Exit.void);
+        yield* Scope.close(scope, Exit.void);
 
-      assert.equal(process.exitListenerCount, 0);
-      assert.deepEqual(process.killSignals, ["SIGTERM"]);
-    }).pipe(Effect.provide(TestClock.layer())),
+        assert.equal(process.exitListenerCount, 1);
+        assert.deepEqual(process.killSignals, ["SIGTERM"]);
+        process.emitExit({ exitCode: 0, signal: 0 });
+        yield* Deferred.await(forgotten);
+        assert.equal(process.exitListenerCount, 0);
+      }).pipe(
+        Effect.provide(TestClock.layer()),
+        Effect.provideService(HostProcess.Platform, "darwin"),
+      ),
   );
 
   it.effect("publishes closed events when terminals are explicitly closed", () =>

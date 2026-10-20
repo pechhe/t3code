@@ -8,6 +8,7 @@ import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
 
@@ -169,7 +170,32 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
 
   const resolveSecretPath = (name: string) => path.join(secretsDir, `${name}.bin`);
 
-  const get: ServerSecretStore["Service"]["get"] = (name) =>
+  // Some readers check a secret on every thread event, and each file read
+  // queues on Node's I/O pool behind everything else. Another process (the
+  // `t3 connect` CLI) can rewrite these files, so reads are cached only while
+  // the directory watcher is running, and any change in the directory clears
+  // the cache.
+  const cache = new Map<string, Option.Option<Uint8Array>>();
+  let cacheGeneration = 0;
+  let watching = false;
+  const forget = () => {
+    cacheGeneration += 1;
+    cache.clear();
+  };
+  yield* fileSystem.watch(secretsDir).pipe(
+    Stream.runForEach(() => Effect.sync(forget)),
+    Effect.catchCause((cause) => Effect.logWarning("secret cache disabled", { cause })),
+    Effect.ensuring(
+      Effect.sync(() => {
+        watching = false;
+        forget();
+      }),
+    ),
+    Effect.forkScoped,
+  );
+  watching = true;
+
+  const readSecret = (name: string) =>
     fileSystem.readFile(resolveSecretPath(name)).pipe(
       Effect.map((bytes) => Option.some(Uint8Array.from(bytes))),
       Effect.catch((cause) =>
@@ -184,6 +210,27 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
       ),
       Effect.withSpan("ServerSecretStore.get"),
     );
+
+  const get: ServerSecretStore["Service"]["get"] = (name) =>
+    Effect.suspend(() => {
+      const cached = cache.get(name);
+      if (cached !== undefined) {
+        return Effect.succeed(Option.map(cached, (bytes) => Uint8Array.from(bytes)));
+      }
+      const generation = cacheGeneration;
+      return readSecret(name).pipe(
+        Effect.tap((value) =>
+          Effect.sync(() => {
+            if (watching && generation === cacheGeneration) {
+              cache.set(
+                name,
+                Option.map(value, (bytes) => Uint8Array.from(bytes)),
+              );
+            }
+          }),
+        ),
+      );
+    });
 
   const set: ServerSecretStore["Service"]["set"] = (name, value) => {
     const secretPath = resolveSecretPath(name);
@@ -218,6 +265,7 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
           ),
         );
       }),
+      Effect.ensuring(Effect.sync(forget)),
       Effect.withSpan("ServerSecretStore.set"),
     );
   };
@@ -242,6 +290,7 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
             cause,
           }),
       ),
+      Effect.ensuring(Effect.sync(forget)),
     );
   };
 
@@ -299,6 +348,7 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
               }),
             ),
       ),
+      Effect.ensuring(Effect.sync(forget)),
       Effect.withSpan("ServerSecretStore.remove"),
     );
 

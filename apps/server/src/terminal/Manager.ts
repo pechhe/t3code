@@ -1,4 +1,5 @@
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
+import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import {
   DEFAULT_TERMINAL_ID,
   TerminalCwdError,
@@ -1463,6 +1464,7 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
   const historyLineLimit = options.historyLineLimit ?? DEFAULT_HISTORY_LINE_LIMIT;
   const historyByteLimit = options.historyByteLimit ?? DEFAULT_HISTORY_BYTE_LIMIT;
   const platform = yield* HostProcess.Platform;
+  const processLedger = yield* ProcessGroupLedger.ProcessGroupLedger;
   const architecture = yield* HostProcess.Architecture;
   const agentScope = yield* AgentScope;
   // Terminals must inherit the user's full environment (minus the blocklist
@@ -2203,6 +2205,18 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
     );
 
     if (attempt._tag === "Success") {
+      if (platform !== "win32") {
+        const forget = yield* processLedger.track({ pid: attempt.success.pid, args: launch.args });
+        const exited = Deferred.makeUnsafe<void>();
+        const unsubscribe = attempt.success.onExit(() => Deferred.doneUnsafe(exited, Effect.void));
+        // Closing the terminal removes its UI listeners before the process exits.
+        // Keep ledger observation until exit, including during kill escalation.
+        yield* Deferred.await(exited).pipe(
+          Effect.ensuring(Effect.sync(unsubscribe)),
+          Effect.andThen(forget),
+          Effect.forkDetach,
+        );
+      }
       return {
         process: attempt.success,
         shellLabel: formatShellCandidate(candidate),

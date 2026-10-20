@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
+import * as NodeZlib from "node:zlib";
 import * as Schema from "effect/Schema";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -185,8 +186,20 @@ export class RotatingFileSink {
   }
 }
 
+export interface AsyncRotatingFileSinkOptions extends Omit<
+  RotatingFileSinkOptions,
+  "throwOnError"
+> {
+  /** Gzip each file as it rotates, so backups are named `<file>.<n>.gz`. */
+  readonly compressRotated?: boolean | undefined;
+}
+
+/** The path of the nth rotated backup of `filePath`. */
+export const rotatedFilePath = (filePath: string, index: number, compressed: boolean) =>
+  `${filePath}.${index}${compressed ? ".gz" : ""}`;
+
 export const makeAsyncRotatingFileSink = Effect.fnUntraced(function* (
-  options: Omit<RotatingFileSinkOptions, "throwOnError">,
+  options: AsyncRotatingFileSinkOptions,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -204,6 +217,8 @@ export const makeAsyncRotatingFileSink = Effect.fnUntraced(function* (
     });
   const failure = (operation: RotatingFileSinkError["operation"]) => (cause: unknown) =>
     new RotatingFileSinkError({ operation, filePath: options.filePath, cause });
+  const compressed = options.compressRotated ?? false;
+  const backup = (index: number) => rotatedFilePath(options.filePath, index, compressed);
   const directory = path.dirname(options.filePath);
   const basename = path.basename(options.filePath);
   yield* fs
@@ -212,8 +227,8 @@ export const makeAsyncRotatingFileSink = Effect.fnUntraced(function* (
   yield* Effect.gen(function* () {
     for (const entry of yield* fs.readDirectory(directory)) {
       if (!entry.startsWith(`${basename}.`)) continue;
-      const suffix = Number(entry.slice(basename.length + 1));
-      if (!Number.isInteger(suffix) || suffix <= options.maxFiles) continue;
+      const match = /^(\d+)(\.gz)?$/.exec(entry.slice(basename.length + 1));
+      if (match === null || Number(match[1]) <= options.maxFiles) continue;
       yield* fs.remove(path.join(directory, entry), { force: true });
     }
   }).pipe(Effect.mapError(failure("prune")));
@@ -225,14 +240,35 @@ export const makeAsyncRotatingFileSink = Effect.fnUntraced(function* (
   );
   let currentSize = yield* readSize;
   const semaphore = yield* Semaphore.make(1);
+  // Backups written before the format changed shift alongside the new ones,
+  // so they age out on the same schedule instead of being lost or kept forever.
   const rotate = Effect.gen(function* () {
-    yield* fs.remove(`${options.filePath}.${options.maxFiles}`, { force: true });
-    for (let index = options.maxFiles - 1; index >= 1; index--) {
-      const source = `${options.filePath}.${index}`;
-      if (yield* fs.exists(source)) yield* fs.rename(source, `${options.filePath}.${index + 1}`);
+    for (const format of [true, false]) {
+      yield* fs.remove(rotatedFilePath(options.filePath, options.maxFiles, format), {
+        force: true,
+      });
+      for (let index = options.maxFiles - 1; index >= 1; index--) {
+        const source = rotatedFilePath(options.filePath, index, format);
+        if (yield* fs.exists(source)) {
+          yield* fs.rename(source, rotatedFilePath(options.filePath, index + 1, format));
+        }
+      }
     }
-    if (yield* fs.exists(options.filePath))
-      yield* fs.rename(options.filePath, `${options.filePath}.1`);
+    if (yield* fs.exists(options.filePath)) {
+      if (compressed) {
+        const contents = yield* fs.readFile(options.filePath);
+        const gzipped = yield* Effect.callback<Buffer, Error>((resume) => {
+          NodeZlib.gzip(contents, (error, result) =>
+            resume(error ? Effect.fail(error) : Effect.succeed(result)),
+          );
+        });
+        yield* fs.writeFile(`${backup(1)}.tmp`, gzipped);
+        yield* fs.rename(`${backup(1)}.tmp`, backup(1));
+        yield* fs.remove(options.filePath);
+      } else {
+        yield* fs.rename(options.filePath, backup(1));
+      }
+    }
     currentSize = 0;
   }).pipe(Effect.mapError(failure("rotate")));
   const write = (chunk: string | Buffer) =>

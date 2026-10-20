@@ -2,6 +2,7 @@
 import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
+import * as NodeZlib from "node:zlib";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { it as effectIt } from "@effect/vitest";
@@ -66,6 +67,48 @@ effectIt.layer(NodeServices.layer)("asynchronous rotating file sink", (it) => {
       );
       expect(contents.every((chunk) => Buffer.byteLength(chunk) <= 32)).toBe(true);
       expect(contents.join("")).toBe(lines.join("") + "100\n");
+    }),
+  );
+
+  it.effect("gzips rotated files and ages out plain backups left from before", () =>
+    Effect.gen(function* () {
+      const directory = makeTempDirectory();
+      const filePath = NodePath.join(directory, "trace.ndjson");
+      NodeFS.writeFileSync(`${filePath}.2`, "older\n");
+      NodeFS.writeFileSync(`${filePath}.1`, "old\n");
+      const readBackups = () =>
+        NodeFS.readdirSync(directory)
+          .filter((name) => name !== "trace.ndjson")
+          .sort((a, b) => Number(b.split(".")[2]) - Number(a.split(".")[2]))
+          .map((name) => {
+            const bytes = NodeFS.readFileSync(NodePath.join(directory, name));
+            return name.endsWith(".gz") ? NodeZlib.gunzipSync(bytes).toString() : bytes.toString();
+          });
+      const sink = yield* makeAsyncRotatingFileSink({
+        filePath,
+        maxBytes: 16,
+        maxFiles: 50,
+        compressRotated: true,
+      });
+      const lines = Array.from({ length: 40 }, (_, index) => `${index}\n`);
+      yield* Effect.forEach(lines, (line) => sink.write(line), { discard: true });
+
+      expect([...readBackups(), NodeFS.readFileSync(filePath, "utf8")].join("")).toBe(
+        ["older\n", "old\n", ...lines].join(""),
+      );
+
+      const small = yield* makeAsyncRotatingFileSink({
+        filePath,
+        maxBytes: 16,
+        maxFiles: 3,
+        compressRotated: true,
+      });
+      yield* Effect.forEach(lines, (line) => small.write(line), { discard: true });
+      expect(
+        NodeFS.readdirSync(directory)
+          .filter((name) => name !== "trace.ndjson")
+          .sort(),
+      ).toEqual(["trace.ndjson.1.gz", "trace.ndjson.2.gz", "trace.ndjson.3.gz"]);
     }),
   );
 

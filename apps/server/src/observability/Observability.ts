@@ -48,6 +48,7 @@ export const layer = Layer.unwrap(
           maxBytes: config.traceMaxBytes,
           maxFiles: config.traceMaxFiles,
           batchWindowMs: config.traceBatchWindowMs,
+          compressRotated: true,
           retention: {
             minDurationMs: TRACE_MIN_DURATION_MS,
             minSqlLockWaitMs: TRACE_MIN_SQL_LOCK_WAIT_MS,
