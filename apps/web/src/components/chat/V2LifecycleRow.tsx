@@ -354,22 +354,28 @@ export function EnvironmentSubagentAvatar({
  */
 export function SubagentReturnChip(props: {
   readonly parentRef: ScopedThreadRef;
-  readonly childThreadId: ThreadId;
+  readonly subagentId?: NodeId;
+  readonly childThreadId?: ThreadId;
   readonly outcome: OrchestrationV2Notification["outcome"];
   readonly createdAt: string;
   readonly timestampFormat: TimestampFormat;
   readonly onHighlight: (subagentId: NodeId, highlighted: boolean) => void;
-  readonly onJump: (subagentId: NodeId, childThreadId: ThreadId) => void;
+  readonly onJump: (subagentId: NodeId, childThreadId: ThreadId | null) => void;
   readonly fallback: ReactNode;
 }) {
   const agent = useAtomValue(
     environmentThreadDetails.threadAtom(props.parentRef),
     (thread) =>
-      thread?.projection.subagents.find((agent) => agent.childThreadId === props.childThreadId) ??
-      null,
+      thread?.projection.subagents.find((agent) =>
+        props.subagentId !== undefined
+          ? agent.id === props.subagentId
+          : agent.childThreadId === props.childThreadId,
+      ) ?? null,
   );
-  const role = useThreadShell(scopeThreadRef(props.parentRef.environmentId, props.childThreadId))
-    ?.source.agentTask?.role;
+  const childThreadId = agent?.childThreadId ?? props.childThreadId ?? null;
+  const role = useThreadShell(
+    childThreadId ? scopeThreadRef(props.parentRef.environmentId, childThreadId) : null,
+  )?.source.agentTask?.role;
   if (agent === null) return props.fallback;
   const title = formatSubagentDisplayTitle(agent.title ?? "Subagent");
   const topic = role ? agentTaskTopic(title, role) : title;
@@ -383,7 +389,7 @@ export function SubagentReturnChip(props: {
       onPointerLeave={() => props.onHighlight(agent.id, false)}
       onFocus={() => props.onHighlight(agent.id, true)}
       onBlur={() => props.onHighlight(agent.id, false)}
-      onClick={() => props.onJump(agent.id, props.childThreadId)}
+      onClick={() => props.onJump(agent.id, childThreadId)}
       className={cn(
         "my-1 ml-2 inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-1 text-2xs text-muted-foreground transition-colors hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-inset",
         failed ? "border-destructive/35" : "border-border/70",

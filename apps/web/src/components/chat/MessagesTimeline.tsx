@@ -9,7 +9,7 @@ import { MarkdownFindContext, findRevealRef } from "./markdownFindContext";
 import { useChatCanvas } from "./ChatCanvasContext";
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./WorkLog";
 import { PullRequestGlyph } from "../pullRequest/pullRequestIcons";
-import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
+import type { OrchestrationV2Notification, WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { ReadOnlySourcePreview } from "../files/AttachmentFilePreview";
 import { useRightPanelStore } from "~/rightPanelStore";
 import {
@@ -234,7 +234,6 @@ import {
   worktreeSetupAgentStarted,
   type StableMessagesTimelineRowsState,
   type MessagesTimelineRow,
-  findSubagentCardFoldRunId,
   findSubagentCardRow,
   subagentGroupDisclosureId,
   TIMELINE_MINIMAP_MIN_ITEMS,
@@ -365,7 +364,7 @@ interface TimelineRowSharedState {
   onOpenWorktreeSetupTerminal: ((terminalId: string) => void) | null;
   workGroupViewState: WorkGroupViewState;
   onHighlightSubagentCard: (subagentId: string, highlighted: boolean) => void;
-  onJumpToSubagentCard: (subagentId: string, childThreadId: ThreadId) => void;
+  onJumpToSubagentCard: (subagentId: string, childThreadId: ThreadId | null) => void;
   /** Changes when a jump expanded a remembered subagent group, so a mounted group re-reads it. */
   subagentGroupRevealRevision: number;
 }
@@ -1395,24 +1394,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
     requestAnimationFrame(() => attempt(120));
   };
   const [subagentGroupRevealRevision, setSubagentGroupRevealRevision] = useState(0);
-  const pendingSubagentJumpRef = useRef<{ subagentId: string; childThreadId: ThreadId } | null>(
-    null,
-  );
-  const onJumpToSubagentCard = (subagentId: string, childThreadId: ThreadId) => {
+  const onJumpToSubagentCard = (subagentId: string, childThreadId: ThreadId | null) => {
     const target = findSubagentCardRow(rows, subagentId);
     if (target === null) {
-      const foldRunId = findSubagentCardFoldRunId(
-        { timelineEntries, latestRun, runningRunId, isWorking, runlessWorkActive },
-        subagentId,
-      );
-      if (foldRunId === null || expandedRunIds.has(foldRunId)) {
-        onOpenThread(childThreadId);
-        return;
-      }
-      onManualNavigation();
-      suspendEndScrollMaintenanceForDisclosure(`turn-fold:${foldRunId}`);
-      pendingSubagentJumpRef.current = { subagentId, childThreadId };
-      expandCitedRun(foldRunId);
+      if (childThreadId !== null) onOpenThread(childThreadId);
       return;
     }
     onManualNavigation();
@@ -1429,13 +1414,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
       }),
     ).then(() => flashSubagentCard(subagentId, target.rowId));
   };
-  // Finishes a jump that first had to unfold the response holding the card.
-  useEffect(() => {
-    const pending = pendingSubagentJumpRef.current;
-    if (pending === null) return;
-    pendingSubagentJumpRef.current = null;
-    onJumpToSubagentCard(pending.subagentId, pending.childThreadId);
-  }, [onJumpToSubagentCard]);
 
   const sharedState: TimelineRowSharedState = {
     citationRequest: readyCitationRequest,
@@ -2109,6 +2087,7 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
   const isSubagentGroup = row.kind === "event" && row.projectedItem.item.type === "subagent";
   const isWorkLogRow =
     row.kind === "work" ||
+    row.kind === "subagent-returns" ||
     row.kind === "work-live" ||
     row.kind === "work-toggle" ||
     row.kind === "thinking";
@@ -2157,13 +2136,17 @@ const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: Time
           }
         >
           {row.kind === "work" ? (
-            <WorkGroupSection
-              anchorKey={row.id}
-              groupedEntries={row.groupedEntries}
-              isExpandedToolGroup={row.isExpandedToolGroup}
-              displayLabel={row.displayLabel}
-            />
+            <>
+              {row.wake ? <WakeDivider /> : null}
+              <WorkGroupSection
+                anchorKey={row.id}
+                groupedEntries={row.groupedEntries}
+                isExpandedToolGroup={row.isExpandedToolGroup}
+                displayLabel={row.displayLabel}
+              />
+            </>
           ) : null}
+          {row.kind === "subagent-returns" ? <SubagentReturnsTimelineRow row={row} /> : null}
           {row.kind === "work-live" ? (
             <div className="timeline-row-expand">
               <div>
@@ -5559,26 +5542,96 @@ type WorkEntryRowProps = {
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 };
 
-const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEntryRowProps) {
-  const ctx = use(TimelineRowCtx);
-  const item = props.workEntry.projectedItem?.item;
-  const childThreadId =
-    item?.type === "notification" ? notificationChildThreadId(item.source) : undefined;
-  if (item?.type !== "notification" || childThreadId === undefined) {
-    return <WorkEntryLogRow {...props} />;
-  }
+function WakeDivider() {
   return (
-    <SubagentReturnChip
-      parentRef={scopeThreadRef(ctx.activeThreadEnvironmentId, item.threadId)}
-      childThreadId={childThreadId}
-      outcome={item.outcome}
-      createdAt={props.workEntry.createdAt}
-      timestampFormat={ctx.timestampFormat}
-      onHighlight={ctx.onHighlightSubagentCard}
-      onJump={ctx.onJumpToSubagentCard}
-      fallback={<WorkEntryLogRow {...props} />}
-    />
+    <div
+      aria-hidden
+      className="flex items-center gap-2 py-1 font-mono text-2xs text-muted-foreground/60"
+    >
+      <span className="h-px w-3 bg-border/70" />
+      <span>woken by</span>
+      <span className="h-px flex-1 bg-border/70" />
+    </div>
   );
+}
+
+/** One chip per subagent a notification names; a batched delegated-task notice names several. */
+function notificationSubagentRefs(source: OrchestrationV2Notification["source"]) {
+  if (source.kind === "delegated_task" && source.childThreadId === undefined) {
+    return source.taskIds.map((subagentId) => ({ subagentId }));
+  }
+  const childThreadId = notificationChildThreadId(source);
+  return childThreadId === undefined ? [] : [{ childThreadId }];
+}
+
+const SubagentReturnChips = memo(function SubagentReturnChips(props: WorkEntryRowProps) {
+  const item = props.workEntry.projectedItem?.item;
+  if (item?.type !== "notification") return <WorkEntryLogRow {...props} />;
+  return <NotificationReturnChips {...props} notification={item} />;
+});
+
+function NotificationReturnChips(
+  props: WorkEntryRowProps & {
+    readonly notification: Extract<OrchestrationV2TurnItem, { type: "notification" }>;
+  },
+) {
+  const ctx = use(TimelineRowCtx);
+  const { notification } = props;
+  const refs = notificationSubagentRefs(notification.source);
+  const parentRef = scopeThreadRef(ctx.activeThreadEnvironmentId, notification.threadId);
+  // The plain row stands in only when the parent knows none of the named subagents, so a
+  // batch never shows a chip beside a duplicate plain line.
+  const knowsAnySubagent = useAtomValue(environmentThreadDetails.threadAtom(parentRef), (thread) =>
+    refs.some((ref) =>
+      thread?.projection.subagents.some((agent) =>
+        "subagentId" in ref
+          ? agent.id === ref.subagentId
+          : agent.childThreadId === ref.childThreadId,
+      ),
+    ),
+  );
+  if (!knowsAnySubagent) return <WorkEntryLogRow {...props} />;
+  return (
+    <>
+      {refs.map((ref) => (
+        <SubagentReturnChip
+          key={"subagentId" in ref ? ref.subagentId : ref.childThreadId}
+          parentRef={parentRef}
+          {...ref}
+          outcome={notification.outcome}
+          createdAt={props.workEntry.createdAt}
+          timestampFormat={ctx.timestampFormat}
+          onHighlight={ctx.onHighlightSubagentCard}
+          onJump={ctx.onJumpToSubagentCard}
+          fallback={null}
+        />
+      ))}
+    </>
+  );
+}
+
+function SubagentReturnsTimelineRow({
+  row,
+}: {
+  row: Extract<TimelineRow, { kind: "subagent-returns" }>;
+}) {
+  return (
+    <>
+      {row.wake ? <WakeDivider /> : null}
+      <section
+        aria-label="Subagent returns"
+        className="flex flex-wrap items-center gap-x-1 gap-y-0.5"
+      >
+        {row.entries.map((workEntry) => (
+          <SubagentReturnChips key={workEntry.id} workEntry={workEntry} workspaceRoot={undefined} />
+        ))}
+      </section>
+    </>
+  );
+}
+
+const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEntryRowProps) {
+  return <SubagentReturnChips {...props} />;
 });
 
 function WorkEntryLogRow(props: WorkEntryRowProps) {

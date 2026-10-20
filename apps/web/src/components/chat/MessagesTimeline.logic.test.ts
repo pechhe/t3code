@@ -25,7 +25,6 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
-  findSubagentCardFoldRunId,
   findSubagentCardRow,
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
@@ -4005,6 +4004,7 @@ describe("v2 run and attempt history", () => {
     expect(collapsedRows.map((row) => row.id)).toEqual([
       "user-entry",
       "turn-fold:runless:user-entry",
+      "subagent-card-entry",
       "assistant-final-entry",
     ]);
   });
@@ -4085,6 +4085,35 @@ describe("v2 run and attempt history", () => {
         } as never,
       },
       {
+        id: "superseded-subagent-entry",
+        kind: "event" as const,
+        createdAt: "2026-01-01T00:00:04.600Z",
+        attempt: supersededAttempt,
+        projectedItem: {
+          item: {
+            type: "subagent",
+            subagentId: "subagent-old",
+            runId,
+            providerTurnId: null,
+            status: "completed",
+          },
+        } as never,
+      },
+      {
+        id: "superseded-compaction-entry",
+        kind: "work" as const,
+        createdAt: "2026-01-01T00:00:04.700Z",
+        attempt: supersededAttempt,
+        entry: {
+          id: "superseded-compaction",
+          runId,
+          createdAt: "2026-01-01T00:00:04.700Z",
+          label: "Context compacted",
+          tone: "info" as const,
+          sourceActivityKind: "context-compaction" as const,
+        },
+      },
+      {
         id: "steer-user-entry",
         kind: "message" as const,
         createdAt: "2026-01-01T00:00:05Z",
@@ -4134,6 +4163,8 @@ describe("v2 run and attempt history", () => {
       "initial-user-entry",
       `attempt-fold:${supersededAttemptId}`,
       "superseded-thread-created-entry",
+      "superseded-subagent-entry",
+      "superseded-compaction-entry",
       "steer-user-entry",
       "active-assistant-entry",
     ]);
@@ -4154,6 +4185,8 @@ describe("v2 run and attempt history", () => {
       "superseded-assistant-entry",
       "superseded-work-entry",
       "superseded-thread-created-entry",
+      "superseded-subagent-entry",
+      "superseded-compaction-entry",
       "steer-user-entry",
       "active-assistant-entry",
     ]);
@@ -4775,9 +4808,9 @@ describe("findSubagentCardRow", () => {
   });
 });
 
-describe("findSubagentCardFoldRunId", () => {
+describe("one request reads as one response", () => {
   const time = (second: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
-  const answer = (id: string, run: string, second: number, role: "user" | "assistant") => ({
+  const message = (id: string, run: string, second: number, role: "user" | "assistant") => ({
     kind: "message" as const,
     id,
     createdAt: time(second),
@@ -4791,63 +4824,174 @@ describe("findSubagentCardFoldRunId", () => {
       streaming: false,
     },
   });
+  const work = (id: string, run: string, second: number, extra: Partial<WorkLogEntry> = {}) => ({
+    kind: "work" as const,
+    id,
+    createdAt: time(second),
+    entry: {
+      id,
+      runId: RunId.make(run),
+      createdAt: time(second),
+      label: id,
+      tone: "info" as const,
+      ...extra,
+    },
+  });
+  const notification = (id: string, run: string, second: number, source: object) =>
+    work(id, run, second, {
+      itemType: "notification",
+      structuredPayload: { type: "notification", source } as never,
+    });
+  const card = (id: string, run: string, second: number, subagentId: string) => ({
+    kind: "event" as const,
+    id,
+    createdAt: time(second),
+    projectedItem: {
+      item: {
+        id: TurnItemId.make(id),
+        type: "subagent",
+        status: "completed",
+        runId: RunId.make(run),
+        subagentId: NodeId.make(subagentId),
+      },
+    } as OrchestrationV2ProjectedTurnItem,
+  });
+  const compaction = (id: string, run: string, second: number, label: string) =>
+    work(id, run, second, { sourceActivityKind: "context-compaction", label });
+  const timelineEntries = [
+    message("prompt", "initial", 0, "user"),
+    work("tools", "initial", 1),
+    card("card-1", "initial", 2, "node-1"),
+    message("launched", "initial", 5, "assistant"),
+    notification("return-a", "wake-a", 20, { kind: "subagent", childThreadId: "child-a" }),
+    work("read-a", "wake-a", 21),
+    message("ack-a", "wake-a", 25, "assistant"),
+    notification("return-b", "wake-b", 40, { kind: "delegated_task", taskIds: ["t1", "t2"] }),
+    notification("monitor", "wake-b", 41, { kind: "monitor" }),
+    card("card-2", "wake-b", 42, "node-2"),
+    compaction("compaction-done", "wake-b", 43, "Context compacted"),
+    compaction("compaction-failed", "wake-b", 44, "Context compaction failed"),
+    message("final", "wake-b", 45, "assistant"),
+  ];
   const input = {
-    timelineEntries: [
-      answer("prompt", "initial", 0, "user"),
-      {
-        kind: "event" as const,
-        id: "card",
-        createdAt: time(1),
-        projectedItem: {
-          item: {
-            id: TurnItemId.make("card-item"),
-            type: "subagent",
-            runId: RunId.make("initial"),
-            subagentId: NodeId.make("node"),
-          },
-        } as OrchestrationV2ProjectedTurnItem,
-      },
-      answer("launched", "initial", 5, "assistant"),
-      {
-        kind: "work" as const,
-        id: "notification",
-        createdAt: time(20),
-        entry: {
-          id: "notification",
-          runId: RunId.make("wake"),
-          createdAt: time(20),
-          label: "Delegated task finished",
-          tone: "info" as const,
-          itemType: "notification" as const,
-        },
-      },
-      answer("ack", "wake", 25, "assistant"),
-    ],
+    timelineEntries,
     latestRun: {
-      runId: RunId.make("wake"),
+      runId: RunId.make("wake-b"),
       status: "completed" as const,
-      startedAt: time(20),
-      completedAt: time(25),
+      startedAt: time(40),
+      completedAt: time(45),
     },
     isWorking: false,
     turnDiffSummaries: [],
     supportsConversationRollback: false,
   };
+  const expandedInput = { ...input, expandedRunIds: new Set([RunId.make("initial")]) };
 
-  it("finds the folded response that hides a settled card the notification still shows", () => {
-    const rows = deriveMessagesTimelineRows(input);
-    expect(rows.map((row) => row.id)).toContain("notification");
-    expect(findSubagentCardRow(rows, "node")).toBeNull();
-    expect(findSubagentCardFoldRunId(input, "node")).toBe("initial");
-    const unfolded = deriveMessagesTimelineRows({
-      ...input,
-      expandedRunIds: new Set([RunId.make("initial")]),
-    });
-    expect(findSubagentCardRow(unfolded, "node")).toMatchObject({ rowId: "card", groupId: null });
+  it("folds earlier replies and keeps only the last as the answer", () => {
+    const ids = deriveMessagesTimelineRows(input).map((row) => row.id);
+    expect(ids).not.toContain("launched");
+    expect(ids).not.toContain("ack-a");
+    expect(ids).toContain("final");
   });
 
-  it("returns null for a subagent without a card", () => {
-    expect(findSubagentCardFoldRunId(input, "missing")).toBeNull();
+  it("keeps settled subagent cards visible, including one started by a later run", () => {
+    const rows = deriveMessagesTimelineRows(input);
+    expect(findSubagentCardRow(rows, "node-1")).toMatchObject({ rowId: "card-1" });
+    expect(findSubagentCardRow(rows, "node-2")).toMatchObject({ rowId: "card-2" });
+  });
+
+  it("merges subagent returns across folded replies and folds other wake notices", () => {
+    const rows = deriveMessagesTimelineRows(input);
+    const returns = rows.filter((row) => row.kind === "subagent-returns");
+    expect(returns).toHaveLength(1);
+    expect(returns[0]).toMatchObject({ id: "return-a", wake: false });
+    // A batched delegated_task notification stays a single entry.
+    expect(returns[0]?.entries.map((entry) => entry.id)).toEqual(["return-a", "return-b"]);
+    expect(rows.map((row) => row.id)).not.toContain("monitor");
+  });
+
+  it("keeps completed and failed compaction as top-level rows", () => {
+    const rows = deriveMessagesTimelineRows(input);
+    expect(rows.filter((row) => row.kind === "context-compaction").map((row) => row.id)).toEqual([
+      "compaction-done",
+      "compaction-failed",
+    ]);
+  });
+
+  it("counts the runs the fold spans", () => {
+    const fold = deriveMessagesTimelineRows(input).find((row) => row.kind === "turn-fold");
+    expect(fold?.label).toBe("Worked for 45s · 3 runs");
+  });
+
+  it("keeps the plain label for a single run", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...input,
+      timelineEntries: [
+        message("prompt", "initial", 0, "user"),
+        work("tools", "initial", 1),
+        message("final", "initial", 9, "assistant"),
+      ],
+      latestRun: {
+        runId: RunId.make("initial"),
+        status: "completed",
+        startedAt: time(0),
+        completedAt: time(9),
+      },
+    });
+    expect(rows.find((row) => row.kind === "turn-fold")?.label).toBe("Worked for 9.0s");
+  });
+
+  it("marks wakes only inside an opened fold", () => {
+    const wakes = (rows: ReturnType<typeof deriveMessagesTimelineRows>) =>
+      rows.flatMap((row) => {
+        if (row.kind === "subagent-returns") return row.wake ? [row.id] : [];
+        if (row.kind === "work" && row.wake) return row.groupedEntries.map((entry) => entry.id);
+        return [];
+      });
+    expect(wakes(deriveMessagesTimelineRows(input))).toEqual([]);
+    expect(wakes(deriveMessagesTimelineRows(expandedInput))).toEqual([
+      "return-a",
+      "return-b",
+      "monitor",
+    ]);
+  });
+
+  it("gives each wake its own divider instead of merging it into adjacent returns", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...input,
+      timelineEntries: [
+        message("prompt", "initial", 0, "user"),
+        work("tools", "initial", 1),
+        notification("plain", "initial", 3, { kind: "subagent", childThreadId: "child-a" }),
+        notification("wake-1", "wake-a", 20, { kind: "subagent", childThreadId: "child-b" }),
+        notification("wake-2", "wake-b", 40, { kind: "subagent", childThreadId: "child-c" }),
+        message("final", "wake-b", 45, "assistant"),
+      ],
+      expandedRunIds: new Set([RunId.make("initial")]),
+    });
+    expect(
+      rows.flatMap((row) =>
+        row.kind === "subagent-returns"
+          ? [{ ids: row.entries.map((entry) => entry.id), wake: row.wake }]
+          : [],
+      ),
+    ).toEqual([
+      { ids: ["plain"], wake: false },
+      { ids: ["wake-1"], wake: true },
+      { ids: ["wake-2"], wake: true },
+    ]);
+  });
+
+  it("folds nothing while the response is still running", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...input,
+      timelineEntries: timelineEntries.slice(0, -1),
+      latestRun: { ...input.latestRun, status: "running", completedAt: null },
+      isWorking: true,
+      activeTurnStartedAt: time(40),
+    });
+    expect(rows.some((row) => row.kind === "turn-fold")).toBe(false);
+    expect(rows.map((row) => row.id)).toContain("launched");
   });
 });
 
@@ -4916,15 +5060,8 @@ describe("linked timeline resources", () => {
       ],
       expandedRunIds: new Set([runId, RunId.make("other-run")]),
     });
-    expect(rows.map((row) => row.id)).toEqual([
-      "turn-fold:resource-run",
-      "a",
-      "c",
-      "d",
-      "turn-fold:other-run",
-      "e",
-    ]);
-    expect(rows[1]).toMatchObject({ subagents: [{ item: { id: "a" } }, { item: { id: "b" } }] });
+    expect(rows.map((row) => row.id)).toEqual(["a", "c", "d", "e"]);
+    expect(rows[0]).toMatchObject({ subagents: [{ item: { id: "a" } }, { item: { id: "b" } }] });
   });
 
   it.each([
@@ -5217,16 +5354,8 @@ it.each([true, false])(
         createdAt: time(40),
       });
     } else {
-      // A wake folds its work but never the replies before it.
-      expect(ids).toEqual([
-        "prompt",
-        "turn-fold:initial",
-        "launched",
-        "notification-a",
-        "ack-a",
-        "notification-b",
-        "ack-b",
-      ]);
+      // Only the last reply stays; earlier replies and wake notices fold.
+      expect(ids).toEqual(["prompt", "turn-fold:initial", "ack-b"]);
       const expanded = deriveMessagesTimelineRows({
         ...input,
         expandedRunIds: new Set([RunId.make("initial")]),
@@ -5670,11 +5799,14 @@ describe("live subagents after their parent turn settles", () => {
     },
   );
 
-  it.each(["completed", "failed"] as const)("folds a %s child with its settled turn", (status) => {
-    const rows = rowsFor([child("child", 3, status)]);
-    expect(rows.some((row) => row.id === "child")).toBe(false);
-    expect(rows.some((row) => row.kind === "turn-fold")).toBe(true);
-  });
+  it.each(["completed", "failed"] as const)(
+    "keeps a %s child visible in its settled turn",
+    (status) => {
+      const rows = rowsFor([child("child", 3, status)]);
+      expect(rows.some((row) => row.id === "child")).toBe(true);
+      expect(rows.some((row) => row.kind === "turn-fold")).toBe(true);
+    },
+  );
 
   it("keeps a launch batch visible while any member is still running", () => {
     const rows = rowsFor([child("done", 3, "completed"), child("live", 4, "running")]);
@@ -5825,6 +5957,7 @@ describe("subagent continued by a later turn", () => {
     expect(rows.map((row) => row.id)).toEqual([
       "prompt-1",
       `turn-fold:${run1}`,
+      "subagent",
       "answer-1",
       "prompt-2",
       `turn-fold:${run2}`,

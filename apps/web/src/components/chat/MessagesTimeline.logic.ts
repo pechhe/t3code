@@ -529,6 +529,20 @@ type MessagesTimelineRowContent =
       groupedEntries: WorkLogEntry[];
       isExpandedToolGroup: boolean;
       displayLabel?: string;
+      /** A notification that woke a later run, shown inside an opened response fold. */
+      wake?: boolean;
+    }
+  | {
+      /**
+       * Adjacent subagent and delegated-task notifications, drawn as one wrapping row of
+       * return chips; a notification naming several tasks yields one chip per task.
+       */
+      kind: "subagent-returns";
+      id: string;
+      createdAt: string;
+      entries: WorkLogEntry[];
+      /** Inside an opened response fold, at least one entry woke a later run. */
+      wake: boolean;
     }
   | {
       kind: "work-live";
@@ -769,6 +783,8 @@ interface TurnFold {
   anchorEntryId: string;
   createdAt: string;
   hiddenEntryIds: ReadonlySet<string>;
+  /** Notifications that woke a later run, marked inside an opened fold. */
+  wakeEntryIds: ReadonlySet<string>;
   label: string;
 }
 
@@ -823,7 +839,6 @@ function completeSupersededReplyEntryIds(
 function deriveSupersededAttemptFolds(
   timelineEntries: ReadonlyArray<TimelineEntry>,
   unfoldedRunIds: ReadonlySet<RunId>,
-  liveSubagentEntryIds: ReadonlySet<string>,
   completeReplyEntryIds: ReadonlySet<string>,
 ): ReadonlyMap<string, SupersededAttemptFold> {
   const completeAttemptIds = new Set(
@@ -841,8 +856,11 @@ function deriveSupersededAttemptFolds(
       entry.kind === "html-render" ||
       entry.kind === "mcp-app" ||
       timelineEntryIsPersistentResourceCard(entry) ||
-      liveSubagentEntryIds.has(entry.id) ||
-      (entry.kind === "work" && entry.entry.itemType === "system_notice")
+      timelineEntryIsSubagentCard(entry) ||
+      (entry.kind === "work" &&
+        (entry.entry.itemType === "system_notice" ||
+          entry.entry.sourceActivityKind === "context-compaction" ||
+          workEntryIsSubagentReturn(entry.entry)))
     ) {
       continue;
     }
@@ -1024,13 +1042,25 @@ function failedTimelineRunIds(
   return failed;
 }
 
+function timelineEntryIsSubagentCard(entry: TimelineEntry): boolean {
+  return entry.kind === "event" && entry.projectedItem.item.type === "subagent";
+}
+
+function workEntryIsSubagentReturn(entry: WorkLogEntry): boolean {
+  const item = entry.structuredPayload;
+  return (
+    entry.itemType === "notification" &&
+    item?.type === "notification" &&
+    (item.source.kind === "subagent" || item.source.kind === "delegated_task")
+  );
+}
+
 function deriveTurnFolds(input: {
   timelineEntries: ReadonlyArray<TimelineEntry>;
   terminalAssistantMessageIds: ReadonlySet<string>;
   latestRun: TimelineLatestRun | null;
   unfoldedRunIds: ReadonlySet<RunId>;
   runlessWorkActive: boolean;
-  liveSubagentEntryIds: ReadonlySet<string>;
   completeSupersededReplyEntryIds: ReadonlySet<string>;
 }): ReadonlyMap<string, TurnFold> {
   const interruptedRunIds = new Set<RunId>();
@@ -1047,7 +1077,7 @@ function deriveTurnFolds(input: {
 
   interface TurnGroup {
     entries: Array<TimelineEntry>;
-    /** Each run's final reply, oldest first; every one stays visible. */
+    /** Each run's final reply, oldest first; only the last is the answer. */
     terminalEntries: Array<Extract<TimelineEntry, { kind: "message" }>>;
     hasStreamingMessage: boolean;
     /**
@@ -1135,38 +1165,26 @@ function deriveTurnFolds(input: {
       continue;
     }
     const hiddenEntryIds = new Set<string>();
-    // A wake can add nothing after the prompted run already answered, so only
-    // the work folds: each run's reply stays, after the notice that woke it.
     const terminalEntry = group.terminalEntries.at(-1) ?? null;
-    const terminalEntryIds = new Set(group.terminalEntries.map((entry) => entry.id));
-    const answeringRunIds = new Set(
-      group.terminalEntries.map((entry) => entry.message.runId ?? null),
-    );
     const terminalEntryIndex = terminalEntry
       ? group.entries.findIndex((entry) => entry.id === terminalEntry.id)
       : group.entries.length;
     for (const [index, entry] of group.entries.entries()) {
-      if (
-        terminalEntryIds.has(entry.id) ||
-        (entry.kind === "work" &&
-          entry.entry.itemType === "notification" &&
-          entry.entry.runId !== runId &&
-          answeringRunIds.has(entry.entry.runId ?? null))
-      ) {
+      if (entry.id === terminalEntry?.id) {
         continue;
       }
-      const isCompaction =
-        entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction";
       const isFoldableTrailingActivity =
         entry.kind === "work" &&
         entry.entry.toolLifecycleStatus !== "inProgress" &&
         !workEntryDisplayIndicatesToolFailure(entry.entry);
-      if (!isCompaction && index > terminalEntryIndex && !isFoldableTrailingActivity) {
+      if (index > terminalEntryIndex && !isFoldableTrailingActivity) {
         continue;
       }
       if (
         timelineEntryIsPersistentResourceCard(entry) ||
-        input.liveSubagentEntryIds.has(entry.id) ||
+        timelineEntryIsSubagentCard(entry) ||
+        (entry.kind === "work" && workEntryIsSubagentReturn(entry.entry)) ||
+        (entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction") ||
         input.completeSupersededReplyEntryIds.has(entry.id)
       ) {
         continue;
@@ -1178,16 +1196,9 @@ function deriveTurnFolds(input: {
     if (hiddenEntryIds.size === 0) {
       continue;
     }
-    const hidesNonCompactionWork = group.entries.some(
-      (entry) =>
-        hiddenEntryIds.has(entry.id) &&
-        !(entry.kind === "work" && entry.entry.sourceActivityKind === "context-compaction"),
-    );
-    if (!hidesNonCompactionWork) {
-      continue;
-    }
 
     const firstEntry = group.entries[0];
+    const firstRunId = [...group.ownRunIds][0];
     const lastEntry = group.entries.at(-1);
     if (!firstEntry || !lastEntry) {
       continue;
@@ -1199,8 +1210,14 @@ function deriveTurnFolds(input: {
     // terminal message — take whichever ended last.
     const lastEntryEnd =
       lastEntry.kind === "message" ? lastEntry.message.updatedAt : lastEntry.createdAt;
+    // A runless prompt's key stands in for a run only when no real run joined it.
+    const realRunCount = [...group.ownRunIds].filter((id) => !id.startsWith("runless:")).length;
+    const runCount = Math.max(realRunCount, 1);
     const elapsedMs =
-      input.latestRun?.runId === runId && input.latestRun.startedAt && input.latestRun.completedAt
+      runCount === 1 &&
+      input.latestRun?.runId === runId &&
+      input.latestRun.startedAt &&
+      input.latestRun.completedAt
         ? computeElapsedMs(input.latestRun.startedAt, input.latestRun.completedAt)
         : computeElapsedMs(
             group.startBoundary ?? firstEntry.createdAt,
@@ -1211,15 +1228,23 @@ function deriveTurnFolds(input: {
       ? duration
         ? `You stopped after ${duration}`
         : "You stopped this response"
-      : duration
-        ? `Worked for ${duration}`
-        : "Worked";
+      : `${duration ? `Worked for ${duration}` : "Worked"}${runCount > 1 ? ` · ${runCount} runs` : ""}`;
 
     foldsByAnchorEntryId.set(group.anchorEntryId, {
       runId,
       anchorEntryId: group.anchorEntryId,
       createdAt: group.startBoundary ?? firstEntry.createdAt,
       hiddenEntryIds,
+      wakeEntryIds: new Set(
+        group.entries.flatMap((entry) =>
+          entry.kind === "work" &&
+          entry.entry.itemType === "notification" &&
+          entry.entry.runId != null &&
+          entry.entry.runId !== firstRunId
+            ? [entry.id]
+            : [],
+        ),
+      ),
       label,
     });
   }
@@ -1396,7 +1421,6 @@ function deriveTimelineTurnFolds(
     latestRun: input.latestRun ?? null,
     unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
     runlessWorkActive: input.isWorking && input.runlessWorkActive === true,
-    liveSubagentEntryIds: liveSubagentCardEntryIds(timelineEntries),
     completeSupersededReplyEntryIds: completeSupersededReplyEntryIds(timelineEntries),
   });
 }
@@ -1450,7 +1474,6 @@ export function deriveMessagesTimelineRows(input: {
   const supersededFoldsByAnchorEntryId = deriveSupersededAttemptFolds(
     timelineEntries,
     failedRunIds,
-    liveSubagentEntryIds,
     completeSupersededReplyIds,
   );
   const activeVisualResponseRunIds = deriveActiveVisualResponseRunIds({
@@ -1465,14 +1488,18 @@ export function deriveMessagesTimelineRows(input: {
     latestRun: input.latestRun ?? null,
     unfoldedRunIds: new Set([...activeVisualResponseRunIds, ...failedRunIds]),
     runlessWorkActive,
-    liveSubagentEntryIds,
     completeSupersededReplyEntryIds: completeSupersededReplyIds,
   });
   const collapsedEntryIds = new Set<string>();
+  const wakeEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
     if (!input.expandedRunIds?.has(fold.runId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
+      }
+    } else {
+      for (const entryId of fold.wakeEntryIds) {
+        wakeEntryIds.add(entryId);
       }
     }
   }
@@ -1676,6 +1703,27 @@ export function deriveMessagesTimelineRows(input: {
       continue;
     }
 
+    if (timelineEntry.kind === "work" && workEntryIsSubagentReturn(timelineEntry.entry)) {
+      const wake = wakeEntryIds.has(timelineEntry.id);
+      const previous = nextRows.at(-1);
+      // Each wake keeps its own "woken by" divider, so only plain returns merge.
+      if (previous?.kind === "subagent-returns" && !previous.wake && !wake) {
+        nextRows[nextRows.length - 1] = {
+          ...previous,
+          entries: [...previous.entries, timelineEntry.entry],
+        };
+      } else {
+        nextRows.push({
+          kind: "subagent-returns",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          entries: [timelineEntry.entry],
+          wake,
+        });
+      }
+      continue;
+    }
+
     if (timelineEntry.kind === "work") {
       if (
         (timelineEntry.entry.runId != null && failedRunIds.has(timelineEntry.entry.runId)) ||
@@ -1693,6 +1741,7 @@ export function deriveMessagesTimelineRows(input: {
           createdAt: timelineEntry.createdAt,
           groupedEntries: [timelineEntry.entry],
           isExpandedToolGroup: false,
+          ...(wakeEntryIds.has(timelineEntry.id) ? { wake: true } : {}),
         });
         continue;
       }
@@ -2022,6 +2071,7 @@ function timelineRowIsWorkLog(row: MessagesTimelineRow | undefined): boolean {
     (row.kind === "work" ||
       row.kind === "work-toggle" ||
       row.kind === "work-live" ||
+      row.kind === "subagent-returns" ||
       row.kind === "thinking")
   );
 }
@@ -2108,21 +2158,6 @@ export function timelineTurnFoldRunIdsByEntryId(
     for (const entryId of fold.hiddenEntryIds) byEntryId.set(entryId, fold.runId);
   }
   return byEntryId;
-}
-
-// A settled response folds away the subagent cards it launched, while the notice that woke its
-// reply stays visible.
-export function findSubagentCardFoldRunId(
-  input: Parameters<typeof timelineTurnFoldRunIdsByEntryId>[0],
-  subagentId: string,
-): RunId | null {
-  const entry = input.timelineEntries.findLast(
-    (candidate) =>
-      candidate.kind === "event" &&
-      candidate.projectedItem.item.type === "subagent" &&
-      candidate.projectedItem.item.subagentId === subagentId,
-  );
-  return entry ? (timelineTurnFoldRunIdsByEntryId(input).get(entry.id) ?? null) : null;
 }
 
 function sameCheckpointSummaries(
@@ -2320,8 +2355,14 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
       return (
         a.isExpandedToolGroup === bw.isExpandedToolGroup &&
         a.displayLabel === bw.displayLabel &&
+        a.wake === bw.wake &&
         Equal.equals(a.groupedEntries, bw.groupedEntries)
       );
+    }
+
+    case "subagent-returns": {
+      const br = b as typeof a;
+      return a.wake === br.wake && Equal.equals(a.entries, br.entries);
     }
 
     case "work-live": {
