@@ -1,6 +1,9 @@
-import type { EnvironmentId, ThreadContextRecord, UserInputQuestion } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadContextRecord } from "@t3tools/contracts";
+import type { ThreadUserInputQuestion as UserInputQuestion } from "@t3tools/client-runtime/state/thread-requests";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { formatThreadLink } from "@t3tools/shared/threadLinks";
+
+import { collectInlineContextIds } from "./lib/composerContextReferences";
 
 export function projectPendingUserInputAnswer(
   answer: unknown,
@@ -19,6 +22,15 @@ export function projectPendingUserInputAnswer(
         )
       : reference.source;
   });
+}
+
+// Question drafts retain deleted chip records for undo; only transfer referenced records.
+export function threadContextsReferencedByAnswer(
+  answer: string,
+  threadContexts: ReadonlyArray<ThreadContextRecord>,
+) {
+  const referencedIds = new Set(collectInlineContextIds(answer));
+  return threadContexts.filter((record) => referencedIds.has(record.contextId));
 }
 
 export interface PendingUserInputDraftAnswer {

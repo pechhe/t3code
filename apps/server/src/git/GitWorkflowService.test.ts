@@ -1,6 +1,6 @@
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as SlipJayLandings from "../project/SlipJayLandings.ts";
-import { assert, describe, expect, it, vi } from "@effect/vitest";
+import { assert, expect, it, vi } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -37,7 +37,7 @@ function layer(input: {
   );
 }
 
-describe("GitWorkflowService", () => {
+it.layer(NodeServices.layer)("GitWorkflowService", (it) => {
   it.effect(
     "serves live JJ workspace changes through the shared status path without enabling Git actions",
     () =>

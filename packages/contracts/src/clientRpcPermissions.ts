@@ -1,8 +1,10 @@
 import * as Schema from "effect/Schema";
-import { GitPreparePullRequestThreadInput } from "./git.ts";
+import { GitPreparePullRequestThreadInput, GitRunStackedActionInput } from "./git.ts";
 import {
   AuthAccessWriteScope,
   AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  AuthPreviewOperateScope,
   AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   type AuthEnvironmentScope,
@@ -18,6 +20,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.experimentsRecordOutcome]: AuthOrchestrationOperateScope,
   [WS_METHODS.experimentsImportHistorical]: AuthOrchestrationOperateScope,
 
+  [WS_METHODS.previewClose]: AuthPreviewOperateScope,
   [WS_METHODS.serverRunStorageCleanup]: AuthSettingsWriteScope,
   [WS_METHODS.serverCheckOtlpEndpoint]: AuthSettingsWriteScope,
   [WS_METHODS.pullRequestsRunAction]: AuthSourceControlWriteScope,
@@ -70,6 +73,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
 export type ClientGuardedRpcTag = keyof typeof CLIENT_GUARDED_RPC_SCOPES;
 
 const decodePrepareThread = Schema.decodeUnknownSync(GitPreparePullRequestThreadInput);
+const decodeStackedAction = Schema.decodeUnknownSync(GitRunStackedActionInput);
 
 export function clientRpcRequiredScopes(
   method: string,
@@ -83,6 +87,14 @@ export function clientRpcRequiredScopes(
   // Detaching a workspace the thread allocated removes it from disk, like removing a worktree.
   if (method === ORCHESTRATION_V2_WS_METHODS.detachWorkspace)
     return [AuthOrchestrationOperateScope, AuthSourceControlWriteScope];
+  if (method === WS_METHODS.gitRunStackedAction && input !== undefined) {
+    const payload = decodeStackedAction(input);
+    if (
+      payload.threadId !== undefined &&
+      (payload.action === "create_pr" || payload.action === "commit_push_pr")
+    )
+      return [AuthSourceControlWriteScope, AuthOrchestrationReadScope];
+  }
   return Object.hasOwn(CLIENT_GUARDED_RPC_SCOPES, method)
     ? [CLIENT_GUARDED_RPC_SCOPES[method as ClientGuardedRpcTag]]
     : [];

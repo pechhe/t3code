@@ -1,6 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -42,7 +41,6 @@ it.effect("discovers events and receipts on the reader and deletes on the writer
       const path = yield* Path.Path;
       const directory = yield* fs.makeTempDirectoryScoped({ prefix: "compaction-reader-" });
       yield* Effect.gen(function* () {
-        const sql = yield* SqlClient.SqlClient;
         const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
         yield* seed;
         const spans: Array<Tracer.NativeSpan> = [];
@@ -74,10 +72,6 @@ it.effect("discovers events and receipts on the reader and deletes on the writer
         assert.lengthOf(deletes, 1);
         assert.equal(deletes[0]!.attributes.get("db.connection"), "writer");
         assert.isFalse(spans.some((span) => span.name === "sql.transaction"));
-        const completion = yield* sql<{ readonly updated_at: string }>`
-        SELECT updated_at FROM orchestration_v2_projection_metadata WHERE projection_name = 'event-store-compaction'
-      `;
-        assert.equal(completion[0]?.updated_at, DateTime.formatIso(yield* DateTime.now));
       }).pipe(
         Effect.provide(
           maintenanceLayer.pipe(
@@ -87,39 +81,4 @@ it.effect("discovers events and receipts on the reader and deletes on the writer
       );
     }),
   ).pipe(Effect.provide(NodeServices.layer)),
-);
-
-it.effect.each(["failure", "interruption"] as const)(
-  "does not record completion after %s",
-  (mode) =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
-      yield* seed;
-      for (const previous of [undefined, "2026-01-01T00:00:00Z"]) {
-        if (previous !== undefined)
-          yield* sql`
-        INSERT INTO orchestration_v2_projection_metadata VALUES ('event-store-compaction', 1, 0, ${previous})
-      `;
-        const stopDiscovery: Statement.Transformer = (statement) => {
-          const [query] = statement.compile();
-          if (query.includes("FROM orchestration_command_receipts AS receipt")) {
-            return mode === "failure" ? Effect.die("discovery failed") : Effect.interrupt;
-          }
-          return Effect.succeed(statement);
-        };
-        const result = yield* maintenance.compactEventStore.pipe(
-          Effect.provideService(Statement.CurrentTransformer, stopDiscovery),
-          Effect.exit,
-        );
-        assert.equal(result._tag, "Failure");
-        const completion = yield* sql<{ readonly updated_at: string }>`
-        SELECT updated_at FROM orchestration_v2_projection_metadata WHERE projection_name = 'event-store-compaction'
-      `;
-        assert.deepEqual(
-          completion.map((row) => row.updated_at),
-          previous === undefined ? [] : [previous],
-        );
-      }
-    }).pipe(Effect.provide(maintenanceLayer.pipe(Layer.provideMerge(Sqlite.layerMemory)))),
 );

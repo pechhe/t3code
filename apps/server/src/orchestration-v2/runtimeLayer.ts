@@ -49,6 +49,7 @@ import * as ProviderTurnStartService from "./ProviderTurnStartService.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import * as RunExecutionService from "./RunExecutionService.ts";
 import * as RunFinalizationService from "./RunFinalizationService.ts";
+import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
@@ -405,12 +406,19 @@ export const layerProduction = Layer.mergeAll(
   ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   BuildWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
   UsageLimitRecoveryWorker.layer.pipe(
-    Layer.provide(Layer.mergeAll(ProjectionStore.layer, layerThreadManagementProvided)),
+    Layer.provide(
+      Layer.mergeAll(
+        ProjectionStore.layer,
+        layerThreadManagementProvided,
+        layerOrchestratorProvided,
+      ),
+    ),
   ),
   layerProviderContinuationWorkerProvided,
   layerAgentSessionImporterProvided,
   EffectOutbox.layerPruneWorker.pipe(Layer.provide(EffectOutbox.layer)),
 ).pipe(
+  Layer.provide(ResourceCleanupService.layer.pipe(Layer.provide(layerScheduledTaskProvided))),
   Layer.provide(Scheduler.layer),
   // Exported so the run setup recorder reads the same per-run decisions runs delivered.
   Layer.provideMerge(InstructionOverlay.layer),

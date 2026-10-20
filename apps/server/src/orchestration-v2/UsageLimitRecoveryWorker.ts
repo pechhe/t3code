@@ -15,6 +15,7 @@ import { pickPoolFailoverMember } from "@t3tools/shared/providerPools";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
+import * as Orchestrator from "./Orchestrator.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 const CONTINUE_TEXT = "Continue where you left off.";
@@ -162,6 +163,7 @@ export function nextRecoveryCommand(input: {
 const makeSweep = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
+  const orchestrator = yield* Orchestrator.OrchestratorV2;
   const settings = yield* ServerSettings.ServerSettingsService;
   // Optional like ThreadManagementService: without the registry there are no pools.
   const providerRegistry = yield* Effect.serviceOption(ProviderRegistry.ProviderRegistry);
@@ -194,7 +196,17 @@ const makeSweep = Effect.gen(function* () {
         rejected: yield* Ref.get(rejected),
       });
       if (command === null) continue;
-      yield* threads.dispatch(command).pipe(
+      yield* Effect.gen(function* () {
+        if (command.type === "thread.metadata.update" && command.limitRecovery != null) {
+          yield* orchestrator.autoArmLimitRecovery({
+            commandId: command.commandId,
+            threadId: command.threadId,
+            limitRecovery: command.limitRecovery,
+          });
+        } else {
+          yield* threads.dispatch(command);
+        }
+      }).pipe(
         Effect.catchTags({
           OrchestratorCommandPreviouslyRejectedError: (error) =>
             Ref.update(rejected, (ids) => new Set(ids).add(command.commandId)).pipe(

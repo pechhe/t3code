@@ -104,12 +104,15 @@ describe("ElectronShell", () => {
 
       const electronShell = yield* ElectronShell.ElectronShell;
       const result = yield* electronShell.openExternal(
-        "vscode://vscode-remote/ssh-remote+example.com/home/user/project",
+        "vscode://vscode-remote/ssh-remote+user%40example.com/home/user/project",
       );
 
       assert.equal(result, true);
       assert.deepEqual(openExternalMock.mock.calls, [
-        ["vscode://vscode-remote/ssh-remote+example.com/home/user/project", { activate: true }],
+        [
+          "vscode://vscode-remote/ssh-remote+user%40example.com/home/user/project",
+          { activate: true },
+        ],
       ]);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
@@ -120,13 +123,13 @@ describe("ElectronShell", () => {
 
       const electronShell = yield* ElectronShell.ElectronShell;
       const results = yield* Effect.all([
-        electronShell.openExternal("zed://ssh/example.com/home/user/project"),
+        electronShell.openExternal("zed://ssh/user@example.com/home/user/project"),
         electronShell.openExternal("zed://ssh/example.com/"),
       ]);
 
       assert.deepEqual(results, [true, true]);
       assert.deepEqual(openExternalMock.mock.calls, [
-        ["zed://ssh/example.com/home/user/project", { activate: true }],
+        ["zed://ssh/user@example.com/home/user/project", { activate: true }],
         ["zed://ssh/example.com/", { activate: true }],
       ]);
     }).pipe(Effect.provide(ElectronShell.layer)),
@@ -137,7 +140,7 @@ describe("ElectronShell", () => {
       openExternalMock.mockResolvedValue(undefined);
 
       const url =
-        "jetbrains://gateway/ssh/environment?h=example.com&launchIde=true&ideHint=IU&projectHint=%2Fhome%2Fuser%2Fproject";
+        "jetbrains://gateway/ssh/environment?h=example.com&launchIde=true&ideHint=IU&projectHint=%2Fhome%2Fuser%2Fproject&u=user";
       const electronShell = yield* ElectronShell.ElectronShell;
       const result = yield* electronShell.openExternal(url);
 
@@ -176,7 +179,7 @@ describe("ElectronShell", () => {
         electronShell.openExternal(
           "vscode://:secret@vscode-remote/ssh-remote+example.com/home/user/project",
         ),
-        electronShell.openExternal("zed://ssh/user@example.com/home/user/project"),
+        electronShell.openExternal("zed://ssh/user:secret@example.com/home/user/project"),
         electronShell.openExternal("jetbrains://user@gateway/ssh/environment?h=example.com"),
       ]);
 

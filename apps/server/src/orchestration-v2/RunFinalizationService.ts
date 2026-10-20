@@ -110,24 +110,27 @@ export const layerObserver = Layer.effect(
     const managed = yield* ManagedAgent.ManagedAgentService;
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
-      recordHandoff: ({ threadId, runId }) =>
-        Effect.gen(function* () {
+      recordHandoff: Effect.fn("RunFinalizationService.recordHandoff")(
+        function* ({ threadId, runId }) {
           const thread = yield* projections.getThreadShell(threadId);
           if (!thread?.agentTask) return;
           // A run that already gave way to another has nothing left to read.
           if (thread.activeRunId !== null && thread.activeRunId !== runId) return;
           yield* managed.recordHandoff(thread.agentTask, { threadId, runId });
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("failed to record a handoff revision after run completion", {
-              threadId,
-              runId,
-              detail: error.message,
-            }),
+        },
+        (effect, { threadId, runId }) =>
+          effect.pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("failed to record a handoff revision after run completion", {
+                threadId,
+                runId,
+                detail: error.message,
+              }),
+            ),
           ),
-        ),
-      refresh: ({ cwd, threadId, runId }) =>
-        Effect.gen(function* () {
+      ),
+      refresh: Effect.fn("RunFinalizationService.refresh")(
+        function* ({ cwd, threadId, runId }) {
           const [, local] = yield* Effect.all(
             [workspaceEntries.refresh(cwd), vcsStatus.refreshLocalStatus(cwd)],
             { concurrency: "unbounded" },
@@ -145,7 +148,10 @@ export const layerObserver = Layer.effect(
               }),
             ),
           );
-        }).pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause }))),
+        },
+        (effect, { cwd }) =>
+          effect.pipe(Effect.mapError((cause) => new RunFinalizationRefreshError({ cwd, cause }))),
+      ),
     };
   }),
 );

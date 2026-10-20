@@ -279,6 +279,8 @@ import {
   ProjectListEntriesError,
   ProjectListEntriesInput,
   ProjectListEntriesResult,
+  ProjectListIgnoredFilesInput,
+  ProjectListIgnoredFilesResult,
   ProjectReadFileError,
   ProjectReadFileInput,
   ProjectReadFileResult,
@@ -438,6 +440,7 @@ export const WS_METHODS = {
   projectsAdd: "projects.add",
   projectsRemove: "projects.remove",
   projectsListEntries: "projects.listEntries",
+  projectsListIgnoredFiles: "projects.listIgnoredFiles",
   projectsReadFile: "projects.readFile",
   projectsSearchContents: "projects.searchContents",
   projectsSearchEntries: "projects.searchEntries",
@@ -1349,6 +1352,12 @@ const WsProjectsListEntriesRpc = Rpc.make(WS_METHODS.projectsListEntries, {
   error: Schema.Union([ProjectListEntriesError, EnvironmentAuthorizationError]),
 });
 
+const WsProjectsListIgnoredFilesRpc = Rpc.make(WS_METHODS.projectsListIgnoredFiles, {
+  payload: ProjectListIgnoredFilesInput,
+  success: ProjectListIgnoredFilesResult,
+  error: Schema.Union([ProjectListEntriesError, EnvironmentAuthorizationError]),
+});
+
 const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
   payload: ProjectReadFileInput,
   success: ProjectReadFileResult,
@@ -1890,14 +1899,11 @@ const WsOrchestrationV2StopWorkflowRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.st
   error: Schema.Union([OrchestrationV2StopWorkflowError, EnvironmentAuthorizationError]),
 });
 
-const WsOrchestrationV2DetachWorkspaceRpc = Rpc.make(
-  ORCHESTRATION_V2_WS_METHODS.detachWorkspace,
-  {
-    payload: OrchestrationV2RpcSchemas.detachWorkspace.input,
-    success: OrchestrationV2RpcSchemas.detachWorkspace.output,
-    error: Schema.Union([OrchestrationV2DetachWorkspaceError, EnvironmentAuthorizationError]),
-  },
-);
+const WsOrchestrationV2DetachWorkspaceRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.detachWorkspace, {
+  payload: OrchestrationV2RpcSchemas.detachWorkspace.input,
+  success: OrchestrationV2RpcSchemas.detachWorkspace.output,
+  error: Schema.Union([OrchestrationV2DetachWorkspaceError, EnvironmentAuthorizationError]),
+});
 
 const WsOrchestrationV2GetWorkflowScriptRpc = Rpc.make(
   ORCHESTRATION_V2_WS_METHODS.getWorkflowScript,
@@ -2267,6 +2273,7 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsProjectCloneRetryRpc,
   WsSubscribeProjectClonesRpc,
   WsProjectsListEntriesRpc,
+  WsProjectsListIgnoredFilesRpc,
   WsProjectsReadFileRpc,
   WsProjectsSearchContentsRpc,
   WsProjectsSearchEntriesRpc,

@@ -1076,6 +1076,7 @@ it.effect.each([
           cleanupTerminals: () => Effect.void,
           cleanupPreviews: () => Effect.void,
           cleanupAttachments: () => Effect.void,
+          cleanupScheduledTasks: () => Effect.void,
           releaseBrowserSessions: () => Ref.update(events, (current) => [...current, "released"]),
         }),
       ),

@@ -1,15 +1,17 @@
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
+import { formatFilePathForClipboard } from "@t3tools/client-runtime/media-actions";
 import { readLocalApi } from "../localApi";
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import {
   FolderGit2Icon,
   FolderGitIcon,
   FolderIcon,
   GitBranchIcon,
   GitCommitHorizontalIcon,
+  PlusIcon,
   ScaleIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -28,6 +30,7 @@ import {
   type SlipJayCheckoutStatus,
 } from "@t3tools/client-runtime/slipjay-checkout";
 import {
+  ADD_TO_MACHINE_LABEL_CLASS,
   type EnvMode,
   type EnvironmentOption,
   resolveCurrentWorkspaceLabel,
@@ -37,6 +40,8 @@ import {
   resolvePreviousWorktreeSeed,
 } from "./BranchToolbar.logic";
 import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
+import { openAddProjectToMachine } from "./AddProjectToMachineDialog";
+import { type AddProjectTarget, useAddProjectTargets } from "../hooks/useAddProjectTargets";
 import { PreviousWorktreeItemContent } from "./PreviousWorktreeItemContent";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import {
@@ -48,10 +53,14 @@ import {
   Menu,
   MenuGroup,
   MenuGroupLabel,
+  MenuItem,
   MenuPopup,
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
+  MenuSub,
+  MenuSubPopup,
+  MenuSubTrigger,
   MenuTrigger,
 } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
@@ -65,6 +74,9 @@ interface BranchToolbarProps {
   threadId: ThreadId;
   /** Set in a SlipJay project, whose workspace and base replace the Git controls. */
   slipJayStatus?: SlipJayCheckoutStatus | null;
+  projectId: ProjectId;
+  worktreePath: string | null;
+  isServerThread: boolean;
   draftId?: DraftId;
   onEnvModeChange: (mode: EnvMode) => void;
   envMode: EnvMode;
@@ -93,13 +105,14 @@ function showWorkspaceContextMenu(event: ReactMouseEvent, workspacePath: string)
     })
     .then((action) => {
       if (action !== "copy-path") return;
-      void writeTextToClipboard(workspacePath, "workspace path").then(
+      const clipboardPath = formatFilePathForClipboard(workspacePath);
+      void writeTextToClipboard(clipboardPath, "workspace path").then(
         (didCopy) => {
           if (didCopy) {
             toastManager.add({
               type: "success",
               title: "Path copied",
-              description: workspacePath,
+              description: clipboardPath,
             });
           }
         },
@@ -175,6 +188,8 @@ interface RunContextSelectorProps {
   previousWorktreeLabel: string | null;
   previousWorktreeBranch: string | null;
   onUsePreviousWorktree: () => void;
+  addTargets: readonly AddProjectTarget[];
+  onAddToMachine: (environmentId: EnvironmentId) => void;
 }
 
 const RunContextSelector = memo(function RunContextSelector({
@@ -195,6 +210,8 @@ const RunContextSelector = memo(function RunContextSelector({
   previousWorktreeLabel,
   previousWorktreeBranch,
   onUsePreviousWorktree,
+  addTargets,
+  onAddToMachine,
 }: RunContextSelectorProps) {
   const activeEnvironment =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
@@ -291,7 +308,8 @@ const RunContextSelector = memo(function RunContextSelector({
         {triggerContent}
       </MenuTrigger>
       <MenuPopup align="start" side="bottom" className="w-(--anchor-width)">
-        {showEnvironmentPicker && availableEnvironments && onEnvironmentChange ? (
+        {availableEnvironments &&
+        ((showEnvironmentPicker && onEnvironmentChange) || addTargets.length > 0) ? (
           <>
             <MenuGroup>
               <MenuGroupLabel>Run on</MenuGroupLabel>
@@ -300,7 +318,7 @@ const RunContextSelector = memo(function RunContextSelector({
                 onValueChange={(value) =>
                   value === "auto"
                     ? onAutoEnvironment?.()
-                    : onEnvironmentChange(value as EnvironmentId)
+                    : onEnvironmentChange?.(value as EnvironmentId)
                 }
               >
                 {onAutoEnvironment && (
@@ -323,7 +341,9 @@ const RunContextSelector = memo(function RunContextSelector({
                 {availableEnvironments.map((env) => (
                   <MenuRadioItem
                     key={env.environmentId}
-                    disabled={envLocked}
+                    disabled={
+                      envLocked || (!onEnvironmentChange && env.environmentId !== environmentId)
+                    }
                     value={env.environmentId}
                     closeOnClick
                   >
@@ -334,6 +354,29 @@ const RunContextSelector = memo(function RunContextSelector({
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
+              {addTargets.length > 0 ? (
+                <MenuSub>
+                  <MenuSubTrigger>
+                    <span className={ADD_TO_MACHINE_LABEL_CLASS}>
+                      <PlusIcon className="size-3" />
+                      <span className="min-w-0 truncate">Add to another machine</span>
+                    </span>
+                  </MenuSubTrigger>
+                  <MenuSubPopup>
+                    {addTargets.map((target) => (
+                      <MenuItem
+                        key={target.environmentId}
+                        onClick={() => onAddToMachine(target.environmentId)}
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <EnvironmentMachineIcon kind={target.machine} className="size-3" />
+                          <span className="min-w-0 truncate">{target.label}</span>
+                        </span>
+                      </MenuItem>
+                    ))}
+                  </MenuSubPopup>
+                </MenuSub>
+              ) : null}
             </MenuGroup>
             <MenuSeparator />
           </>
@@ -384,6 +427,9 @@ export const BranchToolbar = memo(function BranchToolbar({
   environmentId,
   threadId,
   slipJayStatus = null,
+  projectId,
+  worktreePath,
+  isServerThread,
   draftId,
   onEnvModeChange,
   envMode,
@@ -400,34 +446,25 @@ export const BranchToolbar = memo(function BranchToolbar({
   onEnvironmentChange,
 }: BranchToolbarProps) {
   const threadRef = scopeThreadRef(environmentId, threadId);
-  const draftThread = useComposerDraftStore((store) =>
-    draftId ? store.getDraftSession(draftId) : store.getDraftThreadByRef(threadRef),
-  );
-  const serverThread = useQuietThreadShell(threadRef);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
-  const activeProjectRef = serverThread
-    ? scopeProjectRef(serverThread.environmentId, serverThread.projectId)
-    : draftThread
-      ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
-      : null;
+  // The composer retains resolved thread details while bootstrap cleanup can remove its shell.
+  const activeProjectRef = scopeProjectRef(environmentId, projectId);
   const activeProject = useProject(activeProjectRef);
-  const hasActiveThread = serverThread !== null || draftThread !== null;
+  const serverThread = useQuietThreadShell(threadRef);
   const selectedWorkspace = useSelectedWorkspace(threadRef);
-  const activeWorktreePath = forceNewWorktree
-    ? null
-    : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
+  const activeWorktreePath = forceNewWorktree ? null : worktreePath;
   const effectiveEnvMode = forceNewWorktree ? "worktree" : envMode;
   // SlipJay allocates a draft's workspace on its first message; there is no checkout to choose.
   const envModeLocked =
-    envLocked || slipJayStatus !== null || (serverThread !== null && activeWorktreePath !== null);
+    envLocked || slipJayStatus !== null || (isServerThread && activeWorktreePath !== null);
   const slipJayRows =
     slipJayStatus === null
       ? null
       : {
-          workspace: resolveSlipJayWorkspaceLabel(slipJayStatus, serverThread === null),
-          base: resolveSlipJayBaseLabel(slipJayStatus, serverThread === null),
+          workspace: resolveSlipJayWorkspaceLabel(slipJayStatus, !isServerThread),
+          base: resolveSlipJayBaseLabel(slipJayStatus, !isServerThread),
           // A draft's status describes the root checkout, not a workspace's change.
-          landing: serverThread === null ? null : slipJayStatus.landing,
+          landing: isServerThread ? slipJayStatus.landing : null,
         };
   const [landingLogOpen, setLandingLogOpen] = useState(false);
   const openLandingLog = () => setLandingLogOpen(true);
@@ -442,10 +479,8 @@ export const BranchToolbar = memo(function BranchToolbar({
       />
     ) : null;
 
-  const canUsePreviousWorktree =
-    draftThread !== null && serverThread === null && !envModeLocked && !forceNewWorktree;
-  const projectRefsForWorktreeLookup =
-    canUsePreviousWorktree && activeProjectRef ? [activeProjectRef] : [];
+  const canUsePreviousWorktree = !isServerThread && !envModeLocked && !forceNewWorktree;
+  const projectRefsForWorktreeLookup = canUsePreviousWorktree ? [activeProjectRef] : [];
   const projectThreads = useThreadShellsForProjectRefs(projectRefsForWorktreeLookup);
   const previousWorktreeSeed = canUsePreviousWorktree
     ? resolvePreviousWorktreeSeed({
@@ -457,7 +492,7 @@ export const BranchToolbar = memo(function BranchToolbar({
     ? resolvePreviousWorktreeLabel(previousWorktreeSeed)
     : null;
   const onUsePreviousWorktree = () => {
-    if (!previousWorktreeSeed || !activeProjectRef) return;
+    if (!previousWorktreeSeed) return;
     setDraftThreadContext(draftId ?? threadRef, {
       branch: previousWorktreeSeed.branch,
       worktreePath: previousWorktreeSeed.worktreePath,
@@ -466,13 +501,17 @@ export const BranchToolbar = memo(function BranchToolbar({
     });
   };
 
-  const hasMultipleEnvironments = (availableEnvironments?.length ?? 0) > 1;
+  const addTargets = useAddProjectTargets(activeProject, availableEnvironments);
+  const onAddToMachine = (targetEnvironmentId: EnvironmentId | null) =>
+    openAddProjectToMachine({ projectRef: activeProjectRef, targetEnvironmentId });
+  // A project on one machine still gets the picker when it can be added to another.
+  const hasMultipleEnvironments = (availableEnvironments?.length ?? 0) > 1 || addTargets.length > 0;
   const showEnvironmentPicker = hasMultipleEnvironments && onEnvironmentChange !== undefined;
   const activeEnvironmentOption =
     availableEnvironments?.find((env) => env.environmentId === environmentId) ?? null;
-  if (!hasActiveThread || !activeProject) return null;
+  if (!activeProject) return null;
   const workspaceChips =
-    serverThread === null || selectedWorkspace === null
+    !isServerThread || serverThread === null || selectedWorkspace === null
       ? []
       : deriveWorkspaceChips({
           primary: {
@@ -505,6 +544,8 @@ export const BranchToolbar = memo(function BranchToolbar({
           previousWorktreeLabel={previousWorktreeLabel}
           previousWorktreeBranch={previousWorktreeSeed?.branch ?? null}
           onUsePreviousWorktree={onUsePreviousWorktree}
+          addTargets={addTargets}
+          onAddToMachine={onAddToMachine}
         />
       ) : null}
       {panelSection !== "branch" && workspaceChips.length > 0 ? (

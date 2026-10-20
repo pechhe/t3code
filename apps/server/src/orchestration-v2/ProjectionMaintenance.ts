@@ -1,5 +1,5 @@
 import { ThreadId } from "@t3tools/contracts";
-import { readOnly } from "@t3tools/shared/nodeSqliteClient";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -229,8 +229,7 @@ export const layer: Layer.Layer<
     const supersedableThreadEventTypes = new Set(SUPERSEDABLE_THREAD_EVENT_TYPES);
     const readStateThreadEventTypes = new Set(READ_STATE_THREAD_EVENT_TYPES);
     // Keep subagent.updated and turn-item.updated rows: slimmed payloads reference their prompts.
-    // Keep discovery bounded even when the reader is unavailable (in-memory
-    // databases use the synchronous writer connection).
+    // Small pages bound work on the reader worker and synchronous fallback.
     const COMPACTION_PAGE_SIZE = 50;
 
     /**
@@ -255,7 +254,7 @@ export const layer: Layer.Layer<
         SELECT
           COALESCE((SELECT MAX(sequence) FROM orchestration_events), 0) AS event_sequence,
           COALESCE((SELECT MAX(rowid) FROM orchestration_command_receipts), 0) AS receipt_row_id
-      `.pipe(readOnly);
+      `.pipe(NodeSqliteClient.readOnly);
       let throughSequence = bounds[0]?.event_sequence ?? 0;
       let throughReceiptRowId = bounds[0]?.receipt_row_id ?? 0;
       const retainedThreadIds = new Set<string>();
@@ -306,7 +305,7 @@ export const layer: Layer.Layer<
           WHERE event.sequence <= ${throughSequence}
           ORDER BY event.sequence DESC
           LIMIT ${COMPACTION_PAGE_SIZE}
-        `.pipe(readOnly);
+        `.pipe(NodeSqliteClient.readOnly);
         const obsolete: number[] = [];
         for (const row of rows) {
           if (row.imported_legacy_thread === 1) {
@@ -349,7 +348,7 @@ export const layer: Layer.Layer<
             }
           }
         }
-        // Yield even with nothing to delete, including on the writer fallback.
+        // Yield even without deletions for clients using the synchronous fallback.
         yield* Effect.yieldNow;
         if (obsolete.length > 0) {
           yield* sql`DELETE FROM orchestration_events WHERE sequence IN ${sql.in(obsolete)}`;
@@ -382,7 +381,7 @@ export const layer: Layer.Layer<
           WHERE receipt.rowid <= ${throughReceiptRowId}
           ORDER BY receipt.rowid DESC
           LIMIT ${COMPACTION_PAGE_SIZE}
-        `.pipe(readOnly);
+        `.pipe(NodeSqliteClient.readOnly);
         const obsolete = rows
           .filter((row) => row.imported_legacy_thread === 1)
           .map((row) => row.command_id);
@@ -400,17 +399,6 @@ export const layer: Layer.Layer<
       const pageSizeRows = yield* sql<{ readonly page_size: number }>`PRAGMA page_size`;
       const reclaimableBytes =
         (freelistRows[0]?.freelist_count ?? 0) * (pageSizeRows[0]?.page_size ?? 0);
-
-      const now = DateTime.formatIso(yield* DateTime.now);
-      yield* sql`
-        INSERT INTO orchestration_v2_projection_metadata (
-          projection_name, schema_version, last_sequence, updated_at
-        ) VALUES ('event-store-compaction', 1, ${bounds[0]?.event_sequence ?? 0}, ${now})
-        ON CONFLICT(projection_name) DO UPDATE SET
-          schema_version = excluded.schema_version,
-          last_sequence = excluded.last_sequence,
-          updated_at = excluded.updated_at
-      `;
 
       return { deletedEventCount, deletedReceiptCount, reclaimableBytes };
     });

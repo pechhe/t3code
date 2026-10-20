@@ -1,4 +1,4 @@
-import { EnvironmentId, ThreadId, type ThreadPullRequestLink } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, ThreadId, type ThreadPullRequestLink } from "@t3tools/contracts";
 import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
@@ -236,6 +236,9 @@ it("keeps workspace controls after expanding and collapsing 70 linked pull reque
       <ThreadDetailsPanel
         slipJayStatus={null}
         {...threadRef}
+        projectId={ProjectId.make("project")}
+        worktreePath={null}
+        isServerThread
         anchor={{ current: null }}
         handle={PopoverCreateHandle()}
         onPresentationChange={vi.fn()}

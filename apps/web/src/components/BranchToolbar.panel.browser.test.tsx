@@ -30,17 +30,11 @@ vi.mock(import("./BranchToolbarBranchSelector"), async (original) => ({
 }));
 vi.mock(import("../state/entities"), async (original) => ({
   ...(await original()),
-  useQuietThreadShell: (() => ({
-    environmentId: "local",
-    projectId: "project",
-    worktreePath: state.worktreePath,
-  })) as never,
   useProject: (() => ({ workspaceRoot: "/tmp/project" })) as never,
   useThreadShellsForProjectRefs: () => [],
 }));
 
 import { BranchToolbar } from "./BranchToolbar";
-import { ComposerSurface } from "./chat/ComposerSurface";
 
 let root: Root;
 let container: HTMLDivElement;
@@ -68,6 +62,9 @@ function render(props: Partial<ComponentProps<typeof BranchToolbar>>) {
         panelSection="workspace"
         environmentId={EnvironmentId.make("local")}
         threadId={ThreadId.make("thread")}
+        projectId={ProjectId.make("project")}
+        worktreePath={state.worktreePath}
+        isServerThread
         envMode="local"
         envLocked={false}
         startFromOrigin={false}
@@ -129,6 +126,7 @@ it.each([
   ["local", null, "/tmp/project"],
   ["worktree", null, null],
   ["worktree", "/tmp/worktree", "/tmp/worktree"],
+  ["worktree", "C:/repo/worktree", String.raw`C:\repo\worktree`],
 ] as const)(
   "copies only an existing workspace path with mode %s and worktree %s",
   async (envMode, worktreePath, copiedPath) => {

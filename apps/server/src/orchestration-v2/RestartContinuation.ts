@@ -31,6 +31,9 @@ import {
 
 const CONTINUE_PROMPT = "Continue where you left off.";
 
+// Only continuations in quick succession count as a loop; a slow chain is a thread still working.
+const CONTINUATION_LOOP_WINDOW_MS = 5 * 60 * 1_000;
+
 function restartContinuationBlocked(
   projection: Pick<
     ProjectionRuntimeRecoveryState,
@@ -226,7 +229,16 @@ export const continueRestartedRun = Effect.fn("RestartContinuation.continueResta
       return;
     if (projection.thread.providerInstanceId !== source.providerInstanceId) return;
     // A turn that keeps crashing the server would otherwise restart it forever.
-    if (serverContinuationChainLength(projection.runs, source) >= MAX_CONTINUATION_CHAIN) {
+    const loopWindowStart =
+      DateTime.toEpochMillis(source.completedAt ?? source.requestedAt) -
+      CONTINUATION_LOOP_WINDOW_MS;
+    const loopRuns = projection.runs.filter(
+      (run) => DateTime.toEpochMillis(run.requestedAt) >= loopWindowStart,
+    );
+    if (
+      loopRuns.some((run) => run.id === source.id) &&
+      serverContinuationChainLength(loopRuns, source) >= MAX_CONTINUATION_CHAIN
+    ) {
       yield* Effect.logWarning("Not continuing a run restarted too many times in a row", {
         threadId: input.threadId,
         sourceRunId: input.sourceRunId,

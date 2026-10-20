@@ -3,67 +3,71 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.1-nightly.20261019.3373",
-      "sha": "300a35670abc0f73662e17c9ce909bcc106be70f"
-    },
-    "target": {
       "tag": "v0.1.1-nightly.20261020.3386",
       "sha": "fb990765a49414a5bfbdc73365455fc8b5fbe691"
+    },
+    "target": {
+      "tag": "v0.1.1-nightly.20261020.3399",
+      "sha": "e5c6083c25a1ddd22ceff3fd24507d3da4baa278"
     }
   },
   "fork": {
-    "base": "7af4f5db030613753db56fd7a414a2b1a0da487a"
+    "base": "9723de10d09dc62bbd02fa30c5eea2945a044c13"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "13766774ea6770c22f43c66529f73654cb25b984"
+    "blob": "b4455031f900fa8dcabbee7ddf4121bf11062848"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.1-nightly.20261020.3386@1792463438",
-  "reviewedAt": "2026-10-20T03:01:03Z",
+  "attempt": "v0.1.1-nightly.20261020.3399@1792485118",
+  "reviewedAt": "2026-10-20T15:18:22Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:74ace26d-ca36-4691-b4a4-a172b2d3eb62",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:75225bd8-3584-41dd-8aad-f2a624179b6b",
     "model": "claude-opus-5-5"
   },
   "coverage": {
-    "upstreamCommits": 189,
+    "upstreamCommits": 342,
     "entriesConsidered": [
       "account-pools",
-      "desktop-fork-build",
-      "no-project-chats",
-      "linked-environments",
-      "perf-persistence-reads",
-      "managed-delegation",
-      "slipjay-workspaces",
-      "slipjay-release-approvals",
-      "device-composer",
-      "perf-markdown-blocks",
-      "live-response-streaming",
-      "snapshot-overlay",
-      "screen-recording-video",
-      "context-rollover",
-      "experiments",
       "agent-policy-roles",
+      "agent-process-ledger",
       "build-items-hq",
+      "context-rollover",
+      "desktop-fork-build",
+      "device-composer",
+      "experiments",
+      "image-annotation",
+      "linked-environments",
+      "live-response-streaming",
+      "managed-browser-roles",
+      "managed-delegation",
+      "mobile-fork-screens",
+      "no-project-chats",
+      "perf-markdown-blocks",
+      "perf-persistence-reads",
+      "perf-persistence-writes",
+      "perf-secret-reads",
+      "project-themes",
+      "quiet-run-read-state",
+      "scheduled-tasks-extensions",
+      "screen-recording-video",
+      "side-chat",
+      "slipjay-landing",
+      "slipjay-release-approvals",
+      "slipjay-workspaces",
+      "snapshot-overlay",
       "thread-watches",
       "unattended-threads",
-      "scheduled-tasks-extensions",
-      "image-annotation",
-      "side-chat",
-      "web-client-customisation",
-      "mobile-fork-screens",
-      "perf-persistence-writes",
-      "agent-process-ledger",
-      "quiet-run-read-state"
+      "web-client-customisation"
     ],
     "areas": [
-      "All 189 incoming commits (300a35670a..fb99076) by subject and stat; the 52 conflicted files resolved hunk by hunk on both sides",
-      "Server MCP (orchestrator, worktree, project toolkits), orchestration-v2 adapters (Claude, Codex, OpenCode), ProjectionStore, ThreadLaunchService, ScheduledTaskService, GitVcsDriver, ws.ts, server.ts",
-      "Shared threadLinks, composerContextReferences, nodeSqliteClient; contracts settings; client-runtime models",
-      "Web BranchToolbar, ChatView, ChatComposer, ChatMarkdown, MessagesTimeline, thread links, lifecycle rows; mobile ThreadFeed and handoff row; desktop window and preview recording",
-      "Every upstream test file added or changed in the range (196) run against the merge to catch upstream fixes dropped by retained fork code"
+      "All 342 incoming commits (fb990765..e5c6083c) by subject and stat; the 85 conflicted files and 2 modify/delete conflicts resolved hunk by hunk on both sides (183 hunks)",
+      "Server persistence (migrations 065/066 renumbered 075/076, ProjectionMaintenance compaction cadence, nodeSqliteClient WAL checkpointing), MCP (OrchestratorMcpService, McpSessionRegistry), ScheduledTaskService, GitWorkflowService lease, orchestration-v2 restart and pending-work logic, provider usage limits",
+      "Shared nodeSqliteClient, orchestrationV2PendingBackgroundWork, threadLinks, markdownPipeline; contracts ipc and settings; client-runtime models",
+      "Web BranchToolbar (Add to another machine submenu), ChatMarkdown, Scheduled page, SnapShotCoordinator; mobile thread list; desktop ActiveWindow and SnapShot",
+      "Every upstream test file added or changed in the range run against the merge (unit and browser) to catch upstream fixes dropped by retained fork code"
     ],
     "exclusions": [
       {
@@ -71,205 +75,190 @@
         "why": "No browser or device pass in this attempt; covered by vitest browser tests and typecheck"
       },
       {
-        "what": "Performance equivalence of the markdown and persistence adaptations",
+        "what": "Performance equivalence of the WAL checkpoint and compaction adaptations",
         "why": "Correctness tests only; #135 owns measurement"
+      },
+      {
+        "what": "Lint (prefer-effect-fn convention upstream introduced)",
+        "why": "Lint is not in the landing gate; about 105 fork violations filed as YardSmith HQ Build #3682"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "account-pools",
-      "upstream": "Claude fork under an instance-specific Claude home (#18662)",
-      "decision": "adapt",
-      "requirements": ["Claude forks find threads in an account's own home"],
-      "evidence": [
-        "ClaudeAgentSdkQueryRunner.ts uses upstream's custom-home fork worker, extended to honour HOME; the fork-session helper and its test removed",
-        "ClaudeAgentSdkQueryRunner.test.ts (incl. ledger case) and providerPools.test.ts pass; handoff.test.ts passes"
-      ]
-    },
-    {
-      "entry": "desktop-fork-build",
-      "upstream": "Partial-clone remote annotation parsing (#16316)",
-      "decision": "adopt",
-      "requirements": ["partial-clone fork identity retained"],
-      "evidence": [
-        "RepositoryIdentityResolver.ts takes upstream's parser",
-        "RepositoryIdentityResolver.test.ts passes"
-      ]
-    },
-    {
-      "entry": "no-project-chats",
-      "upstream": "Scratch project normalisation (isScratchProject); Claude native fork passes cwd as dir",
-      "decision": "adapt",
+      "entry": "context-rollover",
+      "upstream": "Idle Claude compaction (#21682), auto-compact threshold meter (#18332), migrations 065/066",
+      "decision": "retain",
       "requirements": [
-        "a worktree request in the Scratch project runs in its own folder",
-        "moved Claude chats start"
+        "rollover nudges coexist with idle compaction",
+        "released fork migration numbers never move"
       ],
       "evidence": [
-        "ThreadLaunchService.ts and ScheduledTaskService.ts use upstream normalisation",
-        "ClaudeAdapterV2.ts keeps the fork's no-dir fork; upstream's native-fork test expectation adjusted",
-        "ThreadLaunchService.test.ts, ProjectMoveReactor.test.ts, ClaudeAdapterV2.test.ts pass"
-      ]
-    },
-    {
-      "entry": "linked-environments",
-      "upstream": "Cross-environment thread-link resolution (#21505); foreign thread attachments refused (#18310)",
-      "decision": "adapt",
-      "requirements": ["attach linked threads in the composer", "read threads across environments"],
-      "evidence": [
-        "shared/threadLinks.ts: upstream resolver for unqualified links, explicit qualifiers resolve locally only; MarkdownThreadLink and mobile ThreadFeed follow",
-        "composerContextPresentation and ChatView keep linked-peer attachments",
-        "threadLinks.test.ts, PeerEnvironments.test.ts, ThreadDirectory.test.ts, composerContextPresentation.test.ts pass"
-      ]
-    },
-    {
-      "entry": "perf-persistence-reads",
-      "upstream": "SQLite borrower owns the connection through statement execution (#21798); empty never-run threads settle by createdAt (#15783)",
-      "decision": "adapt",
-      "requirements": [
-        "connection wait as interruptible as its caller; finalizer still writes",
-        "settlement timer prefilter"
-      ],
-      "evidence": [
-        "nodeSqliteClient.ts combines borrower ownership with reader leases and caller masks",
-        "ProjectionStore.ts timer prefilter gains the createdAt fallback",
-        "nodeSqliteClient.test.ts, ProjectionStore.test.ts, ProjectionSettlement.test.ts pass"
+        "Migrations 075_CodexUsageNativeTurnIndex and 076_RepairClientSettlementTimestamps take upstream's 065/066; migration list tests updated and passing",
+        "Rollover reactor tests pass"
       ]
     },
     {
       "entry": "managed-delegation",
-      "upstream": "Deduplicated terminal results and context transfers (#19759); dotted Codex MCP overrides",
+      "upstream": "Delegated option inheritance and pendingApproval (#20037), settled-leaf omission (#22117), command-kind completion exception",
       "decision": "adapt",
-      "requirements": ["managed task handoff evidence", "managed tool restrictions"],
+      "requirements": [
+        "pending background work of any kind holds completion"
+      ],
       "evidence": [
-        "OrchestratorMcpService.ts keeps handoff/workspace evidence beside upstream dedup",
-        "CodexAdapterV2.ts: ordinary threads dotted overrides, managed tasks whole-table disabling",
-        "OrchestratorMcpToolkit.integration.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts, CodexAdapterV2.test.ts pass"
+        "OrchestratorMcpService.ts layers upstream options and pendingApproval onto role-based delegate_task; ExternalAgentWorkService reports pendingApproval: null",
+        "threadListV2.test.ts aligned with the fork hold rule (fork af62a29a); OrchestratorMcpToolkit.integration passes"
       ]
     },
     {
-      "entry": "slipjay-workspaces",
-      "upstream": "Worktree base fetched from its configured remote (#21032)",
+      "entry": "managed-browser-roles",
+      "upstream": "MCP token retention across waits and idle days (#18552, #19491)",
       "decision": "adapt",
-      "requirements": ["SlipJay allocation and exact checkout"],
+      "requirements": [
+        "a managed task's Phi session is released when it ends"
+      ],
       "evidence": [
-        "WorktreeMcpService.ts runs upstream's remote base inside the Git checkout plan only",
-        "WorktreeMcpService.test.ts, ThreadLaunchService.test.ts, JjVcsDriver.test.ts pass"
+        "McpSessionRegistry.ts takes upstream retention plus a browserReleased mark; McpSessionRegistry.test.ts passes"
       ]
     },
     {
-      "entry": "slipjay-release-approvals",
-      "upstream": "RequestActionButton removed (#21943); nonblocking pending-request summaries (#15430)",
+      "entry": "unattended-threads",
+      "upstream": "Five-minute restart-loop window (#20306)",
       "decision": "adapt",
-      "requirements": ["approval cards surface and act once"],
+      "requirements": [
+        "unattended continuation counter stays untimed"
+      ],
       "evidence": [
-        "ProjectionStore.ts and client-runtime models.ts carry both summaries; mobile card uses upstream Button",
-        "ReleaseApprovalShell.test.ts, shippedClientCompatibility.test.ts pass; mobile typecheck passes"
+        "RestartContinuation.test.ts and UnattendedReactor tests pass"
       ]
     },
     {
-      "entry": "device-composer",
-      "upstream": "Composer environment strip with idle update action (#21950); implementation menu focus fix (#17111)",
+      "entry": "slipjay-landing",
+      "upstream": "Checkout lease around local pull request preparation (withWorkspaceLease)",
       "decision": "retain",
-      "requirements": ["fork composer layout without host/workspace selectors"],
+      "requirements": [
+        "SlipJay landing runs inside the lease"
+      ],
       "evidence": [
-        "BranchToolbarEnvironmentSelector.tsx kept unmounted; idle update stays in the banner",
-        "#17111 ported to ComposerPrimaryActions.tsx",
-        "BranchToolbar.logic.test.ts, BranchToolbar.panel.browser.test.tsx, ComposerPrimaryActions.browser.test.tsx pass",
-        "ChatView.tsx keeps the fork's idle-update banner with its guidance text and per-version dismissal; serverUpdateGuidance kept in versionSkew.ts after upstream removed it"
+        "GitWorkflowService.test.ts and GitManager.test.ts lease case pass"
       ]
     },
     {
-      "entry": "perf-markdown-blocks",
-      "upstream": "Markdown math rendering and renderer changes",
+      "entry": "scheduled-tasks-extensions",
+      "upstream": "Delete thread-bound automations with their thread (#22070), run-now returns the thread (#17458), server timezone labels (#18653)",
       "decision": "adapt",
-      "requirements": ["settled blocks are not re-rendered while streaming"],
+      "requirements": [
+        "fork Scheduled page replaces upstream's settings panel"
+      ],
       "evidence": [
-        "ChatMarkdown.tsx renders math or plugin messages whole; other messages keep memoized blocks",
-        "markdownBlocks.test.ts, markdownMath.test.ts, ChatMarkdown.browser.test.tsx, MessagesTimeline.browser.test.tsx pass"
+        "ScheduledTaskService.ts gains deleteForThread, runNow thread return and timezone; ScheduledTasksSettings.tsx removed and the label ported to scheduledTaskParts/ScheduledTasksPage",
+        "ScheduledTaskService tests pass"
       ]
     },
     {
-      "entry": "live-response-streaming",
-      "upstream": "Math and completed-Mermaid rendering",
-      "decision": "retain",
-      "requirements": ["opt-in word reveal and eased height"],
+      "entry": "account-pools",
+      "upstream": "Pooled-limit labelling and resize (#19964), no auto-resume after stopping a usage-limited thread (#21114)",
+      "decision": "adapt",
+      "requirements": [
+        "capacity-weighted pool columns"
+      ],
       "evidence": [
-        "index.css keeps reveal styles beside upstream math/Mermaid styles",
-        "MessagesTimeline.browser.test.tsx passes"
+        "usage limit UI and providerPools.test.ts pass"
       ]
     },
     {
       "entry": "snapshot-overlay",
-      "upstream": "Window setup stops once the app quits (#18380)",
-      "decision": "adapt",
-      "requirements": ["overlay and display-media installation"],
+      "upstream": "Skip auxiliary macOS helper windows (#12978); SnapShotCoordinator test renamed to a browser test",
+      "decision": "defer",
+      "requirements": [
+        "overlay takes captures when it exists"
+      ],
       "evidence": [
-        "DesktopWindow.ts has upstream quit guards plus fork overlay/media",
-        "DesktopWindow.test.ts passes"
+        "ActiveWindow.ts keeps the fork's version; port tracked as YardSmith HQ Build #3683",
+        "SnapShotCoordinator.browser.test.ts carries the fork's overlay-conversation case; its fixture bridge now reports a snapshot state"
+      ],
+      "reassessWhen": "the MacSnapShot.ts port of auxiliary-window skipping is verified on macOS (YardSmith HQ Build #3683)"
+    },
+    {
+      "entry": "perf-persistence-reads",
+      "upstream": "Persisted compaction cadence in a compacted-at file (#21880) and reader-side compaction discovery (#21881)",
+      "decision": "adapt",
+      "requirements": [
+        "reader routing kept"
+      ],
+      "evidence": [
+        "ProjectionMaintenance takes upstream's file; the event-store-compaction metadata row is no longer written; ProjectionMaintenance tests pass",
+        "After rebasing onto the fork's batched shell reads (e6f5d3b3), getThreadShell keeps the fork's threadIds snapshot read, whose readShellSnapshotRows already passes upstream's running-run filter; the in-memory store keeps the threadIds filter inside upstream's Effect.fn; ProjectionStore tests pass"
       ]
     },
     {
-      "entry": "screen-recording-video",
-      "upstream": "OpenCode native image attachments; bounded recording warmup (#20085)",
+      "entry": "perf-persistence-writes",
+      "upstream": "Non-blocking WAL checkpointing (#21799)",
       "decision": "adapt",
       "requirements": [
-        "sampled video frames reach every adapter",
-        "composer Record control captures the main window"
+        "4000-frame checkpoint start and 10 000-frame backstop"
       ],
       "evidence": [
-        "OpenCode adapter sends images natively plus frame text",
-        "upstream warmup test given a distinct main frame so the composer capture path stays out",
-        "OpenCode2AdapterV2.test.ts and desktop preview Manager.test.ts pass"
+        "nodeSqliteClient.ts combines upstream admission control and truncate handshake with the fork thresholds; nodeSqliteClient.test.ts 63/64 on Node 24 (the one failure also fails on the tag)"
+      ]
+    },
+    {
+      "entry": "agent-process-ledger",
+      "upstream": "Helper processes do not outlive the backend for text generation (#12513)",
+      "decision": "retain",
+      "requirements": [
+        "generalised ProcessGroupLedger"
+      ],
+      "evidence": [
+        "OpenCode still wraps the fork ledger; CodexProcessGroup and ledger tests pass",
+        "After rebasing onto the fork's Codex and ACP ledger tracking (7b385112, 9723de10), the trackUntilExit calls sit inside upstream's Effect.fn Codex open and restructured ACP spawn; desktop quit keeps the fork's snapshot-then-stop with upstream's 45 s stop budget (#12513)"
+      ]
+    },
+    {
+      "entry": "no-project-chats",
+      "upstream": "Per-checkout \"New thread in…\" choice in the command palette, sidebar and new-thread shortcut (#15636)",
+      "decision": "retain",
+      "requirements": [
+        "new threads start as No project with a project chip"
+      ],
+      "evidence": [
+        "Merge keeps the fork's CommandPalette, Sidebar, _chat.tsx and DraftHeroHeadline flow; #15636's uncalled helpers and their tests removed",
+        "environmentGrouping.test.ts, CommandPalette.logic.test.ts and useHandleNewThread.test.ts pass"
+      ]
+    },
+    {
+      "entry": "thread-watches",
+      "upstream": "Blocked-on-thread-wait detection (#21499, #21500)",
+      "decision": "retain",
+      "requirements": [
+        "watches hold Waiting"
+      ],
+      "evidence": [
+        "orchestrationV2PendingBackgroundWork.test.ts passes"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp test run <135 upstream-changed non-client test files>",
+      "command": "vp test run <upstream-changed non-browser test files> (Node 24.19, CLAUDE_CONFIG_DIR unset, TMPDIR=/private/tmp)",
       "result": "failed",
-      "note": "5170 passed; 21 failures in DesktopLinuxUrlHandler, AgentSessionScanner, storageCleanup, UsageService, GitVcsDriverCore, build-desktop-artifact also fail on the bare tag fb990765 on this macOS host; the 2 merge-caused failures (ClaudeAdapterV2 native fork, desktop preview Manager) fixed and passing"
+      "note": "10 830+ passed; remaining failures also fail on the bare tag or fork base on this macOS host: DesktopLinuxUrlHandler (2), GitVcsDriverCore (1), build-desktop-artifact (1), CodexInstallation (2, case-insensitive APFS: codex.EXE vs codex.exe), nodeSqliteClient 'keeps large text and blob parameters' (1, fails on tag and fork base). An earlier Node 22 run's nodeSqliteClient, ClaudeSkills, OrchestratorReplayFixtures, AntigravityAdapterV2, storageCleanup, UsageService and AgentSessionScanner failures were environmental (wrong Node, ambient CLAUDE_CONFIG_DIR, /var symlink) and pass under those settings; Dialog.android and ghostty surface pass in their package scope"
     },
     {
-      "command": "vp test run --project unit|browser (web) <47 upstream-changed web test files>",
-      "result": "passed",
-      "note": "1101 unit + 418 browser; RightPanelTabs.keyboard custom-binding case flaked once under load and passes alone; ComposerPrimaryActions.browser fixed by porting #17111"
-    },
-    {
-      "command": "vp test run (mobile) <14 upstream-changed mobile test files>",
+      "command": "vp test run --project browser (web) <upstream-changed browser test files>",
       "result": "failed",
-      "note": "211 passed; threadListV2 \"unseen completion with a command roster\" fails: that case and the hold rule are both unchanged from the fork base 7af4f5db, where fork commit af62a29a makes any background work hold completion. Not caused by this merge; not rerun on the fork base"
+      "note": "SnapShotCoordinator.browser 25/25 after giving the fixture bridge a snapshot state and clearing its call count (the fork's coordinator reads overlay state while draining); ChatMarkdown.browser table-formula case passes once the workspace store's stale unpatched patched packages were reinstalled (108/109; the long-reply render budget case exceeds its budget at load average 17+ and passes in the merge clone); CommandPalette.focus.browser fails identically on the fork base 79c00f81 (its useTheme mock lacks fork exports), not caused by this merge, follow-up YardSmith HQ Build #3698; long-reply render budget and syntax-colour preview cases flaked under load average 17-35 and pass alone"
     },
     {
-      "command": "vp test run ClaudeAgentSdkQueryRunner, JjVcsDriver, PeerEnvironments, ThreadDirectory, GitVcsDriver, threadLinks, nodeSqliteClient, ClaudeAdapterV2",
+      "command": "vp run --filter t3 typecheck; vp run --filter @t3tools/web typecheck; desktop and mobile typecheck",
       "result": "passed",
-      "note": "327 + 163 tests"
+      "note": "Run on the merge commit 079110c2"
     },
     {
-      "command": "vp test run fork-entry suites (ContextRollover*, ThreadWatch, UnattendedReactor, ProjectMoveReactor, ProjectionSettlement, ManagedDelegation, ManagedFollowup, MCP integration, Scheduler, ClaudeAutomaticDelivery, shippedClientCompatibility, ReleaseApprovalShell, settings, markdownBlocks, providerPools, handoff, threadShell, threadExecution)",
+      "command": "vp test run apps/mobile/src/features/threads/threadListV2.test.ts",
       "result": "passed",
-      "note": "run by the merge worker in the merge clone"
-    },
-    {
-      "command": "vp test run --project browser (web) ChatMarkdown, BranchToolbar.panel, MessagesTimeline",
-      "result": "passed",
-      "note": "176 tests"
-    },
-    {
-      "command": "vp run typecheck (t3, web, mobile, contracts, shared, client-runtime, provider-opencode, desktop)",
-      "result": "passed",
-      "note": "web rerun after lead edits"
-    },
-    {
-      "command": "vp lint apps/web/src/components/ChatView.tsx apps/web/src/versionSkew.ts apps/server/src/ws.ts",
-      "result": "passed",
-      "note": "3 warnings in ws.ts (unused Fiber, Schedule, projectSetupScriptRunner) are identical on the bare tag and the fork base; the merge-introduced unused import was removed"
-    },
-    {
-      "command": "ticket-reviewer (claude-sonnet-5-5) over all 52 conflict resolutions and the reconcile commit",
-      "result": "passed",
-      "note": "0 blocking; 3 should-fix (stale record entries, unused ws.ts import, idle update banner lost guidance and dismissal) fixed"
+      "note": "Aligned with the fork's hold-everything completion rule (af62a29a)"
     }
   ],
   "result": "reconciled"

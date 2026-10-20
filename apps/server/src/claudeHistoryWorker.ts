@@ -1,5 +1,6 @@
 import {
   forkSession,
+  getSessionMessages,
   getSubagentMessages,
   type SessionMessage,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -25,9 +26,19 @@ const HistoryOptions = Schema.Struct({
 type HistoryOptions = typeof HistoryOptions.Type;
 const decodeHistoryOptions = Schema.decodeSync(Schema.fromJsonString(HistoryOptions));
 
+// The fork's head message is remapped by the SDK, so it is read back from the
+// forked transcript for callers that roll the fork's first run back.
+const forkWithHead = async (sessionId: string, options: Omit<HistoryOptions, "agentId">) => {
+  const forked = await forkSession(sessionId, options);
+  const headMessageId = await getSessionMessages(forked.sessionId, options)
+    .then((messages) => messages.at(-1)?.uuid)
+    .catch(() => undefined);
+  return headMessageId === undefined ? forked : { ...forked, headMessageId };
+};
+
 const runHistory = (method: string | undefined, sessionId: string, options: HistoryOptions) => {
   const { agentId, ...rest } = options;
-  if (method === "forkSession") return forkSession(sessionId, rest);
+  if (method === "forkSession") return forkWithHead(sessionId, rest);
   if (method === "getSubagentMessages" && agentId !== undefined) {
     return getSubagentMessages(sessionId, agentId, rest);
   }

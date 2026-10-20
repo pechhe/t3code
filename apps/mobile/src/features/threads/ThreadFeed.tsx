@@ -176,6 +176,7 @@ import {
   resolveMarkdownLinkPresentation,
 } from "../../lib/markdownLinks";
 import {
+  createThreadFeedCache,
   failedFeedRunIds,
   deriveThreadFeedPresentation,
   threadFeedRunIsUnsettled,
@@ -233,7 +234,7 @@ import {
 } from "../files/filePath";
 import { waitForThreadShellReady } from "./threadForkNavigation";
 import { resolveUserMessageIntentBadge } from "./userMessageIntentBadge";
-import { fileChipMenu, resolveFileChipTarget, type FileChipAction } from "./fileChipMenu";
+import { fileChipClipboardPath, fileChipMenu, resolveFileChipTarget } from "./fileChipMenu";
 import { useFileChipShare } from "./useFileChipShare";
 import {
   MarkdownImageAvailableWidthContext,
@@ -307,6 +308,7 @@ export interface ThreadFeedProps {
   readonly anchorMessageId: MessageId | null;
   readonly submittedMessageId: MessageId | null;
   readonly contentInsetEndAdjustment: SharedValue<number>;
+  readonly keyboardOffset: number;
   readonly contentTopInset?: number;
   readonly contentBottomInset?: number;
   readonly historyControls?: ThreadFeedHistoryControls;
@@ -1736,6 +1738,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const disclosureSettleFrameRef = useRef<number | null>(null);
   const disclosureSettleSecondFrameRef = useRef<number | null>(null);
   const disclosureAnchorKeyRef = useRef<string | null>(null);
+  const [feedCache] = useState(createThreadFeedCache);
   const previousLatestTurnRef = useRef(props.latestRun);
   const userScrollSettleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const headerMaterialVisibleRef = useRef(false);
@@ -1841,6 +1844,20 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const screenColor = theme["--color-screen"];
   const userBubbleColor = theme["--color-user-bubble"];
   const buildOrigin = useThreadBuildOrigin(props.environmentId, props.threadId);
+  // A link without an environment qualifier may name a thread in any connected environment;
+  // a qualified one names exactly that environment.
+  const resolveLinkedThread = (href: string) => {
+    const threadLink = parseThreadLink(href);
+    if (!threadLink) return null;
+    const source = scopeThreadRef(
+      threadLink.environmentId ?? props.environmentId,
+      threadLink.threadId,
+    );
+    const refs = appAtomRegistry.get(environmentThreadShells.threadRefsAtom);
+    return threadLink.environmentId === null
+      ? (resolveThreadLinkRef(source, refs) ?? source)
+      : (resolveThreadLinkRef(source, refs, false) ?? source);
+  };
   const onMarkdownLinkPress = (href: string, imageEmbed = false) => {
     const buildNumber = buildOrigin === null ? null : buildItemNumberFromUrl(href, buildOrigin);
     if (buildNumber !== null) {
@@ -1853,18 +1870,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       });
       return;
     }
-    const threadLink = parseThreadLink(href);
-    if (threadLink) {
-      const source = scopeThreadRef(
-        threadLink.environmentId ?? props.environmentId,
-        threadLink.threadId,
-      );
-      const refs = appAtomRegistry.get(environmentThreadShells.threadRefsAtom);
-      const target =
-        threadLink.environmentId === null
-          ? (resolveThreadLinkRef(source, refs) ?? source)
-          : (resolveThreadLinkRef(source, refs, false) ?? source);
-      if (threadLink.environmentId === null || threadLink.environmentId === props.environmentId) {
+    const target = resolveLinkedThread(href);
+    if (target) {
+      const linkEnvironmentId = parseThreadLink(href)?.environmentId ?? null;
+      if (linkEnvironmentId === null || linkEnvironmentId === props.environmentId) {
         navigation.navigate("Thread", {
           environmentId: String(target.environmentId),
           threadId: String(target.threadId),
@@ -1934,19 +1943,35 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     onImagePress: (href) => onMarkdownLinkPress(href, true),
     resolveImageSource,
     fileContextMenu: (href) => {
+      const thread = resolveLinkedThread(href);
+      if (thread) {
+        return {
+          title:
+            appAtomRegistry.get(environmentThreadShells.threadShellAtom(thread))?.title ?? "Thread",
+          actions: [
+            { id: "open-thread", title: "Open thread" },
+            { id: "copy-thread-link", title: "Copy link" },
+          ],
+        };
+      }
       const target = resolveFileChipTarget(href, props.workspaceRoot);
       return target ? fileChipMenu(target) : undefined;
     },
     onFileContextMenuAction: (href, actionId) => {
+      if (resolveLinkedThread(href)) {
+        if (actionId === "open-thread") onMarkdownLinkPress(href);
+        else if (actionId === "copy-thread-link") copyTextWithHaptic(href);
+        return;
+      }
       const target = resolveFileChipTarget(href, props.workspaceRoot);
       if (!target) return;
-      switch (actionId as FileChipAction) {
+      switch (actionId) {
         case "copy-full-path":
-          if (target.fullPath) copyTextWithHaptic(target.fullPath);
+        case "copy-relative-path": {
+          const clipboardPath = fileChipClipboardPath(target, actionId);
+          if (clipboardPath !== undefined) copyTextWithHaptic(clipboardPath);
           return;
-        case "copy-relative-path":
-          if (target.relativePath) copyTextWithHaptic(target.relativePath);
-          return;
+        }
         case "open-file":
           onMarkdownLinkPress(href);
           return;
@@ -2069,6 +2094,8 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     themeAppearance,
     userBubbleColor,
     viewportWidth,
+    contentWidth,
+    skills: props.skills,
     workflowOpening,
   };
   const reportHeaderMaterialVisibility = (visible: boolean) => {
@@ -2176,6 +2203,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
       ),
       props.activeWorkStartedAt,
       props.runlessWorkActive ?? false,
+      feedCache,
     ),
     props.feed,
     props.queuedMessages,
@@ -2540,6 +2568,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
             // content rest below the transparent header rather than at frame top.
             contentInsetStartAdjustment={usesNativeAutomaticInsets ? anchorTopInset : 0}
             contentInsetEndAdjustment={props.contentInsetEndAdjustment}
+            keyboardOffset={props.keyboardOffset}
             // UIKit's automatic behavior adds the safe-area bottom on top of the
             // raw contentInset the keyboard integration writes. The detail screen
             // under-reports the composer inset by this amount (see

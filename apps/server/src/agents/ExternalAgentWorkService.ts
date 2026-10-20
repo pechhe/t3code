@@ -351,6 +351,7 @@ const make = Effect.gen(function* () {
       resultContextTransferId: null,
       // An external caller has no pending-request tools to answer a question with.
       hasPendingQuestion: false,
+      pendingApproval: null,
       waitTimedOut: false,
       launchState: row.state,
       failureReason: row.failure_reason,

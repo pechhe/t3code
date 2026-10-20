@@ -65,6 +65,7 @@ import {
   WebhookEndpointField,
   relativeLabel,
   scheduleLabel,
+  scheduleTimeZoneLabel,
   statusVariant,
 } from "./scheduledTaskParts";
 import {
@@ -248,6 +249,10 @@ export function ScheduledTasksPage(props: {
             <TaskListItem
               key={group.key}
               group={group}
+              timeZone={
+                sources.find((source) => source.environmentId === leadEnvironmentOf(group))
+                  ?.timeZone
+              }
               active={group.key === activeKey}
               onSelect={() => setSelected(group.key)}
             />
@@ -279,8 +284,17 @@ export function ScheduledTasksPage(props: {
   );
 }
 
+function leadEnvironmentOf(group: ScheduledTaskGroup): EnvironmentId | null {
+  return (
+    group.members.find((member) => member.task === group.lead)?.environmentId ??
+    group.members[0]?.environmentId ??
+    null
+  );
+}
+
 function TaskListItem(props: {
   readonly group: ScheduledTaskGroup;
+  readonly timeZone: string | undefined;
   readonly active: boolean;
   readonly onSelect: () => void;
 }) {
@@ -304,7 +318,7 @@ function TaskListItem(props: {
         ) : null}
       </span>
       <span className="truncate text-muted-foreground text-xs">
-        {scheduleLabel(group.lead.schedule)}
+        {scheduleLabel(group.lead.schedule, props.timeZone)}
         {status === "paused" ? " · paused" : next !== null ? ` · next ${relativeLabel(next)}` : ""}
         {machines > 1 ? ` · ${machines} machines` : ""}
       </span>
@@ -401,10 +415,12 @@ function TaskDetail(props: {
     serverEnvironment.upsertScheduledTask.permissionAtom(policyMachine),
   );
   const update = (patch: Partial<EditorDraft>) => setDraft((current) => ({ ...current, ...patch }));
-  const leadEnvironmentId =
-    group?.members.find((member) => member.task === group.lead)?.environmentId ??
-    group?.members[0]?.environmentId ??
-    null;
+  const leadEnvironmentId = group === null ? null : leadEnvironmentOf(group);
+  const scheduleSources = useAllScheduledTasks();
+  const runAtZone = scheduleTimeZoneLabel(
+    scheduleSources.find((source) => source.environmentId === (leadEnvironmentId ?? policyMachine))
+      ?.timeZone,
+  );
   const boundThreadId = group?.lead.threadId ?? null;
   // A task bound to a thread posts there, so where it runs is that thread's.
   const bound = boundThreadId !== null && draft.keepThread;
@@ -635,6 +651,9 @@ function TaskDetail(props: {
               value={draft.timeOfDay}
               onChange={(event) => update({ timeOfDay: event.target.value })}
             />
+            {runAtZone === undefined ? null : (
+              <span className="text-xs text-muted-foreground">{runAtZone}</span>
+            )}
           </>
         )}
       </div>

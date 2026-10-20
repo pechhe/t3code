@@ -175,6 +175,7 @@ export function buildSidebarProjectPickerEntries(input: {
   preferredProjectRef: ScopedProjectRef | null;
 }) {
   const preferredProjectRef = input.preferredProjectRef;
+
   const entries = input.groups.flatMap((group): SidebarProjectPickerEntry[] => {
     const isPreferred = preferredProjectRef
       ? group.memberProjectRefs.some(

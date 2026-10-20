@@ -220,6 +220,55 @@ it.effect(
     }),
 );
 
+it.effect(
+  "releases an expired credential's Phi resources once and clears the mark on a trusted touch",
+  () =>
+    Effect.gen(function* () {
+      let timestamp = 1000;
+      const released: Array<string> = [];
+      const phi = PhiBrowser.PhiBrowser.of({
+        availability: () => Effect.succeed("available"),
+        hasTab: () => Effect.succeed(false),
+        invoke: () => Effect.die("unused"),
+        list: () => Effect.succeed([]),
+        releaseSession: (id) =>
+          Effect.sync(() => {
+            released.push(id);
+          }),
+      });
+      const registry = yield* makeRegistry(() => timestamp).pipe(
+        Effect.provideService(PhiBrowser.PhiBrowser, phi),
+      );
+      const threadId = ThreadId.make("phi-restore-thread");
+      const issued = yield* registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        capabilities: new Set(["preview"]),
+      });
+      const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+      const waitForReleases = (count: number) =>
+        Effect.gen(function* () {
+          for (let attempt = 0; attempt < 50 && released.length < count; attempt += 1) {
+            yield* Effect.yieldNow;
+          }
+        });
+
+      timestamp += 101;
+      expect(yield* registry.resolve(token)).toBeUndefined();
+      expect(yield* registry.resolve(token)).toBeUndefined();
+      yield* waitForReleases(1);
+      expect(released).toEqual([issued.config.providerSessionId]);
+
+      // The expired record stays so a trusted turn can restore it; expiring again releases again.
+      yield* registry.touch(threadId);
+      expect((yield* registry.resolve(token))?.thread.threadId).toBe(threadId);
+      timestamp += 101;
+      expect(yield* registry.resolve(token)).toBeUndefined();
+      yield* waitForReleases(2);
+      expect(released).toEqual([issued.config.providerSessionId, issued.config.providerSessionId]);
+    }),
+);
+
 it.effect("denies a revoked credential at once while its Phi cleanup is still blocked", () =>
   Effect.gen(function* () {
     const releaseStarted = yield* Deferred.make<void>();
@@ -322,4 +371,66 @@ it.effect("closes a thread's browser tabs and leaves its credential valid", () =
       yield* registry.resolve(task.config.authorizationHeader.replace(/^Bearer\s+/, "")),
     ).toBeDefined();
   }),
+);
+
+it.effect("only a trusted touch restores an expired token with its original scope", () =>
+  Effect.gen(function* () {
+    let timestamp = 1_000;
+    const registry = yield* makeRegistry(() => timestamp);
+    const threadId = ThreadId.make("thread-idle");
+    const issued = yield* registry.issue({
+      threadId,
+      providerInstanceId: ProviderInstanceId.make("claude"),
+      capabilities: new Set(["preview"]),
+    });
+    const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+    const scope = yield* registry.resolve(token);
+    expect(scope).toBeDefined();
+
+    timestamp += 101;
+    expect(yield* registry.resolve(token)).toBeUndefined();
+    const otherThreadId = ThreadId.make("thread-active");
+    const other = yield* registry.issue({
+      threadId: otherThreadId,
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      capabilities: new Set(["device"]),
+    });
+    yield* registry.touch(otherThreadId);
+    expect(
+      (yield* registry.resolve(other.config.authorizationHeader.replace(/^Bearer\s+/, "")))?.thread
+        .threadId,
+    ).toBe(otherThreadId);
+    expect(yield* registry.resolve("unknown-token")).toBeUndefined();
+    expect(yield* registry.resolve(token)).toBeUndefined();
+
+    yield* registry.touch(threadId);
+    expect(yield* registry.resolve(token)).toEqual(scope);
+    timestamp += 101;
+    expect(yield* registry.resolve(token)).toBeUndefined();
+  }),
+);
+
+it.effect.each(["provider-session", "thread", "all"] as const)(
+  "never restores an expired token after %s revocation",
+  (revocation) =>
+    Effect.gen(function* () {
+      let timestamp = 1_000;
+      const registry = yield* makeRegistry(() => timestamp);
+      const threadId = ThreadId.make("thread-revoked");
+      const issued = yield* registry.issue({
+        threadId,
+        providerInstanceId: ProviderInstanceId.make("codex"),
+        capabilities: new Set(["preview"]),
+      });
+      const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
+
+      timestamp += 101;
+      yield* {
+        "provider-session": registry.revokeProviderSession(issued.config.providerSessionId),
+        thread: registry.revokeThread(threadId),
+        all: registry.revokeAll,
+      }[revocation];
+      yield* registry.touch(threadId);
+      expect(yield* registry.resolve(token)).toBeUndefined();
+    }),
 );
