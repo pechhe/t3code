@@ -1,4 +1,3 @@
-import { COMPACTION_ADDENDUM } from "../ContextRollover.ts";
 import * as ProcessGroupLedger from "@t3tools/provider-core/server/ProcessGroupLedger";
 import {
   providerVideoFrameLabel,
@@ -1337,22 +1336,6 @@ export class CodexAppServerClientFactory extends Context.Service<
 >()("t3/orchestration-v2/Adapters/CodexAdapterV2/CodexAppServerClientFactory") {}
 
 /**
- * `compact_prompt` replaces Codex's built-in compaction prompt, so this restates it (as
- * shipped in codex-cli 0.163.0) before T3's addendum.
- */
-export const CODEX_COMPACT_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
-
-Include:
-- Current progress and key decisions made
-- Important context, constraints, or user preferences
-- What remains to be done (clear next steps)
-- Any critical data, examples, or references needed to continue
-
-Be concise, structured, and focused on helping the next LLM seamlessly continue the work.
-
-${COMPACTION_ADDENDUM}`;
-
-/**
  * Codex waits this long for MCP servers before the first model request and
  *   leaves out any server still starting (default 1 s, too short for cold
  *   `npx`/`uvx` servers).
@@ -1360,7 +1343,6 @@ ${COMPACTION_ADDENDUM}`;
 export const CODEX_THREAD_CONFIG = {
   "tools.update_plan.enabled": true,
   mcp_optional_startup_grace_ms: 10_000,
-  compact_prompt: CODEX_COMPACT_PROMPT,
 } as const;
 
 // T3 wait tools can block for up to an hour. Keep Codex's MCP timeout above

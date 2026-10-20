@@ -6,20 +6,8 @@ import {
   type OrchestrationV2RolloverHold,
 } from "@t3tools/contracts";
 
-/** Identifies the compaction addendum and nudges in experiment evidence; bump it when either changes. */
+/** Identifies the compaction nudges in experiment evidence; bump it when they change. */
 export const COMPACTION_RECIPE = "native-compaction-v1";
-
-/**
- * Appended to the provider's own compaction instructions (Codex `compact_prompt`), so the
- * summary the agent continues from keeps what this product needs.
- */
-export const COMPACTION_ADDENDUM = `Also keep, for the agent that continues this conversation:
-- The active objective and the user's latest instructions and corrections, quoted exactly where they are not yet done.
-- Decisions and constraints that must survive, and an approach that was rejected only when it would otherwise be tried again.
-- What is verified (with the check that proved it) versus assumed or still unchecked.
-- Live work by identifier and observed status: workspaces, branches and revisions, delegated agents and background tasks, and who owns the next action.
-- The next concrete action, and any blocker.
-Point to issues, commits, specs and files by path or URL instead of copying them. Never include credentials.`;
 
 const k = (tokens: number) => `${Math.round(tokens / 1000)}k`;
 

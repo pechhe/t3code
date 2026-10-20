@@ -776,12 +776,10 @@ describe("CodexAdapterV2 auto-compaction", () => {
       ...(autoCompactWindow === undefined ? {} : { autoCompactWindow }),
     }).config;
 
-  it("sets Codex's compaction limit from the provider setting and appends T3's addendum", () => {
+  it("sets Codex's compaction limit from the provider setting", () => {
     const config = params("300000");
     assert.equal(config.model_auto_compact_token_limit, 300_000);
     assert.equal(config.model_auto_compact_token_limit_scope, "total");
-    assert.include(String(config.compact_prompt), "CONTEXT CHECKPOINT COMPACTION");
-    assert.include(String(config.compact_prompt), "Live work by identifier");
   });
 
   it("leaves Codex's own limit alone when the setting is empty", () => {
@@ -818,7 +816,6 @@ describe("CodexAdapterV2 process spawning", () => {
     assert.deepEqual(params.config, {
       "tools.update_plan.enabled": true,
       mcp_optional_startup_grace_ms: 10_000,
-      compact_prompt: CodexAdapterV2.CODEX_COMPACT_PROMPT,
       "features.multi_agent": false,
       "features.apps": false,
       "features.plugins": false,
@@ -911,7 +908,6 @@ describe("CodexAdapterV2 process spawning", () => {
           "tools.update_plan.enabled": true,
           // Codex waits up to 10 s, not 1 s, for MCP servers before the first request (#13437).
           mcp_optional_startup_grace_ms: 10_000,
-          compact_prompt: CodexAdapterV2.CODEX_COMPACT_PROMPT,
           "mcp_servers.t3-code": {
             url: "http://127.0.0.1:43123/mcp",
             tool_timeout_sec: 3_900,
@@ -2113,7 +2109,6 @@ describe("CodexAdapterV2 session initialize", () => {
                     config: {
                       "tools.update_plan.enabled": true,
                       mcp_optional_startup_grace_ms: 10_000,
-                      compact_prompt: CodexAdapterV2.CODEX_COMPACT_PROMPT,
                       "features.multi_agent": false,
                       "features.apps": false,
                       "features.plugins": false,

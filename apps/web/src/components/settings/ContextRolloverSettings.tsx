@@ -154,7 +154,7 @@ export function ContextRolloverSettings() {
         serverScoped
         settingKeys={["contextRollover"]}
         {...searchableSetting("context-rollover")}
-        description="When a thread's context grows past the soft threshold, the agent is asked to reach a natural break and record what would be lost, and at the hard threshold to finish the step in hand. The provider then compacts the conversation itself, at the \u201cAuto-compact after\u201d size set in its provider settings, and the agent carries on in the same thread and run. In a thread, /rollover off holds this until /rollover on, /rollover pause [30m|2h|1d] holds it for a while, and /rollover status reports it."
+        description="When a thread's context grows past the soft threshold, the agent is asked to reach a natural break and record what would be lost, and at the hard threshold to finish the step in hand. The provider then compacts the conversation itself, at the “Auto-compact after” size set in its provider settings, and the agent carries on in the same thread and run. In a thread, /rollover off holds this until /rollover on, /rollover pause [30m|2h|1d] holds it for a while, and /rollover status reports it."
         resetAction={
           JSON.stringify(rollover) !== JSON.stringify(DEFAULTS) ? (
             <SettingResetButton
