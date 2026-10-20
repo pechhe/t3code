@@ -451,7 +451,6 @@
   "apps/server/src/checkpointing/CheckpointDiffQuery.test.ts": 2.3,
   "apps/server/src/checkpointing/CheckpointStore.test.ts": 8.4,
   "apps/server/src/checkpointing/Diffs.test.ts": 2.3,
-  "apps/server/src/claudeHistoryWorker.test.ts": 8.6,
   "apps/server/src/claudeModelOptions.test.ts": 2.3,
   "apps/server/src/cli/agent.test.ts": 2.3,
   "apps/server/src/cli/AgentCliClient.test.ts": 2.6,

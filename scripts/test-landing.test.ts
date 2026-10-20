@@ -215,7 +215,7 @@ describe("tests the import graph cannot see", () => {
   it("maps source that a test spawns in a child process", () => {
     assert.include(
       files("packages/shared/src/git.ts"),
-      "apps/server/src/claudeHistoryWorker.test.ts",
+      "apps/server/src/cli/sshHelper.test.ts",
     );
     assert.include(
       files("apps/server/scripts/acp-mock-agent.ts"),
@@ -257,6 +257,8 @@ describe("tests the import graph cannot see", () => {
       "passes its own URL to the launcher under test",
     "apps/desktop/src/snapShot/LinuxSnapShot.dbus.test.ts":
       "reads gnome-extension/, mapped by the extension rule",
+    "apps/mobile/scripts/network-module.test.ts":
+      "reads node_modules, which only a lockfile change moves",
     "apps/mobile/src/lib/uniwind-dev-refresh.test.ts":
       "reads node_modules, which only a lockfile change moves",
     "apps/server/src/provider/acp/AcpSessionRuntime.processTree.test.ts":

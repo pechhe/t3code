@@ -36,7 +36,6 @@ const serverTest = (...names: ReadonlyArray<string>) =>
 // The spawned program's imports are invisible to the importing test's graph.
 const SOURCE_SPAWNERS = [
   ...serverTest(
-    "claudeHistoryWorker.test.ts",
     "cli/sshHelper.test.ts",
     "compileCache.test.ts",
     "git/detachStackFrame.memory.test.ts",
