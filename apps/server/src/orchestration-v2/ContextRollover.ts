@@ -59,6 +59,12 @@ export function compactsNatively(
 }
 
 /**
+ * Claude Code compacts this far below its "Auto-compact after" size: traced with sizes of 100k
+ * and 130k it compacted at about 70k and 100k, so it reserves room for the summary.
+ */
+const CLAUDE_COMPACT_RESERVE = 40_000;
+
+/**
  * The context size at which the provider will compact on its own: the smaller of its context
  * window and the "Auto-compact after" size set on the model's provider instance. Nudges must
  * come before this, so thresholds are bounded by it.
@@ -72,11 +78,14 @@ export function compactionBoundary(
   },
   instanceId: string,
 ): number | null {
-  const config = settings.providerInstances[instanceId]?.config;
-  const configured =
+  const instance = settings.providerInstances[instanceId];
+  const config = instance?.config;
+  const window =
     typeof config === "object" && config !== null
       ? Number((config as { readonly autoCompactWindow?: unknown }).autoCompactWindow)
       : Number.NaN;
+  const configured =
+    (instance?.driver ?? instanceId) === "claudeAgent" ? window - CLAUDE_COMPACT_RESERVE : window;
   const limits = [maxTokens, configured].filter(
     (value): value is number => value != null && Number.isFinite(value) && value > 0,
   );

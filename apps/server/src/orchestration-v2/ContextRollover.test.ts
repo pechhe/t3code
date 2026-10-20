@@ -106,6 +106,7 @@ describe("compactionBoundary", () => {
   const instances = {
     codex: { driver: "codex", config: { autoCompactWindow: "150000" } },
     claude: { driver: "claudeAgent", config: {} },
+    claudeWindowed: { driver: "claudeAgent", config: { autoCompactWindow: "130000" } },
     cursor: { driver: "cursor" },
   };
   it("takes the smaller of the context window and the auto-compact window", () => {
@@ -113,6 +114,12 @@ describe("compactionBoundary", () => {
     assert.equal(compactionBoundary(100_000, { providerInstances: instances }, "codex"), 100_000);
     assert.equal(compactionBoundary(200_000, { providerInstances: instances }, "claude"), 200_000);
     assert.isNull(compactionBoundary(null, { providerInstances: instances }, "claude"));
+  });
+  it("leaves Claude room for its summary below the auto-compact window", () => {
+    assert.equal(
+      compactionBoundary(1_000_000, { providerInstances: instances }, "claudeWindowed"),
+      90_000,
+    );
   });
   it("pulls the nudges ahead of a window smaller than the thresholds", () => {
     const bounded = boundRolloverThresholds(
