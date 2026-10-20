@@ -4048,6 +4048,60 @@ it.effect("settles the run as interrupted when its session is detached on purpos
   }),
 );
 
+it.effect("interrupts open background items when the session is detached on purpose", () =>
+  Effect.gen(function* () {
+    const { written, observed } = yield* captureRootRunTermination({
+      key: "stream-error:detached-open-item",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: (ids) =>
+        Stream.make(backgroundTurnItemEvent(ids, "dynamic_tool", "running", 1)).pipe(
+          Stream.concat(
+            Stream.fail(
+              new ProviderAdapter.ProviderSessionDetachedError({
+                driver,
+                providerSessionId: ProviderSessionId.make("session:detached-open-item"),
+                detail: "Workspace changed.",
+              }),
+            ),
+          ),
+        ),
+    });
+    assert.deepEqual(observed, ["run:interrupted", "pull-requests-refreshed"]);
+    const tool = written.filter((item) => item.type === "dynamic_tool");
+    assert.deepEqual(
+      tool.map((item) => item.status),
+      ["interrupted"],
+    );
+    assert.isNotNull(tool[0]?.completedAt);
+  }),
+);
+
+it.effect("interrupts open background items when provider event ingestion fails", () =>
+  Effect.gen(function* () {
+    const { written, observed } = yield* captureRootRunTermination({
+      key: "stream-error:failed-open-item",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      events: (ids) =>
+        Stream.make(backgroundTurnItemEvent(ids, "command_execution", "running", 1)).pipe(
+          Stream.concat(
+            Stream.fail(
+              new ProviderAdapter.ProviderAdapterEventStreamError({
+                driver,
+                providerSessionId: ProviderSessionId.make("session:failed-open-item"),
+                cause: "provider process exited",
+              }),
+            ),
+          ),
+        ),
+    });
+    assert.deepEqual(observed, ["run:failed", "pull-requests-refreshed"]);
+    assert.deepEqual(
+      written.filter((item) => item.type === "command_execution").map((item) => item.status),
+      ["interrupted"],
+    );
+  }),
+);
+
 it.effect("fails the run when its event stream ends without a root terminal", () =>
   Effect.gen(function* () {
     const { observed, finalEvents } = yield* captureRootRunTermination({

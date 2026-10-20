@@ -633,6 +633,9 @@ export const layer: Layer.Layer<
         readonly shouldFinalizeRun?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
         readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
         readonly openRunOwnedSubagents?: OpenRunOwnedSubagentProjection;
+        // Only for finalisation after the provider stream is gone: nothing will report these
+        // items' results, so settle them with the run.
+        readonly interruptTurnItems?: ReadonlyArray<OrchestrationV2TurnItem>;
         readonly terminal: ProviderTerminalEvent;
         readonly completedAt?: DateTime.Utc;
         readonly failureItemPersisted: boolean;
@@ -708,6 +711,32 @@ export const layer: Layer.Layer<
                 allocateEventId,
               })
             : [];
+        const cascadedTurnItemIds = new Set(
+          cascadedSubagentEvents.flatMap((event) =>
+            event.type === "turn-item.updated" ? [event.payload.id] : [],
+          ),
+        );
+        const interruptedTurnItemEvents = yield* Effect.forEach(
+          (input.interruptTurnItems ?? []).filter((item) => !cascadedTurnItemIds.has(item.id)),
+          (turnItem) =>
+            Effect.gen(function* () {
+              return {
+                id: yield* allocateEventId(),
+                type: "turn-item.updated" as const,
+                threadId: turnItem.threadId,
+                ...(turnItem.runId === null ? {} : { runId: turnItem.runId }),
+                ...(turnItem.nodeId === null ? {} : { nodeId: turnItem.nodeId }),
+                providerInstanceId: input.run.providerInstanceId,
+                occurredAt: completedAt,
+                payload: {
+                  ...turnItem,
+                  status: "interrupted" as const,
+                  completedAt,
+                  updatedAt: completedAt,
+                },
+              };
+            }),
+        );
         const persistedStatus =
           input.terminal.status === "completed" ? "waiting" : input.terminal.status;
         // Completion cohorts are advanced by Orchestrator while a provider
@@ -760,6 +789,7 @@ export const layer: Layer.Layer<
               : [],
           events: [
             ...cascadedSubagentEvents,
+            ...interruptedTurnItemEvents,
             ...(finalizedAttempt === null
               ? []
               : [
@@ -1026,6 +1056,10 @@ export const layer: Layer.Layer<
         const activeBackgroundTurnItems = yield* Ref.make<
           ReadonlySet<OrchestrationV2TurnItem["id"]>
         >(new Set(inheritedBackgroundTurnItemsById.keys()));
+        // Latest snapshot of each open background-capable item this ingestion has seen.
+        const openBackgroundTurnItems = yield* Ref.make<
+          ReadonlyMap<OrchestrationV2TurnItem["id"], OrchestrationV2TurnItem>
+        >(new Map());
         const openRunOwnedSubagents = yield* Ref.make(emptyOpenRunOwnedSubagentProjection());
         const finalizeRootRun = Effect.fn("RunExecutionService.finalizeRootRun")(function* (
           terminal: ProviderTerminalEvent,
@@ -1173,6 +1207,15 @@ export const layer: Layer.Layer<
                   next.delete(event.turnItem.id);
                 } else {
                   next.add(event.turnItem.id);
+                }
+                return next;
+              });
+              yield* Ref.update(openBackgroundTurnItems, (current) => {
+                const next = new Map(current);
+                if (isSettledTurnItemStatus(event.turnItem.status)) {
+                  next.delete(event.turnItem.id);
+                } else {
+                  next.set(event.turnItem.id, event.turnItem);
                 }
                 return next;
               });
@@ -1333,6 +1376,10 @@ export const layer: Layer.Layer<
                   activeBackgroundTurnItems,
                   (current) => new Set([...current].filter((id) => !detached.itemIds.has(id))),
                 );
+                yield* Ref.update(
+                  openBackgroundTurnItems,
+                  (current) => new Map([...current].filter(([id]) => !detached.itemIds.has(id))),
+                );
               }
               return { event, accepted };
             }),
@@ -1460,6 +1507,7 @@ export const layer: Layer.Layer<
                 const providerThread = yield* Ref.get(latestProviderThread);
                 const latestItemOrdinal = yield* Ref.get(latestTurnItemOrdinal);
                 const openSubagents = yield* Ref.get(openRunOwnedSubagents);
+                const openTurnItems = yield* Ref.get(openBackgroundTurnItems);
                 let nextRetryWarningAt = completedAt;
                 yield* writeFinalRunEvents({
                   run: input.run,
@@ -1472,6 +1520,7 @@ export const layer: Layer.Layer<
                     expectedStatus: "running",
                   },
                   openRunOwnedSubagents: openSubagents,
+                  interruptTurnItems: [...openTurnItems.values()],
                   completedAt,
                   // A deliberate detach (workspace handoff) ends
                   // the turn on purpose; it is not a failure.
