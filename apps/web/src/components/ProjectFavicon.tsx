@@ -59,7 +59,12 @@ export function ProjectFavicon(input: {
   if (project.projectIcon?.kind === "emoji") {
     return (
       <ProjectFaviconFallback
-        className={input.className}
+        className={cn(
+          projectIconColorClassName(
+            project.projectIcon.color ?? deriveProjectIdentity(project.title).color,
+          ),
+          input.className,
+        )}
         icon={FolderCodeIcon}
         emoji={project.projectIcon.emoji}
       />

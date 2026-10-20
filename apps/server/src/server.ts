@@ -88,6 +88,8 @@ import * as FleetProjection from "./fleet/FleetProjection.ts";
 import * as FleetPeers from "./peers/FleetPeers.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as HqAgentConnections from "./hq/HqAgentConnections.ts";
+import * as RepositoryChipSync from "./hq/RepositoryChipSync.ts";
+import * as HqRepositories from "./hq/HqRepositories.ts";
 import * as HqAgentLifecycleReactor from "./hq/HqAgentLifecycleReactor.ts";
 import * as HqMcpRoute from "./hq/HqMcpRoute.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
@@ -685,6 +687,14 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* (yield* HqAgentLifecycleReactor.HqAgentLifecycleReactor).start();
     }),
   ).pipe(Layer.provide(HqAgentLifecycleReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      yield* (yield* RepositoryChipSync.RepositoryChipSync).start();
+    }),
+  ).pipe(
+    Layer.provide(RepositoryChipSync.layer.pipe(Layer.provide(HqRepositories.layer))),
+    Layer.provide(ProjectStore.layer),
+  ),
   ProviderUsageLimitsIngestion.layer,
   layerProviderInstallationRefresh,
   ReplayMarkers.layer,

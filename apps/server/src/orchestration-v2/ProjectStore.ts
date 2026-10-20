@@ -35,6 +35,10 @@ export const ProjectRow = Schema.Struct({
   defaultModelSelection: Schema.NullOr(ModelSelection),
   defaultThreadEnvMode: Schema.NullOr(ThreadEnvMode),
   autoPull: Schema.Boolean,
+  hqRepositoryKey: Schema.optional(Schema.NullOr(Schema.String)),
+  hqSyncLocalOnly: Schema.optional(Schema.Boolean),
+  hqSyncedRevision: Schema.optional(Schema.NullOr(Schema.Number)),
+  hqSyncedValueHash: Schema.optional(Schema.NullOr(Schema.String)),
   faviconPath: Schema.NullOr(Schema.String),
   projectIcon: Schema.NullOr(StoredProjectIcon),
   scripts: Schema.Array(ProjectScript),
@@ -48,6 +52,7 @@ const ProjectDbRow = Schema.Struct({
   ...ProjectRow.fields,
   defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   autoPull: Schema.BooleanFromBit,
+  hqSyncLocalOnly: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
   scripts: Schema.fromJsonString(Schema.Array(ProjectScript)),
 });
@@ -61,6 +66,8 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     defaultModelSelection: row.defaultModelSelection,
     defaultThreadEnvMode: row.defaultThreadEnvMode,
     autoPull: row.autoPull,
+    hqRepositoryKey: row.hqRepositoryKey ?? null,
+    hqSyncLocalOnly: row.hqSyncLocalOnly ?? false,
     faviconPath: row.faviconPath,
     projectIcon: row.projectIcon,
     scripts: row.scripts,
@@ -116,6 +123,10 @@ export const make = Effect.gen(function* () {
         default_model_selection_json AS "defaultModelSelection",
         default_thread_env_mode AS "defaultThreadEnvMode",
         auto_pull AS "autoPull",
+        hq_repository_key AS "hqRepositoryKey",
+        hq_sync_local_only AS "hqSyncLocalOnly",
+        hq_synced_revision AS "hqSyncedRevision",
+        hq_synced_value_hash AS "hqSyncedValueHash",
         favicon_path AS "faviconPath",
         project_icon_json AS "projectIcon",
         scripts_json AS "scripts",
@@ -136,7 +147,7 @@ export const make = Effect.gen(function* () {
   });
 
   const upsertRow = (row: ProjectRow) =>
-    encodeRow(row).pipe(
+    encodeRow({ ...row, hqSyncLocalOnly: row.hqSyncLocalOnly ?? false }).pipe(
       Effect.flatMap(
         (encoded) => sql`
           INSERT INTO projection_projects (
@@ -146,6 +157,7 @@ export const make = Effect.gen(function* () {
             default_model_selection_json,
             default_thread_env_mode,
             auto_pull,
+            hq_repository_key, hq_sync_local_only, hq_synced_revision, hq_synced_value_hash,
             favicon_path,
             project_icon_json,
             scripts_json,
@@ -160,6 +172,7 @@ export const make = Effect.gen(function* () {
             ${encoded.defaultModelSelection},
             ${encoded.defaultThreadEnvMode},
             ${encoded.autoPull},
+            ${encoded.hqRepositoryKey ?? null}, ${encoded.hqSyncLocalOnly}, ${encoded.hqSyncedRevision ?? null}, ${encoded.hqSyncedValueHash ?? null},
             ${encoded.faviconPath},
             ${encoded.projectIcon},
             ${encoded.scripts},
@@ -174,6 +187,10 @@ export const make = Effect.gen(function* () {
             default_model_selection_json = excluded.default_model_selection_json,
             default_thread_env_mode = excluded.default_thread_env_mode,
             auto_pull = excluded.auto_pull,
+            hq_repository_key = excluded.hq_repository_key,
+            hq_sync_local_only = excluded.hq_sync_local_only,
+            hq_synced_revision = excluded.hq_synced_revision,
+            hq_synced_value_hash = excluded.hq_synced_value_hash,
             favicon_path = excluded.favicon_path,
             project_icon_json = excluded.project_icon_json,
             scripts_json = excluded.scripts_json,
@@ -220,6 +237,10 @@ export const make = Effect.gen(function* () {
           defaultModelSelection: payload.defaultModelSelection,
           defaultThreadEnvMode: payload.defaultThreadEnvMode ?? null,
           autoPull: false,
+          hqRepositoryKey: null,
+          hqSyncLocalOnly: false,
+          hqSyncedRevision: null,
+          hqSyncedValueHash: null,
           faviconPath: payload.faviconPath ?? null,
           projectIcon: payload.projectIcon ?? null,
           scripts: payload.scripts,
@@ -250,6 +271,18 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultThreadEnvMode: payload.defaultThreadEnvMode }),
         ...(payload.autoPull === undefined ? {} : { autoPull: payload.autoPull }),
+        ...(payload.hqRepositoryKey === undefined
+          ? {}
+          : { hqRepositoryKey: payload.hqRepositoryKey }),
+        ...(payload.hqSyncLocalOnly === undefined
+          ? {}
+          : { hqSyncLocalOnly: payload.hqSyncLocalOnly }),
+        ...(payload.hqSyncedRevision === undefined
+          ? {}
+          : { hqSyncedRevision: payload.hqSyncedRevision }),
+        ...(payload.hqSyncedValueHash === undefined
+          ? {}
+          : { hqSyncedValueHash: payload.hqSyncedValueHash }),
         ...(payload.faviconPath === undefined ? {} : { faviconPath: payload.faviconPath }),
         ...(payload.projectIcon === undefined ? {} : { projectIcon: payload.projectIcon }),
         ...(payload.scripts === undefined ? {} : { scripts: payload.scripts }),

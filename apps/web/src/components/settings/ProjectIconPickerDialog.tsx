@@ -63,9 +63,7 @@ export function ProjectIconPickerDialog({
   const [iconName, setIconName] = useState<string>(
     current?.kind === "lucide" ? current.name : DEFAULT_ICON,
   );
-  const [color, setColor] = useState<ProjectIconColor>(
-    current && current.kind !== "emoji" ? current.color : automatic.color,
-  );
+  const [color, setColor] = useState<ProjectIconColor>(current?.color ?? automatic.color);
   const [letters, setLetters] = useState(
     current?.kind === "monogram" ? current.text : automatic.monogram,
   );
@@ -78,7 +76,7 @@ export function ProjectIconPickerDialog({
     if (open && !previousOpenRef.current) {
       setMode(current?.kind ?? "lucide");
       setIconName(current?.kind === "lucide" ? current.name : DEFAULT_ICON);
-      setColor(current && current.kind !== "emoji" ? current.color : automatic.color);
+      setColor(current?.color ?? automatic.color);
       setLetters(current?.kind === "monogram" ? current.text : automatic.monogram);
       setEmoji(current?.kind === "emoji" ? current.emoji : "💻");
       setQuery("");
@@ -98,7 +96,7 @@ export function ProjectIconPickerDialog({
         ? { kind: "monogram", text: monogram, color }
         : mode === "lucide"
           ? { kind: "lucide", name: iconName, color }
-          : { kind: "emoji", emoji },
+          : { kind: "emoji", emoji, color },
     );
     onOpenChange(false);
   };
@@ -125,28 +123,26 @@ export function ProjectIconPickerDialog({
             <Toggle value="monogram">Monogram</Toggle>
           </ToggleGroup>
 
-          {mode !== "emoji" ? (
-            <div>
-              <div className="mb-2 text-xs font-medium text-muted-foreground">Color</div>
-              <div className="flex flex-wrap gap-1.5" role="group" aria-label="Icon color">
-                {PROJECT_ICON_COLORS.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    aria-label={option.label}
-                    aria-pressed={color === option.value}
-                    className={cn(
-                      "flex size-6 items-center justify-center rounded-full border border-transparent outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                      color === option.value && "border-foreground/64",
-                    )}
-                    onClick={() => setColor(option.value)}
-                  >
-                    <span className={cn("size-4 rounded-full", option.swatchClassName)} />
-                  </button>
-                ))}
-              </div>
+          <div>
+            <div className="mb-2 text-xs font-medium text-muted-foreground">Color</div>
+            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Icon color">
+              {PROJECT_ICON_COLORS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-label={option.label}
+                  aria-pressed={color === option.value}
+                  className={cn(
+                    "flex size-6 items-center justify-center rounded-full border border-transparent outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                    color === option.value && "border-foreground/64",
+                  )}
+                  onClick={() => setColor(option.value)}
+                >
+                  <span className={cn("size-4 rounded-full", option.swatchClassName)} />
+                </button>
+              ))}
             </div>
-          ) : null}
+          </div>
 
           {mode === "lucide" ? (
             <>

@@ -1,5 +1,6 @@
 import {
   CommandId,
+  type ProjectIconOverride,
   type OrchestrationProjectShell,
   ProjectId,
   type Project,
@@ -121,6 +122,13 @@ export class ProjectService extends Context.Service<
       ProjectServiceError
     >;
     readonly update: (input: ProjectUpdateInput) => Effect.Effect<Project, ProjectServiceError>;
+    readonly recordHqSync: (input: {
+      readonly commandId: CommandId;
+      readonly expected: ProjectStore.ProjectRow;
+      readonly revision: number;
+      readonly valueHash: string;
+      readonly projectIcon?: ProjectIconOverride;
+    }) => Effect.Effect<void, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
       projectId: ProjectId,
@@ -165,6 +173,8 @@ export const make = Effect.gen(function* () {
     defaultModelSelection: row.defaultModelSelection,
     defaultThreadEnvMode: row.defaultThreadEnvMode,
     autoPull: row.autoPull,
+    hqRepositoryKey: row.hqRepositoryKey ?? null,
+    hqSyncLocalOnly: row.hqSyncLocalOnly ?? false,
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     createdAt: row.createdAt,
@@ -369,6 +379,8 @@ export const make = Effect.gen(function* () {
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
         ...(input.autoPull === undefined ? {} : { autoPull: input.autoPull }),
+        ...(input.hqRepositoryKey === undefined ? {} : { hqRepositoryKey: input.hqRepositoryKey }),
+        ...(input.hqSyncLocalOnly === undefined ? {} : { hqSyncLocalOnly: input.hqSyncLocalOnly }),
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
         ...(input.faviconPath === undefined ? {} : { faviconPath: input.faviconPath }),
         ...(input.defaultThreadEnvMode === undefined
@@ -563,6 +575,17 @@ export const make = Effect.gen(function* () {
   });
 
   return ProjectService.of({
+    recordHqSync: Effect.fn("ProjectService.recordHqSync")(function* (input) {
+      yield* commit({
+        type: "project.meta.update",
+        commandId: input.commandId,
+        projectId: input.expected.projectId,
+        expectedSyncState: input.expected,
+        hqSyncedRevision: input.revision,
+        hqSyncedValueHash: input.valueHash,
+        ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
+      });
+    }),
     create,
     bootstrap,
     update,

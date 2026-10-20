@@ -17,6 +17,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as PubSub from "effect/PubSub";
+import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpServer } from "effect/http";
 
@@ -196,13 +198,14 @@ export class HqAgentConnections extends Context.Service<
       readonly delegation: string;
     }) => Effect.Effect<{ readonly origin: string }, HqConnectionError>;
     readonly disconnect: Effect.Effect<void, HqConnectionError>;
+    readonly connectionChanges: Stream.Stream<void>;
     /** `connection` stands for the stored origin and delegation without revealing either. */
     readonly read: Effect.Effect<
       { readonly origin: string; readonly connection: string } | null,
       HqConnectionError
     >;
     /**
-     * Calls a read-only HQ MCP tool as T3's own `observer` agent, whether or not any provider
+     * Calls an HQ MCP tool permitted to T3's own `observer` agent, whether or not any provider
      * runs. `connection` identifies the origin and delegation used,
      * so callers can key what they cache by it without seeing the delegation.
      */
@@ -227,6 +230,7 @@ export class HqAgentConnections extends Context.Service<
 
 const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
+  const connectionChanges = yield* PubSub.sliding<void>(1);
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const httpClient = yield* HttpClient.HttpClient;
@@ -362,26 +366,27 @@ const make = Effect.gen(function* () {
     );
 
   /** Ends the observer of a connection T3 no longer uses. */
-  const releaseObserver = (stored: StoredHqConnection) =>
-    Effect.gen(function* () {
-      const key = yield* connectionKey(stored);
-      yield* observerLock.withLock(
-        key,
-        Effect.gen(function* () {
-          if (!observers.delete(key)) return;
-          const { status } = yield* postAgents(stored, {
-            action: "end",
-            agentRef: environmentId,
-            role: "observer",
-          });
-          if (status !== 200) return yield* Effect.fail("unavailable" as const);
-        }).pipe(
-          Effect.catch((reason) =>
-            Effect.logWarning("Could not end T3's YardSmith HQ observer", { reason }),
-          ),
+  const releaseObserver = Effect.fn("HqAgentConnections.releaseObserver")(function* (
+    stored: StoredHqConnection,
+  ) {
+    const key = yield* connectionKey(stored);
+    yield* observerLock.withLock(
+      key,
+      Effect.gen(function* () {
+        if (!observers.delete(key)) return;
+        const { status } = yield* postAgents(stored, {
+          action: "end",
+          agentRef: environmentId,
+          role: "observer",
+        });
+        if (status !== 200) return yield* Effect.fail("unavailable" as const);
+      }).pipe(
+        Effect.catch((reason) =>
+          Effect.logWarning("Could not end T3's YardSmith HQ observer", { reason }),
         ),
-      );
-    });
+      ),
+    );
+  });
 
   const observe: HqAgentConnections["Service"]["observe"] = Effect.fn("HqAgentConnections.observe")(
     function* (tool, args) {
@@ -606,6 +611,7 @@ const make = Effect.gen(function* () {
   );
 
   return HqAgentConnections.of({
+    connectionChanges: Stream.fromPubSub(connectionChanges),
     connect: Effect.fn("HqAgentConnections.connect")(function* (input) {
       const origin = normalizeHqOrigin(input.origin);
       if (origin === null) return yield* new HqConnectionError({ reason: "invalid_origin" });
@@ -624,11 +630,13 @@ const make = Effect.gen(function* () {
         (previous.value.origin !== origin || previous.value.delegation !== delegation)
       )
         yield* releaseObserver(previous.value);
+      yield* PubSub.publish(connectionChanges, undefined);
       return { origin };
     }),
     disconnect: Effect.gen(function* () {
       const previous = yield* readStored;
       yield* store.remove(STORE_NAME).pipe(Effect.mapError(storeFailed));
+      yield* PubSub.publish(connectionChanges, undefined);
       for (const connection of threads.values()) connection.token = undefined;
       if (Option.isSome(previous)) yield* releaseObserver(previous.value);
     }).pipe(Effect.withSpan("HqAgentConnections.disconnect")),

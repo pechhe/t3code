@@ -92,6 +92,7 @@ const ProjectLucideIcon = Schema.Struct({
 const ProjectEmojiIcon = Schema.Struct({
   kind: Schema.Literal("emoji"),
   emoji: ProjectEmoji,
+  color: Schema.optional(ProjectIconColor),
 });
 const ProjectMonogramIcon = Schema.Struct({
   kind: Schema.Literal("monogram"),
@@ -165,6 +166,8 @@ export const Project = Schema.Struct({
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),
   // Opt-in because background sync performs network I/O and may move the checkout.
   autoPull: Schema.optional(Schema.Boolean),
+  hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  hqSyncLocalOnly: Schema.optional(Schema.Boolean),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -202,6 +205,8 @@ export const ProjectUpdatePayload = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   autoPull: Schema.optional(Schema.Boolean),
+  hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  hqSyncLocalOnly: Schema.optional(Schema.Boolean),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   defaultThreadEnvMode: Schema.optional(Schema.NullOr(ThreadEnvMode)),

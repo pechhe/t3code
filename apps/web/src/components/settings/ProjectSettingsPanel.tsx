@@ -31,6 +31,8 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Switch } from "../ui/switch";
+import { hqRepositoryKeyOf } from "@t3tools/shared/projectIdentity";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -245,6 +247,8 @@ function ProjectDetail({
   const updateAllMembers = async (
     input: Partial<{
       title: string;
+      hqRepositoryKey: string | null;
+      hqSyncLocalOnly: boolean;
       faviconPath: string | null;
       projectIcon: ProjectIconOverride | null;
     }>,
@@ -532,6 +536,47 @@ function ProjectDetail({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") event.currentTarget.blur();
                 }}
+              />
+            }
+          />
+          <SettingsRow
+            title="Repository (HQ)"
+            description={
+              representative.hqRepositoryKey
+                ? "Linked by hand. Clear to match automatically."
+                : `Automatically matched: ${hqRepositoryKeyOf(representative) ?? "No repository detected"}`
+            }
+            control={
+              <Input
+                key={representative.hqRepositoryKey ?? "automatic"}
+                size="sm"
+                className="w-full sm:w-64"
+                aria-label="Repository (HQ)"
+                disabled={!canEditGroup}
+                defaultValue={representative.hqRepositoryKey ?? ""}
+                placeholder={hqRepositoryKeyOf(representative) ?? "owner/name"}
+                onBlur={(event) => {
+                  const key = event.currentTarget.value.trim() || null;
+                  if (key !== (representative.hqRepositoryKey ?? null))
+                    void updateAllMembers({ hqRepositoryKey: key }, "Could not link HQ repository");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
+            }
+          />
+          <SettingsRow
+            title="Local only"
+            description="Keep this project's colour and icon on this environment. Do not send or receive repository chips from HQ."
+            control={
+              <Switch
+                aria-label="Local only"
+                disabled={!canEditGroup}
+                checked={representative.hqSyncLocalOnly ?? false}
+                onCheckedChange={(enabled) =>
+                  void updateAllMembers({ hqSyncLocalOnly: enabled }, "Could not change HQ sync")
+                }
               />
             }
           />

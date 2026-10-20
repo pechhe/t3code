@@ -100,6 +100,45 @@ const waitForProject = Effect.fn("ProjectServiceTest.waitForProject")(function* 
 });
 
 it.layer(layerTest)("ProjectService", (it) => {
+  it.effect("records HQ sync atomically and rejects stale responses", () =>
+    Effect.gen(function* () {
+      const service = yield* ProjectService.ProjectService;
+      const store = yield* ProjectStore.ProjectStoreV2.pipe(Effect.provide(ProjectStore.layer));
+      const projectId = ProjectId.make("project:hq-sync");
+      yield* service.create({
+        commandId: CommandId.make("hq-create"),
+        projectId,
+        title: "HQ sync",
+        workspaceRoot: "/work/hq-sync",
+      });
+      const expected = Option.getOrThrow(yield* store.get(projectId));
+      yield* service.recordHqSync({
+        commandId: CommandId.make("hq-record"),
+        expected,
+        revision: 2,
+        valueHash: "synced",
+        projectIcon: { kind: "emoji", emoji: "🌹", color: "rose" },
+      });
+      assert.equal(Option.getOrThrow(yield* store.get(projectId)).hqSyncedRevision, 2);
+      assert.deepEqual(Option.getOrThrow(yield* service.getById(projectId)).projectIcon, {
+        kind: "emoji",
+        emoji: "🌹",
+        color: "rose",
+      });
+      const stale = yield* service
+        .recordHqSync({
+          commandId: CommandId.make("hq-stale"),
+          expected,
+          revision: 3,
+          valueHash: "stale",
+          projectIcon: { kind: "emoji", emoji: "🦊", color: "orange" },
+        })
+        .pipe(Effect.result);
+      assert.isTrue(stale._tag === "Failure");
+      assert.equal(Option.getOrThrow(yield* store.get(projectId)).hqSyncedValueHash, "synced");
+      yield* service.delete({ commandId: CommandId.make("hq-delete"), projectId });
+    }),
+  );
   it.effect("creates, updates, resolves, snapshots, and soft-deletes projects", () =>
     Effect.gen(function* () {
       const service = yield* ProjectService.ProjectService;
@@ -143,6 +182,8 @@ it.layer(layerTest)("ProjectService", (it) => {
         projectId,
         title: "Renamed",
         autoPull: true,
+        hqRepositoryKey: "pechhe/yardsmith",
+        hqSyncLocalOnly: true,
         projectIcon: { kind: "emoji", emoji: "🦊" },
         faviconPath: "/work/project/custom.svg",
         defaultThreadEnvMode: "worktree",
@@ -150,6 +191,12 @@ it.layer(layerTest)("ProjectService", (it) => {
       assert.equal(updated.title, "Renamed");
       assert.equal(updated.createdAt, created.createdAt);
       assert.isTrue(updated.autoPull);
+      assert.equal(updated.hqRepositoryKey, "pechhe/yardsmith");
+      assert.isTrue(updated.hqSyncLocalOnly);
+      assert.equal(
+        Option.getOrThrow(yield* service.getShell(projectId)).hqRepositoryKey,
+        "pechhe/yardsmith",
+      );
       assert.deepEqual(updated.projectIcon, { kind: "emoji", emoji: "🦊" });
       assert.equal(updated.faviconPath, "/work/project/custom.svg");
       assert.equal(updated.defaultThreadEnvMode, "worktree");
@@ -167,11 +214,15 @@ it.layer(layerTest)("ProjectService", (it) => {
         commandId: CommandId.make("command:project:reset-appearance"),
         projectId,
         autoPull: false,
+        hqRepositoryKey: null,
+        hqSyncLocalOnly: false,
         projectIcon: null,
         faviconPath: null,
         defaultThreadEnvMode: null,
       });
       assert.isFalse(reset.autoPull);
+      assert.isNull(reset.hqRepositoryKey);
+      assert.isFalse(reset.hqSyncLocalOnly);
       assert.isNull(reset.projectIcon);
       assert.equal(reset.faviconPath, hydratedCreated.faviconPath);
       assert.isNull(reset.defaultThreadEnvMode);

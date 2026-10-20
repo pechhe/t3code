@@ -8,6 +8,12 @@ and stay selected as you move between categories or search for a setting.
 **Settings → Projects** holds a project's own settings, such as its name, icon, checkouts and
 actions. It opens on the project you were working in; pick another in the sentence at the top.
 
+When connected to YardSmith HQ, a project's colour and icon sync with its repository in HQ.
+Repositories match automatically from the Git remote. Set **Repository (HQ)** to an `owner/name`
+key to link a project by hand; clear it to restore automatic matching. Enable **Local only**
+to keep a project's appearance independent. Changes sync when you edit them and every five
+minutes; an offline connection retries when it is available again.
+
 Preferences saved on this device, such as appearance, confirmations and browser profiles, always
 show and ignore the selection. Everything else is stored on a server. Choose one environment to
 edit its settings, or leave **All environments** to edit every connected environment at once.

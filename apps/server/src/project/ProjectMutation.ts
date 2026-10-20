@@ -35,6 +35,12 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
           ? {}
           : { defaultModelSelection: mutation.defaultModelSelection }),
         ...(mutation.autoPull === undefined ? {} : { autoPull: mutation.autoPull }),
+        ...(mutation.hqRepositoryKey === undefined
+          ? {}
+          : { hqRepositoryKey: mutation.hqRepositoryKey }),
+        ...(mutation.hqSyncLocalOnly === undefined
+          ? {}
+          : { hqSyncLocalOnly: mutation.hqSyncLocalOnly }),
         ...(mutation.projectIcon === undefined ? {} : { projectIcon: mutation.projectIcon }),
         ...(mutation.faviconPath === undefined ? {} : { faviconPath: mutation.faviconPath }),
         ...(mutation.defaultThreadEnvMode === undefined

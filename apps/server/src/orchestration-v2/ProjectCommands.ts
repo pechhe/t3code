@@ -34,6 +34,11 @@ export interface ProjectMetaUpdateCommand {
   readonly defaultModelSelection?: ModelSelection | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly autoPull?: boolean;
+  readonly hqRepositoryKey?: string | null;
+  readonly hqSyncLocalOnly?: boolean;
+  readonly hqSyncedRevision?: number | null;
+  readonly hqSyncedValueHash?: string | null;
+  readonly expectedSyncState?: ProjectRow;
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
@@ -173,6 +178,13 @@ export function planProjectCommand(input: {
     case "project.meta.update": {
       const project = activeProject;
       if (project === undefined) return missingProject();
+      // Reject stale network results under the same project lock as a user edit.
+      if (
+        command.expectedSyncState !== undefined &&
+        JSON.stringify(command.expectedSyncState) !== JSON.stringify(project)
+      ) {
+        return invariant("Project changed during HQ sync.");
+      }
       if (
         command.projectIcon?.kind === "monogram" &&
         Array.from(monogramSegmenter.segment(command.projectIcon.text)).length > 2
@@ -209,6 +221,18 @@ export function planProjectCommand(input: {
             ? {}
             : { defaultThreadEnvMode: command.defaultThreadEnvMode }),
           ...(command.autoPull === undefined ? {} : { autoPull: command.autoPull }),
+          ...(command.hqRepositoryKey === undefined
+            ? {}
+            : { hqRepositoryKey: command.hqRepositoryKey }),
+          ...(command.hqSyncLocalOnly === undefined
+            ? {}
+            : { hqSyncLocalOnly: command.hqSyncLocalOnly }),
+          ...(command.hqSyncedRevision === undefined
+            ? {}
+            : { hqSyncedRevision: command.hqSyncedRevision }),
+          ...(command.hqSyncedValueHash === undefined
+            ? {}
+            : { hqSyncedValueHash: command.hqSyncedValueHash }),
           ...(command.faviconPath === undefined ? {} : { faviconPath: command.faviconPath }),
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),

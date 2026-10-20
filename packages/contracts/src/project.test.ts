@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { describe, expect, it } from "vite-plus/test";
 
-import { ProjectId } from "./baseSchemas.ts";
 import { OrchestrationProjectShell } from "./orchestrationProject.ts";
 
 import {
@@ -26,6 +25,33 @@ const decodeProjectUpdatePayload = Schema.decodeUnknownSync(ProjectUpdatePayload
 const decodeProjectMutation = Schema.decodeUnknownSync(ProjectMutation);
 const decodeSearchEntriesInput = Schema.decodeUnknownSync(ProjectSearchEntriesInput);
 const decodeSearchContentsInput = Schema.decodeUnknownSync(ProjectSearchContentsInput);
+
+describe("HQ repository identity", () => {
+  it("retains old emoji icons and round trips coloured emoji icons", () => {
+    for (const schema of [StoredProjectIcon, ReceivedProjectIcon]) {
+      const old = { kind: "emoji", emoji: "🦊" };
+      const coloured = { ...old, color: "orange" };
+      expect(Schema.decodeUnknownSync(schema)(old)).toEqual(old);
+      expect(Schema.decodeUnknownSync(schema)(coloured)).toEqual(coloured);
+      expect(Schema.encodeSync(schema)(Schema.decodeUnknownSync(schema)(coloured))).toEqual(
+        coloured,
+      );
+    }
+  });
+
+  it("omits unchanged links, carries explicit links, and clears with null", () => {
+    expect(decodeProjectUpdatePayload({})).not.toHaveProperty("hqRepositoryKey");
+    expect(
+      decodeProjectUpdatePayload({ hqRepositoryKey: "pechhe/yardsmith", hqSyncLocalOnly: true }),
+    ).toMatchObject({ hqRepositoryKey: "pechhe/yardsmith", hqSyncLocalOnly: true });
+    expect(
+      decodeProjectUpdatePayload({ hqRepositoryKey: null, hqSyncLocalOnly: false }),
+    ).toMatchObject({ hqRepositoryKey: null, hqSyncLocalOnly: false });
+    expect(
+      decodeProjectUpdatePayload({ hqSyncedRevision: 9, hqSyncedValueHash: "user-supplied" }),
+    ).not.toHaveProperty("hqSyncedRevision");
+  });
+});
 
 describe("project search inputs", () => {
   it("allows an empty entries query for bounded frecency browsing", () => {

@@ -39,6 +39,35 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
           },
         });
 
+        yield* projects.apply({
+          sequence: 2,
+          eventId: EventId.make("event-hq-sync"),
+          aggregateKind: "project",
+          aggregateId: projectId,
+          occurredAt: "2026-03-24T00:01:00.000Z",
+          commandId: null,
+          causationEventId: null,
+          correlationId: null,
+          metadata: {},
+          type: "project.meta-updated",
+          payload: {
+            projectId,
+            updatedAt: "2026-03-24T00:01:00.000Z",
+            hqRepositoryKey: "pechhe/yardsmith",
+            hqSyncLocalOnly: true,
+            hqSyncedRevision: 17,
+            hqSyncedValueHash: "baseline-hash",
+          },
+        });
+        const synced = Option.getOrThrow(yield* projects.get(projectId));
+        assert.equal(synced.hqRepositoryKey, "pechhe/yardsmith");
+        assert.isTrue(synced.hqSyncLocalOnly);
+        assert.equal(synced.hqSyncedRevision, 17);
+        assert.equal(synced.hqSyncedValueHash, "baseline-hash");
+        const shell = Option.getOrThrow(yield* projects.getShell(projectId));
+        assert.equal(shell.hqRepositoryKey, "pechhe/yardsmith");
+        assert.isTrue(shell.hqSyncLocalOnly);
+        assert.isFalse("hqSyncedRevision" in shell);
         const rows = yield* sql<{ readonly defaultModelSelection: string | null }>`
           SELECT default_model_selection_json AS "defaultModelSelection"
           FROM projection_projects

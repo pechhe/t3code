@@ -205,6 +205,17 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#74, #78–82, #92, #109–111 (closed).
 
+### repository-chips-hq
+
+- **Kind:** durable extension
+- **Why:** A repository has the same colour and icon in T3 projects and YardSmith HQ.
+- **Requirements:** match the repository's owner/name or an explicit HQ key; opt out with Local only; seed missing HQ records from the project's derived identity; push local icon changes and pull newer HQ revisions; retry offline failures without blocking project edits. Emoji icons may carry a colour; old emoji records retain their derived colour.
+- **Integration points:** `project` and `applicationEvent` contracts; `ProjectCommands`, `ProjectStore`, migration 077 and `ProjectService.recordHqSync`; `hq/HqRepositories` and `RepositoryChipSync`; `HqAgentConnections.connectionChanges`; shared `projectIdentity`; web project settings, icon picker and chips. Sync metadata stays internal. All wire additions are optional fields on existing structures and icon variants, so old decoders ignore them.
+- **Proof:** contracts `project.test.ts`; `ProjectCommands.test.ts`, `ProjectStore.test.ts`, `ProjectService.test.ts`; `hq/RepositoryChipSync.test.ts`; client-runtime `commands.test.ts`. Integrated HQ and Browser-panel acceptance belongs to the lead after the HQ side is assembled.
+- **Upstream:** no equivalent HQ integration in the integrated nightly 20261020.3411; retain upstream project icon rendering and extend it at the existing override boundary.
+- **Retire when:** HQ integration is dropped or upstream supplies equivalent repository identity synchronisation.
+- **Owner:** YardSmith HQ Build #3690.
+
 ### thread-workflow-chip
 
 - **Kind:** durable extension

@@ -112,6 +112,8 @@ describe("planProjectCommand", () => {
         scripts,
         defaultThreadEnvMode: "worktree",
         autoPull: true,
+        hqRepositoryKey: "pechhe/yardsmith",
+        hqSyncLocalOnly: true,
         faviconPath: "brand/icon.svg",
         projectIcon: { kind: "lucide", name: "alarm-clock", color: "violet" },
       }),
@@ -120,12 +122,20 @@ describe("planProjectCommand", () => {
       scripts,
       defaultThreadEnvMode: "worktree",
       autoPull: true,
+      hqRepositoryKey: "pechhe/yardsmith",
+      hqSyncLocalOnly: true,
       faviconPath: "brand/icon.svg",
       projectIcon: { kind: "lucide", name: "alarm-clock", color: "violet" },
     });
     const renamed = payloadOf(update({ title: "Renamed" }));
     assert.isFalse("defaultThreadEnvMode" in renamed);
     assert.isNull(payloadOf(update({ defaultThreadEnvMode: null })).defaultThreadEnvMode);
+    assert.isFalse("hqRepositoryKey" in renamed);
+    assert.isNull(payloadOf(update({ hqRepositoryKey: null })).hqRepositoryKey);
+    assert.equal(
+      failureOf(update({ expectedSyncState: row({ title: "Stale" }), hqSyncedRevision: 3 }))._tag,
+      "ProjectCommandInvariantError",
+    );
   });
 
   it.each(["install-javascript-dependencies", "A", "a.b", "a b", "-a", "a".repeat(25)])(
