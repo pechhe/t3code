@@ -41,7 +41,7 @@ describe.skipIf(process.platform === "win32")("ACP process groups", () => {
     (ownDetachedProcessGroup) =>
       Effect.gen(function* () {
         const forgotten = yield* Deferred.make<void>();
-        const groups: number[] = [];
+        const recorded = yield* Deferred.make<number>();
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const stateDir = yield* fs.makeTempDirectoryScoped();
@@ -55,18 +55,18 @@ describe.skipIf(process.platform === "win32")("ACP process groups", () => {
               processGroupTerminationGrace: 0,
             });
             yield* runtime.start();
-            expect(groups).toHaveLength(1);
-            expect(() => process.kill(-groups[0]!, 0)).not.toThrow();
+            const group = yield* Deferred.await(recorded);
+            expect(() => process.kill(-group, 0)).not.toThrow();
             expect(yield* fs.readDirectory(path.join(stateDir, "provider-processes"))).toEqual([
-              `${groups[0]}.json`,
+              `${group}.json`,
             ]);
           }).pipe(
             Effect.provideService(ProcessGroupLedger.ProcessGroupLedger, {
               track: ({ pid, args }) =>
                 Effect.gen(function* () {
                   expect(args).toContain(mockAgentPath);
-                  groups.push(pid);
                   const forget = yield* ledger.track({ pid, args });
+                  yield* Deferred.succeed(recorded, pid);
                   return forget.pipe(
                     Effect.andThen(Deferred.succeed(forgotten, undefined)),
                     Effect.asVoid,

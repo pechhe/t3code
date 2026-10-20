@@ -24,7 +24,7 @@ describe.skipIf(process.platform === "win32")("Codex process groups", () => {
         "../../../../../packages/effect-codex-app-server/test/fixtures/codex-app-server-mock-peer.ts",
       );
       const forgotten = yield* Deferred.make<void>();
-      const groups: number[] = [];
+      const recorded = yield* Deferred.make<number>();
       const fs = yield* FileSystem.FileSystem;
       const stateDir = yield* fs.makeTempDirectoryScoped();
       const ledger = yield* ProcessGroupLedger.make({ stateDir });
@@ -47,8 +47,8 @@ describe.skipIf(process.platform === "win32")("Codex process groups", () => {
               track: ({ pid, args }) =>
                 Effect.gen(function* () {
                   assert.include(args, "app-server");
-                  groups.push(pid);
                   const forget = yield* ledger.track({ pid, args });
+                  yield* Deferred.succeed(recorded, pid);
                   return forget.pipe(
                     Effect.andThen(Deferred.succeed(forgotten, undefined)),
                     Effect.asVoid,
@@ -73,10 +73,10 @@ describe.skipIf(process.platform === "win32")("Codex process groups", () => {
             capabilities: { experimentalApi: true, optOutNotificationMethods: null },
           });
           assert.equal(initialized.userAgent, "mock-codex-app-server");
-          assert.lengthOf(groups, 1);
-          assert.doesNotThrow(() => process.kill(-groups[0]!, 0));
+          const group = yield* Deferred.await(recorded);
+          assert.doesNotThrow(() => process.kill(-group, 0));
           assert.deepEqual(yield* fs.readDirectory(path.join(stateDir, "provider-processes")), [
-            `${groups[0]}.json`,
+            `${group}.json`,
           ]);
         }),
       );
