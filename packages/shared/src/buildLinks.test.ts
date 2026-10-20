@@ -58,12 +58,31 @@ describe("labelBuildMentions", () => {
 
 describe("parseBuildReference", () => {
   it("reads Build URLs, #<number> and bare numbers", () => {
-    expect(parseBuildReference("#1000123")).toEqual({ number: 1000123, origin: null });
+    expect(parseBuildReference("#4059")).toEqual({ kind: "number", number: 4059, origin: null });
+    expect(parseBuildReference("4059")).toEqual({ kind: "number", number: 4059, origin: null });
     expect(parseBuildReference(`${origin}/build/specs/1000123/`)).toEqual({
+      kind: "number",
       number: 1000123,
       origin,
     });
     expect(parseBuildReference(`${origin}/build/abc`)).toBeNull();
+  });
+
+  it("reads friendly refs in any case and normalises them to upper case", () => {
+    for (const [written, ref] of [
+      ["YS-12", "YS-12"],
+      ["ys-12", "YS-12"],
+      ["T3-30", "T3-30"],
+      ["t3-30", "T3-30"],
+      [" YS-12.1 ", "YS-12.1"],
+    ] as const)
+      expect(parseBuildReference(written)).toEqual({ kind: "ref", ref });
+  });
+
+  it("refuses malformed refs and unsafe numbers", () => {
+    for (const written of ["YS-12.x", "YS-0", "YS-", "YS-12.0", "3T-1", "YS-12.1.2", "0", "#0"])
+      expect(parseBuildReference(written)).toBeNull();
+    expect(parseBuildReference("9".repeat(20))).toBeNull();
   });
 });
 

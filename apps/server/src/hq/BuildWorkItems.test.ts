@@ -26,6 +26,8 @@ const threadId = ThreadId.make("thread-build");
 interface FakeItem {
   id: string;
   number: number;
+  /** The friendly ref; an older HQ, or an older item, has none and the field is absent. */
+  ref?: string | null;
   kind: string;
   title: string;
   status: string;
@@ -103,7 +105,12 @@ const makeHarness = Effect.gen(function* () {
       };
     if (name === "hq_build_acceptance")
       return { status: "succeeded", value: acceptances.get(String(args.specId)) ?? null };
-    const found = args.itemId !== undefined ? byId(args.itemId) : items.get(Number(args.number));
+    const found =
+      args.itemId !== undefined
+        ? byId(args.itemId)
+        : args.ref !== undefined
+          ? [...items.values()].find((entry) => entry.ref === args.ref)
+          : items.get(Number(args.number));
     if (found === undefined) return { status: "failed", code: "build_item_unavailable" };
     if (name === "hq_build_read") return { status: "succeeded", value: viewOf(found) };
     if (name === "hq_build_attempts")
@@ -198,6 +205,82 @@ it.effect("links by URL, #number or number through T3's own observer agent", () 
     assert.isNull(thread.workItem);
     assert.isNull(yield* service.view(threadId));
     assertNoSecretsIn(linked);
+  }),
+);
+
+it.effect("links by a friendly ref in any case with hq_build_read {ref}", () =>
+  Effect.gen(function* () {
+    const { hq, service, add, thread } = yield* makeHarness;
+    add({ ...item(1_000_078, "spec", "Show the Build item", "in_progress"), ref: "YS-12" });
+    add({ ...item(1_000_079, "ticket", "Link and header", "ready"), ref: "YS-12.1" });
+
+    const resolved = yield* service.resolve("ys-12");
+    assert.deepStrictEqual(resolved, { itemId: "item-1000078", number: 1_000_078, origin });
+    yield* service.link({ threadId, reference: "YS-12.1" });
+    assert.strictEqual(thread.workItem?.number, 1_000_079);
+    assert.deepStrictEqual(
+      hq.toolCalls.filter((call) => call.name === "hq_build_read").map((call) => call.args),
+      [{ ref: "YS-12" }, { ref: "YS-12.1" }],
+    );
+    const unknown = yield* service.link({ threadId, reference: "YS-99" }).pipe(Effect.flip);
+    assert.strictEqual(unknown.reason, "not_found");
+    assert.include(unknown.message, "YS-99");
+    const malformed = yield* service.link({ threadId, reference: "YS-12.x" }).pipe(Effect.flip);
+    assert.strictEqual(malformed.reason, "invalid_reference");
+    assert.include(malformed.message, "YS-12");
+  }),
+);
+
+it.effect("carries an item's ref to its summary, waits and card, and works without one", () =>
+  Effect.gen(function* () {
+    const { service, add } = yield* makeHarness;
+    const blocker = { ...item(1_000_070, "spec", "Earlier", "in_progress"), ref: "YS-9" };
+    const spec = { ...item(1_000_078, "spec", "Show the Build item", "in_progress"), ref: "YS-12" };
+    add(blocker, spec);
+    add({
+      ...item(1_000_079, "ticket", "Link and header", "ready"),
+      ref: "YS-12.1",
+      parentId: spec.id,
+      waits: [{ required: "landed", blocker }],
+    });
+    add({ ...item(1_000_080, "spec", "An older Spec", "accepted") });
+
+    yield* service.link({ threadId, reference: "YS-12.1" });
+    const view = yield* service.view(threadId);
+    assert.strictEqual(view?.number, 1_000_079);
+    assert.strictEqual(view?.item?.ref, "YS-12.1");
+    assert.strictEqual(view?.item?.waits[0]?.ref, "YS-9");
+    const card = yield* service.card({ threadId, itemId: "item-1000079", open: "a" });
+    assert.strictEqual(card?.detail.kind === "ticket" ? card.detail.spec?.ref : null, "YS-12");
+
+    // An older HQ omits the field: the item decodes, with no ref to show.
+    yield* service.link({ threadId, reference: "#1000080" });
+    const older = yield* service.view(threadId);
+    assert.strictEqual(older?.item?.title, "An older Spec");
+    assert.notProperty(older?.item ?? {}, "ref");
+  }),
+);
+
+it.effect("treats an empty ref from HQ as none", () =>
+  Effect.gen(function* () {
+    const { service, add } = yield* makeHarness;
+    add({ ...item(1_000_078, "spec", "Show the Build item", "in_progress"), ref: "" });
+    yield* service.link({ threadId, reference: "#1000078" });
+    assert.isNull((yield* service.view(threadId))?.item?.ref);
+  }),
+);
+
+it.effect("a failed re-read keeps the last label", () =>
+  Effect.gen(function* () {
+    const { hq, service, add } = yield* makeHarness;
+    add({ ...item(1_000_078, "spec", "Show the Build item", "in_progress"), ref: "YS-12" });
+    yield* service.link({ threadId, reference: "YS-12" });
+    assert.strictEqual((yield* service.view(threadId))?.item?.ref, "YS-12");
+    hq.state.unreachable = true;
+    yield* TestClock.adjust(60_000);
+    const kept = yield* service.view(threadId);
+    assert.isTrue(kept?.unavailable);
+    assert.strictEqual(kept?.item?.ref, "YS-12");
   }),
 );
 

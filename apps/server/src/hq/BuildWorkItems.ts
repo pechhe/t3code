@@ -29,6 +29,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import * as SchemaTransformation from "effect/SchemaTransformation";
 
 import type { OrchestratorV2DispatchResult } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -40,9 +41,23 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
 
+/** An older HQ omits `ref`; an older item has none, and an empty one is none. */
+const BuildRef = Schema.optionalKey(
+  Schema.NullOr(Schema.String).pipe(
+    Schema.decodeTo(
+      Schema.NullOr(Schema.String),
+      SchemaTransformation.transform({
+        decode: (ref) => (ref === "" ? null : ref),
+        encode: (ref) => ref,
+      }),
+    ),
+  ),
+);
+
 const BuildRead = Schema.Struct({
   id: Schema.String,
   number: Schema.Number,
+  ref: BuildRef,
   kind: Schema.String,
   title: Schema.String,
   status: Schema.String,
@@ -59,13 +74,19 @@ const decodeBuildRead = Schema.decodeUnknownOption(BuildRead);
 const BuildWaits = Schema.Array(
   Schema.Struct({
     required: Schema.Literals(["landed", "accepted"]),
-    blocker: Schema.Struct({ number: Schema.Number, title: Schema.String, status: Schema.String }),
+    blocker: Schema.Struct({
+      number: Schema.Number,
+      ref: BuildRef,
+      title: Schema.String,
+      status: Schema.String,
+    }),
   }),
 );
 const decodeBuildWaits = Schema.decodeUnknownOption(BuildWaits);
 const BuildReference = Schema.Struct({
   id: Schema.String,
   number: Schema.Number,
+  ref: BuildRef,
   title: Schema.String,
   status: Schema.String,
 });
@@ -77,6 +98,7 @@ const summaryOf = (
 ): Option.Option<BuildWorkItemSummary> =>
   decodeSummary({
     kind: read.kind,
+    ...(read.ref === undefined ? {} : { ref: read.ref }),
     title: read.title,
     status: read.status,
     holds: read.holds
@@ -84,6 +106,7 @@ const summaryOf = (
       .map(({ kind, note }) => ({ kind, note })),
     waits: waits.map(({ required, blocker }) => ({
       number: blocker.number,
+      ...(blocker.ref === undefined ? {} : { ref: blocker.ref }),
       title: blocker.title,
       status: blocker.status,
       required,
@@ -249,6 +272,13 @@ export class BuildWorkItems extends Context.Service<
       { readonly connected: boolean; readonly origin: string | null },
       BuildWorkItemError
     >;
+    /**
+     * The canonical item a reference names: a Build URL, a friendly ref such as `YS-12`,
+     * `#<number>` or a number. Only a Spec or a Ticket resolves.
+     */
+    readonly resolve: (
+      reference: string,
+    ) => Effect.Effect<OrchestrationV2ThreadWorkItem, BuildWorkItemError>;
     /**
      * Links the thread to the item a reference names, replacing any earlier link, or unlinks it
      * for null. The one way people, agents and scheduled tasks set the link.
@@ -443,42 +473,53 @@ const make = Effect.gen(function* () {
     },
   );
 
-  const resolve = Effect.fn("BuildWorkItems.resolve")(function* (reference: string) {
-    const connection = yield* readConnection;
-    if (connection === null)
-      return yield* error("not_connected", "T3 is not connected to YardSmith HQ.");
-    const parsed = parseBuildReference(reference);
-    if (parsed === null)
-      return yield* error(
-        "invalid_reference",
-        "Give a Build URL such as https://hq.example/build/1000123, #1000123 or 1000123.",
-      );
-    if (parsed.origin !== null && parsed.origin !== connection.origin)
-      return yield* error(
-        "other_hq",
-        `That link is on ${parsed.origin}, but T3 uses ${connection.origin}.`,
-      );
-    const read = yield* hq
-      .observe("hq_build_read", { number: parsed.number })
-      .pipe(
-        Effect.mapError((cause) =>
-          cause.reason === "failed"
-            ? error("not_found", `Build has no item #${parsed.number} you can see.`)
-            : cause.reason === "not_connected"
-              ? error("not_connected", "T3 is not connected to YardSmith HQ.")
-              : error("unavailable", "YardSmith HQ could not be reached. Try again shortly."),
-        ),
-      );
-    const item = decodeBuildRead(read.value);
-    if (Option.isNone(item))
-      return yield* error("unavailable", "YardSmith HQ returned an item T3 could not read.");
-    if (item.value.kind !== "spec" && item.value.kind !== "ticket")
-      return yield* error(
-        "unsupported_kind",
-        `#${parsed.number} is a Build ${item.value.kind}; link a Spec or a Ticket.`,
-      );
-    return { itemId: item.value.id, number: item.value.number, origin: read.origin };
-  });
+  const resolve: BuildWorkItems["Service"]["resolve"] = Effect.fn("BuildWorkItems.resolve")(
+    function* (reference) {
+      const connection = yield* readConnection;
+      if (connection === null)
+        return yield* error("not_connected", "T3 is not connected to YardSmith HQ.");
+      const parsed = parseBuildReference(reference);
+      if (parsed === null)
+        return yield* error(
+          "invalid_reference",
+          "Give a Build URL such as https://hq.example/build/1000123, a ref such as YS-12, #1000123 or 1000123.",
+        );
+      if (parsed.kind === "number" && parsed.origin !== null && parsed.origin !== connection.origin)
+        return yield* error(
+          "other_hq",
+          `That link is on ${parsed.origin}, but T3 uses ${connection.origin}.`,
+        );
+      const named = parsed.kind === "ref" ? parsed.ref : `#${parsed.number}`;
+      const read = yield* hq
+        .observe(
+          "hq_build_read",
+          parsed.kind === "ref" ? { ref: parsed.ref } : { number: parsed.number },
+        )
+        .pipe(
+          Effect.mapError((cause) =>
+            cause.reason === "failed"
+              ? error(
+                  "not_found",
+                  parsed.kind === "ref"
+                    ? `Build has no item ${named} you can see (or this HQ doesn't know friendly refs yet).`
+                    : `Build has no item ${named} you can see.`,
+                )
+              : cause.reason === "not_connected"
+                ? error("not_connected", "T3 is not connected to YardSmith HQ.")
+                : error("unavailable", "YardSmith HQ could not be reached. Try again shortly."),
+          ),
+        );
+      const item = decodeBuildRead(read.value);
+      if (Option.isNone(item))
+        return yield* error("unavailable", "YardSmith HQ returned an item T3 could not read.");
+      if (item.value.kind !== "spec" && item.value.kind !== "ticket")
+        return yield* error(
+          "unsupported_kind",
+          `${named} is a Build ${item.value.kind}; link a Spec or a Ticket.`,
+        );
+      return { itemId: item.value.id, number: item.value.number, origin: read.origin };
+    },
+  );
 
   const link: BuildWorkItems["Service"]["link"] = Effect.fn("BuildWorkItems.link")(
     function* (input) {
@@ -502,6 +543,7 @@ const make = Effect.gen(function* () {
 
   const reference = (item: typeof BuildReference.Type): BuildItemReference => ({
     number: item.number,
+    ...(item.ref === undefined ? {} : { ref: item.ref }),
     title: item.title,
     status: item.status,
   });
@@ -675,6 +717,7 @@ const make = Effect.gen(function* () {
     view,
     card,
     mentions,
+    resolve,
     link,
     connected: readConnection.pipe(
       Effect.map((connection) => ({

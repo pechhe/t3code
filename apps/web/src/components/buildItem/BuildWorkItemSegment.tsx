@@ -14,6 +14,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import { WorkspaceBreadcrumbText } from "../WorkspaceBreadcrumb";
+import { BuildItemLabel } from "./BuildItemLabel";
 import { BuildStatusDot } from "./BuildWorkItemCard";
 import { BuildWorkItemPreview } from "./BuildWorkItemPreview";
 import { openLinkBuildItemDialog } from "./LinkBuildItemDialog";
@@ -64,6 +65,12 @@ export function BuildWorkItemSegment(props: {
         <span aria-hidden className="shrink-0 text-xs">
           {shown.glyph}
         </span>
+        {shown.numberHint === undefined ? null : (
+          <BuildItemLabel
+            item={{ number: link.number, ref: link.item?.ref }}
+            className="shrink-0 text-xs font-medium"
+          />
+        )}
         <WorkspaceBreadcrumbText>{shown.title}</WorkspaceBreadcrumbText>
         <BuildItemFlags shown={shown} />
       </BuildWorkItemPreview>

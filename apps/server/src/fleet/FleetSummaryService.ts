@@ -215,6 +215,7 @@ const make = Effect.gen(function* () {
                 ? null
                 : {
                     number: thread.workItem.number,
+                    ref: cached?.item?.ref ?? null,
                     status: cached?.item?.status ?? null,
                     waitsAndHoldsClear:
                       cached?.item == null

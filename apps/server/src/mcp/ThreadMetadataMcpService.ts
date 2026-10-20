@@ -123,7 +123,13 @@ function resultFromThread(input: {
   readonly sequence: number;
   readonly thread: Pick<
     OrchestrationV2AppThread,
-    "id" | "title" | "titleRegeneration" | "linkedPullRequest" | "workflow" | "workItem" | "updatedAt"
+    | "id"
+    | "title"
+    | "titleRegeneration"
+    | "linkedPullRequest"
+    | "workflow"
+    | "workItem"
+    | "updatedAt"
   >;
 }): ThreadMetadataMcpUpdateResult {
   return {

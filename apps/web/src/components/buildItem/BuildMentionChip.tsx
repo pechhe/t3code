@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { buildWorkItems } from "~/state/buildWorkItems";
 import { useEnvironmentQuery } from "~/state/query";
+import { BuildItemLabel } from "./BuildItemLabel";
 import { BuildStatusDot } from "./BuildWorkItemCard";
 import { BuildWorkItemPreview } from "./BuildWorkItemPreview";
 
@@ -45,6 +46,12 @@ export function BuildMentionChip(props: {
       <span aria-hidden className="ms-[0.15em] me-[0.25em] text-xs">
         {shown.glyph}
       </span>
+      {shown.numberHint === undefined ? null : (
+        <BuildItemLabel
+          item={{ number: link.number, ref: link.item.ref }}
+          className="me-[0.25em] font-medium"
+        />
+      )}
       {shown.title}
       <BuildStatusDot
         tone={shown.tone}

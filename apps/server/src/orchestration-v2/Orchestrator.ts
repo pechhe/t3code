@@ -2763,6 +2763,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           messageId: MessageId.make(`message:${watch.id}`),
           ...buildWatchWake({
             target: watch.target,
+            ref: build.ref,
             title: build.title,
             url: build.url,
             condition: build.condition,

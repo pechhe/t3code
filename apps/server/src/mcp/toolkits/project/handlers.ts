@@ -10,6 +10,7 @@ import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.t
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
+import * as BuildWorkItems from "../../../hq/BuildWorkItems.ts";
 import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
@@ -87,6 +88,19 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json and without workspaceStrategy.",
             });
         }
+        // SlipJay's attach-issue always receives the canonical number, so a ref is resolved first.
+        const buildItem =
+          typeof input.buildItem === "string"
+            ? (yield* (yield* BuildWorkItems.BuildWorkItems).resolve(input.buildItem).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new OrchestratorMcpFailure({
+                      code: "invalid_request",
+                      message: error.message,
+                    }),
+                ),
+              )).number
+            : input.buildItem;
         if (input.workspaceStrategy?.type === "existing_worktree") {
           const project = yield* readProject;
           if (project === undefined)
@@ -155,10 +169,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           runtimeMode,
           interactionMode,
           workspaceStrategy:
-            input.buildItem === undefined
+            buildItem === undefined
               ? (input.workspaceStrategy ?? { type: "root" })
-              : { type: "worktree", baseRef: "HEAD", buildItem: input.buildItem },
-          rootIsDefault: input.workspaceStrategy === undefined && input.buildItem === undefined,
+              : { type: "worktree", baseRef: "HEAD", buildItem },
+          rootIsDefault: input.workspaceStrategy === undefined && buildItem === undefined,
           ...(input.watch === true && caller !== undefined ? { watchedBy: caller.id } : {}),
           ...(input.message === undefined && attachments.length === 0
             ? {}

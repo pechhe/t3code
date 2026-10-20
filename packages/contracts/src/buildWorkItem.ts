@@ -18,9 +18,21 @@ export const BuildItemStatus = Schema.Literals([
 ]);
 export type BuildItemStatus = typeof BuildItemStatus.Type;
 
+/**
+ * How an agent names a Build item: its canonical number, or a string in any form T3 reads, such
+ * as a friendly ref `YS-12`, `#<number>` or a Build URL. The server resolves it to the number.
+ */
+export const BuildItemReferenceInput = Schema.Union([PositiveInt, TrimmedNonEmptyString]);
+export type BuildItemReferenceInput = typeof BuildItemReferenceInput.Type;
+
 /** An unresolved Build wait: the item cannot start until `blocker` reaches `required`. */
 export const BuildWorkItemWait = Schema.Struct({
   number: PositiveInt,
+  /**
+   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or HQ.
+   * `number` stays the canonical identity.
+   */
+  ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
   title: Schema.String,
   status: Schema.String,
   required: Schema.Literals(["landed", "accepted"]),
@@ -30,6 +42,11 @@ export type BuildWorkItemWait = typeof BuildWorkItemWait.Type;
 /** What a header segment or chat chip shows: never the item's body. */
 export const BuildWorkItemSummary = Schema.Struct({
   kind: BuildWorkItemKind,
+  /**
+   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or HQ.
+   * `number` stays the canonical identity.
+   */
+  ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
   title: Schema.String,
   status: BuildItemStatus,
   holds: Schema.Array(Schema.Struct({ kind: Schema.String, note: Schema.String })),
@@ -68,6 +85,11 @@ export type BuildWorkItemReadResult = typeof BuildWorkItemReadResult.Type;
 /** Another Build item a card names: a Ticket, a parent Spec or a governing Decision. */
 export const BuildItemReference = Schema.Struct({
   number: PositiveInt,
+  /**
+   * The friendly per-repository ref such as `YS-12`; null or absent for an older item or HQ.
+   * `number` stays the canonical identity.
+   */
+  ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
   title: Schema.String,
   status: Schema.String,
 });
@@ -175,7 +197,7 @@ export type BuildWorkItemMentionsResult = typeof BuildWorkItemMentionsResult.Typ
 
 export const BuildWorkItemLinkInput = Schema.Struct({
   threadId: ThreadId,
-  /** A Build URL, `#<number>` or a number; null unlinks. */
+  /** A Build URL, a friendly ref such as `YS-12`, `#<number>` or a number; null unlinks. */
   reference: Schema.NullOr(TrimmedNonEmptyString),
 });
 export type BuildWorkItemLinkInput = typeof BuildWorkItemLinkInput.Type;

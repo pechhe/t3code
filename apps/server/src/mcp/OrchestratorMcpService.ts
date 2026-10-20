@@ -90,6 +90,7 @@ import {
   ThreadId,
   AGENT_ROLE_COARSE_KIND,
   isReviewerRole,
+  type OrchestrationV2WatchTarget,
 } from "@t3tools/contracts";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import {
@@ -104,6 +105,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import { parseBuildReference } from "@t3tools/shared/buildLinks";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -4007,11 +4009,50 @@ const make = Effect.gen(function* () {
         if (watcher === null || watcher.deletedAt !== null) {
           return yield* failure("thread_not_found", `Thread ${thread.threadId} was not found.`);
         }
-        const target = input.target;
+        // A watch keeps the canonical number, however the agent named the item.
+        const named = input.target;
+        const resolveNumber = (reference: string) =>
+          buildWorkItems.resolve(reference).pipe(
+            Effect.map((item) => item.number),
+            Effect.mapError((error) => failure("invalid_request", error.message)),
+          );
+        // Stopping a watch never needs HQ for a number, and a ref is matched against the
+        // watched items' cached refs first.
+        const unwatchNumber = Effect.fnUntraced(function* (reference: string) {
+          const parsed = parseBuildReference(reference);
+          if (parsed?.kind === "number") return parsed.number;
+          const watched = (watcher.threadWatches ?? []).flatMap((watch) =>
+            watch.target.kind === "build_item" ? [watch.target.number] : [],
+          );
+          if (parsed?.kind === "ref" && watched.length > 0) {
+            const found = yield* buildWorkItems
+              .mentions({ threadId: watcher.id, numbers: watched })
+              .pipe(Effect.option);
+            const match = Option.getOrUndefined(found)?.items.find(
+              (view) => view.item?.ref?.toUpperCase() === parsed.ref,
+            );
+            if (match !== undefined) return match.number;
+          }
+          return yield* resolveNumber(reference);
+        });
+        const target: OrchestrationV2WatchTarget =
+          named.kind === "thread"
+            ? named
+            : {
+                kind: "build_item",
+                until: named.until,
+                number:
+                  typeof named.number === "number"
+                    ? named.number
+                    : watching
+                      ? yield* resolveNumber(named.number)
+                      : yield* unwatchNumber(named.number),
+              };
         const wasWatching = (watcher.threadWatches ?? []).some((watch) =>
           watchTargetsEqual(watch.target, target),
         );
         let title: string | undefined;
+        let label: string | undefined;
         if (watching) {
           const refusal = threadWatchRefusal(
             watcher,
@@ -4042,10 +4083,11 @@ const make = Effect.gen(function* () {
               .mentions({ threadId: watcher.id, numbers: [target.number] })
               .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
             const view = found.items.find((candidate) => candidate.number === target.number);
+            label = view?.item?.ref ?? `#${target.number}`;
             if (view === undefined && found.unavailable !== true)
               return yield* failure(
                 "invalid_request",
-                `Build #${target.number} is not a Spec or Ticket T3's HQ can see.`,
+                `Build ${label} is not a Spec or Ticket T3's HQ can see.`,
               );
             title = view?.item?.title.trim() || `Build #${target.number}`;
           }
@@ -4070,7 +4112,7 @@ const make = Effect.gen(function* () {
                 : failure("orchestration_error", `Unable to update watch: ${errorMessage(error)}`),
             ),
           );
-        return { target, watching, wasWatching };
+        return { target, ...(label === undefined ? {} : { label }), watching, wasWatching };
       }),
     interruptThread: Effect.fn("OrchestratorMcpService.interruptThread")(function* (scope, input) {
       const { parent, limits, target } = yield* loadScopedThread(scope, input.threadId);

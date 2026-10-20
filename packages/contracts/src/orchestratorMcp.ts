@@ -32,6 +32,7 @@ import {
   ScheduledTaskSchedule,
   ScheduledTaskUpsertSchedule,
 } from "./scheduledTask.ts";
+import { BuildItemReferenceInput } from "./buildWorkItem.ts";
 import { PeerEnvironmentStatus } from "./peers.ts";
 import {
   ReleaseApprovalAnswer,
@@ -602,12 +603,22 @@ export const OrchestratorMcpThreadWaitResult = Schema.Struct({
 export type OrchestratorMcpThreadWaitResult = typeof OrchestratorMcpThreadWaitResult.Type;
 
 export const OrchestratorMcpThreadWatchInput = Schema.Struct({
-  target: OrchestrationV2WatchTarget,
+  target: Schema.Union([
+    Schema.Struct({ kind: Schema.Literal("thread"), threadId: ThreadId }),
+    Schema.Struct({
+      kind: Schema.Literal("build_item"),
+      /** The item's number, or a ref such as `YS-12`; the watch keeps the canonical number. */
+      number: BuildItemReferenceInput,
+      until: Schema.Literals(["unblocked", "closed"]),
+    }),
+  ]),
 });
 export type OrchestratorMcpThreadWatchInput = typeof OrchestratorMcpThreadWatchInput.Type;
 
 export const OrchestratorMcpThreadWatchResult = Schema.Struct({
   target: OrchestrationV2WatchTarget,
+  /** For a Build item, how to name it: its ref such as `YS-12` when known, else `#<number>`. */
+  label: Schema.optional(Schema.String),
   watching: Schema.Boolean,
   wasWatching: Schema.Boolean,
 });

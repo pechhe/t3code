@@ -37,6 +37,8 @@ const ThreadFields = {
   buildItem: Schema.NullOr(
     Schema.Struct({
       number: Schema.Number,
+      /** The friendly ref such as `YS-12` when Build has told T3 one; absent from older servers. */
+      ref: Schema.optionalKey(Schema.NullOr(Schema.String)),
       status: Schema.NullOr(Schema.String),
       waitsAndHoldsClear: Schema.NullOr(Schema.Boolean),
       unavailable: Schema.Boolean,

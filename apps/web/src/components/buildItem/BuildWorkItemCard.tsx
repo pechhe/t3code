@@ -1,6 +1,7 @@
 import { buildSessionThreadLink } from "@t3tools/client-runtime/build-session-thread-link";
 import {
   type BuildStatusTone,
+  buildItemNumberHint,
   buildKindGlyph,
   buildSessionLabel,
   buildStatusLabel,
@@ -14,6 +15,7 @@ import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { MarkdownThreadLink } from "../chat/MarkdownThreadLink";
+import { BuildItemLabel } from "./BuildItemLabel";
 
 const DOT_CLASSES: Record<BuildStatusTone, string> = {
   "not-started": "border border-muted-foreground/70",
@@ -75,12 +77,15 @@ function Row(props: { label: string; children: ReactNode }) {
   );
 }
 
-function ItemLine(props: { number: number; title: string; status: string }) {
+function ItemLine(props: {
+  item: { number: number; ref?: string | null; title: string; status: string };
+}) {
+  const { item } = props;
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <BuildStatusDot tone={buildStatusTone(props)} />
-      <span className="shrink-0 text-muted-foreground">#{props.number}</span>
-      <span className="min-w-0 truncate">{props.title}</span>
+      <BuildStatusDot tone={buildStatusTone(item)} />
+      <BuildItemLabel item={item} className="shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate">{item.title}</span>
     </div>
   );
 }
@@ -111,7 +116,14 @@ export function BuildWorkItemCard(props: { card: BuildWorkItemCardData }) {
         </span>
       </div>
       <p className="mt-1 text-sm font-medium leading-snug text-foreground text-pretty">
-        <span className="text-muted-foreground">#{card.number}</span> {item.title}
+        <BuildItemLabel
+          item={{ number: card.number, ref: item.ref }}
+          className="text-muted-foreground"
+        />
+        {item.ref ? (
+          <span className="ms-1 text-2xs font-normal text-muted-foreground/70">#{card.number}</span>
+        ) : null}{" "}
+        {item.title}
       </p>
       {card.summary ? (
         <p className="mt-1 line-clamp-3 text-xs leading-snug text-muted-foreground">
@@ -191,7 +203,7 @@ function SpecDetail(props: { detail: Extract<BuildWorkItemCardData["detail"], { 
           </div>
           <div className="mt-1.5 space-y-0.5 text-xs">
             {detail.tickets.map((ticket) => (
-              <ItemLine key={ticket.number} {...ticket} />
+              <ItemLine key={ticket.number} item={ticket} />
             ))}
             {tickets.more > 0 ? (
               <div className="text-2xs text-muted-foreground">+{tickets.more} more</div>
@@ -204,7 +216,7 @@ function SpecDetail(props: { detail: Extract<BuildWorkItemCardData["detail"], { 
       {detail.governedBy.length > 0 ? (
         <Row label="Decisions">
           {detail.governedBy.map((decision) => (
-            <ItemLine key={decision.number} {...decision} />
+            <ItemLine key={decision.number} item={decision} />
           ))}
         </Row>
       ) : null}
@@ -221,7 +233,7 @@ function TicketDetail(props: { card: BuildWorkItemCardData }) {
       {card.item.waits.length > 0 ? (
         <Row label="Blocked by">
           {card.item.waits.map((wait) => (
-            <ItemLine key={wait.number} {...wait} />
+            <ItemLine key={wait.number} item={wait} />
           ))}
         </Row>
       ) : null}

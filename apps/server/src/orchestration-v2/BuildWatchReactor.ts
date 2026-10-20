@@ -67,7 +67,8 @@ const make = Effect.gen(function* () {
               watchId: watch.id,
               build: {
                 number,
-                title: view.item.title.trim() || `Build #${number}`,
+                ...(view.item.ref == null ? {} : { ref: view.item.ref }),
+                title: view.item.title.trim() || `Build ${view.item.ref ?? `#${number}`}`,
                 url: view.url,
                 condition,
               },

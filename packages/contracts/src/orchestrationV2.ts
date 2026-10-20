@@ -3512,6 +3512,7 @@ const OrchestrationV2InternalCommand = Schema.Union([
     build: Schema.optional(
       Schema.Struct({
         number: PositiveInt,
+        ref: Schema.optional(TrimmedNonEmptyString),
         title: TrimmedNonEmptyString,
         url: TrimmedNonEmptyString,
         condition: Schema.Literals(["unblocked", "closed", "dropped"]),

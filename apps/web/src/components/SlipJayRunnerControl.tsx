@@ -17,6 +17,7 @@ import type {
 } from "@t3tools/contracts";
 import { useMemo, useState, type ReactNode } from "react";
 
+import { BuildItemLabel } from "./buildItem/BuildItemLabel";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
@@ -342,7 +343,7 @@ function RunnerOperationRow({
     <span className="flex min-w-0 items-center gap-1.5">
       {/* Without the workspace's attached Issue a row cannot say there is no Spec. */}
       {spec === null ? null : (
-        <span className="shrink-0 font-mono text-muted-foreground text-xs">#{spec.number}</span>
+        <BuildItemLabel item={spec} className="shrink-0 font-mono text-muted-foreground text-xs" />
       )}
       <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
       {spec?.held ? (

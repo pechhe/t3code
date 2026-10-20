@@ -20,6 +20,7 @@ import {
   ThreadId,
   type OrchestrationV2ThreadProjection,
   type ServerProvider,
+  BuildWorkItemError,
 } from "@t3tools/contracts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
@@ -167,6 +168,184 @@ describe("OrchestratorMcpService", () => {
       );
       assert.equal(result.code, "invalid_request");
       assert.include(result.message, "Build #1000001 is not a Spec or Ticket");
+    }),
+  );
+
+  it.effect("watches a Build item named by its ref, keeping the canonical number", () =>
+    Effect.gen(function* () {
+      const watcherId = ThreadId.make("thread:build-watch-ref");
+      const shell = liveThreadShell(watcherId);
+      const dispatched: Array<unknown> = [];
+      const dependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(Experiments.ExperimentService)({}),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(shell),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              dispatched.push(command);
+              return { sequence: 1, storedEvents: [] };
+            }),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("environment:watch"),
+        requestNamespace: "watch-ref",
+        thread: {
+          threadId: watcherId,
+          providerSessionId: "watch-test",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const result = yield* Effect.gen(function* () {
+        const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+        return yield* service.watchThread(
+          scope,
+          { target: { kind: "build_item", number: "ys-12", until: "closed" } },
+          true,
+        );
+      }).pipe(
+        Effect.provide(
+          orchestratorServiceWith({
+            connected: Effect.succeed({ connected: true, origin: "https://hq.test" }),
+            resolve: (reference) =>
+              Effect.succeed(
+                reference === "ys-12"
+                  ? { itemId: "item-1", number: 1000001, origin: "https://hq.test" }
+                  : { itemId: "item-2", number: 2, origin: "https://hq.test" },
+              ),
+            mentions: () =>
+              Effect.succeed({
+                items: [
+                  {
+                    itemId: "item-1",
+                    number: 1000001,
+                    url: "https://hq.test/build/1000001",
+                    item: {
+                      kind: "spec",
+                      ref: "YS-12",
+                      title: "Friendly numbers",
+                      status: "ready",
+                      holds: [],
+                      waits: [],
+                    },
+                    unavailable: false,
+                    readAt: null,
+                  },
+                ],
+              }),
+          }).pipe(Layer.provide(dependencies)),
+        ),
+      );
+      assert.deepEqual(result.target, { kind: "build_item", number: 1000001, until: "closed" });
+      assert.equal(result.label, "YS-12");
+      assert.include(JSON.stringify(dispatched), "1000001");
+    }),
+  );
+
+  it.effect("stops a Build watch by number without HQ, and by ref from the watched items", () =>
+    Effect.gen(function* () {
+      const watcherId = ThreadId.make("thread:build-unwatch");
+      const shell = {
+        ...liveThreadShell(watcherId),
+        threadWatches: [
+          {
+            id: "watch-1",
+            target: { kind: "build_item", number: 1000001, until: "closed" },
+            title: "Build #1000001",
+            startedAt: "2026-10-20T00:00:00.000Z",
+          },
+        ],
+      } as unknown as ReturnType<typeof liveThreadShell>;
+      const dispatched: Array<{ target?: unknown; watching?: unknown }> = [];
+      const dependencies = Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(Experiments.ExperimentService)({}),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadShell: () => Effect.succeed(shell),
+          dispatch: (command) =>
+            Effect.sync(() => {
+              dispatched.push(command as never);
+              return { sequence: 1, storedEvents: [] };
+            }),
+        }),
+        ServerSettings.layerTest(),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({}),
+        Layer.mock(ProviderAdapterRegistry.ProviderAdapterRegistryV2)({}),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+      );
+      const scope: McpInvocationScope = {
+        environmentId: EnvironmentId.make("environment:watch"),
+        requestNamespace: "unwatch",
+        thread: {
+          threadId: watcherId,
+          providerSessionId: "watch-test",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+        },
+        client: undefined,
+        capabilities: new Set(["orchestration"]),
+        issuedAt: 1,
+      };
+      const unwatch = (number: string, hqDown: boolean) =>
+        Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          return yield* service.watchThread(
+            scope,
+            { target: { kind: "build_item", number, until: "closed" } },
+            false,
+          );
+        }).pipe(
+          Effect.provide(
+            orchestratorServiceWith({
+              resolve: () =>
+                Effect.fail(new BuildWorkItemError({ reason: "unavailable", message: "HQ down" })),
+              mentions: () =>
+                hqDown
+                  ? Effect.fail(
+                      new BuildWorkItemError({ reason: "unavailable", message: "HQ down" }),
+                    )
+                  : Effect.succeed({
+                      items: [
+                        {
+                          itemId: "item-1",
+                          number: 1000001,
+                          url: "https://hq.test/build/1000001",
+                          item: {
+                            kind: "spec",
+                            ref: "YS-12",
+                            title: "Friendly numbers",
+                            status: "ready",
+                            holds: [],
+                            waits: [],
+                          },
+                          unavailable: false,
+                          readAt: null,
+                        },
+                      ],
+                    }),
+            }).pipe(Layer.provide(dependencies)),
+          ),
+        );
+      const byNumber = yield* unwatch("#1000001", true);
+      assert.deepEqual(byNumber.target, { kind: "build_item", number: 1000001, until: "closed" });
+      assert.isTrue(byNumber.wasWatching);
+      const byRef = yield* unwatch("ys-12", false);
+      assert.equal(byRef.target.kind === "build_item" ? byRef.target.number : 0, 1000001);
+      assert.isTrue(byRef.wasWatching);
+      assert.isTrue(dispatched.every((command) => command.watching === false));
     }),
   );
 

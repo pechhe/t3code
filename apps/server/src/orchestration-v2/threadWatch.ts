@@ -248,11 +248,13 @@ export function decideBuildWatch(
 
 export function buildWatchWake(input: {
   readonly target: Extract<OrchestrationV2WatchTarget, { readonly kind: "build_item" }>;
+  readonly ref?: string | undefined;
   readonly title: string;
   readonly url: string;
   readonly condition: "unblocked" | "closed" | "dropped";
 }): { readonly text: string; readonly notification: OrchestrationV2Notification } {
   const { target, condition } = input;
+  const label = input.ref ?? `#${target.number}`;
   const met =
     condition === "dropped"
       ? "was Dropped"
@@ -260,11 +262,11 @@ export function buildWatchWake(input: {
         ? "is unblocked: all waits and holds are clear"
         : "is closed (Landed or Accepted)";
   return {
-    text: `Build #${target.number} ${workName(input.title)} ${met}. ${input.url}\n\nT3 Code has stopped watching it. Call watch again to be woken again.`,
+    text: `Build ${label} ${workName(input.title)} ${met}. ${input.url}\n\nT3 Code has stopped watching it. Call watch again to be woken again.`,
     notification: {
       source: { kind: "build_item", number: target.number, until: target.until },
       outcome: condition === "dropped" ? "cancelled" : "completed",
-      summary: `Build #${target.number}: ${condition}`,
+      summary: `Build ${label}: ${condition}`,
     },
   };
 }

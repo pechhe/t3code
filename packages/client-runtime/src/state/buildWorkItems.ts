@@ -95,10 +95,27 @@ export const buildStatusLabel = (status: string) => BUILD_STATUS_LABELS[status] 
 export const buildKindGlyph = (kind: BuildWorkItemSummary["kind"] | undefined) =>
   kind === "ticket" ? "▢" : "◇";
 
+/**
+ * How every surface names an item: its friendly ref such as `YS-12` when Build has told T3 one,
+ * else `#<number>`. `number` is the canonical identity, which a ref's tooltip shows.
+ */
+export const buildItemLabel = (item: {
+  readonly number: number;
+  readonly ref?: string | null | undefined;
+}) => item.ref ?? `#${item.number}`;
+
+/** The canonical `#<number>` for a tooltip; nothing when the label already is the number. */
+export const buildItemNumberHint = (item: {
+  readonly number: number;
+  readonly ref?: string | null | undefined;
+}) => (item.ref ? `#${item.number}` : undefined);
+
 /** What a header segment or subtitle shows for a linked item, on web and mobile alike. */
 export function presentBuildWorkItem(link: BuildWorkItemView) {
   const item = link.item;
   return {
+    label: buildItemLabel({ number: link.number, ref: item?.ref }),
+    numberHint: buildItemNumberHint({ number: link.number, ref: item?.ref }),
     glyph: buildKindGlyph(item?.kind),
     // With nothing read yet, the number is all that is known; never a spinner.
     title: item?.title ?? `Build ${link.number}`,
@@ -135,9 +152,9 @@ export function presentSpecTickets(detail: Extract<BuildWorkItemCard["detail"], 
   };
 }
 
-/** "⛓ Blocked by #n Title (In progress). Starts when it is landed." */
+/** "⛓ Blocked by YS-12 Title (In progress). Starts when it is landed." */
 export const describeBuildWait = (wait: BuildWorkItemWait) => ({
-  blocker: `#${wait.number} ${wait.title}`,
+  blocker: `${buildItemLabel(wait)} ${wait.title}`,
   status: buildStatusLabel(wait.status),
   startsWhen: `Starts when it is ${wait.required}.`,
 });

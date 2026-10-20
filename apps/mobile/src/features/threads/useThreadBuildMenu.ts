@@ -1,11 +1,16 @@
 import type { MenuAction } from "@react-native-menu/menu";
+import { buildItemLabel } from "@t3tools/client-runtime/state/build-work-items";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import * as Cause from "effect/Cause";
 import { useCallback, useMemo } from "react";
 import { Linking } from "react-native";
 
 import * as Dialog from "../../components/ui/Dialog";
-import { buildWorkItems, useBuildConnected } from "../../state/build-work-items";
+import {
+  buildWorkItems,
+  useBuildConnected,
+  useThreadBuildWorkItem,
+} from "../../state/build-work-items";
 import { useAtomCommand } from "../../state/use-atom-command";
 
 /**
@@ -16,6 +21,7 @@ export function useThreadBuildMenu(thread: EnvironmentThreadShell) {
   const connected = useBuildConnected(thread.environmentId);
   const link = useAtomCommand(buildWorkItems.link, { reportFailure: false });
   const workItem = thread.workItem ?? null;
+  const ref = useThreadBuildWorkItem(thread)?.item?.ref;
 
   const items = useMemo<MenuAction[]>(
     () =>
@@ -26,7 +32,7 @@ export function useThreadBuildMenu(thread: EnvironmentThreadShell) {
           : [
               {
                 id: "build-item",
-                title: `Build #${workItem.number}`,
+                title: `Build ${buildItemLabel({ number: workItem.number, ref })}`,
                 image: "link",
                 subactions: [
                   { id: "build-open", title: "Open in HQ", image: "safari" },
@@ -40,7 +46,7 @@ export function useThreadBuildMenu(thread: EnvironmentThreadShell) {
                 ],
               },
             ],
-    [connected, workItem],
+    [connected, workItem, ref],
   );
 
   const setLink = useCallback(
@@ -67,7 +73,7 @@ export function useThreadBuildMenu(thread: EnvironmentThreadShell) {
       switch (event) {
         case "build-link":
           Dialog.prompt({
-            title: "Build URL or #number",
+            title: "Build URL, ref (YS-12) or #number",
             initialValue: "",
             confirmText: "Link",
             onConfirm: (reference) => {

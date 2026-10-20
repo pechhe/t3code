@@ -7,6 +7,7 @@ import { buildWorkItems } from "~/state/buildWorkItems";
 import { useEnvironmentQuery } from "~/state/query";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
+import { BuildItemLabel } from "./BuildItemLabel";
 import { BuildWorkItemCard } from "./BuildWorkItemCard";
 
 /**
@@ -46,7 +47,8 @@ export function BuildWorkItemPreview(props: {
             <div className="text-xs">
               <p className="font-medium text-foreground">{shown.title}</p>
               <p className="text-muted-foreground">
-                {[`#${link.number}`, shown.statusLabel].filter(Boolean).join(" · ")}
+                <BuildItemLabel item={{ number: link.number, ref: link.item?.ref }} />
+                {shown.statusLabel ? ` · ${shown.statusLabel}` : ""}
               </p>
               {cardQuery.error !== null || shown.unavailable ? (
                 <p className="mt-1 text-muted-foreground">

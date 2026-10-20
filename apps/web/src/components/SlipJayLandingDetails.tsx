@@ -15,6 +15,7 @@ import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
 import { Badge } from "./ui/badge";
+import { BuildItemLabel } from "./buildItem/BuildItemLabel";
 import { SlipJayMark, type SlipJaySpec } from "./SlipJayTicket";
 
 /**
@@ -58,9 +59,10 @@ export function SlipJayLandingDetails({
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="flex min-w-0 items-center gap-1.5">
             {spec === null ? null : (
-              <span className="shrink-0 font-mono text-muted-foreground text-xs">
-                #{spec.number}
-              </span>
+              <BuildItemLabel
+                item={spec}
+                className="shrink-0 font-mono text-muted-foreground text-xs"
+              />
             )}
             <span className="min-w-0 flex-1 truncate font-medium">
               {spec?.title ?? detail?.workspace ?? "Landing"}

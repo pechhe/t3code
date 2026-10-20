@@ -59,7 +59,7 @@ function LinkBuildItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
   const submit = useCallback(async () => {
     const trimmed = reference.trim();
     if (trimmed.length === 0) {
-      setError("Paste a Build URL or enter #1000123.");
+      setError("Paste a Build URL or enter a ref such as YS-12 or #1000123.");
       return;
     }
     setError(null);
@@ -91,7 +91,7 @@ function LinkBuildItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
         <DialogPanel>
           <Input
             ref={inputRef}
-            placeholder="Build URL or #1000123"
+            placeholder="Build URL, YS-12 or #1000123"
             value={reference}
             onChange={(event) => {
               setError(null);

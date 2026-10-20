@@ -1,5 +1,5 @@
 /**
- * How T3 recognises a YardSmith HQ Build item (pechhe/t3code#78): a Build URL, or `#<number>`.
+ * How T3 recognises a YardSmith HQ Build item (pechhe/t3code#78): a Build URL, `#<number>` or a friendly ref such as `YS-12`.
  * The server resolves references with these rules and both clients recognise chat mentions with
  * them, so a mention the client shows is one the server can read.
  */
@@ -13,17 +13,40 @@ import { unified } from "unified";
  */
 export const BUILD_MENTION_PATTERN = /(?<![\w/\\&#])#([1-9]\d{6,})(?!\w)/gu;
 
-/** A Build URL on any HQ, `#<number>` or a bare number. */
-export function parseBuildReference(
-  reference: string,
-): { readonly number: number; readonly origin: string | null } | null {
+/** What a reference names: the canonical item number, or a friendly ref such as `YS-12`. */
+export type BuildReference =
+  | { readonly kind: "number"; readonly number: number; readonly origin: string | null }
+  | { readonly kind: "ref"; readonly ref: string };
+
+const positiveInteger = (digits: string) => {
+  const value = Number(digits);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+};
+
+/** `YS-12` or `YS-12.1`, in any case: a letter, then letters or digits, `-`, then 1-based ordinals. */
+const FRIENDLY_REF = /^([a-z][a-z\d]*)-(\d+)(?:\.(\d+))?$/iu;
+
+/** A Build URL on any HQ, `#<number>`, a bare number or a friendly ref (normalised to upper case). */
+export function parseBuildReference(reference: string): BuildReference | null {
   const trimmed = reference.trim();
   const bare = /^#?(\d+)$/u.exec(trimmed);
-  if (bare) return { number: Number(bare[1]), origin: null };
+  if (bare) {
+    const number = positiveInteger(bare[1]!);
+    return number === null ? null : { kind: "number", number, origin: null };
+  }
+  const friendly = FRIENDLY_REF.exec(trimmed);
+  if (friendly) {
+    const [, , sequence, ordinal] = friendly;
+    return positiveInteger(sequence!) === null ||
+      (ordinal !== undefined && positiveInteger(ordinal) === null)
+      ? null
+      : { kind: "ref", ref: trimmed.toUpperCase() };
+  }
   try {
     const url = new URL(trimmed);
     const path = /^\/build\/(?:specs\/)?(\d+)\/?$/u.exec(url.pathname);
-    return path ? { number: Number(path[1]), origin: url.origin } : null;
+    const number = path ? positiveInteger(path[1]!) : null;
+    return number === null ? null : { kind: "number", number, origin: url.origin };
   } catch {
     return null;
   }
@@ -35,7 +58,7 @@ export const buildItemUrl = (origin: string, number: number) => `${origin}/build
 export function buildItemNumberFromUrl(href: string, origin: string): number | null {
   if (!href.startsWith(origin)) return null;
   const parsed = parseBuildReference(href);
-  return parsed?.origin === origin ? parsed.number : null;
+  return parsed?.kind === "number" && parsed.origin === origin ? parsed.number : null;
 }
 
 type MarkdownNode = {

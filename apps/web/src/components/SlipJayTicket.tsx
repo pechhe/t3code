@@ -169,6 +169,7 @@ export function SlipJayStageDots({
 
 export interface SlipJaySpec {
   number: number;
+  ref: string | null;
   title: string | null;
   status: string | null;
   held: boolean;
@@ -187,6 +188,7 @@ export function useSlipJaySpec(
     const shown = presentBuildWorkItem(link);
     return {
       number: link.number,
+      ref: link.item?.ref ?? null,
       title: link.item === null ? null : shown.title,
       status: shown.statusLabel,
       held: shown.held,
@@ -194,7 +196,7 @@ export function useSlipJaySpec(
   }
   return issueNumber === undefined
     ? null
-    : { number: issueNumber, title: null, status: null, held: false };
+    : { number: issueNumber, ref: null, title: null, status: null, held: false };
 }
 
 /** The current time, re-read every second only while `ticking`. */

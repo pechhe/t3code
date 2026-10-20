@@ -1,6 +1,8 @@
 import { buildSessionThreadLink } from "@t3tools/client-runtime/build-session-thread-link";
 import {
   type BuildStatusTone,
+  buildItemLabel,
+  buildItemNumberHint,
   buildKindGlyph,
   buildSessionLabel,
   buildStatusLabel,
@@ -61,14 +63,20 @@ function Dot(props: { status: string }) {
   );
 }
 
-function ItemLine(props: { number: number; title: string; status: string }) {
+function ItemLine(props: {
+  item: { number: number; ref?: string | null; title: string; status: string };
+}) {
+  const { item } = props;
   return (
     <View className="flex-row items-center gap-2 py-1">
-      <Dot status={props.status} />
-      <Text className="text-sm text-foreground-muted">#{props.number}</Text>
+      <Dot status={item.status} />
+      <Text className="text-sm text-foreground-muted">{buildItemLabel(item)}</Text>
       <Text className="min-w-0 flex-1 text-sm text-foreground" numberOfLines={1}>
-        {props.title}
+        {item.title}
       </Text>
+      {buildItemNumberHint(item) === undefined ? null : (
+        <Text className="text-xs text-foreground-muted/70">{buildItemNumberHint(item)}</Text>
+      )}
     </View>
   );
 }
@@ -167,7 +175,12 @@ function CardBody(props: { card: BuildWorkItemCard }) {
         <Dot status={item.status} />
         <Text className="text-xs text-foreground-muted">{buildStatusLabel(item.status)}</Text>
       </View>
-      <Text className="mt-2 text-lg font-t3-bold text-foreground">{item.title}</Text>
+      {buildItemNumberHint({ number: card.number, ref: item.ref }) === undefined ? null : (
+        <Text className="mt-2 text-xs text-foreground-muted/70">
+          {buildItemNumberHint({ number: card.number, ref: item.ref })}
+        </Text>
+      )}
+      <Text className="mt-1 text-lg font-t3-bold text-foreground">{item.title}</Text>
       {card.summary ? (
         <Text className="mt-1 text-sm text-foreground-muted" numberOfLines={3}>
           {card.summary}
@@ -207,7 +220,7 @@ function CardBody(props: { card: BuildWorkItemCard }) {
                   .join(" · ")}
               </Text>
               {detail.tickets.map((ticket) => (
-                <ItemLine key={ticket.number} {...ticket} />
+                <ItemLine key={ticket.number} item={ticket} />
               ))}
               {tickets.more > 0 ? (
                 <Text className="text-xs text-foreground-muted">+{tickets.more} more</Text>
@@ -221,7 +234,7 @@ function CardBody(props: { card: BuildWorkItemCard }) {
       {detail.kind === "spec" && detail.governedBy.length > 0 ? (
         <Section title="Decisions">
           {detail.governedBy.map((decision) => (
-            <ItemLine key={decision.number} {...decision} />
+            <ItemLine key={decision.number} item={decision} />
           ))}
         </Section>
       ) : null}
@@ -231,7 +244,7 @@ function CardBody(props: { card: BuildWorkItemCard }) {
           {item.waits.length > 0 ? (
             <Section title="Blocked by">
               {item.waits.map((blocker) => (
-                <ItemLine key={blocker.number} {...blocker} />
+                <ItemLine key={blocker.number} item={blocker} />
               ))}
             </Section>
           ) : null}
@@ -309,7 +322,7 @@ export function ThreadBuildItemSheet({ route }: StaticScreenProps<BuildItemTarge
           input: { threadId: target.threadId, itemId, open: opening },
         }),
   );
-  const title = `Build #${target.number}`;
+  const title = `Build ${buildItemLabel({ number: target.number, ref: cardQuery.data?.item.ref })}`;
 
   const content = (
     <ScrollView

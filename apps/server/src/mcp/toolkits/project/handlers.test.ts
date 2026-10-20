@@ -1,6 +1,7 @@
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import { expect, it } from "@effect/vitest";
 import {
+  BuildWorkItemError,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -24,6 +25,7 @@ import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
+import * as BuildWorkItems from "../../../hq/BuildWorkItems.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ServerConfig from "../../../config.ts";
@@ -74,6 +76,7 @@ it.effect("attributes a launched thread's first message to the calling thread", 
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: () => Effect.succeed(caller),
       }),
+      Layer.mock(BuildWorkItems.BuildWorkItems)({}),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({
         launch: (input) => {
           launchedSender = input.initialMessage?.senderThreadId;
@@ -152,6 +155,7 @@ it.effect("launches a scratch thread into the Scratch project", () =>
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: () => Effect.succeed(caller),
       }),
+      Layer.mock(BuildWorkItems.BuildWorkItems)({}),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({
         launch: (input) => {
           launched.push(input);
@@ -258,6 +262,7 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
       Layer.mock(ThreadManagement.ThreadManagementService)({
         getThreadShell: () => Effect.succeed(caller),
       }),
+      Layer.mock(BuildWorkItems.BuildWorkItems)({}),
       Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
       Layer.mock(Project.ProjectService)({
         create: (input) =>
@@ -355,6 +360,21 @@ const clientLaunchHarness = (input: {
       capabilities: new Set(["orchestration" as const]),
     }),
     Layer.mock(ThreadManagement.ThreadManagementService)({}),
+    Layer.mock(BuildWorkItems.BuildWorkItems)({
+      resolve: (reference) =>
+        reference === "YS-12"
+          ? Effect.succeed({
+              itemId: "build-item:3368",
+              number: 3368,
+              origin: "https://hq.example",
+            })
+          : Effect.fail(
+              new BuildWorkItemError({
+                reason: "not_found",
+                message: `Build has no item ${reference} you can see.`,
+              }),
+            ),
+    }),
     Layer.mock(ThreadLaunch.ThreadLaunchService)({
       checkWorktreeBase: input.checkWorktreeBase ?? (() => Effect.void),
       launch: (launch) => {
@@ -708,7 +728,10 @@ it.effect(
       const launchFor = (
         workspaceRoot: string,
         launched: Array<ThreadLaunch.ThreadLaunchInput>,
-        params: { readonly workspaceStrategy?: { readonly type: "root" } } = {},
+        params: {
+          readonly workspaceStrategy?: { readonly type: "root" };
+          readonly buildItem?: number | string;
+        } = {},
       ) =>
         Effect.gen(function* () {
           const { projectId, dependencies } = clientLaunchHarness({
@@ -738,6 +761,18 @@ it.effect(
       expect(launched.map((launch) => [launch.workspaceStrategy, launch.rootIsDefault])).toEqual([
         [{ type: "worktree", baseRef: "HEAD", buildItem: 3368 }, false],
       ]);
+
+      // A friendly ref is resolved first: SlipJay's attach-issue gets the canonical number.
+      const byRef: Array<ThreadLaunch.ThreadLaunchInput> = [];
+      yield* launchFor(slipjayRoot, byRef, { buildItem: "YS-12" });
+      expect(byRef.map((launch) => launch.workspaceStrategy)).toEqual([
+        { type: "worktree", baseRef: "HEAD", buildItem: 3368 },
+      ]);
+      const unknownRef: Array<ThreadLaunch.ThreadLaunchInput> = [];
+      expect(
+        (yield* launchFor(slipjayRoot, unknownRef, { buildItem: "YS-99" })).at(-1)?.result,
+      ).toMatchObject({ code: "invalid_request" });
+      expect(unknownRef).toEqual([]);
 
       const refused: Array<ThreadLaunch.ThreadLaunchInput> = [];
       expect((yield* launchFor(plainRoot, refused)).at(-1)?.result).toMatchObject({

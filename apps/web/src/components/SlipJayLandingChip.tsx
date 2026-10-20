@@ -12,6 +12,7 @@ import { useState, useSyncExternalStore } from "react";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { useEnvironmentQuery } from "~/state/query";
 import { vcsEnvironment } from "~/state/vcs";
+import { BuildItemLabel } from "./buildItem/BuildItemLabel";
 import { Button } from "./ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { SlipJayLandingDetails } from "./SlipJayLandingDetails";
@@ -106,7 +107,7 @@ function LandingTicket({
         stub={
           <>
             <SlipJayMark />
-            {spec === null ? null : <span>#{spec.number}</span>}
+            {spec === null ? null : <BuildItemLabel item={spec} />}
           </>
         }
       >

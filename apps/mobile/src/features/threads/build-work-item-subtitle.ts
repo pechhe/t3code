@@ -15,7 +15,7 @@ const STATUS_MARKS: Record<BuildWorkItemPresentation["tone"], string> = {
  */
 export function buildWorkItemSubtitle(item: BuildWorkItemPresentation): string {
   return [
-    `${item.glyph} ${item.title} ${STATUS_MARKS[item.tone]}`,
+    `${item.glyph} ${item.numberHint === undefined ? "" : `${item.label} `}${item.title} ${STATUS_MARKS[item.tone]}`,
     item.statusLabel,
     item.held ? "⏸ Held" : null,
     item.blocked ? "⛓ Blocked" : null,
@@ -27,4 +27,9 @@ export function buildWorkItemSubtitle(item: BuildWorkItemPresentation): string {
 
 /** A Build item mentioned in a message, inline in its text: glyph, title and status in words. */
 export const buildMentionLabel = (item: BuildWorkItemPresentation): string =>
-  [`${item.glyph} ${item.title}`, item.statusLabel].filter(Boolean).join(" · ");
+  [
+    `${item.glyph} ${item.numberHint === undefined ? "" : `${item.label} `}${item.title}`,
+    item.statusLabel,
+  ]
+    .filter(Boolean)
+    .join(" · ");
