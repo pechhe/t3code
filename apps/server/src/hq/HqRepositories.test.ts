@@ -41,7 +41,6 @@ it.effect("calls HQ's repository tools and decodes their values", () =>
       key: repository.key,
       colour: "green" as const,
       icon: { kind: "monogram" as const, text: "YS" },
-      source: "t3" as const,
     };
     assert.deepEqual(yield* hq.setRepository(input), repository);
     assert.deepEqual(calls, [

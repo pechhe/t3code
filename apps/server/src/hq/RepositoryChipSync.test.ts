@@ -195,7 +195,6 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
           name: "YardSmith",
           colour: identity.color,
           icon: { kind: "monogram", text: identity.monogram },
-          source: "t3",
         },
       ]);
       assert.equal((yield* h.row).hqSyncedRevision, 1);
@@ -246,6 +245,25 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       assert.equal(h.pushes.at(-1)?.colour, "orange");
       assert.deepEqual(h.pushes.at(-1)?.icon, { kind: "emoji", emoji: "🦊" });
       assert.equal((yield* h.row).hqSyncedRevision, 3);
+    }),
+  );
+  it.effect("a project matched through an alias pushes to the record it matched", () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      h.hqHas({
+        key: "pechhe/weave",
+        name: "Weave",
+        aliases: ["pechhe/yardsmith"],
+        colour: "rose",
+        icon: { kind: "monogram", text: "WV" },
+        revision: 2,
+        updatedAt: "2026-10-20T12:00:00.000Z",
+        updatedSource: "hq",
+      });
+      yield* h.sync;
+      yield* h.edit({ projectIcon: { kind: "emoji", emoji: "🦊", color: "orange" } });
+      yield* h.sync;
+      assert.equal(h.pushes.at(-1)?.key, "pechhe/weave");
     }),
   );
   it.effect("skips local-only projects in both directions", () =>

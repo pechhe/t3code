@@ -53,7 +53,6 @@ export class HqRepositories extends Context.Service<
       readonly name?: string;
       readonly colour: ProjectIconColor;
       readonly icon: typeof RepositoryIcon.Type;
-      readonly source: "t3";
     }) => Effect.Effect<Repository, HqRepositoryError>;
   }
 >()("t3/hq/HqRepositories") {}

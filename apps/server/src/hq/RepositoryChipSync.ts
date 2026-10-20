@@ -87,11 +87,11 @@ const make = Effect.gen(function* () {
         if (repository && (row.hqSyncedValueHash ?? null) === null) {
           adopt();
         } else if (!repository || row.hqSyncedValueHash !== localHash) {
+          // A project matched through an alias edits the record it matched, not a new one.
           repository = yield* hq.setRepository({
-            key,
+            key: repository?.key ?? key,
             ...(repository ? {} : { name: row.title }),
             ...local,
-            source: "t3",
           });
           repositories.set(repository.key, repository);
         } else if (repository.revision > (row.hqSyncedRevision ?? 0)) {

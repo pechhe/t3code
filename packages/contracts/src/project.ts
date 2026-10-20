@@ -71,6 +71,9 @@ export const ProjectIconColor = Schema.Literals([
 ]);
 export type ProjectIconColor = typeof ProjectIconColor.Type;
 
+// HQ names a repository `owner/name`; a link it would refuse is rejected when it is typed, not on every sync.
+const HqRepositoryKey = TrimmedNonEmptyString.check(Schema.isPattern(/^[^\s/]+\/[^\s/]+$/));
+
 const ProjectLucideIconName = TrimmedNonEmptyString.check(
   Schema.isMaxLength(64),
   Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
@@ -205,7 +208,7 @@ export const ProjectUpdatePayload = Schema.Struct({
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   autoPull: Schema.optional(Schema.Boolean),
-  hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  hqRepositoryKey: Schema.optional(Schema.NullOr(HqRepositoryKey)),
   hqSyncLocalOnly: Schema.optional(Schema.Boolean),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
