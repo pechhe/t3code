@@ -4148,12 +4148,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const interruptedTurns = yield* Ref.make(new Set<OrchestrationV2ProviderTurn["id"]>());
         const steeredTurns = yield* Ref.make(new Set<OrchestrationV2ProviderTurn["id"]>());
         const queryContext = yield* Ref.make<ClaudeLiveQueryContext | null>(null);
-        // The thread's compact-at point as last applied or set; null follows the instance setting.
+        // The compact-at point the live process opened with; null follows the instance setting.
         const compactAtRef = yield* Ref.make<number | null>(input.runtimePolicy.compactAt ?? null);
-        let lastContextUsage: {
-          readonly context: ActiveClaudeTurnContext;
-          readonly usage: ClaudeMessageUsage;
-        } | null = null;
         // A worktree handoff changes the project settings even within one session.
         let bypassCache: { cwd: string | null; availability: ClaudeBypassAvailability } | null =
           null;
@@ -4439,7 +4435,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             context.streamUsage?.requestedAt,
           );
           if (tokenUsage.inputTokens <= 0) return;
-          lastContextUsage = { context, usage };
           yield* emitProviderEvent({
             type: "provider_turn.updated",
             driver: CLAUDE_PROVIDER,
@@ -4461,28 +4456,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               tokenUsage,
             },
           });
-        });
-
-        // Moves a live process to a new compact-at point. Null returns it to the instance setting,
-        // which is sent explicitly: clearing the flag layer could also drop that setting.
-        const applyLiveCompactAt = Effect.fn("ClaudeAdapterV2.applyLiveCompactAt")(function* (
-          live: ClaudeLiveQueryContext,
-          compactAt: number | null,
-        ) {
-          if (live.compactAt === compactAt) return yield* Ref.set(compactAtRef, compactAt);
-          const autoCompactWindow = claudeAutoCompactWindow(
-            { instanceWindow: adapterOptions.settings.autoCompactWindow, compactAt },
-            claudeContextWindow(live.modelSelection),
-          );
-          yield* live.query.applyFlagSettings({ autoCompactWindow: autoCompactWindow ?? null });
-          // Reported usage derives the point from this ref, so it moves only once Claude took it.
-          live.compactAt = compactAt;
-          yield* Ref.set(compactAtRef, compactAt);
-          // Clients see the new point with the next usage report; an active turn reports it now.
-          const reported = lastContextUsage;
-          if (reported !== null && (yield* Ref.get(activeTurn)) === reported.context) {
-            yield* emitContextUsage(reported.context, reported.usage);
-          }
         });
 
         // Claude emits retry progress but no recovered frame; the next
@@ -9477,14 +9450,13 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             existing !== null &&
             existing.nativeThreadId === nativeThreadId &&
             existing.queryPolicyKey === queryPolicyKey &&
-            existing.selection.queryIdentity === compiledSelection.queryIdentity
+            existing.selection.queryIdentity === compiledSelection.queryIdentity &&
+            // Claude Code reads its auto-compact window only at startup (applyFlagSettings leaves
+            // it unchanged), so a new point reopens the session. Background work running in the
+            // process would die with it, so the old point stays until that work ends.
+            (existing.compactAt === (turnInput.runtimePolicy.compactAt ?? null) ||
+              (yield* liveProcessRunsBackgroundWork(existing)))
           ) {
-            // A change that landed between turns, or that the listener missed, applies now.
-            yield* applyLiveCompactAt(existing, turnInput.runtimePolicy.compactAt ?? null).pipe(
-              Effect.catch((cause) =>
-                Effect.logWarning("Could not apply the thread's compact-at point", { cause }),
-              ),
-            );
             // A denied ExitPlanMode leaves Claude in plan mode. Restore only from plan:
             // Auto/default may reflect a policy restriction that forbids restoring bypass.
             if (existing.permissionMode === "plan" && existing.openedPermissionMode !== "plan") {
@@ -10425,30 +10397,6 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ),
               ),
           ),
-          setCompactAt: Effect.fn("ClaudeAdapterV2.setCompactAt")(function* ({
-            providerThread,
-            compactAt,
-          }) {
-            const live = yield* Ref.get(queryContext);
-            if (
-              live === null ||
-              live.stopping ||
-              live.nativeThreadId !== providerThread.nativeThreadRef?.nativeId
-            ) {
-              // No process to move: the next one opens with the thread's point.
-              yield* Ref.set(compactAtRef, compactAt);
-              return;
-            }
-            yield* applyLiveCompactAt(live, compactAt).pipe(
-              Effect.mapError(
-                (cause) =>
-                  new ProviderAdapter.ProviderAdapterProtocolError({
-                    driver: CLAUDE_PROVIDER,
-                    detail: `Could not apply the compact-at point: ${cause.message}`,
-                  }),
-              ),
-            );
-          }),
           startTurn,
           compactThread: (turnInput) =>
             startTurn({

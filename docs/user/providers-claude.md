@@ -95,8 +95,8 @@ size, so `300000` means roughly 267,000 tokens. This changes when compaction hap
 window. Leave it empty for Claude Code's default.
 
 A single thread can compact somewhere else. Drag the compact line on the thread's
-context bar to set its own point; it overrides the setting for that thread, and it
-takes hold in a running session straight away. Clear the thread's point to
+context bar to set its own point; it overrides the setting for that thread from the
+thread's next turn, or once background work running in the thread finishes. Clear the thread's point to
 return to the provider's point.
 
 You can also send `/compact` in an existing conversation. Web and desktop offer

@@ -2403,7 +2403,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     readonly freshQueueOnReopen?: boolean;
     readonly forkSession?: ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerShape["forkSession"];
     readonly allocateSessionId?: Effect.Effect<string>;
-    readonly applyFlagSettings?: ClaudeAdapterV2.ClaudeAgentSdkQuerySession["applyFlagSettings"];
   }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
@@ -2534,9 +2533,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 applyFlagSettings: (settings) =>
                   Effect.sync(() => {
                     liveSelectionChanges.push(settings);
-                  }).pipe(
-                    Effect.andThen(() => options?.applyFlagSettings?.(settings) ?? Effect.void),
-                  ),
+                  }),
                 setPermissionMode: (mode) =>
                   Effect.sync(() => {
                     permissionModeChanges.push(mode);
@@ -5159,65 +5156,6 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
         ),
       ),
-  );
-
-  it.effect("keeps reporting the old point when Claude refuses a changed one", () =>
-    Effect.gen(function* () {
-      const harness = yield* makeWakeHarnessWithOptions({
-        settings: { ...DEFAULT_CLAUDE_SETTINGS, autoCompactWindow: "150000" },
-        applyFlagSettings: () =>
-          Effect.fail(
-            new ClaudeAdapterV2.ClaudeAgentSdkQueryRunnerError({
-              method: "applyFlagSettings",
-              cause: new Error("refused"),
-            }),
-          ),
-      });
-      yield* harness.runtime.startTurn(
-        makeClaudeTestTurnInput({
-          threadId: harness.threadId,
-          providerThread: harness.providerThread,
-          now: DateTime.makeUnsafe(0),
-          attemptId: RunAttemptId.make("attempt-compact-at-refused"),
-          text: "Continue.",
-          attachments: [],
-          providerTurnOrdinal: 1,
-          modelSelection: { ...CLAUDE_TEST_MODEL_SELECTION, model: "claude-sonnet-4-6" },
-        }),
-      );
-      const refused = yield* Effect.exit(
-        harness.runtime.setCompactAt!({
-          providerThread: harness.providerThread,
-          compactAt: 100_000,
-        }),
-      );
-      assert.isTrue(Exit.isFailure(refused));
-      yield* Queue.offer(
-        harness.sdkMessages,
-        usageSnapshotFrame("msg_refused", "00000000-0000-4000-8000-000000000a11", {
-          ...zeroUsage,
-          input_tokens: 1_000,
-          output_tokens: 10,
-        }),
-      );
-      yield* Queue.offer(
-        harness.sdkMessages,
-        makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000a12", result: "Done." }),
-      );
-      yield* Queue.take(harness.terminalReceipts);
-      const reported = harness.events.flatMap((event) =>
-        event.type === "provider_turn.updated" && event.providerTurn.tokenUsage
-          ? [event.providerTurn.tokenUsage.autoCompactThreshold]
-          : [],
-      );
-      assert.isNotEmpty(reported);
-      for (const threshold of reported) assert.equal(threshold, 117_000);
-    }).pipe(
-      Effect.scoped,
-      Effect.provide(
-        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
-      ),
-    ),
   );
 
   it.effect("shows a hook-dropped Claude prompt once and skips info-level lines", () =>
@@ -14063,47 +14001,74 @@ describe("ClaudeAdapterV2 background wake turns", () => {
     );
   });
 
-  it.effect("moves a live process to a changed point and reports it", () =>
+  it.effect("reopens the session with a changed point at the next turn", () =>
     Effect.gen(function* () {
       const harness = yield* makeWakeHarnessWithOptions({
         settings: { ...DEFAULT_CLAUDE_SETTINGS, autoCompactWindow: "150000" },
+        freshQueueOnReopen: true,
       });
-      const turn = (attempt: string, ordinal: number, compactAt?: number) =>
-        makeClaudeTestTurnInput({
-          threadId: harness.threadId,
-          providerThread: harness.providerThread,
-          now: DateTime.makeUnsafe(0),
-          attemptId: RunAttemptId.make(attempt),
-          text: "Continue.",
-          attachments: [],
-          providerTurnOrdinal: ordinal,
-          runtimePolicy: {
-            ...CLAUDE_TEST_RUNTIME_POLICY,
-            ...(compactAt === undefined ? {} : { compactAt }),
-          },
-        });
-      yield* harness.runtime.startTurn(turn("attempt-compact-at-1", 1));
-      yield* Queue.offer(
-        harness.sdkMessages,
-        makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000a01", result: "Done." }),
-      );
-      yield* Queue.take(harness.terminalReceipts);
+      const runTurn = Effect.fnUntraced(function* (
+        ordinal: number,
+        compactAt?: number,
+        startBackgroundWork = false,
+      ) {
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now: DateTime.makeUnsafe(0),
+            attemptId: RunAttemptId.make(`attempt-compact-at-${ordinal}`),
+            text: "Continue.",
+            attachments: [],
+            providerTurnOrdinal: ordinal,
+            runtimePolicy: {
+              ...CLAUDE_TEST_RUNTIME_POLICY,
+              ...(compactAt === undefined ? {} : { compactAt }),
+            },
+          }),
+        );
+        yield* harness.offerAndWait(claudeSdkFrame(wakeTurnInit));
+        if (startBackgroundWork) yield* harness.offerAndWait(wakeTaskStarted);
+        yield* harness.offerAndWait(
+          usageSnapshotFrame(
+            `msg_compact_at_${ordinal}`,
+            `00000000-0000-4000-8000-0000000b0${ordinal}00`,
+            { ...zeroUsage, input_tokens: 1_000, output_tokens: 10 },
+          ),
+        );
+        yield* Queue.offer(
+          harness.processQueues.at(-1)!,
+          makeResultFrame({
+            uuid: `00000000-0000-4000-8000-0000000a0${ordinal}00`,
+            result: "Done.",
+          }),
+        );
+        yield* Queue.take(harness.terminalReceipts);
+        return harness.events.flatMap((event) =>
+          event.type === "provider_turn.updated" && event.providerTurn.tokenUsage
+            ? [event.providerTurn.tokenUsage.autoCompactThreshold]
+            : [],
+        ).at(-1);
+      });
+      const openedWindow = () =>
+        (harness.getOpenedOptions()?.settings as { autoCompactWindow?: number } | undefined)
+          ?.autoCompactWindow;
+
+      assert.equal(yield* runTurn(1), 117_000);
+      assert.equal(harness.processQueues.length, 1);
+      assert.equal(openedWindow(), 150_000);
+
+      assert.equal(yield* runTurn(2, 120_000), 120_000);
+      assert.equal(harness.processQueues.length, 2);
+      assert.equal(openedWindow(), 153_000);
+
+      // Reopening would kill background work, so the process keeps its point until it ends.
+      assert.equal(yield* runTurn(3, 120_000, true), 120_000);
+      assert.equal(harness.processQueues.length, 2);
+      assert.equal(yield* runTurn(4, 100_000), 120_000);
+      assert.equal(harness.processQueues.length, 2);
+      assert.equal(openedWindow(), 153_000);
       assert.deepEqual(harness.liveSelectionChanges, []);
-
-      const setCompactAt = (compactAt: number | null) =>
-        harness.runtime.setCompactAt!({ providerThread: harness.providerThread, compactAt });
-      yield* setCompactAt(100_000);
-      yield* setCompactAt(100_000);
-      // Null hands the window back to the instance setting.
-      yield* setCompactAt(null);
-      assert.deepEqual(harness.liveSelectionChanges, [
-        { autoCompactWindow: 133_000 },
-        { autoCompactWindow: 150_000 },
-      ]);
-
-      // A point that changed while no process listened applies when the next turn starts.
-      yield* harness.runtime.startTurn(turn("attempt-compact-at-2", 2, 120_000));
-      assert.deepEqual(harness.liveSelectionChanges.at(-1), { autoCompactWindow: 153_000 });
     }).pipe(
       Effect.scoped,
       Effect.provide(

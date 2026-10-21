@@ -167,7 +167,7 @@ Press `Escape` to return to the previous page. Customize these shortcuts in
 The context bar under the composer shows how full the thread's context window is. The orange line on it marks where the provider compacts the conversation. It appears for Claude and Codex threads once the provider reports the size of its context window. Codex doesn't report where it compacts by default, so until you set a point its line is faint and sits at the top of the range.
 
 - **Drag the line** to set this thread's own compact-at point. Hover for the exact size, or focus it and use the arrow keys (hold `Shift` for larger steps). Press `Escape` mid-drag to cancel. The range follows what the provider accepts for the model's context window.
-- **A faded line** means the point is saved but the provider hasn't applied it yet. Claude applies it straight away; Codex applies it at its next session.
+- **A faded line** means the point is saved but the provider hasn't applied it yet. Claude applies it at the thread's next turn, or once background work running in the thread finishes; Codex applies it when the thread's session next starts or resumes.
 - **Double-click the line** (double-tap on a touch screen) to open the provider's settings, where **Auto-compact after** sets the default for every thread.
 - **To reset a thread**, choose **use provider setting** beside the token count. The thread follows the provider's setting again.
 
