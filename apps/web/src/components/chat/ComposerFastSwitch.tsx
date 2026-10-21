@@ -10,6 +10,7 @@ import { ZapIcon } from "lucide-react";
 import { memo } from "react";
 
 import { type DraftId, useComposerDraftStore } from "../../composerDraftStore";
+import { playKeyClick } from "~/lib/interfaceSounds";
 import { cn } from "~/lib/utils";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { ComposerControl, ComposerControlIcon, type ComposerControlSize } from "./ComposerControl";
@@ -71,7 +72,10 @@ export const ComposerFastSwitch = memo(function ComposerFastSwitch(props: {
                 aria-disabled={!available || undefined}
                 aria-label={tooltip}
                 onPointerDown={(event) => event.preventDefault()}
-                onClick={toggle}
+                onClick={() => {
+                  if (available) playKeyClick(active ? "up" : "down");
+                  toggle();
+                }}
               />
             }
           >

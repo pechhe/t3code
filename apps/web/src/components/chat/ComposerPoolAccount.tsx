@@ -10,6 +10,7 @@ import { pickPoolMember, pickPoolSwitchMember } from "@t3tools/shared/providerPo
 import type { CSSProperties } from "react";
 
 import { useNowMinute } from "~/hooks/useNowMinute";
+import { momentaryKeyProps } from "~/lib/interfaceSounds";
 import {
   useEnvironmentSettings,
   usePersistEnvironmentProviderInstanceMutation,
@@ -208,8 +209,7 @@ export function ComposerPoolAccount(props: {
                 aria-label={tooltip}
                 aria-pressed={state.started ? undefined : state.preferred !== null}
                 disabled={state.started && state.following === null}
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={state.cycle}
+                {...momentaryKeyProps(state.cycle)}
               />
             }
           >

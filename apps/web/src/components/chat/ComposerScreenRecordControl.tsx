@@ -2,6 +2,8 @@ import type { DesktopScreenRecordingSupport } from "@t3tools/contracts";
 import { PauseIcon, PlayIcon, ScreenShareIcon, SquareIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { momentaryKeyProps } from "~/lib/interfaceSounds";
+
 import { Button } from "../ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -99,8 +101,7 @@ export function ComposerScreenRecordControl({
                 className="device-cap device-cap--record"
                 data-recording={busy || undefined}
                 disabled={busy}
-                onPointerDown={(event) => event.preventDefault()}
-                onClick={onStart}
+                {...momentaryKeyProps(onStart)}
                 aria-label="Record screen"
               />
             }

@@ -340,7 +340,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** The fork's composer and sidebar use a machined, device-like look.
-- **Requirements:** model slider and reasoning dial, machine switch, docked strips, lit screen, composer sounds; context bar always reads usage and carries the draggable compact line; machined sidebar base; Fast switch on the composer; themes can dye the metal.
+- **Requirements:** model slider and reasoning dial, machine switch, docked strips, lit screen, composer sounds (keycaps click down and up); context bar always reads usage and carries the draggable compact line; machined sidebar base; Fast switch on the composer; themes can dye the metal.
 - **Integration points:** `ChatComposer`, `ComposerControl`, `ComposerFastSwitch`, `sidebarDevice.css`, `composerFinish`, `sendMotion`, `interfaceSounds`.
 - **Proof:** none found for look/feel; unverified browser tests (e.g. apps/web/src/components/Sidebar.motion.test.ts covers motion only).
 - **Upstream:** none known; composer and sidebar are high-churn upstream files, so merge conflicts are likely.

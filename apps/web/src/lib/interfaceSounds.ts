@@ -1,7 +1,7 @@
 /**
  * Interface sounds: the composer's machined press and rotary clicks (peach-pi's
- * recordings), the synthesised cue that replaces the click on a send or
- * a queue, the cue that marks a thread settling (one of them peach-pi's metal whoosh),
+ * recordings), the keycaps' clicks, the synthesised cue that replaces the
+ * click on a send or a queue, the cue that marks a thread settling (one of them peach-pi's metal whoosh),
  * and the sidebar's hover tick (YardSmith's synthesised detent).
  *
  * Browsers keep audio silent until the page sees a gesture, so the context starts
@@ -10,6 +10,7 @@
  * quiet while the `interfaceSounds` client setting is off.
  */
 import type { QueueSound, SendSound, SettleSound } from "@t3tools/contracts/settings";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 
 import { getClientSettings } from "~/hooks/useSettings";
 
@@ -295,6 +296,63 @@ function renderTick(audio: AudioContext): AudioBuffer {
   const buffer = audio.createBuffer(1, samples.length, rate);
   buffer.copyToChannel(samples, 0);
   return buffer;
+}
+
+/**
+ * The composer's keycaps: a bright, dry click as a key goes down and a higher, lighter
+ * one as it comes back up, so a latching key clicks in and then out, and a momentary key
+ * clicks twice across one press.
+ */
+export type KeyClick = "down" | "up";
+
+const KEY_CLICKS: Record<KeyClick, Cue> = {
+  down: (audio, output, at) => sweep(audio, output, at, 0.007, [4800, 4800], 1.6, 0.7, "highpass"),
+  up: (audio, output, at) => sweep(audio, output, at, 0.006, [6200, 6200], 1.1, 0.7, "highpass"),
+};
+/** A quick tap still clicks twice instead of the two smearing into one. */
+const KEY_MIN_HOLD_MS = 70;
+
+export function playKeyClick(click: KeyClick): void {
+  synth(KEY_CLICKS[click]);
+}
+
+let heldKey: Element | null = null;
+let keyPressedAt = 0;
+function releaseKey(): void {
+  if (!heldKey) return;
+  heldKey = null;
+  const wait = KEY_MIN_HOLD_MS - (performance.now() - keyPressedAt);
+  if (wait <= 0) playKeyClick("up");
+  else setTimeout(() => playKeyClick("up"), wait);
+}
+
+/** A momentary keycap's handlers: down on press, up on release, both in turn from the keyboard. */
+export function momentaryKeyProps(activate: () => void) {
+  return {
+    onPointerDown: (event: ReactPointerEvent<HTMLElement>) => {
+      // Keeps focus in the composer.
+      event.preventDefault();
+      if (event.button !== 0 || event.currentTarget.matches(':disabled, [aria-disabled="true"]'))
+        return;
+      heldKey = event.currentTarget;
+      keyPressedAt = performance.now();
+      playKeyClick("down");
+    },
+    onPointerUp: releaseKey,
+    onPointerLeave: releaseKey,
+    onPointerCancel: () => {
+      heldKey = null;
+    },
+    onClick: (event: ReactMouseEvent<HTMLElement>) => {
+      if (event.detail === 0) {
+        synth((audio, output, at) => {
+          KEY_CLICKS.down(audio, output, at);
+          KEY_CLICKS.up(audio, output, at + KEY_MIN_HOLD_MS / 1000);
+        });
+      }
+      activate();
+    },
+  };
 }
 
 /** Plays the press now and returns the release, which sounds only once the press has played out. */
