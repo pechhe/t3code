@@ -653,6 +653,9 @@ const make = Effect.gen(function* () {
                       detail: "The lead thread is archived or gone.",
                     })
                   : deliver({ ...row, deliveredThreadId: `build-note:${row.findingId}` }),
+              // Retrying cannot give the project a slipjay.json.
+              ThreadLaunchBuildItemError: (error) =>
+                Effect.succeed({ state: "undeliverable" as const, detail: error.message }),
             }),
             Effect.option,
           );

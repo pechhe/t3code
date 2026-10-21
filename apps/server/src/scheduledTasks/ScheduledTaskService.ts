@@ -1232,8 +1232,11 @@ export const layer = Layer.effect(
               return { token, secret, secretChanged };
             })
           : { token: null, secret: null, secretChanged: true };
+      // A Build item stays in the strategy so each run is refused, as any launch is, instead of
+      // quietly starting a plain Scratch thread.
       const workspaceStrategy: ScheduledTask["workspaceStrategy"] =
         input.workspaceStrategy.type === "worktree" &&
+        input.workspaceStrategy.buildItem === undefined &&
         (yield* managedFolders.isScratchProject(input.projectId))
           ? { type: "root" }
           : input.workspaceStrategy;

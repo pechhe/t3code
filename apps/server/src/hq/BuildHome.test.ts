@@ -126,6 +126,7 @@ const makeHarness = Effect.gen(function* () {
     sendAttempts: [] as string[],
     failAfterSend: false,
     failAfterLaunch: false,
+    refuseLaunch: false,
     sent: [] as Array<{ threadId: string; commandId: string; text: string }>,
     shell: { deletedAt: null, archivedAt: null, projectId: ProjectId.make("project-1") } as Record<
       string,
@@ -199,6 +200,11 @@ const makeHarness = Effect.gen(function* () {
           world.launchAttempts.push(input);
           if (!world.launches.some((launch) => launch.commandId === input.commandId))
             world.launches.push(input);
+          if (world.refuseLaunch)
+            return yield* new ThreadLaunch.ThreadLaunchBuildItemError({
+              projectId: input.projectId,
+              buildItem: 4530,
+            });
           if (world.failAfterLaunch) {
             world.failAfterLaunch = false;
             return yield* Effect.die("process stopped after the launch committed");
@@ -891,6 +897,22 @@ it.effect(
         });
       }
     }),
+);
+
+it.effect("reports a note undeliverable when its project cannot open a Build item workspace", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    world.projects = [project];
+    world.shell = null;
+    world.refuseLaunch = true;
+    hq.answer = noteAnswer([note()]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(deliveries(hq)[0]?.state, "undeliverable");
+    assert.strictEqual(
+      deliveries(hq)[0]?.detail,
+      "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json.",
+    );
+  }),
 );
 
 it.effect("replays the same launch receipt after a crash without creating a second thread", () =>
