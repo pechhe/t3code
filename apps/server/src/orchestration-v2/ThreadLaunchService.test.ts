@@ -1854,6 +1854,39 @@ it.effect("reuses a branchless SlipJay allocation when setup is retried", () =>
   }),
 );
 
+it.effect("reports the nested cause of a failed preparation", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      slipjay: true,
+      runSetup: () =>
+        Effect.fail(
+          new Error("Failed to dispatch", { cause: new Error("the real reason") }) as never,
+        ),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:nested-cause",
+          thread: "thread:launch:nested-cause",
+          message: "Start",
+        }),
+      );
+      yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+        Stream.filter(
+          (stored) =>
+            stored.event.type === "run.updated" && stored.event.payload.status === "failed",
+        ),
+        Stream.runHead,
+      );
+      const failed = yield* threads.getThreadProjection(launched.threadId);
+      const output = failed.turnItems.find((item) => item.type === "command_execution")?.output;
+      assert.include(output, "Failed to dispatch Caused by: the real reason");
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 const launchSlipJayRun = (thread: string, workspace?: ThreadLaunch.ThreadLaunchWorkspaceStrategy) =>
   Effect.gen(function* () {
     const launches = yield* ThreadLaunch.ThreadLaunchService;

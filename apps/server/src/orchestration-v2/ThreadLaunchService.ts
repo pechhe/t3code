@@ -227,13 +227,22 @@ export class ThreadLaunchService extends Context.Service<
 
 const isThreadLaunchError = Schema.is(ThreadLaunchError);
 
+// A dispatch error keeps its reason in a nested `cause` that its own message
+// omits, so the chain is joined or the user only sees "Failed to dispatch".
+function describeCause(error: unknown): string {
+  const messages: Array<string> = [];
+  for (let current = error, depth = 0; current !== undefined && depth < 5; depth++) {
+    messages.push(current instanceof Error ? current.message : String(current));
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return messages.join(" Caused by: ");
+}
+
 function failureDetail(error: unknown): string {
   if (isThreadLaunchError(error)) {
-    const cause = error.cause;
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    return `Workspace preparation failed during ${error.operation.replaceAll("-", " ")}: ${detail}`;
+    return `Workspace preparation failed during ${error.operation.replaceAll("-", " ")}: ${describeCause(error.cause)}`;
   }
-  return `Workspace preparation failed: ${error instanceof Error ? error.message : String(error)}`;
+  return `Workspace preparation failed: ${describeCause(error)}`;
 }
 
 const make = Effect.gen(function* () {
