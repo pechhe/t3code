@@ -312,6 +312,8 @@ export const SlipJayRunnerOperation = Schema.Struct({
   workspaceName: Schema.optional(Schema.String),
   /** SlipJay's submitter label, such as `host:workspace` or `slipjay-test:schedule`. */
   submittedBy: Schema.String,
+  /** The Build item its submitter named; absent before SlipJay 3.40 or for a chore. */
+  spec: Schema.optional(Schema.Number),
 });
 export type SlipJayRunnerOperation = typeof SlipJayRunnerOperation.Type;
 
@@ -567,6 +569,8 @@ export const VcsStatusSlipJayLanding = Schema.Struct({
   commitId: Schema.optional(TrimmedNonEmptyStringSchema),
   /** SlipJay's own reason for a failed, cancelled or declined landing. */
   reason: Schema.optional(Schema.String),
+  /** The Build item SlipJay recorded the landing as delivering; absent before SlipJay 3.40. */
+  spec: Schema.optional(Schema.Number),
   /** False while the runner watch is disconnected, so this is the last reported state. */
   live: Schema.Boolean,
 });

@@ -3,11 +3,13 @@ import {
   type SlipJayLandingChipTone,
 } from "@t3tools/client-runtime/slipjay-checkout";
 import { presentBuildWorkItem } from "@t3tools/client-runtime/state/build-work-items";
-import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { BuildWorkItemView, ScopedThreadRef } from "@t3tools/contracts";
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
-import { useThreadBuildWorkItem } from "~/state/buildWorkItems";
+import { buildWorkItems, useThreadBuildWorkItem } from "~/state/buildWorkItems";
+import { useEnvironmentQuery } from "~/state/query";
+import { BuildItemLabel } from "./buildItem/BuildItemLabel";
 
 /*
  * SlipJay's identity: every landing is a ticket. Its stub carries the state (paper while
@@ -173,30 +175,70 @@ export interface SlipJaySpec {
   title: string | null;
   status: string | null;
   held: boolean;
+  /** The item's page in HQ; null until Build answers for it. */
+  url: string | null;
 }
 
+const specFromView = (view: BuildWorkItemView): SlipJaySpec => {
+  const shown = presentBuildWorkItem(view);
+  return {
+    number: view.number,
+    ref: view.item?.ref ?? null,
+    title: view.item === null ? null : shown.title,
+    status: shown.statusLabel,
+    held: shown.held,
+    url: view.url,
+  };
+};
+
 /**
- * The HQ Build Spec a thread's landing delivers: the thread's linked Spec when there is one,
- * otherwise the Issue SlipJay attached to its workspace, known only by number.
+ * The HQ Build Spec a landing delivers. `number` is the one SlipJay recorded for the landing;
+ * without it, the submitting thread's own linked Spec. A number Build does not answer for is
+ * still shown, by number.
  */
 export function useSlipJaySpec(
   threadRef: ScopedThreadRef | null,
-  issueNumber?: number,
+  number?: number,
+  /** The thread Build is read through when `threadRef` has none, such as the one on screen. */
+  lookupRef: ScopedThreadRef | null = threadRef,
 ): SlipJaySpec | null {
   const link = useThreadBuildWorkItem(threadRef).data;
-  if (link != null && link.item?.kind !== "ticket") {
-    const shown = presentBuildWorkItem(link);
-    return {
-      number: link.number,
-      ref: link.item?.ref ?? null,
-      title: link.item === null ? null : shown.title,
-      status: shown.statusLabel,
-      held: shown.held,
-    };
-  }
-  return issueNumber === undefined
+  const linked =
+    link != null && link.item?.kind !== "ticket" && (number === undefined || link.number === number)
+      ? link
+      : null;
+  const mentioned = useEnvironmentQuery(
+    linked === null && number !== undefined && lookupRef !== null
+      ? buildWorkItems.mentions({
+          environmentId: lookupRef.environmentId,
+          input: { threadId: lookupRef.threadId, numbers: [number] },
+        })
+      : null,
+  ).data?.items.find((item) => item.number === number);
+  const view = linked ?? mentioned;
+  if (view !== undefined) return specFromView(view);
+  return number === undefined
     ? null
-    : { number: issueNumber, ref: null, title: null, status: null, held: false };
+    : { number, ref: null, title: null, status: null, held: false, url: null };
+}
+
+/** A Spec's ref, opening its page in HQ once Build has given one. */
+export function SlipJaySpecLink({ spec, className }: { spec: SlipJaySpec; className?: string }) {
+  if (spec.url === null)
+    return <BuildItemLabel item={spec} {...(className === undefined ? {} : { className })} />;
+  return (
+    <a
+      href={spec.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(
+        "rounded-sm underline decoration-dotted underline-offset-2 hover:decoration-solid focus-visible:outline-2 focus-visible:outline-ring",
+        className,
+      )}
+    >
+      <BuildItemLabel item={spec} />
+    </a>
+  );
 }
 
 /** The current time, re-read every second only while `ticking`. */

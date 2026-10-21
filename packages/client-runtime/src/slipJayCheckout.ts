@@ -129,21 +129,34 @@ export function resolveSlipJayQueueLabel(operation: SlipJayRunnerOperation): str
  */
 export function resolveSlipJayRunnerSummary(
   overview: SlipJayRunnerOverview | null | undefined,
-): { label: string; tone: "idle" | "busy" | "attention" } | null {
+  /** An operation shown on its own, such as the thread's landing, left out of the count. */
+  excludeOperationId?: string,
+): {
+  label: string;
+  tone: "idle" | "busy" | "attention";
+  /** The operation to name: the running landing, else a running deploy; null while nothing runs. */
+  lead: SlipJayRunnerOperation | null;
+  /** Open operations besides `lead`. */
+  others: number;
+} | null {
   if (overview === null || overview === undefined) return null;
-  const open = [...overview.serial, ...overview.deploy];
+  const open = [...overview.serial, ...overview.deploy].filter(
+    (operation) => operation.operationId !== excludeOperationId,
+  );
   if (!overview.connected && open.length === 0 && overview.deploys.length === 0) return null;
-  if (!overview.connected) return { label: "reconnecting", tone: "attention" };
-  if (overview.paused) return { label: "paused", tone: "attention" };
+  const lead = open.find((operation) => operation.status === "running") ?? null;
+  const others = open.length - (lead === null ? 0 : 1);
+  if (!overview.connected) return { label: "reconnecting", tone: "attention", lead, others };
+  if (overview.paused) return { label: "paused", tone: "attention", lead, others };
   const running = open.filter((operation) => operation.status === "running").length;
-  const queued = open.filter((operation) => operation.status === "queued").length;
+  const queued = open.length - running;
   const parts = [
     ...(running > 0 ? [`${running} running`] : []),
     ...(queued > 0 ? [`${queued} queued`] : []),
   ];
   return parts.length === 0
-    ? { label: "idle", tone: "idle" }
-    : { label: parts.join(" · "), tone: "busy" };
+    ? { label: "idle", tone: "idle", lead, others }
+    : { label: parts.join(" · "), tone: "busy", lead, others };
 }
 
 /** What a runner row is, in the words a lane shows it with. */
@@ -236,7 +249,14 @@ export function resolveSlipJayLandingChip(
   landing: VcsStatusSlipJayLanding,
   operation: SlipJayRunnerOperation | null,
   now: number,
-): { tone: SlipJayLandingChipTone; label: string; detail: string | null; elapsed: string | null } {
+): {
+  tone: SlipJayLandingChipTone;
+  label: string;
+  detail: string | null;
+  elapsed: string | null;
+  /** The running stage has outlasted the runner's median for it. */
+  slow: boolean;
+} {
   const queued = landing.stage === "queued";
   const elapsed =
     landing.status === "active" && operation !== null && (operation.status === "queued") === queued
@@ -255,6 +275,7 @@ export function resolveSlipJayLandingChip(
           label: "waiting",
           detail: ahead === null ? null : ahead <= 0 ? "next" : `${ahead} ahead`,
           elapsed,
+          slow: false,
         };
       }
       const timing = operation?.stage === landing.stage ? operation : null;
@@ -272,6 +293,7 @@ export function resolveSlipJayLandingChip(
               ? `~${formatSlipJayDuration(left)} left`
               : "slower than usual",
         elapsed,
+        slow: left !== null && left <= 0,
       };
     }
     case "landed":
@@ -280,15 +302,22 @@ export function resolveSlipJayLandingChip(
         label: "landed",
         detail: landing.commitId === undefined ? null : landing.commitId.slice(0, 7),
         elapsed: null,
+        slow: false,
       };
     case "failed":
-      return { tone: "failed", label: `failed at ${landing.stage}`, detail: null, elapsed: null };
+      return {
+        tone: "failed",
+        label: `failed at ${landing.stage}`,
+        detail: null,
+        elapsed: null,
+        slow: false,
+      };
     case "cancelled":
-      return { tone: "ended", label: "cancelled", detail: null, elapsed: null };
+      return { tone: "ended", label: "cancelled", detail: null, elapsed: null, slow: false };
     case "declined":
-      return { tone: "ended", label: "declined", detail: null, elapsed: null };
+      return { tone: "ended", label: "declined", detail: null, elapsed: null, slow: false };
     case "unknown":
-      return { tone: "ended", label: "outcome unknown", detail: null, elapsed: null };
+      return { tone: "ended", label: "outcome unknown", detail: null, elapsed: null, slow: false };
   }
 }
 

@@ -185,6 +185,28 @@ describe("SlipJay runner", () => {
     expect(resolveSlipJayRunnerSummary(overview({ paused: true }))?.tone).toBe("attention");
   });
 
+  it("names the running operation and counts the rest, leaving out one shown on its own", () => {
+    const lanes = overview({
+      serial: [
+        operation({ operationId: "op_mine", status: "running" }),
+        operation({ operationId: "op_b" }),
+      ],
+      deploy: [operation({ operationId: "op_c", kind: "deploy", status: "running" })],
+    });
+    expect(resolveSlipJayRunnerSummary(lanes)).toMatchObject({
+      lead: { operationId: "op_mine" },
+      others: 2,
+    });
+    expect(resolveSlipJayRunnerSummary(lanes, "op_mine")).toMatchObject({
+      label: "1 running · 1 queued",
+      lead: { operationId: "op_c" },
+      others: 1,
+    });
+    expect(
+      resolveSlipJayRunnerSummary(overview({ serial: [operation({ operationId: "op_b" })] })),
+    ).toMatchObject({ lead: null, others: 1 });
+  });
+
   it("names a thread's workspace after its directory", () => {
     expect(slipJayWorkspaceName("/Users/h/.slipjay/workspaces/t3-one/")).toBe("t3-one");
     expect(slipJayWorkspaceName(null)).toBeNull();
@@ -242,7 +264,13 @@ describe("SlipJay landing chip", () => {
         operation({ status: "queued", stage: "queued", position: 3 }),
         NOW,
       ),
-    ).toEqual({ tone: "waiting", label: "waiting", detail: "2 ahead", elapsed: "1:36" });
+    ).toEqual({
+      tone: "waiting",
+      label: "waiting",
+      detail: "2 ahead",
+      elapsed: "1:36",
+      slow: false,
+    });
     expect(
       resolveSlipJayLandingChip(
         landing({ stage: "queued" }),
@@ -294,10 +322,12 @@ describe("SlipJay landing chip", () => {
       label: "verifying",
       detail: "~17s left",
       elapsed: "1:30",
+      slow: false,
     });
-    expect(resolveSlipJayLandingChip(landing({}), running, NOW + 60_000).detail).toBe(
-      "slower than usual",
-    );
+    expect(resolveSlipJayLandingChip(landing({}), running, NOW + 60_000)).toMatchObject({
+      detail: "slower than usual",
+      slow: true,
+    });
     // The overview has not caught up with the landing's newer stage, so its timing is stale.
     expect(
       resolveSlipJayLandingChip(landing({ stage: "integrating" }), running, NOW).detail,
@@ -311,7 +341,13 @@ describe("SlipJay landing chip", () => {
   it("names the outcome once the landing ends", () => {
     expect(
       resolveSlipJayLandingChip(landing({ status: "landed", commitId: "3bf779b4d356" }), null, NOW),
-    ).toEqual({ tone: "landed", label: "landed", detail: "3bf779b", elapsed: null });
+    ).toEqual({
+      tone: "landed",
+      label: "landed",
+      detail: "3bf779b",
+      elapsed: null,
+      slow: false,
+    });
     expect(resolveSlipJayLandingChip(landing({ status: "failed" }), null, NOW)).toMatchObject({
       tone: "failed",
       label: "failed at verifying",

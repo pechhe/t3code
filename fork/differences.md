@@ -149,9 +149,9 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Users see and act on what will land from a thread without leaving T3.
-- **Requirements:** landing ticket above the composer and landing chip with live state; chip opens what the runner recorded; land from the thread panel; cancel or fix a landing; runner panel separates queue and run times; landing state survives workspace removal; Release is greyed out when a project has no release branch.
-- **Integration points:** `SlipJayLandings`, `slipJayLandingState`; `SlipJayTicket`/`SlipJayLandingChip`/`SlipJayRunnerControl` components; landing-watch RPC stream.
-- **Proof:** apps/server/src/project/SlipJayLandings.test.ts, slipJayLandingState.test.ts.
+- **Requirements:** one SlipJay tag in the thread header: it leads with the thread's own landing (its Spec, linked to Build, stage and time, then the outcome with Log, Fix and Dismiss) and otherwise with what the runner is doing, named by Spec; its popover pins the thread's landing above the runner's lanes, each landing named by the Spec SlipJay recorded for it (SlipJay 3.40) or its submitting thread's; the tag opens what the runner recorded; land from the thread panel; cancel or fix a landing; runner panel separates queue and run times; landing state survives workspace removal; Release is greyed out when a project has no release branch.
+- **Integration points:** `SlipJayLandings`, `slipJayLandingState`; `SlipJayTicket`/`SlipJayRunnerControl` components; landing-watch RPC stream.
+- **Proof:** apps/server/src/project/SlipJayLandings.test.ts, slipJayLandingState.test.ts; packages/client-runtime/src/slipJayCheckout.test.ts.
 - **Upstream:** none known.
 - **Retire when:** SlipJay delivery is dropped; no upstream equivalent expected.
 - **Decision:** `retain` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's checkout lease (`withWorkspaceLease`) now wraps local pull request preparation; SlipJay landing runs inside it unchanged (GitWorkflowService.test.ts). Earlier: `retain` (seed, 2026-10-19).

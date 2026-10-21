@@ -23,6 +23,8 @@ export interface TrackedLanding {
   readonly stage: string;
   readonly commitId?: string;
   readonly reason?: string;
+  /** The Build item SlipJay recorded the landing as delivering, kept once the queue drops it. */
+  readonly spec?: number;
 }
 
 export interface LandingWatchState {
@@ -83,15 +85,14 @@ const WatchOperation = Schema.Struct({
   submittedAt: Schema.optional(Schema.String),
   finishedAt: Schema.optional(Schema.String),
   stageStartedAt: Schema.optional(Schema.String),
-  runs: Schema.optional(
-    Schema.Array(Schema.Struct({ startedAt: Schema.optional(Schema.String) })),
-  ),
+  runs: Schema.optional(Schema.Array(Schema.Struct({ startedAt: Schema.optional(Schema.String) }))),
   timing: Schema.optional(
     Schema.Struct({ medianMs: Schema.optional(Schema.NullOr(Schema.Number)) }),
   ),
   commitId: Schema.optional(Schema.String),
   submittedBy: Schema.optional(Schema.String),
   environment: Schema.optional(Schema.String),
+  spec: Schema.optional(Schema.Number),
 });
 type WatchOperation = typeof WatchOperation.Type;
 const decodeWatchOperation = Schema.decodeUnknownOption(WatchOperation);
@@ -283,7 +284,9 @@ export function applyWatchEnvelope(
         if (!isLanding(operation.kind) || operation.changeId === undefined) continue;
         listed.add(operation.id);
         const known = operations.get(operation.id);
-        if (known?.status === "active" && known.stage === operation.stage) continue;
+        const spec = operation.spec ?? known?.spec;
+        if (known?.status === "active" && known.stage === operation.stage && known.spec === spec)
+          continue;
         changed = true;
         operations.set(operation.id, {
           operationId: operation.id,
@@ -292,6 +295,7 @@ export function applyWatchEnvelope(
           status: "active",
           stage: operation.stage,
           ...(known?.commitId === undefined ? {} : { commitId: known.commitId }),
+          ...(spec === undefined ? {} : { spec }),
         });
       }
       const vanished = [...operations.values()]
@@ -458,6 +462,7 @@ function toStatusLanding(
     stage: landing.stage,
     ...(landing.commitId === undefined ? {} : { commitId: landing.commitId }),
     ...(landing.reason === undefined ? {} : { reason: landing.reason }),
+    ...(landing.spec === undefined ? {} : { spec: landing.spec }),
     live: state.connected,
   };
 }
@@ -518,6 +523,7 @@ const runnerOperation = (operation: WatchOperation, host: string): SlipJayRunner
     ...(operation.commitId === undefined ? {} : { commitId: operation.commitId }),
     ...(operation.environment === undefined ? {} : { environment: operation.environment }),
     ...(workspaceName === undefined ? {} : { workspaceName }),
+    ...(operation.spec === undefined ? {} : { spec: operation.spec }),
   };
 };
 

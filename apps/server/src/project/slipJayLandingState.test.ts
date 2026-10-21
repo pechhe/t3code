@@ -168,6 +168,22 @@ describe("slipJayLandingState", () => {
     ).toBe("unknown");
   });
 
+  it("keeps the Spec a snapshot named after the landing leaves the queue", () => {
+    const { state } = apply(
+      initialLandingWatchState,
+      connected(),
+      submitted(1, "op_a", "change-a"),
+      snapshot(1, [{ id: "op_a", repo: REPO, changeId: "change-a", stage: "queued", spec: 189 }]),
+      event(2, "op_a", { type: "stage", stage: "checks" }),
+      event(3, "op_a", { type: "landed", commitId: "abc1234def" }),
+      snapshot(3, []),
+    );
+    expect(landingForChange(state, REPO, "change-a")).toMatchObject({
+      status: "landed",
+      spec: 189,
+    });
+  });
+
   it("keeps the same operations when a heartbeat snapshot repeats what it knows", () => {
     const { state } = apply(
       initialLandingWatchState,
@@ -307,7 +323,7 @@ describe("runnerOverviewFromSnapshot", () => {
     expect(submittingWorkspace("promotion:op_1", HOST)).toBeUndefined();
   });
 
-  it("keeps lane order and the latest deploys, and drops run details", () => {
+  it("keeps lane order, each landing's Spec and the latest deploys, and drops run details", () => {
     const overview = runnerOverviewFromSnapshot(
       snapshotOf({
         seq: 9,
@@ -333,6 +349,7 @@ describe("runnerOverviewFromSnapshot", () => {
               status: "queued",
               position: 2,
               submittedBy: "other-host:ys-two",
+              spec: 189,
             },
           ],
           deploy: [],
@@ -367,10 +384,14 @@ describe("runnerOverviewFromSnapshot", () => {
     );
     expect(overview.paused).toBe(false);
     expect(
-      overview.serial.map((operation) => [operation.operationId, operation.workspaceName]),
+      overview.serial.map((operation) => [
+        operation.operationId,
+        operation.workspaceName,
+        operation.spec,
+      ]),
     ).toEqual([
-      ["op_running", "ys-one"],
-      ["op_queued", undefined],
+      ["op_running", "ys-one", undefined],
+      ["op_queued", undefined, 189],
     ]);
     expect(JSON.stringify(overview)).not.toContain("SECRET");
     expect(overview.deploys.map((deploy) => [deploy.environment, deploy.commitId])).toEqual([

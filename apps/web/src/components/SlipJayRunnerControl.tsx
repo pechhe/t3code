@@ -1,23 +1,31 @@
 import { useAtomValue } from "@effect/atom-react";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
+  findSlipJayRunnerOperation,
+  resolveSlipJayFixPrompt,
+  resolveSlipJayLandingChip,
   resolveSlipJayOperationElapsed,
   resolveSlipJayOperationLabel,
   resolveSlipJayQueueLabel,
   resolveSlipJayRunnerSummary,
+  resolveSlipJayStageProgress,
   SLIPJAY_LANDING_STAGES,
+  type SlipJayCheckoutStatus,
   slipJayWorkspaceName,
 } from "@t3tools/client-runtime/slipjay-checkout";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
+  ScopedThreadRef,
   SlipJayRunnerDeploy,
   SlipJayRunnerOperation,
+  SlipJayRunnerOverview,
   ThreadId,
 } from "@t3tools/contracts";
-import { useMemo, useState, type ReactNode } from "react";
+import { XIcon } from "lucide-react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 
-import { BuildItemLabel } from "./buildItem/BuildItemLabel";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { Badge } from "~/components/ui/badge";
 import { Button } from "~/components/ui/button";
 import { Popover, PopoverPopup, PopoverTrigger } from "~/components/ui/popover";
@@ -28,9 +36,12 @@ import { useEnvironmentQuery } from "~/state/query";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { vcsEnvironment } from "~/state/vcs";
 import { formatRelativeTimeLabel } from "~/timestampFormat";
+import { SlipJayLandingDetails } from "./SlipJayLandingDetails";
+import { SlipJayLandingLogDialog } from "./SlipJayLandingLogDialog";
 import { SlipJayReleaseDialog } from "./SlipJayReleaseDialog";
 import {
   SlipJayMark,
+  SlipJaySpecLink,
   SlipJayStageDots,
   SlipJayTicket,
   useSlipJaySpec,
@@ -51,22 +62,59 @@ function latestDeploys(deploys: ReadonlyArray<SlipJayRunnerDeploy>) {
   });
 }
 
+// Finished landings the user put away, by environment and operation, for as long as the app runs.
+const dismissedLandings = new Set<string>();
+const dismissListeners = new Set<() => void>();
+const subscribeDismissed = (listener: () => void) => {
+  dismissListeners.add(listener);
+  return () => dismissListeners.delete(listener);
+};
+const dismissalKey = (environmentId: EnvironmentId, operationId: string) =>
+  `${environmentId} ${operationId}`;
+const dismissLanding = (environmentId: EnvironmentId, operationId: string) => {
+  dismissedLandings.add(dismissalKey(environmentId, operationId));
+  for (const listener of dismissListeners) listener();
+};
+
+/** The thread's landing until the user dismisses it once it has finished. */
+function useShownLanding(environmentId: EnvironmentId, status: SlipJayCheckoutStatus | null) {
+  const landing = status?.landing ?? null;
+  const dismissed = useSyncExternalStore(subscribeDismissed, () =>
+    landing === null
+      ? false
+      : dismissedLandings.has(dismissalKey(environmentId, landing.operationId)),
+  );
+  return dismissed ? null : landing;
+}
+
+type ShownLanding = NonNullable<SlipJayCheckoutStatus["landing"]>;
+
 /**
- * The SlipJay runner this environment follows: its lanes, each open operation linked to
- * the thread whose workspace submitted it, and what staging and production run. Hidden
- * where the environment follows no runner.
+ * The one place a thread shows SlipJay: the tag leads with the thread's own landing (its
+ * Spec, stage and time, then the outcome and what to do next until it is dismissed) and
+ * otherwise with what the runner is doing. The popover pins the thread's landing above the
+ * runner's lanes, each open operation named by its Spec and linked to the thread whose
+ * workspace submitted it, and what staging and production run. Hidden where the thread
+ * has no landing and the environment follows no runner.
  */
 export function SlipJayRunnerControl({
   environmentId,
+  threadRef,
+  slipJayStatus,
   releaseProject,
   onOpenThread,
+  onComposerFocusRequest,
 }: {
   environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef;
+  slipJayStatus: SlipJayCheckoutStatus | null;
   /** The active thread's SlipJay project, which the popover offers to release. */
   releaseProject: { cwd: string; name: string } | null;
   onOpenThread: (threadId: ThreadId) => void;
+  onComposerFocusRequest?: () => void;
 }) {
   const [releaseOpen, setReleaseOpen] = useState(false);
+  const [logOpen, setLogOpen] = useState(false);
   const canRelease = useAtomValue(vcsEnvironment.slipJayPromote.permissionAtom(environmentId));
   const release = canRelease ? releaseProject : null;
   const { data: overview } = useEnvironmentQuery(
@@ -82,107 +130,133 @@ export function SlipJayRunnerControl({
   );
   const hasRelease = releaseStatus?.slipJay?.hasReleaseBranch !== false;
   const threadShells = useThreadShells(open);
-  const threadsByWorkspace = useMemo(() => {
-    const threads = new Map<string, { id: ThreadId; title: string }>();
-    for (const thread of threadShells) {
-      // Delegated threads share their parent's workspace; the submitter is the root thread.
-      if (
-        thread.environmentId !== environmentId ||
-        thread.sideChat ||
-        thread.lineage.parentThreadId !== null
-      )
-        continue;
-      const name = slipJayWorkspaceName(thread.worktreePath);
-      if (name !== null) threads.set(name, { id: thread.id, title: thread.title });
-    }
-    return threads;
-  }, [environmentId, threadShells]);
-  const summary = resolveSlipJayRunnerSummary(overview);
-  if (overview === null || summary === null) return null;
+  const threadsByWorkspace = new Map<string, { id: ThreadId; title: string }>();
+  for (const thread of threadShells) {
+    // Delegated threads share their parent's workspace; the submitter is the root thread.
+    if (
+      thread.environmentId !== environmentId ||
+      thread.sideChat ||
+      thread.lineage.parentThreadId !== null
+    )
+      continue;
+    const name = slipJayWorkspaceName(thread.worktreePath);
+    if (name !== null) threadsByWorkspace.set(name, { id: thread.id, title: thread.title });
+  }
+  const landing = useShownLanding(environmentId, slipJayStatus);
+  const summary = resolveSlipJayRunnerSummary(overview, landing?.operationId);
+  if (slipJayStatus === null || landing === null) {
+    if (overview == null || summary === null) return null;
+  }
 
+  const openThread = (threadId: ThreadId) => {
+    setOpen(false);
+    onOpenThread(threadId);
+  };
+  const openLog = () => {
+    setOpen(false);
+    setLogOpen(true);
+  };
+  const askAgentToFix = (failed: ShownLanding) => {
+    setOpen(false);
+    useComposerDraftStore.getState().setPrompt(threadRef, resolveSlipJayFixPrompt(failed));
+    onComposerFocusRequest?.();
+  };
   const repositories = new Set(
-    [...overview.serial, ...overview.deploy, ...overview.deploys].map((entry) => entry.repo),
+    overview == null
+      ? []
+      : [...overview.serial, ...overview.deploy, ...overview.deploys].map((entry) => entry.repo),
   );
   const showRepository = repositories.size > 1;
+  const withoutLanding = (operations: ReadonlyArray<SlipJayRunnerOperation>) =>
+    landing === null
+      ? operations
+      : operations.filter((operation) => operation.operationId !== landing.operationId);
 
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger
-          render={
-            <button
-              type="button"
-              className="shrink-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-ring [-webkit-app-region:no-drag]"
-              aria-label={`SlipJay: ${summary.label}`}
-            />
-          }
-        >
-          <SlipJayTicket
-            solid
-            tone={summary.tone === "busy" ? "running" : "waiting"}
-            className="h-7 text-xs"
-            stub={<SlipJayMark className="size-4" />}
-          >
-            {/* Idle says nothing the mark does not; the tag is then just its stub. */}
-            {summary.tone === "idle" ? null : (
-              <span
-                className={cn(
-                  "px-2 font-mono max-sm:hidden",
-                  summary.tone === "attention" && "text-warning",
-                )}
-              >
-                {summary.label}
-              </span>
-            )}
-          </SlipJayTicket>
-        </PopoverTrigger>
+        {slipJayStatus !== null && landing !== null ? (
+          <ThreadLandingTag
+            key={landing.operationId}
+            environmentId={environmentId}
+            threadRef={threadRef}
+            status={slipJayStatus}
+            landing={landing}
+            overview={overview ?? null}
+            others={summary === null ? 0 : summary.others + (summary.lead === null ? 0 : 1)}
+            onLog={openLog}
+            onFix={() => askAgentToFix(landing)}
+          />
+        ) : summary !== null ? (
+          <RunnerTag
+            environmentId={environmentId}
+            threadRef={threadRef}
+            summary={summary}
+            threadsByWorkspace={threadsByWorkspace}
+          />
+        ) : null}
         <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
           <div className="flex flex-col gap-3 text-sm">
-            <div className="flex items-center gap-2 border-b pb-2">
-              <SlipJayMark className="size-4 text-foreground [--jay-beak:var(--color-slipjay)] [--jay-eye:var(--popover)]" />
-              <span className="font-mono font-semibold text-xs">slipjay</span>
-              <span
-                aria-hidden
-                className={cn(
-                  "size-1.5 rounded-full",
-                  overview.connected ? "bg-slipjay-mint" : "bg-warning",
-                )}
-              />
-              <span className="ms-auto text-muted-foreground text-xs">
-                {overview.paused
-                  ? "Paused"
-                  : overview.connected
-                    ? "Runner connected"
-                    : "Reconnecting to the runner"}
-              </span>
-              {/* Shown while reconnecting too: a runner paused before the watch dropped can still be resumed. */}
-              <SlipJayPauseButton environmentId={environmentId} paused={overview.paused} />
-            </div>
-            <RunnerLane
-              title="Landing"
-              environmentId={environmentId}
-              operations={overview.serial}
-              threadsByWorkspace={threadsByWorkspace}
-              showRepository={showRepository}
-              open={open}
-              onOpenThread={(threadId) => {
-                setOpen(false);
-                onOpenThread(threadId);
-              }}
-            />
-            <RunnerLane
-              title="Deploys"
-              environmentId={environmentId}
-              operations={overview.deploy}
-              threadsByWorkspace={threadsByWorkspace}
-              showRepository={showRepository}
-              open={open}
-              onOpenThread={(threadId) => {
-                setOpen(false);
-                onOpenThread(threadId);
-              }}
-            />
-            {overview.deploys.length > 0 || release !== null ? (
+            {overview == null ? null : (
+              <div className="flex items-center gap-2 border-b pb-2">
+                <SlipJayMark className="size-4 text-foreground [--jay-beak:var(--color-slipjay)] [--jay-eye:var(--popover)]" />
+                <span className="font-mono font-semibold text-xs">slipjay</span>
+                <span
+                  aria-hidden
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    overview.connected ? "bg-slipjay-mint" : "bg-warning",
+                  )}
+                />
+                <span className="ms-auto text-muted-foreground text-xs">
+                  {overview.paused
+                    ? "Paused"
+                    : overview.connected
+                      ? "Runner connected"
+                      : "Reconnecting to the runner"}
+                </span>
+                {/* Shown while reconnecting too: a runner paused before the watch dropped can still be resumed. */}
+                <SlipJayPauseButton environmentId={environmentId} paused={overview.paused} />
+              </div>
+            )}
+            {slipJayStatus !== null && landing !== null ? (
+              <RunnerSection title="This thread">
+                <ThreadLandingSection
+                  environmentId={environmentId}
+                  threadRef={threadRef}
+                  status={slipJayStatus}
+                  landing={landing}
+                  overview={overview ?? null}
+                  onLog={openLog}
+                  onFix={() => askAgentToFix(landing)}
+                />
+              </RunnerSection>
+            ) : null}
+            {overview == null ? null : (
+              <>
+                <RunnerLane
+                  title="Landing"
+                  environmentId={environmentId}
+                  lookupRef={threadRef}
+                  operations={withoutLanding(overview.serial)}
+                  threadsByWorkspace={threadsByWorkspace}
+                  showRepository={showRepository}
+                  open={open}
+                  onOpenThread={openThread}
+                />
+                <RunnerLane
+                  title="Deploys"
+                  environmentId={environmentId}
+                  lookupRef={threadRef}
+                  operations={overview.deploy}
+                  threadsByWorkspace={threadsByWorkspace}
+                  showRepository={showRepository}
+                  open={open}
+                  onOpenThread={openThread}
+                />
+              </>
+            )}
+            {overview != null && (overview.deploys.length > 0 || release !== null) ? (
               <RunnerSection title="Environments">
                 {latestDeploys(overview.deploys).map((deploy) => (
                   <div
@@ -232,6 +306,15 @@ export function SlipJayRunnerControl({
           </div>
         </PopoverPopup>
       </Popover>
+      {slipJayStatus !== null && landing !== null ? (
+        <SlipJayLandingLogDialog
+          environmentId={environmentId}
+          cwd={slipJayStatus.cwd}
+          landing={landing}
+          open={logOpen}
+          onOpenChange={setLogOpen}
+        />
+      ) : null}
       {release !== null ? (
         <SlipJayReleaseDialog
           environmentId={environmentId}
@@ -241,6 +324,299 @@ export function SlipJayRunnerControl({
         />
       ) : null}
     </>
+  );
+}
+
+const TAG_TRIGGER =
+  "-ms-1 flex min-w-0 self-stretch cursor-pointer items-center gap-2 rounded-sm px-1 hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring";
+
+/** How the thread's landing reads: the runner's row adds its queue place and timing. */
+function useThreadLanding(
+  threadRef: ScopedThreadRef,
+  status: SlipJayCheckoutStatus,
+  landing: ShownLanding,
+  overview: SlipJayRunnerOverview | null,
+) {
+  const operation = findSlipJayRunnerOperation(overview, landing.operationId);
+  const now = useNow(landing.status === "active");
+  const chip = resolveSlipJayLandingChip(landing, operation, now);
+  const spec = useSlipJaySpec(
+    threadRef,
+    landing.spec ?? operation?.spec ?? status.workspace?.issueNumber,
+  );
+  return { now, chip, spec };
+}
+
+/**
+ * The thread's landing as the tag: a ticket whose stub carries the Spec, linked to Build,
+ * and whose body opens the popover. A failed landing offers its log and a fix in place.
+ */
+function ThreadLandingTag({
+  environmentId,
+  threadRef,
+  status,
+  landing,
+  overview,
+  others,
+  onLog,
+  onFix,
+}: {
+  environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef;
+  status: SlipJayCheckoutStatus;
+  landing: ShownLanding;
+  overview: SlipJayRunnerOverview | null;
+  others: number;
+  onLog: () => void;
+  onFix: () => void;
+}) {
+  const { chip, spec } = useThreadLanding(threadRef, status, landing, overview);
+  const progress = resolveSlipJayStageProgress(landing);
+  return (
+    <SlipJayTicket
+      tone={chip.tone}
+      // Keyed by operation, so a landing seen on screen tears as it lands, and one
+      // already landed when shown starts torn.
+      torn={landing.status === "landed"}
+      className="h-7 shrink-0 text-xs [-webkit-app-region:no-drag]"
+      stub={
+        <>
+          <SlipJayMark />
+          {spec === null ? null : <SlipJaySpecLink spec={spec} />}
+        </>
+      }
+    >
+      <PopoverTrigger
+        render={
+          <button type="button" className={TAG_TRIGGER} aria-label={`SlipJay: ${chip.label}`} />
+        }
+      >
+        {spec?.title ? (
+          <span className="min-w-0 max-w-48 truncate font-medium max-lg:hidden">{spec.title}</span>
+        ) : null}
+        <span
+          role="status"
+          className={cn(
+            "shrink-0 font-mono",
+            chip.tone === "failed" && "text-destructive",
+            chip.tone === "landed" && "text-slipjay-mint-strong dark:text-slipjay-mint",
+          )}
+        >
+          {chip.label}
+        </span>
+        {chip.tone === "ended" ? null : (
+          <SlipJayStageDots
+            tone={chip.tone}
+            completed={progress.completed}
+            current={progress.current}
+          />
+        )}
+        {chip.tone === "waiting" && chip.detail !== null ? (
+          <span className="shrink-0 font-mono text-muted-foreground max-sm:hidden">
+            {chip.detail}
+          </span>
+        ) : null}
+        {chip.elapsed === null ? null : (
+          <span
+            className={cn(
+              "shrink-0 font-mono tabular-nums max-sm:hidden",
+              chip.slow && "text-warning",
+            )}
+          >
+            {chip.elapsed}
+          </span>
+        )}
+        {others > 0 ? <OthersCount count={others} /> : null}
+      </PopoverTrigger>
+      <span className="flex shrink-0 items-center pe-0.5">
+        {chip.tone === "failed" ? (
+          <>
+            <Button size="xs" variant="ghost" className="max-sm:hidden" onClick={onLog}>
+              Log
+            </Button>
+            <Button size="xs" variant="ghost" title="Ask the agent to fix it" onClick={onFix}>
+              Fix
+            </Button>
+          </>
+        ) : null}
+        {landing.status === "active" ? null : (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Dismiss landing"
+            onClick={() => dismissLanding(environmentId, landing.operationId)}
+          >
+            <XIcon />
+          </Button>
+        )}
+      </span>
+    </SlipJayTicket>
+  );
+}
+
+/** Other open operations on the runner, beside the one the tag names. */
+function OthersCount({ count }: { count: number }) {
+  return (
+    <span
+      aria-label={`${count} more on the runner`}
+      className="shrink-0 rounded-full bg-muted px-1.5 font-mono text-2xs text-muted-foreground tabular-nums"
+    >
+      +{count}
+    </span>
+  );
+}
+
+/** The thread's landing in full, pinned above the lanes, with everything it offers. */
+function ThreadLandingSection({
+  environmentId,
+  threadRef,
+  status,
+  landing,
+  overview,
+  onLog,
+  onFix,
+}: {
+  environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef;
+  status: SlipJayCheckoutStatus;
+  landing: ShownLanding;
+  overview: SlipJayRunnerOverview | null;
+  onLog: () => void;
+  onFix: () => void;
+}) {
+  const { now, chip, spec } = useThreadLanding(threadRef, status, landing, overview);
+  return (
+    <SlipJayLandingDetails
+      environmentId={environmentId}
+      cwd={status.cwd}
+      landing={landing}
+      spec={spec}
+      label={[chip.label, chip.detail, chip.elapsed].filter((part) => part !== null).join(" · ")}
+      now={now}
+      actions={
+        <>
+          {chip.tone === "waiting" ? (
+            <SlipJayCancelButton environmentId={environmentId} operationId={landing.operationId} />
+          ) : null}
+          <Button size="xs" variant="ghost" onClick={onLog}>
+            Log
+          </Button>
+          {chip.tone === "failed" ? (
+            <Button size="xs" variant="outline" onClick={onFix}>
+              Ask agent to fix
+            </Button>
+          ) : null}
+          {landing.status === "active" ? null : (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => dismissLanding(environmentId, landing.operationId)}
+            >
+              Dismiss
+            </Button>
+          )}
+        </>
+      }
+    />
+  );
+}
+
+/**
+ * What the runner is doing when the thread has no landing of its own: the running landing
+ * by its Spec and stage, or a running deploy, and how many more are open.
+ */
+function RunnerTag({
+  environmentId,
+  threadRef,
+  summary,
+  threadsByWorkspace,
+}: {
+  environmentId: EnvironmentId;
+  threadRef: ScopedThreadRef;
+  summary: NonNullable<ReturnType<typeof resolveSlipJayRunnerSummary>>;
+  threadsByWorkspace: ReadonlyMap<string, { id: ThreadId; title: string }>;
+}) {
+  const lead = summary.lead;
+  const leadLanding = lead?.kind === "landing" ? lead : null;
+  // Before SlipJay 3.40 an operation carries no Spec, so name it by its submitting thread's.
+  const submitter =
+    leadLanding?.workspaceName === undefined
+      ? undefined
+      : threadsByWorkspace.get(leadLanding.workspaceName);
+  const spec = useSlipJaySpec(
+    submitter === undefined ? null : scopeThreadRef(environmentId, submitter.id),
+    leadLanding?.spec,
+    threadRef,
+  );
+  if (summary.tone === "idle") {
+    return (
+      <PopoverTrigger
+        render={
+          <button
+            type="button"
+            className="shrink-0 cursor-pointer rounded-md focus-visible:outline-2 focus-visible:outline-ring [-webkit-app-region:no-drag]"
+            aria-label="SlipJay: idle"
+          />
+        }
+      >
+        <SlipJayTicket
+          solid
+          tone="waiting"
+          className="h-7 text-xs"
+          stub={<SlipJayMark className="size-4" />}
+        >
+          {null}
+        </SlipJayTicket>
+      </PopoverTrigger>
+    );
+  }
+  const stage = SLIPJAY_LANDING_STAGES.indexOf(
+    leadLanding?.stage as (typeof SLIPJAY_LANDING_STAGES)[number],
+  );
+  const attention = summary.tone === "attention";
+  return (
+    <SlipJayTicket
+      tone={lead !== null && !attention ? "running" : "waiting"}
+      className="h-7 shrink-0 text-xs [-webkit-app-region:no-drag]"
+      stub={
+        <>
+          <SlipJayMark />
+          {spec === null || attention ? null : <SlipJaySpecLink spec={spec} />}
+        </>
+      }
+    >
+      <PopoverTrigger
+        render={
+          <button type="button" className={TAG_TRIGGER} aria-label={`SlipJay: ${summary.label}`} />
+        }
+      >
+        {attention ? (
+          <span
+            className={cn("shrink-0 font-mono", summary.label === "reconnecting" && "text-warning")}
+          >
+            {summary.label}
+          </span>
+        ) : lead === null ? (
+          <span className="shrink-0 font-mono">{summary.others} queued</span>
+        ) : leadLanding !== null ? (
+          <>
+            <span className="shrink-0 font-mono">{leadLanding.stage}</span>
+            {stage >= 0 ? (
+              <SlipJayStageDots tone="running" completed={stage} current={stage} />
+            ) : null}
+          </>
+        ) : (
+          <span className="min-w-0 truncate font-mono">
+            {lead.kind === "deploy"
+              ? `deploying to ${lead.environment ?? "an environment"}`
+              : resolveSlipJayOperationLabel(lead)}
+          </span>
+        )}
+        {(lead !== null || attention) && summary.others > 0 ? (
+          <OthersCount count={summary.others} />
+        ) : null}
+      </PopoverTrigger>
+    </SlipJayTicket>
   );
 }
 
@@ -258,6 +634,7 @@ function RunnerSection({ title, children }: { title: string; children: ReactNode
 function RunnerLane({
   title,
   environmentId,
+  lookupRef,
   operations,
   threadsByWorkspace,
   showRepository,
@@ -266,6 +643,7 @@ function RunnerLane({
 }: {
   title: string;
   environmentId: EnvironmentId;
+  lookupRef: ScopedThreadRef;
   operations: ReadonlyArray<SlipJayRunnerOperation>;
   threadsByWorkspace: ReadonlyMap<string, { id: ThreadId; title: string }>;
   showRepository: boolean;
@@ -282,6 +660,7 @@ function RunnerLane({
           <RunnerOperationRow
             key={operation.operationId}
             environmentId={environmentId}
+            lookupRef={lookupRef}
             operation={operation}
             thread={
               operation.workspaceName === undefined
@@ -299,11 +678,13 @@ function RunnerLane({
 }
 
 /**
- * One operation as a ticket. A landing leads with the Spec it delivers, read from the
- * submitting thread's Build link; without one it shows the thread's title.
+ * One operation as a ticket. A landing leads with the Spec it delivers, linked to Build:
+ * the one SlipJay recorded, else the submitting thread's Build link. Its title opens the
+ * submitting thread; without a Spec it shows the thread's title.
  */
 function RunnerOperationRow({
   environmentId,
+  lookupRef,
   operation,
   thread,
   showRepository,
@@ -311,6 +692,7 @@ function RunnerOperationRow({
   onOpenThread,
 }: {
   environmentId: EnvironmentId;
+  lookupRef: ScopedThreadRef;
   operation: SlipJayRunnerOperation;
   thread: { id: ThreadId; title: string } | undefined;
   showRepository: boolean;
@@ -320,6 +702,8 @@ function RunnerOperationRow({
   const isLanding = operation.kind === "landing";
   const spec = useSlipJaySpec(
     isLanding && thread !== undefined ? scopeThreadRef(environmentId, thread.id) : null,
+    isLanding ? operation.spec : undefined,
+    lookupRef,
   );
   const running = operation.status === "running";
   const stage = SLIPJAY_LANDING_STAGES.indexOf(
@@ -341,11 +725,20 @@ function RunnerOperationRow({
   ].join(" · ");
   const heading = (
     <span className="flex min-w-0 items-center gap-1.5">
-      {/* Without the workspace's attached Issue a row cannot say there is no Spec. */}
       {spec === null ? null : (
-        <BuildItemLabel item={spec} className="shrink-0 font-mono text-muted-foreground text-xs" />
+        <SlipJaySpecLink spec={spec} className="shrink-0 font-mono text-slipjay text-xs" />
       )}
-      <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+      {thread === undefined ? (
+        <span className="min-w-0 flex-1 truncate font-medium">{title}</span>
+      ) : (
+        <button
+          type="button"
+          className="min-w-0 flex-1 cursor-pointer truncate rounded-sm text-start font-medium hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+          onClick={() => onOpenThread(thread.id)}
+        >
+          {title}
+        </button>
+      )}
       {spec?.held ? (
         <Badge size="sm" variant="warning">
           Held
@@ -369,17 +762,7 @@ function RunnerOperationRow({
       }
     >
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-1.5 pe-2.5">
-        {thread === undefined ? (
-          heading
-        ) : (
-          <button
-            type="button"
-            className="min-w-0 cursor-pointer rounded-sm text-start hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-            onClick={() => onOpenThread(thread.id)}
-          >
-            {heading}
-          </button>
-        )}
+        {heading}
         <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
           {isLanding && stage >= 0 ? (
             <SlipJayStageDots tone="running" completed={stage} current={stage} />
