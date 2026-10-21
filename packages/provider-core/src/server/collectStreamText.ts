@@ -26,9 +26,12 @@ export const collectUint8StreamText = <E>(input: {
   readonly stream: Stream.Stream<Uint8Array, E>;
   readonly maxBytes?: number | undefined;
   readonly truncatedMarker?: string | null | undefined;
+  /** Which end survives truncation; a command that reports its failure last needs the tail. */
+  readonly keep?: "head" | "tail" | undefined;
 }): Effect.Effect<CollectedUint8StreamText, E> => {
   const maxBytes = input.maxBytes ?? Number.POSITIVE_INFINITY;
   const truncatedMarker = input.truncatedMarker ?? "";
+  if (input.keep === "tail") return collectTail(input.stream, maxBytes, truncatedMarker);
 
   return input.stream.pipe(
     Stream.runFold(
@@ -81,3 +84,40 @@ export const collectUint8StreamText = <E>(input: {
     }),
   );
 };
+
+const collectTail = <E>(
+  stream: Stream.Stream<Uint8Array, E>,
+  maxBytes: number,
+  truncatedMarker: string,
+): Effect.Effect<CollectedUint8StreamText, E> =>
+  stream.pipe(
+    Stream.runFold(
+      (): CollectState => ({ chunks: [], bytes: 0, truncated: false }),
+      (state, chunk): CollectState => {
+        state.chunks.push(chunk);
+        let bytes = state.bytes + chunk.byteLength;
+        let truncated = state.truncated;
+        // Whole chunks that fall entirely outside the window are dropped as they arrive.
+        while (state.chunks.length > 1 && bytes - state.chunks[0]!.byteLength >= maxBytes) {
+          bytes -= state.chunks.shift()!.byteLength;
+          truncated = true;
+        }
+        return { chunks: state.chunks, bytes, truncated };
+      },
+    ),
+    Effect.map((state): CollectedUint8StreamText => {
+      const all = Buffer.concat(state.chunks, state.bytes);
+      const kept = all.byteLength > maxBytes ? all.subarray(all.byteLength - maxBytes) : all;
+      const truncated = state.truncated || kept.byteLength < all.byteLength;
+      const decoded = decodeUtf8(kept);
+      return {
+        text:
+          truncated && truncatedMarker.length > 0
+            ? `${truncatedMarker}${decoded.text}`
+            : decoded.text,
+        bytes: kept.byteLength,
+        truncated,
+        invalidUtf8: decoded.invalidUtf8,
+      };
+    }),
+  );

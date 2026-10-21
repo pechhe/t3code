@@ -30,7 +30,7 @@ import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import { replacedWorkspaceNote, replacedWorkspacePath } from "./ProviderTurnStartService.ts";
+import { replacedWorkspace, replacedWorkspaceNote } from "./ProviderTurnStartService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 
 interface StartedTurn {
@@ -258,6 +258,24 @@ it("repeats the fresh-checkout note until a provider has taken a prompt carrying
   };
   const current = RunId.make("run:current");
   // The earlier run's provider refused before it received the prompt.
-  assert.equal(replacedWorkspacePath(thread, [earlier], [], current), thread.worktreePath);
-  assert.isNull(replacedWorkspacePath(thread, [earlier], [{ runAttemptId: earlier.id }], current));
+  assert.deepEqual(replacedWorkspace(thread, [earlier], [], current), {
+    worktreePath: thread.worktreePath,
+  });
+  assert.isNull(replacedWorkspace(thread, [earlier], [{ runAttemptId: earlier.id }], current));
+});
+
+it("reports a removed workspace that could not be replaced, once", () => {
+  const replacedAt = DateTime.makeUnsafe("2026-10-19T12:00:00Z");
+  const thread = { worktreePath: null, workspaceReplacedAt: replacedAt };
+  const earlier = {
+    id: RunAttemptId.make("attempt:earlier"),
+    runId: RunId.make("run:earlier"),
+    startedAt: DateTime.makeUnsafe("2026-10-19T12:01:00Z"),
+  };
+  const current = RunId.make("run:current");
+  assert.deepEqual(replacedWorkspace(thread, [], [], current), { worktreePath: null });
+  assert.isNull(replacedWorkspace(thread, [earlier], [{ runAttemptId: earlier.id }], current));
+  assert.isNull(
+    replacedWorkspace({ worktreePath: null, workspaceReplacedAt: null }, [], [], current),
+  );
 });

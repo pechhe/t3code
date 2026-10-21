@@ -27,7 +27,7 @@ export interface ProcessRunInput {
   /** Receives every stdout chunk, including bytes beyond the buffered output limit. */
   readonly onStdoutChunk?: ((chunk: Uint8Array) => void) | undefined;
   readonly maxOutputBytes?: number | undefined;
-  readonly outputMode?: "error" | "truncate" | undefined;
+  readonly outputMode?: "error" | "truncate" | "truncate-tail" | undefined;
   readonly truncatedMarker?: string | undefined;
   /**
    * On timeout, return a synthetic timedOut result.
@@ -160,7 +160,7 @@ const collectText = Effect.fnUntraced(function* (input: {
   readonly streamName: "stdout" | "stderr";
   readonly stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>;
   readonly maxOutputBytes: number;
-  readonly outputMode: "error" | "truncate";
+  readonly outputMode: "error" | "truncate" | "truncate-tail";
   readonly truncatedMarker: string;
 }) {
   const stream = input.stream.pipe(
@@ -177,11 +177,12 @@ const collectText = Effect.fnUntraced(function* (input: {
     ),
   );
 
-  if (input.outputMode === "truncate") {
+  if (input.outputMode !== "error") {
     return yield* collectUint8StreamText({
       stream,
       maxBytes: input.maxOutputBytes,
       truncatedMarker: input.truncatedMarker,
+      keep: input.outputMode === "truncate-tail" ? "tail" : "head",
     });
   }
 

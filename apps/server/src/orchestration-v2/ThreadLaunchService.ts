@@ -474,10 +474,14 @@ const make = Effect.gen(function* () {
         // A terminal recovering the same released workspace may have rebound the thread
         // since this run was scheduled. Its checkout stands: a second one would leave the
         // terminal in a workspace the thread is no longer bound to.
-        const bound = (yield* threads
-          .getThreadShell(threadId)
-          .pipe(Effect.mapError(mapError(input, "update-thread", threadId))))?.worktreePath;
+        const shell = (yield* threads
+          .getThreadRecords(threadId, [])
+          .pipe(Effect.mapError(mapError(input, "update-thread", threadId)))).thread;
+        const bound = shell.worktreePath;
         boundWorktreePath = bound ?? null;
+        // Only recovery from a removed workspace records a replacement, which also tells the
+        // turn's agent where it runs; any other failed allocation still fails the launch.
+        const replacing = bound != null && shell.workspaceReplacedAt != null;
         if (
           bound != null &&
           (yield* workspaces
@@ -491,13 +495,30 @@ const make = Effect.gen(function* () {
           // and rollback registration atomic, so cancellation cannot lose that path.
           // A resumed Build item workspace predates this launch, so cancelling never removes it.
           yield* Effect.gen(function* () {
-            const allocation = yield* workspaces
-              .allocate({
-                projectRoot: project.workspaceRoot,
-                task: task || "T3 thread",
-                ...(issue === undefined ? {} : { issue }),
-              })
-              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+            const allocating = workspaces.allocate({
+              projectRoot: project.workspaceRoot,
+              task: task || "T3 thread",
+              ...(issue === undefined ? {} : { issue }),
+            });
+            // Replacing a workspace SlipJay removed must not block the turn, which may need
+            // no checkout at all: it runs on the project checkout instead, and the turn note
+            // tells the agent to allocate a workspace before changing files.
+            const allocation = yield* !replacing
+              ? allocating.pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))
+              : allocating.pipe(
+                  Effect.catch((error) =>
+                    Effect.logWarning("Could not replace a removed SlipJay workspace", {
+                      threadId,
+                      removedWorktreePath: bound,
+                      error: error.message,
+                    }).pipe(Effect.as(null)),
+                  ),
+                );
+            if (allocation === null) {
+              worktreePath = null;
+              branch = null;
+              return;
+            }
             worktreePath = allocation.workspacePath;
             branch = null;
             workspaceIssue = allocation.issue;

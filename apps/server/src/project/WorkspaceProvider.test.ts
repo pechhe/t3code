@@ -208,4 +208,59 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
         ]);
       }),
   );
+
+  it.effect.each([
+    { name: "stderr", stdout: "progress", stderr: "Issue 42 is held by another workspace\n" },
+    { name: "stdout when stderr is empty", stdout: "Issue 42 is held\n", stderr: "" },
+  ])("a failed allocation says why SlipJay refused: $name", ({ stdout, stderr }) =>
+    Effect.gen(function* () {
+      const service = yield* Workspaces.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(Processes.ProcessRunner)({
+              run: () =>
+                Effect.succeed({
+                  ...output(stdout),
+                  stderr,
+                  code: ChildProcessSpawner.ExitCode(1),
+                }),
+            }),
+            Layer.mock(Git.GitVcsDriver)({}),
+          ),
+        ),
+      );
+      const error = yield* Effect.flip(service.allocate({ projectRoot: "/project", task: "work" }));
+      expect(error.message).toBe(
+        `SlipJay could not allocate a workspace for /project (slipjay exited with 1): ${(stderr || stdout).trim()}`,
+      );
+    }),
+  );
+
+  it.effect("bounds long SlipJay output to its tail and leaves a silent failure unchanged", () =>
+    Effect.gen(function* () {
+      let stderr = `${"noise ".repeat(1000)}the real cause`;
+      const service = yield* Workspaces.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(Processes.ProcessRunner)({
+              run: () =>
+                Effect.succeed({ ...output(), stderr, code: ChildProcessSpawner.ExitCode(1) }),
+            }),
+            Layer.mock(Git.GitVcsDriver)({}),
+          ),
+        ),
+      );
+      const long = yield* Effect.flip(service.allocate({ projectRoot: "/project", task: "work" }));
+      expect(long.detail?.length).toBeLessThanOrEqual(1000);
+      expect(long.detail?.startsWith("…")).toBe(true);
+      expect(long.message.endsWith("the real cause")).toBe(true);
+      stderr = "  \n";
+      const silent = yield* Effect.flip(
+        service.allocate({ projectRoot: "/project", task: "work" }),
+      );
+      expect(silent.message).toBe(
+        "SlipJay could not allocate a workspace for /project (slipjay exited with 1).",
+      );
+    }),
+  );
 });

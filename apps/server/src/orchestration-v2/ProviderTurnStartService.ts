@@ -118,18 +118,26 @@ export const replacedWorkspaceNote = (workspacePath: string): string =>
   `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. This turn runs in a fresh checkout at the integration head: ${workspacePath}. Work landed from earlier turns is on the integration branch; read the workspace's instruction files before working.`;
 
 /**
- * The fresh SlipJay workspace a turn starts in when T3 replaced the thread's removed one and no
- * turn has run since: the replacement may come from this turn's own preparation or from a
- * terminal that opened first. Null otherwise.
+ * Sent instead when no replacement could be allocated, so the turn runs in the project's own
+ * checkout, which other threads share.
  */
-export const replacedWorkspacePath = (
+export const unreplacedWorkspaceNote = (checkout: string): string =>
+  `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. T3 could not allocate a fresh one, so this turn runs in the project's own checkout: ${checkout}. Before changing any files, allocate a workspace (\`slipjay start --integration --json "<task>"\`) and move this thread into it with t3_worktree_handoff.`;
+
+/**
+ * The checkout a turn starts in when T3 replaced the thread's removed SlipJay workspace and no
+ * turn has run since: a fresh workspace from this turn's own preparation or from a terminal that
+ * opened first, or null when no replacement could be allocated and the turn runs on the project.
+ * Null without a replacement to report.
+ */
+export const replacedWorkspace = (
   thread: Pick<OrchestrationV2AppThread, "worktreePath" | "workspaceReplacedAt">,
   attempts: ReadonlyArray<Pick<OrchestrationV2RunAttempt, "id" | "runId" | "startedAt">>,
   providerTurns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "runAttemptId">>,
   runId: RunId,
-): string | null => {
+): { readonly worktreePath: string | null } | null => {
   const replacedAt = thread.workspaceReplacedAt;
-  if (replacedAt == null || thread.worktreePath === null) return null;
+  if (replacedAt == null) return null;
   // Another run's attempt since the replacement already said so, but only if its provider
   // took the prompt: a provider turn exists once the provider reports one.
   const told = new Set(providerTurns.map((turn) => turn.runAttemptId));
@@ -140,7 +148,7 @@ export const replacedWorkspacePath = (
       DateTime.toEpochMillis(attempt.startedAt) >= DateTime.toEpochMillis(replacedAt) &&
       told.has(attempt.id),
   );
-  return toldEarlier ? null : thread.worktreePath;
+  return toldEarlier ? null : { worktreePath: thread.worktreePath };
 };
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
@@ -1220,7 +1228,7 @@ export const layer: Layer.Layer<
           Effect.orElseSucceed(() => false),
         ));
       const scheduled = message.scheduledTaskId !== undefined;
-      const replacedWorkspace = replacedWorkspacePath(
+      const replaced = replacedWorkspace(
         projection.thread,
         projection.attempts,
         projection.providerTurns,
@@ -1349,7 +1357,11 @@ export const layer: Layer.Layer<
             projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
             offersProjectSuggestion ? NO_PROJECT_NOTE : "",
             turnWorkspaces.length === 0 ? "" : workspacesNote(turnWorkspaces),
-            replacedWorkspace === null ? "" : replacedWorkspaceNote(replacedWorkspace),
+            replaced === null
+              ? ""
+              : replaced.worktreePath === null
+                ? unreplacedWorkspaceNote(resolvedRuntimePolicy.cwd ?? "")
+                : replacedWorkspaceNote(replaced.worktreePath),
             scheduled ? SCHEDULED_TASK_NOTE : "",
           ]
             .filter((part) => part !== "")
@@ -1409,7 +1421,7 @@ export const layer: Layer.Layer<
         !scheduled &&
         !offersProjectSuggestion &&
         turnWorkspaces.length === 0 &&
-        replacedWorkspace === null
+        replaced === null
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);

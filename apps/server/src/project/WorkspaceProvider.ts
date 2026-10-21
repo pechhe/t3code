@@ -25,14 +25,29 @@ export class WorkspaceProviderError extends Schema.TaggedError<WorkspaceProvider
     projectRoot: Schema.String,
     /** The command's exit code; absent when it did not run or exited cleanly with bad output. */
     exitCode: Schema.optional(Schema.Number),
+    /** What SlipJay printed about the failure, bounded by `boundedDetail`. */
+    detail: Schema.optional(Schema.String),
     cause: Schema.optional(Schema.Defect()),
   },
 ) {
   override get message(): string {
     const outcome = this.exitCode === undefined ? "" : ` (slipjay exited with ${this.exitCode})`;
-    return `SlipJay could not ${this.operation} a workspace for ${this.projectRoot}${outcome}.`;
+    const reason = this.detail ? `: ${this.detail}` : ".";
+    return `SlipJay could not ${this.operation} a workspace for ${this.projectRoot}${outcome}${reason}`;
   }
 }
+
+const MAX_DETAIL_CHARS = 1000;
+
+/**
+ * SlipJay prints the cause of a failure last, after any progress output, so a long
+ * output keeps its tail. Stdout stands in when stderr is empty.
+ */
+const boundedDetail = (output: { readonly stdout: string; readonly stderr: string }) => {
+  const text = (output.stderr.trim() || output.stdout.trim()).trim();
+  if (text.length <= MAX_DETAIL_CHARS) return text;
+  return `…${text.slice(-(MAX_DETAIL_CHARS - 1)).trimStart()}`;
+};
 
 const SlipJayStartResult = Schema.Struct({
   workspacePath: Schema.String,
@@ -95,18 +110,22 @@ export const make = Effect.gen(function* () {
         // A cold allocation installs the repository's dependencies.
         timeout: "10 minutes",
         maxOutputBytes: 64 * 1024,
-        outputMode: "truncate",
+        // SlipJay reports why it failed last, after any progress output.
+        outputMode: "truncate-tail",
       })
       .pipe(
         Effect.mapError((cause) => new WorkspaceProviderError({ operation, projectRoot, cause })),
         Effect.filterOrFail(
           (output) => output.code === 0,
-          (output) =>
-            new WorkspaceProviderError({
+          (output) => {
+            const detail = boundedDetail(output);
+            return new WorkspaceProviderError({
               operation,
               projectRoot,
               ...(output.code === null ? {} : { exitCode: output.code }),
-            }),
+              ...(detail === "" ? {} : { detail }),
+            });
+          },
         ),
       );
 

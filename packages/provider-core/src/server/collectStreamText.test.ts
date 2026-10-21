@@ -7,6 +7,28 @@ import { collectUint8StreamText } from "./collectStreamText.ts";
 const encoder = new TextEncoder();
 
 describe("collectUint8StreamText", () => {
+  it.effect("keeps the tail when asked, so a final error survives long progress output", () =>
+    Effect.gen(function* () {
+      const result = yield* collectUint8StreamText({
+        stream: Stream.make(
+          encoder.encode("progress "),
+          encoder.encode("more progress "),
+          encoder.encode("final cause"),
+        ),
+        maxBytes: 15,
+        truncatedMarker: "…",
+        keep: "tail",
+      });
+
+      assert.deepStrictEqual(result, {
+        text: "…ess final cause",
+        bytes: 15,
+        truncated: true,
+        invalidUtf8: false,
+      });
+    }),
+  );
+
   it.effect("collects Uint8Array chunks into decoded text", () =>
     Effect.gen(function* () {
       const result = yield* collectUint8StreamText({

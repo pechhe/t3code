@@ -2288,7 +2288,7 @@ it.effect("leaves a run alone when SlipJay kept its workspace", () =>
   }),
 );
 
-it.effect("reports a failed allocation for a released workspace instead of starting", () =>
+it.effect("starts on the project checkout when a released workspace cannot be replaced", () =>
   Effect.gen(function* () {
     const harness = makeHarness({
       slipjay: true,
@@ -2304,14 +2304,12 @@ it.effect("reports a failed allocation for a released workspace instead of start
       yield* waitUntil(() =>
         threads
           .getThreadProjection(run.threadId)
-          .pipe(Effect.map((projection) => projection.runs[0]?.status === "failed")),
+          .pipe(Effect.map((projection) => projection.runs[0]?.status === "starting")),
       );
       const projection = yield* threads.getThreadProjection(run.threadId);
-      assert.isTrue(
-        projection.turnItems.some(
-          (item) => item.type === "error" && item.title === "Workspace preparation failed",
-        ),
-      );
+      assert.isNull(projection.thread.worktreePath);
+      assert.isNotNull(projection.thread.workspaceReplacedAt);
+      assert.isFalse(projection.turnItems.some((item) => item.type === "error"));
     }).pipe(Effect.provide(harness.layer));
   }),
 );
