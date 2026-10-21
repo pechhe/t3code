@@ -740,6 +740,7 @@ it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", (
                 needsYou: [
                   {
                     ...acceptance,
+                    decisions: [item(6)],
                     spec: {
                       ...acceptance.spec,
                       resolvedFindings: [
@@ -758,6 +759,7 @@ it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", (
                     },
                   },
                   { kind: "decision", decision: item(3) },
+                  { ...acceptance, decisions: [item(6)], spec: { ...acceptance.spec, ...item(7) } },
                   { kind: "arc_review", arc: item(4) },
                   { kind: "arc_check_in", arc: item(5), since: "2026-10-19" },
                 ],
@@ -766,16 +768,21 @@ it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", (
     });
     const home = (yield* service.read).home!;
     assert.deepStrictEqual(home.capabilities, { answer: true, notes: true });
-    assert.strictEqual(home.count, 5);
+    // A Decision nested in two Specs' cards is listed once, after the first.
+    assert.strictEqual(home.count, 7);
     assert.deepStrictEqual(
       home.needsYou[0]?.kind === "acceptance" && home.needsYou[0].resolvedFindings,
       [{ title: "Fixed route" }],
     );
-    assert.strictEqual(home.needsYou[1]?.kind === "hold" && home.needsYou[1].holdId, "hold-1");
+    assert.strictEqual(home.needsYou[2]?.kind === "hold" && home.needsYou[2].holdId, "hold-1");
     assert.deepStrictEqual(
-      home.needsYou.slice(2).map((n) => [n.kind, n.url, "detail" in n ? n.detail : null]),
+      home.needsYou
+        .filter((_, index) => index !== 0 && index !== 2)
+        .map((n) => [n.kind, n.url, "detail" in n ? n.detail : null]),
       [
+        ["decision", `${origin}/build/6`, null],
         ["decision", `${origin}/build/3`, null],
+        ["acceptance", `${origin}/build/7`, null],
         ["arc_review", `${origin}/build/4`, "Review date reached: continue or close"],
         ["arc_check_in", `${origin}/build/5`, "No check-in since 2026-10-19"],
       ],

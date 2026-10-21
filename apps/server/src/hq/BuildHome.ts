@@ -99,6 +99,9 @@ const HqAcceptance = Schema.Struct({
       ),
     ),
   }),
+  // The Proposed Decisions this Spec proposed (YardSmith YS-277), which HQ nests in its card rather
+  // than listing on their own; an HQ from before sends none.
+  decisions: Schema.optional(Schema.Array(HqItem)),
 });
 const HqHoldNeed = Schema.Struct({
   kind: Schema.Literal("hold"),
@@ -341,6 +344,20 @@ const make = Effect.gen(function* () {
     origin: string,
     supported: { answer: boolean; notes: boolean },
   ): BuildHomeView => {
+    // A Proposed Decision HQ nests in its Specs' cards is listed once, after the first of them.
+    const listed = new Set<string>();
+    const decisionNeed = (item: typeof HqItem.Type): ReadonlyArray<BuildHomeNeed> => {
+      if (listed.has(item.id)) return [];
+      listed.add(item.id);
+      return [
+        {
+          kind: "decision",
+          spec: itemOf(item),
+          url: buildItemUrl(origin, item.number),
+          detail: null,
+        },
+      ];
+    };
     const needsYou = home.needsYou.flatMap((raw): ReadonlyArray<BuildHomeNeed> => {
       const acceptance = decodeAcceptance(raw);
       if (Option.isSome(acceptance)) {
@@ -361,6 +378,7 @@ const make = Effect.gen(function* () {
               title: finding.summary,
             })),
           },
+          ...(acceptance.value.decisions ?? []).flatMap(decisionNeed),
         ];
       }
       const hold = decodeHoldNeed(raw);
@@ -377,15 +395,7 @@ const make = Effect.gen(function* () {
           },
         ];
       const decision = decodeDecisionNeed(raw);
-      if (Option.isSome(decision))
-        return [
-          {
-            kind: "decision",
-            spec: itemOf(decision.value.decision),
-            url: buildItemUrl(origin, decision.value.decision.number),
-            detail: null,
-          },
-        ];
+      if (Option.isSome(decision)) return decisionNeed(decision.value.decision);
       const arc = decodeArcNeed(raw);
       if (Option.isSome(arc))
         return [
