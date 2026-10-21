@@ -4,7 +4,7 @@
 // packages and their dependents, and the test files beside the changed files.
 // CI still runs the full test suites and the jobs listed in the summary.
 //
-//   vp run check:changed          compare against the merge base with origin/main
+//   vp run check:changed          compare against the merge base with the integration branch
 //   vp run check:changed <ref>    compare against the merge base with <ref>
 //
 // Uncommitted and untracked files count. Affected packages come from
@@ -22,7 +22,12 @@ const git = (...args: Array<string>) =>
     .split("\n")
     .filter(Boolean);
 
-const ref = process.argv[2] ?? "origin/main";
+// The fork's `origin/main` mirrors upstream and sits thousands of files behind its
+// integration branch, so default to the branch slipjay.json names.
+const integrationBranch: string | undefined = NodeFS.existsSync(NodePath.join(root, "slipjay.json"))
+  ? JSON.parse(NodeFS.readFileSync(NodePath.join(root, "slipjay.json"), "utf8")).integrationBranch
+  : undefined;
+const ref = process.argv[2] ?? (integrationBranch ? `origin/${integrationBranch}` : "origin/main");
 const mergeBase = NodeChildProcess.spawnSync("git", ["merge-base", "HEAD", ref], {
   cwd: root,
   encoding: "utf8",
