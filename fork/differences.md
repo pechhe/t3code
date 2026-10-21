@@ -450,9 +450,9 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** deliberate behaviour change
 - **Why:** The fork is installed locally, not from upstream releases.
-- **Requirements:** no update feed (no `GITHUB_REPOSITORY`/`T3CODE_DESKTOP_UPDATE_REPOSITORY` at build) so the app never self-updates to the official nightly; local stable-identity signing; T3 Connect enabled in the build without a hand-placed `.env` (open); macOS screen-picker library staged; `T3CODE_AGENT_POLICY_ROOT` passed from login shell; partial-clone fork identity retained.
+- **Requirements:** no update feed (no `GITHUB_REPOSITORY`/`T3CODE_DESKTOP_UPDATE_REPOSITORY` at build) so the app never self-updates to the official nightly; local stable-identity signing; T3 Connect enabled in the build: the script creates the repo-root `.env` from `.env.example` when the clone has none, refreshes it while it still equals the copy the script wrote, and never overwrites an edited one; macOS screen-picker library staged; `T3CODE_AGENT_POLICY_ROOT` passed from login shell; partial-clone fork identity retained.
 - **Integration points:** `scripts/fork-nightly.sh` (build env), `scripts/build-desktop-artifact.ts` (screen picker staging), desktop shell environment, `docs/operations/connect-setup.md`.
-- **Proof:** scripts/build-desktop-artifact.test.ts.
+- **Proof:** scripts/build-desktop-artifact.test.ts, scripts/fork-nightly.test.ts (the Connect `.env`).
 - **Upstream:** none known.
 - **Retire when:** the fork stops shipping its own desktop build.
 - **Decision:** `adopt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's partial-clone remote parsing (#16316) replaces the fork's identity regex; build identity, display media and overlay wiring retained. Earlier: `retain` (seed, 2026-10-19).

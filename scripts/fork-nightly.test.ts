@@ -19,6 +19,7 @@ const OLD_TAG = "v0.1.1-nightly.20990101.1";
 const NEW_TAG = "v0.1.2-nightly.20990102.1";
 // Attempt tests drive several full hourly runs (git fetches against local remotes) each.
 const TIMEOUT = 120_000;
+const CONNECT_ENV = "T3CODE_RELAY_URL=https://relay.example\n";
 
 const baseEnv = Object.fromEntries(
   Object.entries(process.env).filter(
@@ -65,6 +66,7 @@ exit 0
 `,
   // A build that gets past selection stops at the app build.
   vp: `printf '%s\\n' "vp $*" >> "$T3_TEST_ROOT/calls.log"
+cat .env > "$T3_TEST_ROOT/env-at-vp" 2>/dev/null
 exit 1
 `,
   // The VPS build step: its exit status is whatever T3_TEST_VPS_STATUS says (3: a release asset is missing).
@@ -293,6 +295,10 @@ async function buildTemplate() {
   await commit("base", "2026-01-01T00:00:00Z");
   await git(work, ["tag", "v0.1.0-nightly.20260101.1"]);
   await git(work, ["checkout", "-q", "-b", "t3peach"]);
+  // The fork keeps the upstream example, and `.env` is ignored like the real one.
+  await NodeFSP.writeFile(NodePath.join(work, ".gitignore"), ".env\n");
+  await NodeFSP.writeFile(NodePath.join(work, ".env.example"), CONNECT_ENV);
+  await git(work, ["add", ".gitignore", ".env.example"]);
   await commit("fork-change", "2026-01-02T00:00:00Z");
   await git(work, ["checkout", "-q", "-b", "side", "main"]);
   await commit("side", "2026-01-03T00:00:00Z");
@@ -1872,6 +1878,78 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             reason: "the app build failed",
           });
           expect(await readJson(stateFile(f, "selected.json"))).toEqual({ source: head });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "gives the app build the public Connect values when the clone has no .env",
+      async () => {
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", "v0.1.0-nightly.20260103.1", "side"]);
+          await git(work, ["push", "-q", f.upstream, "v0.1.0-nightly.20260103.1"]);
+
+          await run(f, ["build", "--rev", head, "--recovery", "roll back"]);
+          expect(await calls(f, "vp")).toEqual(["vp i"]);
+          expect(await readText(NodePath.join(f.root, "env-at-vp"))).toBe(CONNECT_ENV);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refreshes the .env it created from a newer .env.example but never one that was edited",
+      async () => {
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", "v0.1.0-nightly.20260103.1", "side"]);
+          await git(work, ["push", "-q", f.upstream, "v0.1.0-nightly.20260103.1"]);
+          const envAtBuild = () => readText(NodePath.join(f.root, "env-at-vp"));
+          // Lands a commit on t3peach that changes the example, and returns it.
+          const landExample = async (content: string) => {
+            await git(work, ["checkout", "-q", "t3peach"]);
+            await NodeFSP.writeFile(NodePath.join(work, ".env.example"), content);
+            await git(work, ["commit", "-q", "-am", "example"], "2026-01-05T00:00:00Z");
+            await git(work, ["push", "-q", f.origin, "t3peach"]);
+            return git(work, ["rev-parse", "t3peach"]);
+          };
+
+          await run(f, ["build", "--rev", head, "--recovery", "roll back"]);
+          expect(await envAtBuild()).toBe(CONNECT_ENV);
+
+          const refreshed = "T3CODE_RELAY_URL=https://relay.next\n";
+          await run(f, ["build", "--rev", await landExample(refreshed), "--recovery", "roll back"]);
+          expect(await envAtBuild()).toBe(refreshed);
+
+          const override = "T3CODE_RELAY_URL=https://relay.override\n";
+          await NodeFSP.writeFile(NodePath.join(f.root, "clone", ".env"), override);
+          const latest = await landExample("T3CODE_RELAY_URL=https://relay.latest\n");
+          await run(f, ["build", "--rev", latest, "--recovery", "roll back"]);
+          expect(await envAtBuild()).toBe(override);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "leaves an existing .env alone so a deliberate override wins",
+      async () => {
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", "v0.1.0-nightly.20260103.1", "side"]);
+          await git(work, ["push", "-q", f.upstream, "v0.1.0-nightly.20260103.1"]);
+          // The refused build still clones, so the override can be placed before the next one.
+          await run(f, ["build", "--rev", head]);
+          const override = "T3CODE_RELAY_URL=https://relay.override\n";
+          await NodeFSP.writeFile(NodePath.join(f.root, "clone", ".env"), override);
+
+          await run(f, ["build", "--rev", head, "--recovery", "roll back"]);
+          expect(await readText(NodePath.join(f.root, "env-at-vp"))).toBe(override);
         });
       },
       TIMEOUT,

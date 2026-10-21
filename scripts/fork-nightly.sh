@@ -760,6 +760,14 @@ build() {
 
   local marker="$STATE/build-started" fail=""
   touch "$marker"
+  # T3 Connect is on in a source build only when the repo-root .env holds the public values
+  # from .env.example. The clone is disposable and .env is untracked, so create it here and
+  # remember what was written: a .env that still equals that copy follows the source's
+  # .env.example, and one that differs is a deliberate override and stays as it is.
+  if [ -f .env.example ] && { [ ! -e .env ] || cmp -s .env "$STATE/connect.env"; }; then
+    cp .env.example .env
+    cp .env.example "$STATE/connect.env"
+  fi
   # The VPS builds its server while this Mac builds the app. Its server goes in
   # before the app is staged, so the new app never finds the version missing
   # there and downloads the official one.
