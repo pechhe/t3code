@@ -1149,8 +1149,9 @@ function ComposerPromptEditorTiptapInner(
           const boundary = event.metaKey
             ? event.key === "ArrowLeft" || event.key === "ArrowRight"
               ? "lineboundary"
-              : event.key === "ArrowUp" || event.key === "ArrowDown"
-                ? "documentboundary"
+              : (event.key === "ArrowUp" || event.key === "ArrowDown") && !event.shiftKey
+                ? // ⌘⇧↑/↓ is the default thread.previous/next shortcut; leave it to the window handler.
+                  "documentboundary"
                 : null
             : event.key === "Home" || event.key === "End"
               ? "lineboundary"
