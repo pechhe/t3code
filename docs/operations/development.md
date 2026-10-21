@@ -161,11 +161,15 @@ list; is a merge; or cannot be read or is not rebased onto the integration bookm
 to docs and other files no test reads runs no tests.
 
 The selection then fits a 60-second budget, estimated from each file's recorded cost in
-`tests/durations.json`, and runs with eight parallel Vitest workers. A changed test always runs.
-The rest fill the budget nearest the change first: a test named after a changed module, then a
-test beside a changed file, then the others, cheapest first within each. What does not fit is
-deferred to the nightly audit and listed in the gate's output, so a hub change such as
-`packages/contracts` keeps the whole gate under three minutes. The durations come from the audit's
+`tests/durations.json`, and runs with eight parallel Vitest workers. Three kinds of test always
+run, whatever they cost: a changed test, the repository-wide invariant guards
+(`INVARIANT_GUARDS`, `scripts/test-landing.test.ts`) when the candidate adds, removes or renames a
+test file, and a test that imports a changed module by a relative specifier. When these alone
+exceed the budget the gate says so and defers every optional test. The rest fill what is left
+nearest the change first: a test named after a changed module, then a test beside a changed file,
+then the others, cheapest first within each. What does not fit is deferred to the nightly audit
+and listed in the gate's output, so a hub change such as `packages/contracts` keeps the whole gate
+under three minutes. The durations come from the audit's
 reports: `node scripts/test-landing.ts --durations <report-dir>` refreshes them after an audit run
 on the runner.
 
@@ -181,7 +185,11 @@ complete suite in parallel with the quarantined tests included, for the nightly 
 
 When `SLIPJAY_TEST_REPORT_DIR` is set, each Vitest run also writes a JSON report there, and
 `slipjay-test-reports.json` lists them. Nothing is written otherwise, and a missing report never
-fails the gate. `budgets` in `slipjay.json` holds the verification time targets.
+fails the gate. The budget's outcome is listed there too, as skipped rows the runner keeps in the landing's test
+report when it clips the console output: one row per deferred file (suite `landing-deferred`) and
+one row whose suite name is the budget summary, which says when the mandatory tests alone exceed
+the budget. The summary is also the output's last line.
+`budgets` in `slipjay.json` holds the verification time targets.
 
 ### Unused code
 

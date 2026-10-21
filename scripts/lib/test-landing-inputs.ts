@@ -22,6 +22,12 @@ export const BUILD_ONLY_EDGES: ReadonlyArray<readonly [from: string, to: string]
   ["apps/server", "apps/web"],
 ];
 
+/**
+ * Tests that read every test file in the repository to check these tables. A candidate that adds,
+ * removes or renames a test file always runs them, and the budget never defers them.
+ */
+export const INVARIANT_GUARDS: ReadonlyArray<string> = ["scripts/test-landing.test.ts"];
+
 export interface InputRule {
   readonly when: RegExp;
   /** Tests, or the modules the import graph leads to them from, that read what `when` matches. */
@@ -35,12 +41,7 @@ const serverTest = (...names: ReadonlyArray<string>) =>
   names.map((name) => `apps/server/src/${name}`);
 // Tests that spawn `apps/server/src/bin.ts`, or a fixture that imports server and package source.
 // The spawned program's imports are invisible to the importing test's graph.
-const SOURCE_SPAWNERS = [
-  ...serverTest(
-    "outboundHttp.test.ts",
-    "processRunner.test.ts",
-  ),
-];
+const SOURCE_SPAWNERS = [...serverTest("outboundHttp.test.ts", "processRunner.test.ts")];
 const FIXTURE_DIRECTORY_READERS = serverTest(
   "provider/ProviderInstanceRegistry.test.ts",
   "provider/ClaudeCapabilitiesProbe.test.ts",

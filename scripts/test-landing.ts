@@ -17,7 +17,8 @@
 // (toolchain, lockfile, Vitest config or setup, a deletion, a path with no mapping, an
 // unreadable or ambiguous candidate) selects every workspace's complete suite. The budget then
 // runs the selected tests nearest the change that fit LANDING_BUDGET and leaves the rest to the
-// nightly audit. docs/operations/development.md#landing-gate documents the rules and the quarantine.
+// nightly audit; a changed test, an invariant guard and a direct importer of a changed module
+// are never deferred. docs/operations/development.md#landing-gate documents the rules and the quarantine.
 import * as NodeChildProcess from "node:child_process";
 import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
@@ -26,14 +27,10 @@ import {
   BUILD_ONLY_EDGES,
   EXTRA_EDGES,
   INPUT_RULES,
+  INVARIANT_GUARDS,
   type InputRule,
 } from "./lib/test-landing-inputs.ts";
-import {
-  listTests,
-  mapConcurrently,
-  runCommand,
-  VITEST_FLAGS,
-} from "./lib/test-landing-vitest.ts";
+import { listTests, mapConcurrently, runCommand, VITEST_FLAGS } from "./lib/test-landing-vitest.ts";
 
 const ROOT = NodePath.resolve(import.meta.dirname, "..");
 const SHA = /^[0-9a-f]{40}$/;
@@ -142,8 +139,25 @@ function dependentClosure(directory: string, workspaces: ReadonlyArray<LandingWo
 
 const complete = (reason: string): LandingTests => ({ kind: "complete", reason });
 
+/** What a candidate changed; `added` is the subset of `changed` the parent did not have. */
+export interface LandingChange {
+  readonly changed: ReadonlyArray<string>;
+  readonly deleted: ReadonlyArray<string>;
+  readonly added?: ReadonlyArray<string>;
+}
+
+/**
+ * The repository-wide invariant guards a candidate must run: adding, removing or renaming a test
+ * file can leave INPUT_RULES, SOURCE_SPAWNERS or the reviewed lists behind the tests on disk.
+ */
+export function invariantGuards(change: LandingChange): ReadonlyArray<string> {
+  return [...(change.added ?? []), ...change.deleted].some((file) => TEST_FILE.test(file))
+    ? INVARIANT_GUARDS
+    : [];
+}
+
 export function selectLandingTests(
-  change: { readonly changed: ReadonlyArray<string>; readonly deleted: ReadonlyArray<string> },
+  change: LandingChange,
   workspaces: ReadonlyArray<LandingWorkspace>,
   rules: ReadonlyArray<InputRule> = INPUT_RULES,
 ): LandingTests {
@@ -173,6 +187,10 @@ export function selectLandingTests(
     } else if (mapped.length === 0) {
       return complete(`${file} has no known dependency mapping`);
     }
+  }
+  for (const guard of invariantGuards(change)) {
+    files.add(guard);
+    reasons.push(`${guard}: a test file was added or removed`);
   }
   const affected = new Set<string>();
   for (const file of files) {
@@ -238,45 +256,101 @@ export function estimateSeconds(tests: ReadonlyArray<LandingTest>, durations: Du
 }
 
 const stemOf = (file: string) => NodePath.posix.basename(file).replace(/\..*$/, "");
+const withoutExtension = (file: string) => file.replace(/\.[cm]?[jt]sx?$/, "");
+// A relative specifier in any import, mock or dynamic import; a query only names a loader.
+const RELATIVE_SPECIFIER = /["'](\.{1,2}\/[^"'\n?]+)(?:\?[^"'\n]*)?["']/g;
+
+/**
+ * The repository paths a file's relative specifiers name, without an extension. Package
+ * specifiers are not followed: only the relative imports inside a workspace are direct.
+ */
+export function relativeImports(file: string, source: string) {
+  return [...source.matchAll(RELATIVE_SPECIFIER)].map((match) =>
+    withoutExtension(NodePath.posix.join(NodePath.posix.dirname(file), match[1]!)),
+  );
+}
+
+/** A test source the budget cannot read is treated as importing nothing. */
+const importsReadFrom =
+  (root: string) =>
+  (file: string): ReadonlyArray<string> => {
+    try {
+      return relativeImports(file, NodeFS.readFileSync(NodePath.join(root, file), "utf8"));
+    } catch {
+      return [];
+    }
+  };
+
+export interface BudgetOptions {
+  /** Tests that always run, as a changed test does. */
+  readonly guards?: ReadonlyArray<string>;
+  /** The extensionless repository paths a test file imports by relative specifier. */
+  readonly imports?: (file: string) => ReadonlyArray<string>;
+}
 
 /**
  * Runs the selected tests nearest the change that fit the budget, cheapest first within each
- * rank: a changed test (always, whatever its cost), a test named after a changed module, a test
- * beside a changed file, then the rest. The nightly audit runs what is deferred.
+ * rank: a changed test or an invariant guard, a direct importer of a changed module, a test named
+ * after a changed module, a test beside a changed file, then the rest. The first two ranks are
+ * mandatory: they run whatever they cost, and `overBudget` reports when they alone exceed the
+ * budget. The optional ranks only fill what the mandatory ones leave. The nightly audit runs what
+ * is deferred.
  */
 export function budgetLandingTests(
   candidates: ReadonlyArray<LandingTest>,
   changed: ReadonlyArray<string>,
   durations: Durations,
   budgetSeconds: number = LANDING_BUDGET.seconds,
+  { guards = [], imports = () => [] }: BudgetOptions = {},
 ) {
   const changedFiles = new Set(changed);
-  const changedDirectories = new Set(changed.map((file) => NodePath.posix.dirname(file)));
+  // `./dir` resolves to `dir/index.ts`.
   const changedModules = new Set(
+    changed.flatMap((file) => [
+      withoutExtension(file),
+      ...(stemOf(file) === "index" ? [NodePath.posix.dirname(file)] : []),
+    ]),
+  );
+  const changedDirectories = new Set(changed.map((file) => NodePath.posix.dirname(file)));
+  const guardFiles = new Set(guards);
+  const namedModules = new Set(
     changed.map((file) => `${NodePath.posix.dirname(file)}/${stemOf(file)}`),
   );
+  const mandatoryRank = 1;
   const rank = ({ file }: LandingTest) =>
-    changedFiles.has(file)
+    changedFiles.has(file) || guardFiles.has(file)
       ? 0
-      : changedModules.has(`${NodePath.posix.dirname(file)}/${stemOf(file)}`)
+      : imports(file).some((path) => changedModules.has(path))
         ? 1
-        : changedDirectories.has(NodePath.posix.dirname(file))
+        : namedModules.has(`${NodePath.posix.dirname(file)}/${stemOf(file)}`)
           ? 2
-          : 3;
+          : changedDirectories.has(NodePath.posix.dirname(file))
+            ? 3
+            : 4;
   const cost = ({ file }: LandingTest) => durations[file] ?? UNRECORDED_SECONDS;
-  const ordered = candidates.toSorted(
-    (a, b) => rank(a) - rank(b) || cost(a) - cost(b) || a.file.localeCompare(b.file),
+  const ranked = candidates.map((test) => ({ test, rank: rank(test) }));
+  const ordered = ranked.toSorted(
+    (a, b) =>
+      a.rank - b.rank || cost(a.test) - cost(b.test) || a.test.file.localeCompare(b.test.file),
   );
+  const mandatory = ordered.filter((entry) => entry.rank <= mandatoryRank).map((e) => e.test);
   const selected: LandingTest[] = [];
   const deferred: LandingTest[] = [];
-  for (const test of ordered) {
-    if (rank(test) === 0 || estimateSeconds([...selected, test], durations) <= budgetSeconds) {
+  for (const { test, rank } of ordered) {
+    if (rank <= mandatoryRank || estimateSeconds([...selected, test], durations) <= budgetSeconds) {
       selected.push(test);
     } else {
       deferred.push(test);
     }
   }
-  return { selected, deferred, seconds: estimateSeconds(selected, durations) };
+  const mandatorySeconds = estimateSeconds(mandatory, durations);
+  return {
+    selected,
+    deferred,
+    seconds: estimateSeconds(selected, durations),
+    mandatory: mandatory.length,
+    overBudget: mandatorySeconds > budgetSeconds,
+  };
 }
 
 /**
@@ -487,7 +561,8 @@ export function changesBetween(query: JjQuery, parent: string, revision: string)
   );
   if (changed.some((file) => !validPath(file))) throw new Error("Unsupported changed path");
   const workspaces = readWorkspaces([...current], (file) => show(revision, file));
-  return { changed, deleted, workspaces };
+  const added = changed.filter((file) => current.has(file) && !beforeSet.has(file));
+  return { changed, added, deleted, workspaces };
 }
 
 export function candidateChanges(
@@ -606,7 +681,7 @@ export interface LandingCommand {
 export async function budgetedRuns(
   plan: LandingTests,
   workspaces: ReadonlyArray<LandingWorkspace>,
-  changed: ReadonlyArray<string>,
+  change: LandingChange,
   durations: Durations,
   quarantine: ReadonlyArray<Quarantine>,
   { root = ROOT, list = listTests }: { root?: string; list?: typeof listTests } = {},
@@ -634,7 +709,10 @@ export async function budgetedRuns(
       .filter((file) => !quarantined.has(file))
       .map((file) => ({ directory: listable[index]!.directory, file })),
   );
-  const budget = budgetLandingTests(candidates, changed, durations);
+  const budget = budgetLandingTests(candidates, change.changed, durations, LANDING_BUDGET.seconds, {
+    guards: invariantGuards(change),
+    imports: importsReadFrom(root),
+  });
   // A whole suite that lists no tests runs anyway, so a configuration that stopped matching
   // its tests fails the gate as `vp test run` would, unless the workspace passes with none.
   const runs: TestRun[] = planned
@@ -705,6 +783,86 @@ export function landingCommands(
   });
 }
 
+/** The one-line outcome of fitting the selection to the budget. */
+export function budgetSummary(
+  budget: {
+    readonly selected: ReadonlyArray<unknown>;
+    readonly deferred: ReadonlyArray<unknown>;
+    readonly seconds: number;
+    readonly mandatory: number;
+    readonly overBudget: boolean;
+  },
+  budgetSeconds: number = LANDING_BUDGET.seconds,
+) {
+  const summary =
+    `Landing budget: ${budget.selected.length} test files (${budget.mandatory} mandatory), ` +
+    `about ${Math.round(budget.seconds)}s of ${budgetSeconds}s; ` +
+    `${budget.deferred.length} deferred to the nightly audit`;
+  return budget.overBudget
+    ? `${summary}. Over budget: the mandatory tests (changed tests, invariant guards and direct ` +
+        `importers of changed modules) alone exceed it, and every optional test was deferred`
+    : summary;
+}
+
+/**
+ * Records the budget's outcome as two synthetic Vitest reports of skipped rows, which the runner
+ * keeps in the landing's test report whatever happens to its clipped console output: one row per
+ * deferred file (the complete manifest), and one row named for the whole selection whose suite
+ * is the summary. Best effort, like every report.
+ */
+export function writeBudgetReports(
+  reportDir: string,
+  budget: Omit<Parameters<typeof budgetSummary>[0], "deferred"> & {
+    readonly deferred: ReadonlyArray<LandingTest>;
+  },
+  durations: Durations,
+): ReadonlyArray<LandingReport> {
+  const write = (report: LandingReport, rows: ReadonlyArray<{ name: string; seconds: number }>) => {
+    try {
+      NodeFS.writeFileSync(
+        NodePath.join(reportDir, report.path),
+        JSON.stringify({
+          testResults: rows.map(({ name, seconds }) => ({
+            name,
+            startTime: 0,
+            endTime: seconds * 1000,
+            status: "skipped",
+          })),
+        }),
+      );
+      return [report];
+    } catch (error) {
+      console.warn(`Landing report ${report.path} unavailable:`, error);
+      return [];
+    }
+  };
+  return [
+    ...write(
+      {
+        format: "vitest-json",
+        path: "landing-budget.json",
+        suite: budgetSummary(budget),
+        cwd: ".",
+      },
+      [{ name: "landing-budget", seconds: budget.seconds }],
+    ),
+    ...(budget.deferred.length === 0
+      ? []
+      : write(
+          {
+            format: "vitest-json",
+            path: "landing-deferred.json",
+            suite: "landing-deferred",
+            cwd: ".",
+          },
+          budget.deferred.map(({ file }) => ({
+            name: file,
+            seconds: durations[file] ?? UNRECORDED_SECONDS,
+          })),
+        )),
+  ];
+}
+
 /**
  * Lists every report the runs will write, before they run, so a run that writes none is visible
  * as missing. Reports are best effort: a manifest that cannot be written never fails the gate.
@@ -766,19 +924,21 @@ async function run(args: ReadonlyArray<string>) {
   console.log("Landing quarantine exclusions:", JSON.stringify(quarantine));
   const workspaces = snapshot?.workspaces ?? checkoutWorkspaces();
   let runs: ReadonlyArray<TestRun> = plannedRuns(plan, workspaces);
+  let summary: string | undefined;
+  const retained: LandingReport[] = [];
   if (!audit && plan.kind !== "none") {
+    const durations = readDurations();
     const budget = await budgetedRuns(
       plan,
       workspaces,
-      snapshot?.changed ?? [],
-      readDurations(),
+      snapshot ?? { changed: [], deleted: [] },
+      durations,
       quarantine,
     );
     runs = budget.runs;
-    console.log(
-      `Landing budget: ${budget.selected.length} test files, about ${Math.round(budget.seconds)}s ` +
-        `of ${LANDING_BUDGET.seconds}s; ${budget.deferred.length} deferred to the nightly audit`,
-    );
+    summary = budgetSummary(budget);
+    console.log(summary);
+    if (reportDir) retained.push(...writeBudgetReports(reportDir, budget, durations));
     if (budget.deferred.length > 0)
       console.log(`Deferred: ${budget.deferred.map((test) => test.file).join(" ")}`);
   }
@@ -789,14 +949,22 @@ async function run(args: ReadonlyArray<string>) {
     );
     return 0;
   }
+  let exit: number;
   if (reportDir) {
-    const listed = commands.flatMap((entry) => (entry.report ? [entry.report] : []));
-    if (!writeManifest(reportDir, listed)) {
-      // Without a manifest the reports would be orphans; run without them.
-      return runCommands(landingCommands(runs, workspaces, quarantine), snapshot);
-    }
+    const listed = [
+      ...retained,
+      ...commands.flatMap((entry) => (entry.report ? [entry.report] : [])),
+    ];
+    exit = writeManifest(reportDir, listed)
+      ? runCommands(commands, snapshot, reportDir, retained)
+      : // Without a manifest the reports would be orphans; run without them.
+        runCommands(landingCommands(runs, workspaces, quarantine), snapshot);
+  } else {
+    exit = runCommands(commands, snapshot);
   }
-  return runCommands(commands, snapshot, reportDir);
+  // The runner clips noisy console output to its tail, so the outcome is repeated last.
+  if (summary) console.log(summary);
+  return exit;
 }
 
 const DURATIONS = NodePath.join(ROOT, "tests/durations.json");
@@ -838,6 +1006,7 @@ function runCommands(
   commands: ReadonlyArray<LandingCommand>,
   snapshot: { readonly assertUnchanged: () => void } | undefined,
   reportDir?: string,
+  retained: ReadonlyArray<LandingReport> = [],
 ) {
   let exit = 0;
   const reports: LandingReport[] = [];
@@ -855,7 +1024,7 @@ function runCommands(
     exit ||= status;
   }
   // The wall times calibrate `--durations`.
-  if (reportDir) writeManifest(reportDir, reports);
+  if (reportDir) writeManifest(reportDir, [...retained, ...reports]);
   try {
     snapshot?.assertUnchanged();
   } catch (error) {
@@ -895,8 +1064,8 @@ async function replay(count: number) {
     pinned: commits[0]!,
     jj,
     budgetSeconds: LANDING_BUDGET.seconds,
-    budget: ({ plan, workspaces, changed }, root) =>
-      budgetedRuns(plan, workspaces, changed, durations, quarantine, { root }),
+    budget: ({ plan, workspaces, change }, root) =>
+      budgetedRuns(plan, workspaces, change, durations, quarantine, { root }),
     plan: (commit) => {
       const tracked = trackedAt(jj, commit);
       try {
@@ -906,7 +1075,7 @@ async function replay(count: number) {
           plan: selectLandingTests(changes, changes.workspaces),
           workspaces: changes.workspaces,
           tracked,
-          changed: changes.changed,
+          change: changes,
         };
       } catch (error) {
         const workspaces = readWorkspaces(tracked, (file) =>
@@ -916,7 +1085,7 @@ async function replay(count: number) {
           plan: complete(`candidate unreadable or ambiguous: ${String(error)}`),
           workspaces,
           tracked,
-          changed: [],
+          change: { changed: [], deleted: [] },
         };
       }
     },

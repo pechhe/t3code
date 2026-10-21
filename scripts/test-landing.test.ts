@@ -9,25 +9,34 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   budgetedRuns,
   budgetLandingTests,
+  budgetSummary,
   candidateChanges,
   changesBetween,
   durationsFromReports,
   estimateSeconds,
+  invariantGuards,
   LANDING_BUDGET,
   landingCommands as runCommands,
   planCandidate,
   plannedRuns,
   readQuarantine,
   readWorkspaces,
+  relativeImports,
   selectLandingTests,
   versionOnlyChange,
+  writeBudgetReports,
   writeManifest,
   type JjQuery,
   type LandingTests,
   type LandingWorkspace,
   type Quarantine,
 } from "./test-landing.ts";
-import { BUILD_ONLY_EDGES, EXTRA_EDGES, INPUT_RULES } from "./lib/test-landing-inputs.ts";
+import {
+  BUILD_ONLY_EDGES,
+  EXTRA_EDGES,
+  INPUT_RULES,
+  INVARIANT_GUARDS,
+} from "./lib/test-landing-inputs.ts";
 import { runCommand, type RunRequest } from "./lib/test-landing-vitest.ts";
 
 const REPOSITORY_ROOT = NodePath.resolve(import.meta.dirname, "..");
@@ -220,10 +229,7 @@ describe("tests the import graph cannot see", () => {
   });
 
   it("maps source that a test spawns in a child process", () => {
-    assert.include(
-      files("packages/shared/src/git.ts"),
-      "apps/server/src/processRunner.test.ts",
-    );
+    assert.include(files("packages/shared/src/git.ts"), "apps/server/src/processRunner.test.ts");
     assert.include(
       files("apps/server/scripts/acp-mock-agent.ts"),
       "apps/server/src/provider/acp/AcpJsonRpcConnection.test.ts",
@@ -588,7 +594,10 @@ describe("the budget", () => {
       LANDING_BUDGET.startupSeconds + (16 * 10) / LANDING_BUDGET.workers,
     );
     assert.strictEqual(
-      estimateSeconds([test("apps/server/a.test.ts"), test("packages/shared/a.test.ts", "packages/shared")], durations),
+      estimateSeconds(
+        [test("apps/server/a.test.ts"), test("packages/shared/a.test.ts", "packages/shared")],
+        durations,
+      ),
       2 * LANDING_BUDGET.startupSeconds + 40 + 2,
     );
   });
@@ -600,8 +609,14 @@ describe("the budget", () => {
       { "apps/server/src/slow.test.ts": 500, "apps/server/src/other.test.ts": 1 },
       budgetSeconds,
     );
-    assert.deepStrictEqual(budget.selected.map(({ file }) => file), ["apps/server/src/slow.test.ts"]);
-    assert.deepStrictEqual(budget.deferred.map(({ file }) => file), ["apps/server/src/other.test.ts"]);
+    assert.deepStrictEqual(
+      budget.selected.map(({ file }) => file),
+      ["apps/server/src/slow.test.ts"],
+    );
+    assert.deepStrictEqual(
+      budget.deferred.map(({ file }) => file),
+      ["apps/server/src/other.test.ts"],
+    );
   });
 
   it("fills the budget nearest the change first, cheapest first within a rank", () => {
@@ -619,15 +634,18 @@ describe("the budget", () => {
       durations,
       budgetSeconds,
     );
-    assert.deepStrictEqual(budget.selected.map(({ file }) => file), [
-      "apps/server/src/git/GitManager.test.ts",
-      "apps/server/src/git/Cheap.test.ts",
-      "apps/server/src/git/Other.test.ts",
-    ]);
-    assert.deepStrictEqual(budget.deferred.map(({ file }) => file), [
-      "apps/server/src/far/Cheap.test.ts",
-      "apps/server/src/far/Dear.test.ts",
-    ]);
+    assert.deepStrictEqual(
+      budget.selected.map(({ file }) => file),
+      [
+        "apps/server/src/git/GitManager.test.ts",
+        "apps/server/src/git/Cheap.test.ts",
+        "apps/server/src/git/Other.test.ts",
+      ],
+    );
+    assert.deepStrictEqual(
+      budget.deferred.map(({ file }) => file),
+      ["apps/server/src/far/Cheap.test.ts", "apps/server/src/far/Dear.test.ts"],
+    );
     assert.isAtMost(budget.seconds, budgetSeconds);
   });
 
@@ -671,7 +689,7 @@ describe("the budget", () => {
     const budget = await budgetedRuns(
       plan,
       workspaces,
-      ["packages/shared/src/a.ts"],
+      { changed: ["packages/shared/src/a.ts"], deleted: [] },
       {},
       [{ file: "packages/shared/src/flaky.test.ts", issue: 1, reason: "flaky" }],
       { list: async ({ directory }) => listed[directory] ?? [] },
@@ -685,10 +703,232 @@ describe("the budget", () => {
     const shared = request(commands.find((command) => command.cwd === "packages/shared")!);
     assert.strictEqual(shared.workers, LANDING_BUDGET.workers);
     assert.deepStrictEqual(shared.files, ["packages/shared/src/a.test.ts"]);
+    assert.deepStrictEqual(commands.find((command) => command.cwd === "packages/odd")!.command, [
+      "pnpm",
+      "run",
+      "test",
+    ]);
+  });
+});
+
+describe("what the budget never defers", () => {
+  const test = (file: string, directory = "apps/server") => ({ directory, file });
+  const GUARD = "scripts/test-landing.test.ts";
+
+  it("reads the relative modules a test imports or mocks, not packages", () => {
     assert.deepStrictEqual(
-      commands.find((command) => command.cwd === "packages/odd")!.command,
-      ["pnpm", "run", "test"],
+      relativeImports(
+        "apps/server/src/orchestration-v2/ThreadWatch.test.ts",
+        [
+          'import * as HqAgentConnections from "../hq/HqAgentConnections.ts";',
+          'import { Effect } from "effect";',
+          'vi.mock("./ThreadWatch.testkit.ts?worker");',
+          'const later = await import("../hq/Other.js");',
+        ].join("\n"),
+      ),
+      [
+        "apps/server/src/hq/HqAgentConnections",
+        "apps/server/src/orchestration-v2/ThreadWatch.testkit",
+        "apps/server/src/hq/Other",
+      ],
     );
+  });
+
+  it("keeps a direct importer of a changed module when the optional budget is full", () => {
+    // 9268dfbc changed HqAgentConnections.ts; ThreadWatch.test.ts imports it from another directory.
+    const importer = "apps/server/src/orchestration-v2/ThreadWatch.test.ts";
+    const candidates = [
+      test(importer),
+      test("apps/server/src/hq/Beside.test.ts"),
+      test("apps/server/src/far/Far.test.ts"),
+    ];
+    const durations = {
+      [importer]: 8,
+      "apps/server/src/hq/Beside.test.ts": 9,
+      "apps/server/src/far/Far.test.ts": 9,
+    };
+    const imports = (file: string) =>
+      file === importer ? ["apps/server/src/hq/HqAgentConnections"] : [];
+    const budget = budgetLandingTests(
+      candidates,
+      ["apps/server/src/hq/HqAgentConnections.ts"],
+      durations,
+      LANDING_BUDGET.startupSeconds + 8,
+      { imports },
+    );
+    assert.deepStrictEqual(
+      budget.selected.map(({ file }) => file),
+      [importer],
+    );
+    assert.deepStrictEqual(
+      budget.deferred.map(({ file }) => file),
+      ["apps/server/src/hq/Beside.test.ts", "apps/server/src/far/Far.test.ts"],
+    );
+    assert.isFalse(budget.overBudget);
+    // Without the import it ranks last by cost and the budget defers it, as 9268dfbc did.
+    assert.include(
+      budgetLandingTests(
+        candidates,
+        ["apps/server/src/hq/HqAgentConnections.ts"],
+        durations,
+        12,
+      ).deferred.map(({ file }) => file),
+      importer,
+    );
+  });
+
+  it("reports mandatory work over the budget and still bounds the optional tests", () => {
+    const budget = budgetLandingTests(
+      [
+        test("apps/server/src/a.test.ts"),
+        test("apps/server/src/b.test.ts"),
+        test("apps/server/src/c.test.ts"),
+      ],
+      ["apps/server/src/m.ts"],
+      { "apps/server/src/a.test.ts": 200, "apps/server/src/b.test.ts": 1 },
+      LANDING_BUDGET.startupSeconds + 10,
+      { imports: (file) => (file.endsWith("a.test.ts") ? ["apps/server/src/m"] : []) },
+    );
+    assert.deepStrictEqual(
+      budget.selected.map(({ file }) => file),
+      ["apps/server/src/a.test.ts"],
+    );
+    assert.strictEqual(budget.mandatory, 1);
+    assert.isTrue(budget.overBudget);
+    assert.include(budgetSummary(budget), "Over budget");
+  });
+
+  it("runs the invariant guard when a test is added, removed or renamed", () => {
+    assert.deepStrictEqual(invariantGuards({ changed: ["apps/server/src/x.ts"], deleted: [] }), []);
+    assert.deepStrictEqual(
+      invariantGuards({ changed: ["apps/server/src/x.test.ts"], deleted: [] }),
+      [],
+    );
+    for (const change of [
+      {
+        changed: ["apps/mobile/scripts/new.test.ts"],
+        added: ["apps/mobile/scripts/new.test.ts"],
+        deleted: [],
+      },
+      {
+        changed: ["apps/server/src/outboundHttp.test.ts"],
+        deleted: ["apps/server/src/outboundHttp.test.ts"],
+      },
+    ])
+      assert.deepStrictEqual(invariantGuards(change), INVARIANT_GUARDS);
+    assert.deepStrictEqual(INVARIANT_GUARDS, [GUARD]);
+  });
+
+  it("selects the guard for an added test and keeps it through the budget", () => {
+    const workspaces = readRepositoryWorkspaces();
+    const added = "apps/mobile/scripts/new-reader.test.ts";
+    const plan = selectLandingTests({ changed: [added], added: [added], deleted: [] }, workspaces);
+    assert.isTrue(plan.kind === "related" && plan.runs.some((run) => run.files.includes(GUARD)));
+    const change = { changed: [added], added: [added], deleted: [] };
+    const budget = budgetLandingTests(
+      [test(added, "apps/mobile"), test(GUARD, "scripts")],
+      [added],
+      { [GUARD]: 500 },
+      LANDING_BUDGET.seconds,
+      { guards: invariantGuards(change) },
+    );
+    assert.deepStrictEqual(budget.deferred, []);
+  });
+
+  it("keeps the guard when a test named by INPUT_RULES is deleted, through selection and budgeting", async () => {
+    const workspaces = readRepositoryWorkspaces();
+    const deleted = "apps/server/src/outboundHttp.test.ts"; // named by SOURCE_SPAWNERS
+    const change = { changed: [deleted], deleted: [deleted] };
+    const plan = selectLandingTests(change, workspaces);
+    assert.strictEqual(plan.kind, "complete");
+    const many = Array.from({ length: 100 }, (_, index) => `apps/server/src/t${index}.test.ts`);
+    const durations = Object.fromEntries([...many.map((file) => [file, 5]), [GUARD, 50]]);
+    const run = (guarded: boolean) =>
+      budgetedRuns(
+        plan,
+        workspaces,
+        guarded ? change : { changed: [], deleted: [] },
+        durations,
+        [],
+        {
+          list: async ({ directory }) =>
+            directory === "scripts" ? [GUARD] : directory === "apps/server" ? many : [],
+        },
+      );
+    assert.deepStrictEqual(
+      (await run(true)).runs.find((entry) => entry.directory === "scripts"),
+      {
+        directory: "scripts",
+        tests: [GUARD],
+      },
+    );
+    // The control: priced like any far test, the guard is what the budget used to defer.
+    assert.include(
+      (await run(false)).deferred.map(({ file }) => file),
+      GUARD,
+    );
+  });
+
+  it("retains the summary and every deferred file in reports that outlive clipped output", () => {
+    const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-landing-deferred-"));
+    try {
+      const deferred = Array.from({ length: 300 }, (_, index) =>
+        test(`apps/server/src/d${index}.test.ts`),
+      );
+      const budget = {
+        selected: [test("apps/server/src/s.test.ts")],
+        mandatory: 1,
+        overBudget: true,
+        seconds: 70,
+      };
+      const reports = writeBudgetReports(
+        directory,
+        { ...budget, deferred },
+        {
+          "apps/server/src/d1.test.ts": 4,
+        },
+      );
+      assert.deepStrictEqual(
+        reports.map(({ path }) => path),
+        ["landing-budget.json", "landing-deferred.json"],
+      );
+      const rows = (path: string) =>
+        (
+          JSON.parse(NodeFS.readFileSync(NodePath.join(directory, path), "utf8")) as {
+            testResults: ReadonlyArray<{
+              name: string;
+              status: string;
+              startTime: number;
+              endTime: number;
+            }>;
+          }
+        ).testResults;
+      const deferredRows = rows("landing-deferred.json");
+      assert.deepStrictEqual(
+        deferredRows.map((row) => row.name),
+        deferred.map(({ file }) => file),
+      );
+      assert.strictEqual(deferredRows[1]!.endTime - deferredRows[1]!.startTime, 4000);
+      assert.isTrue(
+        [...deferredRows, ...rows("landing-budget.json")].every((row) => row.status === "skipped"),
+      );
+      // The summary, over-budget notice included, is the suite name the runner keeps with the row.
+      assert.strictEqual(reports[0]!.suite, budgetSummary({ ...budget, deferred }));
+      assert.include(reports[0]!.suite, "Over budget");
+      // With nothing deferred only the summary remains; an unwritable directory yields no report.
+      assert.deepStrictEqual(
+        writeBudgetReports(directory, { ...budget, overBudget: false, deferred: [] }, {}).map(
+          ({ path }) => path,
+        ),
+        ["landing-budget.json"],
+      );
+      assert.deepStrictEqual(
+        writeBudgetReports(NodePath.join(directory, "missing"), { ...budget, deferred }, {}),
+        [],
+      );
+    } finally {
+      NodeFS.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 
@@ -697,7 +937,7 @@ describe("an empty whole suite", () => {
     const budget = await budgetedRuns(
       { kind: "complete", reason: "test" },
       [workspace("packages/shared", "@t3tools/shared")],
-      [],
+      { changed: [], deleted: [] },
       {},
       [],
       { list: async () => [] },
@@ -712,9 +952,14 @@ describe("the Vitest runner", () => {
       NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-landing-run-")),
     );
     try {
-      NodeFS.symlinkSync(NodePath.join(REPOSITORY_ROOT, "node_modules"), NodePath.join(root, "node_modules"), "dir");
+      NodeFS.symlinkSync(
+        NodePath.join(REPOSITORY_ROOT, "node_modules"),
+        NodePath.join(root, "node_modules"),
+        "dir",
+      );
       NodeFS.mkdirSync(NodePath.join(root, "pkg/src"), { recursive: true });
-      const body = 'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n';
+      const body =
+        'import { expect, it } from "vite-plus/test";\nit("runs", () => expect(1).toBe(1));\n';
       for (const file of ["a.test.ts", "a.test.tsx", "b.test.ts", "flaky.test.ts"]) {
         NodeFS.writeFileSync(NodePath.join(root, "pkg/src", file), body);
       }
@@ -802,10 +1047,9 @@ describe("quarantine", () => {
     assert.deepStrictEqual(excluded("apps/server"), ["apps/server/src/flaky.test.ts"]);
     assert.deepStrictEqual(excluded("packages/shared"), ["packages/shared/src/odd.test.ts"]);
     const all = landingCommands({ kind: "complete", reason: "test" }, FIXTURE, [entry]);
-    assert.deepStrictEqual(
-      request(all.find((command) => command.cwd === "apps/server")!).exclude,
-      ["apps/server/src/flaky.test.ts"],
-    );
+    assert.deepStrictEqual(request(all.find((command) => command.cwd === "apps/server")!).exclude, [
+      "apps/server/src/flaky.test.ts",
+    ]);
   });
 
   it("reads the repository's quarantine", () => {

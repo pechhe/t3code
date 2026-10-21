@@ -3,13 +3,13 @@ import * as NodeFS from "node:fs";
 import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
-import type { LandingTests, LandingWorkspace } from "../test-landing.ts";
+import type { LandingChange, LandingTests, LandingWorkspace } from "../test-landing.ts";
 
 interface ReplayCommit {
   readonly plan: LandingTests;
   readonly workspaces: ReadonlyArray<LandingWorkspace>;
   readonly tracked: ReadonlyArray<string>;
-  readonly changed: ReadonlyArray<string>;
+  readonly change: LandingChange;
 }
 
 interface ReplayOptions {
@@ -23,7 +23,11 @@ interface ReplayOptions {
   readonly budget: (
     commit: ReplayCommit,
     root: string,
-  ) => Promise<{ readonly selected: ReadonlyArray<unknown>; readonly deferred: ReadonlyArray<unknown>; readonly seconds: number }>;
+  ) => Promise<{
+    readonly selected: ReadonlyArray<unknown>;
+    readonly deferred: ReadonlyArray<unknown>;
+    readonly seconds: number;
+  }>;
   readonly budgetSeconds: number;
 }
 
