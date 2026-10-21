@@ -1,10 +1,8 @@
 /**
- * Build Home for T3's Build button (pechhe/yardsmith Spec #4070). The person pastes the endpoint
- * and decision token HQ shows them once; this service keeps both in the server secret store and
- * reads and decides through them. The token authorises only Accept, Send back and the reads that
- * refresh the cards, as the person. It is never given to a client, an agent, a prompt, a
- * workspace or a log: clients learn only whether one is set, and an HTTP client error, which
- * carries the request, is never passed on.
+ * Build Home for T3's Build button (pechhe/yardsmith Specs #4070, #4367). It reads and decides
+ * through T3's one HQ connection: `HqAgentConnections.decide` presents the person's delegation to
+ * HQ's decisions endpoint, which allows only Accept, Send back and the reads that refresh the
+ * cards, as the person. No client, agent, prompt, workspace or log ever sees the delegation.
  *
  * A Send back is delivered to the lead thread that reported the Spec's newest session, exactly
  * once: the note is queued as a user message under a command id derived from HQ's finding id, so
@@ -38,7 +36,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SqlClient from "effect/sql/SqlClient";
-import { HttpClient, HttpClientRequest } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
@@ -58,17 +55,11 @@ import {
 } from "./BuildWorkItems.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 
-const STORE_NAME = "hq-build-decisions";
-const HQ_REQUEST_TIMEOUT = "60 seconds";
-const TOKEN_PATTERN = /^yshqp_[A-Za-z0-9_-]+$/;
+/** Where #4070 kept a separate decision token; removed at startup now the HQ connection decides. */
+const RETIRED_STORE_NAME = "hq-build-decisions";
 /** A delivery that fails is tried again after this, doubling to the Build re-read cap. */
 const DELIVERY_RETRY_MS = 5_000;
 
-const StoredDecisions = Schema.fromJsonString(
-  Schema.Struct({ endpoint: Schema.String, token: Schema.String }),
-);
-const encodeStored = Schema.encodeEffect(StoredDecisions);
-const decodeStored = Schema.decodeUnknownOption(StoredDecisions);
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 
 /** HQ's own `Item` fields Build Home names a Spec by. The rest of its view is left out. */
@@ -180,30 +171,11 @@ const hqErrorMessage = (code: string | undefined) =>
   (code === undefined ? undefined : refusalMessages[code]) ??
   (code === undefined ? "HQ refused that." : `HQ refused that (${code}).`);
 
-/** HQ's endpoint, or null when it is not https (http is allowed only for a local HQ). */
-const normalizeEndpoint = (input: string): URL | null => {
-  try {
-    const url = new URL(input);
-    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-    if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) return null;
-    url.hash = "";
-    return url;
-  } catch {
-    return null;
-  }
-};
-
 export class BuildHome extends Context.Service<
   BuildHome,
   {
     /** Build Home as the button shows it; HQ is asked at most as often as Build items are. */
     readonly read: Effect.Effect<BuildHomeState>;
-    /** Stores the endpoint and token HQ showed the person. Neither is ever read back out. */
-    readonly connect: (input: {
-      readonly endpoint: string;
-      readonly token: string;
-    }) => Effect.Effect<BuildHomeState, BuildHomeError>;
-    readonly disconnect: Effect.Effect<BuildHomeState, BuildHomeError>;
     /** Accept or Send back as the person; a Send back's note is then delivered to the lead. */
     readonly decide: (
       input: BuildHomeDecideInput,
@@ -214,8 +186,6 @@ export class BuildHome extends Context.Service<
     readonly settleDeliveries: Effect.Effect<{ readonly failed: number }>;
   }
 >()("t3/hq/BuildHome") {}
-
-type Stored = typeof StoredDecisions.Type;
 
 interface CachedHome extends ReadCadence {
   readonly key: string;
@@ -262,14 +232,13 @@ export const sendBackMessageText = (input: { readonly specLabel: string; readonl
 
 const notConnected = new BuildHomeError({
   reason: "not_connected",
-  message: "Connect Build decisions in Settings first.",
+  message: "Connect T3 to YardSmith HQ in Settings first.",
 });
 
 const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
   const hq = yield* HqAgentConnections.HqAgentConnections;
   const crypto = yield* Crypto.Crypto;
-  const httpClient = yield* HttpClient.HttpClient;
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagementService.ThreadManagementService;
   const projects = yield* Project.ProjectService;
@@ -280,56 +249,27 @@ const make = Effect.gen(function* () {
   const lock = yield* KeyedLock.make<string>();
   let cached: CachedHome | undefined;
 
-  const readStored = store.get(STORE_NAME).pipe(
-    Effect.map(Option.flatMap((bytes) => decodeStored(new TextDecoder().decode(bytes)))),
-    Effect.mapError(
-      () =>
-        new BuildHomeError({
-          reason: "store_failed",
-          message: "T3 could not read its Build decision token.",
-        }),
-    ),
-  );
-
-  const storedOrUndefined = readStored.pipe(
-    Effect.map(Option.getOrUndefined),
-    Effect.orElseSucceed(() => undefined),
-  );
-
-  const keyOf = (stored: Stored) =>
-    crypto.digest("SHA-256", new TextEncoder().encode(`${stored.endpoint}\n${stored.token}`)).pipe(
-      Effect.map((bytes) =>
-        Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(""),
-      ),
-      Effect.orDie,
-    );
-
-  /** One call to HQ's decisions endpoint. A transport failure carries nothing: not the request. */
-  const post = (stored: Stored, body: Record<string, unknown>) =>
-    HttpClientRequest.post(stored.endpoint).pipe(
-      HttpClientRequest.bearerToken(stored.token),
-      HttpClientRequest.bodyJsonUnsafe(body),
-      httpClient.execute,
-      Effect.flatMap((response) =>
-        response.text.pipe(Effect.map((text) => ({ status: response.status, text }))),
-      ),
-      Effect.timeout(HQ_REQUEST_TIMEOUT),
-      Effect.mapError(() => "unavailable" as const),
-      Effect.map(({ status, text }) => ({
-        status,
-        outcome: decodeJson(text).pipe(Option.flatMap(decodeOutcome)),
+  /** One call to HQ's decisions endpoint as the person. A transport failure carries nothing. */
+  const post = (body: Record<string, unknown>, origin?: string) =>
+    hq.decide({ body, ...(origin === undefined ? {} : { origin }) }).pipe(
+      Effect.map((response) => ({
+        ...response,
+        outcome: decodeJson(response.text).pipe(Option.flatMap(decodeOutcome)),
       })),
     );
 
   const stateOf = (
-    stored: Stored | undefined,
+    origin: string | null,
     status: BuildHomeState["status"],
     home: BuildHomeView | null,
     readAt: string | null,
-  ): BuildHomeState => {
-    const origin = stored === undefined ? null : new URL(stored.endpoint).origin;
-    return { status, origin, buildUrl: origin === null ? null : `${origin}/build`, home, readAt };
-  };
+  ): BuildHomeState => ({
+    status,
+    origin,
+    buildUrl: origin === null ? null : `${origin}/build`,
+    home,
+    readAt,
+  });
 
   const viewOf = (
     home: typeof HqHome.Type,
@@ -412,22 +352,30 @@ const make = Effect.gen(function* () {
   const readHome = lock.withLock(
     "home",
     Effect.gen(function* () {
-      const stored = yield* storedOrUndefined;
-      if (stored === undefined) {
+      const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+      if (connected === null) {
         cached = undefined;
-        return stateOf(undefined, "not_connected", null, null);
+        return stateOf(null, "not_connected", null, null);
       }
-      const key = yield* keyOf(stored);
       const now = yield* Clock.currentTimeMillis;
       const writeVersion = yield* hq.buildWriteVersion;
-      const previous = cached?.key === key ? cached : undefined;
+      const previous = cached?.key === connected.connection ? cached : undefined;
       if (
         previous !== undefined &&
         previous.writeVersion === writeVersion &&
         now - previous.attemptedAt < previous.intervalMs
       )
         return previous.state;
-      const response = yield* post(stored, { action: "home" }).pipe(Effect.option);
+      const answered = yield* post({ action: "home" }).pipe(Effect.result);
+      if (answered._tag === "Failure" && answered.failure.reason === "not_connected") {
+        cached = undefined;
+        return stateOf(null, "not_connected", null, null);
+      }
+      const response = answered._tag === "Success" ? Option.some(answered.success) : Option.none();
+      // The connection that answered, which a reconnect since `read` may have changed.
+      const key = Option.isSome(response) ? response.value.connection : connected.connection;
+      const origin = Option.isSome(response) ? response.value.origin : connected.origin;
+      const fresh = key === connected.connection ? previous : undefined;
       const value =
         Option.isSome(response) && response.value.status === 200
           ? response.value.outcome.pipe(
@@ -436,7 +384,7 @@ const make = Effect.gen(function* () {
             )
           : Option.none();
       if (Option.isSome(value)) {
-        const { view, prompts } = viewOf(value.value, new URL(stored.endpoint).origin);
+        const { view, prompts } = viewOf(value.value, origin);
         // HQ counts every need; one T3 cannot read would otherwise vanish from the cards silently.
         const dropped = value.value.needsYou.length - view.needsYou.length;
         if (dropped > 0)
@@ -452,9 +400,9 @@ const make = Effect.gen(function* () {
           attemptedAt: now,
           writeVersion,
           fingerprint,
-          intervalMs: nextInterval(previous, fingerprint, writeVersion),
+          intervalMs: nextInterval(fresh, fingerprint, writeVersion),
           prompts,
-          state: stateOf(stored, "ready", view, DateTime.formatIso(DateTime.makeUnsafe(now))),
+          state: stateOf(origin, "ready", view, DateTime.formatIso(DateTime.makeUnsafe(now))),
         };
         return cached.state;
       }
@@ -464,20 +412,15 @@ const make = Effect.gen(function* () {
           status: Option.isSome(response) ? response.value.status : "unreachable",
         });
       const state = refused
-        ? stateOf(stored, "invalid_token", null, null)
-        : stateOf(
-            stored,
-            "unavailable",
-            previous?.state.home ?? null,
-            previous?.state.readAt ?? null,
-          );
+        ? stateOf(origin, "invalid_token", null, null)
+        : stateOf(origin, "unavailable", fresh?.state.home ?? null, fresh?.state.readAt ?? null);
       cached = {
         key,
         attemptedAt: now,
         writeVersion,
         fingerprint: undefined,
         intervalMs: BUILD_REREAD_INTERVAL_MS,
-        prompts: previous?.prompts ?? new Map(),
+        prompts: fresh?.prompts ?? new Map(),
         state,
       };
       return state;
@@ -488,45 +431,6 @@ const make = Effect.gen(function* () {
   const forget = Effect.sync(() => {
     cached = undefined;
   });
-
-  const storeFailed = () =>
-    new BuildHomeError({
-      reason: "store_failed",
-      message: "T3 could not save the Build decision token.",
-    });
-
-  const connect: BuildHome["Service"]["connect"] = Effect.fn("BuildHome.connect")(
-    function* (input) {
-      const endpoint = normalizeEndpoint(input.endpoint.trim());
-      if (endpoint === null)
-        return yield* new BuildHomeError({
-          reason: "invalid_endpoint",
-          message: "The decisions endpoint must be an https URL (http only for localhost).",
-        });
-      const token = input.token.trim();
-      if (!TOKEN_PATTERN.test(token))
-        return yield* new BuildHomeError({
-          reason: "invalid_token",
-          message:
-            "That is not a decision token; copy it from HQ Settings → Connections → T3 decisions.",
-        });
-      const encoded = yield* encodeStored({ endpoint: endpoint.href, token }).pipe(Effect.orDie);
-      yield* store
-        .set(STORE_NAME, new TextEncoder().encode(encoded))
-        .pipe(Effect.mapError(storeFailed));
-      yield* forget;
-      return yield* readHome;
-    },
-  );
-
-  const disconnect: BuildHome["Service"]["disconnect"] = store
-    .remove(STORE_NAME)
-    .pipe(
-      Effect.mapError(storeFailed),
-      Effect.andThen(forget),
-      Effect.as(stateOf(undefined, "not_connected", null, null)),
-      Effect.withSpan("BuildHome.disconnect"),
-    );
 
   // ---------------------------------------------------------------------------------------
   // Send back delivery
@@ -600,15 +504,16 @@ const make = Effect.gen(function* () {
             WHERE finding_id = ${row.findingId}`;
         }
         if (row.reportedAt !== null) return true;
-        const stored = yield* storedOrUndefined;
         // Reported only to the HQ that recorded it; after reconnecting elsewhere it waits for that one.
-        if (stored === undefined || new URL(stored.endpoint).origin !== row.hqOrigin) return false;
-        const response = yield* post(stored, {
-          action: "delivery",
-          findingId: row.findingId,
-          state,
-          ...(detail === null ? {} : { detail }),
-        }).pipe(Effect.option);
+        const response = yield* post(
+          {
+            action: "delivery",
+            findingId: row.findingId,
+            state,
+            ...(detail === null ? {} : { detail }),
+          },
+          row.hqOrigin,
+        ).pipe(Effect.option);
         // A duplicate means HQ already has this report.
         const accepted =
           Option.isSome(response) &&
@@ -664,19 +569,21 @@ const make = Effect.gen(function* () {
   // ---------------------------------------------------------------------------------------
 
   const decide: BuildHome["Service"]["decide"] = Effect.fn("BuildHome.decide")(function* (input) {
-    const stored = yield* readStored;
-    if (Option.isNone(stored)) return yield* notConnected;
-    const response = yield* post(stored.value, {
+    const answered = yield* post({
       action: "decide",
       specId: input.specId,
       decision: input.decision,
       card: input.card,
       ...(input.note === undefined ? {} : { note: input.note }),
       via: { client: "t3", environmentId },
-    }).pipe(Effect.option);
+    }).pipe(Effect.result);
+    if (answered._tag === "Failure" && answered.failure.reason === "not_connected")
+      return yield* notConnected;
+    const response = answered._tag === "Success" ? Option.some(answered.success) : Option.none();
+    const origin = Option.isSome(response) ? response.value.origin : null;
     const refused = (
       message: string,
-      state: BuildHomeState = stateOf(stored.value, "ready", null, null),
+      state: BuildHomeState = stateOf(origin, "ready", null, null),
     ) =>
       readHome.pipe(
         Effect.map((fresh) => ({
@@ -692,8 +599,9 @@ const make = Effect.gen(function* () {
       yield* forget;
       return {
         outcome: "refused" as const,
-        message: "HQ refused T3's decision token. Connect a new one in Settings.",
-        state: stateOf(stored.value, "invalid_token", null, null),
+        message:
+          "HQ refused T3's delegation: it was revoked or has expired. Reconnect T3 to HQ in Settings.",
+        state: stateOf(origin, "invalid_token", null, null),
       };
     }
     if (status === 200 && Option.exists(outcome, (found) => found.status === "succeeded")) {
@@ -706,7 +614,7 @@ const make = Effect.gen(function* () {
           specLabel: decided.value.spec.ref || `#${decided.value.spec.number}`,
           note: decided.value.finding.note,
           lead: decided.value.leadThread,
-          hqOrigin: new URL(stored.value.endpoint).origin,
+          hqOrigin: response.value.origin,
         }).pipe(
           Effect.andThen(settleDeliveries),
           Effect.catchCause((cause) => Effect.logWarning("Could not queue a Send back", cause)),
@@ -728,8 +636,7 @@ const make = Effect.gen(function* () {
 
   const fix: BuildHome["Service"]["fix"] = Effect.fn("BuildHome.fix")(function* (input) {
     const state = yield* readHome;
-    const stored = yield* readStored;
-    if (Option.isNone(stored) || state.status === "not_connected") return yield* notConnected;
+    if (state.status === "not_connected") return yield* notConnected;
     const prompt = cached?.prompts.get(`${input.specNumber}:${input.kind}`) ?? undefined;
     const line = state.home?.stuck.find(
       (stuck) => stuck.spec.number === input.specNumber && stuck.kind === input.kind,
@@ -807,7 +714,16 @@ const make = Effect.gen(function* () {
     }),
   );
 
-  return BuildHome.of({ read: readHome, connect, disconnect, decide, fix, settleDeliveries });
+  // #4070's separate decision token is retired: the HQ connection decides now.
+  yield* store
+    .remove(RETIRED_STORE_NAME)
+    .pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("Could not remove T3's retired Build decision token", cause),
+      ),
+    );
+
+  return BuildHome.of({ read: readHome, decide, fix, settleDeliveries });
 });
 
 export const layer = Layer.effect(BuildHome, make);

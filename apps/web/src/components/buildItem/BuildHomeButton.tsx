@@ -7,7 +7,6 @@ import type {
   ThreadId,
 } from "@t3tools/contracts";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
-import { useNavigate } from "@tanstack/react-router";
 import { ExternalLinkIcon } from "lucide-react";
 import { useState } from "react";
 
@@ -208,7 +207,6 @@ export function BuildHomeButton(props: {
   const [decided, setDecided] = useState<BuildHomeState | null>(null);
   const [notices, setNotices] = useState<Readonly<Record<string, string>>>({});
   const fix = useAtomCommand(buildWorkItems.homeFix, { reportFailure: false });
-  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [fixing, setFixing] = useState<string | null>(null);
   // A decision's own answer shows at once, until a newer read replaces it.
@@ -263,28 +261,14 @@ export function BuildHomeButton(props: {
       <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
         <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto text-sm">
           {state === null || state.status === "not_connected" ? (
-            <div className="text-xs text-muted-foreground">
-              <p className="m-0">
-                Build decisions are not connected. In HQ, open Settings → Connections → T3
-                decisions, then paste its endpoint and token in T3 Settings → Integrations → Build
-                decisions.
-              </p>
-              <Button
-                size="xs"
-                variant="outline"
-                className="mt-2"
-                onClick={() => {
-                  setOpen(false);
-                  void navigate({ to: "/settings/integrations" });
-                }}
-              >
-                Open Settings
-              </Button>
-            </div>
+            <p className="m-0 text-xs text-muted-foreground">
+              T3 is not connected to YardSmith HQ. Create a delegation in HQ Settings → Connections
+              → T3 agents, then ask any thread to connect T3 to HQ with it.
+            </p>
           ) : state.status === "invalid_token" ? (
             <p className="m-0 text-xs text-warning-foreground">
-              HQ refused T3's decision token: it expired or was revoked. Issue a new one in HQ and
-              paste it in Settings → Integrations → Build decisions.
+              HQ refused T3's delegation: it expired or was revoked. Create a new one in HQ Settings
+              → Connections → T3 agents, then ask any thread to reconnect T3 to HQ with it.
             </p>
           ) : (
             <>

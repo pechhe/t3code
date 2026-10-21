@@ -11,7 +11,8 @@ import * as Context from "effect/Context";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClient, HttpClientError, HttpClientResponse } from "effect/http";
+import { HttpClient, HttpClientError, HttpClientResponse, HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
 import { inspect } from "node:util";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -26,8 +27,8 @@ import * as BuildHome from "./BuildHome.ts";
 import { hqHomeWithOwnerCard, hqHomeWithStuckLine } from "./BuildHome.hqFixtures.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 
-const endpoint = "https://hq.example.test/api/build/decisions";
-const token = `yshqp_${"p".repeat(43)}`;
+const origin = "https://hq.example.test";
+const delegation = `yshqd_${"d".repeat(43)}`;
 const environmentId = EnvironmentId.make("environment-t3");
 const leadThread = ThreadId.make("mcp:thread-lead");
 const parseJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
@@ -83,7 +84,7 @@ const homeValue = {
 const makeHarness = Effect.gen(function* () {
   const stored = new Map<string, Uint8Array>();
   const hq = {
-    calls: [] as Array<{ auth: string; body: Record<string, unknown> }>,
+    calls: [] as Array<{ url: string; auth: string; body: Record<string, unknown> }>,
     unreachable: false,
     status: 200,
     /** Answers one call; tests replace it. */
@@ -101,7 +102,7 @@ const makeHarness = Effect.gen(function* () {
       const body = parseJson(
         request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "{}",
       ) as Record<string, unknown>;
-      hq.calls.push({ auth: request.headers.authorization ?? "", body });
+      hq.calls.push({ url: request.url, auth: request.headers.authorization ?? "", body });
       const answer =
         hq.status === 200 ? hq.answer(body) : { status: hq.status, json: { error: "x" } };
       return HttpClientResponse.fromWeb(
@@ -122,7 +123,7 @@ const makeHarness = Effect.gen(function* () {
     [Logger.make(({ message }) => void logs.push(inspect(message, { depth: 10 })))],
     { mergeWithExisting: false },
   );
-  const deps = Layer.mergeAll(
+  const platform = Layer.mergeAll(
     NodeCrypto.layer,
     NodeServices.layer,
     Layer.succeed(HttpClient.HttpClient, client),
@@ -142,7 +143,18 @@ const makeHarness = Effect.gen(function* () {
         getEnvironmentId: Effect.succeed(environmentId),
       } as ServerEnvironment.ServerEnvironment["Service"]),
     ),
-    Layer.mock(HqAgentConnections.HqAgentConnections)({ buildWriteVersion: Effect.succeed(0) }),
+    Layer.succeed(
+      HttpServer.HttpServer,
+      HttpServer.HttpServer.of({
+        address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
+        serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+      }),
+    ),
+  );
+  // T3's own HQ connection: decisions go out with the delegation it stores.
+  const deps = Layer.mergeAll(
+    platform,
+    HqAgentConnections.layer.pipe(Layer.provide(platform)),
     // Not a receipt store: it records every send, so a duplicate would show.
     Layer.mock(ThreadManagementService.ThreadManagementService)({
       getThreadShell: () => Effect.succeed(world.shell as never),
@@ -174,13 +186,14 @@ const makeHarness = Effect.gen(function* () {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
       BuildHome.layer.pipe(
-        Layer.provide(Layer.mergeAll(deps, databaseLayer)),
+        Layer.provideMerge(Layer.mergeAll(deps, databaseLayer)),
         Layer.provide(logLayer),
       ),
       scope,
     );
     return {
       service: Context.get(context, BuildHome.BuildHome),
+      connections: Context.get(context, HqAgentConnections.HqAgentConnections),
       stop: Scope.close(scope, Exit.void),
     };
   });
@@ -190,11 +203,11 @@ const makeHarness = Effect.gen(function* () {
 const connected = Effect.gen(function* () {
   const h = yield* makeHarness;
   const server = yield* h.boot;
-  yield* server.service.connect({ endpoint, token });
+  yield* server.connections.connect({ origin, delegation });
   return { ...h, ...server };
 });
 
-it.effect("is not connected without a token and asks HQ nothing", () =>
+it.effect("is not connected without an HQ connection and asks HQ nothing", () =>
   Effect.gen(function* () {
     const h = yield* makeHarness;
     const { service } = yield* h.boot;
@@ -205,38 +218,37 @@ it.effect("is not connected without a token and asks HQ nothing", () =>
   }),
 );
 
-it.effect(
-  "reads Home with the token, shows it without the token, and says when HQ refuses it",
-  () =>
-    Effect.gen(function* () {
-      const { hq, service, logs } = yield* connected;
-      const state = yield* service.read;
-      assert.strictEqual(state.status, "ready");
-      assert.strictEqual(state.home?.count, 2);
-      assert.strictEqual(state.buildUrl, "https://hq.example.test/build");
-      const need = state.home?.needsYou[0];
-      assert.strictEqual(need?.kind, "acceptance");
-      if (need?.kind === "acceptance") {
-        assert.deepStrictEqual(
-          need.checks.map((check) => check.met),
-          [true, true, true, null],
-        );
-        assert.deepStrictEqual(need.repositories, ["pechhe/yardsmith"]);
-      }
-      assert.strictEqual(state.home?.stuck[0]?.fix, "re-run it");
-      assert.strictEqual(hq.calls[0]?.auth, `Bearer ${token}`);
-      // Neither the state a client receives, nor a log, carries the token or a stuck line's prompt.
-      const surfaces = inspect([state, logs], { depth: 20 });
-      assert.notInclude(surfaces, token);
-      assert.notInclude(surfaces, "Re-run the review of #3180");
+it.effect("reads Home with T3's delegation, never shows it, and says when HQ refuses it", () =>
+  Effect.gen(function* () {
+    const { hq, service, logs } = yield* connected;
+    const state = yield* service.read;
+    assert.strictEqual(state.status, "ready");
+    assert.strictEqual(state.home?.count, 2);
+    assert.strictEqual(state.buildUrl, "https://hq.example.test/build");
+    const need = state.home?.needsYou[0];
+    assert.strictEqual(need?.kind, "acceptance");
+    if (need?.kind === "acceptance") {
+      assert.deepStrictEqual(
+        need.checks.map((check) => check.met),
+        [true, true, true, null],
+      );
+      assert.deepStrictEqual(need.repositories, ["pechhe/yardsmith"]);
+    }
+    assert.strictEqual(state.home?.stuck[0]?.fix, "re-run it");
+    assert.strictEqual(hq.calls[0]?.url, `${origin}/api/build/decisions`);
+    assert.strictEqual(hq.calls[0]?.auth, `Bearer ${delegation}`);
+    // Neither the state a client receives, nor a log, carries the delegation or a stuck line's prompt.
+    const surfaces = inspect([state, logs], { depth: 20 });
+    assert.notInclude(surfaces, delegation);
+    assert.notInclude(surfaces, "Re-run the review of #3180");
 
-      hq.status = 401;
-      yield* TestClock.adjust(60_000);
-      assert.strictEqual((yield* service.read).status, "invalid_token");
-      hq.status = 200;
-      yield* TestClock.adjust(60_000);
-      assert.strictEqual((yield* service.read).status, "ready");
-    }),
+    hq.status = 401;
+    yield* TestClock.adjust(60_000);
+    assert.strictEqual((yield* service.read).status, "invalid_token");
+    hq.status = 200;
+    yield* TestClock.adjust(60_000);
+    assert.strictEqual((yield* service.read).status, "ready");
+  }),
 );
 
 it.effect("reads Home as HQ actually answers it: an owner card, then a stuck line", () =>
@@ -264,7 +276,10 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
     // An HQ from before the checks were projected still shows the card, without checks.
     const [entry] = hqHomeWithOwnerCard.needsYou;
     const { checks: _checks, ...readiness } = entry!.spec.readiness;
-    home = { ...hqHomeWithOwnerCard, needsYou: [{ ...entry, spec: { ...entry!.spec, readiness } }] };
+    home = {
+      ...hqHomeWithOwnerCard,
+      needsYou: [{ ...entry, spec: { ...entry!.spec, readiness } }],
+    };
     yield* TestClock.adjust(60_000);
     const withoutChecks = (yield* service.read).home?.needsYou[0];
     assert.strictEqual(withoutChecks?.kind, "acceptance");
@@ -282,18 +297,21 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
   }),
 );
 
-it.effect("a token that is not a decision token is refused before it is stored", () =>
+it.effect("the retired decision token is removed, and decisions follow T3's HQ connection", () =>
   Effect.gen(function* () {
     const h = yield* makeHarness;
-    const { service } = yield* h.boot;
+    h.stored.set("hq-build-decisions", new TextEncoder().encode("retired"));
+    const { service, connections } = yield* h.boot;
+    assert.isFalse(h.stored.has("hq-build-decisions"));
+    yield* connections.connect({ origin, delegation });
+    assert.strictEqual((yield* service.read).status, "ready");
+    yield* connections.disconnect;
+    assert.strictEqual((yield* service.read).status, "not_connected");
     const refused = yield* service
-      .connect({ endpoint, token: `yshqd_${"d".repeat(43)}` })
+      .decide({ specId: "item-4071", decision: "accept", card })
       .pipe(Effect.flip);
-    assert.strictEqual(refused.reason, "invalid_token");
-    assert.strictEqual(h.stored.size, 0);
-    assert.strictEqual((yield* service.connect({ endpoint, token })).status, "ready");
-    assert.strictEqual((yield* service.disconnect).status, "not_connected");
-    assert.strictEqual(h.stored.size, 0);
+    assert.strictEqual(refused.reason, "not_connected");
+    assert.isFalse(h.hq.calls.some((call) => call.body.action === "decide"));
   }),
 );
 
@@ -397,20 +415,17 @@ it("names the lead's T3 thread from either session form, and nothing else", () =
 
 it.effect("a delivery is reported only to the HQ that recorded the finding", () =>
   Effect.gen(function* () {
-    const { hq, world, service } = yield* connected;
+    const { hq, world, service, connections } = yield* connected;
     hq.answer = sendBackAnswer(leadRef, 503);
     yield* service.decide(sendBack);
     assert.strictEqual(world.sent.length, 1);
     const before = deliveries(hq).length;
     // Reconnected to another HQ: it never hears of a finding it did not record.
-    yield* service.connect({
-      endpoint: "https://other-hq.example.test/api/build/decisions",
-      token,
-    });
+    yield* connections.connect({ origin: "https://other-hq.example.test", delegation });
     hq.answer = sendBackAnswer(leadRef, 200);
     yield* TestClock.adjust(10 * 60_000);
     assert.strictEqual(deliveries(hq).length, before);
-    yield* service.connect({ endpoint, token });
+    yield* connections.connect({ origin, delegation });
     yield* TestClock.adjust(10 * 60_000);
     assert.strictEqual(deliveries(hq).at(-1)?.state, "delivered");
     assert.strictEqual(world.sent.length, 1);

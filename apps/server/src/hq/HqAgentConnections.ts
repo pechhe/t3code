@@ -82,6 +82,21 @@ export class HqObserveError extends Schema.TaggedError<HqObserveError>()("HqObse
   code: Schema.optional(Schema.String),
 }) {}
 
+/** Why a person's Build decision could not be posted. HQ's own refusals come back as responses. */
+export class HqDecisionError extends Schema.TaggedError<HqDecisionError>()("HqDecisionError", {
+  /** `other_origin`: T3 is now connected to another HQ than the one the caller named. */
+  reason: Schema.Literals(["not_connected", "other_origin", "unavailable"]),
+}) {}
+
+/** HQ's answer to one decisions call, with the connection that made it. */
+export interface HqDecisionResponse {
+  readonly origin: string;
+  /** Identifies the origin and delegation used, as `read` does, without revealing either. */
+  readonly connection: string;
+  readonly status: number;
+  readonly text: string;
+}
+
 export class HqConnectionError extends Schema.TaggedError<HqConnectionError>()(
   "HqConnectionError",
   { reason: Schema.Literals(["invalid_origin", "invalid_delegation", "store_failed"]) },
@@ -264,6 +279,16 @@ export class HqAgentConnections extends Context.Service<
       { readonly origin: string; readonly connection: string; readonly value: unknown },
       HqObserveError
     >;
+    /**
+     * Posts one of the person's own Build decisions, or the reads that refresh their cards, to HQ's
+     * `/api/build/decisions` as the person, with the stored delegation (pechhe/yardsmith Spec
+     * #4367). Only the server's Build Home calls this; no thread's MCP route can, so no agent decides
+     * as the person through T3. `origin`, when given, refuses to post to any other HQ.
+     */
+    readonly decide: (input: {
+      readonly body: Record<string, unknown>;
+      readonly origin?: string;
+    }) => Effect.Effect<HqDecisionResponse, HqDecisionError>;
     /** Gives the thread's agent a connection when T3 is connected to HQ, and none otherwise. */
     readonly prepare: (agent: HqAgent) => Effect.Effect<void>;
     readonly connection: (threadId: ThreadId) => Effect.Effect<HqMcpConnection | undefined>;
@@ -499,6 +524,32 @@ const make = Effect.gen(function* () {
           code: outcome.code ?? outcome.status,
         });
       return { origin: stored.value.origin, connection: key, value: outcome.value };
+    },
+  );
+
+  const decide: HqAgentConnections["Service"]["decide"] = Effect.fn("HqAgentConnections.decide")(
+    function* (input) {
+      // One read decides both where the decision goes and the credential it carries.
+      const stored = yield* readStored.pipe(
+        Effect.mapError(() => new HqDecisionError({ reason: "unavailable" })),
+      );
+      if (Option.isNone(stored)) return yield* new HqDecisionError({ reason: "not_connected" });
+      const { origin, delegation } = stored.value;
+      if (input.origin !== undefined && input.origin !== origin)
+        return yield* new HqDecisionError({ reason: "other_origin" });
+      const connection = yield* connectionKey(stored.value);
+      // Never pass an HTTP client error on: it carries the request, and so the delegation.
+      const { status, text } = yield* HttpClientRequest.post(`${origin}/api/build/decisions`).pipe(
+        HttpClientRequest.bearerToken(delegation),
+        HttpClientRequest.bodyJsonUnsafe(input.body),
+        httpClient.execute,
+        Effect.flatMap((response) =>
+          response.text.pipe(Effect.map((text) => ({ status: response.status, text }))),
+        ),
+        Effect.timeout(HQ_REQUEST_TIMEOUT),
+        Effect.mapError(() => new HqDecisionError({ reason: "unavailable" })),
+      );
+      return { origin, connection, status, text };
     },
   );
 
@@ -743,6 +794,7 @@ const make = Effect.gen(function* () {
           : { endpoint, authorizationHeader: `Bearer ${connection.credential}` };
       }),
     observe,
+    decide,
     forward,
     buildWriteVersion: Effect.sync(() => buildWriteVersion),
     end,

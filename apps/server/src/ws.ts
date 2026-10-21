@@ -2159,8 +2159,6 @@ export const layerWsRpc = (
             Effect.map(({ workItem }) => ({ workItem })),
           ),
         [WS_METHODS.buildHomeRead]: () => buildHome.read,
-        [WS_METHODS.buildHomeConnect]: (input) => buildHome.connect(input),
-        [WS_METHODS.buildHomeDisconnect]: () => buildHome.disconnect,
         [WS_METHODS.buildHomeDecide]: (input) => buildHome.decide(input),
         [WS_METHODS.buildHomeFix]: (input) => buildHome.fix(input),
         [WS_METHODS.scheduledTasksList]: (_input) =>

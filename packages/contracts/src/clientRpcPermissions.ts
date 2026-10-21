@@ -62,8 +62,6 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
 
   [WS_METHODS.buildWorkItemLink]: AuthOrchestrationOperateScope,
   // Deciding acts as the person in HQ, so it takes the same owner scope as storing the credential.
-  [WS_METHODS.buildHomeConnect]: AuthSettingsWriteScope,
-  [WS_METHODS.buildHomeDisconnect]: AuthSettingsWriteScope,
   [WS_METHODS.buildHomeDecide]: AuthSettingsWriteScope,
   [WS_METHODS.buildHomeFix]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,

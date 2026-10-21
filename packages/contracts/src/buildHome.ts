@@ -1,7 +1,6 @@
 /**
- * Build Home as T3's Build button shows it (pechhe/yardsmith Spec #4070). The server reads it from
- * HQ with the person's decision token and trims it to what the dropdown draws. The token itself
- * never appears here: clients learn only whether one is set.
+ * Build Home as T3's Build button shows it (pechhe/yardsmith Specs #4070, #4367). The server reads
+ * it from HQ through T3's HQ connection, as the person, and trims it to what the dropdown draws.
  */
 import * as Schema from "effect/Schema";
 
@@ -92,12 +91,13 @@ export const BuildHome = Schema.Struct({
 export type BuildHome = typeof BuildHome.Type;
 
 /**
- * `not_connected`: no decision token is set. `invalid_token`: HQ refused it (expired or revoked).
+ * `not_connected`: T3 is not connected to HQ. `invalid_token`: HQ refused T3's delegation (expired
+ * or revoked).
  * `unavailable`: HQ could not be reached; `home` then holds the last Home read, if any.
  */
 export const BuildHomeState = Schema.Struct({
   status: Schema.Literals(["not_connected", "invalid_token", "unavailable", "ready"]),
-  /** The HQ the token belongs to; null when none is set. */
+  /** The HQ T3 is connected to; null when it is not. */
   origin: Schema.NullOr(Schema.String),
   /** HQ's Build Home, for "Open Build in Weave". */
   buildUrl: Schema.NullOr(Schema.String),
@@ -108,16 +108,6 @@ export type BuildHomeState = typeof BuildHomeState.Type;
 
 export const BuildHomeReadInput = Schema.Struct({});
 export type BuildHomeReadInput = typeof BuildHomeReadInput.Type;
-
-/** The two lines HQ shows for a decision token: its endpoint and the token. */
-export const BuildHomeConnectInput = Schema.Struct({
-  endpoint: TrimmedNonEmptyString,
-  token: TrimmedNonEmptyString,
-});
-export type BuildHomeConnectInput = typeof BuildHomeConnectInput.Type;
-
-export const BuildHomeDisconnectInput = Schema.Struct({});
-export type BuildHomeDisconnectInput = typeof BuildHomeDisconnectInput.Type;
 
 export const BuildHomeDecideInput = Schema.Struct({
   specId: TrimmedNonEmptyString,
@@ -151,9 +141,6 @@ export type BuildHomeFixResult = typeof BuildHomeFixResult.Type;
 
 export class BuildHomeError extends Schema.TaggedError<BuildHomeError>()("BuildHomeError", {
   reason: Schema.Literals([
-    "invalid_endpoint",
-    "invalid_token",
-    "store_failed",
     "not_connected",
     "thread_not_found",
     "stuck_line_not_found",

@@ -65,14 +65,6 @@ export function createBuildWorkItemAtoms<R, E>(
       tag: WS_METHODS.buildHomeRead,
       ...polling,
     }),
-    homeConnect: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:build:home:connect",
-      tag: WS_METHODS.buildHomeConnect,
-    }),
-    homeDisconnect: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:build:home:disconnect",
-      tag: WS_METHODS.buildHomeDisconnect,
-    }),
     homeDecide: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:build:home:decide",
       tag: WS_METHODS.buildHomeDecide,
