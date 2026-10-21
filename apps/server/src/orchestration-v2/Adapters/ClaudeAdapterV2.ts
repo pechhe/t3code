@@ -234,6 +234,14 @@ interface ClaudeCompactionSetting {
   readonly compactAt?: number | null;
 }
 
+/** The compact-at point the instance sets for this model, if any. */
+export function claudeModelCompactAt(
+  settings: Pick<ClaudeSettings, "modelCompactAt"> | undefined,
+  modelSelection: ModelSelection,
+): number | null {
+  return settings?.modelCompactAt[modelSelection.model] ?? null;
+}
+
 /**
  * The `autoCompactWindow` Claude Code is given, or undefined for its default. A thread's
  * compact-at point maps to window = compactAt + reserve, clamped to what Claude Code accepts
@@ -1389,7 +1397,7 @@ export function makeClaudeQueryOptions(input: {
   const autoCompactWindow = claudeAutoCompactWindow(
     {
       ...(input.settings === undefined ? {} : { instanceWindow: input.settings.autoCompactWindow }),
-      compactAt: input.compactAt ?? null,
+      compactAt: input.compactAt ?? claudeModelCompactAt(input.settings, input.modelSelection),
     },
     claudeContextWindow(input.modelSelection),
   );
@@ -4430,7 +4438,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             DateTime.formatIso(now),
             {
               instanceWindow: adapterOptions.settings.autoCompactWindow,
-              compactAt: yield* Ref.get(compactAtRef),
+              compactAt:
+                (yield* Ref.get(compactAtRef)) ??
+                claudeModelCompactAt(adapterOptions.settings, context.input.modelSelection),
             },
             context.streamUsage?.requestedAt,
           );
@@ -8055,7 +8065,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     ...claudeAutoCompactThreshold(
                       {
                         instanceWindow: adapterOptions.settings.autoCompactWindow,
-                        compactAt: yield* Ref.get(compactAtRef),
+                        compactAt:
+                          (yield* Ref.get(compactAtRef)) ??
+                          claudeModelCompactAt(
+                            adapterOptions.settings,
+                            context.input.modelSelection,
+                          ),
                       },
                       maxTokens,
                     ),

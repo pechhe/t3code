@@ -742,6 +742,10 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    modelCompactAt: Schema.Record(Schema.String, Schema.Int.check(Schema.isGreaterThan(0))).pipe(
+      Schema.withDecodingDefault(Effect.succeed({})),
+      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
+    ),
     autoCompactWindow: TrimmedString.check(Schema.isPattern(AUTO_COMPACT_WINDOW_PATTERN)).pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
       Schema.annotateKey({

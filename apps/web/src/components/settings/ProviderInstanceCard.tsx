@@ -606,6 +606,7 @@ interface ProviderInstanceCardProps {
 
 const EMPTY_ACP_PROJECTS: NonNullable<ProviderInstanceCardProps["acpProjects"]> = [];
 const NO_CUSTOM_MODELS: ReadonlyArray<CustomModelDefinition> = [];
+const NO_COMPACT_AT: Readonly<Record<string, number>> = {};
 
 /**
  * Unknown drivers (`driverOption === undefined`) get a read-only
@@ -772,6 +773,25 @@ export function ProviderInstanceCard({
     );
     const { config: _omit, ...rest } = instance;
     onUpdate({ ...rest, config: nextConfig } as ProviderInstanceConfig);
+  });
+
+  const storedCompactAt =
+    instance.config !== null && typeof instance.config === "object"
+      ? (instance.config as Record<string, unknown>).modelCompactAt
+      : undefined;
+  const compactAtByModel =
+    storedCompactAt !== null && typeof storedCompactAt === "object"
+      ? (storedCompactAt as Readonly<Record<string, number>>)
+      : NO_COMPACT_AT;
+  const updateModelCompactAt = useStableCallback((slug: string, compactAt: number | null) => {
+    const { [slug]: _omit, ...rest } = compactAtByModel;
+    const nextConfig = nextConfigBlobWithValue(
+      instance.config,
+      "modelCompactAt",
+      compactAt === null ? rest : { ...rest, [slug]: compactAt },
+    );
+    const { config: _config, ...instanceRest } = instance;
+    onUpdate({ ...instanceRest, config: nextConfig } as ProviderInstanceConfig);
   });
 
   const updateEnvironment = (environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => {
@@ -1279,6 +1299,10 @@ export function ProviderInstanceCard({
                   hiddenModels={hiddenModels}
                   favoriteModels={favoriteModels}
                   modelOrder={modelOrder}
+                  compactAtByModel={driverKind === "claudeAgent" ? compactAtByModel : undefined}
+                  onCompactAtChange={
+                    driverKind === "claudeAgent" ? updateModelCompactAt : undefined
+                  }
                   onChange={updateCustomModels}
                   onHiddenModelsChange={onHiddenModelsChange}
                   onFavoriteModelsChange={onFavoriteModelsChange}

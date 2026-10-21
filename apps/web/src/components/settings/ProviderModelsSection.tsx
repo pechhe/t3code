@@ -1,6 +1,7 @@
 import { ArrowDownIcon, ArrowUpIcon, PencilIcon, PlusIcon, StarIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
+  compactAtBounds,
   ProviderDriverKind,
   type ProviderInstanceId,
   type ServerProviderModel,
@@ -26,6 +27,61 @@ const CUSTOM_MODEL_PLACEHOLDER_BY_KIND: Partial<Record<ProviderDriverKind, strin
 };
 
 const FILTER_THRESHOLD = 8;
+
+// The floor depends on the provider, not the model's window; any positive window yields it.
+const CLAUDE_COMPACT_AT_MIN = compactAtBounds("claudeAgent", 1_000_000)?.min ?? 67_000;
+
+function CompactAtInput({
+  model,
+  compactAt,
+  disabled,
+  onCommit,
+}: {
+  readonly model: ServerProviderModel;
+  readonly compactAt: number | null;
+  readonly disabled: boolean;
+  readonly onCommit: (compactAt: number | null) => void;
+}) {
+  const stored = compactAt === null ? "" : String(Math.round(compactAt / 1000));
+  // Null while the user isn't editing, so the box follows the saved value.
+  const [draft, setDraft] = useState<string | null>(null);
+  const commit = () => {
+    const thousands = Number.parseInt(draft ?? stored, 10);
+    setDraft(null);
+    if (!Number.isFinite(thousands) || thousands <= 0) {
+      if (compactAt !== null) onCommit(null);
+      return;
+    }
+    const next = Math.max(CLAUDE_COMPACT_AT_MIN, thousands * 1000);
+    if (next !== compactAt) onCommit(next);
+  };
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="flex shrink-0 items-center gap-1" />}>
+        <Input
+          size="sm"
+          inputMode="numeric"
+          className="w-16"
+          value={draft ?? stored}
+          disabled={disabled}
+          placeholder="default"
+          spellCheck={false}
+          aria-label={`Compact ${model.name} at, in thousands of tokens`}
+          onChange={(event) => setDraft(event.target.value.replace(/\D/g, ""))}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+        <span className="text-2xs text-muted-foreground/70">k</span>
+      </TooltipTrigger>
+      <TooltipPopup side="top">
+        Compact at this many thousand tokens, for threads on this model. Lowest{" "}
+        {CLAUDE_COMPACT_AT_MIN / 1000}k. A thread's own point overrides it.
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
 
 function describeModelCapabilities(model: ServerProviderModel): string[] {
   const descriptors = model.capabilities?.optionDescriptors ?? [];
@@ -100,6 +156,9 @@ interface ProviderModelsSectionProps {
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
+  /** Per-model compact-at points, in tokens. Offered only where the provider supports one. */
+  readonly compactAtByModel?: Readonly<Record<string, number>> | undefined;
+  readonly onCompactAtChange?: ((slug: string, compactAt: number | null) => void) | undefined;
   readonly onChange: (next: ReadonlyArray<CustomModelDefinition>) => void;
   readonly onHiddenModelsChange: (
     next: ReadonlyArray<string>,
@@ -120,6 +179,8 @@ export function ProviderModelsSection({
   hiddenModels,
   favoriteModels,
   modelOrder,
+  compactAtByModel,
+  onCompactAtChange,
   onChange,
   onHiddenModelsChange,
   onFavoriteModelsChange,
@@ -280,7 +341,9 @@ export function ProviderModelsSection({
         isFiltering={isFiltering}
         canWritePreferences={canWritePreferences}
         canManageCustomModels={canManageCustomModels}
+        compactAt={compactAtByModel?.[model.slug] ?? null}
         {...rowHandlers}
+        onCompactAtChange={onCompactAtChange}
       />
     );
   };
@@ -440,6 +503,8 @@ function ProviderModelRow({
   isFiltering,
   canWritePreferences,
   canManageCustomModels,
+  compactAt,
+  onCompactAtChange,
   onToggleFavorite,
   onMove,
   onSetHidden,
@@ -454,6 +519,8 @@ function ProviderModelRow({
   readonly isFiltering: boolean;
   readonly canWritePreferences: boolean;
   readonly canManageCustomModels: boolean;
+  readonly compactAt: number | null;
+  readonly onCompactAtChange: ((slug: string, compactAt: number | null) => void) | undefined;
   readonly onToggleFavorite: (slug: string) => void;
   readonly onMove: (slug: string, direction: -1 | 1) => void;
   readonly onSetHidden: (slug: string, hidden: boolean) => void;
@@ -472,7 +539,10 @@ function ProviderModelRow({
     <div
       data-model-slug={model.slug}
       className={cn(
-        "grid h-7 grid-cols-[1.5rem_minmax(0,1fr)_auto_minmax(5.5rem,auto)_auto] items-center gap-2 rounded-md px-2 transition-colors hover:bg-muted/30",
+        "grid h-7 items-center gap-2 rounded-md px-2 transition-colors hover:bg-muted/30",
+        onCompactAtChange
+          ? "grid-cols-[1.5rem_minmax(0,1fr)_auto_auto_minmax(5.5rem,auto)_auto]"
+          : "grid-cols-[1.5rem_minmax(0,1fr)_auto_minmax(5.5rem,auto)_auto]",
         isHidden && "opacity-50",
       )}
     >
@@ -526,6 +596,14 @@ function ProviderModelRow({
           <span className="hidden sm:inline">{capLabels.join(" · ")}</span>
         ) : null}
       </span>
+      {onCompactAtChange ? (
+        <CompactAtInput
+          model={model}
+          compactAt={compactAt}
+          disabled={!canWritePreferences}
+          onCommit={(next) => onCompactAtChange(model.slug, next)}
+        />
+      ) : null}
       <span className="flex shrink-0 items-center justify-end gap-0.5">
         {!isHidden && !isFiltering ? (
           <>

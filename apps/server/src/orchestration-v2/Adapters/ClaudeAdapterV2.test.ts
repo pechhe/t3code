@@ -14044,11 +14044,13 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           }),
         );
         yield* Queue.take(harness.terminalReceipts);
-        return harness.events.flatMap((event) =>
-          event.type === "provider_turn.updated" && event.providerTurn.tokenUsage
-            ? [event.providerTurn.tokenUsage.autoCompactThreshold]
-            : [],
-        ).at(-1);
+        return harness.events
+          .flatMap((event) =>
+            event.type === "provider_turn.updated" && event.providerTurn.tokenUsage
+              ? [event.providerTurn.tokenUsage.autoCompactThreshold]
+              : [],
+          )
+          .at(-1);
       });
       const openedWindow = () =>
         (harness.getOpenedOptions()?.settings as { autoCompactWindow?: number } | undefined)
@@ -14156,6 +14158,26 @@ describe("ClaudeAdapterV2 per-thread compact-at", () => {
       compactAt: 120_000,
     });
     assert.equal((options.settings as { autoCompactWindow?: number }).autoCompactWindow, 153_000);
+  });
+
+  it("opens the query with the model's own compact-at point, which a thread's point overrides", () => {
+    const base = {
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "native-thread-model-compact-at",
+      resume: false,
+      cwd: "/workspace",
+      settings: {
+        ...AUTO_COMPACT_CLAUDE_SETTINGS,
+        modelCompactAt: { [CLAUDE_TEST_MODEL_SELECTION.model]: 95_000 },
+      },
+    };
+    const windowOf = (options: ReturnType<typeof ClaudeAdapterV2.makeClaudeQueryOptions>) =>
+      (options.settings as { autoCompactWindow?: number }).autoCompactWindow;
+    assert.equal(windowOf(ClaudeAdapterV2.makeClaudeQueryOptions(base)), 128_000);
+    assert.equal(
+      windowOf(ClaudeAdapterV2.makeClaudeQueryOptions({ ...base, compactAt: 120_000 })),
+      153_000,
+    );
   });
 
   it("reports the actual compaction point, a reserve below the window", () => {
