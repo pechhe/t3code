@@ -203,3 +203,5 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 ## T3peach fork
 
 This checkout is the T3peach fork. Before a feature, behaviour change or performance fix, read [`fork/README.md`](fork/README.md): it decides when to adopt upstream's implementation, and every deliberate difference from upstream updates its entry in [`fork/differences.md`](fork/differences.md) in the same change.
+
+Once a change lands on `t3peach`, build it into the installed Nightly app in the same turn: delegate a `chore-worker` to run the Build step of [`t3-fork-rebase`](.agents/skills/t3-fork-rebase/SKILL.md) (`fork-nightly.sh build`, then `install --on-quit`) without its attempt bookkeeping. Landed is not installed, and the hourly job builds only upstream merges.
