@@ -231,7 +231,8 @@ type DelegateTaskInput = {
 ```
 
 Provider, model, runtime mode, and interaction mode inherit from the parent
-when omitted. A driver-only target inherits the parent's provider instance
+when omitted, except that a managed role (`agentTask`) runs with exactly its
+resolved options, never the parent's. A driver-only target inherits the parent's provider instance
 when it can run child tasks, and otherwise selects an available instance of
 that driver; an explicit `providerInstanceId` is honored exactly and fails
 when unavailable. Selecting a different provider without a model uses that

@@ -1272,7 +1272,9 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
       expect((yield* roles("gpt-astra-test")).selection?.model).toBe("gpt-astra-test");
       const outside = yield* roles(claudeModel);
       expect(outside.selection).toBeNull();
-      expect(outside.refusal).toBe("selection-denied");
+      expect(outside.refusal).toContain(
+        "selection-denied: claude-sonnet-test is not eligible for advisor",
+      );
       // Model identity is a preference; an explicit eligible author-model choice is allowed.
       const reviewer = yield* roles(codexModel, "ticket-reviewer");
       expect(reviewer.refusal).toBeNull();

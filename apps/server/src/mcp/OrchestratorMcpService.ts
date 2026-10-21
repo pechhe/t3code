@@ -421,6 +421,35 @@ function providerConstraints(
 }
 
 /**
+ * What a caller asked of a role: discovery and dispatch both build it here, so a model, an
+ * instance or stated options are judged against the role's own selection the same way.
+ */
+function selectionOf(
+  target:
+    | {
+        readonly providerInstanceId?: ProviderInstanceId | undefined;
+        readonly model?: string | undefined;
+        readonly options?: ModelSelection["options"] | undefined;
+      }
+    | undefined,
+) {
+  if (
+    target === undefined ||
+    (target.model === undefined &&
+      target.options === undefined &&
+      target.providerInstanceId === undefined)
+  )
+    return {};
+  return {
+    selection: {
+      ...(target.providerInstanceId === undefined ? {} : { instanceId: target.providerInstanceId }),
+      ...(target.model === undefined ? {} : { model: target.model }),
+      ...(target.options === undefined ? {} : { options: target.options }),
+    },
+  };
+}
+
+/**
  * Models without descriptors skip the descriptor checks (mirroring how model slugs are only
  * validated when the provider advertises models), but duplicate ids always fail: downstream
  * consumers disagree on whether the first or last value of a duplicated id wins.
@@ -1482,6 +1511,11 @@ const make = Effect.gen(function* () {
      * one checked for a receipt.
      */
     readonly skipProjectEnablementFilter?: boolean;
+    /**
+     * The target is a managed role's complete selection. The caller's own options never join it,
+     * even on the caller's instance and model: the role's options are the whole set.
+     */
+    readonly roleSelection?: boolean;
   }): Effect.fn.Return<ResolvedTarget, OrchestratorMcpFailure> {
     const requestedInstanceId = input.target?.providerInstanceId;
     const requestedDriver = input.target?.driverKind;
@@ -1596,7 +1630,9 @@ const make = Effect.gen(function* () {
     }
 
     const inheritsOptions =
-      instanceId === inheritedSelection.instanceId && model === inheritedSelection.model;
+      input.roleSelection !== true &&
+      instanceId === inheritedSelection.instanceId &&
+      model === inheritedSelection.model;
     let options = inheritsOptions ? inheritedSelection.options : undefined;
     if (requestedOptions !== undefined) {
       const selections = new Map(
@@ -2459,16 +2495,10 @@ const make = Effect.gen(function* () {
             providers: eligible,
             ceiling: limits.runtimeMode,
             request: input,
-            ...(input.model === undefined
-              ? {}
-              : {
-                  selection: {
-                    model: input.model,
-                    ...(input.providerInstanceId === undefined
-                      ? {}
-                      : { instanceId: input.providerInstanceId }),
-                  },
-                }),
+            ...selectionOf({
+              providerInstanceId: input.providerInstanceId,
+              model: input.model,
+            }),
             ...(parent === undefined ? {} : { callerModel: parent.thread.modelSelection.model }),
           })
           .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
@@ -2956,19 +2986,7 @@ const make = Effect.gen(function* () {
                       workspacePath: leadCheckout ?? null,
                       ...workspaceAuthority,
                       callerModel: parent.thread.modelSelection.model,
-                      ...(input.target?.model === undefined
-                        ? {}
-                        : {
-                            selection: {
-                              ...(input.target.providerInstanceId === undefined
-                                ? {}
-                                : { instanceId: input.target.providerInstanceId }),
-                              model: input.target.model,
-                              ...(input.target.options === undefined
-                                ? {}
-                                : { options: input.target.options }),
-                            },
-                          }),
+                      ...selectionOf(input.target),
                     })
                     .pipe(Effect.mapError((error) => failure("capability_denied", error.message))),
                 (result) => result.binding.effective.instanceId,
@@ -2986,6 +3004,7 @@ const make = Effect.gen(function* () {
               },
         providers,
         skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
+        roleSelection: prepared !== undefined,
       });
       const taskAssignments = yield* (
         isRetryOfAcceptedDelegation
@@ -3063,6 +3082,7 @@ const make = Effect.gen(function* () {
             options: experimentSelection.options,
           },
           skipProjectEnablementFilter: isRetryOfAcceptedDelegation,
+          roleSelection: prepared !== undefined,
         }).pipe(Effect.tapError(() => recordExperimentFailure()));
       }
       // Child modes are checked before the task is reserved, then policy after, so a refusal

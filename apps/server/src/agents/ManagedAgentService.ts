@@ -67,7 +67,13 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
     if (this.reason === "hard-link")
       return `Managed writer refused: regular file has multiple hard links: ${this.path}.`;
     const detail = isAgentRoleError(this.cause)
-      ? `: ${this.cause.reason}${this.cause.candidates === undefined ? "" : ` (${[...new Set(this.cause.candidates.map((candidate) => candidate.reason))].join(", ")})`}`
+      ? `: ${this.cause.reason}${
+          this.cause.detail !== undefined
+            ? `: ${this.cause.detail}`
+            : this.cause.candidates === undefined
+              ? ""
+              : ` (${[...new Set(this.cause.candidates.map((candidate) => candidate.reason))].join(", ")})`
+        }`
       : this.detail === undefined
         ? ""
         : `: ${this.detail}`;

@@ -240,17 +240,28 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       // A delta covers exactly the changes since the earlier report.
       const prior = { workId: "review-1", sourceRevision: "earlier-commit" };
       yield* resolve(reviewer({ priorReview: prior, baseRevision: "earlier-commit" }));
-      expect((yield* refusal(reviewer({ priorReview: prior }))).reason).toBe(
-        "review-scope-invalid",
+      const staleBase = yield* refusal(reviewer({ priorReview: prior }));
+      expect(staleBase.reason).toBe("review-prior-invalid");
+      expect(staleBase.detail).toContain("review.priorReview.sourceRevision (earlier-commit)");
+      const nothingNew = yield* refusal(
+        reviewer({
+          priorReview: { ...prior, sourceRevision: "reviewed-commit" },
+          baseRevision: "reviewed-commit",
+        }),
       );
-      expect(
-        (yield* refusal(
-          reviewer({
-            priorReview: { ...prior, sourceRevision: "reviewed-commit" },
-            baseRevision: "reviewed-commit",
-          }),
-        )).reason,
-      ).toBe("review-scope-invalid");
+      expect(nothingNew.reason).toBe("review-prior-invalid");
+      expect(nothingNew.detail).toContain("nothing new to review");
+      // Each scope problem names its field and the scope or shape the role takes.
+      expect((yield* refusal(reviewer(spec, specReviewer))).detail).toContain("review.specRef");
+      expect((yield* refusal(reviewer({ includedChanges: [] }))).detail).toContain(
+        "review.includedChanges",
+      );
+      const changeOnSpec = yield* refusal(
+        reviewer({ scope: "change", includedChanges: ["c"] }, specReviewer),
+      );
+      expect(changeOnSpec.detail).toContain(
+        'review.scope "change" is not valid for spec-reviewer; use "spec"',
+      );
       // Review scope belongs to the reviewer role alone.
       expect((yield* refusal(input({ request: request({ review: changeReview }) }))).reason).toBe(
         "review-scope-invalid",
@@ -605,6 +616,30 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
           }),
         )).reason,
       ).toBe("unsupported-options");
+      // The refusal names the option and value and what the role would use instead.
+      const unsupported = yield* refusal(
+        advisor({
+          model: "gpt-astra-test",
+          options: [{ id: "reasoning", value: "high" }],
+        }),
+      );
+      expect(unsupported.detail).toContain("option reasoning=high");
+      expect(unsupported.detail).toContain("which is reasoning=medium");
+      // Options stated without a model are checked against the role's own selection too.
+      expect(
+        (yield* refusal(advisor({ options: [{ id: "fastMode", value: false }] }))).detail,
+      ).toContain("option fastMode=false");
+      yield* resolve(advisor({ options: [{ id: "reasoning", value: "medium" }] }));
+      // An account that is not available is named, not described as merely not eligible.
+      const resolver = yield* Resolver.AgentRoleResolver;
+      const previewed = yield* resolver.preview(
+        advisor({ model: "gpt-astra-test", options: [{ id: "reasoning", value: "high" }] }),
+      );
+      expect(previewed.refusal).toContain("unsupported-options: option reasoning=high");
+      const missing = yield* refusal(
+        advisor({ model: "claude-fable-test", instanceId: ProviderInstanceId.make("gone") }),
+      );
+      expect(missing.detail).toContain("provider instance gone is not available to this project");
     }),
   );
 

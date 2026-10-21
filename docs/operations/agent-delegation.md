@@ -142,6 +142,10 @@ its revision and the role names, or the reason the policy is refused.
   runtime quota failure, a caller may start a fresh managed review with another
   allowed choice, including the author's model; quota failure does not widen the
   list or automatically choose a fallback.
+- A role always runs with exactly the options its policy resolves to, even on the
+  caller's own account and model; the caller's inherited options (such as fast mode)
+  never join them. A refusal names the offending option and value, review field or
+  unavailable account, in `agent_roles` as well as `delegate_task`.
 
 Under **Settings → Delegation → Permissions and cleanup**, runtime behavior is stored in each T3
 server’s settings, separately from the agent-config policy. Children inherit the

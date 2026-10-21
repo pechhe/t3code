@@ -31,12 +31,15 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
     "source-pin-required",
     "review-scope-required",
     "review-scope-invalid",
+    "review-prior-invalid",
     "role-not-configured",
   ]),
   candidates: Schema.optional(Schema.Array(AgentPolicyCandidate)),
+  /** The offending field, option or account and how to correct the request. */
+  detail: Schema.optional(Schema.String),
 }) {
   override get message(): string {
-    return `Managed agent request refused (${this.reason}).`;
+    return `Managed agent request refused (${this.reason}${this.detail === undefined ? "" : `: ${this.detail}`}).`;
   }
 }
 
@@ -46,7 +49,8 @@ export class AgentRoleError extends Schema.TaggedError<AgentRoleError>()("AgentR
  */
 export type RequestedModel = {
   readonly instanceId?: ProviderInstanceId;
-  readonly model: string;
+  /** Absent when the caller states only options, which the role's own selection must match. */
+  readonly model?: string;
   readonly options?: ModelSelection["options"];
 };
 
@@ -82,6 +86,35 @@ export class AgentRoleResolver extends Context.Service<
   }
 >()("t3/agents/AgentRoleResolver") {}
 
+const requestedName = (selection: RequestedModel) =>
+  [selection.model, selection.instanceId === undefined ? undefined : `on ${selection.instanceId}`]
+    .filter((part) => part !== undefined)
+    .join(" ") || "the requested selection";
+
+const optionList = (selection: ModelSelection) =>
+  (selection.options ?? []).map((option) => `${option.id}=${String(option.value)}`).join(", ") ||
+  "no options";
+
+/** What currently rules each account and model out, so a changed state names itself. */
+const explain = (
+  input: ResolutionInput,
+  diagnostics: ReadonlyArray<AgentPolicyCandidate>,
+  instanceId?: ProviderInstanceId,
+) => {
+  const lines = [
+    ...(instanceId !== undefined && !input.providers.some((p) => p.instanceId === instanceId)
+      ? [
+          `provider instance ${instanceId} is not available to this project (not installed, disabled or not enabled for it)`,
+        ]
+      : []),
+    ...diagnostics.map(
+      (candidate) =>
+        `${candidate.model}${candidate.providerInstanceId === undefined ? "" : ` on ${candidate.providerInstanceId}`}: ${candidate.reason}`,
+    ),
+  ];
+  return lines.join("; ");
+};
+
 const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: ResolutionInput) {
   const { request, snapshot } = input;
   const role = snapshot.manifest.roles[request.role];
@@ -94,19 +127,40 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   const review = request.review;
   if (reviewer && review === undefined)
     return yield* new AgentRoleError({ reason: "review-scope-required" });
-  if (
-    review !== undefined &&
-    (!isReviewerRole(request.role) ||
-      review.scope !== REVIEWER_SCOPE[request.role] ||
-      (review.scope === "change" && review.includedChanges.length === 0) ||
-      (review.scope === "spec" &&
-        (review.specRef === undefined || review.specRevision === undefined)) ||
-      // A delta covers exactly the material changes since the earlier report.
-      (review.priorReview !== undefined &&
-        (review.priorReview.sourceRevision !== review.baseRevision ||
-          review.priorReview.sourceRevision === request.sourceRevision)))
-  )
-    return yield* new AgentRoleError({ reason: "review-scope-invalid" });
+  if (review !== undefined) {
+    const invalidScope = (detail: string) =>
+      new AgentRoleError({ reason: "review-scope-invalid", detail });
+    if (!isReviewerRole(request.role))
+      return yield* invalidScope(
+        `review is only for ticket-reviewer and spec-reviewer, not ${request.role}`,
+      );
+    if (review.scope !== REVIEWER_SCOPE[request.role])
+      return yield* invalidScope(
+        `review.scope "${review.scope}" is not valid for ${request.role}; use "${REVIEWER_SCOPE[request.role]}"`,
+      );
+    if (review.scope === "change" && review.includedChanges.length === 0)
+      return yield* invalidScope("review.includedChanges must list at least one change");
+    if (
+      review.scope === "spec" &&
+      (review.specRef === undefined || review.specRevision === undefined)
+    )
+      return yield* invalidScope(
+        "review.specRef and review.specRevision are required for a spec review",
+      );
+    // A delta covers exactly the material changes since the earlier report.
+    const prior = review.priorReview;
+    if (prior !== undefined && prior.sourceRevision !== review.baseRevision)
+      return yield* new AgentRoleError({
+        reason: "review-prior-invalid",
+        detail: `review.priorReview.sourceRevision (${prior.sourceRevision}) must equal review.baseRevision (${review.baseRevision}), the revision the earlier report judged`,
+      });
+    if (prior !== undefined && prior.sourceRevision === request.sourceRevision)
+      return yield* new AgentRoleError({
+        reason: "review-prior-invalid",
+        detail:
+          "review.priorReview.sourceRevision equals the pinned sourceRevision, so there is nothing new to review; omit priorReview for a full review",
+      });
+  }
   // A Phi role browses only over its pinned Phi endpoint, never another browser, so it starts
   // only once the caller has checked that route.
   if (usesPhi(role.toolProfile)) {
@@ -238,28 +292,37 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     const selection = input.selection;
     const requested = eligible.filter(
       ({ selection: value }) =>
-        value.model === selection.model &&
+        (selection.model === undefined || value.model === selection.model) &&
         (selection.instanceId === undefined || value.instanceId === selection.instanceId),
     );
     // Explicit choices override preferences, including a reviewer's different-model
     // preference. Role eligibility and authority still apply to every candidate.
     if (requested.length === 0)
-      return yield* new AgentRoleError({ reason: "selection-denied", candidates: diagnostics });
+      return yield* new AgentRoleError({
+        reason: "selection-denied",
+        candidates: diagnostics,
+        detail: `${requestedName(selection)} is not eligible for ${request.role}: ${explain(input, diagnostics, selection.instanceId)}`,
+      });
     const options = selection.options;
     // A choice may name an eligible model, but cannot inherit hidden or unsupported
     // effort/options. Stated options must be the role's own; omitted ones are the role's.
-    const matching =
-      options === undefined
-        ? requested
-        : requested.filter(({ selection: value }) =>
-            options.every((option) =>
-              value.options?.some(
-                (expected) => expected.id === option.id && expected.value === option.value,
-              ),
-            ),
-          );
-    if (matching.length === 0)
-      return yield* new AgentRoleError({ reason: "unsupported-options", candidates: diagnostics });
+    const mismatch = (value: ModelSelection) =>
+      options?.find(
+        (option) =>
+          !value.options?.some(
+            (expected) => expected.id === option.id && expected.value === option.value,
+          ),
+      );
+    const matching = requested.filter(({ selection: value }) => mismatch(value) === undefined);
+    if (matching.length === 0) {
+      const first = requested[0]!.selection;
+      const offending = mismatch(first)!;
+      return yield* new AgentRoleError({
+        reason: "unsupported-options",
+        candidates: diagnostics,
+        detail: `option ${offending.id}=${String(offending.value)} is not part of ${request.role}'s selection of ${first.model} on ${first.instanceId}, which is ${optionList(first)}; omit target.options or state exactly those`,
+      });
+    }
     candidates = matching;
   }
   // The list order, unless the task is large or the asking model has its own first choice.
@@ -305,7 +368,11 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
   );
   const chosen = candidates[0];
   if (chosen === undefined)
-    return yield* new AgentRoleError({ reason: "no-eligible-model", candidates: diagnostics });
+    return yield* new AgentRoleError({
+      reason: "no-eligible-model",
+      candidates: diagnostics,
+      detail: explain(input, diagnostics),
+    });
   return {
     selection: chosen.selection,
     executionRequirement: readOnly
@@ -343,7 +410,7 @@ export const layer = Layer.succeed(AgentRoleResolver, {
         AgentRoleError: (error) =>
           Effect.succeed({
             selection: null,
-            refusal: error.reason,
+            refusal: error.detail === undefined ? error.reason : `${error.reason}: ${error.detail}`,
             candidates: error.candidates ?? [],
           }),
       }),

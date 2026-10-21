@@ -12,6 +12,8 @@ import {
   type OrchestrationV2ThreadShell,
   type AgentTaskBinding,
   type ModelSelection,
+  type ProviderInstanceId,
+  type ServerProvider,
 } from "@t3tools/contracts";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Effect from "effect/Effect";
@@ -29,6 +31,7 @@ import {
   codexModel,
   claudeModel,
   changeReview,
+  provider,
 } from "../agents/agentPolicy.testkit.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
@@ -259,6 +262,9 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       readonly scratch?: boolean;
       /** The lead holds the other project's isolated workspace as a live attachment. */
       readonly attached?: boolean;
+      /** The lead's own model, with whatever options its thread carries. */
+      readonly parent?: ModelSelection;
+      readonly providers?: ReadonlyArray<ServerProvider>;
     } = {},
   ) =>
     Effect.gen(function* () {
@@ -308,7 +314,10 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           runtimeMode: "full-access",
           interactionMode: "default",
           worktreePath: options.scratch ? scratchFolder : bound ? lead : null,
-          modelSelection: { instanceId: codex.instanceId, model: codex.models[0]!.slug },
+          modelSelection: options.parent ?? {
+            instanceId: codex.instanceId,
+            model: codex.models[0]!.slug,
+          },
           ...(options.attached
             ? {
                 workspaceAttachments: [
@@ -348,6 +357,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         capabilities: new Set(["orchestration"]),
         issuedAt: 1,
       };
+      const catalog = options.providers ?? [codex, claude];
       const dispatched: Array<unknown> = [];
       // Whether each dispatch ran inside the managed workspace lock.
       const locked: Array<boolean> = [];
@@ -382,11 +392,11 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             }),
         }),
         Layer.mock(Providers.ProviderRegistry)({
-          getProviders: Effect.succeed([codex, claude]),
-          refreshInstance: () => Effect.succeed([codex, claude]),
+          getProviders: Effect.succeed(catalog),
+          refreshInstance: () => Effect.succeed(catalog),
         }),
         Layer.mock(Adapters.ProviderAdapterRegistryV2)({
-          list: () => Effect.succeed([codex.instanceId, claude.instanceId]),
+          list: () => Effect.succeed(catalog.map((provider) => provider.instanceId)),
         }),
         Layer.mock(Projects.ProjectService)({
           getById: (id) =>
@@ -427,7 +437,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             ConfigProvider.fromUnknown({ T3CODE_AGENT_POLICY_ROOT: policyRoot }),
           ),
         );
-      const roles = (model?: string) =>
+      const roles = (model?: string, providerInstanceId?: ProviderInstanceId) =>
         Effect.gen(function* () {
           const mcp = yield* Mcp.OrchestratorMcpService;
           return yield* mcp.agentRoles(scope, {
@@ -436,6 +446,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
             sourceRevision: "source-pin",
             authorModel: codexModel,
             ...(model === undefined ? {} : { model }),
+            ...(providerInstanceId === undefined ? {} : { providerInstanceId }),
           });
         }).pipe(
           Effect.provide(
@@ -601,6 +612,130 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           agentTask: request({ workspacePath: h.lead }),
         })).code,
       ).toBe("invalid_request");
+    }),
+  );
+
+  it.effect(
+    "dispatches a role on the lead's own instance and model with exactly the role's options",
+    () =>
+      Effect.gen(function* () {
+        const lead = {
+          instanceId: claude.instanceId,
+          model: claudeModel,
+          options: [
+            { id: "effort", value: "medium" },
+            { id: "fastMode", value: false },
+          ],
+        };
+        const alternate = provider("claudeAgent", "claude-alternate", [claudeModel]);
+        const h = yield* harness(() => [], true, {
+          parent: lead,
+          providers: [codex, claude, alternate],
+        });
+        const review = request({
+          role: "spec-reviewer",
+          workspacePath: h.lead,
+          readOnly: true,
+          sourceRevision: "source-pin",
+          authorModel: codexModel,
+          review: {
+            scope: "spec",
+            baseRevision: "base-commit",
+            includedChanges: ["reviewed-commit"],
+            coverage: "complete",
+            specRef: "#1",
+            specRevision: "3",
+          },
+        });
+        const discovered = (yield* h.roles()).roles.find(
+          (entry) => entry.role === "spec-reviewer",
+        )!;
+        const own = {
+          instanceId: claude.instanceId,
+          model: claudeModel,
+          options: [{ id: "effort", value: "medium" }],
+        };
+        expect(discovered.selection).toEqual(own);
+        const attempts = [
+          { label: "omitted target" },
+          {
+            label: "role options",
+            target: { model: claudeModel, options: [{ id: "effort", value: "medium" }] },
+          },
+          { label: "empty options", target: { model: claudeModel, options: [] } },
+          { label: "options only", target: { options: [{ id: "effort", value: "medium" }] } },
+        ];
+        for (const [index, attempt] of attempts.entries()) {
+          const result = yield* h.delegate({
+            task: "Review the Spec",
+            clientRequestId: `own-${index}`,
+            agentTask: review,
+            ...(attempt.target === undefined ? {} : { target: attempt.target }),
+          });
+          expect(result.code, attempt.label).toBe("orchestration_error");
+          expect(h.dispatched, attempt.label).toHaveLength(index + 1);
+          expect(h.dispatched[index], attempt.label).toMatchObject({
+            modelSelection: own,
+            agentTask: { requested: own, effective: own },
+          });
+        }
+        // An explicitly chosen eligible account keeps the same complete selection.
+        yield* h.delegate({
+          task: "Review the Spec",
+          clientRequestId: "alternate",
+          agentTask: review,
+          target: { providerInstanceId: alternate.instanceId, model: claudeModel },
+        });
+        expect(h.dispatched[4]).toMatchObject({
+          modelSelection: { ...own, instanceId: alternate.instanceId },
+        });
+        // A genuinely unsupported option is refused by name and value, with the correction.
+        for (const [index, [option, stated]] of [
+          [{ id: "fastMode", value: false }, "fastMode=false"],
+          [{ id: "effort", value: "high" }, "effort=high"],
+        ].entries()) {
+          const refused = yield* h.delegate({
+            task: "Review the Spec",
+            clientRequestId: `unsupported-${index}`,
+            agentTask: review,
+            target: { model: claudeModel, options: [option as never] },
+          });
+          expect(refused.code).toBe("capability_denied");
+          expect(refused.message).toContain(`option ${stated}`);
+          expect(refused.message).toContain("which is effort=medium");
+        }
+        expect(h.dispatched).toHaveLength(5);
+        // Naming only an account: discovery and dispatch read it the same way.
+        const named = (yield* h.roles(undefined, alternate.instanceId)).roles.find(
+          (entry) => entry.role === "spec-reviewer",
+        )!;
+        expect(named.selection).toEqual({ ...own, instanceId: alternate.instanceId });
+        yield* h.delegate({
+          task: "Review the Spec",
+          clientRequestId: "account-only",
+          agentTask: review,
+          target: { providerInstanceId: alternate.instanceId },
+        });
+        expect(h.dispatched[5]).toMatchObject({ modelSelection: named.selection });
+      }),
+  );
+
+  it.effect("refuses with the current state when an account changed since discovery", () =>
+    Effect.gen(function* () {
+      const lead = { instanceId: claude.instanceId, model: claudeModel };
+      const gone = { ...claude, installed: false };
+      const h = yield* harness(() => [], true, { parent: lead, providers: [codex, gone] });
+      const refused = yield* h.delegate({
+        task: "Review the Spec",
+        clientRequestId: "changed",
+        agentTask: request({ role: "advisor", workspacePath: h.lead, readOnly: true }),
+        target: { providerInstanceId: claude.instanceId, model: "claude-fable-test" },
+      });
+      expect(refused.code).toBe("capability_denied");
+      expect(refused.message).toContain(
+        `claude-fable-test on ${claude.instanceId}: provider-not-installed`,
+      );
+      expect(h.dispatched).toHaveLength(0);
     }),
   );
 
