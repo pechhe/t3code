@@ -37,7 +37,7 @@ it.effect.each(["summary", "card"] as const)(
           ? service.view(threadId)
           : service.card({ threadId, itemId: spec.id, open: "same-opening" });
       yield* read();
-      for (const minutes of [1, 2, 4, 5, 5]) {
+      for (const minutes of [1, 2, 4, 4, 4]) {
         const before = hq.toolCalls.length;
         for (let minute = 1; minute < minutes; minute++) {
           yield* TestClock.adjust(60_000);
@@ -48,11 +48,13 @@ it.effect.each(["summary", "card"] as const)(
         yield* read();
         assert.isAbove(hq.toolCalls.length, before);
       }
+      // A change made elsewhere just after a read shows at most four minutes later, so within
+      // five once a client's one-minute re-request is added.
       spec.title = "Changed elsewhere";
-      for (let minute = 1; minute <= 5; minute++) {
+      for (let minute = 1; minute <= 4; minute++) {
         yield* TestClock.adjust(60_000);
         const result = yield* read();
-        assert.strictEqual(result?.item?.title, minute === 5 ? spec.title : "Stable");
+        assert.strictEqual(result?.item?.title, minute === 4 ? spec.title : "Stable");
       }
       // A changed read returns to one minute, even after reaching the cap.
       let before = hq.toolCalls.length;
@@ -84,6 +86,40 @@ it.effect.each(["summary", "card"] as const)(
       yield* TestClock.adjust(60_000);
       assert.strictEqual((yield* read())?.item?.status, "landed");
       assert.isAbove(hq.toolCalls.length, before);
+      // Another item's write rereads this one at once but keeps its settled back-off.
+      for (const minutes of [1, 2, 4]) {
+        yield* TestClock.adjust(minutes * 60_000);
+        yield* read();
+      }
+      const other = item(1_000_079, "spec", "Elsewhere", "in_progress");
+      add(other);
+      yield* connections.forward({
+        authorization: agent!.authorizationHeader,
+        contentType: undefined,
+        accept: undefined,
+        protocolVersion: undefined,
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: 124,
+            method: "tools/call",
+            params: {
+              name: "hq_build_set_status",
+              arguments: { itemId: other.id, status: "landed" },
+            },
+          }),
+        ),
+      });
+      before = hq.toolCalls.length;
+      yield* TestClock.adjust(60_000);
+      yield* read();
+      assert.isAbove(hq.toolCalls.length, before);
+      before = hq.toolCalls.length;
+      for (let minute = 1; minute < 4; minute++) {
+        yield* TestClock.adjust(60_000);
+        yield* read();
+      }
+      assert.strictEqual(hq.toolCalls.length, before);
       // Advancing the clock alone never makes the display cache read HQ.
       before = hq.toolCalls.length;
       yield* TestClock.adjust(60 * 60_000);

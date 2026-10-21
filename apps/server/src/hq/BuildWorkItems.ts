@@ -37,10 +37,11 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
 
 /**
  * Build has no change feed. Clients re-request a shown item on this cadence, and the server
- * starts at this interval and backs off unchanged results to five minutes. No timer reads HQ here.
+ * starts at this interval and backs off unchanged results to four minutes, so with one client
+ * re-request on top a change still shows within five. No timer reads HQ here.
  */
 export const BUILD_REREAD_INTERVAL_MS = 60_000;
-export const BUILD_MAX_REREAD_INTERVAL_MS = 5 * BUILD_REREAD_INTERVAL_MS;
+export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
 export const fingerprintOf = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
 export interface ReadCadence {
@@ -49,14 +50,12 @@ export interface ReadCadence {
   readonly fingerprint: string | undefined;
 }
 
-export const nextInterval = (
-  previous: ReadCadence | undefined,
-  fingerprint: string | undefined,
-  writeVersion: number,
-) =>
-  fingerprint !== undefined &&
-  previous?.fingerprint === fingerprint &&
-  previous.writeVersion === writeVersion
+/**
+ * A Build write through T3 makes the next request reread at once; the back-off itself follows
+ * only whether this result changed, so another thread's unrelated write keeps it settled.
+ */
+export const nextInterval = (previous: ReadCadence | undefined, fingerprint: string | undefined) =>
+  fingerprint !== undefined && previous?.fingerprint === fingerprint
     ? Math.min(previous.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
     : BUILD_REREAD_INTERVAL_MS;
 
@@ -384,7 +383,7 @@ const make = Effect.gen(function* () {
         const next: CachedItem = {
           fingerprint,
           writeVersion,
-          intervalMs: nextInterval(previous, fingerprint, writeVersion),
+          intervalMs: nextInterval(previous, fingerprint),
           ...Option.match(read, {
             onSome: (item) => ({ item, readAt: now, attemptedAt: now, unavailable: false }),
             onNone: () => ({
@@ -720,7 +719,7 @@ const make = Effect.gen(function* () {
           const next: CachedCard = {
             fingerprint,
             writeVersion,
-            intervalMs: nextInterval(previous, fingerprint, writeVersion),
+            intervalMs: nextInterval(previous, fingerprint),
             ...Option.match(read, {
               onSome: (fresh) => ({
                 card: {

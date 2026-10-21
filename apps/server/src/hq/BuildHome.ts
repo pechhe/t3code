@@ -404,7 +404,7 @@ const make = Effect.gen(function* () {
           attemptedAt: now,
           writeVersion,
           fingerprint,
-          intervalMs: nextInterval(fresh, fingerprint, writeVersion),
+          intervalMs: nextInterval(fresh, fingerprint),
           prompts,
           state: stateOf(origin, "ready", view, DateTime.formatIso(DateTime.makeUnsafe(now))),
         };
