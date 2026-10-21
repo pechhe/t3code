@@ -1,4 +1,5 @@
 import { SidebarReleaseApprovals } from "./SidebarReleaseApprovals";
+import { playKeyClick } from "~/lib/interfaceSounds";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
@@ -1238,6 +1239,7 @@ export default function Sidebar() {
     if (isTrailingDoubleClick(event.detail)) {
       return;
     }
+    playKeyClick("down");
     navigateToThread(threadRef);
   };
 
