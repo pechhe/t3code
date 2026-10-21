@@ -201,7 +201,8 @@ it.effect("moves the chat in place and queues the continuation as its next turn"
       {
         threadId,
         projectId: targetProjectId,
-        continuation: { text: "Continue the chaser email." },
+        // The calling thread moved itself, so its continuation reads as its own.
+        continuation: { text: "Continue the chaser email.", senderThreadId: threadId },
       },
     ]);
   }).pipe(Effect.provide(layerFor(scratchProjectId, [], moves)));

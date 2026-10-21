@@ -15,10 +15,8 @@ import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
-import * as ThreadLaunch from "./ThreadLaunchService.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as ThreadProjectMove from "./ThreadProjectMoveService.ts";
-import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 
 const scratchId = ProjectId.make("scratch");
 const targetId = ProjectId.make("target");
@@ -39,6 +37,8 @@ const setup = (input: {
   readonly runs?: number;
   readonly receipt?: boolean;
   readonly dispatchFails?: boolean;
+  readonly schedulesFail?: boolean;
+  readonly slipjay?: boolean;
 }) => {
   const log: Array<string> = [];
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
@@ -86,22 +86,13 @@ const setup = (input: {
         }),
         Layer.mock(WorkspaceProvider.WorkspaceProvider)({
           contains: () => Effect.succeed(true),
-          release: ({ path }) => Effect.sync(() => void log.push(`release:${path}`)),
-        }),
-        Layer.mock(ThreadLaunch.ThreadLaunchService)({
-          allocateProjectWorkspace: () =>
-            Effect.sync(() => {
-              log.push("allocate");
-              return { worktreePath: "/w/new", workspaceIssue: null, allocated: true };
-            }),
-        }),
-        Layer.mock(WorkspaceAttachments.WorkspaceAttachments)({
-          releaseWorkspace: ({ workspacePath }) =>
-            Effect.sync(() => void log.push(`releaseWorkspace:${workspacePath}`)),
+          resolve: () => Effect.succeed(input.slipjay === false ? "git-worktree" : "slipjay"),
         }),
         Layer.mock(ScheduledTasks.ScheduledTaskService)({
           moveThreadProject: ({ projectId }) =>
-            Effect.sync(() => void log.push(`schedules:${projectId}`)),
+            input.schedulesFail
+              ? Effect.fail({ message: "schedules" } as never)
+              : Effect.sync(() => void log.push(`schedules:${projectId}`)),
         }),
       ),
     ),
@@ -117,7 +108,7 @@ const applied = (command: OrchestrationV2ServerCommand | undefined) =>
     ? command.change
     : undefined;
 
-it.effect("moves a No project chat into a fresh project workspace and continues there", () =>
+it.effect("moves a No project chat at once and leaves its workspace to the next turn", () =>
   Effect.gen(function* () {
     const fake = setup({ thread: { projectId: scratchId, worktreePath: "/scratch/chat" } });
     yield* fake.run((service) =>
@@ -129,21 +120,33 @@ it.effect("moves a No project chat into a fresh project workspace and continues 
           commandId: CommandId.make("move:continuation"),
           messageId: MessageId.make("move:continuation"),
           text: "Carry on with the chaser.",
+          senderThreadId: ThreadId.make("lead"),
         },
       }),
     );
-    assert.deepEqual(fake.log, [
-      "allocate",
-      "dispatch:thread.project-move.record",
-      `schedules:${targetId}`,
-    ]);
+    assert.deepEqual(fake.log, ["dispatch:thread.project-move.record", `schedules:${targetId}`]);
     assert.deepInclude(applied(fake.dispatched[0]), {
+      fromProjectId: scratchId,
       projectId: targetId,
-      worktreePath: "/w/new",
-      allocatedWorkspace: true,
+      worktreePath: null,
+      pendingWorkspace: true,
     });
-    assert.equal(fake.sent[0]?.senderThreadId, threadId);
+    assert.equal(fake.sent[0]?.senderThreadId, ThreadId.make("lead"));
     assert.equal(fake.sent[0]?.mode, "queue");
+  }),
+);
+
+it.effect("runs a chat moved into a project without SlipJay at the project root", () =>
+  Effect.gen(function* () {
+    const fake = setup({
+      slipjay: false,
+      thread: { projectId: scratchId, worktreePath: "/scratch/chat" },
+    });
+    yield* fake.run((service) => service.move({ commandId, threadId, projectId: targetId }));
+    assert.deepInclude(applied(fake.dispatched[0]), {
+      worktreePath: null,
+      pendingWorkspace: false,
+    });
   }),
 );
 
@@ -159,11 +162,10 @@ it.effect("promotes a workspace the chat already holds in the project", () =>
       },
     });
     yield* fake.run((service) => service.move({ commandId, threadId, projectId: targetId }));
-    assert.notInclude(fake.log, "allocate");
     assert.deepInclude(applied(fake.dispatched[0]), {
       worktreePath: "/w/held",
       branch: "held",
-      allocatedWorkspace: false,
+      pendingWorkspace: false,
     });
   }),
 );
@@ -179,54 +181,54 @@ it.effect("refuses a chat that is not in No project", () =>
   }),
 );
 
-it.effect("a retry replays the recorded move without allocating again", () =>
-  Effect.gen(function* () {
-    const fake = setup({
-      receipt: true,
-      thread: {
-        projectId: targetId,
-        worktreePath: "/w/new",
-        projectMove: { allocatedWorkspace: true },
-      },
-    });
-    yield* fake.run((service) => service.move({ commandId, threadId, projectId: targetId }));
-    assert.notInclude(fake.log, "allocate");
-    assert.deepInclude(applied(fake.dispatched[0]), {
-      worktreePath: "/w/new",
-      allocatedWorkspace: true,
-    });
-  }),
-);
-
-it.effect("releases the allocated workspace when the move fails to record", () =>
+it.effect("a move that fails to record reports it and changes nothing else", () =>
   Effect.gen(function* () {
     const fake = setup({
       dispatchFails: true,
       thread: { projectId: scratchId, worktreePath: "/scratch/chat" },
     });
-    yield* fake
+    const error = yield* fake
       .run((service) => service.move({ commandId, threadId, projectId: targetId }))
       .pipe(Effect.flip);
-    assert.deepEqual(fake.log, [
-      "allocate",
-      "dispatch:thread.project-move.record",
-      "release:/w/new",
-    ]);
+    assert.equal(error.message, "Unable to move the chat: lost");
+    assert.deepEqual(fake.log, ["dispatch:thread.project-move.record"]);
+  }),
+);
+
+it.effect("a move stands, and continues, when its scheduled tasks fail to follow", () =>
+  Effect.gen(function* () {
+    const fake = setup({
+      schedulesFail: true,
+      thread: { projectId: scratchId, worktreePath: "/scratch/chat" },
+    });
+    yield* fake.run((service) =>
+      service.move({
+        commandId,
+        threadId,
+        projectId: targetId,
+        continuation: {
+          commandId: CommandId.make("move:continuation"),
+          messageId: MessageId.make("move:continuation"),
+          text: "Carry on.",
+          senderThreadId: threadId,
+        },
+      }),
+    );
+    assert.equal(fake.sent.length, 1);
   }),
 );
 
 const moved = {
   projectId: targetId,
-  worktreePath: "/w/new",
-  projectMove: { fromProjectId: scratchId, allocatedWorkspace: true, runCount: 1 },
+  worktreePath: null,
+  projectMove: { fromProjectId: scratchId, pendingWorkspace: true, runCount: 1 },
 };
 
-it.effect("Undo releases the workspace the move allocated, then moves the chat back", () =>
+it.effect("Undo moves the chat back, then its scheduled tasks", () =>
   Effect.gen(function* () {
     const fake = setup({ thread: moved });
     yield* fake.run((service) => service.undo({ commandId: CommandId.make("undo"), threadId }));
     assert.deepEqual(fake.log, [
-      "releaseWorkspace:/w/new",
       "dispatch:thread.project-move.record",
       `schedules:${scratchId}`,
     ]);

@@ -260,7 +260,7 @@ const ThreadSuggestProjectTool = Tool.make("t3_thread_suggest_project", {
 const ThreadMoveToProjectTool = Tool.make("t3_thread_move_to_project", {
   ...commandTool,
   description:
-    "Move a No project thread into a project in place: it keeps its id and history and continues in the project's workspace (a fresh SlipJay workspace when the project uses SlipJay, a workspace this thread already holds there, otherwise the project root). Moving this thread ends the current turn, and continuationPrompt starts the next turn in the project, so make it the next instruction and stop. The user can undo the move until a run starts there. If the user chose Keep on an earlier move or suggestion, move only when they ask again. Omit threadId for this thread.",
+    "Move a No project thread into a project in place: it keeps its id and history and continues in the project's workspace (a workspace this thread already holds there, a fresh SlipJay workspace prepared when the next turn starts when the project uses SlipJay, otherwise the project root). Moving this thread ends the current turn, and continuationPrompt starts the next turn in the project, so make it the next instruction and stop. If the user chose Keep on an earlier move or suggestion, move only when they ask again. Omit threadId for this thread.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     projectId: ProjectId,

@@ -199,27 +199,11 @@ export class ThreadLaunchService extends Context.Service<
     >;
     readonly prepareRun: (input: ThreadLaunchPreparationInput) => Effect.Effect<void>;
     /**
-     * The workspace a thread entering a project starts in, chosen as a launch chooses it:
-     * a fresh SlipJay workspace carrying the thread's Build item in a SlipJay project,
-     * otherwise the project root (`worktreePath: null`). `allocated` says SlipJay created it.
-     */
-    readonly allocateProjectWorkspace: (input: {
-      readonly threadId: ThreadId;
-      readonly projectRoot: string;
-      readonly task: string;
-    }) => Effect.Effect<
-      {
-        readonly worktreePath: string | null;
-        readonly workspaceIssue: number | null;
-        readonly allocated: boolean;
-      },
-      WorkspaceProvider.WorkspaceProviderError | Orchestrator.OrchestratorV2Error
-    >;
-    /**
-     * Sends a run that is about to start back to workspace preparation when
-     * SlipJay released its thread's workspace, as Land does, so it runs in a
-     * fresh workspace like a first message. Reports whether it did; a failure
-     * leaves the run starting, so the caller can retry.
+     * Sends a run that is about to start back to workspace preparation when its
+     * thread has no SlipJay workspace to run in: SlipJay released it, as Land
+     * does, or a project move left the project's one to prepare. The run then
+     * starts in a fresh workspace like a first message. Reports whether it did;
+     * a failure leaves the run starting, so the caller can retry.
      */
     readonly prepareReleasedWorkspace: (
       input: ThreadLaunchPreparationInput,
@@ -360,44 +344,6 @@ const make = Effect.gen(function* () {
     return thread.workItem?.number ?? thread.workspaceIssue ?? undefined;
   });
 
-  // A thread launched for a Build item works in that item's workspace. A thread that
-  // already belongs to one, such as one replacing a workspace SlipJay removed, gets a
-  // new checkout carrying the item, since the item's workspace may be another thread's.
-  const allocateSlipJayWorkspace = Effect.fn("ThreadLaunchService.allocateSlipJayWorkspace")(
-    function* (input: {
-      readonly threadId: ThreadId;
-      readonly projectRoot: string;
-      readonly task: string;
-      readonly buildItem: number | undefined;
-    }) {
-      const owned =
-        input.buildItem === undefined ? yield* threadBuildItem(input.threadId) : undefined;
-      const issue =
-        input.buildItem !== undefined
-          ? { number: input.buildItem, mode: "resume" as const }
-          : owned !== undefined
-            ? { number: owned, mode: "attach" as const }
-            : undefined;
-      return yield* workspaces.allocate({
-        projectRoot: input.projectRoot,
-        task: input.task || "T3 thread",
-        ...(issue === undefined ? {} : { issue }),
-      });
-    },
-  );
-
-  const allocateProjectWorkspace: ThreadLaunchService["Service"]["allocateProjectWorkspace"] =
-    Effect.fn("ThreadLaunchService.allocateProjectWorkspace")(function* (input) {
-      if ((yield* workspaces.resolve(input.projectRoot)) !== "slipjay")
-        return { worktreePath: null, workspaceIssue: null, allocated: false };
-      const allocation = yield* allocateSlipJayWorkspace({ ...input, buildItem: undefined });
-      return {
-        worktreePath: allocation.workspacePath,
-        workspaceIssue: allocation.issue,
-        allocated: allocation.created,
-      };
-    });
-
   const prepareInBackground = Effect.fn("ThreadLaunchService.prepareInBackground")(function* (
     input: PreparationInput,
     threadId: ThreadId,
@@ -515,7 +461,17 @@ const make = Effect.gen(function* () {
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         const task =
           requestedBranch ?? initialMessage?.text.trim().split("\n")[0]?.slice(0, 80) ?? "";
+        // A thread launched for a Build item works in that item's workspace. A thread that
+        // already belongs to one, such as one replacing a workspace SlipJay removed, gets a
+        // new checkout carrying the item, since the item's workspace may be another thread's.
         const buildItem = input.workspaceStrategy.buildItem;
+        const owned = buildItem === undefined ? yield* threadBuildItem(threadId) : undefined;
+        const issue =
+          buildItem !== undefined
+            ? { number: buildItem, mode: "resume" as const }
+            : owned !== undefined
+              ? { number: owned, mode: "attach" as const }
+              : undefined;
         // A terminal recovering the same released workspace may have rebound the thread
         // since this run was scheduled. Its checkout stands: a second one would leave the
         // terminal in a workspace the thread is no longer bound to.
@@ -536,12 +492,13 @@ const make = Effect.gen(function* () {
           // and rollback registration atomic, so cancellation cannot lose that path.
           // A resumed Build item workspace predates this launch, so cancelling never removes it.
           yield* Effect.gen(function* () {
-            const allocation = yield* allocateSlipJayWorkspace({
-              threadId,
-              projectRoot: project.workspaceRoot,
-              task,
-              buildItem,
-            }).pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+            const allocation = yield* workspaces
+              .allocate({
+                projectRoot: project.workspaceRoot,
+                task: task || "T3 thread",
+                ...(issue === undefined ? {} : { issue }),
+              })
+              .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
             worktreePath = allocation.workspacePath;
             branch = null;
             workspaceIssue = allocation.issue;
@@ -1406,16 +1363,32 @@ const make = Effect.gen(function* () {
     return { thread, worktreePath: thread.worktreePath, project };
   });
 
+  // A project move commits before any workspace exists, so nothing is left to clean up when
+  // it fails; the chat's next turn prepares the project's workspace as a first message would.
+  const movedWithoutWorkspace = (threadId: ThreadId) =>
+    threads
+      .getThreadRecords(threadId, [])
+      .pipe(
+        Effect.map(
+          ({ thread }) =>
+            thread.projectMove?.pendingWorkspace === true &&
+            thread.worktreePath === null &&
+            thread.agentTask === undefined,
+        ),
+      );
+
   const prepareReleasedWorkspace: ThreadLaunchService["Service"]["prepareReleasedWorkspace"] =
     Effect.fn("ThreadLaunchService.prepareReleasedWorkspace")(function* (input) {
-      const released = yield* releasedWorkspace(input.threadId);
-      if (released === null) return false;
-      yield* threads.dispatch({
-        type: "thread.metadata.update",
-        commandId: CommandId.make(`${input.commandId}:workspace-replaced`),
-        threadId: input.threadId,
-        workspaceReplaced: true,
-      });
+      if (!(yield* movedWithoutWorkspace(input.threadId))) {
+        const released = yield* releasedWorkspace(input.threadId);
+        if (released === null) return false;
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`${input.commandId}:workspace-replaced`),
+          threadId: input.threadId,
+          workspaceReplaced: true,
+        });
+      }
       yield* threads.dispatch({
         type: "prepared-run.defer",
         commandId: input.commandId,
@@ -1486,7 +1459,6 @@ const make = Effect.gen(function* () {
     );
 
   return ThreadLaunchService.of({
-    allocateProjectWorkspace,
     launch,
     checkWorktreeBase,
     retryPreparation,

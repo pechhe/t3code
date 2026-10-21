@@ -2314,7 +2314,11 @@ function ThreadContinuationRow({ text }: { readonly text: string }) {
 }
 
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
-  const presentation = resolveUserMessagePresentation(row.message);
+  const { threadRef } = use(TimelineRowCtx);
+  const presentation = resolveUserMessagePresentation({
+    ...row.message,
+    ...(threadRef ? { threadId: threadRef.threadId } : {}),
+  });
   if (presentation.attribution === "continuation")
     return <ThreadContinuationRow text={presentation.text} />;
   return <UserMessageTimelineRow row={row} />;
@@ -2348,7 +2352,10 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
   const unknownAttachments = (row.message.attachments ?? []).filter(
     (attachment) => !isImageAttachment(attachment) && !isFileAttachment(attachment),
   );
-  const userMessage = resolveUserMessagePresentation(row.message);
+  const userMessage = resolveUserMessagePresentation({
+    ...row.message,
+    ...(ctx.threadRef ? { threadId: ctx.threadRef.threadId } : {}),
+  });
   // A scheduled run's prompt is not the user's own message, so it does not read as one.
   const scheduled = userMessage.attribution === "automation";
   const resolvedContext = resolveUserMessageContext(row.message);

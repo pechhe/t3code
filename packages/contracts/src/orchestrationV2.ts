@@ -525,8 +525,9 @@ export const OrchestrationV2ThreadProjectMove = Schema.Struct({
   fromWorkspaceIssue: Schema.NullOr(PositiveInt),
   /** The attachment in the target project that became the primary workspace. */
   promotedAttachment: Schema.NullOr(OrchestrationV2WorkspaceAttachment),
-  /** The move allocated the primary workspace, so Undo releases it. */
-  allocatedWorkspace: Schema.Boolean,
+  /** The project's default workspace is prepared when the chat's next turn starts, and it
+      has not been bound to one since. */
+  pendingWorkspace: Schema.Boolean,
   /** Runs the thread had when it moved; Undo is refused once it has another. */
   runCount: NonNegativeInt,
 });
@@ -3557,9 +3558,10 @@ const OrchestrationV2InternalCommand = Schema.Union([
     ]),
   }),
   /**
-   * Records a project move, or its Undo, once the server has prepared the workspace. `apply`
-   * names the primary workspace the chat continues in: an attachment it already holds in the
-   * project, one the move allocated, or the project root (null).
+   * Records a project move, or its Undo. `apply` names the primary workspace the chat
+   * continues in: an attachment it already holds in the project, or none (null), when the
+   * project root serves or `pendingWorkspace` defers preparation to the next turn. It is
+   * refused unless the chat is still in `fromProjectId`, so concurrent moves cannot both land.
    */
   Schema.Struct({
     type: Schema.Literal("thread.project-move.record"),
@@ -3568,11 +3570,12 @@ const OrchestrationV2InternalCommand = Schema.Union([
     change: Schema.Union([
       Schema.Struct({
         action: Schema.Literal("apply"),
+        fromProjectId: ProjectId,
         projectId: ProjectId,
         worktreePath: Schema.NullOr(TrimmedNonEmptyString),
         branch: Schema.NullOr(TrimmedNonEmptyString),
         workspaceIssue: Schema.NullOr(PositiveInt),
-        allocatedWorkspace: Schema.Boolean,
+        pendingWorkspace: Schema.Boolean,
       }),
       Schema.Struct({ action: Schema.Literal("revert") }),
     ]),

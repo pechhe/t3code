@@ -11,9 +11,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as ScheduledTasks from "../scheduledTasks/ScheduledTaskService.ts";
 import type * as Orchestrator from "./Orchestrator.ts";
-import * as ThreadLaunch from "./ThreadLaunchService.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
-import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 
 export class ThreadProjectMoveError extends Schema.TaggedError<ThreadProjectMoveError>()(
   "ThreadProjectMoveError",
@@ -24,18 +22,21 @@ export interface ThreadProjectMoveContinuation {
   readonly commandId: CommandId;
   readonly messageId: MessageId;
   readonly text: string;
+  /** The thread whose agent asked for the move; the moved thread itself for a self-move. */
+  readonly senderThreadId: ThreadId | undefined;
 }
 
 /**
  * Moves a No project chat into a project in place: the thread keeps its id and history and
- * continues in the project's workspace. Undo reverses the move until a run starts there.
+ * continues in the project's workspace, which its next turn prepares when it has none there.
+ * Undo reverses the move until a run starts there.
  */
 export class ThreadProjectMoveService extends Context.Service<
   ThreadProjectMoveService,
   {
     /**
-     * A retry under the same command id replays the recorded move without allocating again.
-     * A continuation is queued as the thread's own message, so it starts the next turn there.
+     * A retry under the same command id replays the recorded move. A continuation is queued
+     * as the thread's own message, so it starts the next turn there.
      */
     readonly move: (input: {
       readonly commandId: CommandId;
@@ -62,8 +63,6 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const folders = yield* ManagedProjectFolders.ManagedProjectFolders;
   const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
-  const launch = yield* ThreadLaunch.ThreadLaunchService;
-  const attachments = yield* WorkspaceAttachments.WorkspaceAttachments;
   const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
 
   const loadThread = Effect.fn("ThreadProjectMoveService.loadThread")(function* (
@@ -83,10 +82,18 @@ const make = Effect.gen(function* () {
     return project.value;
   });
 
+  // The move stands once recorded, so a schedule that fails to follow is logged rather than
+  // reported as a failed move; its next dispatch says the thread is in another project.
   const followSchedules = (threadId: ThreadId, projectId: ProjectId) =>
-    scheduledTasks
-      .moveThreadProject({ threadId, projectId })
-      .pipe(failed("The chat moved, but its scheduled tasks did not follow"));
+    scheduledTasks.moveThreadProject({ threadId, projectId }).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logError("A moved chat's scheduled tasks did not follow it", {
+          threadId,
+          projectId,
+          cause,
+        }),
+      ),
+    );
 
   const move: ThreadProjectMoveService["Service"]["move"] = Effect.fn(
     "ThreadProjectMoveService.move",
@@ -111,8 +118,9 @@ const make = Effect.gen(function* () {
         Effect.mapError(() => refuse(`This chat's provider is turned off for ${project.title}.`)),
       );
 
-    // A workspace the chat already holds in the project becomes its primary one; otherwise it
-    // starts where a new chat in the project would. A replay reuses what the move recorded.
+    // A workspace the chat already holds in the project becomes its primary one. Otherwise a
+    // SlipJay project's workspace is prepared when the next turn starts, so nothing exists
+    // before the move commits; any other project runs at its root.
     const held = replay
       ? undefined
       : yield* Effect.findFirst(
@@ -121,31 +129,6 @@ const make = Effect.gen(function* () {
           ),
           (attachment) => workspaces.contains(project.workspaceRoot, attachment.workspacePath),
         ).pipe(Effect.map(Option.getOrUndefined));
-    const workspace = replay
-      ? {
-          worktreePath: thread.worktreePath,
-          branch: thread.branch,
-          workspaceIssue: thread.workspaceIssue ?? null,
-          allocated: thread.projectMove?.allocatedWorkspace ?? false,
-        }
-      : held !== undefined
-        ? {
-            worktreePath: held.workspacePath,
-            branch: held.branch,
-            workspaceIssue: null,
-            allocated: false,
-          }
-        : {
-            ...(yield* launch
-              .allocateProjectWorkspace({
-                threadId: thread.id,
-                projectRoot: project.workspaceRoot,
-                task: thread.title,
-              })
-              .pipe(failed(`Unable to prepare a workspace in ${project.title}`))),
-            branch: null,
-          };
-
     const recorded = yield* threads
       .dispatch({
         type: "thread.project-move.record",
@@ -153,23 +136,17 @@ const make = Effect.gen(function* () {
         threadId: thread.id,
         change: {
           action: "apply",
+          fromProjectId: thread.projectId,
           projectId: project.id,
-          worktreePath: workspace.worktreePath,
-          branch: workspace.branch,
-          workspaceIssue: workspace.workspaceIssue,
-          allocatedWorkspace: workspace.allocated,
+          worktreePath: held?.workspacePath ?? null,
+          branch: held?.branch ?? null,
+          workspaceIssue: null,
+          pendingWorkspace:
+            held === undefined &&
+            (yield* workspaces.resolve(project.workspaceRoot)) === "slipjay",
         },
       })
-      .pipe(
-        failed("Unable to move the chat"),
-        Effect.tapError(() =>
-          !replay && workspace.allocated && workspace.worktreePath !== null
-            ? workspaces
-                .release({ projectRoot: project.workspaceRoot, path: workspace.worktreePath })
-                .pipe(Effect.ignoreCause({ log: true }))
-            : Effect.void,
-        ),
-      );
+      .pipe(failed("Unable to move the chat"));
     yield* followSchedules(thread.id, project.id);
     if (input.continuation !== undefined)
       yield* threads
@@ -178,8 +155,9 @@ const make = Effect.gen(function* () {
           commandId: input.continuation.commandId,
           threadId: thread.id,
           messageId: input.continuation.messageId,
-          // Sent by the thread itself, so it reads as the chat continuing after the move.
-          senderThreadId: thread.id,
+          ...(input.continuation.senderThreadId === undefined
+            ? {}
+            : { senderThreadId: input.continuation.senderThreadId }),
           text: input.continuation.text,
           attachments: [],
           mode: "queue",
@@ -203,18 +181,6 @@ const make = Effect.gen(function* () {
     }
     if (thread.runCount > recorded.runCount)
       return yield* refuse("The chat has run in the project since it moved, so it stays there.");
-    // The workspace the move allocated goes first, under the checks detaching one applies, so
-    // a refusal leaves the chat in the project rather than pointing at a removed folder.
-    if (recorded.allocatedWorkspace && thread.worktreePath !== null) {
-      const project = yield* loadProject(thread.projectId);
-      yield* attachments
-        .releaseWorkspace({
-          threadId: thread.id,
-          projectRoot: project.workspaceRoot,
-          workspacePath: thread.worktreePath,
-        })
-        .pipe(Effect.mapError((error) => refuse(`Unable to undo the move: ${error.message}`)));
-    }
     const reverted = yield* revert(input).pipe(failed("Unable to undo the move"));
     yield* followSchedules(thread.id, recorded.fromProjectId);
     return reverted;

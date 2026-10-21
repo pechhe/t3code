@@ -2972,8 +2972,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
   });
 
   /**
-   * The thread a project move leaves: the target project and the workspace the server
-   * prepared, with what Undo needs to put it back. An attachment the chat held at that path
+   * The thread a project move leaves: the target project and its primary workspace, with
+   * what Undo needs to put it back. An attachment the chat held at that path
    * becomes its primary workspace. Revert restores the recorded state while the chat has not
    * run since the move.
    */
@@ -2992,6 +2992,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const attachments = thread.workspaceAttachments ?? [];
     const { change } = command;
     if (change.action === "apply") {
+      if (change.fromProjectId !== thread.projectId)
+        return yield* refuse(`Thread ${thread.id} is no longer in project ${change.fromProjectId}.`);
       if (change.projectId === thread.projectId)
         return yield* refuse(`Thread ${thread.id} is already in project ${change.projectId}.`);
       const promoted =
@@ -3001,12 +3003,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             attachment.workspacePath === change.worktreePath,
         ) ?? null;
       return {
+        // Only the promoted attachment leaves the list, so Undo, which restores it, gives back
+        // exactly the attachments the chat had.
         ...withWorkspaceAttachments(
           thread,
-          // A released workspace of the target project is no longer an attachment either.
-          attachments.filter(
-            (attachment) => attachment !== promoted && attachment.projectId !== change.projectId,
-          ),
+          attachments.filter((attachment) => attachment !== promoted),
         ),
         projectId: change.projectId,
         worktreePath: change.worktreePath,
@@ -3018,7 +3019,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           fromBranch: thread.branch,
           fromWorkspaceIssue: thread.workspaceIssue ?? null,
           promotedAttachment: promoted,
-          allocatedWorkspace: change.allocatedWorkspace,
+          pendingWorkspace: change.pendingWorkspace,
           runCount: runs.length,
         },
         updatedAt: now,
@@ -3721,6 +3722,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                       ? (thread.workspaceIssue ?? null)
                       : null),
                 }),
+            // Binding a workspace settles the one a project move left to prepare.
+            ...(command.worktreePath !== undefined && thread.projectMove?.pendingWorkspace
+              ? { projectMove: { ...thread.projectMove, pendingWorkspace: false } }
+              : {}),
             ...(command.keepSideChat === true ? { sideChat: false } : {}),
             ...(command.workflow === undefined ? {} : { workflow: command.workflow }),
             ...(command.workItem === undefined ? {} : { workItem: command.workItem }),

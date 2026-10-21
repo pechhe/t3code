@@ -2272,6 +2272,52 @@ it.effect("keeps a Build item launched without a message through its workspace's
   }),
 );
 
+it.effect("prepares the project's workspace for a moved chat's next run", () =>
+  Effect.gen(function* () {
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: allocateInTurn("/slipjay/workspaces/first", "/slipjay/workspaces/moved"),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const run = yield* launchSlipJayRun("thread:launch:moved");
+      yield* threads.dispatch({
+        type: "thread.project-move.record",
+        commandId: CommandId.make("command:thread:launch:moved:move"),
+        threadId: run.threadId,
+        change: {
+          action: "apply",
+          fromProjectId: projectId,
+          projectId: otherProjectId,
+          worktreePath: null,
+          branch: null,
+          workspaceIssue: null,
+          pendingWorkspace: true,
+        },
+      });
+
+      assert.isTrue(yield* launches.prepareReleasedWorkspace(run));
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(run.threadId)
+          .pipe(
+            Effect.map(
+              (projection) =>
+                projection.thread.worktreePath === "/slipjay/workspaces/moved" &&
+                projection.runs[0]?.status === "starting",
+            ),
+          ),
+      );
+      assert.equal(harness.allocateWorkspace.mock.calls[1]?.[0].projectRoot, "/other-repo");
+      const { thread } = yield* threads.getThreadProjection(run.threadId);
+      assert.isFalse(thread.projectMove?.pendingWorkspace);
+      assert.isUndefined(thread.workspaceReplacedAt ?? undefined);
+      assert.isFalse(yield* launches.prepareReleasedWorkspace(run));
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("leaves a run alone when SlipJay kept its workspace", () =>
   Effect.gen(function* () {
     const harness = makeHarness({ slipjay: true });
@@ -3953,7 +3999,6 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
         retryPreparation: launches.retryPreparation,
         prepareRun: launches.prepareRun,
         prepareReleasedWorkspace: launches.prepareReleasedWorkspace,
-        allocateProjectWorkspace: launches.allocateProjectWorkspace,
         terminalCwd: launches.terminalCwd,
       }),
       Effect.flip,

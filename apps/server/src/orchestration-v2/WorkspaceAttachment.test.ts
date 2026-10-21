@@ -358,11 +358,12 @@ it.layer(layerTest)("workspace attachments", (it) => {
           | { readonly action: "revert" }
           | {
               readonly action: "apply";
+              readonly fromProjectId: ProjectId;
               readonly projectId: ProjectId;
               readonly worktreePath: string | null;
               readonly branch: string | null;
               readonly workspaceIssue: null;
-              readonly allocatedWorkspace: boolean;
+              readonly pendingWorkspace: boolean;
             },
       ) =>
         orchestrator.dispatch({
@@ -373,11 +374,12 @@ it.layer(layerTest)("workspace attachments", (it) => {
         });
       yield* record("move", {
         action: "apply",
+        fromProjectId: ProjectId.make("project:chat-move"),
         projectId: ProjectId.make("project:api-move"),
         worktreePath: "/workspaces/api-move",
         branch: null,
         workspaceIssue: null,
-        allocatedWorkspace: false,
+        pendingWorkspace: false,
       });
 
       const moved = yield* projections.getThread(chat);
@@ -417,11 +419,12 @@ it.layer(layerTest)("workspace attachments", (it) => {
         threadId: chat,
         change: {
           action: "apply",
+          fromProjectId: ProjectId.make("project:chat-ran"),
           projectId: ProjectId.make("project:api-ran"),
           worktreePath: null,
           branch: null,
           workspaceIssue: null,
-          allocatedWorkspace: false,
+          pendingWorkspace: false,
         },
       });
       yield* seedRun(chat, { ordinal: 2, status: "completed", text: "in the project" });
@@ -434,6 +437,95 @@ it.layer(layerTest)("workspace attachments", (it) => {
         }),
       );
       assert.isTrue(undo._tag === "Failure");
+    }),
+  );
+
+  it.effect("a second move recorded against the chat's old project is refused", () =>
+    Effect.gen(function* () {
+      const chat = yield* createThread("chat-race");
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const apply = (id: string, projectId: string) =>
+        orchestrator.dispatch({
+          type: "thread.project-move.record",
+          commandId: CommandId.make(`command:${id}:chat-race`),
+          threadId: chat,
+          change: {
+            action: "apply",
+            fromProjectId: ProjectId.make("project:chat-race"),
+            projectId: ProjectId.make(projectId),
+            worktreePath: null,
+            branch: null,
+            workspaceIssue: null,
+            pendingWorkspace: true,
+          },
+        });
+      yield* apply("first", "project:api-race");
+      const second = yield* Effect.exit(apply("second", "project:web-race"));
+      assert.isTrue(second._tag === "Failure");
+      const thread = yield* (yield* ProjectionStore.ProjectionStoreV2).getThread(chat);
+      assert.equal(thread.projectId, ProjectId.make("project:api-race"));
+    }),
+  );
+
+  it.effect("a move that promotes nothing keeps the chat's attachments in that project", () =>
+    Effect.gen(function* () {
+      const chat = yield* createThread("chat-keep");
+      yield* createThread("api-keep");
+      yield* attach(chat, "api-keep", "/workspaces/api-keep");
+      yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+        type: "thread.project-move.record",
+        commandId: CommandId.make("command:move:chat-keep"),
+        threadId: chat,
+        change: {
+          action: "apply",
+          fromProjectId: ProjectId.make("project:chat-keep"),
+          projectId: ProjectId.make("project:api-keep"),
+          worktreePath: null,
+          branch: null,
+          workspaceIssue: null,
+          pendingWorkspace: true,
+        },
+      });
+      assert.deepEqual(yield* attachmentsOf(chat), [
+        {
+          projectId: ProjectId.make("project:api-keep"),
+          workspacePath: "/workspaces/api-keep",
+          released: false,
+        },
+      ]);
+    }),
+  );
+
+  it.effect("binding a workspace settles the one a move left to prepare", () =>
+    Effect.gen(function* () {
+      const chat = yield* createThread("chat-bind");
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* orchestrator.dispatch({
+        type: "thread.project-move.record",
+        commandId: CommandId.make("command:move:chat-bind"),
+        threadId: chat,
+        change: {
+          action: "apply",
+          fromProjectId: ProjectId.make("project:chat-bind"),
+          projectId: ProjectId.make("project:api-bind"),
+          worktreePath: null,
+          branch: null,
+          workspaceIssue: null,
+          pendingWorkspace: true,
+        },
+      });
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      assert.isTrue((yield* projections.getThread(chat)).projectMove?.pendingWorkspace);
+      yield* orchestrator.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("command:bind:chat-bind"),
+        threadId: chat,
+        branch: null,
+        worktreePath: "/workspaces/api-bind",
+      });
+      const bound = yield* projections.getThread(chat);
+      assert.equal(bound.worktreePath, "/workspaces/api-bind");
+      assert.isFalse(bound.projectMove?.pendingWorkspace);
     }),
   );
 

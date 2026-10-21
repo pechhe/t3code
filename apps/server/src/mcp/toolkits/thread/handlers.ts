@@ -204,6 +204,7 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   t3_thread_move_to_project: writesThread((input) =>
     Effect.gen(function* () {
       const { projection } = yield* readThread(input.threadId);
+      const scope = yield* McpInvocationContext.McpInvocationContext;
       const commandId = yield* newCommandId();
       const result = yield* (yield* ThreadProjectMove.ThreadProjectMoveService)
         .move({
@@ -217,6 +218,8 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
                   commandId: CommandId.make(`${commandId}:continuation`),
                   messageId: MessageId.make(`${commandId}:continuation`),
                   text: input.continuationPrompt,
+                  // A self-move reads as the chat continuing; another thread's stays its own.
+                  senderThreadId: scope.thread?.threadId,
                 },
         })
         .pipe(Effect.mapError((error) => invalid(error.message)));
