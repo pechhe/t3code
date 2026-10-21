@@ -629,8 +629,9 @@ const note = (
 ) => ({
   id,
   note: "Use the current route",
-  kind: "send_back" as "send_back" | "answer",
+  kind: "send_back" as "send_back" | "answer" | "decision",
   spec: { id: "spec-1", number: 4530, ref: "YS-260", title: "Inbox", project: "pechhe/yardsmith" },
+  decision: null as { number: number; ref: string | null; title: string } | null,
   leadThread: lead,
   claim: null as { environmentId: string } | null,
 });
@@ -986,6 +987,23 @@ it.effect("refuses answers on older HQ and delivers new HQ answers through the n
       world.sent[0]?.text,
       "Your owner answered your hold on YS-260: Use the current route",
     );
+  }),
+);
+
+it.effect("delivers a note sent back on a Proposed Decision to its source Spec's lead", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    const n = note();
+    n.kind = "decision";
+    n.note = "Only your own number counts";
+    n.decision = { number: 4548, ref: null, title: "Hum acts on your WhatsApp instruction" };
+    hq.answer = noteAnswer([n]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(
+      world.sent[0]?.text,
+      "Your owner sent back Decision #4548 “Hum acts on your WhatsApp instruction”, which YS-260 proposed, to revise or drop: Only your own number counts",
+    );
+    assert.strictEqual(deliveries(hq).at(-1)?.state, "delivered");
   }),
 );
 

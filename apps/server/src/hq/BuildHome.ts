@@ -195,7 +195,9 @@ interface DeliveryRow {
   readonly reportedAt: string | null;
   /** The HQ that recorded the finding; only it is told how delivery went. */
   readonly hqOrigin: string;
-  readonly noteKind: "send_back" | "answer";
+  readonly noteKind: "send_back" | "answer" | "decision";
+  /** The Proposed Decision a `decision` note was sent back on (YS-277), as `#N “title”`. */
+  readonly decisionLabel: string | null;
   readonly specProject: string | null;
   readonly specNumber: number | null;
   readonly claimed: number;
@@ -205,7 +207,16 @@ interface DeliveryRow {
 const HqNote = Schema.Struct({
   id: Schema.String,
   note: Schema.String,
-  kind: Schema.Literals(["send_back", "answer"]),
+  kind: Schema.Literals(["send_back", "answer", "decision"]),
+  decision: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        number: Schema.Int,
+        ref: Schema.optional(Schema.NullOr(Schema.String)),
+        title: Schema.String,
+      }),
+    ),
+  ),
   spec: Schema.Struct({
     id: Schema.String,
     number: Schema.Int,
@@ -513,6 +524,7 @@ const make = Effect.gen(function* () {
       SELECT finding_id AS "findingId", spec_label AS "specLabel", note,
         lead_harness AS "leadHarness", lead_session_ref AS "leadSessionRef", state, detail,
         reported_at AS "reportedAt", hq_origin AS "hqOrigin", note_kind AS "noteKind",
+        decision_label AS "decisionLabel",
         spec_project AS "specProject", spec_number AS "specNumber", claimed,
         delivered_thread_id AS "deliveredThreadId"
       FROM build_send_back_deliveries
@@ -547,7 +559,9 @@ const make = Effect.gen(function* () {
         ? sendBackMessageText(row)
         : row.noteKind === "answer"
           ? `Your owner answered your hold on ${row.specLabel}: ${row.note}`
-          : `Your owner sent ${row.specLabel} back: ${row.note}`;
+          : row.noteKind === "decision"
+            ? `Your owner sent back Decision ${row.decisionLabel ?? ""}, which ${row.specLabel} proposed, to revise or drop: ${row.note}`
+            : `Your owner sent ${row.specLabel} back: ${row.note}`;
     if (
       row.claimed !== 0 &&
       (target === fallbackId ||
@@ -756,6 +770,9 @@ const make = Effect.gen(function* () {
           lead: note.leadThread,
           hqOrigin: response.origin,
           noteKind: note.kind,
+          decisionLabel: note.decision
+            ? `${note.decision.ref || `#${note.decision.number}`} “${note.decision.title}”`
+            : null,
           specProject: note.spec.project,
           specNumber: note.spec.number,
           claimed: true,
@@ -800,7 +817,8 @@ const make = Effect.gen(function* () {
     readonly note: string;
     readonly lead: { readonly harness: string; readonly sessionRef: string } | null;
     readonly hqOrigin: string;
-    readonly noteKind?: "send_back" | "answer";
+    readonly noteKind?: "send_back" | "answer" | "decision";
+    readonly decisionLabel?: string | null;
     readonly specProject?: string | null;
     readonly specNumber?: number;
     readonly claimed?: boolean;
@@ -811,10 +829,10 @@ const make = Effect.gen(function* () {
     // sent to a new thread ("Start a new thread instead"): it starts over.
     yield* sql`INSERT INTO build_send_back_deliveries
       (finding_id, spec_label, note, lead_harness, lead_session_ref, state, created_at, hq_origin,
-        note_kind, spec_project, spec_number, claimed)
+        note_kind, decision_label, spec_project, spec_number, claimed)
       VALUES (${input.findingId}, ${input.specLabel}, ${input.note},
         ${input.lead?.harness ?? null}, ${input.lead?.sessionRef ?? null}, 'pending', ${at},
-        ${input.hqOrigin}, ${input.noteKind ?? "send_back"}, ${input.specProject ?? null},
+        ${input.hqOrigin}, ${input.noteKind ?? "send_back"}, ${input.decisionLabel ?? null}, ${input.specProject ?? null},
         ${input.specNumber ?? null}, ${input.claimed ? 1 : 0})
       ON CONFLICT (finding_id) DO UPDATE SET
         lead_harness = excluded.lead_harness, lead_session_ref = excluded.lead_session_ref,

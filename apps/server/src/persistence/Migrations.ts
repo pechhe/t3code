@@ -87,6 +87,7 @@ import Migration0081 from "./Migrations/081_DropHandedWorkspaceAttachments.ts";
 import Migration0082 from "./Migrations/082_BuildNoteDeliveries.ts";
 import Migration0083 from "./Migrations/083_UnboundScheduledTaskDefaultWorkspace.ts";
 import Migration0084 from "./Migrations/084_WorkspaceAllocationIntents.ts";
+import Migration0085 from "./Migrations/085_BuildDecisionNotes.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -174,6 +175,7 @@ const migrationEntries = [
   [82, "BuildNoteDeliveries", Migration0082],
   [83, "UnboundScheduledTaskDefaultWorkspace", Migration0083],
   [84, "WorkspaceAllocationIntents", Migration0084],
+  [85, "BuildDecisionNotes", Migration0085],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
