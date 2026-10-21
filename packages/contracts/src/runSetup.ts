@@ -61,17 +61,16 @@ export const RunSetupRecord = Schema.Struct({
   effectiveOptions: Schema.NullOr(Schema.Array(ProviderOptionSelection)),
   /** The thread's governing workflow and stance, stamped on the run as it started. */
   workflow: Schema.NullOr(OrchestrationV2ThreadWorkflow),
-  /**
-   * Rollover thresholds in force at run start, bounded by the context window the run's
-   * provider session had reported; null when rollover is off.
-   */
-  rollover: Schema.NullOr(
-    Schema.Struct({
-      softLimit: PositiveInt,
-      hardLimit: PositiveInt,
-      held: Schema.Boolean,
-      noteRecipe: TrimmedNonEmptyString,
-    }),
+  /** Legacy, read-only: rollover thresholds recorded by the removed context rollover. */
+  rollover: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        softLimit: PositiveInt,
+        hardLimit: PositiveInt,
+        held: Schema.Boolean,
+        noteRecipe: TrimmedNonEmptyString,
+      }),
+    ),
   ),
   /**
    * The instruction experiment variant delivered to the run, named by its hash; null when

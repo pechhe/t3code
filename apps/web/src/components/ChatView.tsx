@@ -12,12 +12,6 @@ import {
   shouldDockDraftHeroForSubmission,
 } from "./ChatView.logic";
 import { restorePlanFollowUpComposer } from "./ChatView.logic";
-import {
-  describeRolloverHold,
-  parseRolloverCommand,
-  rolloverHoldForCommand,
-  type RolloverCommand,
-} from "./chat/rolloverCommand";
 import { useQueuedRunEdit } from "./chat/useQueuedRunEdit";
 import {
   isPaintOnlyThreadTimeline,
@@ -1109,8 +1103,7 @@ export default function ChatView(props: ChatViewProps) {
   const canReadTerminal = useEnvironmentScope(environmentId, AuthTerminalReadScope);
   const draftId = routeKind === "draft" ? props.draftId : null;
   const handleNewThread = useNewThreadHandler();
-  const { settleThread, pinThread, confirmAndUnpinThread, setThreadRolloverHold } =
-    useThreadActions();
+  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
   const routeThreadRef = scopeThreadRef(environmentId, threadId);
   const routeThreadKey = scopedThreadKey(routeThreadRef);
   const currentRouteThreadKeyRef = useRef<string | null>(routeThreadKey);
@@ -6299,60 +6292,6 @@ export default function ChatView(props: ChatViewProps) {
     });
   };
 
-  /** Runs a `/rollover` command for the active thread, whether typed or picked from the menu. */
-  const runRolloverCommand = useStableCallback(async (command: RolloverCommand) => {
-    if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return;
-    if (!isServerThread || !activeThreadRef) {
-      toastManager.add(
-        stackedThreadToast({
-          type: "info",
-          title: "Send a message first",
-          description: "Rollover can be held once the thread has started.",
-        }),
-      );
-      return;
-    }
-    const clearRolloverCommand = () => {
-      promptRef.current = "";
-      setComposerDraftPrompt(composerDraftTarget, "");
-      composerRef.current?.resetCursorState();
-    };
-    const nowMs = Date.now();
-    const hold = rolloverHoldForCommand(command, nowMs);
-    if (hold === undefined) {
-      const label = describeRolloverHold(activeThreadShell?.rolloverHold, nowMs);
-      toastManager.add(
-        stackedThreadToast({
-          type: "info",
-          title: label ?? "Rollover is not held",
-          description: label === null ? "It follows your settings for this thread." : undefined,
-        }),
-      );
-      clearRolloverCommand();
-      return;
-    }
-    clearRolloverCommand();
-    const result = await setThreadRolloverHold(activeThreadRef, hold);
-    if (result._tag === "Failure") {
-      if (isAtomCommandInterrupted(result)) return;
-      const error = squashAtomCommandFailure(result);
-      toastManager.add(
-        stackedThreadToast({
-          type: "error",
-          title: "Failed to update rollover",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        }),
-      );
-      return;
-    }
-    toastManager.add(
-      stackedThreadToast({
-        type: "success",
-        title: describeRolloverHold(hold, nowMs) ?? "Rollover on",
-      }),
-    );
-  });
-
   const onSend = async (
     e?: { preventDefault: () => void },
     dispatchMode: ComposerDispatchMode = "auto",
@@ -6375,20 +6314,6 @@ export default function ChatView(props: ChatViewProps) {
         setComposerDraftPrompt(composerDraftTarget, "");
         composerRef.current?.resetCursorState();
       }
-      return;
-    }
-
-    // `/rollover ...` holds or resumes this thread's automatic rollover; it never reaches the provider.
-    const rolloverCommand =
-      !directAnnotation && !composerHasNonPromptContent
-        ? parseRolloverCommand(promptRef.current)
-        : null;
-    if (rolloverCommand) {
-      if (!rolloverCommand.ok) {
-        toastManager.add(stackedThreadToast({ type: "warning", title: rolloverCommand.message }));
-        return;
-      }
-      await runRolloverCommand(rolloverCommand.command);
       return;
     }
 
@@ -8838,9 +8763,6 @@ export default function ChatView(props: ChatViewProps) {
                                 !composerHasNonPromptContent
                                   ? openUsageLimits
                                   : undefined
-                              }
-                              onRolloverCommand={
-                                composerHasNonPromptContent ? undefined : runRolloverCommand
                               }
                               environmentUnavailable={activeEnvironmentUnavailableState}
                               activePendingApproval={activePendingApproval}

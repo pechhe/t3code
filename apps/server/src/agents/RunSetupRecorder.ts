@@ -1,7 +1,5 @@
 import {
-  type ContextRolloverSettings,
   type ModelCapabilities,
-  type ExperimentRolloverPolicy,
   type OrchestrationV2AppThread,
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
@@ -10,7 +8,6 @@ import {
   type RunSetupFile,
   type RunSetupSkill,
 } from "@t3tools/contracts";
-import * as Clock from "effect/Clock";
 import * as Config from "effect/Config";
 import * as Crypto from "effect/Crypto";
 import * as Hex from "effect/encoding/Hex";
@@ -32,21 +29,12 @@ import {
 } from "@t3tools/shared/model";
 import * as ExperimentService from "../experiments/ExperimentService.ts";
 import * as InstructionOverlay from "../experiments/InstructionOverlay.ts";
-import {
-  COMPACTION_RECIPE,
-  assignedRolloverThresholds,
-  boundRolloverThresholds,
-  compactionBoundary,
-  compactsNatively,
-  rolloverHeld,
-} from "../orchestration-v2/ContextRollover.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { forkParked } from "../serverActivation.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 import * as Policy from "./AgentPolicyService.ts";
 
@@ -141,19 +129,10 @@ const skillsIn = Effect.fn("RunSetupRecorder.skillsIn")(function* (
 export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(function* (input: {
   readonly run: Pick<OrchestrationV2Run, "id" | "threadId" | "modelSelection" | "workflow"> &
     Partial<Pick<OrchestrationV2Run, "ordinal">>;
-  readonly thread: Pick<
-    OrchestrationV2AppThread,
-    "lineage" | "creationSource" | "rolloverThresholds" | "rolloverHold"
-  >;
-  /** The context window the provider reported for the run's session, when known. */
-  readonly maxTokens: number | null;
+  readonly thread: Pick<OrchestrationV2AppThread, "lineage" | "creationSource">;
   readonly workingDirectory: string | null;
   /** The run's model capabilities from the provider snapshot, or null when unknown. */
   readonly capabilities: ModelCapabilities | null;
-  readonly rolloverSettings: ContextRolloverSettings;
-  /** False for a provider that is never nudged, so no compaction policy is recorded for it. */
-  readonly nudged: boolean;
-  readonly rollover: ExperimentRolloverPolicy | undefined;
   readonly assignments: ReadonlyArray<{
     readonly experimentId: string;
     readonly variantId: string;
@@ -164,16 +143,6 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
   const path = yield* Path.Path;
   const root = Option.getOrNull(yield* policyRoot.pipe(Effect.orElseSucceed(() => Option.none())));
   const workingDirectory = input.workingDirectory;
-  const configured = assignedRolloverThresholds(
-    input.rolloverSettings,
-    input.thread,
-    input.run.modelSelection.model,
-    input.rollover,
-  );
-  const thresholds =
-    configured === null || !input.nudged
-      ? null
-      : boundRolloverThresholds(configured, input.maxTokens);
   const policy = root === null ? null : yield* input.policy(root);
   return {
     runId: input.run.id,
@@ -208,15 +177,6 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
             }),
           ) ?? []),
     workflow: input.run.workflow ?? null,
-    rollover:
-      thresholds === null
-        ? null
-        : {
-            softLimit: thresholds.soft,
-            hardLimit: thresholds.hard,
-            held: rolloverHeld(input.thread.rolloverHold, yield* Clock.currentTimeMillis),
-            noteRecipe: COMPACTION_RECIPE,
-          },
     instructionOverlay:
       input.instructionOverlay === null
         ? null
@@ -249,7 +209,6 @@ export function uncapturedRunSetup(
     modelSelection: run.modelSelection,
     effectiveOptions: null,
     workflow: run.workflow ?? null,
-    rollover: null,
     experimentAssignments: null,
   };
 }
@@ -432,11 +391,8 @@ export const storeLayer = Layer.effect(
 export class RunSetupRecorder extends Context.Service<
   RunSetupRecorder,
   {
-    /**
-     * Capture and store `run`'s setup once; later calls for the same run do nothing.
-     * `maxTokens` is the context window its provider session reported when it started.
-     */
-    readonly record: (run: OrchestrationV2Run, maxTokens: number | null) => Effect.Effect<void>;
+    /** Capture and store `run`'s setup once; later calls for the same run do nothing. */
+    readonly record: (run: OrchestrationV2Run) => Effect.Effect<void>;
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
   }
 >()("t3/agents/RunSetupRecorder") {}
@@ -445,7 +401,6 @@ export const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
-  const settingsService = yield* ServerSettings.ServerSettingsService;
   const experiments = yield* ExperimentService.ExperimentService;
   const policyService = yield* Policy.AgentPolicyService;
   const providers = yield* ProviderRegistry.ProviderRegistry;
@@ -473,7 +428,7 @@ export const make = Effect.gen(function* () {
       VALUES (${record.runId}, ${record.threadId}, ${record.capturedAt}, ${encodeRecord(record)})
       RETURNING run_id`.pipe(Effect.map((rows) => rows.length > 0));
 
-  const capture = (run: OrchestrationV2Run, maxTokens: number | null) =>
+  const capture = (run: OrchestrationV2Run) =>
     Effect.gen(function* () {
       const thread = yield* projections.getThread(run.threadId);
       const project = yield* projects.get(thread.projectId);
@@ -491,21 +446,14 @@ export const make = Effect.gen(function* () {
               driver: provider.driver,
             });
       const assignments = yield* experiments.assignments({ threadId: run.threadId });
-      const settings = yield* settingsService.getSettings;
-      const instanceId = run.modelSelection.instanceId;
       const record = yield* captureRunSetup({
         run,
         thread,
-        // The point the nudges are bounded by, as the threshold service computes it.
-        maxTokens: compactionBoundary(maxTokens, settings, instanceId),
-        nudged: compactsNatively(settings, instanceId),
         workingDirectory:
           thread.worktreePath ?? Option.getOrNull(Option.map(project, (row) => row.workspaceRoot)),
         capabilities:
           provider?.models.find((model) => model.slug === run.modelSelection.model)?.capabilities ??
           null,
-        rolloverSettings: settings.contextRollover,
-        rollover: (yield* experiments.getRolloverAssignment(run.threadId))?.variant.rollover,
         instructionOverlay: overlay,
         assignments: assignments.map((assignment) => ({
           experimentId: assignment.experimentId,
@@ -581,7 +529,7 @@ export const make = Effect.gen(function* () {
       if (following !== null) yield* markCut(record, following);
     });
 
-  const record = (run: OrchestrationV2Run, maxTokens: number | null) =>
+  const record = (run: OrchestrationV2Run) =>
     captureOrder(run.threadId)
       .withPermits(1)(
         Effect.gen(function* () {
@@ -602,7 +550,7 @@ export const make = Effect.gen(function* () {
           // Checked again once the files are read: a slow read may have spanned a change.
           const captured = (yield* unobservable)
             ? unobserved
-            : yield* capture(run, maxTokens).pipe(
+            : yield* capture(run).pipe(
                 Effect.flatMap((record) =>
                   Effect.map(unobservable, (late) => (late ? unobserved : record)),
                 ),
@@ -626,28 +574,14 @@ export const make = Effect.gen(function* () {
   return RunSetupRecorder.of({
     record,
     start: Effect.fn("RunSetupRecorder.start")(function* () {
-      // A run starts in one commit that updates its provider thread first, so the
-      // window seen here is the one in force when the run's own event follows.
-      const contextWindows = new Map<string, number | null>();
       yield* forkParked(
         Stream.runForEach(engine.streamDomainEvents, (event) => {
-          if (event.type === "provider-thread.updated") {
-            contextWindows.set(event.payload.id, event.payload.contextUsage?.maxTokens ?? null);
-            return Effect.void;
-          }
           // Captured off the event stream so a slow read never holds up the run itself.
           return event.type === "run.updated" &&
             event.payload.status === "running" &&
             event.payload.startedAt !== null &&
             !recorded.has(event.payload.id)
-            ? Effect.forkDetach(
-                record(
-                  event.payload,
-                  event.payload.providerThreadId === null
-                    ? null
-                    : (contextWindows.get(event.payload.providerThreadId) ?? null),
-                ),
-              ).pipe(Effect.asVoid)
+            ? Effect.forkDetach(record(event.payload)).pipe(Effect.asVoid)
             : Effect.void;
         }).pipe(
           Effect.catchCause((cause) => Effect.logWarning("Run setup recorder stopped", { cause })),

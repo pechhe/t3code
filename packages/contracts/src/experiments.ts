@@ -16,6 +16,7 @@ import { TurnTokenUsage } from "./providerRuntime.ts";
 export const ExperimentStatus = Schema.Literals(["draft", "running", "paused", "stopped"]);
 export type ExperimentStatus = typeof ExperimentStatus.Type;
 export const ExperimentLever = Schema.Literals([
+  // Legacy, read-only: rollover experiments stay readable but new ones cannot start.
   "rollover",
   "reviewer",
   "delegation",
@@ -23,6 +24,7 @@ export const ExperimentLever = Schema.Literals([
   "instruction",
 ]);
 export type ExperimentLever = typeof ExperimentLever.Type;
+/** Legacy, read-only: the rollover policy a stored experiment variant carried. */
 export const ExperimentRolloverPolicy = Schema.Struct({
   softLimit: PositiveInt,
   hardLimit: PositiveInt,
@@ -210,7 +212,7 @@ export const ExperimentAssignInput = Schema.Struct({
   taskCategory: Schema.optional(TrimmedNonEmptyString),
   taskLever: Schema.optional(Schema.Literals(["reviewer", "delegation"])),
   /** For a thread, the one lever to enroll it in; each caller assigns only its own. */
-  threadLever: Schema.optional(Schema.Literals(["rollover", "instruction"])),
+  threadLever: Schema.optional(Schema.Literals(["instruction"])),
   enrollment: Schema.Literals(["new", "existing-boundary"]),
   unitCreatedAt: Schema.optional(Schema.String),
   boundaryRunId: Schema.optional(RunId),

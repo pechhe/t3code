@@ -81,7 +81,6 @@ import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
 import * as BuildHome from "./hq/BuildHome.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
-import * as ContextRolloverThresholdService from "./orchestration-v2/ContextRolloverThresholdService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ProjectEnrichmentService from "./project/ProjectEnrichmentService.ts";
@@ -527,7 +526,6 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(BuildHome.BuildHome)({}),
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
   Layer.mock(AgentPolicySettings.AgentPolicySettingsService)({}),
-  Layer.mock(ContextRolloverThresholdService.ContextRolloverThresholdService)({}),
   Layer.mock(ExperimentService.ExperimentService)({}),
   Layer.mock(PeerEnvironments.PeerEnvironments)({}),
   Layer.mock(ProjectEnrichmentService.ProjectEnrichmentService)({}),

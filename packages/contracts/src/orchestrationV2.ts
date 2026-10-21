@@ -182,12 +182,39 @@ export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
   outputTokens: Schema.optional(NonNegativeInt),
   reasoningOutputTokens: Schema.optional(NonNegativeInt),
   promptCacheTtlMs: Schema.optional(PositiveInt),
+  /** Where the provider will compact this session, in context tokens, as last applied. */
   autoCompactThreshold: Schema.optional(PositiveInt),
   promptCacheExpiresAt: Schema.optional(Schema.String),
   updatedAt: Schema.String,
 });
 export type OrchestrationV2ProviderTurnTokenUsage =
   typeof OrchestrationV2ProviderTurnTokenUsage.Type;
+
+/**
+ * Claude Code compacts at its auto-compact window less a fixed reserve: up to 20k for output
+ * plus a 13k buffer (Claude Code 2.1.305). The window must be 100k–1M, so a thread's compact-at
+ * point maps to window = compactAt + reserve within those limits.
+ */
+export const CLAUDE_COMPACT_RESERVE = 33_000;
+const CLAUDE_MIN_COMPACT_WINDOW = 100_000;
+
+/**
+ * The range a thread's compact-at point can take for a provider, given the model's window.
+ * Server and clients both bound with it, so a drag never asks for a point the provider would
+ * move, which would leave the change showing as pending forever.
+ */
+export const compactAtBounds = (
+  driver: string,
+  maxTokens: number | null | undefined,
+): { readonly min: number; readonly max: number } | null => {
+  if (maxTokens == null || !Number.isFinite(maxTokens) || maxTokens <= 0) return null;
+  if (driver === "claudeAgent") {
+    const min = CLAUDE_MIN_COMPACT_WINDOW - CLAUDE_COMPACT_RESERVE;
+    const max = maxTokens - CLAUDE_COMPACT_RESERVE;
+    return max < min ? null : { min, max };
+  }
+  return { min: 1, max: maxTokens - Math.min(20_000, Math.floor(maxTokens / 10)) };
+};
 
 export const OrchestrationV2ContextTransfer = Schema.Struct({
   id: ContextTransferId,
@@ -381,16 +408,6 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
 /**
- * Holds automatic context rollover for one thread. Absent or null means rollover
- * follows the server settings; a pause lapses by itself at `until`.
- */
-export const OrchestrationV2RolloverHold = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("off") }),
-  Schema.Struct({ kind: Schema.Literal("paused"), until: IsoDateTime }),
-]);
-export type OrchestrationV2RolloverHold = typeof OrchestrationV2RolloverHold.Type;
-
-/**
  * The workflow governing a thread and whether it runs unattended, as the
  * agent's own instructions define them. Absent or null means none recorded.
  */
@@ -453,17 +470,6 @@ export const OrchestrationV2ThreadProjectSuggestionJson =
     suggestedAt: Schema.DateTimeUtcFromString,
     dismissedAt: Schema.NullOr(Schema.DateTimeUtcFromString),
   }));
-
-/**
- * One thread's own context rollover thresholds, in tokens, set by dragging the
- * composer's rollover band. Absent or null follows the server settings.
- */
-export const OrchestrationV2ThreadRolloverThresholds = Schema.Struct({
-  soft: PositiveInt,
-  hard: PositiveInt,
-}).check(Schema.makeFilter((value) => value.soft < value.hard));
-export type OrchestrationV2ThreadRolloverThresholds =
-  typeof OrchestrationV2ThreadRolloverThresholds.Type;
 
 /** A one-shot watch, local to the watcher's environment. */
 export const OrchestrationV2WatchTarget = Schema.Union([
@@ -582,7 +588,6 @@ export const OrchestrationV2AppThread = Schema.Struct({
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
-  rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
   workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
   /** When T3 replaced the thread's SlipJay workspace after SlipJay removed it; the next turn says so. */
@@ -590,7 +595,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   /** The Build item the thread's SlipJay workspace belongs to; a replacement stays under it. */
   workspaceIssue: Schema.optional(Schema.NullOr(PositiveInt)),
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
-  rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
+  /** This thread's compact-at point, in context tokens; absent or null follows the provider's setting. */
+  compactAt: Schema.optional(Schema.NullOr(PositiveInt)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
   // payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -763,7 +769,6 @@ export const OrchestrationV2Run = Schema.Struct({
   checkpointId: Schema.NullOr(CheckpointId),
   contextHandoffId: Schema.NullOr(ContextHandoffId),
   restartContinuationOfRunId: Schema.optional(RunId),
-  rolloverOfRunId: Schema.optional(RunId),
   /** The delegated task this run answers, including a follow-up in an existing child thread. */
   delegatedTaskId: Schema.optional(NodeId),
   workStartedAt: Schema.optional(Schema.DateTimeUtc),
@@ -1898,8 +1903,10 @@ export const OrchestrationV2DomainEvent = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
+      // Legacy, read-only: stored by the removed context rollover.
       "thread.rollover-hold-set",
       "thread.rollover-thresholds-set",
+      "thread.compact-at-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2157,11 +2164,10 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   limitRecovery: Schema.optional(Schema.NullOr(OrchestrationV2LimitRecovery)),
   pinnedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   autoSettleDisabledAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
-  rolloverHold: Schema.optional(Schema.NullOr(OrchestrationV2RolloverHold)),
   workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
   workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
-  rolloverThresholds: Schema.optional(Schema.NullOr(OrchestrationV2ThreadRolloverThresholds)),
+  compactAt: Schema.optional(Schema.NullOr(PositiveInt)),
   /** Slot in the user-arranged pinned order; omitted by pre-reorder servers. */
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   activeOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -2740,8 +2746,10 @@ export const OrchestrationV2DomainEventJson = Schema.Union([
       "thread.unsnoozed",
       "thread.pinned",
       "thread.auto-settle-set",
+      // Legacy, read-only: stored by the removed context rollover.
       "thread.rollover-hold-set",
       "thread.rollover-thresholds-set",
+      "thread.compact-at-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",
@@ -2970,18 +2978,11 @@ export const OrchestrationV2Command = Schema.Union([
     enabled: Schema.Boolean,
   }),
   Schema.Struct({
-    type: Schema.Literal("thread.rollover-hold.set"),
+    type: Schema.Literal("thread.compact-at.set"),
     commandId: CommandId,
     threadId: ThreadId,
-    /** Null lifts the hold. */
-    hold: Schema.NullOr(OrchestrationV2RolloverHold),
-  }),
-  Schema.Struct({
-    type: Schema.Literal("thread.rollover-thresholds.set"),
-    commandId: CommandId,
-    threadId: ThreadId,
-    /** Null returns the thread to the server's thresholds. */
-    thresholds: Schema.NullOr(OrchestrationV2ThreadRolloverThresholds),
+    /** Null returns the thread to the provider's setting. */
+    compactAt: Schema.NullOr(PositiveInt),
   }),
   Schema.Struct({
     type: Schema.Literal("thread.pin"),
@@ -3558,7 +3559,6 @@ export const ORCHESTRATION_V2_WS_METHODS = {
   searchThreadStream: "orchestration.searchThreadStream",
   getArchivedShellSnapshot: "orchestration.getArchivedShellSnapshot",
   getThreadProjection: "orchestration.getThreadProjection",
-  getRolloverThresholds: "orchestration.getRolloverThresholds",
   getWorkflowScript: "orchestration.getWorkflowScript",
   stopWorkflow: "orchestration.stopWorkflow",
   detachWorkspace: "orchestration.detachWorkspace",
@@ -4048,31 +4048,6 @@ export class OrchestrationV2SearchThreadError extends Schema.TaggedError<Orchest
   }
 }
 
-export const OrchestrationV2GetRolloverThresholdsInput = Schema.Struct({
-  threadId: ThreadId,
-  /** The model the thread's next run uses. */
-  model: TrimmedNonEmptyString,
-  /** The provider's reported context window, when known; thresholds stay below it. */
-  maxTokens: Schema.NullOr(PositiveInt),
-});
-export type OrchestrationV2GetRolloverThresholdsInput =
-  typeof OrchestrationV2GetRolloverThresholdsInput.Type;
-
-/** Context sizes at which the thread is asked for a handoff; null when it does not roll over. */
-export const OrchestrationV2RolloverThresholds = Schema.NullOr(
-  Schema.Struct({ soft: PositiveInt, hard: PositiveInt }),
-);
-export type OrchestrationV2RolloverThresholds = typeof OrchestrationV2RolloverThresholds.Type;
-
-export class OrchestrationV2GetRolloverThresholdsError extends Schema.TaggedError<OrchestrationV2GetRolloverThresholdsError>()(
-  "OrchestrationV2GetRolloverThresholdsError",
-  { cause: Schema.Defect() },
-) {
-  override get message(): string {
-    return "Could not read this thread's rollover thresholds.";
-  }
-}
-
 export const OrchestrationV2RpcSchemas = {
   searchThread: {
     input: OrchestrationV2SearchThreadInput,
@@ -4097,10 +4072,6 @@ export const OrchestrationV2RpcSchemas = {
   getThreadProjection: {
     input: OrchestrationV2GetThreadProjectionInput,
     output: OrchestrationV2ThreadProjection,
-  },
-  getRolloverThresholds: {
-    input: OrchestrationV2GetRolloverThresholdsInput,
-    output: OrchestrationV2RolloverThresholds,
   },
   stopWorkflow: {
     input: OrchestrationV2StopWorkflowInput,

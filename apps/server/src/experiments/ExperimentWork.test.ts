@@ -399,7 +399,7 @@ it.effect("keeps a thread's instruction assignment through a policy save and a l
     expect(first).toHaveLength(1);
     const policyStore = yield* AgentPolicyStore.AgentPolicyStore;
     yield* policyStore.save({ ...policySnapshot(), hash: "f".repeat(64), sourceRevision: "newer" });
-    // Each run, a rollover run included, reads the assignment again; it never moves.
+    // Each run reads the assignment again; it never moves.
     expect(yield* assign).toEqual(first);
     expect(
       yield* service.assignForThread({

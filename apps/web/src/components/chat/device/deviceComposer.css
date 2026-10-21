@@ -423,62 +423,25 @@
   inset: -4px -5px;
 }
 
-/* Rollover: a translucent band from where a handoff is asked for at the next break to where it is asked for now. */
-.device-context__rollover {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  min-width: 2px;
-  border-radius: 2px;
-  background: color-mix(in oklch, var(--cream-ink) 16%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--cream-ink) 22%, transparent);
+.device-context__marker[data-editable]::before {
+  inset: -6px -10px;
 }
-
-.device-context__rollover[data-editable] {
-  cursor: grab;
-  touch-action: none;
-}
-.device-context__rollover[data-dragging] {
-  cursor: grabbing;
-}
-/* A thread's own thresholds read a little firmer than the settings' defaults. */
-.device-context__rollover[data-custom] {
-  background: color-mix(in oklch, var(--cream-ink) 24%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--cream-ink) 40%, transparent);
-}
-
-/* The edges: wide invisible grips over each end, a bar of ink while hovered or focused. */
-.device-context__rollover-edge {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 10px;
+.device-context__marker[data-editable] {
   cursor: ew-resize;
   touch-action: none;
   outline: none;
 }
-.device-context__rollover-edge--soft {
-  left: -5px;
+.device-context__marker[data-editable]:focus-visible,
+.device-context__marker[data-dragging] {
+  box-shadow: 0 0 0 2px color-mix(in oklch, oklch(0.6 0.16 52) 40%, transparent);
 }
-.device-context__rollover-edge--hard {
-  right: -5px;
+/* The thread's point is saved but the provider has not applied it yet. */
+.device-context__marker[data-pending] {
+  opacity: 0.55;
 }
-.device-context__rollover-edge::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 4px;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--cream-ink);
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-.device-context__rollover-edge:hover::after,
-.device-context__rollover-edge:focus-visible::after,
-.device-context__rollover[data-dragging] .device-context__rollover-edge::after {
-  opacity: 0.7;
+/* The provider reports no point: the line is only where a drag starts. */
+.device-context__marker[data-unreported] {
+  opacity: 0.35;
 }
 
 .device-context__label {

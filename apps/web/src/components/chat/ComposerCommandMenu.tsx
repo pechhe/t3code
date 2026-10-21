@@ -27,7 +27,6 @@ import { type ComposerSlashCommand, type ComposerTriggerKind } from "../../compo
 import { cn } from "~/lib/utils";
 import { Badge } from "../ui/badge";
 import { Command, CommandGroup, CommandItem, CommandList } from "../ui/command";
-import type { RolloverCommand } from "./rolloverCommand";
 import { PierreEntryIcon } from "./PierreEntryIcon";
 import { ComposerBanner } from "./ComposerBanner";
 import { resolvePullRequestState } from "../pullRequest/pullRequestPresentation";
@@ -74,13 +73,6 @@ export type ComposerCommandItem =
     }
   | {
       id: string;
-      type: "rollover-option";
-      command: RolloverCommand;
-      label: string;
-      description: string;
-    }
-  | {
-      id: string;
       type: "thread";
       thread: ScopedThreadRef;
       label: string;
@@ -94,8 +86,6 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
   isLoading: boolean;
   triggerKind: ComposerTriggerKind | null;
   emptyStateText?: string;
-  /** A line above the list, e.g. the current state a menu of choices will change. */
-  description?: string | null;
   activeItemId: string | null;
   onHighlightedItemChange: (itemId: string | null) => void;
   onSelect: (item: ComposerCommandItem) => void;
@@ -125,9 +115,6 @@ export const ComposerCommandMenu = memo(function ComposerCommandMenu(props: {
         className="flex min-h-0 w-full flex-col overflow-hidden pb-(--chat-composer-attachment-overlap) **:data-[slot=command-item]:rounded-lg **:data-[slot=scroll-area-scrollbar]:data-[orientation=vertical]:my-4"
         data-composer-command-drawer="true"
       >
-        {props.description ? (
-          <p className="px-5 pt-3 text-secondary-label text-xs">{props.description}</p>
-        ) : null}
         {props.items.length > 0 ? (
           <CommandList
             id={props.listId}

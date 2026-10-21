@@ -363,6 +363,8 @@ layer("076_RepairClientSettlementTimestamps", (it) => {
       yield* Migration0076;
       assert.deepEqual(yield* snapshot, repaired);
 
+      // The rebuild writes columns that later migrations add.
+      yield* runMigrations();
       const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       assert.isTrue((yield* maintenance.rebuild).valid);
       assert.deepEqual(yield* imported, expectedImported);

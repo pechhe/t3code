@@ -235,6 +235,8 @@ export function applyOrchestrationV2ProjectionEvent(
     case "thread.snoozed":
     case "thread.unsnoozed":
     case "thread.auto-settle-set":
+    case "thread.compact-at-set":
+    // Legacy events from before rollover was removed; the thread they carry is still current.
     case "thread.rollover-hold-set":
     case "thread.rollover-thresholds-set":
     case "thread.pinned":

@@ -25,7 +25,7 @@ const DECISIONS_KEPT = 512;
 /**
  * The instruction experiment variant a thread's runs receive. The first run on a
  * provider that can deliver an overlay enrolls the thread; the assignment then holds for
- * every later run, rollover runs included. Each run's overlay is decided once: the provider
+ * every later run. Each run's overlay is decided once: the provider
  * turn and the run's setup record read the same decision, so the record names exactly what
  * was delivered, even when the lookup failed and nothing was sent.
  */

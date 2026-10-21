@@ -54,6 +54,7 @@ import {
   type OrchestrationV2Subagent,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2TurnItem,
+  compactAtBounds,
   latestProviderTurnForAttempt,
   orchestrationV2RunWorkStartedAt,
   ProviderInstanceId,
@@ -97,7 +98,6 @@ import {
   resolveMessageDispatchIntent,
 } from "./CommandPolicy.ts";
 import { CommandReceiptStoreV2 } from "./CommandReceiptStore.ts";
-import { ROLLOVER_NUDGE_COMMAND_PREFIX } from "./ContextRollover.ts";
 import { ContextHandoffServiceV2 } from "./ContextHandoffService.ts";
 import { notificationTurnItem } from "@t3tools/provider-core/server/notification";
 import {
@@ -471,8 +471,7 @@ function commandThreadId(command: OrchestrationV2ServerCommand): ThreadId {
     case "thread.snooze":
     case "thread.unsnooze":
     case "thread.auto-settle.set":
-    case "thread.rollover-hold.set":
-    case "thread.rollover-thresholds.set":
+    case "thread.compact-at.set":
     case "thread.pin":
     case "thread.unpin":
     case "thread.pin.reorder":
@@ -3030,8 +3029,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           | "thread.snooze"
           | "thread.unsnooze"
           | "thread.auto-settle.set"
-          | "thread.rollover-hold.set"
-          | "thread.rollover-thresholds.set"
+          | "thread.compact-at.set"
           | "thread.pin"
           | "thread.unpin"
           | "thread.pin.reorder"
@@ -3194,8 +3192,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         command.type === "thread.snooze" ||
         command.type === "thread.unsnooze" ||
         command.type === "thread.auto-settle.set" ||
-        command.type === "thread.rollover-hold.set" ||
-        command.type === "thread.rollover-thresholds.set" ||
+        command.type === "thread.compact-at.set" ||
         command.type === "thread.pin" ||
         command.type === "thread.unpin" ||
         command.type === "thread.pin.reorder" ||
@@ -3208,6 +3205,40 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         commandType: command.type,
         cause: `Thread ${command.threadId} is archived.`,
       });
+    }
+    if (command.type === "thread.compact-at.set" && command.compactAt !== null) {
+      const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
+      const instanceId = thread.modelSelection.instanceId;
+      // A legacy instance id is its driver's name.
+      const driver = settings.providerInstances[instanceId]?.driver ?? instanceId;
+      // Only Claude and Codex compact natively, so no other provider has a point to move.
+      if (driver !== "claudeAgent" && driver !== "codex") {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Provider ${driver} does not compact natively, so a thread cannot set where it compacts.`,
+        });
+      }
+      const { providerTurns } = yield* projectionStore
+        .getThreadRecords(command.threadId, ["providerTurns"])
+        .pipe(mapDispatchError(command));
+      const maxTokens = providerTurns
+        .filter((turn) => turn.tokenUsage?.maxTokens != null)
+        .reduce<{ readonly at: string; readonly maxTokens: number } | null>(
+          (latest, turn) =>
+            latest === null || turn.tokenUsage!.updatedAt > latest.at
+              ? { at: turn.tokenUsage!.updatedAt, maxTokens: turn.tokenUsage!.maxTokens! }
+              : latest,
+          null,
+        )?.maxTokens;
+      const bounds = compactAtBounds(driver, maxTokens);
+      if (bounds !== null && (command.compactAt < bounds.min || command.compactAt > bounds.max)) {
+        return yield* new OrchestratorDispatchError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: `Compact-at must be between ${bounds.min} and ${bounds.max} tokens for this model.`,
+        });
+      }
     }
     // Only pinned threads have a slot in the arranged order. Rejecting
     // (rather than silently pinning) keeps a raced reorder-after-unpin from
@@ -3570,25 +3601,11 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             updatedAt: unchanged ? thread.updatedAt : now,
           };
         }
-        case "thread.rollover-hold.set": {
-          const unchanged =
-            (thread.rolloverHold ?? null)?.kind === command.hold?.kind &&
-            (thread.rolloverHold?.kind === "paused" ? thread.rolloverHold.until : null) ===
-              (command.hold?.kind === "paused" ? command.hold.until : null);
+        case "thread.compact-at.set": {
+          const unchanged = (thread.compactAt ?? null) === command.compactAt;
           return {
             ...thread,
-            rolloverHold: command.hold,
-            updatedAt: unchanged ? thread.updatedAt : now,
-          };
-        }
-        case "thread.rollover-thresholds.set": {
-          const current = thread.rolloverThresholds ?? null;
-          const unchanged =
-            current?.soft === command.thresholds?.soft &&
-            current?.hard === command.thresholds?.hard;
-          return {
-            ...thread,
-            rolloverThresholds: command.thresholds,
+            compactAt: command.compactAt,
             updatedAt: unchanged ? thread.updatedAt : now,
           };
         }
@@ -4013,10 +4030,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return "thread.unsnoozed" as const;
         case "thread.auto-settle.set":
           return "thread.auto-settle-set" as const;
-        case "thread.rollover-hold.set":
-          return "thread.rollover-hold-set" as const;
-        case "thread.rollover-thresholds.set":
-          return "thread.rollover-thresholds-set" as const;
+        case "thread.compact-at.set":
+          return "thread.compact-at-set" as const;
         case "thread.pin":
           return "thread.pinned" as const;
         case "thread.unpin":
@@ -5611,7 +5626,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       command.dispatchMode,
       command.deliveryIntent,
     );
-    const contextNudge = command.commandId.startsWith(ROLLOVER_NUDGE_COMMAND_PREFIX);
     if (dispatchMode.type === "steer_active") {
       const targetRunId = dispatchMode.targetRunId;
       const target = projection.runs.find((run) => run.id === targetRunId);
@@ -5620,14 +5634,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         target?.activeAttemptId,
       );
       const live = target?.status === "running" || target?.status === "waiting";
-      // A context nudge only prepares a running task for compaction; it never starts work.
-      if (contextNudge && (!live || turn?.status === "completed")) {
-        return yield* new OrchestratorDispatchError({
-          commandId: command.commandId,
-          commandType: command.type,
-          cause: "The run ended before the context nudge could be delivered.",
-        });
-      }
       // The client may still show a running turn while its completion is being
       // projected. Preserve the submission as a new turn when steering is too late.
       if (
@@ -5637,14 +5643,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       ) {
         dispatchMode = { type: "start_immediately" };
       }
-    } else if (contextNudge) {
-      // A run that cannot take steering (a native /compact, say) would queue the nudge,
-      // and the queued nudge would start a new run after compaction.
-      return yield* new OrchestratorDispatchError({
-        commandId: command.commandId,
-        commandType: command.type,
-        cause: "The context nudge's run cannot take steering input.",
-      });
     }
     // Stop leaves the run reading as running until its provider stops. A plain
     // send in that window queues behind the stopped queue instead of steering
@@ -5662,7 +5660,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     ) {
       dispatchMode = { type: "queue_after_active" };
     }
-    // T3's own notices (a restart continuation, a context nudge) act on the thread's current
+    // T3's own notices (a restart continuation) act on the thread's current
     // work. They steer or start immediately; Stop must reject them rather than queue them.
     if (
       command.notification !== undefined &&
@@ -12261,8 +12259,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       case "thread.snooze":
       case "thread.unsnooze":
       case "thread.auto-settle.set":
-      case "thread.rollover-hold.set":
-      case "thread.rollover-thresholds.set":
+      case "thread.compact-at.set":
       case "thread.pin":
       case "thread.unpin":
       case "thread.pin.reorder":

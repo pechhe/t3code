@@ -1,13 +1,14 @@
-import { type CSSProperties, type KeyboardEvent, type PointerEvent, useState } from "react";
+import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
 
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../../ui/tooltip";
-import { formatContextWindowCompactionMessage } from "../ContextWindowMeter.logic";
 import {
-  dragRolloverBand,
-  type RolloverBandPart,
-  type RolloverBandThresholds,
-} from "./rolloverBand.logic";
+  type CompactAtBounds,
+  compactAtFromPointer,
+  isDoubleTap,
+  nudgeCompactAt,
+  resolveCompactLine,
+} from "./compactLine.logic";
 
 function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, value));
@@ -15,20 +16,19 @@ function clampPercent(value: number): number {
 
 /**
  * The segmented context readout inside the composer screen: filled segments for
- * the context in use, an amber marker where the provider compacts on its own,
- * a shaded band where context rollover nudges the agent, and the token count. Empty
- * until the thread reports usage. Dragging the band, or either of its edges, sets this
- * thread's own rollover thresholds.
+ * the context in use, the amber compact line where the thread compacts, and the token
+ * count. Empty until the thread reports usage. Dragging the line sets this thread's own
+ * compact-at point.
  */
 export function DeviceContextBar(props: {
   usage: ContextWindowSnapshot | null;
-  /** Context sizes where rollover nudges the agent: soft at a break, hard now. */
-  rollover: RolloverBandThresholds | null;
-  /** Whether the thread has its own thresholds rather than the settings'. */
-  rolloverCustom?: boolean | undefined;
-  /** Sets this thread's thresholds; null returns it to the settings. */
-  onRolloverChange?: ((thresholds: RolloverBandThresholds | null) => void) | undefined;
-  modelDisplayName: string | null;
+  /** This thread's own compact-at point; null follows the provider's setting. */
+  threadCompactAt: number | null;
+  /** The range the provider accepts for a compact-at point; null when it can't be set. */
+  compactAtBounds: CompactAtBounds | null;
+  /** Sets this thread's compact-at point; null returns it to the provider's setting. */
+  onCompactAtChange?: ((compactAt: number | null) => void) | undefined;
+  onOpenProviderSettings?: (() => void) | undefined;
   onCompact?: (() => void) | undefined;
   compactDisabled: boolean;
   compactDisabledReason: string | null;
@@ -40,10 +40,11 @@ export function DeviceContextBar(props: {
 }) {
   const { usage } = props;
   const used = clampPercent(usage?.usedPercentage ?? 0);
-  const marker =
-    usage?.autoCompactThreshold != null && usage.maxTokens
-      ? clampPercent((usage.autoCompactThreshold / usage.maxTokens) * 100)
-      : null;
+  const compactLine = resolveCompactLine({
+    threadCompactAt: props.threadCompactAt,
+    appliedThreshold: usage?.autoCompactThreshold,
+    bounds: props.compactAtBounds,
+  });
   const readout = usage
     ? `${formatContextWindowTokens(usage.usedTokens)} / ${
         usage.maxTokens != null ? formatContextWindowTokens(usage.maxTokens) : "—"
@@ -62,36 +63,21 @@ export function DeviceContextBar(props: {
         aria-valuenow={Math.round(used)}
       >
         <div className="device-context__fill" style={{ width: `${used}%` }} />
-        {props.rollover && maxTokens ? (
-          <RolloverBand
-            thresholds={props.rollover}
+        {compactLine.position !== null && maxTokens ? (
+          <CompactLine
+            position={compactLine.position}
+            pending={compactLine.pending}
+            unreported={compactLine.unreported}
             maxTokens={maxTokens}
-            custom={props.rolloverCustom === true}
-            onChange={props.onRolloverChange}
+            bounds={props.compactAtBounds}
+            onChange={props.onCompactAtChange}
+            onOpenProviderSettings={props.onOpenProviderSettings}
           />
-        ) : null}
-        {marker !== null ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span
-                  className="device-context__marker"
-                  style={{ left: `${marker}%` } as CSSProperties}
-                />
-              }
-            />
-            <TooltipPopup side="top">
-              {formatContextWindowCompactionMessage(
-                props.modelDisplayName,
-                usage?.autoCompactThreshold ?? null,
-              )}
-            </TooltipPopup>
-          </Tooltip>
         ) : null}
       </div>
       <span className="device-context__label">
         {readout}
-        {props.rolloverCustom && props.onRolloverChange ? (
+        {props.threadCompactAt !== null && props.onCompactAtChange ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -99,13 +85,15 @@ export function DeviceContextBar(props: {
                   type="button"
                   className="device-context__compact"
                   onPointerDown={(event) => event.preventDefault()}
-                  onClick={() => props.onRolloverChange?.(null)}
+                  onClick={() => props.onCompactAtChange?.(null)}
                 />
               }
             >
-              reset rollover
+              use provider setting
             </TooltipTrigger>
-            <TooltipPopup side="top">Use the rollover settings again for this thread</TooltipPopup>
+            <TooltipPopup side="top">
+              Compact this thread at the provider's auto-compact point again
+            </TooltipPopup>
           </Tooltip>
         ) : null}
         {props.compactBeforeSendTokens !== null ? (
@@ -187,146 +175,161 @@ function CompactOnSendFlag(props: {
   );
 }
 
-interface BandDrag {
-  readonly part: RolloverBandPart;
-  readonly startX: number;
+interface LineDrag {
+  readonly value: number;
+  readonly trackLeft: number;
   readonly trackWidth: number;
-  readonly start: RolloverBandThresholds;
-  readonly current: RolloverBandThresholds;
 }
 
 /**
- * The rollover band: soft threshold at its left edge, hard at its right. With
- * `onChange`, its edges and body drag (and arrow keys nudge the focused edge), and the
- * result is saved for this thread when the drag ends; double-click resets it.
+ * The compact line. With `onChange` and bounds it drags (and arrow keys nudge it when
+ * focused), saving the point for this thread on release; Escape cancels a drag. Double-click
+ * or double-tap opens the provider's settings, where its own auto-compact point lives.
  */
-function RolloverBand(props: {
-  thresholds: RolloverBandThresholds;
+function CompactLine(props: {
+  position: number;
+  pending: boolean;
+  /** The provider reports no point, so the line marks only where dragging starts. */
+  unreported: boolean;
   maxTokens: number;
-  custom: boolean;
-  onChange: ((thresholds: RolloverBandThresholds | null) => void) | undefined;
+  bounds: CompactAtBounds | null;
+  onChange: ((compactAt: number | null) => void) | undefined;
+  onOpenProviderSettings: (() => void) | undefined;
 }) {
-  const [drag, setDrag] = useState<BandDrag | null>(null);
+  const { bounds, onChange, onOpenProviderSettings } = props;
+  const [drag, setDrag] = useState<LineDrag | null>(null);
   // Controlled so the tooltip stays up through a drag and closes on release.
   const [hoverOpen, setHoverOpen] = useState(false);
-  // A released drag holds its place until the saved thresholds come back from the server.
-  const [released, setReleased] = useState<{
-    readonly from: RolloverBandThresholds;
-    readonly value: RolloverBandThresholds;
-  } | null>(null);
-  const shown =
-    drag?.current ??
-    (released !== null && released.from === props.thresholds ? released.value : props.thresholds);
-  const percent = (tokens: number) => clampPercent((tokens / props.maxTokens) * 100);
-  const left = percent(shown.soft);
-  const width = Math.max(0, percent(shown.hard) - left);
-  const editable = props.onChange !== undefined;
-  const label = `Rollover asks the agent to prepare for compaction at the next break past ${formatContextWindowTokens(shown.soft)}, and right away at ${formatContextWindowTokens(shown.hard)}${
-    props.custom ? " (this thread only)" : ""
-  }`;
+  const lastTapAt = useRef<number | null>(null);
+  const dragging = drag !== null;
+  const editable = onChange !== undefined && bounds !== null;
+  const shown = drag?.value ?? props.position;
+  const percent = clampPercent((shown / props.maxTokens) * 100);
 
-  const begin = (part: RolloverBandPart) => (event: PointerEvent<HTMLSpanElement>) => {
+  useEffect(() => {
+    if (!dragging) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      setDrag(null);
+      setHoverOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [dragging]);
+
+  const valueAt = (clientX: number, line: LineDrag) =>
+    bounds === null
+      ? line.value
+      : compactAtFromPointer({
+          offsetX: clientX - line.trackLeft,
+          trackWidth: line.trackWidth,
+          maxTokens: props.maxTokens,
+          bounds,
+        });
+  const begin = (event: PointerEvent<HTMLSpanElement>) => {
     if (!editable || event.button !== 0) return;
     const track = event.currentTarget.closest<HTMLElement>(".device-context__track");
     if (!track) return;
-    // Keep the composer's focus, and let the edge win over the band beneath it.
+    // Keep the composer's focus while the line is dragged.
     event.preventDefault();
-    event.stopPropagation();
     event.currentTarget.setPointerCapture(event.pointerId);
-    setDrag({
-      part,
-      startX: event.clientX,
-      trackWidth: track.getBoundingClientRect().width,
-      start: props.thresholds,
-      current: props.thresholds,
-    });
+    const rect = track.getBoundingClientRect();
+    setDrag({ value: props.position, trackLeft: rect.left, trackWidth: rect.width });
   };
   const move = (event: PointerEvent<HTMLSpanElement>) => {
-    if (!drag || drag.trackWidth === 0) return;
-    const deltaTokens = ((event.clientX - drag.startX) / drag.trackWidth) * props.maxTokens;
-    setDrag({
-      ...drag,
-      current: dragRolloverBand({
-        start: drag.start,
-        part: drag.part,
-        deltaTokens,
-        maxTokens: props.maxTokens,
-      }),
-    });
-  };
-  const end = () => {
     if (!drag) return;
+    setDrag({ ...drag, value: valueAt(event.clientX, drag) });
+  };
+  const openSettings = () => {
     setDrag(null);
     setHoverOpen(false);
-    const { current, start } = drag;
-    if (current.soft === start.soft && current.hard === start.hard) return;
-    setReleased({ from: props.thresholds, value: current });
-    props.onChange?.(current);
+    onOpenProviderSettings?.();
+  };
+  const end = (event: PointerEvent<HTMLSpanElement>) => {
+    setHoverOpen(false);
+    const value = drag === null ? props.position : valueAt(event.clientX, drag);
+    setDrag(null);
+    if (value !== props.position) {
+      onChange?.(value);
+      return;
+    }
+    // Touch has no dblclick, so a second tap that moved nothing stands in for it.
+    if (event.pointerType !== "touch") return;
+    const now = Date.now();
+    if (isDoubleTap(lastTapAt.current, now)) {
+      lastTapAt.current = null;
+      openSettings();
+    } else {
+      lastTapAt.current = now;
+    }
   };
   const cancel = () => {
     setDrag(null);
     setHoverOpen(false);
   };
-  const nudge = (part: "soft" | "hard") => (event: KeyboardEvent<HTMLSpanElement>) => {
+  const nudge = (event: KeyboardEvent<HTMLSpanElement>) => {
     const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (direction === 0 || !editable) return;
     event.preventDefault();
-    props.onChange?.(
-      dragRolloverBand({
-        start: props.thresholds,
-        part,
-        deltaTokens: direction * props.maxTokens * (event.shiftKey ? 0.05 : 0.01),
+    onChange?.(
+      nudgeCompactAt({
+        current: props.position,
+        direction,
+        large: event.shiftKey,
         maxTokens: props.maxTokens,
+        bounds,
       }),
     );
   };
-  const edge = (part: "soft" | "hard") =>
-    editable ? (
-      <span
-        role="slider"
-        tabIndex={0}
-        aria-label={part === "soft" ? "Rollover at the next break" : "Rollover right away"}
-        aria-valuemin={0}
-        aria-valuemax={props.maxTokens}
-        aria-valuenow={shown[part]}
-        aria-valuetext={formatContextWindowTokens(shown[part])}
-        className={`device-context__rollover-edge device-context__rollover-edge--${part}`}
-        onPointerDown={begin(part)}
-        onPointerMove={move}
-        onPointerUp={end}
-        onPointerCancel={cancel}
-        onKeyDown={nudge(part)}
-      />
-    ) : null;
 
+  const label =
+    props.unreported && !dragging
+      ? "The provider hasn't reported where it compacts"
+      : `Compact at ${formatContextWindowTokens(shown)}`;
   return (
-    <Tooltip open={drag !== null || hoverOpen} onOpenChange={setHoverOpen}>
+    <Tooltip open={dragging || hoverOpen} onOpenChange={setHoverOpen}>
       <TooltipTrigger
         render={
           <span
-            className="device-context__rollover"
+            className="device-context__marker"
             data-editable={editable || undefined}
-            data-custom={props.custom || undefined}
-            data-dragging={drag ? "" : undefined}
-            style={{ left: `${left}%`, width: `${width}%` }}
-            onPointerDown={begin("band")}
+            data-pending={props.pending || undefined}
+            data-unreported={(props.unreported && !dragging) || undefined}
+            data-dragging={dragging || undefined}
+            style={{ left: `${percent}%` }}
+            {...(editable
+              ? {
+                  role: "slider",
+                  tabIndex: 0,
+                  "aria-label": "Compact at",
+                  "aria-valuemin": bounds.min,
+                  "aria-valuemax": bounds.max,
+                  "aria-valuenow": shown,
+                  "aria-valuetext": label,
+                }
+              : {})}
+            onPointerDown={begin}
             onPointerMove={move}
             onPointerUp={end}
             onPointerCancel={cancel}
-            onDoubleClick={() => {
-              if (props.custom) props.onChange?.(null);
-            }}
+            onKeyDown={nudge}
+            onDoubleClick={openSettings}
           />
         }
-      >
-        {edge("soft")}
-        {edge("hard")}
-      </TooltipTrigger>
+      />
       <TooltipPopup side="top">
         {label}
-        {editable && !drag ? (
+        {props.pending ? (
           <span className="block text-muted-foreground">
-            Drag to change it for this thread{props.custom ? "; double-click to reset" : ""}
+            Applies when the provider next picks it up
+          </span>
+        ) : null}
+        {!dragging ? (
+          <span className="block text-muted-foreground">
+            {editable ? "Drag to change it for this thread" : null}
+            {editable && onOpenProviderSettings ? " · " : null}
+            {onOpenProviderSettings ? "Double-click for provider settings" : null}
           </span>
         ) : null}
       </TooltipPopup>

@@ -1152,40 +1152,6 @@ export const StorageCleanupSettings = Schema.Struct({
 });
 export type StorageCleanupSettings = typeof StorageCleanupSettings.Type;
 
-/**
- * Thresholds for one model family, matched by a case-insensitive substring of
- * the model id. The first matching rule wins over the defaults.
- */
-export const ContextRolloverModelRule = Schema.Struct({
-  modelPattern: TrimmedNonEmptyString,
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  softThreshold: PositiveInt,
-  hardThreshold: PositiveInt,
-});
-export type ContextRolloverModelRule = typeof ContextRolloverModelRule.Type;
-
-/**
- * Context thresholds (the setting keeps its "rollover" name for stored settings): past the
- * soft threshold the agent is asked to reach a natural break and record what compaction
- * would lose; at the hard threshold, to finish the step in hand. The provider compacts the
- * conversation itself, at its own auto-compact window.
- */
-export const ContextRolloverSettings = Schema.Struct({
-  enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  softThreshold: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(220_000))),
-  hardThreshold: PositiveInt.pipe(Schema.withDecodingDefault(Effect.succeed(280_000))),
-  /** Also nudge delegated child threads started with `delegate_task`. */
-  delegatedThreads: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
-  modelRules: Schema.Array(ContextRolloverModelRule).pipe(
-    Schema.withDecodingDefault(
-      Effect.succeed([
-        { modelPattern: "haiku", enabled: true, softThreshold: 80_000, hardThreshold: 90_000 },
-      ]),
-    ),
-  ),
-});
-export type ContextRolloverSettings = typeof ContextRolloverSettings.Type;
-
 const DefaultChildRuntimeMode = Schema.Union([Schema.Literal("inherit"), RuntimeMode]);
 const AdvisorIdleCloseMinutes = Schema.NullOr(
   Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 10080 })),
@@ -1362,9 +1328,6 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
   reviewGuidesEnabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
-  contextRollover: ContextRolloverSettings.pipe(
-    Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(ContextRolloverSettings)({}))),
-  ),
   /**
    * The model that reads a pull request to write its review guide. It investigates a checkout
    * over many turns, so it can want a stronger model than one-shot writing. `null` uses the
@@ -1646,15 +1609,6 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   sourceControlWriterModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuidesEnabled: Schema.optionalKey(Schema.Boolean),
-  contextRollover: Schema.optionalKey(
-    Schema.Struct({
-      enabled: Schema.optionalKey(Schema.Boolean),
-      softThreshold: Schema.optionalKey(PositiveInt),
-      hardThreshold: Schema.optionalKey(PositiveInt),
-      delegatedThreads: Schema.optionalKey(Schema.Boolean),
-      modelRules: Schema.optionalKey(Schema.Array(ContextRolloverModelRule)),
-    }),
-  ),
   reviewGuideModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   reviewGuideInstructions: Schema.optionalKey(TrimmedString),
   pullRequestMergeMethod: Schema.optionalKey(Schema.NullOr(PullRequestMergeMethod)),

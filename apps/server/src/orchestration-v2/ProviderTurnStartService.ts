@@ -89,7 +89,7 @@ export interface TurnWorkspace {
 
 /**
  * Sent with each turn of a thread that has workspaces attached in other projects, so the agent
- * knows where it works after compaction or a rollover.
+ * knows where it works after compaction.
  */
 export const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string =>
   [

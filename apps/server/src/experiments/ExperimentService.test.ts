@@ -64,23 +64,6 @@ const modelSelection: ModelSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5.4",
 };
-const definition = (id = "rollover"): ExperimentDefinition => ({
-  id,
-  title: "Natural stopping points",
-  question: "Does earlier advice help?",
-  lever: "rollover",
-  primaryOutcome: "Verified completion",
-  variants: [
-    { id: "control", label: "Current", rollover: { softLimit: 220_000, hardLimit: 280_000 } },
-    { id: "early", label: "Earlier", rollover: { softLimit: 180_000, hardLimit: 280_000 } },
-  ],
-  eligibility: { projectIds: [], models: [], taskCategories: [] },
-  maxAssignments: 100,
-  endsAt: "2999-01-01T00:00:00Z",
-  stopConditions: ["Review constraint misses"],
-  codeRevision: "commit:original",
-  briefRevision: null,
-});
 const terse = {
   sourcePath: "skills/lead/SKILL.md",
   revision: "agent-config:abc123",
@@ -92,6 +75,23 @@ const thorough = {
   text: "Explain each decision in full.",
   sha256: "3e21fa350ebd30083dc279e80403a951c2a6e3e14b404a0d255f208b81edcfa2",
 };
+const definition = (id = "policy"): ExperimentDefinition => ({
+  id,
+  title: "Natural stopping points",
+  question: "Does earlier advice help?",
+  lever: "instruction",
+  primaryOutcome: "Verified completion",
+  variants: [
+    { id: "control", label: "Current", instructions: terse },
+    { id: "early", label: "Earlier", instructions: thorough },
+  ],
+  eligibility: { projectIds: [], models: [], taskCategories: [] },
+  maxAssignments: 100,
+  endsAt: "2999-01-01T00:00:00Z",
+  stopConditions: ["Review constraint misses"],
+  codeRevision: "commit:original",
+  briefRevision: null,
+});
 const instructionDefinition = (id = "instructions"): ExperimentDefinition => ({
   ...definition(id),
   lever: "instruction",
@@ -184,7 +184,7 @@ const addExternalWorkRows = Effect.fn(function* (
     )`;
   }
 });
-const start = (id = "rollover") =>
+const start = (id = "policy") =>
   Effect.gen(function* () {
     const service = yield* Experiments.ExperimentService;
     yield* service.create(definition(id));
@@ -328,17 +328,17 @@ describe("ExperimentService", () => {
       const service = yield* Experiments.ExperimentService;
       const sql = yield* SqlClient.SqlClient;
       yield* service.create(definition());
-      yield* service.transition({ experimentId: "rollover", status: "running" });
+      yield* service.transition({ experimentId: "policy", status: "running" });
       const first = (yield* service.assign(assignInput("thread:1")))[0]!;
       const second = (yield* service.assign(assignInput("thread:2")))[0]!;
       const queries: Array<ReturnType<Statement.Statement<unknown>["compile"]>> = [];
       const lookups = yield* Effect.gen(function* () {
         return [
           yield* service.assignments({}),
-          yield* service.assignments({ experimentId: "rollover" }),
+          yield* service.assignments({ experimentId: "policy" }),
           yield* service.assignments({ threadId: ThreadId.make("thread:2") }),
           yield* service.assignments({
-            experimentId: "rollover",
+            experimentId: "policy",
             threadId: ThreadId.make("thread:1"),
           }),
           yield* service.assignments({
@@ -375,7 +375,7 @@ describe("ExperimentService", () => {
         const service = yield* Experiments.ExperimentService;
         assert.strictEqual((yield* service.create(definition())).status, "draft");
         assert.deepStrictEqual(yield* service.assign(assignInput()), []);
-        yield* service.transition({ experimentId: "rollover", status: "running" });
+        yield* service.transition({ experimentId: "policy", status: "running" });
         const first = (yield* service.assign(assignInput()))[0]!;
         const parallel = yield* Effect.all(
           Array.from({ length: 8 }, () => service.assign(assignInput())),
@@ -384,21 +384,21 @@ describe("ExperimentService", () => {
         assert.isTrue(parallel.every((items) => items[0]?.id === first.id));
         for (let index = 2; index <= 10; index++)
           yield* service.assign(assignInput(`thread:${index}`));
-        const samples = yield* service.assignments({ experimentId: "rollover" });
+        const samples = yield* service.assignments({ experimentId: "policy" });
         assert.strictEqual(samples.filter((s) => s.variant.id === "control").length, 5);
         assert.strictEqual(samples.filter((s) => s.variant.id === "early").length, 5);
-        yield* service.transition({ experimentId: "rollover", status: "paused" });
+        yield* service.transition({ experimentId: "policy", status: "paused" });
         assert.deepStrictEqual(yield* service.assign(assignInput("new-while-paused")), []);
         // Rebuild the service over the same migrated DB, as after a server restart.
         const resumed = yield* Experiments.ExperimentService.pipe(Effect.provide(layerExperiments));
         assert.deepStrictEqual((yield* resumed.assign(assignInput()))[0], first);
-        yield* service.transition({ experimentId: "rollover", status: "stopped" });
+        yield* service.transition({ experimentId: "policy", status: "stopped" });
         assert.deepStrictEqual((yield* resumed.assign(assignInput()))[0], first);
         assert.deepStrictEqual(yield* resumed.assign(assignInput("new-while-stopped")), []);
       }).pipe(Effect.provide(layer)),
   );
 
-  it.effect("assigns instruction variants per thread alongside a rollover experiment", () =>
+  it.effect("assigns instruction variants per thread and refuses overlapping experiments", () =>
     Effect.gen(function* () {
       const service = yield* Experiments.ExperimentService;
       // The hash names the text delivered, so a mismatch or another lever's variant is refused.
@@ -418,9 +418,7 @@ describe("ExperimentService", () => {
           "invalid-definition",
         );
       yield* service.create(instructionDefinition());
-      yield* service.create(definition());
       yield* service.transition({ experimentId: "instructions", status: "running" });
-      yield* service.transition({ experimentId: "rollover", status: "running" });
       yield* service.create(instructionDefinition("overlapping"));
       assert.strictEqual(
         (yield* Effect.flip(service.transition({ experimentId: "overlapping", status: "running" })))
@@ -445,18 +443,7 @@ describe("ExperimentService", () => {
         ].toSorted(),
         [terse.sha256, thorough.sha256].toSorted(),
       );
-      // The rollover lever enrolls the same thread in its own experiment only, and neither
-      // enrollment moves the other.
-      const rollover = yield* service.assign({ ...assignInput(), threadLever: "rollover" });
-      assert.deepStrictEqual(
-        rollover.map((a) => a.experimentId),
-        ["rollover"],
-      );
       assert.deepStrictEqual(yield* service.assign(instruction), first);
-      assert.strictEqual(
-        (yield* service.getRolloverAssignment(ThreadId.make("thread:1")))?.id,
-        rollover[0]?.id,
-      );
     }).pipe(Effect.provide(layer)),
   );
 
@@ -472,7 +459,7 @@ describe("ExperimentService", () => {
           taskCategories: [],
         },
       });
-      yield* service.transition({ experimentId: "rollover", status: "running" });
+      yield* service.transition({ experimentId: "policy", status: "running" });
       yield* service.create(definition("conflicting"));
       assert.strictEqual(
         (yield* Effect.flip(service.transition({ experimentId: "conflicting", status: "running" })))
@@ -489,9 +476,9 @@ describe("ExperimentService", () => {
       );
       assert.lengthOf(yield* service.assign(assignInput()), 1);
       assert.deepStrictEqual(yield* service.assign(assignInput("over-cap")), []);
-      yield* service.transition({ experimentId: "rollover", status: "paused" });
+      yield* service.transition({ experimentId: "policy", status: "paused" });
       assert.strictEqual(
-        (yield* Effect.flip(service.transition({ experimentId: "rollover", status: "running" })))
+        (yield* Effect.flip(service.transition({ experimentId: "policy", status: "running" })))
           .reason,
         "invalid-transition",
       );
@@ -627,7 +614,7 @@ describe("ExperimentService", () => {
         maxTokens: null,
         evidence: ["provider:compaction-event"],
       });
-      const entry = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      const entry = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
       assert.strictEqual(entry.observations[1]?.usedTokens, null);
       assert.lengthOf(entry.turns, 3);
       assert.lengthOf(entry.runs, 3);
@@ -678,7 +665,7 @@ describe("ExperimentService", () => {
           artifacts: [],
           missing: ["history-unavailable"],
         });
-      const entry = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      const entry = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
       assert.deepEqual(
         (entry.episodes ?? []).map((episode) => [episode.setupSegment, episode.captureIds]),
         [
@@ -899,7 +886,7 @@ describe("ExperimentService", () => {
         occurredAt: now,
         payload: child,
       });
-      const entry = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      const entry = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
       assert.deepStrictEqual(
         entry.turns.map((t) => t.runId),
         [RunId.make("run:1"), RunId.make("run:2")],
@@ -923,7 +910,7 @@ describe("ExperimentService", () => {
           childThreadId: ThreadId.make("missing-child"),
         },
       });
-      const partial = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      const partial = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
       assert.strictEqual(partial.usage.status, "partial");
       assert.strictEqual(partial.descendantCoverage, "partial");
       assert.deepStrictEqual(partial.missingThreadIds, [ThreadId.make("missing-child")]);
@@ -951,7 +938,7 @@ describe("ExperimentService", () => {
           boundaryRunId: boundary.runId,
         });
         yield* service.assign(assignInput("next"));
-        const first = yield* service.report({ experimentId: "rollover", limit: 1 });
+        const first = yield* service.report({ experimentId: "policy", limit: 1 });
         assert.strictEqual(first.totalAssignments, 2);
         assert.strictEqual(first.randomizedCount, 2);
         assert.strictEqual(first.hasMore, true);
@@ -960,7 +947,7 @@ describe("ExperimentService", () => {
           first.assignments[0]?.turns.map((t) => t.runId),
           [boundary.runId],
         );
-        const last = yield* service.report({ experimentId: "rollover", offset: 1, limit: 1 });
+        const last = yield* service.report({ experimentId: "policy", offset: 1, limit: 1 });
         assert.strictEqual(last.offset, 1);
         assert.strictEqual(last.hasMore, false);
         assert.strictEqual(last.assignments[0]?.assignment.threadId, ThreadId.make("next"));
@@ -968,52 +955,37 @@ describe("ExperimentService", () => {
           (yield* Effect.flip(
             service.create({
               ...definition("invalid"),
-              variants: [{ id: "one", label: "bad", rollover: { softLimit: 10, hardLimit: 10 } }],
+              variants: [{ id: "one", label: "bad" }],
             }),
           )).reason,
           "invalid-definition",
         );
       }).pipe(Effect.provide(layer)),
   );
-  it.effect(
-    "resolves only prospective randomized rollover policy without enrolling or using history",
-    () =>
-      Effect.gen(function* () {
-        const service = yield* Experiments.ExperimentService;
-        yield* service.create(definition("history"));
-        yield* service.importHistorical({
-          experimentId: "history",
-          variantId: "early",
-          unitId: "thread:1",
-          threadId: ThreadId.make("thread:1"),
-          projectId: ProjectId.make("project:1"),
-          taskCategory: null,
-          assignedModelSelection: modelSelection,
-          assignedAt: "2020-01-01T00:00:00Z",
-          codeRevision: null,
-          briefRevision: null,
-          provenance: "Original observational policy",
-        });
-        assert.strictEqual(yield* service.getRolloverAssignment(ThreadId.make("thread:1")), null);
-        assert.lengthOf(yield* service.assignments({ threadId: ThreadId.make("thread:1") }), 1);
-        yield* start();
-        const recorded = (yield* service.assign(assignInput()))[0]!;
-        assert.deepStrictEqual(
-          yield* service.getRolloverAssignment(ThreadId.make("thread:1")),
-          recorded,
-        );
-        yield* service.transition({ experimentId: "rollover", status: "paused" });
-        assert.deepStrictEqual(
-          yield* service.getRolloverAssignment(ThreadId.make("thread:1")),
-          recorded,
-        );
-        yield* service.transition({ experimentId: "rollover", status: "stopped" });
-        assert.deepStrictEqual(
-          yield* service.getRolloverAssignment(ThreadId.make("thread:1")),
-          recorded,
-        );
-        assert.strictEqual(yield* service.getRolloverAssignment(ThreadId.make("unassigned")), null);
-      }).pipe(Effect.provide(layer)),
+  it.effect("refuses new rollover experiments but still reports imported history", () =>
+    Effect.gen(function* () {
+      const service = yield* Experiments.ExperimentService;
+      // The rollover feature is removed: a definition on its lever is never accepted.
+      assert.strictEqual(
+        (yield* Effect.flip(service.create({ ...definition("legacy"), lever: "rollover" }))).reason,
+        "invalid-definition",
+      );
+      yield* service.create(definition("history"));
+      yield* service.importHistorical({
+        experimentId: "history",
+        variantId: "early",
+        unitId: "thread:1",
+        threadId: ThreadId.make("thread:1"),
+        projectId: ProjectId.make("project:1"),
+        taskCategory: null,
+        assignedModelSelection: modelSelection,
+        assignedAt: "2020-01-01T00:00:00Z",
+        codeRevision: null,
+        briefRevision: null,
+        provenance: "Original observational policy",
+      });
+      assert.lengthOf(yield* service.assignments({ threadId: ThreadId.make("thread:1") }), 1);
+    }).pipe(Effect.provide(layer)),
   );
 
   it.effect(
@@ -1107,7 +1079,7 @@ describe("ExperimentService", () => {
         });
         yield* TestClock.setTime(base + 30000);
         const future = (yield* service.assign(assignInput("child")))[0]!;
-        const parentReport = (yield* service.report({ experimentId: "rollover" })).assignments.find(
+        const parentReport = (yield* service.report({ experimentId: "policy" })).assignments.find(
           (entry) => entry.assignment.id === rollover.id,
         )!;
         assert.deepStrictEqual(parentReport.coExposureIds, [review.id]);
@@ -1141,7 +1113,7 @@ describe("ExperimentService", () => {
         yield* addRunTurn("thread:1", "2", complete);
         const sql = yield* SqlClient.SqlClient;
         yield* sql`DELETE FROM orchestration_v2_projection_provider_turns WHERE provider_turn_id = 'turn:2'`;
-        const missing = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+        const missing = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
         assert.lengthOf(missing.runs, 2);
         assert.lengthOf(missing.turns, 1);
         assert.strictEqual(missing.usage.status, "partial");
@@ -1162,7 +1134,7 @@ describe("ExperimentService", () => {
           occurredAt: yield* DateTime.now,
           payload: { ...neverStarted, status: "cancelled", startedAt: null },
         });
-        const cancelled = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+        const cancelled = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
         assert.strictEqual(cancelled.runs[1]?.status, "cancelled");
         assert.strictEqual(cancelled.usage.status, "complete");
         assert.strictEqual(cancelled.usage.inputTokens, 100);
@@ -1447,7 +1419,7 @@ describe("experiment evidence", () => {
         }).pipe(Effect.provide(layerExperiments));
         assert.lengthOf(recovered.captures, 2);
         assert.isFalse(recovered.hasMoreCaptures);
-        const report = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+        const report = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
         assert.equal(report.usage.inputTokens, 100);
         assert.deepStrictEqual(report.episodes?.[0]?.evaluationIds, [
           "evaluation:2",
@@ -1590,7 +1562,7 @@ describe("retrospective evidence", () => {
         }),
       );
       assert.include(oversized.message, "150000 UTF-8 bytes");
-      const report = (yield* service.report({ experimentId: "rollover" })).assignments[0]!;
+      const report = (yield* service.report({ experimentId: "policy" })).assignments[0]!;
       assert.equal(report.episodes?.[0]?.recipeRevision, "rollover-v1");
     }).pipe(Effect.provide(layer)),
   );

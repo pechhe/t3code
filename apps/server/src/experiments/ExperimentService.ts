@@ -128,9 +128,6 @@ export class ExperimentService extends Context.Service<
       input: ExperimentAssignmentsInput,
       reader?: WorkReader,
     ) => Effect.Effect<ReadonlyArray<ExperimentAssignment>, ExperimentError>;
-    readonly getRolloverAssignment: (
-      threadId: ThreadId,
-    ) => Effect.Effect<ExperimentAssignment | null, ExperimentError>;
     readonly assign: (
       input: ExperimentAssignInput,
     ) => Effect.Effect<ReadonlyArray<ExperimentAssignment>, ExperimentError>;
@@ -266,8 +263,11 @@ function conflicts(a: Experiment, b: Experiment): boolean {
 }
 /** Levers assigned per thread rather than per delegated task. */
 const isThreadLever = (lever: ExperimentDefinition["lever"]) =>
+  // Legacy, read-only: "rollover" experiments are kept so their evidence stays reportable.
   lever === "rollover" || lever === "instruction";
 function validDefinition(input: ExperimentDefinition, now: string): boolean {
+  // Context rollover is gone, so no new experiment can vary it.
+  if (input.lever === "rollover") return false;
   // A new reviewer experiment says which review units it compares; other levers have none.
   if ((input.lever === "reviewer") !== (input.eligibility.reviewScopes !== undefined)) return false;
   if (input.lever === "orchestration-policy")
@@ -296,18 +296,9 @@ function validDefinition(input: ExperimentDefinition, now: string): boolean {
     Number.isFinite(Date.parse(input.endsAt)) &&
     Date.parse(input.endsAt) > Date.parse(now) &&
     input.variants.every((v) =>
-      input.lever === "rollover"
-        ? v.rollover !== undefined &&
-          v.rollover.softLimit < v.rollover.hardLimit &&
-          v.modelSelection === undefined &&
-          v.instructions === undefined
-        : input.lever === "instruction"
-          ? v.instructions !== undefined &&
-            v.modelSelection === undefined &&
-            v.rollover === undefined
-          : v.modelSelection !== undefined &&
-            v.rollover === undefined &&
-            v.instructions === undefined,
+      input.lever === "instruction"
+        ? v.instructions !== undefined && v.modelSelection === undefined && v.rollover === undefined
+        : v.modelSelection !== undefined && v.rollover === undefined && v.instructions === undefined,
     ) &&
     (!isThreadLever(input.lever) || input.eligibility.taskCategories.length === 0)
   );
@@ -433,21 +424,6 @@ const make = Effect.gen(function* () {
       persist("assignments", "", decodeAssignment(row.payload_json)),
     );
     return decoded.filter((assignment) => visibleWork(assignment, reader));
-  });
-  const getRolloverAssignment = Effect.fn("ExperimentService.getRolloverAssignment")(function* (
-    threadId: ThreadId,
-  ) {
-    const recorded = yield* assignments({ threadId });
-    return (
-      recorded.find(
-        (assignment) =>
-          assignment.assignmentMethod === "randomized" &&
-          assignment.lever === "rollover" &&
-          assignment.unitKind === "thread" &&
-          assignment.unitId === threadId &&
-          assignment.variant.rollover !== undefined,
-      ) ?? null
-    );
   });
   const getAssignment = Effect.fn("ExperimentService.getAssignment")(function* (id: string) {
     const rows = yield* persist(
@@ -614,6 +590,8 @@ const make = Effect.gen(function* () {
             if (
               result.some((a) => a.experimentId === experiment.id) ||
               experiment.status !== "running" ||
+              // A running rollover experiment keeps its evidence but assigns no new threads.
+              experiment.lever === "rollover" ||
               Date.parse(experiment.endsAt) <= Date.parse(now)
             )
               continue;
@@ -2416,7 +2394,6 @@ const make = Effect.gen(function* () {
     recordWorkOutcome,
     create,
     transition,
-    getRolloverAssignment,
     list,
     assignments,
     assign,

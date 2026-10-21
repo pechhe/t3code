@@ -136,7 +136,8 @@ export interface EnvironmentThreadShell {
   readonly limitRecovery?: import("@t3tools/contracts").OrchestrationV2LimitRecovery | null;
   readonly pinnedAt: string | null;
   readonly autoSettleDisabledAt?: string | null;
-  readonly rolloverHold?: import("@t3tools/contracts").OrchestrationV2RolloverHold | null;
+  /** This thread's own compact-at point in context tokens; null follows the provider's setting. */
+  readonly compactAt?: number | null;
   /** Governing workflow and unattended stance the thread's agent last recorded. */
   readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
   /** The Build Spec or Ticket the thread is linked to. */
@@ -149,10 +150,6 @@ export interface EnvironmentThreadShell {
     readonly dismissedAt: string | null;
     readonly move: import("@t3tools/contracts").OrchestrationV2ThreadProjectMove | null;
   } | null;
-  /** The thread's own rollover thresholds, set from its composer. */
-  readonly rolloverThresholds?:
-    | import("@t3tools/contracts").OrchestrationV2ThreadRolloverThresholds
-    | null;
   /** Slot in the user-arranged pinned order; null for keyless (legacy) pins. */
   readonly pinOrderKey: string | null;
   readonly activeOrderKey: string | null;
@@ -312,7 +309,7 @@ export function presentThreadShell(
     limitRecovery: thread.limitRecovery ?? null,
     pinnedAt: nullableIso(thread.pinnedAt ?? null),
     autoSettleDisabledAt: nullableIso(thread.autoSettleDisabledAt ?? null),
-    rolloverHold: thread.rolloverHold ?? null,
+    compactAt: thread.compactAt ?? null,
     workflow: thread.workflow ?? null,
     workItem: thread.workItem ?? null,
     projectSuggestion: thread.projectSuggestion
@@ -324,7 +321,6 @@ export function presentThreadShell(
           move: thread.projectSuggestion.move ?? null,
         }
       : null,
-    rolloverThresholds: thread.rolloverThresholds ?? null,
     pinOrderKey: thread.pinOrderKey ?? null,
     activeOrderKey: thread.activeOrderKey ?? null,
     readOnCompletionRunId: thread.readOnCompletionRunId ?? null,

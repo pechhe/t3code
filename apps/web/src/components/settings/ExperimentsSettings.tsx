@@ -48,7 +48,6 @@ import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
 import { SettingsPageContainer, SettingsSection } from "./settingsLayout";
 import { useSettingsScope } from "./SettingsScopeContext";
-import { experimentRolloverBaseline } from "./experimentRolloverPolicy";
 
 export function ExperimentsSettings() {
   const { environments } = useSettingsScope();
@@ -130,8 +129,10 @@ function EnvironmentExperiments({ environment }: { environment: EnvironmentPrese
   );
 }
 
-const DEFAULT_QUESTIONS: Readonly<Record<ExperimentDefinition["lever"], string>> = {
-  rollover: "Does an earlier rollover improve verified completion without increasing rework?",
+// Old rollover trials stay readable, but new ones can't be drafted.
+type DraftLever = Exclude<ExperimentDefinition["lever"], "rollover">;
+
+const DEFAULT_QUESTIONS: Readonly<Record<DraftLever, string>> = {
   reviewer: "Which reviewer model finds validated issues with fewer false positives?",
   delegation: "Which delegated model completes eligible tasks with less rework?",
   "orchestration-policy":
@@ -153,7 +154,7 @@ function ExperimentDraft({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  const [lever, setLever] = useState<ExperimentDefinition["lever"]>("rollover");
+  const [lever, setLever] = useState<DraftLever>("reviewer");
   const [modelA, setModelA] = useState<ModelSelection | null>(null);
   const [modelB, setModelB] = useState<ModelSelection | null>(null);
   const [orchestrator, setOrchestrator] = useState<ModelSelection | null>(null);
@@ -164,9 +165,6 @@ function ExperimentDraft({
   const [editedQuestion, setQuestion] = useState<string | null>(null);
   const question = editedQuestion ?? DEFAULT_QUESTIONS[lever];
   const [outcome, setOutcome] = useState("verified completion");
-  const settings = useEnvironmentSettings(environmentId);
-  const actualSettings = useAtomValue(serverEnvironment.settingsValueAtom(environmentId));
-  const [earlierSoft, setEarlierSoft] = useState<number | null>(null);
   const [limit, setLimit] = useState(40);
   const [end, setEnd] = useState(() =>
     (() => {
@@ -178,18 +176,6 @@ function ExperimentDraft({
     [],
   );
   const [models, setModels] = useState("");
-  const baseline =
-    actualSettings &&
-    experimentRolloverBaseline(
-      actualSettings.contextRollover,
-      models
-        .split(",")
-        .map((model) => model.trim())
-        .filter(Boolean),
-    );
-  const softA = baseline?.soft ?? settings.contextRollover.softThreshold;
-  const hard = baseline?.hard ?? settings.contextRollover.hardThreshold;
-  const softB = earlierSoft ?? Math.max(1, Math.floor(softA * 0.8));
   const [categories, setCategories] = useState("");
   const [reviewScope, setReviewScope] = useState<"change" | "spec">("change");
   const [stop, setStop] = useState("Stop if verified completion falls or rework increases.");
@@ -216,14 +202,12 @@ function ExperimentDraft({
       !title.trim() ||
       !question.trim() ||
       !outcome.trim() ||
-      (lever === "rollover"
-        ? !baseline || softA >= hard || softB >= softA
-        : lever !== "orchestration-policy" && (!modelA || !modelB)) ||
+      (lever !== "orchestration-policy" && (!modelA || !modelB)) ||
       !Number.isFinite(Date.parse(end)) ||
       Date.parse(end) <= Date.now()
     ) {
       setError(
-        "Provide a title, question and outcome, choose two models or soft limits below the hard limit, and choose a future end date.",
+        "Provide a title, question and outcome, choose two models, and choose a future end date.",
       );
       return;
     }
@@ -251,23 +235,10 @@ function ExperimentDraft({
         variants:
           lever === "orchestration-policy"
             ? ORCHESTRATION_POLICY_VARIANTS
-            : lever === "rollover"
-              ? [
-                  {
-                    id: "a",
-                    label: "Current rollover",
-                    rollover: { softLimit: softA, hardLimit: hard },
-                  },
-                  {
-                    id: "b",
-                    label: "Earlier rollover",
-                    rollover: { softLimit: softB, hardLimit: hard },
-                  },
-                ]
-              : [
-                  { id: "a", label: "Model A", modelSelection: modelA! },
-                  { id: "b", label: "Model B", modelSelection: modelB! },
-                ],
+            : [
+                { id: "a", label: "Model A", modelSelection: modelA! },
+                { id: "b", label: "Model B", modelSelection: modelB! },
+              ],
         eligibility: {
           projectIds,
           models: models
@@ -297,8 +268,7 @@ function ExperimentDraft({
     <form onSubmit={(event) => void submit(event)} className="space-y-4 border-b p-4">
       <h3 className="text-sm font-medium">New trial</h3>
       <p className="text-xs text-muted-foreground">
-        Rollover trials use thread assignments and token limits. Reviewer and delegation trials
-        assign the selected model to eligible tasks. Orchestration-policy trials assign each
+        Reviewer and delegation trials assign the selected model to eligible tasks. Orchestration-policy trials assign each
         enrolled work package to inline-first or delegate-earlier before its parent decides how to
         execute it. Empty eligibility filters include all projects, models or categories in this
         environment.
@@ -308,9 +278,8 @@ function ExperimentDraft({
         <select
           className="mt-1 block rounded-md border bg-background p-2"
           value={lever}
-          onChange={(event) => setLever(event.target.value as ExperimentDefinition["lever"])}
+          onChange={(event) => setLever(event.target.value as DraftLever)}
         >
-          <option value="rollover">Rollover policies</option>
           <option value="reviewer">Reviewer models</option>
           <option value="delegation">Delegation models</option>
           <option value="orchestration-policy">Orchestration policies</option>
@@ -387,57 +356,6 @@ function ExperimentDraft({
             exclusion, not assigned. Eligible model names below filter by the parent model.
           </p>
         </div>
-      ) : lever === "rollover" ? (
-        <div className="space-y-3">
-          <p className="text-sm">
-            Environment default:{" "}
-            {!actualSettings
-              ? "loading environment settings…"
-              : settings.contextRollover.enabled
-                ? `${settings.contextRollover.softThreshold.toLocaleString()} soft / ${settings.contextRollover.hardThreshold.toLocaleString()} hard`
-                : "rollover disabled"}
-            .
-          </p>
-          {(actualSettings?.contextRollover.modelRules ?? []).map((rule) => (
-            <p key={rule.modelPattern} className="text-xs text-muted-foreground">
-              Model names containing “{rule.modelPattern}”:{" "}
-              {rule.enabled
-                ? `${rule.softThreshold.toLocaleString()} soft / ${rule.hardThreshold.toLocaleString()} hard`
-                : "rollover disabled"}
-              . First matching rule wins.
-            </p>
-          ))}
-          {baseline ? (
-            <p className="text-sm">
-              Current control for selected eligibility: {softA.toLocaleString()} soft. Both variants
-              retain {hard.toLocaleString()} hard.
-            </p>
-          ) : (
-            <p role="alert" className="text-sm text-destructive">
-              {!actualSettings
-                ? "Wait for this environment’s settings before saving a rollover trial."
-                : settings.contextRollover.enabled
-                  ? "Eligible models have different or disabled policies. Enter exact eligible model names below with one shared enabled policy before saving."
-                  : "Rollover is disabled in this environment. Enable it before comparing the current policy with an earlier rollover."}
-            </p>
-          )}
-          <label className="block text-sm">
-            Earlier soft limit
-            <Input
-              type="number"
-              min={1}
-              max={softA - 1}
-              required
-              value={softB}
-              disabled={!baseline}
-              onChange={(event) => setEarlierSoft(Number(event.target.value))}
-            />
-          </label>
-          <p className="text-xs text-muted-foreground">
-            Current control and hard limits follow the selected models’ configured policy and cannot
-            be changed here. Provider context safety clamps still apply to both variants.
-          </p>
-        </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           <TrialModelPicker
@@ -479,7 +397,6 @@ function ExperimentDraft({
           value={models}
           onChange={(event) => {
             setModels(event.target.value);
-            setEarlierSoft(null);
           }}
           placeholder="All models"
         />
@@ -550,7 +467,7 @@ function ExperimentDraft({
       <Button
         type="submit"
         size="sm"
-        disabled={pending || !canCreate || (lever === "rollover" && !baseline)}
+        disabled={pending || !canCreate}
       >
         {pending ? "Saving…" : "Save draft"}
       </Button>

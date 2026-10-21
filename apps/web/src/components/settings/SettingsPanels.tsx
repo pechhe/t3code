@@ -1,4 +1,3 @@
-import { ContextRolloverSettings } from "./ContextRolloverSettings";
 import { SettingsGroup } from "./SettingsGroup";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 import { useScopedSettingsWriteAllowed } from "./useScopedSettings";
@@ -3599,8 +3598,6 @@ export function GeneralSettingsPanel() {
           }
         />
       </SettingsSection>
-
-      <ContextRolloverSettings />
 
       <SettingsSection id="about" title="About">
         {isElectron || HOSTED_APP_CHANNEL ? (

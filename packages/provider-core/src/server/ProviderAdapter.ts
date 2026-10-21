@@ -56,6 +56,12 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
   approvalPolicy: Schema.optional(Schema.Unknown),
   sandboxPolicy: Schema.optional(Schema.Unknown),
   reasoningEffort: Schema.optional(Schema.String),
+  /**
+   * The thread's own compact-at point, in context tokens; absent or null follows the provider
+   * instance's "Auto-compact after" setting. Only Claude and Codex compact natively and read
+   * it; every other adapter ignores it.
+   */
+  compactAt: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 
@@ -645,6 +651,15 @@ export interface ProviderAdapterV2SessionRuntime {
   readonly compactThread?: (
     input: ProviderAdapterV2TurnInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;
+  /**
+   * Moves a live session to a new thread compact-at point (null follows the provider
+   * instance's setting). Absent when the provider has no live control; the point then takes
+   * effect when the next session opens.
+   */
+  readonly setCompactAt?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly compactAt: number | null;
+  }) => Effect.Effect<void, ProviderAdapterV2Error>;
   readonly steerTurn: (
     input: ProviderAdapterV2SteerInput,
   ) => Effect.Effect<void, ProviderAdapterV2Error>;

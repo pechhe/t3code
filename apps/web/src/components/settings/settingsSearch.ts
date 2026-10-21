@@ -164,7 +164,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Experiments",
     to: "/settings/experiments",
     searchTerms: [
-      "trial compare rollover reviewer delegation orchestration policy inline outcomes",
+      "trial compare reviewer delegation orchestration policy inline outcomes",
     ],
   },
   {
@@ -604,38 +604,6 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/general",
     scope: "project-defaults",
     searchTerms: ["generated thread titles source control content default provider"],
-  },
-  {
-    id: "context-rollover",
-    title: "Context rollover",
-    to: "/settings/general",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["context window compact compaction auto-compact tokens"],
-  },
-  {
-    id: "context-rollover-thresholds",
-    title: "Context rollover thresholds",
-    to: "/settings/general",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["soft hard threshold tokens context limit compaction"],
-  },
-  {
-    id: "context-rollover-delegated",
-    title: "Roll over delegated threads",
-    to: "/settings/general",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["subagents delegate_task child threads context rollover"],
-  },
-  {
-    id: "context-rollover-models",
-    title: "Context rollover per model",
-    to: "/settings/general",
-    scope: "environment",
-    environmentOnly: true,
-    searchTerms: ["model rules haiku sonnet opus codex thresholds context rollover"],
   },
   {
     id: "app-version",

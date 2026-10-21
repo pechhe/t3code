@@ -1,7 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
-  ContextRolloverSettings,
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
   RunId,
@@ -30,10 +29,8 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
-import * as ServerSettings from "../serverSettings.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as RunSetup from "./RunSetupRecorder.ts";
-import { COMPACTION_RECIPE } from "../orchestration-v2/ContextRollover.ts";
 
 const threadId = ThreadId.make("thread:setup");
 const run = {
@@ -46,7 +43,6 @@ const thread = {
   lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
   creationSource: "web",
 } as const;
-const rolloverOn = Schema.decodeSync(ContextRolloverSettings)({ enabled: true });
 
 const layer = ProcessRunner.layer.pipe(Layer.provideMerge(NodeServices.layer));
 
@@ -66,15 +62,10 @@ const sha256 = (text: string) =>
     return Hex.encode(yield* crypto.digest("SHA-256", new TextEncoder().encode(text)));
   });
 
-const capture = (
-  root: string | null,
-  workingDirectory: string | null,
-  maxTokens: number | null = null,
-) =>
+const capture = (root: string | null, workingDirectory: string | null) =>
   RunSetup.captureRunSetup({
     run,
     thread,
-    maxTokens,
     workingDirectory,
     capabilities: {
       optionDescriptors: [
@@ -89,9 +80,6 @@ const capture = (
         },
       ],
     } as never,
-    rolloverSettings: rolloverOn,
-    nudged: true,
-    rollover: undefined,
     assignments: [{ experimentId: "trial", variantId: "a" }],
     instructionOverlay: null,
     policy: () => Effect.succeed({ hash: "a".repeat(64), sourceRevision: "2026-10-15.4" }),
@@ -144,12 +132,6 @@ describe("captureRunSetup", () => {
         policyHash: "a".repeat(64),
         policyRevision: "2026-10-15.4",
       });
-      assert.deepEqual(record.rollover, {
-        softLimit: 220_000,
-        hardLimit: 280_000,
-        held: false,
-        noteRecipe: COMPACTION_RECIPE,
-      });
       assert.deepEqual(record.experimentAssignments, [{ experimentId: "trial", variantId: "a" }]);
       assert.deepEqual(record.workflow, { kind: "lead", unattended: true });
       // No effort was chosen, so the provider default is what the run used.
@@ -167,15 +149,22 @@ describe("captureRunSetup", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  it.effect("bounds rollover by the context window the run's session reported", () =>
+  it.effect("still decodes a stored record that carries the removed rollover thresholds", () =>
     Effect.gen(function* () {
-      const record = yield* capture(null, null, 100_000);
-      assert.deepEqual(record.rollover, {
-        softLimit: 72_000,
-        hardLimit: 90_000,
+      const record = yield* capture(null, null);
+      const stored = decodeStored(
+        JSON.stringify({
+          ...record,
+          rollover: { softLimit: 220_000, hardLimit: 280_000, held: false, noteRecipe: "rollover-v3" },
+        }),
+      );
+      assert.deepEqual(stored.rollover, {
+        softLimit: 220_000,
+        hardLimit: 280_000,
         held: false,
-        noteRecipe: COMPACTION_RECIPE,
+        noteRecipe: "rollover-v3",
       });
+      assert.notProperty(record, "rollover");
     }).pipe(Effect.provide(layer)),
   );
 });
@@ -395,7 +384,6 @@ describe("RunSetupStore", () => {
         modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         effectiveOptions: null,
         workflow: null,
-        rollover: null,
         experimentAssignments: [],
       });
       for (const record of [
@@ -426,7 +414,6 @@ const recorderLayer = (
         Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeed(Option.none()) }),
         Layer.mock(ExperimentService.ExperimentService)({
           assignments: () => Effect.succeed([]),
-          getRolloverAssignment: () => Effect.succeed(null),
           list: () => Effect.succeed([]),
           ...experiments,
         }),
@@ -439,7 +426,6 @@ const recorderLayer = (
         Layer.mock(InstructionOverlay.InstructionOverlay)({
           forRun: (input) => Effect.succeed(input.driver === "codex" ? overlay : null),
         }),
-        ServerSettings.layerTest(),
       ),
     ),
     Layer.provideMerge(RunSetup.storeLayer),
@@ -457,13 +443,13 @@ describe("RunSetupRecorder.record", () => {
       workflow: { kind: "lead", unattended: true },
     }) as never;
 
-  it.effect("gives each run, a rollover run included, its own record once", () =>
+  it.effect("gives each run its own record once", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      yield* recorder.record(runAt(1), null);
-      yield* recorder.record(runAt(1), null);
-      // A rollover continues the thread in a new run, which is captured afresh.
-      yield* recorder.record(runAt(2), null);
+      yield* recorder.record(runAt(1));
+      yield* recorder.record(runAt(1));
+      // A later run is captured afresh.
+      yield* recorder.record(runAt(2));
       const records = yield* storedSetups(threadId, 10);
       assert.deepEqual(records.map((record) => record.runId).sort(), [
         "run:setup:1",
@@ -483,7 +469,7 @@ describe("RunSetupRecorder.record", () => {
   it.effect("names the instruction variant the run was delivered by its hash", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      yield* recorder.record(runAt(4), null);
+      yield* recorder.record(runAt(4));
       const [record] = yield* storedSetups(threadId, 10);
       assert.deepEqual(record?.instructionOverlay, {
         experimentId: "instructions",
@@ -513,7 +499,7 @@ describe("RunSetupRecorder.record", () => {
   it.effect("keeps a null record when capture fails", () =>
     Effect.gen(function* () {
       const recorder = yield* RunSetup.RunSetupRecorder;
-      yield* recorder.record(runAt(3), null);
+      yield* recorder.record(runAt(3));
       const [record] = yield* storedSetups(threadId, 10);
       assert.deepEqual(
         { ...record, capturedAt: "" },
@@ -588,10 +574,10 @@ describe("setup cut points", () => {
           modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         }) as never;
       yield* fs.writeFileString(skill, "lead v1");
-      yield* recorder.record(runAt(1), null);
+      yield* recorder.record(runAt(1));
       yield* fs.writeFileString(skill, "lead v2");
-      yield* recorder.record(runAt(2), null);
-      yield* recorder.record(runAt(3), null);
+      yield* recorder.record(runAt(2));
+      yield* recorder.record(runAt(3));
       assert.deepEqual(
         observations.map((observation) => observation.id),
         ["setup-change:assignment:trial:run:skill:2"],
@@ -644,11 +630,11 @@ describe("setup cut points", () => {
           modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         }) as never;
       yield* fs.writeFileString(agents, "v1");
-      yield* recorder.record(runAt(1), null);
+      yield* recorder.record(runAt(1));
       yield* fs.writeFileString(agents, "v2");
       // Run 2 started before the recorder did, so it is stored as unobserved.
-      yield* recorder.record(runAt(2, DateTime.makeUnsafe(-60 * 1000)), null);
-      yield* recorder.record(runAt(3), null);
+      yield* recorder.record(runAt(2, DateTime.makeUnsafe(-60 * 1000)));
+      yield* recorder.record(runAt(3));
       assert.deepEqual(
         observations.map((observation) => observation.id),
         ["setup-change:assignment:trial:run:gap:3"],
@@ -692,9 +678,9 @@ describe("setup cut points", () => {
           ordinal,
           modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         }) as never;
-      const first = yield* Effect.forkChild(recorder.record(runAt(1), null));
+      const first = yield* Effect.forkChild(recorder.record(runAt(1)));
       yield* Effect.yieldNow;
-      const second = yield* Effect.forkChild(recorder.record(runAt(2), null));
+      const second = yield* Effect.forkChild(recorder.record(runAt(2)));
       yield* Effect.yieldNow;
       // Run 1's capture is still reading; run 2 waits for it instead of reading first.
       assert.deepEqual(captured, ["run:order:1"]);
@@ -728,7 +714,6 @@ describe("setup cut points", () => {
           startedAt: DateTime.makeUnsafe(-60 * 1000),
           modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         } as never,
-        null,
       );
       const [record] = yield* storedSetups(threadId, 1);
       assert.isNull(record?.instructions);
@@ -755,9 +740,9 @@ describe("setup cut points", () => {
           ...(ordinal === 2 ? { startedAt: DateTime.makeUnsafe(0) } : {}),
           modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         }) as never;
-      const first = yield* Effect.forkChild(recorder.record(runAt(1), null));
+      const first = yield* Effect.forkChild(recorder.record(runAt(1)));
       yield* Effect.yieldNow;
-      const second = yield* Effect.forkChild(recorder.record(runAt(2), null));
+      const second = yield* Effect.forkChild(recorder.record(runAt(2)));
       yield* Effect.yieldNow;
       yield* TestClock.adjust("31 seconds");
       yield* Deferred.succeed(gate, undefined);
@@ -793,7 +778,6 @@ describe("setup cut points", () => {
             startedAt: DateTime.makeUnsafe(0),
             modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
           } as never,
-          null,
         ),
       );
       yield* Effect.yieldNow;
@@ -827,9 +811,9 @@ describe("setup cut points", () => {
           ordinal: 1,
           modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         }) as never;
-      const slow = yield* Effect.forkChild(recorder.record(runIn("thread:slow"), null));
+      const slow = yield* Effect.forkChild(recorder.record(runIn("thread:slow")));
       yield* Effect.yieldNow;
-      yield* recorder.record(runIn("thread:quick"), null);
+      yield* recorder.record(runIn("thread:quick"));
       assert.lengthOf(yield* storedSetups(ThreadId.make("thread:quick"), 10), 1);
       assert.lengthOf(yield* storedSetups(ThreadId.make("thread:slow"), 10), 0);
       yield* Deferred.succeed(gate, undefined);
@@ -865,7 +849,7 @@ describe("setup cut points", () => {
           modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
         }) as never;
       yield* fs.writeFileString(agents, "v1");
-      yield* recorder.record(runAt(1), null);
+      yield* recorder.record(runAt(1));
       // Run 2 was captured before the restart: its record is stored, and this recorder
       // has not seen it, so it captures run 2 again from today's files.
       const [first] = yield* storedSetups(threadId, 1);
@@ -874,7 +858,7 @@ describe("setup cut points", () => {
       yield* sql`INSERT INTO run_setup_records (run_id, thread_id, captured_at, record_json)
         VALUES (${stored.runId}, ${threadId}, ${stored.capturedAt}, ${json})`;
       yield* fs.writeFileString(agents, "v2");
-      yield* recorder.record(runAt(2), null);
+      yield* recorder.record(runAt(2));
       assert.deepEqual(observations, []);
     }).pipe(
       Effect.provide(
@@ -920,15 +904,15 @@ describe("setup cut points", () => {
         }) as never;
       repoPath = repo;
       yield* fs.writeFileString(agents, "v1");
-      yield* recorder.record(runAt(1), null);
+      yield* recorder.record(runAt(1));
       yield* fs.writeFileString(agents, "v2");
-      yield* recorder.record(runAt(2), null);
-      yield* recorder.record(runAt(3), null);
+      yield* recorder.record(runAt(2));
+      yield* recorder.record(runAt(3));
       // Run 5 sees v3 and its capture lands before run 4's, which still saw v2.
       yield* fs.writeFileString(agents, "v3");
-      yield* recorder.record(runAt(5), null);
+      yield* recorder.record(runAt(5));
       yield* fs.writeFileString(agents, "v2");
-      yield* recorder.record(runAt(4), null);
+      yield* recorder.record(runAt(4));
       assert.deepEqual(
         observations.map((observation) => observation.id),
         ["setup-change:assignment:trial:run:cut:2", "setup-change:assignment:trial:run:cut:5"],

@@ -46,6 +46,7 @@ import type {
 import {
   EnvironmentRequestInvalidError,
   AuthOrchestrationOperateScope,
+  compactAtBounds as contractsCompactAtBounds,
   ProviderDriverKind,
   ProviderInstanceId,
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
@@ -287,8 +288,7 @@ import {
   useThreadContextDrop,
 } from "./threadContextDrag";
 import {
-  readEnvironmentSupportsRolloverHold,
-  readEnvironmentSupportsRolloverThresholds,
+  readEnvironmentSupportsCompactAt,
   readThreadShell,
   useThreadShells,
 } from "~/state/entities";
@@ -313,7 +313,7 @@ import {
   type EnvironmentQueryTarget,
 } from "~/state/pullRequests";
 import { useEnvironmentQuery } from "~/state/query";
-import { useComposerPathSearch, useDebouncedValue, useRolloverThresholds } from "~/state/queries";
+import { useComposerPathSearch, useDebouncedValue } from "~/state/queries";
 import { peerEnvironments } from "~/state/peers";
 import { unreadableThreadRefs } from "@t3tools/client-runtime/state/peers";
 import { ProviderModelPicker } from "./ProviderModelPicker";
@@ -361,13 +361,6 @@ import {
 } from "./composerProviderState";
 import { ComposerFastSwitch } from "./ComposerFastSwitch";
 import { ContextWindowMeter, ContextWindowMeterPlaceholder } from "./ContextWindowMeter";
-import { RolloverHoldIndicator } from "./RolloverHoldIndicator";
-import {
-  ROLLOVER_MENU_OPTIONS,
-  describeRolloverMenuState,
-  isBareRolloverCommand,
-  type RolloverCommand,
-} from "./rolloverCommand";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -1153,7 +1146,6 @@ import {
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useDelayedStatus } from "../../hooks/useDelayedStatus";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
-import { useNowMinute } from "../../hooks/useNowMinute";
 import { useSoftwareKeyboardOpen } from "../../hooks/useSoftwareKeyboardOpen";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { usePanelAnimationSettings } from "../../panelAnimations";
@@ -1395,7 +1387,6 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
   compact: boolean;
   canOperateThread: boolean;
   activeContextWindow: ContextWindowSnapshot | null;
-  rolloverHold: ThreadShell["rolloverHold"];
   reserveContextWindowMeter: boolean;
   activeThreadModelDisplayName: string | null;
   isPreparingWorktree: boolean;
@@ -1437,7 +1428,6 @@ const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryActions(
 }) {
   return (
     <>
-      <RolloverHoldIndicator hold={props.rolloverHold} />
       {props.activeContextWindow ? (
         <ContextWindowMeter
           usage={props.activeContextWindow}
@@ -1590,8 +1580,6 @@ export interface ChatComposerProps {
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
   onUsageLimitsCommand?: (() => void) | undefined;
-  /** Runs a `/rollover` command picked from the menu a bare `/rollover` opens; unset when the typed command would send as a prompt. */
-  onRolloverCommand?: ((command: RolloverCommand) => void) | undefined;
   environmentUnavailable: {
     readonly label: string;
     readonly connection: EnvironmentConnectionPresentation;
@@ -2491,7 +2479,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     provider: selectedProviderStatus,
     interactionMode: requestedInteractionMode,
   });
-  const rolloverHoldSupported = readEnvironmentSupportsRolloverHold(environmentId);
   const selectedModelSelection: ModelSelection = createModelSelection(
     selectedInstanceId,
     selectedModel,
@@ -2544,10 +2531,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     isLiteralPendingAnswer ? null : detectComposerTrigger(prompt, prompt.length),
   );
   const [composerHighlightedItemId, setComposerHighlightedItemId] = useState<string | null>(null);
-  // Opened by Enter on a bare `/rollover`; its options stand in for the trigger's items.
-  const nowMinute = useNowMinute();
-  const [isRolloverMenuOpen, setIsRolloverMenuOpen] = useState(false);
-  if (isRolloverMenuOpen && !isBareRolloverCommand(prompt)) setIsRolloverMenuOpen(false);
   const composerSuggestionId = useId();
   const composerSuggestionListId = `${composerSuggestionId}-${encodeURIComponent(draftId ?? activeThreadId ?? "new")}-suggestions`;
   const promptHistoryPositionRef = useRef<{
@@ -2564,30 +2547,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isMobileViewport = useMediaQuery("max-sm");
   // Desktop-width composers render as the machined device; phones keep the compact composer.
   const deviceComposer = !isMobileViewport;
-  const rolloverModel = activeThreadModelSelection?.model ?? null;
-  const rolloverThresholdsQuery = useRolloverThresholds(
-    deviceComposer && routeKind === "server" && rolloverModel !== null
-      ? {
-          environmentId: routeThreadRef.environmentId,
-          threadId: routeThreadRef.threadId,
-          model: rolloverModel,
-          maxTokens: activeContextWindow?.maxTokens ?? null,
-        }
-      : null,
-  );
-  const rolloverThresholds = rolloverThresholdsQuery.data;
-  const setRolloverThresholds = useOrchestrationCommand(threadEnvironment.setRolloverThresholds, {
-    label: "thread rollover thresholds",
+  const setCompactAt = useOrchestrationCommand(threadEnvironment.setCompactAt, {
+    label: "thread compact-at point",
   });
-  // Dragging the context strip's rollover band sets this thread's own thresholds.
-  const onRolloverChange =
-    routeKind === "server" &&
-    readEnvironmentSupportsRolloverThresholds(routeThreadRef.environmentId)
-      ? (thresholds: { readonly soft: number; readonly hard: number } | null) =>
-          void setRolloverThresholds({
+  const compactAtBounds = activeContextWindow
+    ? contractsCompactAtBounds(selectedProvider, activeContextWindow.maxTokens)
+    : null;
+  const onCompactAtChange =
+    routeKind === "server" && readEnvironmentSupportsCompactAt(routeThreadRef.environmentId)
+      ? (compactAt: number | null) =>
+          void setCompactAt({
             environmentId: routeThreadRef.environmentId,
-            input: { threadId: routeThreadRef.threadId, thresholds },
-          }).then(() => rolloverThresholdsQuery.refresh())
+            input: { threadId: routeThreadRef.threadId, compactAt },
+          })
       : undefined;
   const reasoningDialRef = useRef<DeviceReasoningDialHandle>(null);
   const modelSliderRef = useRef<DeviceModelSliderHandle>(null);
@@ -2798,9 +2770,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       : composerPullRequestsFromLinks(threadPullRequests ?? [], pullRequestProjectId);
 
   const composerMenuItems = ((): ComposerCommandItem[] => {
-    if (isRolloverMenuOpen) {
-      return ROLLOVER_MENU_OPTIONS.map((option) => ({ ...option, type: "rollover-option" }));
-    }
     if (!composerTrigger) return [];
     if (composerTrigger.kind === "path") {
       return [
@@ -2830,17 +2799,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           label: "/model",
           description: "Switch response model for this thread",
         },
-        ...(rolloverHoldSupported
-          ? ([
-              {
-                id: "slash:rollover",
-                type: "slash-command",
-                command: "rollover",
-                label: "/rollover",
-                description: "Hold automatic rollover: on, off, pause [30m|2h|1d], status",
-              },
-            ] as const)
-          : []),
         ...(planModeUiEnabled
           ? ([
               {
@@ -2967,18 +2925,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     return [];
   })();
 
-  const composerMenuOpen = Boolean(composerTrigger) || isRolloverMenuOpen;
-  const rolloverMenuDescription = isRolloverMenuOpen
-    ? describeRolloverMenuState(
-        props.activeThreadShell?.rolloverHold,
-        Date.parse(`${nowMinute}:00.000Z`),
-      )
+  const composerMenuOpen = Boolean(composerTrigger);
+  const composerMenuSearchKey = composerTrigger
+    ? `${composerSuggestionListId}:${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
     : null;
-  const composerMenuSearchKey = isRolloverMenuOpen
-    ? `${composerSuggestionListId}:rollover`
-    : composerTrigger
-      ? `${composerSuggestionListId}:${composerTrigger.kind}:${composerTrigger.query.trim().toLowerCase()}`
-      : null;
   const activeComposerMenuItemId = resolveComposerMenuActiveItemId({
     items: composerMenuItems,
     highlightedItemId: composerHighlightedItemId,
@@ -4040,18 +3990,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   };
 
-  const { onUsageLimitsCommand, onRolloverCommand } = props;
+  const { onUsageLimitsCommand } = props;
   const onSelectComposerItem = (item: ComposerCommandItem) => {
     if (composerSelectLockRef.current) return;
     composerSelectLockRef.current = true;
     window.requestAnimationFrame(() => {
       composerSelectLockRef.current = false;
     });
-    if (item.type === "rollover-option") {
-      setIsRolloverMenuOpen(false);
-      onRolloverCommand?.(item.command);
-      return;
-    }
     const { snapshot, trigger } = resolveActiveComposerTrigger();
     if (!trigger) return;
     if (item.type === "path") {
@@ -4079,25 +4024,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         if (applied) {
           setComposerHighlightedItemId(null);
           setIsComposerModelPickerOpen(true);
-        }
-        return;
-      }
-      if (item.command === "rollover") {
-        // Takes an argument: leave `/rollover ` in the prompt for the user to finish.
-        const replacement = "/rollover ";
-        const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
-          snapshot.value,
-          trigger.rangeEnd,
-          replacement,
-        );
-        const applied = applyPromptReplacement(
-          trigger.rangeStart,
-          replacementRangeEnd,
-          replacement,
-          { expectedText: snapshot.value.slice(trigger.rangeStart, replacementRangeEnd) },
-        );
-        if (applied) {
-          setComposerHighlightedItemId(null);
         }
         return;
       }
@@ -4492,23 +4418,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       !isLiteralPendingAnswer && (composerMenuOpenRef.current || trigger !== null);
     if (key === "Escape") {
       if (!menuIsActive || event.isComposing || event.keyCode === 229) return false;
-      if (isRolloverMenuOpen) setIsRolloverMenuOpen(false);
       dismissComposerTrigger(trigger);
       composerMenuOpenRef.current = false;
-      return true;
-    }
-    if (
-      key === "Enter" &&
-      !event.isComposing &&
-      onRolloverCommand &&
-      rolloverHoldSupported &&
-      !isLiteralPendingAnswer &&
-      !isRolloverMenuOpen &&
-      isBareRolloverCommand(promptRef.current) &&
-      (submissionIntent === "foreground" || (submissionIntent === null && menuIsActive))
-    ) {
-      setIsRolloverMenuOpen(true);
-      setComposerHighlightedItemId(null);
       return true;
     }
     if (menuIsActive && (submissionIntent === null || submissionIntent === "foreground")) {
@@ -6276,6 +6187,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   });
 
   const navigate = useNavigate();
+  const onOpenProviderSettings = () => {
+    const instanceId =
+      activeThread?.runtime?.providerInstanceId ?? activeThreadModelSelection?.instanceId;
+    void navigate({
+      to: "/settings/providers",
+      search: {
+        environmentId: routeThreadRef.environmentId,
+        ...(instanceId ? { instanceId } : {}),
+      },
+    });
+  };
   const startScreenRecordingStable = useStableCallback(() => {
     if (fileStagingLimit === null) return;
     const target = composerDraftTarget;
@@ -7086,7 +7008,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     isLoading={isComposerMenuLoading}
                     triggerKind={composerTriggerKind}
                     emptyStateText={composerMenuEmptyState}
-                    description={rolloverMenuDescription}
                     activeItemId={activeComposerMenuItem?.id ?? null}
                     onHighlightedItemChange={onComposerMenuItemHighlightedStable}
                     onSelect={onSelectComposerItemStable}
@@ -7623,10 +7544,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
               {deviceComposer && !isComposerApprovalState ? (
                 <DeviceContextBar
                   usage={activeContextWindow}
-                  rollover={rolloverThresholds ?? null}
-                  rolloverCustom={props.activeThreadShell?.rolloverThresholds != null}
-                  onRolloverChange={onRolloverChange}
-                  modelDisplayName={activeThreadModelDisplayName}
+                  threadCompactAt={props.activeThreadShell?.compactAt ?? null}
+                  compactAtBounds={compactAtBounds}
+                  onCompactAtChange={onCompactAtChange}
+                  onOpenProviderSettings={onOpenProviderSettings}
                   compactDisabled={
                     compactDisabled || noProviderAvailable || isSendBusy || isConnecting
                   }
@@ -7736,7 +7657,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     }
                     device={deviceComposer}
                     sendPressKey={sendPressKey}
-                    rolloverHold={props.activeThreadShell?.rolloverHold}
                     reserveContextWindowMeter={reserveContextWindowMeter && !deviceComposer}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}

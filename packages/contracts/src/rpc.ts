@@ -276,7 +276,6 @@ import {
   OrchestrationV2DetachWorkspaceError,
   OrchestrationV2DispatchCommandError,
   OrchestrationV2GetShellSnapshotError,
-  OrchestrationV2GetRolloverThresholdsError,
   OrchestrationV2CommandOutputError,
   OrchestrationV2GetThreadProjectionError,
   OrchestrationV2RpcSchemas,
@@ -1905,15 +1904,6 @@ const WsOrchestrationV2GetArchivedShellSnapshotRpc = Rpc.make(
   },
 );
 
-const WsOrchestrationV2GetRolloverThresholdsRpc = Rpc.make(
-  ORCHESTRATION_V2_WS_METHODS.getRolloverThresholds,
-  {
-    payload: OrchestrationV2RpcSchemas.getRolloverThresholds.input,
-    success: OrchestrationV2RpcSchemas.getRolloverThresholds.output,
-    error: Schema.Union([OrchestrationV2GetRolloverThresholdsError, EnvironmentAuthorizationError]),
-  },
-);
-
 const WsOrchestrationV2GetThreadProjectionRpc = Rpc.make(
   ORCHESTRATION_V2_WS_METHODS.getThreadProjection,
   {
@@ -2425,7 +2415,6 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsOrchestrationV2SearchThreadStreamRpc,
   WsOrchestrationV2GetArchivedShellSnapshotRpc,
   WsOrchestrationV2GetThreadProjectionRpc,
-  WsOrchestrationV2GetRolloverThresholdsRpc,
   WsOrchestrationV2LaunchThreadRpc,
   WsOrchestrationV2SubscribeArchivedShellRpc,
   WsOrchestrationV2SubscribeShellRpc,

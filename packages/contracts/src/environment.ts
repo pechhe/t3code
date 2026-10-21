@@ -127,12 +127,9 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   threadPinReorder: Schema.optionalKey(Schema.Boolean),
   threadActiveReorder: Schema.optionalKey(Schema.Boolean),
   threadAutoSettleOptOut: Schema.optionalKey(Schema.Boolean),
-  /** Server understands thread.rollover-hold.set (per-thread rollover hold).
+  /** Server understands thread.compact-at.set (a thread's own compact-at point).
       Same version-skew contract as threadSettlement. */
-  threadRolloverHold: Schema.optionalKey(Schema.Boolean),
-  /** Server understands thread.rollover-thresholds.set (a thread's own rollover
-      thresholds). Same version-skew contract as threadSettlement. */
-  threadRolloverThresholds: Schema.optionalKey(Schema.Boolean),
+  threadCompactAt: Schema.optionalKey(Schema.Boolean),
   /** Server understands regenerateTitle on thread.meta.update. Absent on
       older servers, so clients hide the action instead of sending it. */
   threadTitleRegeneration: Schema.optionalKey(Schema.Boolean),

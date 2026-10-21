@@ -318,21 +318,12 @@ export function readEnvironmentSupportsAutoSettleOptOut(environmentId: Environme
   );
 }
 
-/** Whether the environment's server understands thread.rollover-hold.set.
+/** Whether the environment's server understands thread.compact-at.set.
     Same version-skew contract as settlement. */
-export function readEnvironmentSupportsRolloverHold(environmentId: EnvironmentId): boolean {
+export function readEnvironmentSupportsCompactAt(environmentId: EnvironmentId): boolean {
   return (
     appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
-      .threadRolloverHold === true
-  );
-}
-
-/** Whether the environment's server understands thread.rollover-thresholds.set.
-    Same version-skew contract as settlement. */
-export function readEnvironmentSupportsRolloverThresholds(environmentId: EnvironmentId): boolean {
-  return (
-    appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment.capabilities
-      .threadRolloverThresholds === true
+      .threadCompactAt === true
   );
 }
 

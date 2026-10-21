@@ -46,6 +46,7 @@ function threadPayloadOf(event: OrchestrationV2DomainEvent): OrchestrationV2AppT
     case "thread.auto-settle-set":
     case "thread.rollover-hold-set":
     case "thread.rollover-thresholds-set":
+    case "thread.compact-at-set":
     case "thread.unpinned":
     case "thread.pin-reordered":
     case "thread.active-reordered":

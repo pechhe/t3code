@@ -782,6 +782,35 @@ describe("CodexAdapterV2 auto-compaction", () => {
     assert.equal(config.model_auto_compact_token_limit_scope, "total");
   });
 
+  it("lets a thread's compact-at point override the provider setting", () => {
+    const config = CodexAdapterV2.codexThreadRuntimeParams({
+      mcpSession: undefined,
+      autoCompactWindow: "300000",
+      runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null, compactAt: 180_000 },
+    }).config;
+    assert.equal(config.model_auto_compact_token_limit, 180_000);
+    assert.equal(config.model_auto_compact_token_limit_scope, "total");
+  });
+
+  it("reports the limit in force as the compaction point", () => {
+    assert.equal(CodexAdapterV2.codexCompactLimit({ compactAt: 180_000 }, "300000"), 180_000);
+    assert.equal(CodexAdapterV2.codexCompactLimit({ compactAt: null }, "300000"), 300_000);
+    assert.equal(CodexAdapterV2.codexCompactLimit(undefined, "300000"), 300_000);
+    assert.isUndefined(CodexAdapterV2.codexCompactLimit(undefined, ""));
+    const usage = (limit?: number) =>
+      CodexAdapterV2.codexProviderTurnTokenUsage(
+        {
+          total: { totalTokens: 1, inputTokens: 1, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+          last: { totalTokens: 1, inputTokens: 1, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+          modelContextWindow: 400_000,
+        },
+        "2026-08-29T00:00:00.000Z",
+        limit,
+      );
+    assert.equal(usage(180_000).autoCompactThreshold, 180_000);
+    assert.notProperty(usage(), "autoCompactThreshold");
+  });
+
   it("leaves Codex's own limit alone when the setting is empty", () => {
     assert.notProperty(params(""), "model_auto_compact_token_limit");
     assert.notProperty(params(), "model_auto_compact_token_limit");

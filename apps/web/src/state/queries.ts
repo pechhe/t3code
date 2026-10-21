@@ -383,25 +383,6 @@ export function useCheckpointDiff(
   return fullThreadTarget === null ? turn : fullThread;
 }
 
-/** Where a started thread is asked to prepare for compaction; null when it is not nudged. */
-export function useRolloverThresholds(
-  target: {
-    readonly environmentId: EnvironmentId;
-    readonly threadId: ThreadId;
-    readonly model: string;
-    readonly maxTokens: number | null;
-  } | null,
-) {
-  return useEnvironmentQuery(
-    target === null
-      ? null
-      : orchestrationEnvironment.rolloverThresholds({
-          environmentId: target.environmentId,
-          input: { threadId: target.threadId, model: target.model, maxTokens: target.maxTokens },
-        }),
-  );
-}
-
 /** Full input and output of one timeline item, fetched only while its row is open. */
 export function useTurnItemDetail(
   target: {

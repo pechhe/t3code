@@ -826,6 +826,7 @@ export function applyToProjection(
     case "thread.auto-settle-set":
     case "thread.rollover-hold-set":
     case "thread.rollover-thresholds-set":
+    case "thread.compact-at-set":
     case "thread.pinned":
     case "thread.unpinned":
     case "thread.pin-reordered":
@@ -1761,11 +1762,10 @@ export function threadShellFromProjection(
     lastVisitedAt: projection.thread.lastVisitedAt,
     titleRegeneration: projection.thread.titleRegeneration ?? null,
     limitRecovery: projection.thread.limitRecovery ?? null,
-    rolloverHold: projection.thread.rolloverHold ?? null,
     workflow: projection.thread.workflow ?? null,
     workItem: projection.thread.workItem ?? null,
     projectSuggestion: projection.thread.projectSuggestion ?? null,
-    rolloverThresholds: projection.thread.rolloverThresholds ?? null,
+    compactAt: projection.thread.compactAt ?? null,
     deletedAt: projection.thread.deletedAt,
   };
 }
@@ -2024,11 +2024,10 @@ function shellFromState(input: {
     lastVisitedAt: input.state.thread.lastVisitedAt,
     titleRegeneration: input.state.thread.titleRegeneration ?? null,
     limitRecovery: input.state.thread.limitRecovery ?? null,
-    rolloverHold: input.state.thread.rolloverHold ?? null,
     workflow: input.state.thread.workflow ?? null,
     workItem: input.state.thread.workItem ?? null,
     projectSuggestion: input.state.thread.projectSuggestion ?? null,
-    rolloverThresholds: input.state.thread.rolloverThresholds ?? null,
+    compactAt: input.state.thread.compactAt ?? null,
     deletedAt: input.state.thread.deletedAt,
   };
 }
@@ -2077,6 +2076,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             case "thread.auto-settle-set":
             case "thread.rollover-hold-set":
             case "thread.rollover-thresholds-set":
+            case "thread.compact-at-set":
             case "thread.pinned":
             case "thread.unpinned":
             case "thread.pin-reordered":
@@ -2105,6 +2105,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 updated_at,
                 archived_at,
                 deleted_at,
+                compact_at,
                 payload_json
               )
               VALUES (
@@ -2120,6 +2121,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ${stringField(payload, "updatedAt")},
                 ${nullableStringField(payload, "archivedAt")},
                 ${nullableStringField(payload, "deletedAt")},
+                ${event.payload.compactAt ?? null},
                 ${payloadJson}
               )
               ON CONFLICT(thread_id)
@@ -2135,6 +2137,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 updated_at = excluded.updated_at,
                 archived_at = excluded.archived_at,
                 deleted_at = excluded.deleted_at,
+                compact_at = excluded.compact_at,
                 payload_json = excluded.payload_json
             `;
               break;
@@ -2911,6 +2914,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             event.type !== "thread.auto-settle-set" &&
             event.type !== "thread.rollover-hold-set" &&
             event.type !== "thread.rollover-thresholds-set" &&
+            event.type !== "thread.compact-at-set" &&
             event.type !== "thread.pinned" &&
             event.type !== "thread.unpinned" &&
             event.type !== "thread.pin-reordered" &&

@@ -100,6 +100,7 @@ import {
   type ProviderThreadId,
   type RunId,
   type ThreadId,
+  CLAUDE_COMPACT_RESERVE,
 } from "@t3tools/contracts";
 
 import * as Cause from "effect/Cause";
@@ -222,12 +223,43 @@ function claudePromptCacheTtlMs(
   return undefined;
 }
 
-// Claude caps the window at the model's context, so a setting at or above it never applies.
-function claudeAutoCompactThreshold(autoCompactWindow: string, maxTokens: number | null) {
-  const threshold = Number(autoCompactWindow);
-  return threshold > 0 && (maxTokens === null || threshold < maxTokens)
-    ? { autoCompactThreshold: threshold }
-    : {};
+const CLAUDE_MIN_COMPACT_WINDOW = 100_000;
+const CLAUDE_MAX_COMPACT_WINDOW = 1_000_000;
+
+/** Where a session's auto-compact point comes from: the thread's own point, else the instance setting. */
+interface ClaudeCompactionSetting {
+  /** The instance's "Auto-compact after" size; blank leaves Claude Code's default. */
+  readonly instanceWindow?: string;
+  readonly compactAt?: number | null;
+}
+
+/**
+ * The `autoCompactWindow` Claude Code is given, or undefined for its default. A thread's
+ * compact-at point maps to window = compactAt + reserve, clamped to what Claude Code accepts
+ * (100k up to the model's window, never above 1M).
+ */
+export function claudeAutoCompactWindow(
+  setting: ClaudeCompactionSetting,
+  maxTokens: number | null,
+): number | undefined {
+  if (setting.compactAt != null) {
+    const ceiling = Math.min(maxTokens ?? CLAUDE_MAX_COMPACT_WINDOW, CLAUDE_MAX_COMPACT_WINDOW);
+    return Math.max(
+      CLAUDE_MIN_COMPACT_WINDOW,
+      Math.min(setting.compactAt + CLAUDE_COMPACT_RESERVE, ceiling),
+    );
+  }
+  const configured = Number(setting.instanceWindow ?? "");
+  return configured > 0 ? configured : undefined;
+}
+
+// Claude Code compacts a fixed reserve below its window, and caps the window at the model's
+// context (its default window), so the reported point is the window in force less that reserve.
+function claudeAutoCompactThreshold(setting: ClaudeCompactionSetting, maxTokens: number | null) {
+  const window = claudeAutoCompactWindow(setting, maxTokens) ?? maxTokens;
+  if (window === null) return {};
+  const threshold = Math.floor(Math.min(window, maxTokens ?? window) - CLAUDE_COMPACT_RESERVE);
+  return threshold > 0 ? { autoCompactThreshold: threshold } : {};
 }
 
 function claudeMessageInputTokens(usage: {
@@ -252,7 +284,7 @@ export function claudeProviderTurnTokenUsage(
   },
   modelSelection: ModelSelection,
   updatedAt: string,
-  autoCompactWindow = "",
+  compaction: ClaudeCompactionSetting = {},
   requestedAt?: DateTime.Utc,
 ) {
   const inputTokens = claudeMessageInputTokens(usage);
@@ -272,7 +304,7 @@ export function claudeProviderTurnTokenUsage(
     outputTokens,
     reasoningOutputTokens: 0,
     ...(promptCacheTtlMs === undefined ? {} : { promptCacheTtlMs }),
-    ...claudeAutoCompactThreshold(autoCompactWindow, maxTokens),
+    ...claudeAutoCompactThreshold(compaction, maxTokens),
     ...(promptCacheExpiresAt === undefined ? {} : { promptCacheExpiresAt }),
     updatedAt,
   };
@@ -1290,6 +1322,8 @@ export function makeClaudeQueryOptions(input: {
   readonly cwd: string | null;
   readonly attachmentsDir?: string;
   readonly settings?: ClaudeSettings;
+  /** The thread's own compact-at point; overrides the instance's "Auto-compact after". */
+  readonly compactAt?: number | null;
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
@@ -1348,12 +1382,19 @@ export function makeClaudeQueryOptions(input: {
         : typeof input.sdkSettings === "object" && input.sdkSettings !== null
           ? ({ ...input.sdkSettings, ...managedSettings } as ClaudeSdkSettings)
           : managedSettings;
+  const autoCompactWindow = claudeAutoCompactWindow(
+    {
+      ...(input.settings === undefined ? {} : { instanceWindow: input.settings.autoCompactWindow }),
+      compactAt: input.compactAt ?? null,
+    },
+    claudeContextWindow(input.modelSelection),
+  );
   const effectiveQuerySettings =
-    input.settings?.autoCompactWindow === undefined || input.settings.autoCompactWindow.length === 0
+    autoCompactWindow === undefined
       ? querySettings
       : ({
           ...(typeof querySettings === "object" && querySettings !== null ? querySettings : {}),
-          autoCompactWindow: Number(input.settings.autoCompactWindow),
+          autoCompactWindow,
         } as ClaudeSdkSettings);
   const options: ClaudeAgentSdkQueryOptions = {
     ...(input.managedAgent === true
@@ -3544,6 +3585,10 @@ interface ActiveClaudeSubagent {
 }
 
 interface ClaudeLiveQueryContext {
+  /** The model the process runs, which bounds its compaction window. */
+  modelSelection: ModelSelection;
+  /** The thread compact-at point the process was last given; null follows the instance setting. */
+  compactAt: number | null;
   readonly queryPolicy: ClaudeRuntimeQueryPolicy;
   readonly nativeThreadId: string;
   readonly query: ClaudeAgentSdkQuerySession;
@@ -4099,6 +4144,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const interruptedTurns = yield* Ref.make(new Set<OrchestrationV2ProviderTurn["id"]>());
         const steeredTurns = yield* Ref.make(new Set<OrchestrationV2ProviderTurn["id"]>());
         const queryContext = yield* Ref.make<ClaudeLiveQueryContext | null>(null);
+        // The thread's compact-at point as last applied or set; null follows the instance setting.
+        const compactAtRef = yield* Ref.make<number | null>(input.runtimePolicy.compactAt ?? null);
+        let lastContextUsage: {
+          readonly context: ActiveClaudeTurnContext;
+          readonly usage: ClaudeMessageUsage;
+        } | null = null;
         // A worktree handoff changes the project settings even within one session.
         let bypassCache: { cwd: string | null; availability: ClaudeBypassAvailability } | null =
           null;
@@ -4377,10 +4428,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             usage,
             context.input.modelSelection,
             DateTime.formatIso(now),
-            adapterOptions.settings.autoCompactWindow,
+            {
+              instanceWindow: adapterOptions.settings.autoCompactWindow,
+              compactAt: yield* Ref.get(compactAtRef),
+            },
             context.streamUsage?.requestedAt,
           );
           if (tokenUsage.inputTokens <= 0) return;
+          lastContextUsage = { context, usage };
           yield* emitProviderEvent({
             type: "provider_turn.updated",
             driver: CLAUDE_PROVIDER,
@@ -4402,6 +4457,28 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               tokenUsage,
             },
           });
+        });
+
+        // Moves a live process to a new compact-at point. Null returns it to the instance setting,
+        // which is sent explicitly: clearing the flag layer could also drop that setting.
+        const applyLiveCompactAt = Effect.fn("ClaudeAdapterV2.applyLiveCompactAt")(function* (
+          live: ClaudeLiveQueryContext,
+          compactAt: number | null,
+        ) {
+          if (live.compactAt === compactAt) return yield* Ref.set(compactAtRef, compactAt);
+          const autoCompactWindow = claudeAutoCompactWindow(
+            { instanceWindow: adapterOptions.settings.autoCompactWindow, compactAt },
+            claudeContextWindow(live.modelSelection),
+          );
+          yield* live.query.applyFlagSettings({ autoCompactWindow: autoCompactWindow ?? null });
+          // Reported usage derives the point from this ref, so it moves only once Claude took it.
+          live.compactAt = compactAt;
+          yield* Ref.set(compactAtRef, compactAt);
+          // Clients see the new point with the next usage report; an active turn reports it now.
+          const reported = lastContextUsage;
+          if (reported !== null && (yield* Ref.get(activeTurn)) === reported.context) {
+            yield* emitContextUsage(reported.context, reported.usage);
+          }
         });
 
         // Claude emits retry progress but no recovered frame; the next
@@ -7999,7 +8076,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                     usedTokens: afterTokenCount,
                     maxTokens,
                     ...claudeAutoCompactThreshold(
-                      adapterOptions.settings.autoCompactWindow,
+                      {
+                        instanceWindow: adapterOptions.settings.autoCompactWindow,
+                        compactAt: yield* Ref.get(compactAtRef),
+                      },
                       maxTokens,
                     ),
                     updatedAt: DateTime.formatIso(now),
@@ -9387,6 +9467,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               ),
             );
             live.selection = compiledSelection;
+            live.modelSelection = turnInput.modelSelection;
           }
           if (
             existing !== null &&
@@ -9394,6 +9475,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             existing.queryPolicyKey === queryPolicyKey &&
             existing.selection.queryIdentity === compiledSelection.queryIdentity
           ) {
+            // A change that landed between turns, or that the listener missed, applies now.
+            yield* applyLiveCompactAt(existing, turnInput.runtimePolicy.compactAt ?? null).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("Could not apply the thread's compact-at point", { cause }),
+              ),
+            );
             // A denied ExitPlanMode leaves Claude in plan mode. Restore only from plan:
             // Auto/default may reflect a policy restriction that forbids restoring bypass.
             if (existing.permissionMode === "plan" && existing.openedPermissionMode !== "plan") {
@@ -9452,6 +9539,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             turnInput.nativeThreadHasTurns ?? turnInput.providerTurnOrdinal > 1;
           const shouldResume =
             resumeSessionAt !== undefined || openedWithResume || hasPersistedProviderTurn;
+          yield* Ref.set(compactAtRef, turnInput.runtimePolicy.compactAt ?? null);
           const queryOptions = makeClaudeQueryOptions({
             managedAgent: turnInput.runtimePolicy.managedAgent,
             modelSelection: turnInput.modelSelection,
@@ -9461,6 +9549,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             cwd: turnInput.runtimePolicy.cwd,
             attachmentsDir,
             settings: adapterOptions.settings,
+            compactAt: turnInput.runtimePolicy.compactAt ?? null,
             environment: adapterOptions.environment,
             tools: queryPolicy.tools ?? CLAUDE_CODE_PRESET_TOOLS,
             ...(mcpOverrides.allowedTools === undefined
@@ -9518,6 +9607,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const closed = yield* Deferred.make<void, never>();
           const context: ClaudeLiveQueryContext = {
             queryPolicy,
+            modelSelection: turnInput.modelSelection,
+            compactAt: turnInput.runtimePolicy.compactAt ?? null,
             nativeThreadId,
             query: querySession,
             queryPolicyKey,
@@ -10323,6 +10414,30 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 ),
               ),
           ),
+          setCompactAt: Effect.fn("ClaudeAdapterV2.setCompactAt")(function* ({
+            providerThread,
+            compactAt,
+          }) {
+            const live = yield* Ref.get(queryContext);
+            if (
+              live === null ||
+              live.stopping ||
+              live.nativeThreadId !== providerThread.nativeThreadRef?.nativeId
+            ) {
+              // No process to move: the next one opens with the thread's point.
+              yield* Ref.set(compactAtRef, compactAt);
+              return;
+            }
+            yield* applyLiveCompactAt(live, compactAt).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new ProviderAdapter.ProviderAdapterProtocolError({
+                    driver: CLAUDE_PROVIDER,
+                    detail: `Could not apply the compact-at point: ${cause.message}`,
+                  }),
+              ),
+            );
+          }),
           startTurn,
           compactThread: (turnInput) =>
             startTurn({
@@ -10656,12 +10771,7 @@ export const createClaudeAdapterV2 = Effect.fn("ClaudeAdapterV2Driver.create")(
     const serverConfig = yield* ServerConfig.ServerConfig;
     const continuationRequests = yield* ProviderContinuationRequests.ProviderContinuationRequests;
     const baseEnvironment = yield* mergeProviderInstanceEnvironment(environment, hostEnvironment);
-    const claudeEnvironment = {
-      ...(yield* makeClaudeEnvironment(config, baseEnvironment)),
-      // Lets Claude plugins read T3's settings, e.g. to step back from their own
-      // context handoff while T3's context rollover is on.
-      T3CODE_SETTINGS_PATH: serverConfig.settingsPath,
-    };
+    const claudeEnvironment = yield* makeClaudeEnvironment(config, baseEnvironment);
     const path = yield* Path.Path;
     const crypto = yield* Crypto.Crypto;
     const binaryPath = yield* resolveClaudeSdkExecutablePath(

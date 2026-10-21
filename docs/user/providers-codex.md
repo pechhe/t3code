@@ -82,9 +82,12 @@ Set **Auto-compact after** in the Codex provider settings to an integer between
 `100000` and `1000000`. For example, `300000` asks Codex to summarize at about
 300,000 tokens. This changes when compaction happens, not the model's context
 window. Leave it empty for Codex's default. T3 does not control what Codex's
-summary keeps. With **Context rollover** on in General settings, the agent is
-asked to reach a stopping point before compaction. The conversation, run and workspace
-carry on.
+summary keeps. The conversation, run and workspace carry on.
+
+A single thread can compact somewhere else. Drag the compact line on the thread's
+context bar to set its own point; it overrides the setting for that thread.
+Codex reads the limit when a session starts, so a change applies from the
+thread's next session, not the one already running.
 
 ## Answer questions while Codex works
 

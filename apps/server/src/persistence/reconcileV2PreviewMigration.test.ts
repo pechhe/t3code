@@ -59,6 +59,7 @@ describe("V2 preview upgrade", () => {
         [77, "ProjectHqRepositorySync"],
         [78, "BuildSendBackDeliveries"],
         [79, "WebhookDedupe"],
+        [80, "ThreadCompactAt"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -161,6 +162,7 @@ describe("V2 preview upgrade", () => {
         [77, "ProjectHqRepositorySync"],
         [78, "BuildSendBackDeliveries"],
         [79, "WebhookDedupe"],
+        [80, "ThreadCompactAt"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

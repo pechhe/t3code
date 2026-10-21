@@ -200,11 +200,27 @@ export function canReuseCodexContextUsage(previous: ModelSelection, next: ModelS
   );
 }
 
+/**
+ * The context size Codex compacts at: the thread's own compact-at point, else the provider
+ * setting's token count (empty leaves Codex's own default, reported as no limit).
+ */
+export function codexCompactLimit(
+  runtimePolicy: Pick<ProviderAdapter.ProviderAdapterV2RuntimePolicy, "compactAt"> | undefined,
+  autoCompactWindow: string | undefined,
+): number | undefined {
+  const compactAt = runtimePolicy?.compactAt;
+  if (compactAt != null && compactAt > 0) return Math.floor(compactAt);
+  const configured = Number(autoCompactWindow ?? "");
+  return configured > 0 ? configured : undefined;
+}
+
 export function codexProviderTurnTokenUsage(
   tokenUsage: CodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"],
   updatedAt: string,
+  autoCompactLimit?: number,
 ) {
   return {
+    ...(autoCompactLimit === undefined ? {} : { autoCompactThreshold: autoCompactLimit }),
     usedTokens: Math.max(0, tokenUsage.last.totalTokens),
     maxTokens: tokenUsage.modelContextWindow ?? null,
     inputTokens: Math.max(0, tokenUsage.last.inputTokens),
@@ -1364,6 +1380,7 @@ export function codexThreadRuntimeParams(input: {
   readonly config: Readonly<Record<string, Schema.Json>>;
 } {
   const { mcpSession } = input;
+  const compactLimit = codexCompactLimit(input.runtimePolicy, input.autoCompactWindow);
   // One `mcp_servers` table: every configured server a managed task must not reach is disabled,
   // and a managed browser task's own endpoint (Phi's operations only) is then added. A managed
   // task is otherwise a leaf with no T3 tools.
@@ -1402,11 +1419,11 @@ export function codexThreadRuntimeParams(input: {
     ...(input.modelSelection === undefined ? {} : { model: input.modelSelection.model }),
     config: {
       ...CODEX_THREAD_CONFIG,
-      ...(input.autoCompactWindow === undefined || input.autoCompactWindow === ""
+      ...(compactLimit === undefined
         ? {}
         : {
-            model_auto_compact_token_limit: Number(input.autoCompactWindow),
-            // Codex's default scope ignores the carried prompt prefix; the window is the whole context, as for Claude.
+            model_auto_compact_token_limit: compactLimit,
+            // Codex's default scope ignores the carried prompt prefix; the limit is the whole context, as for Claude.
             model_auto_compact_token_limit_scope: "total",
           }),
       ...(input.runtimePolicy?.managedAgent !== true
@@ -1903,6 +1920,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
         );
         const autoCompactWindow = (resolvedRuntime?.config ?? adapterOptions.settings)
           .autoCompactWindow;
+        // The compaction limit each loaded native thread was configured with. Codex has no live
+        // control, so a thread's new compact-at point applies when it is next started or resumed.
+        const compactLimitByNativeThread = new Map<string, number | undefined>();
+        const compactLimitFor = (nativeThreadId: string | undefined) =>
+          nativeThreadId !== undefined && compactLimitByNativeThread.has(nativeThreadId)
+            ? compactLimitByNativeThread.get(nativeThreadId)
+            : codexCompactLimit(undefined, autoCompactWindow);
         const threadRuntimeParams = Effect.fn(function* (
           request: Parameters<typeof codexThreadRuntimeParams>[0],
         ) {
@@ -4545,6 +4569,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 tokenUsage: codexProviderTurnTokenUsage(
                   payload.tokenUsage,
                   DateTime.formatIso(now),
+                  compactLimitFor(context.providerThread.nativeThreadRef?.nativeId ?? undefined),
                 ),
               },
             });
@@ -6737,7 +6762,20 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   hqConnection,
                   modelSelection: threadInput.modelSelection,
                   runtimePolicy: threadInput.runtimePolicy,
-                }).pipe(Effect.flatMap((params) => client.request("thread/start", params))),
+                }).pipe(
+                  Effect.flatMap((params) =>
+                    client.request("thread/start", params).pipe(
+                      Effect.tap((response) =>
+                        Effect.sync(() => {
+                          compactLimitByNativeThread.set(
+                            response.thread.id,
+                            codexCompactLimit(threadInput.runtimePolicy, autoCompactWindow),
+                          );
+                        }),
+                      ),
+                    ),
+                  ),
+                ),
               ),
               Effect.map((response): OrchestrationV2ProviderThread =>
                 providerThreadFromCodexThread({
@@ -6761,6 +6799,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           resumeThread: Effect.fn("CodexAdapterV2.resumeThread")(
             function* (threadInput) {
               const nativeThreadId = yield* getNativeThreadId(threadInput.providerThread);
+              compactLimitByNativeThread.set(
+                nativeThreadId,
+                codexCompactLimit(threadInput.runtimePolicy, autoCompactWindow),
+              );
               // excludeTurns is not in the generated request schema yet.
               const resume = client.raw.request("thread/resume", {
                 threadId: nativeThreadId,

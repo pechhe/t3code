@@ -13,8 +13,6 @@ import {
   type NodeId,
   type OrchestrationV2Command,
   type OrchestrationV2CreationSource,
-  type OrchestrationV2RolloverHold,
-  type OrchestrationV2ThreadRolloverThresholds,
   type PlanId,
   type ProjectId,
   type ProjectIconOverride,
@@ -502,33 +500,18 @@ export const setThreadAutoSettle = Effect.fn("EnvironmentCommands.setThreadAutoS
   });
 });
 
-export interface SetThreadRolloverHoldInput extends ThreadCommandInput {
-  /** Null lifts the hold. */
-  readonly hold: OrchestrationV2RolloverHold | null;
+export interface SetThreadCompactAtInput extends ThreadCommandInput {
+  /** Null returns the thread to the provider's setting. */
+  readonly compactAt: number | null;
 }
-export const setThreadRolloverHold = Effect.fn("EnvironmentCommands.setThreadRolloverHold")(
-  function* (input: SetThreadRolloverHoldInput) {
-    return yield* dispatch({
-      type: "thread.rollover-hold.set",
-      commandId: yield* allocateCommandId(input),
-      threadId: input.threadId,
-      hold: input.hold,
-    });
-  },
-);
-
-export interface SetThreadRolloverThresholdsInput extends ThreadCommandInput {
-  /** Null returns the thread to the server's thresholds. */
-  readonly thresholds: OrchestrationV2ThreadRolloverThresholds | null;
-}
-export const setThreadRolloverThresholds = Effect.fn(
-  "EnvironmentCommands.setThreadRolloverThresholds",
-)(function* (input: SetThreadRolloverThresholdsInput) {
+export const setThreadCompactAt = Effect.fn("EnvironmentCommands.setThreadCompactAt")(function* (
+  input: SetThreadCompactAtInput,
+) {
   return yield* dispatch({
-    type: "thread.rollover-thresholds.set",
+    type: "thread.compact-at.set",
     commandId: yield* allocateCommandId(input),
     threadId: input.threadId,
-    thresholds: input.thresholds,
+    compactAt: input.compactAt,
   });
 });
 

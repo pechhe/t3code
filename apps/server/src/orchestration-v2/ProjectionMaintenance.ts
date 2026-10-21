@@ -210,6 +210,7 @@ export const layer: Layer.Layer<
       "thread.auto-settle-set",
       "thread.rollover-hold-set",
       "thread.rollover-thresholds-set",
+      "thread.compact-at-set",
       "thread.unpinned",
       "thread.pin-reordered",
       "thread.active-reordered",

@@ -90,11 +90,14 @@ it goes first while it has usage left, whichever way the pool picks.
 ## Compact long conversations
 
 Set **Auto-compact after** in the Claude provider settings to an integer between
-`100000` and `1000000`. Claude Code compacts about 30,000 to 40,000 tokens below
-this size, so `300000` means roughly 260,000 to 270,000 tokens. This changes when compaction happens, not the model's context
-window. Leave it empty for Claude Code's default. With **Context rollover** on in
-General settings, the agent is also asked to reach a stopping point before this
-happens.
+`100000` and `1000000`. Claude Code compacts about 33,000 tokens before this
+size, so `300000` means roughly 267,000 tokens. This changes when compaction happens, not the model's context
+window. Leave it empty for Claude Code's default.
+
+A single thread can compact somewhere else. Drag the compact line on the thread's
+context bar to set its own point; it overrides the setting for that thread, and it
+takes hold in a running session straight away. Clear the thread's point to
+return to the provider's point.
 
 You can also send `/compact` in an existing conversation. Web and desktop offer
 **Compact context** from the context meter. When you return to a large thread

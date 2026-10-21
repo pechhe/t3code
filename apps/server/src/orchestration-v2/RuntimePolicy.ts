@@ -55,12 +55,15 @@ export class RuntimePolicyV2 extends Context.Service<RuntimePolicyV2, RuntimePol
   "t3/orchestration-v2/RuntimePolicy/RuntimePolicyV2",
 ) {}
 
+// The thread's `compactAt` rides on every policy built here. Only the Claude and Codex adapters
+// read it: no other provider is known to compact natively, so the rest ignore it.
 export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2, {
   resolve: (input) =>
     Effect.succeed({
       runtimeMode: input.thread.runtimeMode,
       interactionMode: input.thread.interactionMode,
       cwd: input.thread.worktreePath,
+      ...(input.thread.compactAt == null ? {} : { compactAt: input.thread.compactAt }),
     }),
 });
 
@@ -207,6 +210,7 @@ export const layerFromProjectStore: Layer.Layer<
             interactionMode: "default",
             cwd,
             managedAgent: true,
+            ...(input.thread.compactAt == null ? {} : { compactAt: input.thread.compactAt }),
             ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
             approvalPolicy: "never",
             sandboxPolicy:
@@ -227,6 +231,7 @@ export const layerFromProjectStore: Layer.Layer<
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
+          ...(input.thread.compactAt == null ? {} : { compactAt: input.thread.compactAt }),
         });
       }),
     });
