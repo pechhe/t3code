@@ -142,7 +142,11 @@ interface HarnessOptions {
 
 type AllocateInput = Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["allocate"]>[0];
 
-const allocated = (workspacePath: string, created = true, issue: number | null = null) => ({
+const allocated = (
+  workspacePath: string,
+  created: boolean | null = true,
+  issue: number | null = null,
+) => ({
   workspacePath,
   created,
   issue,
@@ -1890,6 +1894,46 @@ it.effect.each(["link", "launch"] as const)(
     }),
 );
 
+it.effect.each([
+  { created: true, outcome: "fresh" },
+  { created: false, outcome: "resumed" },
+  { created: null, outcome: "unconfirmed" },
+] as const)(
+  "records a terminal's replacement from SlipJay's receipt: created $created is $outcome",
+  ({ created, outcome }) =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const harness = makeHarness({
+        slipjay: true,
+        allocateWorkspace: (input) =>
+          Effect.succeed(
+            allocated(
+              calls++ === 0 ? "/slipjay/workspaces/first" : "/slipjay/workspaces/second",
+              calls === 1 ? true : created,
+              input.issue?.number ?? null,
+            ),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const threadId = yield* idleSlipJayThread(`thread:launch:terminal-receipt:${outcome}`);
+        harness.releasedPaths.add("/slipjay/workspaces/first");
+        harness.releasedPaths.add("/slipjay/workspaces/first/.jj");
+        harness.recreatedPaths.add("/slipjay/workspaces/first");
+        yield* launches.terminalCwd({
+          threadId,
+          cwd: "/slipjay/workspaces/first",
+          worktreePath: "/slipjay/workspaces/first",
+        });
+        assert.equal(
+          (yield* threads.getThreadProjection(threadId)).thread.workspaceReplacement?.outcome,
+          outcome,
+        );
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
 it.effect("keeps the checkout a terminal opened while the same thread's turn was recovering", () =>
   Effect.gen(function* () {
     const turnAllocating = yield* Deferred.make<void>();
@@ -2394,6 +2438,52 @@ it.effect.each(["link", "launch"] as const)(
         assert.equal(thread.workspaceIssue, 42);
         assert.equal(thread.workspaceReplacement?.outcome, "fresh");
         assert.include(thread.workspaceReplacement?.detail, "item 42 is held by another workspace");
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect.each([
+  { created: true, outcome: "fresh" },
+  { created: false, outcome: "resumed" },
+  { created: null, outcome: "unconfirmed" },
+] as const)(
+  "describes a replacement from SlipJay's receipt: created $created is $outcome",
+  ({ created, outcome }) =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const harness = makeHarness({
+        slipjay: true,
+        allocateWorkspace: (input) =>
+          Effect.succeed(
+            calls++ === 0
+              ? allocated("/slipjay/workspaces/first", true, input.issue?.number ?? null)
+              : allocated("/slipjay/workspaces/second", created, input.issue?.number ?? null),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const thread = yield* replaceIdleWorkspace(
+          harness,
+          `thread:launch:receipt-${outcome}`,
+          "launch",
+        );
+        assert.equal(thread.worktreePath, "/slipjay/workspaces/second");
+        assert.equal(thread.workspaceReplacement?.outcome, outcome);
+        // A retried recovery finds the thread already bound to a live workspace, so it records
+        // nothing and the classification stays as the first response set it.
+        const next = (yield* threads.getThreadProjection(thread.id)).runs.at(-1)!;
+        assert.isFalse(
+          yield* launches.prepareReleasedWorkspace({
+            commandId: CommandId.make(`command:receipt-${outcome}:retry`),
+            threadId: thread.id,
+            runId: next.id,
+          }),
+        );
+        const after = (yield* threads.getThreadProjection(thread.id)).thread;
+        assert.equal(after.workspaceReplacement?.outcome, outcome);
+        assert.equal(after.worktreePath, "/slipjay/workspaces/second");
+        assert.equal(calls, 2);
       }).pipe(Effect.provide(harness.layer));
     }),
 );

@@ -443,14 +443,21 @@ export type OrchestrationV2ThreadWorkItem = typeof OrchestrationV2ThreadWorkItem
 
 /**
  * How T3 answered SlipJay removing the thread's workspace, for the next turn to report: a
- * fresh checkout, or none because allocation failed. `detail` is what went wrong, such as the
+ * checkout SlipJay created (`fresh`), one it resumed because the Build item already had it
+ * (`resumed`), one whose origin SlipJay did not report (`unconfirmed`), or none because
+ * allocation failed (`unavailable`). `detail` is what went wrong, such as the
  * allocation failure or the Build item that could not be attached to a fresh checkout.
  */
 export const OrchestrationV2WorkspaceReplacement = Schema.Struct({
-  outcome: Schema.Literals(["fresh", "unavailable"]),
+  outcome: Schema.Literals(["fresh", "resumed", "unconfirmed", "unavailable"]),
   detail: Schema.optional(TrimmedNonEmptyString),
 });
 export type OrchestrationV2WorkspaceReplacement = typeof OrchestrationV2WorkspaceReplacement.Type;
+/** The outcomes that leave the thread in a workspace SlipJay allocated or resumed. */
+export type OrchestrationV2ReplacedWorkspaceOutcome = Exclude<
+  OrchestrationV2WorkspaceReplacement["outcome"],
+  "unavailable"
+>;
 
 /**
  * A project an agent suggested for its own No project chat. The user moves the

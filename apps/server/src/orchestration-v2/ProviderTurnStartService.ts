@@ -11,6 +11,7 @@ import {
   type OrchestrationV2Run,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2RunAttempt,
+  type OrchestrationV2ReplacedWorkspaceOutcome,
   type OrchestrationV2TurnItem,
   type ProjectId,
   RunId,
@@ -114,8 +115,19 @@ export const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string
  * Sent with the turn that runs in a SlipJay workspace allocated after SlipJay removed the
  * thread's previous one, which it does only once that workspace holds no unlanded work.
  */
-export const replacedWorkspaceNote = (workspacePath: string, detail?: string): string =>
-  `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. This turn runs in a fresh checkout at the integration head: ${workspacePath}. Work landed from earlier turns is on the integration branch; read the workspace's instruction files before working.${detail === undefined ? "" : ` ${detail}`}`;
+export const replacedWorkspaceNote = (
+  workspacePath: string,
+  outcome: OrchestrationV2ReplacedWorkspaceOutcome,
+  detail?: string,
+): string => {
+  const where =
+    outcome === "fresh"
+      ? `This turn runs in a fresh checkout at the integration head: ${workspacePath}.`
+      : outcome === "resumed"
+        ? `This turn runs in an existing workspace that SlipJay resumed rather than created: ${workspacePath}. It may hold work from earlier sessions, so check its state before assuming it is at the integration head.`
+        : `This turn runs in ${workspacePath}. SlipJay did not say whether it created that checkout or resumed an existing one, so check its state before assuming it is fresh at the integration head.`;
+  return `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. ${where} Work landed from earlier turns is on the integration branch; read the workspace's instruction files before working.${detail === undefined ? "" : ` ${detail}`}`;
+};
 
 /**
  * Sent instead when no replacement could be allocated, so the turn runs in the project's own
@@ -148,6 +160,7 @@ export const replacedWorkspace = (
   runId: RunId,
 ): {
   readonly worktreePath: string | null;
+  readonly outcome: OrchestrationV2ReplacedWorkspaceOutcome;
   readonly detail?: string;
   /** The Build item a thread left on the project checkout still works under. */
   readonly buildItem?: number;
@@ -165,11 +178,16 @@ export const replacedWorkspace = (
       told.has(attempt.id),
   );
   const detail = thread.workspaceReplacement?.detail;
+  const recorded = thread.workspaceReplacement?.outcome;
+  // A thread replaced before outcomes were recorded was a fresh allocation; "unavailable" has
+  // no workspace to describe.
+  const outcome = recorded === undefined || recorded === "unavailable" ? "fresh" : recorded;
   const buildItem = thread.worktreePath === null ? thread.workspaceIssue : undefined;
   return toldEarlier
     ? null
     : {
         worktreePath: thread.worktreePath,
+        outcome,
         ...(detail === undefined ? {} : { detail }),
         ...(buildItem == null ? {} : { buildItem }),
       };
@@ -1437,7 +1455,7 @@ export const layer: Layer.Layer<
                     replaced.detail,
                     replaced.buildItem,
                   )
-                : replacedWorkspaceNote(replaced.worktreePath, replaced.detail),
+                : replacedWorkspaceNote(replaced.worktreePath, replaced.outcome, replaced.detail),
             scheduled ? SCHEDULED_TASK_NOTE : "",
           ]
             .filter((part) => part !== "")

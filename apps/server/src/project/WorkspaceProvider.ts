@@ -51,7 +51,8 @@ const boundedDetail = (output: { readonly stdout: string; readonly stderr: strin
 
 const SlipJayStartResult = Schema.Struct({
   workspacePath: Schema.String,
-  // False when SlipJay bound or resumed a checkout that already existed, such as an Issue's.
+  // False when SlipJay bound or resumed a checkout that already existed, such as an Issue's;
+  // absent when it did not say.
   created: Schema.optional(Schema.Boolean),
 });
 const decodeSlipJayStartResult = Schema.decodeUnknownEffect(
@@ -69,7 +70,8 @@ export class WorkspaceProvider extends Context.Service<
     /**
      * Allocates a SlipJay workspace named after `task`. An `issue` to `resume` returns that
      * Build item's existing workspace when it has one, with `created` false: the caller must
-     * not release a checkout it did not create. An `issue` to `attach` always gets a new
+     * not release a checkout it did not create. `created` is null when SlipJay did not say,
+     * which callers must neither release nor describe as new. An `issue` to `attach` always gets a new
      * checkout, which takes the item only when no other workspace holds it. `issue` in the
      * result is the item the workspace belongs to; when the attach failed it is null and
      * `attachFailure` says why, since the checkout is still usable.
@@ -81,7 +83,7 @@ export class WorkspaceProvider extends Context.Service<
     }) => Effect.Effect<
       {
         readonly workspacePath: string;
-        readonly created: boolean;
+        readonly created: boolean | null;
         readonly issue: number | null;
         readonly attachFailure?: string;
       },
@@ -192,7 +194,7 @@ export const make = Effect.gen(function* () {
               );
         const allocation = {
           workspacePath: result.workspacePath,
-          created: result.created ?? false,
+          created: result.created ?? null,
           issue: issue !== undefined && attachFailure === undefined ? issue.number : null,
           ...(attachFailure === undefined ? {} : { attachFailure }),
         };

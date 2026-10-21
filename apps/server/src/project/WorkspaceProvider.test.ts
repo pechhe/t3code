@@ -97,7 +97,7 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
     }),
   );
 
-  it.effect.each([true, false])(
+  it.effect.each([true, false, undefined])(
     "releases a workspace it created when cancellation arrives before SlipJay emits the allocation receipt: %s",
     (created) =>
       Effect.gen(function* () {
@@ -132,12 +132,34 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
         yield* Effect.sync(() => allocation.interruptUnsafe());
         yield* Deferred.succeed(allowReceipt, undefined);
         expect(Exit.isFailure(yield* Fiber.await(allocation))).toBe(true);
-        // A resumed checkout predates this allocation, so it is kept.
+        // A resumed checkout predates this allocation, and one SlipJay did not vouch for is not
+        // known to be ours, so both are kept.
         expect(commands).toEqual([
           ["slipjay", "start", "--integration", "--json", "Bounded work"],
           ...(created ? [["slipjay", "remove", "/allocated-jj-workspace"]] : []),
         ]);
       }),
+  );
+  it.effect.each([
+    { receipt: { created: true }, created: true },
+    { receipt: { created: false }, created: false },
+    { receipt: {}, created: null },
+  ])("reports the allocation receipt's created as $created", ({ receipt, created }) =>
+    Effect.gen(function* () {
+      const service = yield* Workspaces.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(Processes.ProcessRunner)({
+              run: () =>
+                Effect.succeed(output(JSON.stringify({ workspacePath: "/ws", ...receipt }))),
+            }),
+            Layer.mock(Git.GitVcsDriver)({}),
+          ),
+        ),
+      );
+      const allocation = yield* service.allocate({ projectRoot: "/project", task: "work" });
+      expect(allocation.created).toBe(created);
+    }),
   );
   it.effect("allocates a Build item's workspace through SlipJay's resume-or-create start", () =>
     Effect.gen(function* () {

@@ -12,6 +12,7 @@ import {
   RunAttemptId,
   RunId,
   ThreadId,
+  type OrchestrationV2ReplacedWorkspaceOutcome,
 } from "@t3tools/contracts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
@@ -243,7 +244,7 @@ it.live.each([
           [first, fresh, fresh],
         );
         // Only the first turn in the fresh checkout is told about it.
-        const note = JSON.stringify(replacedWorkspaceNote(fresh)).slice(1, -1);
+        const note = JSON.stringify(replacedWorkspaceNote(fresh, "fresh")).slice(1, -1);
         assert.deepEqual(
           turns.map((turn) => turn.input.includes(note)),
           [false, true, false],
@@ -264,6 +265,7 @@ it("repeats the fresh-checkout note until a provider has taken a prompt carrying
   // The earlier run's provider refused before it received the prompt.
   assert.deepEqual(replacedWorkspace(thread, [earlier], [], current), {
     worktreePath: thread.worktreePath,
+    outcome: "fresh",
   });
   assert.isNull(replacedWorkspace(thread, [earlier], [{ runAttemptId: earlier.id }], current));
 });
@@ -277,7 +279,10 @@ it("reports a removed workspace that could not be replaced, once", () => {
     startedAt: DateTime.makeUnsafe("2026-10-19T12:01:00Z"),
   };
   const current = RunId.make("run:current");
-  assert.deepEqual(replacedWorkspace(thread, [], [], current), { worktreePath: null });
+  assert.deepEqual(replacedWorkspace(thread, [], [], current), {
+    worktreePath: null,
+    outcome: "fresh",
+  });
   assert.isNull(replacedWorkspace(thread, [earlier], [{ runAttemptId: earlier.id }], current));
   assert.isNull(
     replacedWorkspace({ worktreePath: null, workspaceReplacedAt: null }, [], [], current),
@@ -297,7 +302,11 @@ it("tells the turn why a removed workspace could not be replaced or take its Bui
     [],
     current,
   );
-  assert.deepEqual(unavailable, { worktreePath: null, detail: "the spare pool is empty" });
+  assert.deepEqual(unavailable, {
+    worktreePath: null,
+    outcome: "fresh",
+    detail: "the spare pool is empty",
+  });
   assert.include(
     unreplacedWorkspaceNote("/project", unavailable?.detail),
     "the spare pool is empty",
@@ -325,7 +334,33 @@ it("tells the turn why a removed workspace could not be replaced or take its Bui
     current,
   );
   assert.include(
-    replacedWorkspaceNote("/slipjay/workspaces/fresh", fresh?.detail),
+    replacedWorkspaceNote("/slipjay/workspaces/fresh", fresh!.outcome, fresh?.detail),
     "Build item #42 is held elsewhere",
   );
+});
+
+it("calls a replacement fresh only when SlipJay created it", () => {
+  const replacedAt = DateTime.makeUnsafe("2026-10-19T12:00:00Z");
+  const current = RunId.make("run:current");
+  const noteFor = (outcome: OrchestrationV2ReplacedWorkspaceOutcome) => {
+    const replaced = replacedWorkspace(
+      {
+        worktreePath: "/slipjay/workspaces/item-42",
+        workspaceReplacedAt: replacedAt,
+        workspaceReplacement: { outcome },
+      },
+      [],
+      [],
+      current,
+    );
+    assert.equal(replaced?.outcome, outcome);
+    return replacedWorkspaceNote("/slipjay/workspaces/item-42", replaced!.outcome);
+  };
+  assert.include(noteFor("fresh"), "fresh checkout");
+  const resumed = noteFor("resumed");
+  assert.include(resumed, "resumed rather than created");
+  assert.notInclude(resumed, "fresh checkout");
+  const unconfirmed = noteFor("unconfirmed");
+  assert.include(unconfirmed, "did not say whether it created");
+  assert.notInclude(unconfirmed, "fresh checkout");
 });

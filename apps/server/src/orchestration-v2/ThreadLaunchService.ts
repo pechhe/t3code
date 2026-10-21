@@ -12,6 +12,7 @@ import {
   type OrchestrationV2Actor,
   type OrchestrationV2CreationSource,
   type OrchestrationV2ProviderThreadNativeMetadata,
+  type OrchestrationV2ReplacedWorkspaceOutcome,
   type OrchestrationV2WorkspaceReplacement,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadWorkflow,
@@ -261,7 +262,11 @@ function describeCause(error: unknown): string {
 const MAX_REPLACEMENT_DETAIL_CHARS = 1500;
 
 const attachFailureDetail = (buildItem: number, failure: string): string =>
-  `Build item #${buildItem} is still this thread's, but SlipJay could not attach it to the fresh checkout: ${failure.slice(0, MAX_REPLACEMENT_DETAIL_CHARS)}`;
+  `Build item #${buildItem} is still this thread's, but SlipJay could not attach it to this checkout: ${failure.slice(0, MAX_REPLACEMENT_DETAIL_CHARS)}`;
+
+// Only SlipJay's receipt says whether it created the checkout; a missing one is never called new.
+const replacementOutcome = (created: boolean | null): OrchestrationV2ReplacedWorkspaceOutcome =>
+  created === true ? "fresh" : created === false ? "resumed" : "unconfirmed";
 
 function failureDetail(error: unknown): string {
   if (isThreadLaunchError(error)) {
@@ -566,7 +571,7 @@ const make = Effect.gen(function* () {
             workspaceIssue = allocation.issue ?? workspaceIssue;
             if (replacing) {
               workspaceReplacement = {
-                outcome: "fresh",
+                outcome: replacementOutcome(allocation.created),
                 ...(allocation.attachFailure === undefined || owned === undefined
                   ? {}
                   : { detail: attachFailureDetail(owned, allocation.attachFailure) }),
@@ -1538,7 +1543,7 @@ const make = Effect.gen(function* () {
           worktreePath,
           expectedWorktreePath: released.worktreePath,
           workspaceReplaced: {
-            outcome: "fresh",
+            outcome: replacementOutcome(created),
             ...(attachFailure === undefined || buildItem === undefined
               ? {}
               : { detail: attachFailureDetail(buildItem, attachFailure) }),
