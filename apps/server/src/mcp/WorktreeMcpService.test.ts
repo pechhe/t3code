@@ -365,8 +365,11 @@ const makeHarness = (options: HarnessOptions = {}) => {
         workspacePath: "/slipjay/workspaces/feature-handoff",
         created: true,
         issue: null,
+        attemptId: "attempt:feature-handoff",
       }),
   );
+  const settleWorkspace = vi.fn((_attemptId: string) => Effect.void);
+  const abandonWorkspace = vi.fn((_attemptId: string) => Effect.void);
   const releaseWorkspace = vi.fn(
     (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["release"]>[0]) =>
       Effect.void,
@@ -411,6 +414,9 @@ const makeHarness = (options: HarnessOptions = {}) => {
         Layer.succeed(WorkspaceProvider.WorkspaceProvider, {
           resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
           allocate: allocateWorkspace,
+          settled: settleWorkspace,
+          abandon: abandonWorkspace,
+          reconcile: () => Effect.void,
           release: releaseWorkspace,
           // Each project's repository holds the paths under its root's name.
           contains: (root, path) =>
@@ -444,6 +450,8 @@ const makeHarness = (options: HarnessOptions = {}) => {
     runForThread,
     allocateWorkspace,
     releaseWorkspace,
+    settleWorkspace,
+    abandonWorkspace,
     detachAttachment,
   };
 };
@@ -850,7 +858,11 @@ describe("t3_worktree_handoff", () => {
       expect(harness.allocateWorkspace).toHaveBeenCalledWith({
         projectRoot: workspaceRoot,
         task: "feature/handoff",
+        owner: { kind: "mcp", ref: "thread-worktree-test" },
       });
+      // The thread is bound to the checkout, so its allocation intent is complete.
+      expect(harness.settleWorkspace).toHaveBeenCalledWith("attempt:feature-handoff");
+      expect(harness.releaseWorkspace).not.toHaveBeenCalled();
       expect(harness.localStatus).not.toHaveBeenCalled();
       expect(harness.createWorktree).not.toHaveBeenCalled();
       expect(harness.dispatch).toHaveBeenCalledWith(
@@ -872,6 +884,7 @@ describe("t3_worktree_handoff", () => {
         projectRoot: workspaceRoot,
         path: "/slipjay/workspaces/feature-handoff",
       });
+      expect(harness.settleWorkspace).toHaveBeenCalledWith("attempt:feature-handoff");
       expect(harness.removeWorktree).not.toHaveBeenCalled();
       expect(harness.deleteLocalBranch).not.toHaveBeenCalled();
     });
@@ -934,7 +947,9 @@ describe("WorktreeMcpHandoffInput schema", () => {
         expect(harness.allocateWorkspace).toHaveBeenCalledWith({
           projectRoot: "/repo/other",
           task: "api",
+          owner: { kind: "mcp", ref: "thread-worktree-test" },
         });
+        expect(harness.settleWorkspace).toHaveBeenCalledWith("attempt:feature-handoff");
         expect(result.attachment).toMatchObject({
           projectId: otherProjectId,
           workspacePath: "/slipjay/workspaces/feature-handoff",

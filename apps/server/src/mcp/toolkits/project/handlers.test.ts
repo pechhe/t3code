@@ -35,6 +35,7 @@ import * as Project from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../../../vcs/VcsProcess.ts";
+import * as SqlitePersistence from "../../../persistence/Sqlite.ts";
 import * as ProcessRunner from "../../../processRunner.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -134,6 +135,7 @@ const clientLaunchHarness = (input: {
     NodeServices.layer,
     ProcessRunner.layer.pipe(Layer.provide(NodeServices.layer)),
   ).pipe(
+    Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provideMerge(GitVcsDriver.layer),
     Layer.provideMerge(VcsProcess.layer),
     Layer.provideMerge(

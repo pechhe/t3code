@@ -150,6 +150,7 @@ const allocated = (
   workspacePath,
   created,
   issue,
+  attemptId: `attempt:${workspacePath}`,
 });
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -195,6 +196,8 @@ function makeHarness(options: HarnessOptions = {}) {
     (_input: Parameters<WorkspaceProvider.WorkspaceProvider["Service"]["release"]>[0]) =>
       Effect.void,
   );
+  const settleWorkspace = vi.fn((_attemptId: string) => Effect.void);
+  const abandonWorkspace = vi.fn((_attemptId: string) => Effect.void);
   const generateBranchName = vi.fn(
     options.generateBranchName ?? (() => Effect.succeed({ branch: "generated-branch" })),
   );
@@ -256,6 +259,9 @@ function makeHarness(options: HarnessOptions = {}) {
     Layer.succeed(WorkspaceProvider.WorkspaceProvider, {
       resolve: () => Effect.succeed(options.slipjay === true ? "slipjay" : "git-worktree"),
       allocate: allocateWorkspace,
+      settled: settleWorkspace,
+      abandon: abandonWorkspace,
+      reconcile: () => Effect.void,
       release: releaseWorkspace,
       contains: (_, workspacePath) => Effect.succeed(!releasedPaths.has(workspacePath)),
       remove: removeWorktree,
@@ -318,6 +324,8 @@ function makeHarness(options: HarnessOptions = {}) {
     removeWorktree,
     allocateWorkspace,
     releaseWorkspace,
+    settleWorkspace,
+    abandonWorkspace,
     releasedPaths,
     recreatedPaths,
     renameBranch,
@@ -2153,10 +2161,18 @@ it.effect("opens a terminal that lost the recovery race in the checkout the turn
         cwd: "/slipjay/workspaces/turn/apps/web",
         worktreePath: "/slipjay/workspaces/turn",
       });
-      // The loser releases only its own redundant allocation.
+      // The loser releases only its own redundant allocation, and settles it.
       assert.deepEqual(
         harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
         ["/slipjay/workspaces/terminal"],
+      );
+      assert.sameMembers(
+        harness.settleWorkspace.mock.calls.map(([attemptId]) => attemptId),
+        [
+          "attempt:/slipjay/workspaces/first",
+          "attempt:/slipjay/workspaces/terminal",
+          "attempt:/slipjay/workspaces/turn",
+        ],
       );
       assert.equal(
         (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
@@ -2580,12 +2596,16 @@ it.effect("binds a thread launched for a Build item to that item's workspace", (
         (yield* threads.getThreadProjection(run.threadId)).thread.worktreePath,
         "/slipjay/workspaces/item-42",
       );
+      assert.deepEqual(harness.settleWorkspace.mock.calls, [
+        ["attempt:/slipjay/workspaces/item-42"],
+      ]);
       assert.deepEqual(
         harness.allocateWorkspace.mock.calls.map(([input]) => input),
         [
           {
             projectRoot: project.workspaceRoot,
             task: "Start",
+            owner: { kind: "thread-launch", ref: "thread:launch:build-item" },
             issue: { number: 42, mode: "resume" },
           },
         ],
@@ -2620,7 +2640,13 @@ it.effect("allocates a SlipJay project's worktree through SlipJay", () =>
       );
       assert.deepEqual(
         harness.allocateWorkspace.mock.calls.map(([input]) => input),
-        [{ projectRoot: project.workspaceRoot, task: "Build the feature" }],
+        [
+          {
+            projectRoot: project.workspaceRoot,
+            task: "Build the feature",
+            owner: { kind: "thread-launch", ref: "thread:launch:slipjay" },
+          },
+        ],
       );
       assert.isEmpty(harness.createWorktree.mock.calls);
       assert.isEmpty(harness.generateBranchName.mock.calls);
@@ -2654,13 +2680,16 @@ it.effect("releases a SlipJay workspace when its setup is cancelled", () =>
         harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
         ["/slipjay/workspaces/build-the-feature"],
       );
+      assert.deepEqual(harness.settleWorkspace.mock.calls, [
+        ["attempt:/slipjay/workspaces/build-the-feature"],
+      ]);
       assert.isEmpty(harness.removeWorktree.mock.calls);
       assert.isNull((yield* threads.getThreadProjection(launched.threadId)).thread.worktreePath);
     }).pipe(Effect.provide(harness.layer));
   }),
 );
 
-it.effect.each([true, false])(
+it.effect.each([true, false, null])(
   "returns an allocation receipt before rolling back cancellation during SlipJay preparation, releasing only a workspace it created: %s",
   (created) =>
     Effect.gen(function* () {
@@ -2696,7 +2725,18 @@ it.effect.each([true, false])(
         // A resumed Build item workspace predates the launch, so it stays.
         assert.deepEqual(
           harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
-          created ? ["/slipjay/workspaces/build-the-feature"] : [],
+          created === true ? ["/slipjay/workspaces/build-the-feature"] : [],
+        );
+        // A checkout the launch did not make for certain goes back through its attempt, where
+        // SlipJay keeps one it resumed; one it removed by path is already settled.
+        const attemptId = "attempt:/slipjay/workspaces/build-the-feature";
+        assert.deepEqual(
+          harness.abandonWorkspace.mock.calls.map(([id]) => id),
+          created === true ? [] : [attemptId],
+        );
+        assert.deepEqual(
+          harness.settleWorkspace.mock.calls.map(([id]) => id),
+          created === true ? [attemptId] : [],
         );
         assert.isEmpty(harness.createWorktree.mock.calls);
       }).pipe(Effect.provide(harness.layer));

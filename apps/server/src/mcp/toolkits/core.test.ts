@@ -52,6 +52,7 @@ import * as ReleaseApprovals from "../../releases/ReleaseApprovals.ts";
 import * as ScheduledTaskService from "../../scheduledTasks/ScheduledTaskService.ts";
 import * as RunSetupRecorder from "../../agents/RunSetupRecorder.ts";
 import * as ServerSettings from "../../serverSettings.ts";
+import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as McpHttpServer from "../McpHttpServer.ts";
 import * as McpInvocationContext from "../McpInvocationContext.ts";
 import * as McpToolAccessTestkit from "../McpToolAccess.testkit.ts";
@@ -64,6 +65,7 @@ const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
   Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
   Layer.provide(NodeServices.layer),
+  Layer.provide(SqlitePersistence.layerMemory),
 );
 
 // Effect returns a declared tool failure as `isError` with its encoded payload

@@ -79,6 +79,7 @@ import * as SourceControlBuiltInDrivers from "./sourceControl/builtInDrivers.ts"
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import * as ProviderInstanceRegistryHydration from "./provider/ProviderInstanceRegistryHydration.ts";
 import * as ProjectSettingsOverrideSweep from "./provider/ProjectSettingsOverrideSweep.ts";
+import * as WorkspaceAllocationSweep from "./project/WorkspaceAllocationSweep.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
 import * as McpHttpServer from "./mcp/McpHttpServer.ts";
 import * as FleetSummaryService from "./fleet/FleetSummaryService.ts";
@@ -686,6 +687,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   layerProviderInstallationRefresh,
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
+  // Forked: each allocation it settles asks SlipJay, which can take seconds.
+  Layer.effectDiscard(Effect.forkScoped(WorkspaceAllocationSweep.sweep)).pipe(
+    Layer.provide(WorkspaceProvider.layer),
+  ),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),

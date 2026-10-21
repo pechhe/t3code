@@ -128,6 +128,7 @@ const withTool = <A, E>(
         Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
         Layer.provide(NodeServices.layer),
+        Layer.provide(SqlitePersistence.layerMemory),
         Layer.provideMerge(McpServer.McpServer.layer),
         Layer.provide(
           Layer.merge(

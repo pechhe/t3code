@@ -1,10 +1,14 @@
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
+import * as WorkspaceAllocationIntents from "../persistence/WorkspaceAllocationIntents.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { type GitCommandError, type VcsRemoveWorktreeInput } from "@t3tools/contracts";
@@ -59,6 +63,41 @@ const decodeSlipJayStartResult = Schema.decodeUnknownEffect(
   Schema.fromJsonString(SlipJayStartResult),
 );
 
+// What `slipjay attempt show` prints. `interrupted` is a start whose process died mid-run.
+const SlipJayAttempt = Schema.Struct({
+  status: Schema.Literals(["allocating", "preparing", "ready", "failed"]),
+  workspacePath: Schema.optional(Schema.String),
+  owned: Schema.optional(Schema.Boolean),
+  interrupted: Schema.Boolean,
+});
+const decodeSlipJayAttempt = Schema.decodeUnknownEffect(Schema.fromJsonString(SlipJayAttempt));
+
+const SlipJayAttemptRelease = Schema.Struct({
+  released: Schema.Boolean,
+  reason: Schema.optional(Schema.String),
+});
+const decodeSlipJayAttemptRelease = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(SlipJayAttemptRelease),
+);
+
+/** SlipJay's `attempt release` reason once it has already forgotten the attempt. */
+// SlipJay's documented answers for an attempt it has no record of: `attempt release` says so in
+// JSON, `attempt show` only on stderr.
+const UNKNOWN_ATTEMPT = "unknown attempt";
+const NO_ATTEMPT_MESSAGE = "No allocation attempt";
+
+type AttemptState =
+  | { readonly kind: "absent" }
+  | { readonly kind: "running" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "ready"; readonly workspacePath: string; readonly owned: boolean | null };
+
+/** What opened a workspace allocation, recorded with its intent so a stranded one can be traced. */
+export interface WorkspaceOwner {
+  readonly kind: "thread-launch" | "terminal" | "mcp";
+  readonly ref: string;
+}
+
 export class WorkspaceProvider extends Context.Service<
   WorkspaceProvider,
   {
@@ -75,20 +114,50 @@ export class WorkspaceProvider extends Context.Service<
      * checkout, which takes the item only when no other workspace holds it. `issue` in the
      * result is the item the workspace belongs to; when the attach failed it is null and
      * `attachFailure` says why, since the checkout is still usable.
+     *
+     * The start is recorded as an intent before SlipJay runs, under `attemptId`. A start that
+     * fails, times out or loses its receipt is settled against SlipJay's own attempt record
+     * rather than retried: its checkout is used when it finished, and released when it did
+     * not. The caller owns the intent from the receipt on, and ends it with `settled` once
+     * the checkout is bound or released; `reconcile` settles whatever a crash left behind.
+     *
+     * A thread-launch owner that retries after a crash adopts the checkout its earlier
+     * attempt finished instead of starting a second one.
      */
     readonly allocate: (input: {
       readonly projectRoot: string;
       readonly task: string;
+      readonly owner: WorkspaceOwner;
       readonly issue?: { readonly number: number; readonly mode: "resume" | "attach" };
     }) => Effect.Effect<
       {
         readonly workspacePath: string;
         readonly created: boolean | null;
         readonly issue: number | null;
+        readonly attemptId: string;
         readonly attachFailure?: string;
       },
       WorkspaceProviderError
     >;
+    /** The checkout from `allocate` is bound to its owner or released by the caller, so its intent is complete. */
+    readonly settled: (attemptId: string) => Effect.Effect<void>;
+    /**
+     * The checkout from `allocate` was never bound and the caller did not create it or cannot
+     * say it did. SlipJay decides through the attempt: it removes the checkout only when the
+     * attempt owns it and nothing has used it, and keeps one it resumed.
+     */
+    readonly abandon: (attemptId: string) => Effect.Effect<void>;
+    /**
+     * Settles the allocations an earlier run left unfinished. A checkout whose start finished
+     * and that `isBound` says nothing holds is released; one SlipJay refuses to release stays
+     * recorded with the reason. A finished thread launch whose thread `retryable` says can
+     * still retry its failed preparation is kept for that retry to adopt (see `allocate`).
+     * Allocations this process is still making are left alone.
+     */
+    readonly reconcile: (input: {
+      readonly isBound: (workspacePath: string) => Effect.Effect<boolean>;
+      readonly retryable: (threadId: string) => Effect.Effect<boolean>;
+    }) => Effect.Effect<void>;
     /** Removes an allocated SlipJay workspace; SlipJay keeps one holding unfinished work. */
     readonly release: (input: {
       readonly projectRoot: string;
@@ -104,7 +173,14 @@ export const make = Effect.gen(function* () {
   const processes = yield* ProcessRunner.ProcessRunner;
   const git = yield* GitVcsDriver.GitVcsDriver;
 
-  const slipjay = (
+  const intents = yield* WorkspaceAllocationIntents.WorkspaceAllocationIntents;
+  const crypto = yield* Crypto.Crypto;
+  // Allocations this process is making or has not yet settled; `reconcile` leaves them alone.
+  const live = new Set<string>();
+  // Serialises settling an intent against `adoptPrior` claiming it.
+  const settling = yield* Semaphore.make(1);
+
+  const runSlipjay = (
     operation: WorkspaceProviderError["operation"],
     projectRoot: string,
     args: ReadonlyArray<string>,
@@ -123,19 +199,118 @@ export const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.mapError((cause) => new WorkspaceProviderError({ operation, projectRoot, cause })),
-        Effect.filterOrFail(
-          (output) => output.code === 0,
-          (output) => {
-            const detail = boundedDetail(output);
-            return new WorkspaceProviderError({
-              operation,
-              projectRoot,
-              ...(output.code === null ? {} : { exitCode: output.code }),
-              ...(detail === "" ? {} : { detail }),
-            });
-          },
-        ),
       );
+
+  const slipjay = (
+    operation: WorkspaceProviderError["operation"],
+    projectRoot: string,
+    args: ReadonlyArray<string>,
+    cwd = projectRoot,
+  ) =>
+    runSlipjay(operation, projectRoot, args, cwd).pipe(
+      Effect.filterOrFail(
+        (output) => output.code === 0,
+        (output) => {
+          const detail = boundedDetail(output);
+          return new WorkspaceProviderError({
+            operation,
+            projectRoot,
+            ...(output.code === null ? {} : { exitCode: output.code }),
+            ...(detail === "" ? {} : { detail }),
+          });
+        },
+      ),
+    );
+
+  const attemptState = (root: string, attemptId: string) =>
+    runSlipjay("allocate", root, ["attempt", "show", attemptId]).pipe(
+      Effect.flatMap((output): Effect.Effect<AttemptState, WorkspaceProviderError> =>
+        output.code !== 0
+          ? // Only SlipJay's own "No allocation attempt" means the start never recorded itself;
+            // any other failure leaves the attempt's state unknown.
+            `${output.stderr}${output.stdout}`.includes(NO_ATTEMPT_MESSAGE)
+            ? Effect.succeed({ kind: "absent" })
+            : Effect.fail(
+                new WorkspaceProviderError({
+                  operation: "allocate",
+                  projectRoot: root,
+                  ...(output.code === null ? {} : { exitCode: output.code }),
+                  detail: boundedDetail(output),
+                }),
+              )
+          : decodeSlipJayAttempt(output.stdout.trim()).pipe(
+              Effect.map((attempt): AttemptState => {
+                if (attempt.status === "failed" || attempt.interrupted) return { kind: "failed" };
+                if (attempt.status !== "ready" || attempt.workspacePath === undefined)
+                  return { kind: "running" };
+                return {
+                  kind: "ready",
+                  workspacePath: attempt.workspacePath,
+                  owned: attempt.owned ?? null,
+                };
+              }),
+              Effect.mapError(
+                (cause) =>
+                  new WorkspaceProviderError({ operation: "allocate", projectRoot: root, cause }),
+              ),
+            ),
+      ),
+    );
+
+  // Ends the intent. A failed write leaves a row that `reconcile` settles again, harmlessly.
+  const forgetIntent = (attemptId: string) =>
+    intents.forget(attemptId).pipe(
+      Effect.ensuring(Effect.sync(() => live.delete(attemptId))),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not forget a workspace allocation intent", {
+          attemptId,
+          error: error.message,
+        }),
+      ),
+    );
+
+  // The allocation is over: only a later sweep can settle the row now.
+  const annotateIntent = (attemptId: string, detail: string) =>
+    intents.annotate(attemptId, detail).pipe(
+      Effect.ensuring(Effect.sync(() => live.delete(attemptId))),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not annotate a workspace allocation intent", {
+          attemptId,
+          error: error.message,
+        }),
+      ),
+    );
+
+  // Asks SlipJay to give the attempt's checkout back. It removes only a checkout the attempt
+  // created and nothing has used since, so this is safe for a resumed or bound one. A refusal
+  // (unlanded work, a live process) keeps the intent with SlipJay's reason for a later sweep.
+  const releaseAttempt = (root: string, attemptId: string) =>
+    runSlipjay("release", root, ["attempt", "release", attemptId]).pipe(
+      Effect.flatMap((output) =>
+        decodeSlipJayAttemptRelease(output.stdout.trim()).pipe(
+          Effect.mapError(
+            (cause) =>
+              new WorkspaceProviderError({
+                operation: "release",
+                projectRoot: root,
+                detail: boundedDetail(output),
+                cause,
+              }),
+          ),
+        ),
+      ),
+      Effect.flatMap((result) =>
+        result.released || result.reason === UNKNOWN_ATTEMPT
+          ? forgetIntent(attemptId)
+          : annotateIntent(attemptId, result.reason ?? "SlipJay kept the checkout"),
+      ),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not release a workspace allocation attempt", {
+          attemptId,
+          error: error.message,
+        }),
+      ),
+    );
 
   const slipJayProject = (projectRoot: string) =>
     findSlipJayProject(projectRoot).pipe(
@@ -149,28 +324,160 @@ export const make = Effect.gen(function* () {
       Effect.map((project): WorkspaceProviderKind => (project ? "slipjay" : "git-worktree")),
     );
 
+  // The receipt of a start that did not return one, read from SlipJay's attempt record. A
+  // finished checkout is used rather than started again; one that did not finish is released.
+  // `cause` is why the start looked failed, and is what the caller sees when nothing was made.
+  const settleStart = (root: string, attemptId: string, cause: WorkspaceProviderError) =>
+    attemptState(root, attemptId).pipe(
+      // An attempt SlipJay will not describe may still be running: keep the intent for the sweep.
+      Effect.orElseSucceed((): AttemptState => ({ kind: "running" })),
+      Effect.flatMap(
+        (
+          state,
+        ): Effect.Effect<
+          { workspacePath: string; created: boolean | null },
+          WorkspaceProviderError
+        > => {
+          switch (state.kind) {
+            case "ready":
+              return Effect.succeed({ workspacePath: state.workspacePath, created: state.owned });
+            case "absent":
+              return forgetIntent(attemptId).pipe(Effect.andThen(Effect.fail(cause)));
+            case "failed":
+              return releaseAttempt(root, attemptId).pipe(Effect.andThen(Effect.fail(cause)));
+            case "running":
+              return Effect.sync(() => live.delete(attemptId)).pipe(
+                Effect.andThen(Effect.fail(cause)),
+              );
+          }
+        },
+      ),
+    );
+
+  // The checkout an earlier, interrupted launch of this thread finished. Only a thread's own
+  // launch adopts: a retry is the same request, so the checkout is the one it was owed. Rows
+  // that SlipJay shows were never made or did not finish are settled on the way, and one still
+  // running is refused rather than raced: a second start would make a second checkout.
+  const adoptPrior = Effect.fn("WorkspaceProvider.adoptPrior")(function* (
+    root: string,
+    owner: WorkspaceOwner,
+  ) {
+    if (owner.kind !== "thread-launch") return null;
+    // Held with `reconcile`'s per-intent step, so a sweep cannot release a checkout between
+    // this reading it ready and claiming it in `live`.
+    return yield* settling.withPermits(1)(
+      Effect.gen(function* () {
+        const earlier = yield* intents.list.pipe(
+          Effect.map((rows) =>
+            rows.filter(
+              (row) =>
+                row.projectRoot === root &&
+                row.ownerKind === owner.kind &&
+                row.ownerRef === owner.ref &&
+                !live.has(row.attemptId),
+            ),
+          ),
+          Effect.catch((error) =>
+            Effect.logWarning("Could not look for an earlier workspace allocation", {
+              owner: `${owner.kind}:${owner.ref}`,
+              error: error.message,
+            }).pipe(Effect.as([])),
+          ),
+        );
+        for (const row of earlier) {
+          const stillRunning = new WorkspaceProviderError({
+            operation: "allocate",
+            projectRoot: root,
+            detail: "An earlier start for this thread has not finished; retry once it has.",
+          });
+          // An attempt SlipJay will not describe may still be running.
+          const state = yield* attemptState(root, row.attemptId).pipe(
+            Effect.orElseSucceed((): AttemptState => ({ kind: "running" })),
+          );
+          switch (state.kind) {
+            case "ready":
+              live.add(row.attemptId);
+              return {
+                attemptId: row.attemptId,
+                workspacePath: state.workspacePath,
+                created: state.owned,
+              };
+            case "absent":
+              yield* forgetIntent(row.attemptId);
+              break;
+            case "failed":
+              yield* releaseAttempt(root, row.attemptId);
+              break;
+            case "running":
+              return yield* stillRunning;
+          }
+        }
+        return null;
+      }),
+    );
+  });
+
   const allocate: WorkspaceProvider["Service"]["allocate"] = Effect.fn(
     "WorkspaceProvider.allocate",
-  )(({ projectRoot, task, issue }) =>
+  )(({ projectRoot, task, issue, owner }) =>
     Effect.uninterruptibleMask((restore) =>
       Effect.gen(function* () {
         // A project registered in a subdirectory allocates from its SlipJay root.
         const root = (yield* slipJayProject(projectRoot))?.root ?? projectRoot;
+        const prior = yield* adoptPrior(root, owner);
+        const attemptId =
+          prior?.attemptId ??
+          (yield* crypto
+            .randomUUIDv4()
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+              ),
+            ));
+        live.add(attemptId);
+        // Recorded before SlipJay runs, so nothing T3 loses track of can strand a checkout.
+        if (prior === null) {
+          yield* intents
+            .record({
+              attemptId,
+              projectRoot: root,
+              ownerKind: owner.kind,
+              ownerRef: owner.ref,
+              createdAt: DateTime.formatIso(yield* DateTime.now),
+            })
+            .pipe(
+              Effect.tapError(() => Effect.sync(() => live.delete(attemptId))),
+              Effect.mapError(
+                (cause) =>
+                  new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+              ),
+            );
+        }
         // To resume, SlipJay returns the item's workspace (or its surviving checkout) and
         // creates one attached to it only when none exists.
         const resume = issue?.mode === "resume";
-        const output = yield* slipjay("allocate", root, [
-          "start",
-          "--integration",
-          "--json",
-          ...(resume ? ["--issue", String(issue.number)] : []),
-          task,
-        ]);
-        const result = yield* decodeSlipJayStartResult(output.stdout.trim()).pipe(
-          Effect.mapError(
-            (cause) => new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
-          ),
-        );
+        const result =
+          prior ??
+          (yield* slipjay("allocate", root, [
+            "start",
+            "--integration",
+            "--json",
+            "--attempt",
+            attemptId,
+            ...(resume ? ["--issue", String(issue.number)] : []),
+            task,
+          ]).pipe(
+            Effect.flatMap((output) =>
+              decodeSlipJayStartResult(output.stdout.trim()).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new WorkspaceProviderError({ operation: "allocate", projectRoot, cause }),
+                ),
+              ),
+            ),
+            Effect.catch((error) => settleStart(root, attemptId, error)),
+          ));
         // Resuming would hand over a workspace that may be another thread's. Attaching
         // refuses an item another workspace holds, so this checkout only ever belongs to
         // the thread that asked for it.
@@ -196,22 +503,95 @@ export const make = Effect.gen(function* () {
           workspacePath: result.workspacePath,
           created: result.created ?? null,
           issue: issue !== undefined && attachFailure === undefined ? issue.number : null,
+          attemptId,
           ...(attachFailure === undefined ? {} : { attachFailure }),
         };
         // SlipJay emits the path after preparation. Cancellation waits for that
         // receipt so a workspace it created can be returned rather than orphaned.
         return yield* restore(Effect.succeed(allocation)).pipe(
-          Effect.onInterrupt(() =>
-            allocation.created
-              ? release({ projectRoot, path: allocation.workspacePath }).pipe(
-                  Effect.ignoreCause({ log: true }),
-                )
-              : Effect.void,
-          ),
+          Effect.onInterrupt(() => releaseAttempt(root, attemptId)),
         );
       }),
     ),
   );
+
+  const settled: WorkspaceProvider["Service"]["settled"] = (attemptId) => forgetIntent(attemptId);
+
+  const abandon: WorkspaceProvider["Service"]["abandon"] = (attemptId) =>
+    intents.list.pipe(
+      Effect.map((rows) => rows.find((row) => row.attemptId === attemptId)),
+      Effect.flatMap((intent) =>
+        intent === undefined ? Effect.void : releaseAttempt(intent.projectRoot, attemptId),
+      ),
+      Effect.catch((error) =>
+        Effect.logWarning("Could not abandon a workspace allocation", {
+          attemptId,
+          error: error.message,
+        }),
+      ),
+    );
+
+  const reconcile: WorkspaceProvider["Service"]["reconcile"] = Effect.fn(
+    "WorkspaceProvider.reconcile",
+  )(function* ({ isBound, retryable }) {
+    const pending = yield* intents.list.pipe(
+      Effect.catch((error) =>
+        Effect.logWarning("Could not list workspace allocation intents", {
+          error: error.message,
+        }).pipe(Effect.as([])),
+      ),
+    );
+    yield* Effect.forEach(
+      pending,
+      (intent) =>
+        // Checked under the lock `adoptPrior` claims with, so an allocation this process took
+        // over after the list was read is left alone.
+        settling.withPermits(1)(
+          Effect.suspend(() =>
+            live.has(intent.attemptId)
+              ? Effect.void
+              : attemptState(intent.projectRoot, intent.attemptId).pipe(
+                  Effect.flatMap((state) => {
+                    switch (state.kind) {
+                      case "absent":
+                        return forgetIntent(intent.attemptId);
+                      case "running":
+                        return Effect.void;
+                      case "failed":
+                        return releaseAttempt(intent.projectRoot, intent.attemptId);
+                      case "ready":
+                        return isBound(state.workspacePath).pipe(
+                          Effect.flatMap((bound) =>
+                            bound
+                              ? forgetIntent(intent.attemptId)
+                              : // A failed preparation's retry adopts the checkout; nothing else will.
+                                (intent.ownerKind === "thread-launch"
+                                  ? retryable(intent.ownerRef)
+                                  : Effect.succeed(false)
+                                ).pipe(
+                                  Effect.flatMap((awaited) =>
+                                    awaited
+                                      ? Effect.void
+                                      : releaseAttempt(intent.projectRoot, intent.attemptId),
+                                  ),
+                                ),
+                          ),
+                        );
+                    }
+                  }),
+                  Effect.catch((error) =>
+                    Effect.logWarning("Could not settle a workspace allocation intent", {
+                      attemptId: intent.attemptId,
+                      owner: `${intent.ownerKind}:${intent.ownerRef}`,
+                      error: error.message,
+                    }),
+                  ),
+                ),
+          ),
+        ),
+      { discard: true },
+    );
+  });
 
   const release: WorkspaceProvider["Service"]["release"] = Effect.fn("WorkspaceProvider.release")(
     function* ({ projectRoot, path: workspacePath }) {
@@ -254,10 +634,22 @@ export const make = Effect.gen(function* () {
     },
   );
 
-  return WorkspaceProvider.of({ resolve, allocate, release, contains, remove });
+  return WorkspaceProvider.of({
+    resolve,
+    allocate,
+    settled,
+    abandon,
+    reconcile,
+    release,
+    contains,
+    remove,
+  });
 });
 
-export const layer = Layer.effect(WorkspaceProvider, make).pipe(Layer.provide(ProcessRunner.layer));
+export const layer = Layer.effect(WorkspaceProvider, make).pipe(
+  Layer.provide(ProcessRunner.layer),
+  Layer.provide(WorkspaceAllocationIntents.layer),
+);
 
 /** A provider for tests whose projects all use Git worktrees. */
 export const layerGitWorktree = Layer.mock(WorkspaceProvider)({

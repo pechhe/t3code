@@ -58,6 +58,7 @@ const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
   Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
   Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
+  Layer.provide(SqlitePersistence.layerMemory),
 );
 
 // Effect returns a declared tool failure as `isError` with its encoded payload

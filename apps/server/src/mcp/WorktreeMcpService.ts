@@ -2,6 +2,7 @@ import {
   CommandId,
   MessageId,
   type ProjectId,
+  type ThreadId,
   WorktreeMcpFailure,
   type WorktreeMcpAttachInput,
   type WorktreeMcpAttachResult,
@@ -75,6 +76,8 @@ interface CheckoutPlan {
   >;
   /** Best effort: a failed removal is logged and leaves the checkout on disk. */
   readonly remove: (path: string) => Effect.Effect<void>;
+  /** The thread is bound to the created checkout, so no allocation is left unsettled. */
+  readonly bound?: Effect.Effect<void>;
 }
 
 const asOperationFailed = (prefix: string) =>
@@ -214,7 +217,7 @@ const make = Effect.gen(function* () {
       );
     } else {
       checkout = slipjay
-        ? slipjayCheckout(projectCwd, branch)
+        ? slipjayCheckout(projectCwd, branch, scope.thread.threadId)
         : yield* prepareGitCheckout(projectCwd, { ...input, branch });
     }
 
@@ -322,7 +325,10 @@ const make = Effect.gen(function* () {
                   ),
           );
 
-        const continuation = yield* recheckAndBind.pipe(Effect.andThen(queueContinuation));
+        const continuation = yield* recheckAndBind.pipe(
+          Effect.andThen(checkout.bound ?? Effect.void),
+          Effect.andThen(queueContinuation),
+        );
 
         yield* vcsStatusBroadcaster
           .refreshStatus(worktreePath)
@@ -505,18 +511,31 @@ const make = Effect.gen(function* () {
     remove: () => Effect.void,
   });
 
-  const slipjayCheckout = (projectCwd: string, task: string): CheckoutPlan => ({
-    baseRef: null,
-    startedFromOrigin: false,
-    create: workspaces.allocate({ projectRoot: projectCwd, task }).pipe(
-      Effect.map(({ workspacePath }) => ({ path: workspacePath, branch: null })),
-      Effect.mapError((error) => failure("operation_failed", error.message)),
-    ),
-    remove: (workspacePath) =>
-      workspaces
-        .release({ projectRoot: projectCwd, path: workspacePath })
-        .pipe(Effect.ignoreCause({ log: true })),
-  });
+  const slipjayCheckout = (projectCwd: string, task: string, threadId: ThreadId): CheckoutPlan => {
+    let attemptId: string | null = null;
+    const settled = Effect.suspend(() =>
+      attemptId === null ? Effect.void : workspaces.settled(attemptId),
+    );
+    return {
+      baseRef: null,
+      startedFromOrigin: false,
+      create: workspaces
+        .allocate({ projectRoot: projectCwd, task, owner: { kind: "mcp", ref: threadId } })
+        .pipe(
+          Effect.map((allocation) => {
+            attemptId = allocation.attemptId;
+            return { path: allocation.workspacePath, branch: null };
+          }),
+          Effect.mapError((error) => failure("operation_failed", error.message)),
+        ),
+      // A release that fails leaves the intent for the next reconcile to settle.
+      remove: (workspacePath) =>
+        workspaces
+          .release({ projectRoot: projectCwd, path: workspacePath })
+          .pipe(Effect.andThen(settled), Effect.ignoreCause({ log: true })),
+      bound: settled,
+    };
+  };
 
   // uninterruptibleMask: the guard acquisition and the registration of the releasing finalizer
   // happen with no interruptible gap in between. An interrupt landing between a bare add() and
@@ -625,7 +644,7 @@ const make = Effect.gen(function* () {
       );
     } else {
       checkout = slipjay
-        ? slipjayCheckout(projectCwd, input.branch)
+        ? slipjayCheckout(projectCwd, input.branch, scope.thread.threadId)
         : yield* prepareGitCheckout(projectCwd, { ...input, branch: input.branch });
     }
     const ids = yield* handoffIds(scope);
@@ -672,6 +691,7 @@ const make = Effect.gen(function* () {
                   : Effect.suspend(() => checkout.remove(created.path)),
               ),
             );
+          yield* checkout.bound ?? Effect.void;
           return created;
         });
         const created = yield* adopted === undefined ? record : adoptions.withPermits(1)(record);

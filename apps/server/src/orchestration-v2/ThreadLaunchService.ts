@@ -406,6 +406,8 @@ const make = Effect.gen(function* () {
     const tracked = input.workspaceStrategy.type === "worktree" || reused !== undefined;
     let createdWorktreePath: string | null = null;
     let createdBySlipJay = false;
+    // The SlipJay allocation this run made, until its checkout is bound or removed.
+    let allocationAttemptId: string | null = null;
     let workspaceIssue: number | null = null;
     // How a workspace SlipJay removed was answered, recorded with the new binding.
     let workspaceReplacement: OrchestrationV2WorkspaceReplacement | undefined;
@@ -543,6 +545,7 @@ const make = Effect.gen(function* () {
             const allocating = workspaces.allocate({
               projectRoot: project.workspaceRoot,
               task: task || "T3 thread",
+              owner: { kind: "thread-launch", ref: threadId },
               ...(issue === undefined ? {} : { issue }),
             });
             // Replacing a workspace SlipJay removed must not block the turn, which may need
@@ -571,6 +574,7 @@ const make = Effect.gen(function* () {
               return;
             }
             worktreePath = allocation.workspacePath;
+            allocationAttemptId = allocation.attemptId;
             branch = null;
             workspaceIssue = allocation.issue ?? workspaceIssue;
             if (replacing) {
@@ -685,11 +689,25 @@ const make = Effect.gen(function* () {
                 ) {
                   return yield* error;
                 }
-                if (createdBySlipJay && createdWorktreePath !== null) {
-                  yield* workspaces
-                    .release({ projectRoot: project.workspaceRoot, path: createdWorktreePath })
-                    .pipe(Effect.ignoreCause({ log: true }));
-                }
+                // A release that fails leaves the intent for the next reconcile to settle.
+                const redundant = allocationAttemptId;
+                allocationAttemptId = null;
+                yield* (
+                  createdBySlipJay && createdWorktreePath !== null
+                    ? workspaces
+                        .release({
+                          projectRoot: project.workspaceRoot,
+                          path: createdWorktreePath,
+                        })
+                        .pipe(
+                          Effect.andThen(
+                            redundant === null ? Effect.void : workspaces.settled(redundant),
+                          ),
+                        )
+                    : redundant === null
+                      ? Effect.void
+                      : workspaces.abandon(redundant)
+                ).pipe(Effect.ignoreCause({ log: true }));
                 createdWorktreePath = null;
                 createdBySlipJay = false;
                 worktreePath = current;
@@ -702,6 +720,11 @@ const make = Effect.gen(function* () {
           );
       }
       workspaceRecorded = true;
+      if (allocationAttemptId !== null) {
+        const bound = allocationAttemptId;
+        allocationAttemptId = null;
+        yield* workspaces.settled(bound);
+      }
 
       if (
         reused === undefined &&
@@ -936,6 +959,11 @@ const make = Effect.gen(function* () {
                   })
                   .pipe(Effect.ignore),
               ),
+              Effect.andThen(
+                allocationAttemptId === null
+                  ? Effect.void
+                  : workspaces.settled(allocationAttemptId),
+              ),
               Effect.catchCause((removeCause) =>
                 Effect.logWarning("Failed to remove an abandoned thread worktree", {
                   commandId: input.commandId,
@@ -945,6 +973,10 @@ const make = Effect.gen(function* () {
                 }),
               ),
             );
+          } else if (createdWorktreePath === null && allocationAttemptId !== null) {
+            // SlipJay keeps a checkout it resumed, and removes one the attempt made that
+            // the receipt did not say so.
+            yield* workspaces.abandon(allocationAttemptId);
           }
         }),
       ),
@@ -1532,9 +1564,11 @@ const make = Effect.gen(function* () {
         created,
         issue,
         attachFailure,
+        attemptId,
       } = yield* workspaces.allocate({
         projectRoot: released.project.workspaceRoot,
         task: released.thread.title,
+        owner: { kind: "terminal", ref: threadId },
         ...(buildItem === undefined ? {} : { issue: { number: buildItem, mode: "attach" } }),
       });
       // Compare-and-set: a turn or terminal recovering the thread at the same time keeps its own.
@@ -1556,13 +1590,19 @@ const make = Effect.gen(function* () {
           ...((issue ?? buildItem) === undefined ? {} : { workspaceIssue: issue ?? buildItem }),
         })
         .pipe(
+          Effect.tap(() => workspaces.settled(attemptId)),
           Effect.as(worktreePath),
+          // A release that fails leaves the intent for the next reconcile to settle.
           Effect.onError(() =>
-            created
+            (created
               ? workspaces
-                  .release({ projectRoot: released.project.workspaceRoot, path: worktreePath })
-                  .pipe(Effect.ignoreCause({ log: true }))
-              : Effect.void,
+                  .release({
+                    projectRoot: released.project.workspaceRoot,
+                    path: worktreePath,
+                  })
+                  .pipe(Effect.andThen(workspaces.settled(attemptId)))
+              : workspaces.abandon(attemptId)
+            ).pipe(Effect.ignoreCause({ log: true })),
           ),
           // The loser's own allocation is redundant: it opens where the winner bound.
           Effect.catch((error) =>
