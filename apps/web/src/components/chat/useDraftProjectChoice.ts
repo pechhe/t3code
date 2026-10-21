@@ -232,6 +232,7 @@ export function useDraftProjectChoice({
 
   return {
     chosenGroup,
+    menuEntries,
     rowEntries,
     selectProject,
     startScratch,

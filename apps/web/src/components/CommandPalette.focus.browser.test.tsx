@@ -33,7 +33,10 @@ vi.mock("../hooks/useSettings", async (importOriginal) => ({
   useClientSettings: () => ({}),
 }));
 vi.mock("../hooks/useScratchProject", () => ({
-  useScratchProject: () => ({ scratchEnvironmentId: () => null }),
+  useScratchProject: () => ({
+    scratchEnvironmentId: () => null,
+    lastStartedEnvironmentId: () => null,
+  }),
 }));
 vi.mock("../hooks/useNewProject", () => ({ useNewProject: () => vi.fn() }));
 vi.mock("../hooks/useHandleNewThread", () => ({ useHandleNewThread: () => ({}) }));

@@ -2,15 +2,25 @@ import type { DraftId } from "~/composerDraftStore";
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { MessageSquareDashedIcon, PlusIcon } from "lucide-react";
 import { useAtomValue } from "@effect/atom-react";
-import { type KeyboardEvent, type ReactNode, useCallback, useLayoutEffect, useRef } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+} from "react";
 
-import { openCommandPalette } from "~/commandPaletteBus";
-import { shortcutLabelForCommand } from "~/keybindings";
+import { isMacPlatform } from "@t3tools/shared/keybindings";
+import { isCommandPaletteOpen, openCommandPalette } from "~/commandPaletteBus";
+import { resolveShortcutCommand, shortcutLabelForCommand } from "~/keybindings";
 import { cn } from "~/lib/utils";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 import { ProjectEnvironmentBadge } from "../ProjectEnvironmentBadge";
 import { ProjectChip } from "../ProjectChip";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { isReservedForEditing, nextProjectForLetter } from "./projectLetterShortcut";
 import { useDraftProjectChoice } from "./useDraftProjectChoice";
 
 // Keys for the pieces of the question that move when the project changes. Each project
@@ -94,6 +104,7 @@ export function DraftHeroHeadline({
 }: DraftHeroHeadlineProps) {
   const {
     chosenGroup,
+    menuEntries,
     rowEntries,
     selectProject,
     startScratch,
@@ -108,6 +119,35 @@ export function DraftHeroHeadline({
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const noProjectShortcut = shortcutLabelForCommand(keybindings, "chat.newWithoutProject");
   const { refFor, capture } = useFlip(chosenGroup?.projectKey ?? NO_PROJECT_KEY);
+
+  // Mod + a project's first letter chooses it; pressing again rotates through the projects
+  // that share the letter. Configured shortcuts win, and the composer keeps its editing keys.
+  const onProjectLetter = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    const useMeta = isMacPlatform(navigator.platform);
+    if (event.defaultPrevented || event.shiftKey || event.altKey || event.isComposing) return;
+    if (useMeta ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return;
+    const letter = event.key.toLowerCase();
+    if (!/^[a-z]$/.test(letter) || isReservedForEditing(letter) || isCommandPaletteOpen()) return;
+    if (resolveShortcutCommand(event, keybindings) !== null) return;
+    const next = nextProjectForLetter(
+      menuEntries.map((entry) => ({
+        key: entry.group.projectKey,
+        name: entry.group.displayName,
+        value: entry,
+      })),
+      letter,
+      chosenGroup?.projectKey ?? null,
+    );
+    if (next === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    capture(next.group.projectKey);
+    selectProject(next.targetProject, next.group.projectKey);
+  });
+  useEffect(() => {
+    window.addEventListener("keydown", onProjectLetter);
+    return () => window.removeEventListener("keydown", onProjectLetter);
+  }, []);
 
   if (!canChooseProject && !hasResolvedProject && !canStartWithoutProject) {
     return (

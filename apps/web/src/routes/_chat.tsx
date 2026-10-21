@@ -37,7 +37,8 @@ function ChatRouteGlobalShortcuts() {
   );
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const { scratchEnvironmentId, startScratchThread } = useScratchProject();
+  const { scratchEnvironmentId, lastStartedEnvironmentId, startScratchThread } =
+    useScratchProject();
   const startNewThread = useStartNewThread();
   const terminalOpen = useTerminalUiStateStore((state) =>
     routeThreadRef
@@ -90,7 +91,7 @@ function ChatRouteGlobalShortcuts() {
 
       if (command === "chat.newWithoutProject") {
         const environmentId = scratchEnvironmentId(
-          activeThread?.environmentId ?? activeDraftThread?.environmentId ?? primaryEnvironmentId,
+          lastStartedEnvironmentId() ?? primaryEnvironmentId,
         );
         if (environmentId === null) return;
         event.preventDefault();
@@ -159,6 +160,7 @@ function ChatRouteGlobalShortcuts() {
     canOperatePreview,
     handleNewThread,
     keybindings,
+    lastStartedEnvironmentId,
     defaultProjectRef,
     previewOpen,
     primaryEnvironmentId,

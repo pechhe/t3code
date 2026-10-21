@@ -13,13 +13,12 @@ import { useScratchProject } from "./useScratchProject";
 export function useStartNewThread() {
   const { activeDraftThread, activeThread, defaultProjectRef, handleNewThread } =
     useHandleNewThread();
-  const { scratchEnvironmentId, startScratchThread } = useScratchProject();
+  const { scratchEnvironmentId, lastStartedEnvironmentId, startScratchThread } =
+    useScratchProject();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
 
   return useCallback(async () => {
-    const environmentId = scratchEnvironmentId(
-      activeThread?.environmentId ?? activeDraftThread?.environmentId ?? primaryEnvironmentId,
-    );
+    const environmentId = scratchEnvironmentId(lastStartedEnvironmentId() ?? primaryEnvironmentId);
     if (environmentId !== null) {
       await startScratchThread(environmentId);
       return;
@@ -37,6 +36,7 @@ export function useStartNewThread() {
     handleNewThread,
     primaryEnvironmentId,
     scratchEnvironmentId,
+    lastStartedEnvironmentId,
     startScratchThread,
   ]);
 }

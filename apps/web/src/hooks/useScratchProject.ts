@@ -11,6 +11,8 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useEnvironments } from "~/state/environments";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
+import { isSidebarSubagentThread } from "~/components/Sidebar.logic";
+import { readThreadShells } from "~/state/entities";
 import { useNewThreadHandler } from "./useHandleNewThread";
 
 function reportScratchFailure(title: string, error: unknown) {
@@ -41,6 +43,18 @@ export function useScratchProject() {
     return offering.length === 1 ? (offering[0]?.environmentId ?? null) : null;
   };
 
+  // Where the newest thread was started, not where the user last looked: a new thread
+  // goes where the last one did, however many others were opened since. Read at call time
+  // so users of this hook do not re-render on every thread update.
+  const lastStartedEnvironmentId = (): EnvironmentId | null => {
+    let latest: ReturnType<typeof readThreadShells>[number] | undefined;
+    for (const thread of readThreadShells()) {
+      if (isSidebarSubagentThread(thread)) continue;
+      if (latest === undefined || thread.createdAt > latest.createdAt) latest = thread;
+    }
+    return latest?.environmentId ?? null;
+  };
+
   const openScratchProject = async (
     environmentId: EnvironmentId,
     failureTitle = "Could not start without a project",
@@ -62,5 +76,11 @@ export function useScratchProject() {
     }
   };
 
-  return { scratchWorkspaceRootFor, scratchEnvironmentId, openScratchProject, startScratchThread };
+  return {
+    scratchWorkspaceRootFor,
+    scratchEnvironmentId,
+    lastStartedEnvironmentId,
+    openScratchProject,
+    startScratchThread,
+  };
 }
