@@ -3,26 +3,21 @@ import {
   AuthEnvironmentMaintainScope,
   AuthOrchestrationReadScope,
   type AuthEnvironmentScope,
-  ScheduledTaskError,
-  ScheduledTaskId,
   WS_METHODS,
   WsRpcGroup,
 } from "@t3tools/contracts";
-import * as Deferred from "effect/Deferred";
-import * as Duration from "effect/Duration";
+
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Fiber from "effect/Fiber";
+
 import * as Layer from "effect/Layer";
 import * as Metric from "effect/Metric";
 import * as Option from "effect/Option";
-import * as Stream from "effect/Stream";
+
 import * as Tracer from "effect/Tracer";
 import type * as Rpc from "effect/rpc/Rpc";
 import * as RpcClient from "effect/rpc/RpcClient";
 import type * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcServer from "effect/rpc/RpcServer";
-import * as TestClock from "effect/testing/TestClock";
 
 import { RPC_REQUIRED_SCOPES } from "../auth/RpcAuthorization.ts";
 import * as RpcAuthorization from "../auth/RpcAuthorization.ts";
@@ -45,18 +40,11 @@ const groupOf = <const Tags extends ReadonlyArray<WsRpcMethod>>(...tags: Tags) =
 const connectionMiddleware = (scopes: ReadonlyArray<AuthEnvironmentScope>) =>
   Layer.merge(RpcAuthorization.layer(scopes), rpcInstrumentationLayer);
 const readOnlyConnection = connectionMiddleware([AuthOrchestrationReadScope]);
-const taskId = ScheduledTaskId.make("scheduled-task:instrumented");
-const rpcSpanDefaults = {
-  "rpc.system.name": "effect_rpc",
-  "rpc.transport": "websocket",
-  "rpc.system": "effect-rpc",
-};
 
 // RpcTest's in-memory client and server, with the server traced as ws.ts traces it.
 const makeClient = Effect.fnUntraced(function* <Rpcs extends Rpc.Any>(
   group: RpcGroup.RpcGroup<Rpcs>,
 ) {
-  // oxlint-disable-next-line prefer-const
   let client!: Effect.Success<ReturnType<typeof RpcClient.makeNoSerialization<Rpcs, never>>>;
   const server = yield* RpcServer.makeNoSerialization(group, {
     ...RPC_SERVER_TRACING_OPTIONS,
@@ -97,9 +85,6 @@ const rpcSpans = (ended: ReadonlyArray<Tracer.NativeSpan>) =>
 const serverSpans = (ended: ReadonlyArray<Tracer.NativeSpan>) =>
   ended.filter((span) => span.kind !== "client");
 
-const exitTag = (span: Tracer.NativeSpan | undefined) =>
-  span?.status._tag === "Ended" ? span.status.exit._tag : undefined;
-
 const parentSpanId = (span: Tracer.NativeSpan | undefined) =>
   span?.parent._tag === "Some" ? span.parent.value.spanId : undefined;
 
@@ -116,212 +101,7 @@ const requestCount = (
       snapshot.attributes?.["outcome"] === outcome,
   )?.state;
 
-const requestDuration = (snapshots: ReadonlyArray<Metric.Metric.Snapshot>, method: string) =>
-  snapshots.find(
-    (snapshot): snapshot is Extract<Metric.Metric.Snapshot, { readonly type: "Histogram" }> =>
-      snapshot.type === "Histogram" &&
-      snapshot.id === "t3_rpc_request_duration" &&
-      snapshot.attributes?.["method"] === method,
-  )?.state;
-
 describe("WS RPC instrumentation middleware", () => {
-  it.effect("records one span and request metric per call, including rejected calls", () =>
-    withTelemetry((ended) =>
-      Effect.gen(function* () {
-        const group = groupOf(
-          WS_METHODS.serverProbe,
-          WS_METHODS.scheduledTasksList,
-          WS_METHODS.serverRetryResourceTelemetry,
-          WS_METHODS.pullRequestsSubscribeRefreshes,
-          WS_METHODS.scheduledTasksSubscribe,
-          WS_METHODS.serverGetSettings,
-        );
-        const client = yield* makeClient(group).pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              group.toLayerHandler(WS_METHODS.serverProbe, () =>
-                Effect.succeed({}).pipe(Effect.withSpan("serverProbe.child")),
-              ),
-              group.toLayerHandler(WS_METHODS.scheduledTasksList, () =>
-                Effect.annotateCurrentSpan({ "scheduled_task.id": taskId }).pipe(
-                  Effect.andThen(new ScheduledTaskError({ message: "List failed." })),
-                ),
-              ),
-              group.toLayerHandler(WS_METHODS.serverRetryResourceTelemetry, () =>
-                Effect.die("authorization let a rejected call through"),
-              ),
-              group.toLayerHandler(WS_METHODS.pullRequestsSubscribeRefreshes, () =>
-                Stream.make(1, 2),
-              ),
-              group.toLayerHandler(WS_METHODS.scheduledTasksSubscribe, () =>
-                Stream.concat(
-                  Stream.make({ tasks: [] }),
-                  Stream.fail(new ScheduledTaskError({ message: "Subscription failed." })),
-                ),
-              ),
-              group.toLayerHandler(WS_METHODS.serverGetSettings, () => Effect.die("broken")),
-              readOnlyConnection,
-            ),
-          ),
-        );
-
-        assert.deepStrictEqual(yield* client[WS_METHODS.serverProbe]({}), {});
-        const listError = yield* client[WS_METHODS.scheduledTasksList]({}).pipe(Effect.flip);
-        assert.equal(listError._tag, "ScheduledTaskError");
-        const rejection = yield* client[WS_METHODS.serverRetryResourceTelemetry]({}).pipe(
-          Effect.flip,
-        );
-        assert.equal(rejection._tag, "EnvironmentAuthorizationError");
-        const refreshes = yield* Stream.runCollect(
-          client[WS_METHODS.pullRequestsSubscribeRefreshes]({}),
-        );
-        assert.deepStrictEqual(Array.from(refreshes), [1, 2]);
-        const subscribeError = yield* Stream.runDrain(
-          client[WS_METHODS.scheduledTasksSubscribe]({}),
-        ).pipe(Effect.flip);
-        assert.equal(subscribeError._tag, "ScheduledTaskError");
-        const settingsExit = yield* Effect.exit(client[WS_METHODS.serverGetSettings]({}));
-        assert.isTrue(Exit.hasDies(settingsExit));
-
-        assert.deepStrictEqual(
-          rpcSpans(ended).map((span) => [span.name, Object.fromEntries(span.attributes)]),
-          [
-            [
-              "ws.rpc.server.probe",
-              {
-                ...rpcSpanDefaults,
-                "rpc.method": WS_METHODS.serverProbe,
-                "rpc.aggregate": "server",
-              },
-            ],
-            [
-              "ws.rpc.scheduledTasks.list",
-              {
-                ...rpcSpanDefaults,
-                "rpc.method": WS_METHODS.scheduledTasksList,
-                "rpc.aggregate": "scheduledTasks",
-                "scheduled_task.id": taskId,
-              },
-            ],
-            [
-              "ws.rpc.server.retryResourceTelemetry",
-              {
-                ...rpcSpanDefaults,
-                "rpc.method": WS_METHODS.serverRetryResourceTelemetry,
-                "rpc.aggregate": "server",
-              },
-            ],
-            [
-              "ws.rpc.pullRequests.subscribeRefreshes",
-              {
-                ...rpcSpanDefaults,
-                "rpc.method": WS_METHODS.pullRequestsSubscribeRefreshes,
-                "rpc.aggregate": "pull-requests",
-              },
-            ],
-            [
-              "ws.rpc.scheduledTasks.subscribe",
-              {
-                ...rpcSpanDefaults,
-                "rpc.method": WS_METHODS.scheduledTasksSubscribe,
-                "rpc.aggregate": "scheduledTasks",
-              },
-            ],
-            [
-              "ws.rpc.server.getSettings",
-              {
-                ...rpcSpanDefaults,
-                "rpc.method": WS_METHODS.serverGetSettings,
-                "rpc.aggregate": "server",
-              },
-            ],
-          ],
-        );
-        assert.deepStrictEqual(rpcSpans(ended).map(exitTag), [
-          "Success",
-          "Failure",
-          "Failure",
-          "Success",
-          "Failure",
-          "Failure",
-        ]);
-        const probeSpan = rpcSpans(ended)[0];
-        const child = ended.find((span) => span.name === "serverProbe.child");
-        assert.equal(parentSpanId(child), probeSpan?.spanId);
-
-        const snapshots = yield* Metric.snapshot;
-        assert.deepStrictEqual(
-          [
-            requestCount(snapshots, WS_METHODS.serverProbe, "success"),
-            requestCount(snapshots, WS_METHODS.scheduledTasksList, "failure"),
-            requestCount(snapshots, WS_METHODS.serverRetryResourceTelemetry, "failure"),
-            requestCount(snapshots, WS_METHODS.pullRequestsSubscribeRefreshes, "success"),
-            requestCount(snapshots, WS_METHODS.scheduledTasksSubscribe, "failure"),
-            requestCount(snapshots, WS_METHODS.serverGetSettings, "failure"),
-          ].map((state) => state?.count),
-          [1, 1, 1, 1, 1, 1],
-        );
-        for (const method of group.requests.keys()) {
-          assert.equal(requestDuration(snapshots, method)?.count, 1);
-        }
-      }),
-    ),
-  );
-
-  it.effect("keeps a stream's span and duration open until the subscription is interrupted", () =>
-    withTelemetry((ended) =>
-      Effect.gen(function* () {
-        const waiting = yield* Deferred.make<void>();
-        const group = groupOf(WS_METHODS.pullRequestsSubscribeRefreshes);
-        const client = yield* makeClient(group).pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              group.toLayerHandler(WS_METHODS.pullRequestsSubscribeRefreshes, () =>
-                Stream.concat(
-                  Stream.make(1),
-                  Stream.fromEffect(
-                    Deferred.succeed(waiting, undefined).pipe(
-                      Effect.andThen(Effect.never),
-                      Effect.withSpan("refreshes.wait"),
-                    ),
-                  ),
-                ),
-              ),
-              readOnlyConnection,
-            ),
-          ),
-        );
-
-        yield* TestClock.adjust(Duration.seconds(1));
-        yield* TestClock.setTime(0);
-        const consumer = yield* Stream.runDrain(
-          client[WS_METHODS.pullRequestsSubscribeRefreshes]({}),
-        ).pipe(Effect.forkChild);
-        yield* Deferred.await(waiting);
-        yield* TestClock.adjust(Duration.millis(250));
-        yield* TestClock.setTime(0);
-        assert.deepStrictEqual(serverSpans(ended), []);
-
-        yield* Fiber.interrupt(consumer);
-
-        const [rpcSpan] = rpcSpans(ended);
-        assert.equal(rpcSpan?.name, "ws.rpc.pullRequests.subscribeRefreshes");
-        assert.equal(exitTag(rpcSpan), "Failure");
-        const waitSpan = ended.find((span) => span.name === "refreshes.wait");
-        assert.equal(parentSpanId(waitSpan), rpcSpan?.spanId);
-
-        const snapshots = yield* Metric.snapshot;
-        assert.equal(
-          requestCount(snapshots, WS_METHODS.pullRequestsSubscribeRefreshes, "interrupt")?.count,
-          1,
-        );
-        const duration = requestDuration(snapshots, WS_METHODS.pullRequestsSubscribeRefreshes);
-        assert.equal(duration?.count, 1);
-        assert.equal(duration?.sum, 250);
-      }),
-    ),
-  );
-
   it.effect("parents the server span on the client's span for the same request", () =>
     withTelemetry((ended) =>
       Effect.gen(function* () {

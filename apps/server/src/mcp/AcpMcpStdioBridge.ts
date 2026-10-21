@@ -14,7 +14,7 @@ import { discardResponseBody, responsePayloads } from "@t3tools/shared/mcpRespon
  * unevenly implemented.
  */
 
-export class AcpMcpBridgeError extends Error {
+class AcpMcpBridgeError extends Error {
   readonly _tag = "AcpMcpBridgeError";
 }
 

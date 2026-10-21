@@ -161,7 +161,7 @@ function EnvironmentNotifications({
       const kind = resolveThreadNotificationKind({
         attention,
         priorAttention: prior.attention,
-        completion,
+        completion: rawThread.latestRunStopRequested ? null : completion,
         priorCompletion: prior.completion,
         readOnCompletionRunId: thread.readOnCompletionRunId,
         latestRun: thread.latestRun,

@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.1-nightly.20261020.3438 (`fe27e8e3dc12dcbb108e9a28fd9b8cb65f34ae92`)
-- Fork: `b9bec50c9acb42e68615b540905818d2b60cdb64`
+- Upstream: v0.1.2-nightly.20261021.3457 (`e64766c56ac6fc1678e6107052feb0047a35337f`)
+- Fork: `d4749f3116adf1a16fe0698bac953f0daebacef2`
 
 ## Coverage
 
@@ -93,7 +93,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/mcp/OrchestratorMcpService.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts, TaskCancelNativeSubagent.integration.test.ts; apps/server/src/agents/ManagedAgentService.test.ts, writerWorkspacePreflight.test.ts; orchestration-v2/AdvisorIdleClose.test.ts; the landing gate runs them when a change reaches them.
 - **Upstream:** upstream has the base orchestrator MCP and subagents; the managed layer is the fork's. Overlap risk is high on `OrchestratorMcpService`.
 - **Retire when:** upstream ships equivalent managed scope and follow-up covering the requirements.
-- **Decision:** `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's delegated model-option inheritance (`target.options`), `pendingApproval` ending `mode=wait` (#20037), settled-leaf omission and result delivery without history handoffs (#22117) layered onto the role-based `delegate_task`; external agent results report `pendingApproval: null`. Upstream's command-kind exception to the completion hold (commands such as dev servers do not hold it) stays replaced by the fork's hold-everything rule; the mobile thread list test is aligned with it. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's deduplicated terminal results and context transfers (#19759) combined with managed handoff evidence; ordinary Codex threads use upstream's dotted MCP overrides while managed tasks keep whole-table disabling. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit. Those instructions say only when and why to delegate; field mechanics live once, in the `delegate_task` description.
+- **Decision:** `adapt` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's repair for idle orphaned follow-ups (#22581: stopping an app-owned task whose child is idle cancels only that child's orphaned tasks) merged into the fork's managed cancellation, keeping recursive mode checks, queued-run cancellation and completion delivery (OrchestratorMcpService.test.ts "cancels an orphaned follow-up through its parent"). Earlier: `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's delegated model-option inheritance (`target.options`), `pendingApproval` ending `mode=wait` (#20037), settled-leaf omission and result delivery without history handoffs (#22117) layered onto the role-based `delegate_task`; external agent results report `pendingApproval: null`. Upstream's command-kind exception to the completion hold (commands such as dev servers do not hold it) stays replaced by the fork's hold-everything rule; the mobile thread list test is aligned with it. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's deduplicated terminal results and context transfers (#19759) combined with managed handoff evidence; ordinary Codex threads use upstream's dotted MCP overrides while managed tasks keep whole-table disabling. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit. Those instructions say only when and why to delegate; field mechanics live once, in the `delegate_task` description.
 - **Owner:** pechhe/t3code#14, #15, #17, #18, #31, #40, #62, #93, #131 (closed); open: #123, #136, #146.
 
 ### t3-agent-cli
@@ -105,7 +105,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/cli/AgentCliClient.test.ts, agent.test.ts; apps/server/src/agents/ExternalAgentWorkService.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent external-agent CLI covering the requirements.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's removal of test-only exports (#22557) reverted for `callAcpMcpTool`, which `AgentCliClient` calls in production. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#6, #64 (closed); none open.
 
 ### run-setup-records
@@ -309,7 +309,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/mcp/McpManagedBrowser.test.ts, ManagedBrowserAccess.test.ts.
 - **Upstream:** none known.
 - **Retire when:** managed roles are dropped or upstream ships equivalent role-scoped browser tools.
-- **Decision:** `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's MCP token retention across long waits and idle days (#18552, #19491) adopted; the fork's release of a managed task's Phi session on expiry is kept through a `browserReleased` mark that a trusted touch clears (McpSessionRegistry.test.ts). Earlier: `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's removal of test-only exports (#22592) reverted for `normalizePreviewOpenInput`, which the managed browser handler calls in production. Earlier: `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's MCP token retention across long waits and idle days (#18552, #19491) adopted; the fork's release of a managed task's Phi session on expiry is kept through a `browserReleased` mark that a trusted touch clears (McpSessionRegistry.test.ts). Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#32, #94–96 (closed); #26 open.
 
 ### screen-recording-video
@@ -333,7 +333,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/web/src/components/snapShot/snapShotOverlayDock.test.ts; apps/desktop/src/snapShot/snapShot.test.ts.
 - **Upstream:** SnapShot itself is upstream; the overlay is the fork's.
 - **Retire when:** upstream ships an equivalent overlay.
-- **Decision:** `retain` (v0.1.1-nightly.20261020.3411, 2026-10-20): upstream reverted its auxiliary macOS window skipping (#22222, reverting #12978) and the snapshot-thumbnail context change (#22231), so the earlier `defer` no longer has an upstream fix to port; the fork's helper still takes the frontmost app's first layer-0 window, now tracked as a fork-side fix (YardSmith HQ Build #3737, replacing #3683); the fork's one-shot capture helper and its ActiveWindow tests stay; overlay window state and preparation kept beside upstream's reverted window startup. Earlier: `defer` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's skipping of auxiliary macOS helper windows (#12978) applies to its `ActiveWindow` osascript lookup, which the fork replaced with the one-shot capture helper in `MacSnapShot.ts`; that helper still takes the frontmost app's first layer-0 window. Reassess when the port is verified on macOS (YardSmith HQ Build #3683). Upstream's renamed `SnapShotCoordinator.browser.test.ts` carries the fork's overlay-conversation case. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's quit guards on window setup (#18380) adopted around the fork's overlay and display-media installation. Earlier: `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's named macOS test-capture failures adopted on top of the fork's capture pool. The pool finds and captures the window in one helper, so a failed window lookup reports as a failed capture; upstream's separate window-lookup test does not apply and was dropped.
+- **Decision:** `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's test pruning (#22557) deleted `ActiveWindow.test.ts`, which by then held only upstream's Windows cases, and unexported `macSnapShotArguments`; the fork's one-shot capture helper, its tests in MacSnapShot.test.ts and overlay state stay. Earlier: `retain` (v0.1.1-nightly.20261020.3411, 2026-10-20): upstream reverted its auxiliary macOS window skipping (#22222, reverting #12978) and the snapshot-thumbnail context change (#22231), so the earlier `defer` no longer has an upstream fix to port; the fork's helper still takes the frontmost app's first layer-0 window, now tracked as a fork-side fix (YardSmith HQ Build #3737, replacing #3683); the fork's one-shot capture helper stays; overlay window state and preparation kept beside upstream's reverted window startup. Earlier: `defer` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's skipping of auxiliary macOS helper windows (#12978) applies to its `ActiveWindow` osascript lookup, which the fork replaced with the one-shot capture helper in `MacSnapShot.ts`; that helper still takes the frontmost app's first layer-0 window. Reassess when the port is verified on macOS (YardSmith HQ Build #3683). Upstream's renamed `SnapShotCoordinator.browser.test.ts` carries the fork's overlay-conversation case. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's quit guards on window setup (#18380) adopted around the fork's overlay and display-media installation. Earlier: `adapt` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's named macOS test-capture failures adopted on top of the fork's capture pool. The pool finds and captures the window in one helper, so a failed window lookup reports as a failed capture; upstream's separate window-lookup test does not apply and was dropped.
 - **Owner:** pechhe/t3code#76 (open, overlay slice).
 
 ### device-composer
@@ -357,7 +357,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/web/src/lib/imageAnnotation.test.ts; packages/shared/src/composerContextLegacySend.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships equivalent image notes.
-- **Decision:** `retain` (v0.1.1-nightly.20261020.3438, 2026-10-21): upstream's mobile chip icons (#22169) adopted; the image-annotation chip gains a generated `pencil` icon in the same scheme. Earlier: `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's icon-only mobile chip presentation (#22518) adopted; the pencil chip uses it. Earlier: `retain` (v0.1.1-nightly.20261020.3438, 2026-10-21): upstream's mobile chip icons (#22169) adopted; the image-annotation chip gains a generated `pencil` icon in the same scheme. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** none.
 
 ### side-chat
@@ -443,7 +443,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/mobile/src/features/threads/git/jujutsuCheckout.test.ts.
 - **Upstream:** mobile is upstream; the Screens dependency (docs/operations/mobile-screens-fork.md) is unchanged since baseline and not a fork difference of this record.
 - **Retire when:** the corresponding server features retire.
-- **Decision:** `adapt` (v0.1.1-nightly.20261019.3373, 2026-10-19: upstream's standard list rows in the Git sheet (#21785) and shared settings writer (#9356) adopted, with the Jujutsu labels and agent browser setting kept; v0.1.1-nightly.20261019.3348): upstream's React Compiler versions of the home actions, thread feed, git controls and composer state adopted, with the fork's settle confirmation, Jujutsu labels and Build links reapplied without manual memoisation; the fork-only Agents and Build item sheets stay on the manual-memo allowlist.
+- **Decision:** `adapt` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's thread action undo (#21401), background-work sheet and status actions (#21395), proposed plans and the rest of the mobile batch adopted; the settle confirmation that names the background work it stops still comes before the mutation and undo claim, the Build item route sits beside the background-work route, and release-approval activity sits beside proposed plans. Earlier: `adapt` (v0.1.1-nightly.20261019.3373, 2026-10-19: upstream's standard list rows in the Git sheet (#21785) and shared settings writer (#9356) adopted, with the Jujutsu labels and agent browser setting kept; v0.1.1-nightly.20261019.3348): upstream's React Compiler versions of the home actions, thread feed, git controls and composer state adopted, with the fork's settle confirmation, Jujutsu labels and Build links reapplied without manual memoisation; the fork-only Agents and Build item sheets stay on the manual-memo allowlist.
 - **Owner:** #107, #129, #145 (open); #43 (closed).
 
 ### desktop-fork-build
@@ -516,7 +516,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/auth/ServerSecretStore.test.ts ("serves repeated reads without rereading the file", "sees a secret another process writes").
 - **Upstream:** none known; upstreamable.
 - **Retire when:** upstream caches secret reads or the relay stops reading secrets per event.
-- **Decision:** `retain` (new, 2026-10-20).
+- **Decision:** `adapt` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's atomic secret creation (#22559: write a temp file, then `link` it into place) adopted; `create` still forgets the cache, and the cache tests drive a controlled watcher stream instead of real-clock polling, per upstream's new test rules. Earlier: `retain` (new, 2026-10-20).
 - **Owner:** Build #3418 (Spec #3172).
 
 ### perf-landing-refresh
@@ -568,7 +568,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** upstream records only OpenCode servers (`opencode-servers`; an entry left there by an older build is not reaped).
 - **Retire when:** upstream records every provider process group it starts.
 - **Constraints:** Cursor now uses an in-process SDK, not an ACP CLI: its internal command spawns expose no owned child group here and are deliberately not recorded. Non-detached ACP children and Windows are not recorded, because their pid is not an owned POSIX group. Codex discovery probes are short-lived scoped processes and are not recorded. Pi's installed RPC SIGTERM handler kills its tracked detached commands; Codex's installed JS launcher forwards SIGTERM to its native child. Cleanup of commands that leave an ACP/Codex group depends on the CLI's own shutdown handling, which is not guaranteed here. A terminal's shell group is recorded because the manager cannot reattach its PTY after a crash, despite its Linux scope surviving restarts; shell job-control groups and deliberately detached jobs are not covered.
-- **Decision:** `retain` (v0.1.1-nightly.20261020.3411, 2026-10-20): upstream's revert of its lifecycle-shutdown fix (#22222, reverting #20303) restores the 5 s desktop stop budget this entry assumes; the quit finalizer still collects stopped servers' pids for reaping. Earlier: `retain` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream keeps helper processes from outliving the backend for text generation (#12513) and traces the OpenCode ledger; the fork's generalised `ProcessGroupLedger` is kept and OpenCode still wraps it. Earlier: `retain` (new, 2026-10-19).
+- **Decision:** `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's removal of a test-only export in `DesktopApp.ts` adopted; the quit finalizer still returns the stopped servers' pids for reaping. Earlier: `retain` (v0.1.1-nightly.20261020.3411, 2026-10-20): upstream's revert of its lifecycle-shutdown fix (#22222, reverting #20303) restores the 5 s desktop stop budget this entry assumes; the quit finalizer still collects stopped servers' pids for reaping. Earlier: `retain` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream keeps helper processes from outliving the backend for text generation (#12513) and traces the OpenCode ledger; the fork's generalised `ProcessGroupLedger` is kept and OpenCode still wraps it. Earlier: `retain` (new, 2026-10-19).
 - **Owner:** Build #3416 and #3443 under Spec #3172.
 
 ### dev-state-tooling
@@ -592,7 +592,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** focused quiet-run cases in server `runtimeLayer.test.ts`, client-runtime projection and unread tests, web notification decision tests, and shared agent-awareness tests.
 - **Upstream:** existing read/visit command path reused; live upstream lookup unavailable in this network-restricted workspace. A focused mark-read reverse is suitable for upstream consideration.
 - **Retire when:** upstream supports successful-turn-bound read requests, explicit unread reversal, and quiet completion notification suppression on both clients.
-- **Decision:** `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream now sets a read watermark on a thread's first fresh dispatch so its completion shows unread (#15607); the run-bound quiet request still marks it read at completion.
+- **Decision:** `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's silencing of notifications for a stopped run (#22615, `latestRunStopRequested` on the thread shell) added beside quiet completion in `agentAwareness` and `ThreadNotificationCoordinator`; it covers only manual stops, not the run-bound read request or unread reversal. Earlier: `retain` (v0.1.1-nightly.20261019.3373, 2026-10-19): upstream now sets a read watermark on a thread's first fresh dispatch so its completion shows unread (#15607); the run-bound quiet request still marks it read at completion.
 - **Owner:** pechhe/t3code#155, Spec #152.
 
 ### subagent-return-chip

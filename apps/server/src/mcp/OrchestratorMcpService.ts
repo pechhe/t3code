@@ -88,6 +88,7 @@ import {
   type ScheduledTaskUpsertInput,
   type ServerProvider,
   ThreadId,
+  isOrchestrationV2WorkActive,
   AGENT_ROLE_COARSE_KIND,
   isReviewerRole,
   type OrchestrationV2WatchTarget,
@@ -488,7 +489,7 @@ function taskStatusForRun(
   }
 }
 
-export function delegatedTaskRun(
+function delegatedTaskRun(
   childProjection: Pick<OrchestrationV2ThreadProjection, "runs" | "contextTransfers">,
   task: OrchestrationV2Subagent,
 ): OrchestrationV2Run | undefined {
@@ -508,7 +509,7 @@ export function delegatedTaskRun(
     : childProjection.runs.find((run) => run.id === spawnTransfer.targetRunId);
 }
 
-export function hasPendingChildRuns(
+function hasPendingChildRuns(
   childProjection: Pick<OrchestrationV2ThreadProjection, "runs">,
   delegatedRun: OrchestrationV2Run | undefined,
 ): boolean {
@@ -3494,7 +3495,32 @@ const make = Effect.gen(function* () {
             ),
           ),
         );
+        // A follow-up that lost its child run (#19002) stays running on the parent, while its
+        // status here comes from the child's last run. The parent cancels it, and any other
+        // orphan of the same child, when that child is idle.
+        const cancelOrphan = Effect.gen(function* () {
+          if (parentTask?.runId == null || !isOrchestrationV2WorkActive(parentTask.status))
+            return false;
+          yield* threadManagement
+            .dispatch({
+              type: "subagent.stop",
+              commandId: stableCommandId({
+                scope,
+                requestKey: key,
+                operation: "cancel-task-orphan",
+              }),
+              threadId: scope.thread.threadId,
+              runId: parentTask.runId,
+              subagentId: parentTask.id,
+            })
+            .pipe(Effect.mapError(threadManagementFailure));
+          const { subagents } = yield* threadManagement
+            .getThreadRecords(scope.thread.threadId, ["subagents"])
+            .pipe(Effect.mapError(threadManagementFailure));
+          return subagents.some((task) => task.id === input.taskId && task.status === "cancelled");
+        });
         if (isTerminalTaskStatus(current.status)) {
+          if (yield* cancelOrphan) return { taskId: input.taskId, status: "cancelled" as const };
           yield* stopWithinLimit;
           yield* disposeCompletionDelivery;
           return {
@@ -3514,6 +3540,7 @@ const make = Effect.gen(function* () {
               (run.delegatedTaskId === input.taskId || run.id === current.childRunId),
           )
         ) {
+          if (yield* cancelOrphan) return { taskId: input.taskId, status: "cancelled" as const };
           return yield* failure(
             "task_not_cancellable",
             `Delegated task ${input.taskId} has no interruptible child run.`,

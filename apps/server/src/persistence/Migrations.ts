@@ -84,7 +84,7 @@ import Migration0078 from "./Migrations/078_BuildSendBackDeliveries.ts";
 import Migration0079 from "./Migrations/079_WebhookDedupe.ts";
 import Migration0080 from "./Migrations/080_ThreadCompactAt.ts";
 
-export const migrationEntries = [
+const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
   [2, "OrchestrationCommandReceipts", Migration0002],
   [3, "CheckpointDiffBlobs", Migration0003],

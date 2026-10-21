@@ -13,7 +13,6 @@ vi.mock("electron", () => ({ nativeImage: { createFromBuffer: createFromBufferMo
 
 import {
   captureMacWindowSnapshot,
-  macSnapShotArguments,
   startMacSnapShotProcess,
   type MacSnapShotChild,
   type MacWindowCapture,
@@ -186,7 +185,7 @@ it("falls back to screencapture when the helper could not capture the window", a
 
   assert.deepEqual(execFileMock.mock.calls[0]?.slice(0, 3), [
     "/usr/sbin/screencapture",
-    macSnapShotArguments(42, "/tmp/window.png"),
+    ["-l", "42", "-o", "-x", "-t", "png", "/tmp/window.png"],
     { timeout: 15_000 },
   ]);
 });

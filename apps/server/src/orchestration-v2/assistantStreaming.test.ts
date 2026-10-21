@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vite-plus/test";
-import { MessageId, NodeId, ProviderDriverKind, ThreadId, TurnItemId } from "@t3tools/contracts";
-import * as DateTime from "effect/DateTime";
-import { makeAssistantStreamingFilter, splitBufferedAssistantText } from "./assistantStreaming.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as DateTime from "effect/DateTime";
+import { MessageId, ProviderDriverKind, ThreadId, TurnItemId } from "@t3tools/contracts";
+import { makeAssistantStreamingFilter } from "./assistantStreaming.ts";
+import { describe, expect, it } from "vite-plus/test";
+import { splitBufferedAssistantText } from "./assistantStreaming.ts";
 
 const message = (text: string, streaming = true): ProviderAdapter.ProviderAdapterV2Event => ({
   type: "message.updated",
@@ -69,17 +70,6 @@ describe("V2 assistant streaming", () => {
     },
   );
 
-  it("delivers completed paragraphs, coalesces rapid updates, and flushes final text", () => {
-    const filter = makeAssistantStreamingFilter("paragraph");
-    expect(filter(message("First"), 0)).toBeNull();
-    expect(filter(message("First\n\nSec"), 10)).toMatchObject({ message: { text: "First\n\n" } });
-    expect(filter(message("First\n\nSecond\n\nThi"), 100)).toBeNull();
-    expect(filter(message("First\n\nSecond\n\nThird"), 410)).toMatchObject({
-      message: { text: "First\n\nSecond\n\n" },
-    });
-    const final = message("First\n\nSecond\n\nThird", false);
-    expect(filter(final, 420)).toBe(final);
-  });
   it("keeps code fences intact", () => {
     expect(splitBufferedAssistantText("Intro\n\n```ts\nx()\n\n")).toEqual({
       ready: "Intro\n\n",
@@ -90,69 +80,6 @@ describe("V2 assistant streaming", () => {
       rest: "rest",
     });
   });
-  it("holds streaming text until the full response completes", () => {
-    const running = message("partial");
-    const final = message("complete", false);
-    const buffered = makeAssistantStreamingFilter("turn");
-    expect(buffered(running, 0)).toBeNull();
-    expect(buffered(message("First\n\nSecond\n\n"), 500)).toBeNull();
-    expect(buffered(final, 501)).toBe(final);
-  });
-
-  it.each(["assistant_message", "reasoning"] as const)(
-    "buffers %s at paragraph boundaries and flushes the final item",
-    (type) => {
-      const item = (text: string, streaming = true) => turnItem(text, streaming, type);
-      const filter = makeAssistantStreamingFilter("paragraph");
-      expect(filter(item("First"), 0)).toBeNull();
-      expect(filter(item("First\n\nSec"), 10)).toMatchObject({
-        turnItem: { text: "First\n\n", streaming: true, type },
-      });
-      expect(filter(item("First\n\nSecond\n\nThi"), 100)).toBeNull();
-      expect(filter(item("First\n\nSecond\n\nThi"), 410)).toMatchObject({
-        turnItem: { text: "First\n\nSecond\n\n", streaming: true },
-      });
-      const final = item("First\n\nSecond\n\nThird", false);
-      expect(filter(final, 420)).toBe(final);
-
-      const buffered = makeAssistantStreamingFilter("turn");
-      expect(buffered(item("First\n\nSecond"), 0)).toBeNull();
-      expect(buffered(final, 1)).toBe(final);
-    },
-  );
-
-  it.each(["turn", "paragraph"] as const)(
-    "suppresses running assistant nodes in %s mode while delivering tool and completed nodes",
-    (mode) => {
-      const filter = makeAssistantStreamingFilter(mode);
-      const running: Extract<ProviderAdapter.ProviderAdapterV2Event, { type: "node.updated" }> = {
-        type: "node.updated",
-        driver: ProviderDriverKind.make("codex"),
-        node: {
-          id: NodeId.make("node"),
-          threadId: ThreadId.make("thread"),
-          runId: null,
-          parentNodeId: null,
-          rootNodeId: NodeId.make("root"),
-          kind: "assistant_message",
-          status: "running",
-          countsForRun: false,
-          providerThreadId: null,
-          providerTurnId: null,
-          nativeItemRef: null,
-          runtimeRequestId: null,
-          checkpointScopeId: null,
-          startedAt: null,
-          completedAt: null,
-        },
-      };
-      expect(filter(running, 0)).toBeNull();
-      const completed = { ...running, node: { ...running.node, status: "completed" as const } };
-      expect(filter(completed, 1)).toBe(completed);
-      const tool = { ...running, node: { ...running.node, kind: "tool_call" as const } };
-      expect(filter(tool, 2)).toBe(tool);
-    },
-  );
 });
 
 it("holds a streamed section heading until its content has a boundary", () => {

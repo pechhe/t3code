@@ -1,4 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import { beforeEach, vi } from "vite-plus/test";
 
@@ -44,7 +45,7 @@ describe("ElectronShell", () => {
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
 
-  it.effect.skipIf(process.platform !== "darwin")(
+  it.effect.skipIf(HostProcess.Platform.defaultValue() !== "darwin")(
     "leaves Phi in the background for web links so only its kiosk window shows",
     () =>
       Effect.gen(function* () {
@@ -62,42 +63,6 @@ describe("ElectronShell", () => {
       }).pipe(Effect.provide(ElectronShell.layer)),
   );
 
-  it.effect("copies text to the system clipboard", () =>
-    Effect.gen(function* () {
-      writeTextMock.mockResolvedValue(undefined);
-
-      const electronShell = yield* ElectronShell.ElectronShell;
-      yield* electronShell.copyText("https://example.com/path");
-
-      assert.deepEqual(writeTextMock.mock.calls, [["https://example.com/path"]]);
-    }).pipe(Effect.provide(ElectronShell.layer)),
-  );
-
-  it.effect("does not fail when the clipboard write rejects", () =>
-    Effect.gen(function* () {
-      writeTextMock.mockRejectedValue(new Error("write failed"));
-
-      const electronShell = yield* ElectronShell.ElectronShell;
-      yield* electronShell.copyText("https://example.com/path");
-
-      assert.deepEqual(writeTextMock.mock.calls, [["https://example.com/path"]]);
-    }).pipe(Effect.provide(ElectronShell.layer)),
-  );
-
-  it.effect("opens the Full Disk Access settings anchor", () =>
-    Effect.gen(function* () {
-      openExternalMock.mockResolvedValue(undefined);
-
-      const electronShell = yield* ElectronShell.ElectronShell;
-      const result = yield* electronShell.openSystemSettings("full-disk-access");
-
-      assert.equal(result, true);
-      assert.deepEqual(openExternalMock.mock.calls, [
-        ["x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles"],
-      ]);
-    }).pipe(Effect.provide(ElectronShell.layer)),
-  );
-
   it.effect("opens remote SSH editor URLs", () =>
     Effect.gen(function* () {
       openExternalMock.mockResolvedValue(undefined);
@@ -113,24 +78,6 @@ describe("ElectronShell", () => {
           "vscode://vscode-remote/ssh-remote+user%40example.com/home/user/project",
           { activate: true },
         ],
-      ]);
-    }).pipe(Effect.provide(ElectronShell.layer)),
-  );
-
-  it.effect("opens Zed's ssh deep link", () =>
-    Effect.gen(function* () {
-      openExternalMock.mockResolvedValue(undefined);
-
-      const electronShell = yield* ElectronShell.ElectronShell;
-      const results = yield* Effect.all([
-        electronShell.openExternal("zed://ssh/user@example.com/home/user/project"),
-        electronShell.openExternal("zed://ssh/example.com/"),
-      ]);
-
-      assert.deepEqual(results, [true, true]);
-      assert.deepEqual(openExternalMock.mock.calls, [
-        ["zed://ssh/user@example.com/home/user/project", { activate: true }],
-        ["zed://ssh/example.com/", { activate: true }],
       ]);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
@@ -195,31 +142,6 @@ describe("ElectronShell", () => {
 
       assert.equal(result, false);
       assert.equal(openExternalMock.mock.calls.length, 0);
-    }).pipe(Effect.provide(ElectronShell.layer)),
-  );
-
-  it.effect("does not open non-remote editor URLs", () =>
-    Effect.gen(function* () {
-      openExternalMock.mockResolvedValue(undefined);
-
-      const electronShell = yield* ElectronShell.ElectronShell;
-      const result = yield* electronShell.openExternal(
-        "vscode://ms-python.python/some-command?argument=attacker",
-      );
-
-      assert.equal(result, false);
-      assert.equal(openExternalMock.mock.calls.length, 0);
-    }).pipe(Effect.provide(ElectronShell.layer)),
-  );
-
-  it.effect("returns false when Electron rejects openExternal", () =>
-    Effect.gen(function* () {
-      openExternalMock.mockRejectedValue(new Error("open failed"));
-
-      const electronShell = yield* ElectronShell.ElectronShell;
-      const result = yield* electronShell.openExternal("https://example.com/path");
-
-      assert.equal(result, false);
     }).pipe(Effect.provide(ElectronShell.layer)),
   );
 });

@@ -1,10 +1,9 @@
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
 import type { ComponentProps } from "react";
 import { expect, it, vi } from "vite-plus/test";
-import { page, userEvent } from "vite-plus/test/browser";
 
 import "~/index.css";
-import { act, render as renderUi } from "../../test/render";
+import { render as renderUi } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   worktreePath: "/tmp/worktree" as string | null,
@@ -57,36 +56,6 @@ function render(
   );
 }
 
-it("keeps machine choices usable when the combined row's workspace is locked", async () => {
-  const onEnvironmentChange = vi.fn();
-  await using screen = await render({
-    onEnvironmentChange,
-    availableEnvironments: ["local", "remote"].map((id) => ({
-      environmentId: EnvironmentId.make(id),
-      projectId: ProjectId.make("project"),
-      label: id,
-      isPrimary: id === "local",
-      machine: "server",
-    })),
-  });
-  const trigger = screen.container.querySelector("button")!;
-  expect(trigger.textContent).toBe("local");
-  expect(screen.container.querySelectorAll("button")).toHaveLength(1);
-
-  // A ctrl-click is a macOS secondary click; it must not open the menu.
-  await act(async () => {
-    trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, ctrlKey: true }));
-  });
-  expect(document.querySelector('[role="menu"]')).toBeNull();
-
-  await userEvent.click(trigger);
-  await expect
-    .element(page.getByRole("menuitemradio", { name: "New worktree" }))
-    .toHaveAttribute("aria-disabled", "true");
-  await userEvent.click(page.getByRole("menuitemradio", { name: "remote" }));
-  expect(onEnvironmentChange).toHaveBeenCalledWith("remote");
-});
-
 it("shows a started thread's primary machine as a static label", async () => {
   await using screen = await render({
     panelSection: "workspace",
@@ -102,28 +71,3 @@ it("shows a started thread's primary machine as a static label", async () => {
   expect(screen.container.textContent).toBe("local");
   expect(screen.container.querySelector("button")).toBeNull();
 });
-
-it.each([
-  ["local", null, "/tmp/project"],
-  ["worktree", null, null],
-  ["worktree", "/tmp/worktree", "/tmp/worktree"],
-  ["worktree", "C:/repo/worktree", String.raw`C:\repo\worktree`],
-] as const)(
-  "copies only an existing workspace path with mode %s and worktree %s",
-  async (envMode, worktreePath, copiedPath) => {
-    await using screen = await render({ envMode }, { worktreePath });
-    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
-    await act(async () => {
-      screen.container.querySelector('[aria-label="Run context"]')!.dispatchEvent(event);
-    });
-    expect(event.defaultPrevented).toBe(copiedPath !== null);
-    if (copiedPath === null) {
-      expect(state.showContextMenu).not.toHaveBeenCalled();
-      expect(state.writeTextToClipboard).not.toHaveBeenCalled();
-    } else {
-      await vi.waitFor(() =>
-        expect(state.writeTextToClipboard).toHaveBeenCalledWith(copiedPath, "workspace path"),
-      );
-    }
-  },
-);

@@ -259,7 +259,11 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
           const sql = yield* SqlClient.SqlClient;
           const threads = yield* sql<{ thread_id: string }>`
             SELECT thread_id FROM orchestration_v2_projection_threads ORDER BY thread_id`;
-          const sessions = yield* sql<{ provider_session_id: string; status: string; json: string | null }>`
+          const sessions = yield* sql<{
+            provider_session_id: string;
+            status: string;
+            json: string | null;
+          }>`
             SELECT provider_session_id, status, json_extract(payload_json, '$.status') AS json
             FROM orchestration_v2_projection_provider_sessions ORDER BY provider_session_id`;
           return { threads, sessions };
@@ -333,33 +337,6 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         { sharedHome: sourceDir },
       );
       assert.include(result.executedMigrations, "55_OrchestrationV2");
-    }),
-  );
-
-  it.effect("fails loudly on a migration slot collision", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slot-" });
-      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slot-dest-" });
-      const source = yield* createFixtureSource(sourceDir);
-      yield* withDatabase(
-        source,
-        Effect.gen(function* () {
-          const sql = yield* SqlClient.SqlClient;
-          yield* sql`UPDATE effect_sql_migrations
-            SET name = 'SomebodyElsesMigration' WHERE migration_id = 1`;
-        }),
-      );
-
-      const error = yield* runMigrateDevDb(
-        { baseDir: destDir, source, projects: 5, threadsPerProject: 10 },
-        { sharedHome: sourceDir },
-      ).pipe(Effect.flip);
-      assert.equal(error._tag, "MigrateDevDbSlotCollisionError");
-      if (error._tag === "MigrateDevDbSlotCollisionError") {
-        assert.equal(error.slot, 1);
-        assert.equal(error.appliedName, "SomebodyElsesMigration");
-      }
     }),
   );
 

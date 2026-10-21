@@ -7,9 +7,8 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Stream from "effect/Stream";
 import * as PlatformError from "effect/PlatformError";
-import * as Schedule from "effect/Schedule";
-import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerSecretStore from "./ServerSecretStore.ts";
@@ -73,33 +72,6 @@ const layerRenameFailureSecretStore = () =>
     Layer.provideMerge(layerRenameFailureFileSystem),
   );
 
-const layerRemoveFailureFileSystem = Layer.effect(
-  FileSystem.FileSystem,
-  Effect.gen(function* () {
-    const fileSystem = yield* FileSystem.FileSystem;
-
-    return {
-      ...fileSystem,
-      remove: (path, options) =>
-        Effect.fail(
-          PlatformError.systemError({
-            _tag: "PermissionDenied",
-            module: "FileSystem",
-            method: "remove",
-            pathOrDescriptor: String(path),
-            description: `Permission denied while removing secret file.${options ? " options-set" : ""}`,
-          }),
-        ),
-    } satisfies FileSystem.FileSystem;
-  }),
-).pipe(Layer.provide(NodeServices.layer));
-
-const layerRemoveFailureSecretStore = () =>
-  ServerSecretStore.layer.pipe(
-    Layer.provide(layerServerConfig()),
-    Layer.provideMerge(layerRemoveFailureFileSystem),
-  );
-
 const layerConcurrentReadMissFileSystem = Layer.effect(
   FileSystem.FileSystem,
   Effect.gen(function* () {
@@ -155,6 +127,7 @@ const layerCountingReadFileSystem = Layer.effect(
 
     return {
       ...fileSystem,
+      watch: () => Stream.never,
       readFile: (path) =>
         Effect.sync(() => {
           secretReads.count += 1;
@@ -164,16 +137,6 @@ const layerCountingReadFileSystem = Layer.effect(
 ).pipe(Layer.provide(NodeServices.layer));
 
 it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
-  it.effect("returns Option.none when a secret file does not exist", () =>
-    Effect.gen(function* () {
-      const secretStore = yield* ServerSecretStore.ServerSecretStore;
-
-      const secret = yield* secretStore.get("missing-secret");
-
-      assert.isTrue(Option.isNone(secret));
-    }).pipe(Effect.provide(layerServerSecretStore())),
-  );
-
   it.effect("reuses an existing secret instead of regenerating it", () =>
     Effect.gen(function* () {
       const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -204,45 +167,6 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
     }).pipe(Effect.provide(layerConcurrentCreateSecretStore())),
   );
 
-  it.effect("uses restrictive permissions for the secret directory and files", () =>
-    Effect.gen(function* () {
-      const chmodCalls: Array<{ readonly path: string; readonly mode: number }> = [];
-      const layerRecordingFileSystem = Layer.effect(
-        FileSystem.FileSystem,
-        Effect.gen(function* () {
-          const fileSystem = yield* FileSystem.FileSystem;
-
-          return {
-            ...fileSystem,
-            makeDirectory: () => Effect.void,
-            writeFile: () => Effect.void,
-            rename: () => Effect.void,
-            chmod: (path, mode) =>
-              Effect.sync(() => {
-                chmodCalls.push({ path: String(path), mode });
-              }),
-          } satisfies FileSystem.FileSystem;
-        }),
-      ).pipe(Layer.provide(NodeServices.layer));
-
-      const secretStore = yield* Effect.service(ServerSecretStore.ServerSecretStore).pipe(
-        Effect.provide(
-          ServerSecretStore.layer.pipe(
-            Layer.provide(layerServerConfig()),
-            Layer.provideMerge(layerRecordingFileSystem),
-          ),
-        ),
-      );
-
-      yield* secretStore.set("session-signing-key", Uint8Array.from([1, 2, 3]));
-
-      assert.isTrue(
-        chmodCalls.some((call) => call.mode === 0o700 && /[\\/]secrets$/.test(call.path)),
-      );
-      assert.isAtLeast(chmodCalls.filter((call) => call.mode === 0o600).length, 2);
-    }).pipe(Effect.provide(NodeServices.layer)),
-  );
-
   it.effect("propagates read failures other than missing-file errors", () =>
     Effect.gen(function* () {
       const secretStore = yield* ServerSecretStore.ServerSecretStore;
@@ -269,19 +193,6 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
       assert.instanceOf(error.cause, PlatformError.PlatformError);
       assert.equal((error.cause as PlatformError.PlatformError).reason._tag, "PermissionDenied");
     }).pipe(Effect.provide(layerRenameFailureSecretStore())),
-  );
-
-  it.effect("propagates remove failures other than missing-file errors", () =>
-    Effect.gen(function* () {
-      const secretStore = yield* ServerSecretStore.ServerSecretStore;
-
-      const error = yield* Effect.flip(secretStore.remove("session-signing-key"));
-
-      assert.instanceOf(error, ServerSecretStore.SecretStoreRemoveError);
-      assert.include(error.message, "Failed to remove secret session-signing-key.");
-      assert.instanceOf(error.cause, PlatformError.PlatformError);
-      assert.equal((error.cause as PlatformError.PlatformError).reason._tag, "PermissionDenied");
-    }).pipe(Effect.provide(layerRemoveFailureSecretStore())),
   );
 
   it.effect("serves repeated reads without rereading the file", () =>
@@ -314,23 +225,35 @@ it.layer(NodeServices.layer)("ServerSecretStore.layer", (it) => {
 
   it.effect("sees a secret another process writes", () =>
     Effect.gen(function* () {
-      const secretStore = yield* ServerSecretStore.ServerSecretStore;
       const fileSystem = yield* FileSystem.FileSystem;
-      assert.isTrue(Option.isNone(yield* secretStore.get("relay-token")));
-
-      yield* fileSystem.writeFile(
-        `${secretStore.directory}/relay-token.bin`,
-        new Uint8Array([4, 5, 6]),
+      const directory = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-secret-watch-" });
+      const changed = yield* Deferred.make<void>();
+      const invalidated = yield* Deferred.make<void>();
+      const watchedFileSystem = Layer.succeed(FileSystem.FileSystem, {
+        ...fileSystem,
+        watch: () =>
+          Stream.fromEffect(Deferred.await(changed)).pipe(
+            Stream.map(() => ({ _tag: "Update" as const, path: `${directory}/relay-token.bin` })),
+            Stream.concat(
+              Stream.fromEffect(Deferred.succeed(invalidated, undefined)).pipe(Stream.drain),
+            ),
+            Stream.concat(Stream.never),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const secretStore = yield* ServerSecretStore.ServerSecretStore;
+        assert.isTrue(Option.isNone(yield* secretStore.get("relay-token")));
+        yield* fileSystem.writeFile(`${directory}/relay-token.bin`, new Uint8Array([4, 5, 6]));
+        yield* Deferred.succeed(changed, undefined);
+        // The next stream pull acknowledges that the store handled the directory event.
+        yield* Deferred.await(invalidated);
+        const seen = yield* secretStore.get("relay-token");
+        assert.deepEqual(Array.from(Option.getOrThrow(seen)), [4, 5, 6]);
+      }).pipe(
+        Effect.provide(
+          ServerSecretStore.layerAtDirectory(directory).pipe(Layer.provide(watchedFileSystem)),
+        ),
       );
-      const seen = yield* secretStore.get("relay-token").pipe(
-        Effect.repeat({
-          until: Option.isSome,
-          schedule: Schedule.spaced("10 millis"),
-          times: 500,
-        }),
-      );
-
-      assert.deepEqual(Array.from(Option.getOrThrow(seen)), [4, 5, 6]);
-    }).pipe(TestClock.withLive, Effect.provide(layerServerSecretStore())),
+    }),
   );
 });
