@@ -46,6 +46,7 @@ layer("055_OrchestrationV2", (it) => {
         [80, "ThreadCompactAt"],
         [81, "DropHandedWorkspaceAttachments"],
         [82, "BuildNoteDeliveries"],
+        [83, "UnboundScheduledTaskDefaultWorkspace"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -94,6 +95,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 80, name: "ThreadCompactAt" },
         { migration_id: 81, name: "DropHandedWorkspaceAttachments" },
         { migration_id: 82, name: "BuildNoteDeliveries" },
+        { migration_id: 83, name: "UnboundScheduledTaskDefaultWorkspace" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

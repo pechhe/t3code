@@ -154,7 +154,8 @@ export type WorkspaceChoice = "fresh" | "checkout";
 /**
  * Where a run works. "fresh" gives each run its own checkout: a SlipJay workspace from
  * the integration branch in a SlipJay project, a Git worktree from the checkout's
- * current commit otherwise. "checkout" runs in the project folder itself, in a
+ * current commit otherwise; a task created by an agent runs where a new thread does,
+ * which also counts as "fresh". "checkout" runs in the project folder itself, in a
  * SlipJay project too.
  */
 export function workspaceStrategyFor(
@@ -162,16 +163,28 @@ export function workspaceStrategyFor(
   previous: OrchestrationV2ThreadLaunchWorkspaceStrategy | null,
 ): OrchestrationV2ThreadLaunchWorkspaceStrategy {
   if (choice === "checkout") {
+    if (isDefaultWorkspace(previous)) return { type: "root", rootIsDefault: false };
     return previous?.type === "root" || previous?.type === "existing_worktree"
       ? previous
       : { type: "root" };
   }
-  return previous?.type === "worktree" ? previous : { type: "worktree", baseRef: "HEAD" };
+  if (
+    previous?.type === "worktree" ||
+    (previous?.type === "root" && previous.rootIsDefault === true)
+  ) {
+    return previous;
+  }
+  return { type: "worktree", baseRef: "HEAD" };
 }
+
+const isDefaultWorkspace = (
+  strategy: OrchestrationV2ThreadLaunchWorkspaceStrategy | null,
+): boolean => strategy?.type === "root" && strategy.rootIsDefault === true;
 
 export const workspaceChoiceOf = (
   strategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
-): WorkspaceChoice => (strategy.type === "worktree" ? "fresh" : "checkout");
+): WorkspaceChoice =>
+  strategy.type === "worktree" || isDefaultWorkspace(strategy) ? "fresh" : "checkout";
 
 /** A project as the page offers it: one chip per repository, present on some machines. */
 export interface ProjectChoice {

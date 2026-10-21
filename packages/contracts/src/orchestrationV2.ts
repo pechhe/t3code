@@ -760,6 +760,11 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
   Schema.Struct({
     type: Schema.Literal("root"),
     branch: Schema.optional(TrimmedNonEmptyString),
+    /**
+     * Root only means no checkout was chosen: a SlipJay project gives the thread its own
+     * workspace, as for any new thread. Without it, root runs on the project folder.
+     */
+    rootIsDefault: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     type: Schema.Literal("existing_worktree"),

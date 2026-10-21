@@ -61,7 +61,11 @@ import * as ThreadManagement from "./ThreadManagementService.ts";
 import * as WorkspaceAttachments from "./WorkspaceAttachments.ts";
 
 export type ThreadLaunchWorkspaceStrategy =
-  | { readonly type: "root"; readonly branch?: string | undefined }
+  | {
+      readonly type: "root";
+      readonly branch?: string | undefined;
+      readonly rootIsDefault?: boolean | undefined;
+    }
   | {
       readonly type: "existing_worktree";
       readonly worktreePath: string;

@@ -19,6 +19,8 @@ import {
   webhookDraftErrors,
   webhookDraftOf,
   webhookScheduleOf,
+  workspaceChoiceOf,
+  workspaceStrategyFor,
   type GroupDraftFields,
   type ProjectChoice,
 } from "./scheduledTasks.logic";
@@ -193,6 +195,19 @@ describe("planGroupSave", () => {
       });
     expect(plan(true).upserts[0]?.input.threadId).toBe("thread-1");
     expect(plan(false).upserts[0]?.input.threadId).toBeNull();
+  });
+});
+
+describe("workspace choice", () => {
+  it("shows an agent's default workspace as fresh and drops the default when checkout is chosen", () => {
+    const agentDefault = { type: "root", rootIsDefault: true } as const;
+    expect(workspaceChoiceOf(agentDefault)).toBe("fresh");
+    expect(workspaceStrategyFor("fresh", agentDefault)).toEqual(agentDefault);
+    expect(workspaceStrategyFor("checkout", agentDefault)).toEqual({
+      type: "root",
+      rootIsDefault: false,
+    });
+    expect(workspaceChoiceOf({ type: "root" })).toBe("checkout");
   });
 });
 

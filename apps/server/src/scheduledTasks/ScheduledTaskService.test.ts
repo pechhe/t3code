@@ -4,6 +4,7 @@ import * as NodeUtil from "node:util";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
+  type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   ProjectId,
   ProviderInstanceId,
   ScheduledTaskError,
@@ -404,4 +405,50 @@ it.effect("thread cleanup notifies subscribers and a finishing run cannot recrea
       assert.lengthOf((yield* service.list()).tasks, 0);
     }).pipe(Effect.provide(layer));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+const layerWithoutLaunch = ScheduledTaskService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+      Layer.mock(ThreadManagementService.ThreadManagementService)({}),
+      Layer.mock(SecretRequests.SecretRequests)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        isScratchProject: () => Effect.succeed(false),
+      }),
+      NodeCrypto.layer,
+      Scheduler.layer,
+    ),
+  ),
+);
+
+it.effect("saving a plain root over a default root keeps the default unless it is turned off", () =>
+  Effect.gen(function* () {
+    const service = yield* ScheduledTaskService.ScheduledTaskService;
+    const save = (workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy) =>
+      service
+        .upsert({
+          id: ScheduledTaskId.make("task:default-root"),
+          title: "Nightly audit",
+          prompt: "Audit",
+          enabled: true,
+          schedule: { type: "interval", everyMs: 60_000 },
+          projectId: ProjectId.make("project:test"),
+          workspaceStrategy,
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          runtimeMode: "full-access",
+          interactionMode: "default",
+        })
+        .pipe(Effect.map(({ task }) => task.workspaceStrategy));
+    const defaultRoot = { type: "root", rootIsDefault: true } as const;
+    assert.deepEqual(yield* save(defaultRoot), defaultRoot);
+    // A client that does not know `rootIsDefault` (mobile) saves the root it displayed.
+    assert.deepEqual(yield* save({ type: "root" }), defaultRoot);
+    assert.deepEqual(yield* save({ type: "root", rootIsDefault: false }), {
+      type: "root",
+      rootIsDefault: false,
+    });
+    assert.deepEqual(yield* save({ type: "root" }), { type: "root" });
+  }).pipe(Effect.provide(layerWithoutLaunch.pipe(Layer.provide(SqlitePersistence.layerMemory)))),
 );

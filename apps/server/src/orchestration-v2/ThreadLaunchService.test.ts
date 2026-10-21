@@ -706,6 +706,80 @@ it.effect("runs a scheduled Build item task in that item's SlipJay workspace", (
   }).pipe(Effect.provide(scheduled.layer));
 });
 
+it.effect.each(["slipjay", "git", "scratch"] as const)(
+  "starts an unbound scheduled run in a %s project where a new thread does, with no main branch",
+  (kind) => {
+    const folder = "/scratch/folder";
+    const harness = makeHarness({
+      slipjay: kind === "slipjay",
+      ...(kind === "scratch"
+        ? {
+            managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+              namedProjectsRoot: "/projects",
+              isScratchProject: (id) => Effect.succeed(id === projectId),
+              folderForThread: () => Effect.succeed(Option.some(folder)),
+            }),
+          }
+        : {}),
+    });
+    const layerScheduledTasks = ScheduledTasks.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          harness.layer,
+          NodeCrypto.layer,
+          Scheduler.layer,
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        ),
+      ),
+    );
+    return Effect.gen(function* () {
+      const tasks = yield* ScheduledTasks.ScheduledTaskService;
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("scheduled-task:unbound-default"),
+        title: "Agent audit",
+        prompt: "Audit the project.",
+        enabled: false,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId,
+        threadId: null,
+        // What schedule_task stores for an unbound task.
+        workspaceStrategy: { type: "root", rootIsDefault: true },
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "agent",
+        creationSource: "mcp",
+      });
+      const result = yield* tasks.runNow({ id: task.id });
+      assert.equal(result.task.lastRunStatus, "succeeded");
+      const direct = yield* launches.launch(
+        launchInput({ command: "command:unbound-default:direct", thread: "thread:direct" }),
+      );
+      const worktreeOf = (threadId: ThreadId) =>
+        threads.getThreadProjection(threadId).pipe(Effect.map(({ thread }) => thread.worktreePath));
+      if (kind === "slipjay") {
+        for (const threadId of [result.threadId!, direct.threadId]) {
+          yield* waitForThreadProjection(threads, threadId, () =>
+            worktreeOf(threadId).pipe(Effect.map((path) => path !== null)),
+          );
+        }
+      }
+      assert.deepEqual(
+        [yield* worktreeOf(result.threadId!), yield* worktreeOf(direct.threadId)],
+        kind === "slipjay"
+          ? ["/slipjay/workspaces/build-the-feature", "/slipjay/workspaces/build-the-feature"]
+          : kind === "scratch"
+            ? [folder, folder]
+            : [null, null],
+      );
+      assert.isEmpty(harness.createWorktree.mock.calls);
+    }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
+  },
+);
+
 it.effect(
   "returns no dispatched thread when sending an automation to a missing thread fails",
   () => {

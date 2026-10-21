@@ -394,9 +394,8 @@ function errorMessage(error: unknown): string {
 function scheduledTaskWorkspaceStrategy(
   boundToThread: boolean,
 ): ScheduledTask["workspaceStrategy"] {
-  return boundToThread
-    ? { type: "root" }
-    : { type: "worktree", baseRef: "main", startFromOrigin: true };
+  // An unbound run starts where a new thread does, so it needs no branch to exist.
+  return boundToThread ? { type: "root" } : { type: "root", rootIsDefault: true };
 }
 
 function scheduledTaskSummary(task: ScheduledTask, mayRun: boolean): OrchestratorMcpScheduledTask {

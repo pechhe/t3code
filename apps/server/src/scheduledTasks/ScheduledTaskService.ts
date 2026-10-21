@@ -920,6 +920,9 @@ export const layer = Layer.effect(
                       runtimeMode: active.runtimeMode,
                       interactionMode: active.interactionMode,
                       workspaceStrategy: active.workspaceStrategy,
+                      rootIsDefault:
+                        active.workspaceStrategy.type === "root" &&
+                        active.workspaceStrategy.rootIsDefault === true,
                       initialMessage: {
                         messageId,
                         scheduledTaskId: active.id,
@@ -1234,10 +1237,18 @@ export const layer = Layer.effect(
           : { token: null, secret: null, secretChanged: true };
       // A Build item stays in the strategy so each run is refused, as any launch is, instead of
       // quietly starting a plain Scratch thread.
-      const workspaceStrategy: ScheduledTask["workspaceStrategy"] =
-        input.workspaceStrategy.type === "worktree" &&
-        input.workspaceStrategy.buildItem === undefined &&
-        (yield* managedFolders.isScratchProject(input.projectId))
+      // A client that predates `rootIsDefault` (mobile) saves a default task's "checkout" as a
+      // plain root; only an explicit `rootIsDefault: false` leaves the default.
+      const keepsDefaultRoot =
+        input.workspaceStrategy.type === "root" &&
+        input.workspaceStrategy.rootIsDefault === undefined &&
+        existingTask?.workspaceStrategy.type === "root" &&
+        existingTask.workspaceStrategy.rootIsDefault === true;
+      const workspaceStrategy: ScheduledTask["workspaceStrategy"] = keepsDefaultRoot
+        ? existingTask.workspaceStrategy
+        : input.workspaceStrategy.type === "worktree" &&
+            input.workspaceStrategy.buildItem === undefined &&
+            (yield* managedFolders.isScratchProject(input.projectId))
           ? { type: "root" }
           : input.workspaceStrategy;
       const scheduleUnchanged =
