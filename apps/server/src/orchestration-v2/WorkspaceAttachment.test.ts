@@ -496,39 +496,6 @@ it.layer(layerTest)("workspace attachments", (it) => {
     }),
   );
 
-  it.effect("binding a workspace settles the one a move left to prepare", () =>
-    Effect.gen(function* () {
-      const chat = yield* createThread("chat-bind");
-      const orchestrator = yield* Orchestrator.OrchestratorV2;
-      yield* orchestrator.dispatch({
-        type: "thread.project-move.record",
-        commandId: CommandId.make("command:move:chat-bind"),
-        threadId: chat,
-        change: {
-          action: "apply",
-          fromProjectId: ProjectId.make("project:chat-bind"),
-          projectId: ProjectId.make("project:api-bind"),
-          worktreePath: null,
-          branch: null,
-          workspaceIssue: null,
-          pendingWorkspace: true,
-        },
-      });
-      const projections = yield* ProjectionStore.ProjectionStoreV2;
-      assert.isTrue((yield* projections.getThread(chat)).projectMove?.pendingWorkspace);
-      yield* orchestrator.dispatch({
-        type: "thread.metadata.update",
-        commandId: CommandId.make("command:bind:chat-bind"),
-        threadId: chat,
-        branch: null,
-        worktreePath: "/workspaces/api-bind",
-      });
-      const bound = yield* projections.getThread(chat);
-      assert.equal(bound.worktreePath, "/workspaces/api-bind");
-      assert.isFalse(bound.projectMove?.pendingWorkspace);
-    }),
-  );
-
   it.effect("an ordinary fork does not take the source's attachments", () =>
     Effect.gen(function* () {
       const source = yield* createThread("fork-plain");

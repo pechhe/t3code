@@ -2276,7 +2276,11 @@ it.effect("prepares the project's workspace for a moved chat's next run", () =>
   Effect.gen(function* () {
     const harness = makeHarness({
       slipjay: true,
-      allocateWorkspace: allocateInTurn("/slipjay/workspaces/first", "/slipjay/workspaces/moved"),
+      allocateWorkspace: allocateInTurn(
+        "/slipjay/workspaces/first",
+        "/slipjay/workspaces/moved",
+        "/slipjay/workspaces/again",
+      ),
     });
     yield* Effect.gen(function* () {
       const launches = yield* ThreadLaunch.ThreadLaunchService;
@@ -2311,9 +2315,33 @@ it.effect("prepares the project's workspace for a moved chat's next run", () =>
       );
       assert.equal(harness.allocateWorkspace.mock.calls[1]?.[0].projectRoot, "/other-repo");
       const { thread } = yield* threads.getThreadProjection(run.threadId);
-      assert.isFalse(thread.projectMove?.pendingWorkspace);
       assert.isUndefined(thread.workspaceReplacedAt ?? undefined);
       assert.isFalse(yield* launches.prepareReleasedWorkspace(run));
+
+      // A cancelled preparation unbinds the checkout it made; the next run prepares again.
+      yield* threads.dispatch({
+        type: "thread.metadata.update",
+        commandId: CommandId.make("command:thread:launch:moved:cancel"),
+        threadId: run.threadId,
+        worktreePath: null,
+        branch: null,
+        expectedWorktreePath: "/slipjay/workspaces/moved",
+      });
+      assert.isTrue(
+        yield* launches.prepareReleasedWorkspace({
+          ...run,
+          commandId: CommandId.make("command:thread:launch:moved:again"),
+        }),
+      );
+      yield* waitUntil(() =>
+        threads
+          .getThreadProjection(run.threadId)
+          .pipe(
+            Effect.map(
+              (projection) => projection.thread.worktreePath === "/slipjay/workspaces/again",
+            ),
+          ),
+      );
     }).pipe(Effect.provide(harness.layer));
   }),
 );

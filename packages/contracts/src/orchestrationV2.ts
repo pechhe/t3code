@@ -525,8 +525,8 @@ export const OrchestrationV2ThreadProjectMove = Schema.Struct({
   fromWorkspaceIssue: Schema.NullOr(PositiveInt),
   /** The attachment in the target project that became the primary workspace. */
   promotedAttachment: Schema.NullOr(OrchestrationV2WorkspaceAttachment),
-  /** The project's default workspace is prepared when the chat's next turn starts, and it
-      has not been bound to one since. */
+  /** The chat runs in the project's default workspace, which a turn prepares whenever the
+      chat has none, including after a cancelled preparation. */
   pendingWorkspace: Schema.Boolean,
   /** Runs the thread had when it moved; Undo is refused once it has another. */
   runCount: NonNegativeInt,

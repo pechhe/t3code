@@ -29,6 +29,7 @@ interface Thread {
   readonly archivedAt?: string | null;
   readonly workspaceAttachments?: ReadonlyArray<unknown>;
   readonly projectMove?: unknown;
+  readonly agentTask?: unknown;
 }
 
 /** The move service over recording fakes: `thread` is what the chat looks like now. */
@@ -181,6 +182,22 @@ it.effect("refuses a chat that is not in No project", () =>
   }),
 );
 
+it.effect("refuses a delegated task, whose workspace its lead assigned", () =>
+  Effect.gen(function* () {
+    const fake = setup({
+      thread: { projectId: scratchId, worktreePath: "/scratch/chat", agentTask: {} },
+    });
+    const error = yield* fake
+      .run((service) => service.move({ commandId, threadId, projectId: targetId }))
+      .pipe(Effect.flip);
+    assert.equal(
+      error.message,
+      "A delegated task works where its lead assigned it, so it cannot move.",
+    );
+    assert.deepEqual(fake.dispatched, []);
+  }),
+);
+
 it.effect("a move that fails to record reports it and changes nothing else", () =>
   Effect.gen(function* () {
     const fake = setup({
@@ -228,10 +245,7 @@ it.effect("Undo moves the chat back, then its scheduled tasks", () =>
   Effect.gen(function* () {
     const fake = setup({ thread: moved });
     yield* fake.run((service) => service.undo({ commandId: CommandId.make("undo"), threadId }));
-    assert.deepEqual(fake.log, [
-      "dispatch:thread.project-move.record",
-      `schedules:${scratchId}`,
-    ]);
+    assert.deepEqual(fake.log, ["dispatch:thread.project-move.record", `schedules:${scratchId}`]);
   }),
 );
 

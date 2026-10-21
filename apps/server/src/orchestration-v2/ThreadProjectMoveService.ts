@@ -102,6 +102,11 @@ const make = Effect.gen(function* () {
     const replay = yield* threads.hasReceipt(input.commandId);
     if (!replay) {
       if (thread.archivedAt !== null) return yield* refuse("An archived chat cannot move.");
+      // A delegated task's workspace belongs to the work that assigned it.
+      if (thread.agentTask !== undefined)
+        return yield* refuse(
+          "A delegated task works where its lead assigned it, so it cannot move.",
+        );
       if (!(yield* folders.isScratchProject(thread.projectId)))
         return yield* refuse("Only a No project chat can move into a project.");
       if (yield* folders.isScratchProject(input.projectId))
@@ -142,8 +147,7 @@ const make = Effect.gen(function* () {
           branch: held?.branch ?? null,
           workspaceIssue: null,
           pendingWorkspace:
-            held === undefined &&
-            (yield* workspaces.resolve(project.workspaceRoot)) === "slipjay",
+            held === undefined && (yield* workspaces.resolve(project.workspaceRoot)) === "slipjay",
         },
       })
       .pipe(failed("Unable to move the chat"));

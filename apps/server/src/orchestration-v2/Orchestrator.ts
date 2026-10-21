@@ -2993,7 +2993,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const { change } = command;
     if (change.action === "apply") {
       if (change.fromProjectId !== thread.projectId)
-        return yield* refuse(`Thread ${thread.id} is no longer in project ${change.fromProjectId}.`);
+        return yield* refuse(
+          `Thread ${thread.id} is no longer in project ${change.fromProjectId}.`,
+        );
       if (change.projectId === thread.projectId)
         return yield* refuse(`Thread ${thread.id} is already in project ${change.projectId}.`);
       const promoted =
@@ -3722,10 +3724,6 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                       ? (thread.workspaceIssue ?? null)
                       : null),
                 }),
-            // Binding a workspace settles the one a project move left to prepare.
-            ...(command.worktreePath !== undefined && thread.projectMove?.pendingWorkspace
-              ? { projectMove: { ...thread.projectMove, pendingWorkspace: false } }
-              : {}),
             ...(command.keepSideChat === true ? { sideChat: false } : {}),
             ...(command.workflow === undefined ? {} : { workflow: command.workflow }),
             ...(command.workItem === undefined ? {} : { workItem: command.workItem }),
