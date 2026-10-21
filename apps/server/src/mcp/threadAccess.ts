@@ -163,10 +163,11 @@ export const readThread = Effect.fn("mcp.readThread")(function* <
   const targetId = yield* resolveThreadId(context, threadId);
   const shell = yield* context.threads.getThreadShell(targetId).pipe(Effect.mapError(unavailable));
   if (shell === null || shell.deletedAt !== null) {
-    return yield* new OrchestratorMcpFailure({
-      code: "thread_not_found",
-      message: "The thread was not found.",
-    });
+    return yield* OrchestrationMcp.threadNotFound(
+      context.threads,
+      targetId,
+      "The thread was not found.",
+    );
   }
   yield* assertExternalWorkOwner(context.scope, shell);
   const projection = yield* context.threads

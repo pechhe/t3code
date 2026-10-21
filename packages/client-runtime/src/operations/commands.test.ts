@@ -40,6 +40,7 @@ import {
   archiveThread,
   interruptThreadTurn,
   revertThreadCheckpoint,
+  resumeThreadQueue,
   startThreadTurn,
 } from "./commands.ts";
 
@@ -185,6 +186,28 @@ describe("V2 environment commands", () => {
           faviconPath: null,
           defaultThreadEnvMode: null,
         },
+      ]);
+    }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
+  it.effect("distinguishes sending a selected queued message from resuming queue order", () =>
+    Effect.gen(function* () {
+      const commands: OrchestrationV2Command[] = [];
+      const supervisor = yield* makeSupervisor({ commands, projects: [] });
+      const threadId = ThreadId.make("thread-1");
+      yield* resumeThreadQueue({
+        commandId: CommandId.make("send-selected"),
+        threadId,
+        runId: RunId.make("selected"),
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+      yield* resumeThreadQueue({
+        commandId: CommandId.make("resume-queue"),
+        threadId,
+      }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+
+      expect(commands).toEqual([
+        { type: "queued-run.start", commandId: "send-selected", threadId, runId: "selected" },
+        { type: "queue.resume", commandId: "resume-queue", threadId },
       ]);
     }).pipe(Effect.provide(layerTestCrypto)),
   );

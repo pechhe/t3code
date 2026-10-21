@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer";
 import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
+import { threadNotFound } from "./OrchestratorMcpService.ts";
 
 export class ThreadMetadataMcpService extends Context.Service<
   ThreadMetadataMcpService,
@@ -118,8 +119,7 @@ function metadataCommand(input: {
             ? null
             : {
                 kind: input.update.workflow.kind,
-                unattended:
-                  input.update.workflow.unattended ?? input.workflow?.unattended ?? false,
+                unattended: input.update.workflow.unattended ?? input.workflow?.unattended ?? false,
               },
       };
   }
@@ -194,7 +194,7 @@ const make = Effect.gen(function* () {
         ),
       );
     if (shell === null || shell.deletedAt !== null) {
-      return yield* failure("thread_not_found", `Thread ${threadId} was not found.`);
+      return yield* threadNotFound(threadManagement, threadId, `Thread ${threadId} was not found.`);
     }
     const target = yield* threadManagement
       .getProjectThreadRecords({ projectId: shell.projectId, threadId }, [])

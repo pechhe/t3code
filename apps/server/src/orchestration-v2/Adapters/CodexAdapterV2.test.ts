@@ -253,7 +253,12 @@ describe("CodexAdapterV2 auto-compaction", () => {
     const config = CodexAdapterV2.codexThreadRuntimeParams({
       mcpSession: undefined,
       autoCompactWindow: "300000",
-      runtimePolicy: { runtimeMode: "full-access", interactionMode: "default", cwd: null, compactAt: 180_000 },
+      runtimePolicy: {
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: null,
+        compactAt: 180_000,
+      },
     }).config;
     assert.equal(config.model_auto_compact_token_limit, 180_000);
     assert.equal(config.model_auto_compact_token_limit_scope, "total");
@@ -267,8 +272,20 @@ describe("CodexAdapterV2 auto-compaction", () => {
     const usage = (limit?: number) =>
       CodexAdapterV2.codexProviderTurnTokenUsage(
         {
-          total: { totalTokens: 1, inputTokens: 1, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
-          last: { totalTokens: 1, inputTokens: 1, cachedInputTokens: 0, outputTokens: 0, reasoningOutputTokens: 0 },
+          total: {
+            totalTokens: 1,
+            inputTokens: 1,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+          },
+          last: {
+            totalTokens: 1,
+            inputTokens: 1,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+          },
           modelContextWindow: 400_000,
         },
         "2026-08-29T00:00:00.000Z",
@@ -6433,6 +6450,35 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           harness.terminalEvents().map((event) => event.status),
           ["completed"],
         );
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    );
+
+    it.effect("keeps every path of a completed multi-file patch", () =>
+      Effect.gen(function* () {
+        const { harness } = yield* startApprovalTurn("file-change-multi-path", [
+          fileChange("started", nativeTurnId, "patch-a", [renameC, deleteE, addA]),
+          fileChange("completed", nativeTurnId, "patch-a", [renameC, deleteE, addA]),
+          turnCompleted(nativeTurnId),
+        ]);
+        yield* harness.firstTerminal;
+
+        const fileChanges = harness.events.flatMap((event) =>
+          event.type === "turn_item.updated" && event.turnItem.type === "file_change"
+            ? [event.turnItem]
+            : [],
+        );
+        assert.lengthOf(fileChanges, 1);
+        assert.equal(fileChanges[0]?.fileName, "/w/c.ts");
+        assert.deepEqual(fileChanges[0]?.changes, [
+          { operation: "update", path: "/w/d.ts", oldPath: "/w/c.ts" },
+          { operation: "delete", path: "/w/e.ts" },
+          { operation: "add", path: "/w/a.ts" },
+        ]);
       }).pipe(
         Effect.scoped,
         Effect.provide(
