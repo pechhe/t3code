@@ -483,3 +483,59 @@ it.effect("replaces every open card that rows stored under two casings left behi
     }),
   ),
 );
+
+it.effect("moves the threads of a duplicate card for the same candidate onto the kept card", () =>
+  withService(({ service, records, sent }) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const seed = (approvalId: string, repository: string, thread: typeof lead) =>
+        Effect.gen(function* () {
+          yield* sql`
+            INSERT INTO release_approvals (
+              approval_id, repository, candidate, base, summary_json, details, status,
+              answer_json, superseded_by, requested_at, updated_at
+            ) VALUES (
+              ${approvalId}, ${repository}, ${candidateA}, ${"c".repeat(40)},
+              '{"commits":1,"items":[],"migrations":[],"verification":{"status":"passed"},"coveredByEarlierApproval":false}',
+              '', 'pending', NULL, NULL, '2026-10-18T12:00:00.000Z', '2026-10-18T12:00:00.000Z'
+            )
+          `;
+          yield* sql`
+            INSERT INTO release_approval_requesters
+              (approval_id, thread_id, turn_item_id, run_id, node_id, requested_at)
+            VALUES (${approvalId}, ${thread.threadId}, ${`item-${approvalId}`}, ${thread.runId},
+              ${thread.nodeId}, '2026-10-18T12:00:00.000Z')
+          `;
+        });
+      yield* seed("release-approval:a", "pechhe/YardSmith", other);
+      yield* seed("release-approval:b", "pechhe/yardsmith", requester("third"));
+
+      const joined = yield* service.request(lead, ask(candidateA));
+      assert.isTrue(joined.joined);
+
+      const waiting = yield* sql<{ readonly threadId: string }>`
+        SELECT thread_id AS "threadId" FROM release_approval_requesters
+        WHERE approval_id = ${joined.requestId} ORDER BY thread_id
+      `;
+      assert.deepStrictEqual(
+        waiting.map((row) => row.threadId),
+        ["thread-lead", "thread-other", "thread-third"],
+      );
+
+      const replacedId =
+        joined.requestId === "release-approval:a" ? "release-approval:b" : "release-approval:a";
+      yield* service.answer({
+        approvalId: joined.requestId,
+        candidate: candidateA,
+        decision: "approved",
+      });
+      const answeredThreads = sent.map((message) => message.threadId).toSorted();
+      assert.deepStrictEqual(answeredThreads, ["thread-lead", "thread-other", "thread-third"]);
+      assert.isTrue(
+        records.some(
+          (record) => record.approvalId === replacedId && record.approvalStatus === "superseded",
+        ),
+      );
+    }),
+  ),
+);

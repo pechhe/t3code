@@ -330,6 +330,20 @@ const make = Effect.gen(function* () {
                   WHERE approval_id = ${open.approvalId}
                 `;
                 yield* addRequester(open.approvalId, now);
+                // A duplicate for this very candidate is replaced by the kept card, so its
+                // threads wait on that one instead of hearing nothing about their own.
+                for (const row of replaced) {
+                  if (row.candidate !== input.candidate) continue;
+                  for (const waiting of yield* requestersOf(row.approvalId)) {
+                    yield* sql`
+                      INSERT OR IGNORE INTO release_approval_requesters
+                        (approval_id, thread_id, turn_item_id, run_id, node_id, requested_at)
+                      VALUES (${open.approvalId}, ${waiting.threadId},
+                        ${cardItemId(open.approvalId, waiting.threadId)},
+                        ${waiting.runId}, ${waiting.nodeId}, ${now})
+                    `;
+                  }
+                }
               }),
             );
             yield* settleReplaced;
