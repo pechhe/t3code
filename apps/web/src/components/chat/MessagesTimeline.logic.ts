@@ -1137,7 +1137,11 @@ function deriveTurnFolds(input: {
       groupsByRunId.set(runId, group);
     }
     group.entries.push(entry);
-    group.ownRunIds.add(ownRunId);
+    // A resumed card carries the resuming run's id; it is never folded, so it
+    // must not reopen or recount the response it started in.
+    if (!timelineEntryIsSubagentCard(entry)) {
+      group.ownRunIds.add(ownRunId);
+    }
     if (entry.kind === "message") {
       if (input.terminalAssistantMessageIds.has(entry.message.id)) {
         group.terminalEntries.push(entry);

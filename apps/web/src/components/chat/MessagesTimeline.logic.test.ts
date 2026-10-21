@@ -4982,6 +4982,27 @@ describe("one request reads as one response", () => {
     ]);
   });
 
+  it("keeps a response folded and counted once when a later prompt resumes its subagent", () => {
+    const entries = [
+      message("prompt-a", "a", 0, "user"),
+      work("tools-a", "a", 1),
+      card("card-a", "b", 2, "node-a"),
+      message("reply-a", "a", 9, "assistant"),
+      message("prompt-b", "b", 20, "user"),
+      work("tools-b", "b", 21),
+    ];
+    const rows = deriveMessagesTimelineRows({
+      ...input,
+      timelineEntries: entries,
+      latestRun: { runId: RunId.make("b"), status: "running", startedAt: time(20), completedAt: null },
+      isWorking: true,
+    });
+    const fold = rows.find((row) => row.kind === "turn-fold");
+    expect(fold?.label).toBe("Worked for 9.0s");
+    expect(rows.map((row) => row.id)).not.toContain("tools-a");
+    expect(findSubagentCardRow(rows, "node-a")).toMatchObject({ rowId: "card-a" });
+  });
+
   it("folds nothing while the response is still running", () => {
     const rows = deriveMessagesTimelineRows({
       ...input,
