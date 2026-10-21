@@ -2527,6 +2527,7 @@ export default function Sidebar() {
         if (!targetThread) return false;
         event.preventDefault();
         event.stopPropagation();
+        playKeyClick("down");
         navigateToThread(scopeThreadRef(targetThread.environmentId, targetThread.id));
         return true;
       };
