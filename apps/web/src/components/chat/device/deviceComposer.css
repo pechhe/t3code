@@ -1299,6 +1299,61 @@
     0 0 12px color-mix(in oklch, var(--account-light) 40%, transparent);
 }
 
+/* Away is a latching key, not a cap: pressed, it stays sunk in its well and its moon glows
+   night blue, so the stance reads from across the room. */
+.device-key {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 24px;
+  margin-bottom: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: oklch(0.42 0.03 265);
+  background: linear-gradient(var(--metal-wash), var(--metal-wash)), var(--cap-bg);
+  box-shadow: var(--cap-shadow);
+  cursor: pointer;
+  transition:
+    transform 80ms ease,
+    box-shadow 80ms ease;
+}
+.device-key svg {
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  filter: var(--cap-glyph-shadow);
+}
+.device-key[aria-pressed="true"] {
+  color: oklch(0.86 0.09 250);
+  transform: translateY(2px);
+  box-shadow: var(--cap-pressed-shadow);
+}
+.device-key[aria-pressed="true"] svg {
+  fill: currentColor;
+  filter: drop-shadow(0 0 3px oklch(0.78 0.14 250 / 0.9))
+    drop-shadow(0 0 7px oklch(0.7 0.16 255 / 0.5));
+}
+.device-key:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: var(--cap-pressed-shadow);
+}
+.device-key:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+.device-key:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.device-unit__caption[data-night] {
+  color: oklch(0.55 0.13 255);
+  text-shadow:
+    var(--engrave-shadow),
+    0 0 6px oklch(0.75 0.14 250 / 0.35);
+}
+
 /* An empty composer leaves the cap at full brightness, just without the glow. */
 .send-dial:disabled {
   cursor: default;
@@ -1309,7 +1364,8 @@
   .device-slider__glow,
   .device-dial__knob::before,
   .device-dial__knob::after,
-  .device-switch__thumb {
+  .device-switch__thumb,
+  .device-key {
     transition: none;
   }
 }

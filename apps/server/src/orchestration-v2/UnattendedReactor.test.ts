@@ -262,6 +262,44 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     }),
   );
 
+  it.effect("waits while a background command the run started is still going", () =>
+    Effect.gen(function* () {
+      const { threadId, run } = yield* setup("background", true);
+      const now = yield* DateTime.now;
+      yield* (yield* EventSink.EventSinkV2).write({
+        events: [
+          {
+            id: EventId.make("event:background-command"),
+            type: "turn-item.updated",
+            threadId,
+            runId: run.id,
+            occurredAt: now,
+            payload: {
+              id: TurnItemId.make("turn-item:background-command"),
+              threadId,
+              runId: run.id,
+              nodeId: run.rootNodeId!,
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 1,
+              status: "running",
+              title: null,
+              startedAt: now,
+              completedAt: null,
+              updatedAt: now,
+              type: "command_execution",
+              input: "slipjay land",
+            },
+          },
+        ],
+      });
+      yield* (yield* UnattendedReactor.UnattendedReactor).handle(yield* finish(run));
+      assert.equal((yield* continuations(threadId)).length, 0);
+    }),
+  );
+
   it.effect("yields to a message already queued behind the run", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;

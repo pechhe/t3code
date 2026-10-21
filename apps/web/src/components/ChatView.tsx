@@ -407,6 +407,7 @@ import { useAgentOpenedPreviews } from "./preview/useAgentOpenedPreviews";
 import type { ComposerBannerStackItem } from "./chat/ComposerBannerStack";
 import { ThreadStatusLine } from "./chat/ThreadStatusLine";
 import { formatRelativeTimeLabel, formatRelativeTimeUntilLabel } from "../timestampFormat";
+import { ComposerAwayKey } from "./chat/ComposerAwayKey";
 import { ComposerSurface } from "./chat/ComposerSurface";
 import { resolveThreadSyncPhase } from "../threadSync";
 import {
@@ -5465,6 +5466,9 @@ export default function ChatView(props: ChatViewProps) {
                         branch: activeThreadBranch,
                         worktreePath: null,
                         createdAt: messageCreatedAt,
+                        ...(draftThread?.unattended
+                          ? { workflow: { kind: "solo" as const, unattended: true } }
+                          : {}),
                       },
                       prepareWorktree: {
                         projectCwd: activeProject.workspaceRoot,
@@ -5691,6 +5695,9 @@ export default function ChatView(props: ChatViewProps) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
+                      ...(draftThread?.unattended
+                        ? { workflow: { kind: "solo" as const, unattended: true } }
+                        : {}),
                     },
                   }
                 : {}),
@@ -6330,6 +6337,40 @@ export default function ChatView(props: ChatViewProps) {
         onChange={onEnvironmentChangeStable}
       />
     ) : null;
+  const awayOn = isServerThread
+    ? activeThreadShell?.workflow?.unattended === true
+    : draftThread?.unattended === true;
+  const toggleAway = () => {
+    if (!isServerThread) {
+      if (draftId) setDraftThreadContext(draftId, { unattended: !awayOn });
+      return;
+    }
+    if (!activeThread) return;
+    void updateThreadMetadata({
+      environmentId: activeThread.environmentId,
+      input: {
+        threadId: activeThread.id,
+        // The agent names its workflow later and keeps the stance; solo until it does.
+        workflow: { kind: activeThreadShell?.workflow?.kind ?? "solo", unattended: !awayOn },
+      },
+    }).then((result) => {
+      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+        const error = squashAtomCommandFailure(result);
+        toastManager.add({
+          type: "error",
+          title: "Failed to change Away",
+          description: error instanceof Error ? error.message : "An error occurred.",
+        });
+      }
+    });
+  };
+  const deviceAwayKey = (
+    <ComposerAwayKey
+      on={awayOn}
+      disabled={isServerThread ? !canOperateThread : !draftId}
+      onToggle={toggleAway}
+    />
+  );
   const queuedRunsControl =
     isServerThread && activeThread ? (
       <QueuedRunsControl
@@ -7147,6 +7188,7 @@ export default function ChatView(props: ChatViewProps) {
                               isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                               queuedRunsControl={queuedRunsControl}
                               deviceEnvironmentSwitch={deviceEnvironmentSwitch}
+                              deviceAwayKey={deviceAwayKey}
                               bannerItems={composerBannerItems}
                               resumeCompactionTokens={resumeCompactionTokens}
                               keepFullHistory={keepFullHistory}

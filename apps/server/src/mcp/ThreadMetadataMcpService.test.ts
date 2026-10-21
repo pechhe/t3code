@@ -76,3 +76,43 @@ it.effect("link_work_item hands a friendly ref to Build as written, and reports 
     expect(results.map((error) => error.code)).toEqual(["invalid_request", "invalid_request"]);
   }),
 );
+
+it.effect("set_workflow keeps the stance the user chose unless the agent sets it", () =>
+  Effect.gen(function* () {
+    const sent: Array<unknown> = [];
+    const setWorkflow = (workflow: { kind: "solo"; unattended?: boolean }) =>
+      Effect.gen(function* () {
+        const service = yield* ThreadMetadataMcp.ThreadMetadataMcpService;
+        yield* service.update(scope, { action: "set_workflow", workflow }).pipe(Effect.flip);
+      }).pipe(
+        Effect.provide(
+          ThreadMetadataMcp.layer.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.mock(ThreadManagement.ThreadManagementService)({
+                  getThreadShell: () =>
+                    Effect.succeed({ projectId: "project", deletedAt: null } as never),
+                  getProjectThreadRecords: () =>
+                    Effect.succeed({
+                      thread: { projectId: "project", workflow: { kind: "lead", unattended: true } },
+                    } as never),
+                  dispatch: (command) =>
+                    Effect.sync(() => sent.push(command)).pipe(
+                      Effect.flatMap(() => Effect.die("stop after capturing the command")),
+                    ),
+                } satisfies Partial<ThreadManagement.ThreadManagementService["Service"]>),
+                NodeCrypto.layer,
+              ).pipe(Layer.merge(Layer.mock(BuildWorkItems.BuildWorkItems)({}))),
+            ),
+          ),
+        ),
+        Effect.exit,
+      );
+    yield* setWorkflow({ kind: "solo" });
+    yield* setWorkflow({ kind: "solo", unattended: false });
+    expect(sent.map((command) => (command as { workflow: unknown }).workflow)).toEqual([
+      { kind: "solo", unattended: true },
+      { kind: "solo", unattended: false },
+    ]);
+  }),
+);

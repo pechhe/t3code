@@ -124,8 +124,10 @@ open.
 ### Unattended threads
 
 A thread's workflow chip (Lead, Shape, Solo or Chat) shows a moon when the thread runs
-unattended. Turn this on or off from the chip's menu, or let the agent set it when you tell it
-you are stepping away.
+unattended. Press the composer's Away key (the moon beside Fast) to turn it on or off, including
+before a new thread's first message. The chip's menu does the same for a thread that has started,
+and is the way to do it in a narrow window, which has no Away key. The agent can set it when you
+tell it you are stepping away; the agent never turns it off unless you ask.
 
 While a thread is unattended, T3 Code keeps it working without you:
 
@@ -133,7 +135,8 @@ While a thread is unattended, T3 Code keeps it working without you:
   for itself. Approval requests and questions that only offer fixed choices still wait for you.
 - When a turn finishes, T3 Code asks the agent to continue. It stops after three continuations
   in a row, or sooner once a turn ends without the agent doing any work. It also waits while the
-  thread is snoozed or settled, or while the agent's own tasks or watches will wake it.
+  thread is snoozed or settled, or while the agent's own tasks, background commands or watches
+  will wake it.
 
 Pressing stop ends the current turn as usual, and no continuation follows. Turning unattended
 off takes effect when the current turn ends.

@@ -680,6 +680,20 @@ it.effect("records its launcher's watch before the first message", () => {
   }).pipe(Effect.provide(harness.layer));
 });
 
+it.effect("starts a thread launched with Away on unattended", () => {
+  const harness = makeHarness({ runSetup: () => Effect.never });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch({
+      ...launchInput({ command: "command:away", thread: "thread:away", message: "Fix it" }),
+      workflow: { kind: "solo", unattended: true },
+    });
+    const shell = yield* threads.getThreadShell(launched.threadId);
+    assert.deepEqual(shell?.workflow, { kind: "solo", unattended: true });
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect("provisions independent launches concurrently instead of behind a global semaphore", () =>
   Effect.gen(function* () {
     const setupCount = yield* Ref.make(0);

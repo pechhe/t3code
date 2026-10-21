@@ -823,6 +823,28 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
   });
 
+  it("keeps Away on a draft through a bootstrap retry and a reload, until it is turned off", () => {
+    const store = useComposerDraftStore.getState();
+    store.setProjectDraftThreadId(projectRef, draftId, { threadId });
+    store.setDraftThreadContext(draftId, { unattended: true });
+    store.setLogicalProjectDraftThreadId(scopedProjectKey(projectRef), projectRef, draftId, {
+      threadId: ThreadId.make("thread-retry"),
+    });
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.unattended).toBe(true);
+
+    const merge = useComposerDraftStore.persist.getOptions().merge!;
+    const reloaded = merge(
+      JSON.parse(JSON.stringify(partializeComposerDraftStoreState(useComposerDraftStore.getState()))),
+      useComposerDraftStore.getInitialState(),
+    );
+    expect(Object.values(reloaded.draftThreadsByThreadKey).map((draft) => draft.unattended)).toEqual(
+      [true],
+    );
+
+    useComposerDraftStore.getState().setDraftThreadContext(draftId, { unattended: false });
+    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.unattended).toBeUndefined();
+  });
+
   it("clears only matching project draft mapping entries", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });

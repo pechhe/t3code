@@ -232,9 +232,9 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Unattended threads keep working without asking and questions get the away answer.
-- **Requirements:** thread keeps working after a completed run; questions are answered with the away answer whichever event arrives last; stance visible on the workflow chip.
-- **Integration points:** `UnattendedReactor`; pending-question/approval events; thread workflow metadata.
-- **Proof:** apps/server/src/orchestration-v2/UnattendedReactor.test.ts.
+- **Requirements:** thread keeps working after a completed run, but not while its own background work (commands, monitors, delegated tasks, watches) will wake it; questions are answered with the away answer whichever event arrives last; stance visible on the workflow chip and set by the device composer's Away key, including on a new thread through launch (narrow web and mobile composers have no Away key yet: the chip menu covers started threads); an agent's `set_workflow` keeps the stance unless it sets `unattended`.
+- **Integration points:** `UnattendedReactor` (uses `derivePendingBackgroundWork`); pending-question/approval events; thread workflow metadata; `ComposerAwayKey`, draft `unattended`, launch input `workflow`; MCP `ThreadMetadataMcpWorkflow`.
+- **Proof:** apps/server/src/orchestration-v2/UnattendedReactor.test.ts, ThreadLaunchService.test.ts (Away launch), apps/server/src/mcp/ThreadMetadataMcpService.test.ts (stance kept).
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent unattended mode.
 - **Decision:** `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's five-minute restart-loop window (#20306) adopted for restart continuations only; the shared fork/unattended continuation counter stays untimed (RestartContinuation.test.ts, UnattendedReactor tests). Earlier: `retain` (seed, 2026-10-19).

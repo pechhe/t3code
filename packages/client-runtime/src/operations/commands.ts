@@ -156,6 +156,8 @@ interface StartThreadBootstrap {
     readonly branch: string | null;
     readonly worktreePath: string | null;
     readonly createdAt: string;
+    /** Set when the person started the thread with Away on. */
+    readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow;
   };
   readonly prepareWorktree?: {
     readonly requireWorktree?: boolean;
@@ -730,6 +732,7 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
       runtimeMode: input.runtimeMode,
       interactionMode: input.interactionMode,
       workspaceStrategy,
+      ...(bootstrap?.workflow === undefined ? {} : { workflow: bootstrap.workflow }),
       initialMessage: {
         messageId: input.message.messageId,
         text: input.message.text,

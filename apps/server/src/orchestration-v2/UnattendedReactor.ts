@@ -9,6 +9,7 @@ import {
   type RuntimeRequestId,
   ThreadId,
 } from "@t3tools/contracts";
+import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
@@ -110,8 +111,12 @@ const make = Effect.gen(function* () {
     const messageId = MessageId.make(`${UNATTENDED_CONTINUATION_MESSAGE_PREFIX}${sourceRunId}`);
     const records = yield* projections.getThreadRecords(
       threadId,
-      ["runs", "subagents", "runtimeRequests", "messages"],
-      { messageIds: [messageId] },
+      ["runs", "subagents", "runtimeRequests", "messages", "providerThreads", "turnItems"],
+      {
+        messageIds: [messageId],
+        turnItemTypes: ["command_execution", "dynamic_tool", "subagent"],
+        turnItemStatuses: ["pending", "running", "waiting"],
+      },
     );
     const { thread, runs } = records;
     if (!isUnattendedTopLevel(thread, yield* DateTime.now)) return;
@@ -133,13 +138,21 @@ const make = Effect.gen(function* () {
       )
     )
       return;
-    // Delegated tasks and watches wake the thread themselves.
+    // Delegated tasks, watches and the provider's own background commands and monitors wake the
+    // thread themselves; a nudge then only makes the agent poll them.
     if (
       records.subagents.some(
         (task) => task.origin === "app_owned" && !SUBAGENT_DONE.has(task.status),
       ) ||
-      (thread.threadWatches?.length ?? 0) > 0 ||
-      (thread.pullRequests ?? []).some((link) => link.watch !== undefined)
+      derivePendingBackgroundWork({
+        latestRun: source,
+        runs,
+        providerThreads: records.providerThreads,
+        turnItems: records.turnItems,
+        activeProviderThreadId: thread.activeProviderThreadId,
+        pullRequests: thread.pullRequests,
+        threadWatches: thread.threadWatches,
+      }).length > 0
     )
       return;
     if (serverContinuationChainLength(runs, source) >= MAX_CONTINUATION_CHAIN) {

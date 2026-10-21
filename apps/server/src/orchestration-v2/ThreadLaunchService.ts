@@ -13,6 +13,7 @@ import {
   type OrchestrationV2CreationSource,
   type OrchestrationV2ProviderThreadNativeMetadata,
   type OrchestrationV2ThreadProjection,
+  type OrchestrationV2ThreadWorkflow,
   type ProviderDriverKind,
   type ProviderInteractionMode,
   ProjectId,
@@ -102,6 +103,8 @@ export interface ThreadLaunchInput {
   readonly initialMessage?: ThreadLaunchInitialMessage;
   /** A thread that watches the new one, from before its first message, so no finish is missed. */
   readonly watchedBy?: ThreadId;
+  /** Set before the first message, so an unattended thread answers its first question itself. */
+  readonly workflow?: OrchestrationV2ThreadWorkflow;
   readonly importedNativeThread?: {
     readonly ref: {
       readonly driver: ProviderDriverKind;
@@ -1169,6 +1172,17 @@ const make = Effect.gen(function* () {
               watching: true,
             })
             .pipe(Effect.mapError(mapError(input, "watch-thread", threadId)));
+        }
+
+        if (input.workflow !== undefined) {
+          yield* threads
+            .dispatch({
+              type: "thread.metadata.update",
+              commandId: CommandId.make(`${input.commandId}:workflow`),
+              threadId,
+              workflow: input.workflow,
+            })
+            .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         }
 
         // A launch whose first message is refused never runs, so its watch would wait forever.

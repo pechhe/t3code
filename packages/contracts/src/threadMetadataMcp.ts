@@ -82,6 +82,18 @@ export const ThreadMetadataMcpPullRequest = Schema.Struct({
 });
 export type ThreadMetadataMcpPullRequest = typeof ThreadMetadataMcpPullRequest.Type;
 
+/**
+ * The person owns the unattended stance through the composer's Away key, so an agent naming its
+ * workflow keeps the stance unless it sets `unattended` itself.
+ */
+export const ThreadMetadataMcpWorkflow = Schema.Struct({
+  kind: OrchestrationV2ThreadWorkflow.fields.kind,
+  unattended: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Set only when the user changes the stance in chat; omit to keep the current stance.",
+  }),
+});
+
 export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   threadId: Schema.optional(ThreadId).annotate({
     description: "Thread to update. Omit to update the calling thread.",
@@ -91,9 +103,9 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   pullRequest: Schema.optional(ThreadMetadataMcpPullRequest).annotate({
     description: "Pull request to link. Required only when action is link_pull_request.",
   }),
-  workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)).annotate({
+  workflow: Schema.optional(Schema.NullOr(ThreadMetadataMcpWorkflow)).annotate({
     description:
-      "Governing workflow (kind: lead, shape, solo, chat or worker) and whether it runs unattended. Required only when action is set_workflow; null clears it.",
+      "Governing workflow (kind: lead, shape, solo, chat or worker) and whether it runs unattended. Required only when action is set_workflow; null clears it. Omitting unattended keeps the current stance.",
   }),
   workItem: Schema.optional(TrimmedNonEmptyString).annotate({
     description:
