@@ -4,9 +4,11 @@ import type * as NodeWorkerThreads from "node:worker_threads";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
+import type * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Logger from "effect/Logger";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 import { vi } from "vite-plus/test";
@@ -406,7 +408,10 @@ const withCheckpointClient = <A, E>(
     sql: SqlClient.SqlClient,
     filename: string,
   ) => Effect.Effect<A, E, SqlClient.SqlClient | FileSystem.FileSystem | Scope.Scope>,
-  options: { readonly readerWorker?: boolean } = {},
+  options: {
+    readonly readerWorker?: boolean;
+    readonly checkpointGateBound?: Duration.Input;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -507,6 +512,100 @@ it.effect("checkpoints the WAL on the worker instead of the writer", () =>
       assert.isAtMost(yield* walSize, limit);
     }),
   ),
+);
+
+const ceilingFrames = 10_000;
+
+const walFrames = (sql: SqlClient.SqlClient) =>
+  Effect.map(
+    sql<{ readonly log: number; readonly checkpointed: number }>`PRAGMA wal_checkpoint(NOOP)`,
+    (rows) => rows[0]!,
+  );
+
+// About 12,000 frames, past the 10,000 where writes wait for the checkpoint.
+const fillWalPastCeiling = (sql: SqlClient.SqlClient) =>
+  sql`
+    WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 12000)
+    INSERT INTO pages(payload) SELECT randomblob(4000) FROM n
+  `;
+
+// Collects the gate's records, and resolves `first` when one arrives.
+const collectGateRecords = Effect.gen(function* () {
+  const records: Array<Record<string, unknown>> = [];
+  const first = yield* Deferred.make<void>();
+  const logger = Logger.make<unknown, void>(({ message }) => {
+    const [text, attributes] = Array.isArray(message) ? message : [];
+    if (text !== "SQLite checkpoint gate held writes") return;
+    records.push(attributes as Record<string, unknown>);
+    Deferred.doneUnsafe(first, Effect.void);
+  });
+  return { records, first, layer: Logger.layer([logger], { mergeWithExisting: false }) };
+});
+
+it.live("lets writes through a checkpoint a pinned reader keeps from finishing", () =>
+  Effect.gen(function* () {
+    const gate = yield* collectGateRecords;
+    yield* withCheckpointClient(
+      (sql, filename) =>
+        Effect.gen(function* () {
+          yield* sql`CREATE TABLE pages(payload BLOB)`;
+          yield* sql`CREATE TABLE pings(n INTEGER)`;
+          yield* sql`INSERT INTO pages(payload) VALUES (randomblob(4000))`;
+          // An independent connection holding its snapshot, as a long read does.
+          const pin = new NodeSqlite.DatabaseSync(filename);
+          yield* Effect.addFinalizer(() => Effect.sync(() => pin.isOpen && pin.close()));
+          pin.exec("BEGIN");
+          pin.prepare("SELECT count(*) FROM pages").get();
+          yield* fillWalPastCeiling(sql);
+          yield* checkpointWorkerReply(startedWorkers.at(-1)!);
+          const stuck = yield* walFrames(sql);
+          assert.isAtLeast(stuck.log, ceilingFrames);
+          assert.isBelow(stuck.checkpointed, stuck.log);
+
+          // Waits out the 20 ms bound instead of the pin, which is still open below.
+          yield* sql`INSERT INTO pings VALUES (1)`;
+          assert.isTrue(pin.isTransaction);
+          assert.deepEqual(gate.records, []);
+
+          pin.exec("COMMIT");
+          yield* Deferred.await(gate.first);
+          assert.lengthOf(gate.records, 1);
+          const record = gate.records[0]!;
+          assert.strictEqual(record.outcome, "cleared");
+          assert.include(String(record.reasons).split(","), "wal-ceiling");
+          assert.include(String(record.reasons).split(","), "checkpoint-blocked");
+          assert.include(String(record.reasons).split(","), "checkpoint-pinned");
+          assert.isAtLeast(Number(record.startLog), ceilingFrames);
+          assert.isAtLeast(Number(record.peakLog), ceilingFrames);
+          assert.isBelow(Number(record.endLog), ceilingFrames);
+          assert.isAtLeast(Number(record.writersHeld), 1);
+          assert.isAtLeast(Number(record.writesWhileReleased), 1);
+          assert.isDefined(record.releasedAfterMs);
+          assert.isBelow(Number(record.releasedAfterMs), Number(record.durationMs));
+
+          // The worker emptied the WAL, so the next write is not held.
+          assert.isBelow((yield* walFrames(sql)).log, ceilingFrames);
+          yield* sql`INSERT INTO pings VALUES (2)`;
+          assert.lengthOf(gate.records, 1);
+        }),
+      { checkpointGateBound: "20 millis" },
+    ).pipe(Effect.provide(gate.layer));
+  }),
+);
+
+it.effect("records no gate episode when the checkpoint finishes without holding a write", () =>
+  Effect.gen(function* () {
+    const gate = yield* collectGateRecords;
+    yield* withCheckpointClient((sql) =>
+      Effect.gen(function* () {
+        yield* sql`CREATE TABLE pages(payload BLOB)`;
+        yield* fillWalPastCeiling(sql);
+        yield* checkpointWorkerReply(startedWorkers.at(-1)!);
+        assert.isBelow((yield* walFrames(sql)).log, ceilingFrames);
+        assert.deepEqual(gate.records, []);
+      }),
+    ).pipe(Effect.provide(gate.layer));
+  }),
 );
 
 it.effect("hands checkpoints back to the writer when the worker stops", () =>

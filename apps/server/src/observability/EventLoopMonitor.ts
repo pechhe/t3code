@@ -16,6 +16,7 @@ import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ServerConfig from "../config.ts";
+import * as HostResources from "../resourceTelemetry/HostResources.ts";
 import * as Metrics from "./Metrics.ts";
 
 // Node's delay histogram wakes a native timer every RESOLUTION_MS and records the
@@ -111,12 +112,16 @@ const makeNodeSampler = Effect.gen(function* () {
   });
 });
 
-export const stallMs = ({ delayMaxNs, activeMs }: EventLoopReadings) => {
+/**
+ * A stall is delay the loop spent running JavaScript. A freeze is delay it spent idle in
+ * poll: the computer asleep (libuv's clock keeps running through sleep on macOS and
+ * Windows), the process suspended by the OS, or starved of CPU and memory. They are
+ * recorded apart so a freeze never inflates the stall count.
+ */
+export const loopDelay = ({ delayMaxNs, activeMs }: EventLoopReadings) => {
   const delayMs = Math.round(delayMaxNs / 1e6) - RESOLUTION_MS;
-  // libuv's clock keeps running while the system sleeps on macOS and Windows, so a
-  // sleep also reads as delay, but the loop spent it idle in poll.
-  if (delayMs <= STALL_THRESHOLD_MS || activeMs < delayMs) return undefined;
-  return delayMs;
+  if (delayMs <= STALL_THRESHOLD_MS) return undefined;
+  return { kind: activeMs < delayMs ? ("freeze" as const) : ("stall" as const), delayMs };
 };
 
 // Untraced: it runs inside every 30-second tick, which already has the monitor's own span.
@@ -141,14 +146,17 @@ export interface StallLogOptions {
   readonly maxBytes: number;
 }
 
-const layerWith = (
+/** The monitor over any sampler, stall log and memory read, so tests can drive it. */
+export const layerWith = (
   makeSampler: Effect.Effect<Effect.Effect<EventLoopReadings>, never, Scope.Scope>,
   stallLog: StallLogOptions,
+  readMemory: Effect.Effect<HostResources.HostMemory>,
 ) =>
   Layer.effect(
     EventLoopMonitor,
     Effect.gen(function* () {
       const sample = yield* makeSampler;
+      const scope = yield* Effect.scope;
       // Clients sample on connect as well as the timer, and the sampler resets shared state.
       const sampling = yield* Semaphore.make(1);
       const warmedUp = yield* Ref.make(false);
@@ -170,20 +178,23 @@ const layerWith = (
           }).pipe(Effect.as(undefined)),
         ),
       );
-      const tick = Effect.gen(function* () {
+      // Returns the record of a stall or freeze for the caller to run: the host reads behind it
+      // spawn processes on macOS, which a client reconnecting after a freeze must not wait on.
+      const detect = Effect.gen(function* () {
         const readings = yield* sample;
         yield* recordGauges(readings);
-        const delayMaxMs = stallMs(readings);
-        if (delayMaxMs === undefined) return;
-        const { utilization, usage, rssBytes, loadAverage, cpuCount } = readings;
+        const delay = loopDelay(readings);
+        if (delay === undefined) return undefined;
+        const { kind, delayMs } = delay;
+        const { utilization, usage, rssBytes, loadAverage, cpuCount, activeMs } = readings;
         const now = yield* DateTime.now;
         const detectedAt = DateTime.formatIso(now);
-        if (delayMaxMs >= NOTICEABLE_STALL_MS) {
+        if (kind === "stall" && delayMs >= NOTICEABLE_STALL_MS) {
           yield* Ref.set(latestNoticeableStall, {
             detectedAtMs: DateTime.toEpochMillis(now),
             stall: {
               detectedAt,
-              durationMs: delayMaxMs,
+              durationMs: delayMs,
               ...(loadAverage === undefined
                 ? {}
                 : { loadAverage: Math.round(loadAverage * 10) / 10 }),
@@ -191,30 +202,52 @@ const layerWith = (
             },
           });
         }
-        const attributes = {
-          delayMaxMs,
-          utilization: Math.round(utilization * 100) / 100,
-          cpuUserMs: Math.round(usage.userCPUTime / 1000),
-          cpuSystemMs: Math.round(usage.systemCPUTime / 1000),
-          majorPageFaults: usage.majorPageFault,
-          minorPageFaults: usage.minorPageFault,
-          involuntaryContextSwitches: usage.involuntaryContextSwitches,
-          rssMb: Math.round(rssBytes / 1024 / 1024),
-        };
-        yield* Effect.logWarning(`event loop stalled for ${delayMaxMs} ms`).pipe(
-          Effect.withSpan("server.eventLoop.stall", { root: true, level: "Warn", attributes }),
-        );
-        if (stallSink !== undefined) {
-          yield* encodeStallLine({ time: detectedAt, ...attributes }).pipe(
-            Effect.flatMap((line) => Effect.try(() => stallSink.write(`${line}\n`))),
-            Effect.catch(() =>
-              Effect.logWarning("event loop stall log write failed", {
-                filePath: stallLog.filePath,
-              }),
-            ),
+        return Effect.gen(function* () {
+          const memory = yield* readMemory;
+          const attributes = {
+            // The health routine counts stall rows by delayMaxMs, so a freeze must not carry it.
+            ...(kind === "stall" ? { delayMaxMs: delayMs } : { freezeMs: delayMs }),
+            activeMs: Math.round(activeMs),
+            utilization: Math.round(utilization * 100) / 100,
+            cpuUserMs: Math.round(usage.userCPUTime / 1000),
+            cpuSystemMs: Math.round(usage.systemCPUTime / 1000),
+            majorPageFaults: usage.majorPageFault,
+            minorPageFaults: usage.minorPageFault,
+            involuntaryContextSwitches: usage.involuntaryContextSwitches,
+            rssMb: Math.round(rssBytes / 1024 / 1024),
+            ...(loadAverage === undefined
+              ? {}
+              : { loadAverage: Math.round(loadAverage * 10) / 10 }),
+            cpuCount,
+            availableMemoryMb: Math.round(memory.availableBytes / 1024 / 1024),
+            totalMemoryMb: Math.round(memory.totalBytes / 1024 / 1024),
+            ...(memory.swapUsedBytes === null
+              ? {}
+              : { swapUsedMb: Math.round(memory.swapUsedBytes / 1024 / 1024) }),
+            ...(memory.swapTotalBytes === null
+              ? {}
+              : { swapTotalMb: Math.round(memory.swapTotalBytes / 1024 / 1024) }),
+          };
+          yield* Effect.logWarning(
+            kind === "stall"
+              ? `event loop stalled for ${delayMs} ms`
+              : `event loop was suspended or starved for ${delayMs} ms`,
+          ).pipe(
+            Effect.withSpan(`server.eventLoop.${kind}`, { root: true, level: "Warn", attributes }),
           );
-        }
+          if (stallSink !== undefined) {
+            yield* encodeStallLine({ time: detectedAt, kind, ...attributes }).pipe(
+              Effect.flatMap((line) => Effect.try(() => stallSink.write(`${line}\n`))),
+              Effect.catch(() =>
+                Effect.logWarning("event loop stall log write failed", {
+                  filePath: stallLog.filePath,
+                }),
+              ),
+            );
+          }
+        });
       }).pipe(sampling.withPermits(1));
+      const tick = detect.pipe(Effect.flatMap((report) => report ?? Effect.void));
       const wait = Effect.sleep(SAMPLE_INTERVAL);
       // The layer builds before the rest of the server, so the first sample covers
       // startup work such as migrations and projection bootstrap. That can block the
@@ -229,7 +262,10 @@ const layerWith = (
 
       return EventLoopMonitor.of({
         latestNoticeableStall: Effect.gen(function* () {
-          if (yield* Ref.get(warmedUp)) yield* tick;
+          if (yield* Ref.get(warmedUp)) {
+            const report = yield* detect;
+            if (report !== undefined) yield* report.pipe(Effect.forkIn(scope));
+          }
           const latest = yield* Ref.get(latestNoticeableStall);
           if (latest === undefined) return undefined;
           const ageMs = DateTime.toEpochMillis(yield* DateTime.now) - latest.detectedAtMs;
@@ -243,9 +279,14 @@ export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const { serverTracePath } = yield* ServerConfig.ServerConfig;
     const path = yield* Path.Path;
-    return layerWith(makeNodeSampler, {
-      filePath: path.join(path.dirname(serverTracePath), "event-loop-stalls.ndjson"),
-      maxBytes: STALL_LOG_MAX_BYTES,
-    });
+    const context = yield* Effect.context<HostResources.HostMemoryServices>();
+    return layerWith(
+      makeNodeSampler,
+      {
+        filePath: path.join(path.dirname(serverTracePath), "event-loop-stalls.ndjson"),
+        maxBytes: STALL_LOG_MAX_BYTES,
+      },
+      HostResources.readHostMemory().pipe(Effect.provideContext(context)),
+    );
   }),
 );

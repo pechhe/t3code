@@ -38,10 +38,86 @@ function darwinAvailableMemory(output: string): number | null {
   return Number.isSafeInteger(available) && Number(pageSize) > 0 ? available : null;
 }
 
-const make = Effect.fn("makeHostResources")(function* () {
+export interface HostMemory {
+  readonly totalBytes: number;
+  readonly availableBytes: number;
+  /** Null where the platform reports no swap (Windows) or the read failed. */
+  readonly swapUsedBytes: number | null;
+  readonly swapTotalBytes: number | null;
+}
+
+const UNITS: Record<string, number> = { K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 };
+
+/** Parses `sysctl -n vm.swapusage`: `total = 10240.00M  used = 9876.12M  free = 363.88M  (encrypted)`. */
+export function darwinSwap(output: string) {
+  const match = /total = ([\d.]+)([KMGT])\s+used = ([\d.]+)([KMGT])/.exec(output);
+  if (match === null) return null;
+  const total = Number(match[1]) * UNITS[match[2]!]!;
+  const used = Number(match[3]) * UNITS[match[4]!]!;
+  return Number.isFinite(total) && Number.isFinite(used)
+    ? { totalBytes: Math.round(total), usedBytes: Math.round(used) }
+    : null;
+}
+
+/**
+ * Available memory is what the OS can hand out without paging; swap shows whether it already
+ * is. Needs a subprocess on macOS, so it is for samples taken for a reason, not for a timer.
+ */
+export const readHostMemory = Effect.fn("HostResources.readMemory")(function* (options?: {
+  /** Skip the macOS swap subprocess for callers that only need available memory. */
+  readonly swap?: boolean;
+}) {
   const fs = yield* FileSystem.FileSystem;
   const platform = yield* HostProcess.Platform;
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  const totalBytes = NodeOS.totalmem();
+  // On Windows libuv returns GlobalMemoryStatusEx.ullAvailPhys, including standby memory.
+  let availableBytes = NodeOS.freemem();
+  let swap: { readonly usedBytes: number; readonly totalBytes: number } | null = null;
+  if (platform === "linux") {
+    const meminfo = yield* fs.readFileString("/proc/meminfo").pipe(Effect.orElseSucceed(() => ""));
+    const field = (name: string) => {
+      const value = new RegExp(`^${name}:\\s+(\\d+)\\s+kB$`, "m").exec(meminfo)?.[1];
+      return value === undefined ? null : Number(value) * 1024;
+    };
+    availableBytes = field("MemAvailable") ?? availableBytes;
+    const swapTotal = field("SwapTotal");
+    const swapFree = field("SwapFree");
+    if (swapTotal !== null && swapFree !== null) {
+      swap = { totalBytes: swapTotal, usedBytes: swapTotal - swapFree };
+    }
+  } else if (platform === "darwin") {
+    const run = (executable: string, args: ReadonlyArray<string>) =>
+      spawner
+        .string(ChildProcess.make(executable, args, { stdin: "ignore", stderr: "ignore" }))
+        .pipe(
+          Effect.timeout("1 second"),
+          Effect.orElseSucceed(() => ""),
+        );
+    const [vmStat, swapUsage] = yield* Effect.all(
+      [
+        run("/usr/bin/vm_stat", []),
+        options?.swap === false
+          ? Effect.succeed("")
+          : run("/usr/sbin/sysctl", ["-n", "vm.swapusage"]),
+      ],
+      { concurrency: "unbounded" },
+    );
+    availableBytes = darwinAvailableMemory(vmStat) ?? availableBytes;
+    swap = darwinSwap(swapUsage);
+  }
+  return {
+    totalBytes,
+    availableBytes: Math.min(totalBytes, Math.max(0, availableBytes)),
+    swapUsedBytes: swap?.usedBytes ?? null,
+    swapTotalBytes: swap?.totalBytes ?? null,
+  } satisfies HostMemory;
+});
+
+export type HostMemoryServices = Effect.Services<ReturnType<typeof readHostMemory>>;
+
+const make = Effect.fn("makeHostResources")(function* () {
+  const context = yield* Effect.context<HostMemoryServices>();
 
   const sample = Effect.fn("HostResources.sample")(function* () {
     const previousCpu = readCpu();
@@ -53,30 +129,13 @@ const make = Effect.fn("makeHostResources")(function* () {
       previousCpu.count === cpu.count && totalDelta > 0 && idleDelta >= 0
         ? Math.min(1, Math.max(0, 1 - idleDelta / totalDelta))
         : null;
-    const totalMemoryBytes = NodeOS.totalmem();
-    // On Windows libuv returns GlobalMemoryStatusEx.ullAvailPhys, including standby memory.
-    let availableMemoryBytes = NodeOS.freemem();
-    if (platform === "linux") {
-      const meminfo = yield* fs
-        .readFileString("/proc/meminfo")
-        .pipe(Effect.orElseSucceed(() => ""));
-      const available = /^MemAvailable:\s+(\d+)\s+kB$/m.exec(meminfo)?.[1];
-      if (available) availableMemoryBytes = Number(available) * 1024;
-    } else if (platform === "darwin") {
-      const output = yield* spawner
-        .string(ChildProcess.make("/usr/bin/vm_stat", [], { stdin: "ignore", stderr: "ignore" }))
-        .pipe(
-          Effect.timeout("1 second"),
-          Effect.orElseSucceed(() => ""),
-        );
-      availableMemoryBytes = darwinAvailableMemory(output) ?? availableMemoryBytes;
-    }
+    const memory = yield* readHostMemory({ swap: false }).pipe(Effect.provideContext(context));
     return {
       sampledAt: DateTime.toEpochMillis(yield* DateTime.now),
       cpuUtilization,
       cpuCount: cpu.count,
-      availableMemoryBytes: Math.min(totalMemoryBytes, Math.max(0, availableMemoryBytes)),
-      totalMemoryBytes,
+      availableMemoryBytes: memory.availableBytes,
+      totalMemoryBytes: memory.totalBytes,
     };
   });
 

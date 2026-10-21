@@ -68,6 +68,14 @@ span spent waiting for that connection, behind other SQL. That wait does not blo
 so subtract it before you blame a slow span on the query. Statements inside a transaction use its
 connection and do not carry these attributes.
 
+A write waits when the checkpoint worker has not yet emptied a WAL at its 10,000-frame ceiling, and
+that wait counts in `db.lock_wait_ms`. It lasts at most 1 s while the checkpoint stands still, as it
+does behind a reader that keeps its snapshot open; the gate then lets writes through until the
+checkpoint passes where it stood (or the WAL restarts), and holds again beyond 250,000 frames.
+Each stretch that held a write is recorded once as a `sqlite.checkpointGate` span and log, with
+`reasons`, the WAL frames at start, end and peak, `durationMs`, `writersHeld`,
+`writesWhileReleased`, `regates` and, when the bound let writes through, `releasedAfterMs`. `reasons` names `checkpoint-pinned` when the checkpoint stood still for the whole bound (a reader pinning the WAL) and `checkpoint-lagging` when it was blocked but kept moving.
+
 DPoP proof failures include the safe `environment.dpop.failure_code` span
 attribute. A `time_window` failure means that a signed proof was too old or too
 far in the future for the environment server's allowed window. It can point to
@@ -114,15 +122,24 @@ NDJSON line to `event-loop-stalls.ndjson`, next to the trace file. A line has `t
 attributes. The file keeps the last 1000 or more stalls, with one rotated backup
 (`event-loop-stalls.ndjson.1`). Use it to see how often a server stalls over days.
 
+Each row also has the host's load average, CPU count, available and total memory, and swap used and
+total in MB (`availableMemoryMb`, `swapUsedMb` and so on), so a stall can be read against the
+machine's pressure.
+
+Delay the loop spent idle in poll is recorded apart, as a `server.eventLoop.freeze` span and a row
+with `"kind": "freeze"` and `freezeMs` instead of `delayMaxMs`. It means the computer slept, the
+OS suspended the process, or the machine was too starved to run it. Rows with `delayMaxMs` are
+stalls only, and a freeze never raises the client's stall notice.
+
 Some delay is not recorded:
 
 - `delayMaxMs` is the longest stall, and can undercount it by up to 1 s. The 2 s threshold applies to
   this value, so a stall over 3 s is normally recorded, and a shorter one can be missed. A stall
   that ends just as a sample runs can be missed too.
-- Time the computer spends asleep reads as delay on macOS and Windows. So a sample only counts when
-  the loop was busy, not waiting for events, for at least `delayMaxMs`. Busy time covers the whole
-  window, so a short sleep in an otherwise busy window can still record a false stall. The span then
-  shows CPU time far below `delayMaxMs`.
+- Time the computer spends asleep reads as delay on macOS and Windows. A sample counts as a stall
+  only when the loop was busy, not waiting for events, for at least `delayMaxMs`; otherwise it is a
+  freeze. Busy time covers the whole window, so a short sleep in an otherwise busy window can still
+  record a false stall. The span then shows CPU time far below `delayMaxMs`.
 - The first sample after launch is skipped. Startup work such as migrations and projection bootstrap
   can block the loop for seconds on a large database.
 
@@ -672,7 +689,8 @@ Current high-value span and metric boundaries include:
 - terminal session lifecycle
 - sqlite query execution, except the statements inside `orchestrationV2.EventSink.write`, which
   its `sql.transaction` span times as one
-- event loop stalls (`server.eventLoop.stall`)
+- event loop stalls and freezes (`server.eventLoop.stall`, `server.eventLoop.freeze`)
+- checkpoint gate holds on SQLite writes (`sqlite.checkpointGate`)
 
 ### Current Constraints
 

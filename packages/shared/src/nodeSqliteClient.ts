@@ -46,6 +46,11 @@ export interface SqliteClientConfig {
    * Ignored for in-memory databases.
    */
   readonly checkpointWorker?: boolean | undefined;
+  /**
+   * How long writes wait for a checkpoint that makes no progress before the gate lets them
+   * through. Default 1 second.
+   */
+  readonly checkpointGateBound?: Duration.Input | undefined;
 }
 
 // SqlClient masks transaction acquisition, so readOnly carries the caller's interruption policy.
@@ -503,6 +508,9 @@ const CHECKPOINT_IDLE_MS = 100;
 // with no pause leave the worker behind, and the WAL can only restart once
 // every frame is checkpointed, so this keeps the file from growing forever.
 const CHECKPOINT_BACKPRESSURE_FRAMES = 10_000;
+// Past this the gate stops letting writes through a stuck checkpoint (about 1 GiB at 4 KiB
+// pages): a reader that never lets go must not fill the disk.
+const CHECKPOINT_RELEASE_LIMIT_FRAMES = 250_000;
 
 const readSafeSqliteInteger = (value: unknown) => {
   const number = typeof value === "bigint" ? Number(value) : value;
@@ -632,6 +640,7 @@ parentPort.on("message", (request) => {
 const startCheckpointWorker = Effect.fnUntraced(function* (
   filename: string,
   writer: NodeSqlite.DatabaseSync,
+  gateBoundMs: number,
 ) {
   const warn = (reason: string) =>
     Effect.logWarning(
@@ -680,11 +689,112 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
   type Waiter = { resume: () => void; cancelled: boolean };
   const waiters: Array<Waiter> = [];
   let elected: Waiter | undefined;
+  // A reader snapshot that stays open stops a checkpoint reaching the end of the WAL, and
+  // holding every write for as long as it lasts stalled the whole server once for 851 s.
+  // So a gate that sees the checkpoint stand still for the bound lets writes through
+  // (`released`) while the worker keeps retrying. Progress closes the gate again, so the
+  // worker can reach the end of the WAL and truncate it; writes keep landing in `released`
+  // and would otherwise always leave the WAL a frame ahead of the checkpoint.
+  let released = false;
+  let boundTimer: Fiber.Fiber<void> | undefined;
+  const holding = () =>
+    unknown || blocked || truncate !== undefined || log >= CHECKPOINT_BACKPRESSURE_FRAMES;
+  // A truncate in flight excludes writers whatever the bound says.
   const gated = () =>
     !stopped &&
     !writer.isTransaction &&
-    (unknown || blocked || truncate !== undefined || log >= CHECKPOINT_BACKPRESSURE_FRAMES);
+    holding() &&
+    (truncate !== undefined || !released || log >= CHECKPOINT_RELEASE_LIMIT_FRAMES);
+  let releasedAt = { log: 0, checkpointed: 0 };
+
+  // One record per stretch of the gate that held a writer, so the next stuck checkpoint
+  // names itself instead of being inferred from lock-wait spans.
+  type Episode = {
+    readonly startedAt: number;
+    readonly startLog: number;
+    readonly startCheckpointed: number;
+    peakLog: number;
+    writersHeld: number;
+    writesWhileReleased: number;
+    regates: number;
+    releasedAfterMs: number | undefined;
+    readonly reasons: Set<string>;
+  };
+  let episode: Episode | undefined;
+  const noteReasons = (current: Episode) => {
+    if (unknown) current.reasons.add("unknown");
+    if (blocked) current.reasons.add("checkpoint-blocked");
+    if (truncate !== undefined) current.reasons.add("truncate");
+    if (log >= CHECKPOINT_BACKPRESSURE_FRAMES) current.reasons.add("wal-ceiling");
+    if (released && log >= CHECKPOINT_RELEASE_LIMIT_FRAMES) current.reasons.add("release-limit");
+    current.peakLog = Math.max(current.peakLog, log);
+  };
+  const finishEpisode = (outcome: "cleared" | "handed-back") => {
+    const current = episode;
+    episode = undefined;
+    if (current === undefined) return;
+    const durationMs = Math.round(performance.now() - current.startedAt);
+    // A checkpoint that stood still for the whole bound is pinned by a reader; one that
+    // was blocked but moved, or finished inside the bound, was only lagging.
+    if (current.releasedAfterMs !== undefined) current.reasons.add("checkpoint-pinned");
+    else if (current.reasons.has("checkpoint-blocked")) current.reasons.add("checkpoint-lagging");
+    const attributes = {
+      outcome,
+      reasons: [...current.reasons].join(","),
+      durationMs,
+      startLog: current.startLog,
+      startCheckpointed: current.startCheckpointed,
+      endLog: log,
+      endCheckpointed: checkpointed,
+      peakLog: current.peakLog,
+      writersHeld: current.writersHeld,
+      writesWhileReleased: current.writesWhileReleased,
+      regates: current.regates,
+      ...(current.releasedAfterMs === undefined
+        ? {}
+        : { releasedAfterMs: current.releasedAfterMs }),
+    };
+    const level = current.releasedAfterMs !== undefined || durationMs >= 1000 ? "Warn" : "Info";
+    const message = "SQLite checkpoint gate held writes";
+    runFork(
+      (level === "Warn"
+        ? Effect.logWarning(message, attributes)
+        : Effect.logInfo(message, attributes)
+      ).pipe(Effect.withSpan("sqlite.checkpointGate", { root: true, level, attributes })),
+    );
+  };
+  let boundGeneration = 0;
+  const clearBound = () => {
+    boundGeneration++;
+    boundTimer?.interruptUnsafe();
+    boundTimer = undefined;
+  };
+  const armBound = () => {
+    clearBound();
+    const generation = boundGeneration;
+    boundTimer = runFork(
+      Effect.sleep(gateBoundMs).pipe(Effect.andThen(Effect.sync(() => expireBound(generation)))),
+    );
+  };
+  function expireBound(generation: number) {
+    // A timer that fired just before being replaced or cleared must not release the gate.
+    if (generation !== boundGeneration) return;
+    boundTimer = undefined;
+    if (stopped || waiters.length === 0) return;
+    released = true;
+    releasedAt = { log, checkpointed };
+    if (episode !== undefined) {
+      episode.releasedAfterMs = Math.round(performance.now() - episode.startedAt);
+    }
+    wake();
+  }
   const wake = () => {
+    if (episode !== undefined) noteReasons(episode);
+    if (stopped || !holding()) {
+      released = false;
+      clearBound();
+      finishEpisode(stopped ? "handed-back" : "cleared");
+    }
     if (!gated() && elected === undefined) {
       elected = waiters.shift();
       elected?.resume();
@@ -721,6 +831,30 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
     truncate.acknowledged = true;
     send({ type: "truncate", truncateId: truncate.id });
   };
+  const record = (nextLog: number, nextCheckpointed: number) => {
+    const previous = { log, checkpointed };
+    log = nextLog;
+    checkpointed = nextCheckpointed;
+    if (!released) {
+      // Writers are held, so a checkpoint that moves is the pin letting go, not writes.
+      if (
+        (nextLog < previous.log || nextCheckpointed > previous.checkpointed) &&
+        waiters.length > 0
+      ) {
+        armBound();
+      }
+      return;
+    }
+    // Released writes add frames that the worker then copies, which is not the pin moving:
+    // only a WAL restart, or a checkpoint passing where it stood when the gate let go, is.
+    const restarted = nextLog < releasedAt.log;
+    const passedPin =
+      releasedAt.checkpointed < releasedAt.log && nextCheckpointed > releasedAt.checkpointed;
+    if (!restarted && !passedPin) return;
+    released = false;
+    if (episode !== undefined) episode.regates++;
+    if (waiters.length > 0) armBound();
+  };
   const observe = () => {
     try {
       const state = frames.get();
@@ -728,8 +862,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
       const nextCheckpointed = readSafeSqliteInteger(state?.checkpointed);
       if (nextLog === undefined || nextCheckpointed === undefined)
         throw new Error("Invalid WAL frame counts");
-      log = nextLog;
-      checkpointed = nextCheckpointed;
+      record(nextLog, nextCheckpointed);
       unknown = false;
     } catch {
       unknown = true;
@@ -745,7 +878,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
       checkAgain = true;
       return;
     }
-    if (!force && !gated() && log - checkpointed < CHECKPOINT_FRAMES) return;
+    if (!force && !holding() && log - checkpointed < CHECKPOINT_FRAMES) return;
     inFlight = ++nextId;
     try {
       send({
@@ -753,7 +886,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
         id: inFlight,
         generation,
         journalSizeLimit: readSafeSqliteInteger(sizeLimit.get()?.journal_size_limit),
-        force: force || gated(),
+        force: force || holding(),
       });
     } catch (cause) {
       handBack(String(cause));
@@ -794,8 +927,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
       "blocked" in message &&
       typeof message.blocked === "boolean"
     ) {
-      log = message.log;
-      checkpointed = message.checkpointed;
+      record(message.log, message.checkpointed);
       blocked = message.blocked;
       unknown = false;
     }
@@ -811,6 +943,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
     Effect.promise(() => {
       stopped = true;
       truncate = undefined;
+      clearBound();
       wake();
       return worker.terminate();
     }),
@@ -825,6 +958,7 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
   ): Effect.Effect<A, E> =>
     Effect.suspend(() => {
       if (!gated()) {
+        if (episode !== undefined && released) episode.writesWhileReleased++;
         // Release the election after executing; its successor must see the new WAL state.
         try {
           return execute();
@@ -833,6 +967,20 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
         }
       }
       if (admitted !== undefined) release(admitted);
+      // A waiter the gate closes on again after its episode ended starts a new one.
+      episode ??= {
+        startedAt: performance.now(),
+        startLog: log,
+        startCheckpointed: checkpointed,
+        peakLog: log,
+        writersHeld: 0,
+        writesWhileReleased: 0,
+        regates: 0,
+        releasedAfterMs: undefined,
+        reasons: new Set(),
+      };
+      if (admitted === undefined || episode.writersHeld === 0) episode.writersHeld++;
+      noteReasons(episode);
       const waiter: Waiter = { resume: () => {}, cancelled: false };
       const wait = Effect.uninterruptibleMask((restore) =>
         Effect.withFiber((fiber) =>
@@ -844,7 +992,10 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
                   if (!waiter.cancelled) resume(Effect.void);
                 }, 0);
               };
-              waiters.push(waiter);
+              // A waiter the gate closed on again keeps its place ahead of later arrivals.
+              if (admitted !== undefined) waiters.unshift(waiter);
+              else waiters.push(waiter);
+              if (boundTimer === undefined) armBound();
               worker.ref();
               request(true);
               wake();
@@ -898,7 +1049,13 @@ const make = Effect.fn("makeWithDatabase")(function* (
     // Started after the close finalizer, so the worker stops before the writer closes.
     const checkpoint =
       options.checkpointWorker && isFileDatabase
-        ? yield* startCheckpointWorker(options.filename, db)
+        ? yield* startCheckpointWorker(
+            options.filename,
+            db,
+            Duration.toMillis(
+              Duration.fromInputUnsafe(options.checkpointGateBound ?? Duration.seconds(1)),
+            ),
+          )
         : undefined;
 
     const statementReaderCache = new WeakMap<NodeSqlite.StatementSync, boolean>();
