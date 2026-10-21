@@ -894,35 +894,39 @@ const make = Effect.gen(function* () {
     runId: RunId | null,
     cause: unknown,
   ) =>
-    runId === null
-      ? Effect.logWarning("Thread workspace preparation failed", {
-          commandId: input.commandId,
-          threadId,
-          cause,
-        })
-      : threads
-          .dispatch({
-            type: "prepared-run.fail",
-            commandId: CommandId.make(`${input.commandId}:fail`),
-            threadId,
-            runId,
-            failure: makeProviderFailure({
-              cause,
-              message: failureDetail(cause),
-              class: "validation_error",
-              retryable: false,
-            }),
-          })
-          .pipe(
-            Effect.catchCause((persistCause) =>
-              Effect.logWarning("Failed to persist thread workspace preparation failure", {
-                commandId: input.commandId,
+    Effect.logWarning("Thread workspace preparation failed", {
+      commandId: input.commandId,
+      threadId,
+      cause,
+    }).pipe(
+      Effect.andThen(
+        runId === null
+          ? Effect.void
+          : threads
+              .dispatch({
+                type: "prepared-run.fail",
+                commandId: CommandId.make(`${input.commandId}:fail`),
                 threadId,
-                cause,
-                persistCause,
-              }),
-            ),
-          );
+                runId,
+                failure: makeProviderFailure({
+                  cause,
+                  message: failureDetail(cause),
+                  class: "validation_error",
+                  retryable: false,
+                }),
+              })
+              .pipe(
+                Effect.catchCause((persistCause) =>
+                  Effect.logWarning("Failed to persist thread workspace preparation failure", {
+                    commandId: input.commandId,
+                    threadId,
+                    cause,
+                    persistCause,
+                  }),
+                ),
+              ),
+      ),
+    );
 
   const reservePreparation = (commandId: CommandId) =>
     Ref.modify(scheduledLaunches, (scheduled) => {
