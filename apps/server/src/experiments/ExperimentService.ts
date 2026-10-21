@@ -298,7 +298,9 @@ function validDefinition(input: ExperimentDefinition, now: string): boolean {
     input.variants.every((v) =>
       input.lever === "instruction"
         ? v.instructions !== undefined && v.modelSelection === undefined && v.rollover === undefined
-        : v.modelSelection !== undefined && v.rollover === undefined && v.instructions === undefined,
+        : v.modelSelection !== undefined &&
+          v.rollover === undefined &&
+          v.instructions === undefined,
     ) &&
     (!isThreadLever(input.lever) || input.eligibility.taskCategories.length === 0)
   );

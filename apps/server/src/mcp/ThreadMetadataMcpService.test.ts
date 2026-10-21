@@ -94,7 +94,10 @@ it.effect("set_workflow keeps the stance the user chose unless the agent sets it
                     Effect.succeed({ projectId: "project", deletedAt: null } as never),
                   getProjectThreadRecords: () =>
                     Effect.succeed({
-                      thread: { projectId: "project", workflow: { kind: "lead", unattended: true } },
+                      thread: {
+                        projectId: "project",
+                        workflow: { kind: "lead", unattended: true },
+                      },
                     } as never),
                   dispatch: (command) =>
                     Effect.sync(() => sent.push(command)).pipe(

@@ -499,6 +499,209 @@ it.effect("runs a scheduled root task on a SlipJay project's root without a work
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
 });
 
+const buildItemStrategy = { type: "worktree", baseRef: "HEAD", buildItem: 42 } as const;
+
+function scheduledBuildItemHarness(options: { readonly slipjay: boolean }) {
+  const harness = makeHarness(options);
+  const layerScheduledTasks = ScheduledTasks.layer.pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        harness.layer,
+        NodeCrypto.layer,
+        Scheduler.layer,
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+      ),
+    ),
+  );
+  const upsert = Effect.gen(function* () {
+    const tasks = yield* ScheduledTasks.ScheduledTaskService;
+    return (yield* tasks.upsert({
+      id: ScheduledTaskId.make("scheduled-task:build-item"),
+      title: "Item audit",
+      prompt: "Audit the item.",
+      enabled: false,
+      schedule: { type: "interval", everyMs: 60_000 },
+      projectId,
+      threadId: null,
+      workspaceStrategy: buildItemStrategy,
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "user",
+      creationSource: "web",
+    })).task;
+  });
+  return { harness, layer: Layer.mergeAll(harness.layer, layerScheduledTasks), upsert };
+}
+
+it.effect("refuses a Build item launch outside a SlipJay project before creating anything", () => {
+  const harness = makeHarness();
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const error = yield* launches
+      .launch(
+        launchInput({
+          command: "command:launch:build-item-plain",
+          thread: "thread:launch:build-item-plain",
+          message: "Work on the item",
+          workspace: buildItemStrategy,
+        }),
+      )
+      .pipe(Effect.flip);
+    assert.equal(error._tag, "ThreadLaunchBuildItemError");
+    assert.isNull(yield* threads.getThreadShell(ThreadId.make("thread:launch:build-item-plain")));
+    assert.isEmpty(harness.createWorktree.mock.calls);
+    assert.isEmpty(harness.allocateWorkspace.mock.calls);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect(
+  "refuses a Build item launch in a Scratch project instead of starting a plain thread",
+  () => {
+    const harness = makeHarness({
+      managedFolders: Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({
+        namedProjectsRoot: "/projects",
+        isScratchProject: (id) => Effect.succeed(id === projectId),
+        folderForThread: () => Effect.succeed(Option.some("/scratch/folder")),
+      }),
+    });
+    const layerScheduledTasks = ScheduledTasks.layer.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          harness.layer,
+          NodeCrypto.layer,
+          Scheduler.layer,
+          Layer.mock(SecretRequests.SecretRequests)({}),
+          Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        ),
+      ),
+    );
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tasks = yield* ScheduledTasks.ScheduledTaskService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const error = yield* launches
+        .launch(
+          launchInput({
+            command: "command:launch:build-item-scratch",
+            thread: "thread:launch:build-item-scratch",
+            workspace: buildItemStrategy,
+          }),
+        )
+        .pipe(Effect.flip);
+      assert.equal(error._tag, "ThreadLaunchBuildItemError");
+
+      // Saving keeps the Build item, so a run is refused too.
+      const { task } = yield* tasks.upsert({
+        id: ScheduledTaskId.make("scheduled-task:build-item-scratch"),
+        title: "Item audit",
+        prompt: "Audit the item.",
+        enabled: false,
+        schedule: { type: "interval", everyMs: 60_000 },
+        projectId,
+        threadId: null,
+        workspaceStrategy: buildItemStrategy,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      assert.deepEqual(task.workspaceStrategy, buildItemStrategy);
+      const result = yield* tasks.runNow({ id: task.id });
+      assert.equal(result.task.lastRunStatus, "failed");
+      assert.isEmpty(yield* threads.listProjectThreads({ projectId, includeSubagents: false }));
+    }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
+  },
+);
+
+it.effect("releases attachments claimed for a launch the Build item check refuses", () => {
+  const harness = makeHarness();
+  const layerFiles = ServerConfig.layerTest(process.cwd(), {
+    prefix: "t3-build-item-intake-",
+  }).pipe(Layer.provideMerge(NodeServices.layer));
+  return Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const fs = yield* FileSystem.FileSystem;
+    const pendingId = createPendingAttachmentId();
+    assert.isNotNull(pendingId);
+    const attachment: ChatAttachment = {
+      type: "image",
+      id: ChatAttachmentId.make(pendingId),
+      name: "image.png",
+      mimeType: "image/png",
+      sizeBytes: 4,
+    };
+    const pendingPath = resolveAttachmentPath({
+      attachmentsDir: config.attachmentsDir,
+      attachment,
+    });
+    assert.isNotNull(pendingPath);
+    yield* fs.makeDirectory(config.attachmentsDir, { recursive: true });
+    yield* fs.writeFile(pendingPath, new Uint8Array([1, 2, 3, 4]));
+    const error = yield* ThreadMessageIntake.launchThread({
+      ...launchInput({
+        command: "intake-build-item",
+        thread: "intake-build-item-thread",
+        workspace: buildItemStrategy,
+      }),
+      initialMessage: {
+        messageId: MessageId.make("intake-build-item-first"),
+        text: "Work on the item",
+        attachments: [attachment],
+      },
+    }).pipe(Effect.flip);
+    assert.equal(error._tag, "ThreadLaunchBuildItemError");
+    // Only the upload remains: the durable copy made for the launch is gone.
+    assert.deepEqual(yield* fs.readDirectory(config.attachmentsDir), [
+      pendingPath.slice(config.attachmentsDir.length + 1),
+    ]);
+  }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerFiles)));
+});
+
+it.effect(
+  "refuses a scheduled Build item run outside a SlipJay project with the same error",
+  () => {
+    const scheduled = scheduledBuildItemHarness({ slipjay: false });
+    return Effect.gen(function* () {
+      const tasks = yield* ScheduledTasks.ScheduledTaskService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const task = yield* scheduled.upsert;
+      const result = yield* tasks.runNow({ id: task.id });
+      assert.equal(result.task.lastRunStatus, "failed");
+      assert.include(
+        result.task.lastRunError,
+        "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json.",
+      );
+      assert.isNull(result.threadId);
+      assert.isEmpty(yield* threads.listProjectThreads({ projectId, includeSubagents: false }));
+      assert.isEmpty(scheduled.harness.createWorktree.mock.calls);
+      assert.isEmpty(scheduled.harness.allocateWorkspace.mock.calls);
+    }).pipe(Effect.provide(scheduled.layer));
+  },
+);
+
+it.effect("runs a scheduled Build item task in that item's SlipJay workspace", () => {
+  const scheduled = scheduledBuildItemHarness({ slipjay: true });
+  return Effect.gen(function* () {
+    const tasks = yield* ScheduledTasks.ScheduledTaskService;
+    const task = yield* scheduled.upsert;
+    const result = yield* tasks.runNow({ id: task.id });
+    assert.equal(result.task.lastRunStatus, "succeeded");
+    // Preparation runs after the launch is accepted.
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    yield* waitForThreadProjection(threads, result.threadId!, () =>
+      Effect.succeed(scheduled.harness.allocateWorkspace.mock.calls.length > 0),
+    );
+    assert.deepEqual(
+      scheduled.harness.allocateWorkspace.mock.calls.map(([input]) => input.issue),
+      [{ number: 42, mode: "resume" }],
+    );
+  }).pipe(Effect.provide(scheduled.layer));
+});
+
 it.effect(
   "returns no dispatched thread when sending an automation to a missing thread fails",
   () => {

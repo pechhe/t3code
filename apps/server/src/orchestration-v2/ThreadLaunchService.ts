@@ -177,6 +177,19 @@ export class ThreadLaunchBaseRefError extends Schema.TaggedError<ThreadLaunchBas
   }
 }
 
+/** A launch that names a Build item needs the SlipJay workspace that item lives in. */
+export class ThreadLaunchBuildItemError extends Schema.TaggedError<ThreadLaunchBuildItemError>()(
+  "ThreadLaunchBuildItemError",
+  {
+    projectId: ProjectId,
+    buildItem: Schema.Number,
+  },
+) {
+  override get message(): string {
+    return "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json.";
+  }
+}
+
 export class ThreadLaunchService extends Context.Service<
   ThreadLaunchService,
   {
@@ -184,7 +197,9 @@ export class ThreadLaunchService extends Context.Service<
       input: ThreadLaunchInput,
     ) => Effect.Effect<
       ThreadLaunchResult,
-      ThreadLaunchError | ThreadManagement.ThreadManagementProviderInstanceDisabledError
+      | ThreadLaunchError
+      | ThreadLaunchBuildItemError
+      | ThreadManagement.ThreadManagementProviderInstanceDisabledError
     >;
     /**
      * `launch` accepts such a launch and reports the failure inside the
@@ -1024,6 +1039,18 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
+      // Refused before any receipt, thread or workspace exists, whichever transport launched.
+      // It reads the request: the Scratch normalization above would drop the Build item silently.
+      if (
+        request.workspaceStrategy.type === "worktree" &&
+        request.workspaceStrategy.buildItem !== undefined &&
+        (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay"
+      ) {
+        return yield* new ThreadLaunchBuildItemError({
+          projectId: input.projectId,
+          buildItem: request.workspaceStrategy.buildItem,
+        });
+      }
       if (input.reuseExistingThread === true && input.threadId === undefined) {
         return yield* mapError(
           input,

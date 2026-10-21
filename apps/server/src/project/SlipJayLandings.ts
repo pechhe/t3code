@@ -695,7 +695,9 @@ export const make = Effect.gen(function* () {
   const isLanding: SlipJayLandings["Service"]["isLanding"] = (cwd) =>
     workspaceRootOf(cwd).pipe(
       Effect.flatMap((root) =>
-        root === null ? Effect.succeed(false) : Ref.get(lands).pipe(Effect.map((current) => current.has(root))),
+        root === null
+          ? Effect.succeed(false)
+          : Ref.get(lands).pipe(Effect.map((current) => current.has(root))),
       ),
     );
 

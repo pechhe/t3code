@@ -49,6 +49,7 @@ const clientLaunchHarness = (input: {
   readonly launched: Array<ThreadLaunch.ThreadLaunchInput>;
   readonly workspaceRoot?: string;
   readonly checkWorktreeBase?: ThreadLaunch.ThreadLaunchService["Service"]["checkWorktreeBase"];
+  readonly launch?: ThreadLaunch.ThreadLaunchService["Service"]["launch"];
 }) => {
   const projectId = ProjectId.make("project:client-target");
   const modelSelection = {
@@ -102,6 +103,7 @@ const clientLaunchHarness = (input: {
       checkWorktreeBase: input.checkWorktreeBase ?? (() => Effect.void),
       launch: (launch) => {
         input.launched.push(launch);
+        if (input.launch !== undefined) return input.launch(launch);
         return Effect.succeed({
           threadId: launch.threadId,
           projection: {
@@ -484,17 +486,15 @@ it.effect("a connection one project's thread makes serves a thread in another pr
 );
 
 it.effect(
-  "a launch for a Build item binds the item's SlipJay workspace, only in a SlipJay project",
+  "a launch for a Build item binds the item's SlipJay workspace and refuses a workspaceStrategy",
   () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fileSystem.makeTempDirectoryScoped({ prefix: "t3-launch-build-item-" });
       const slipjayRoot = path.join(root, "slipjay");
-      const plainRoot = path.join(root, "plain");
       yield* fileSystem.makeDirectory(path.join(slipjayRoot, ".jj"), { recursive: true });
       yield* fileSystem.writeFileString(path.join(slipjayRoot, "slipjay.json"), "{}");
-      yield* fileSystem.makeDirectory(plainRoot);
 
       const launchFor = (
         workspaceRoot: string,
@@ -546,13 +546,47 @@ it.effect(
       expect(unknownRef).toEqual([]);
 
       const refused: Array<ThreadLaunch.ThreadLaunchInput> = [];
-      expect((yield* launchFor(plainRoot, refused)).at(-1)?.result).toMatchObject({
-        code: "invalid_request",
-      });
       expect(
         (yield* launchFor(slipjayRoot, refused, { workspaceStrategy: { type: "root" } })).at(-1)
           ?.result,
       ).toMatchObject({ code: "invalid_request" });
       expect(refused).toEqual([]);
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);
+
+it.effect("reports the launch service's Build item refusal as an invalid request", () =>
+  Effect.gen(function* () {
+    const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
+    const { projectId, dependencies } = clientLaunchHarness({
+      runtimeModeCeiling: "auto",
+      launched,
+      launch: (launch) =>
+        Effect.fail(
+          new ThreadLaunch.ThreadLaunchBuildItemError({
+            projectId: launch.projectId,
+            buildItem: 3368,
+          }),
+        ),
+    });
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(
+        McpToolAccess.HandlersLayer.layer(ProjectHandlers.layer).pipe(
+          Layer.provide(WorkspaceProvider.layer),
+          Layer.provide(dependencies),
+        ),
+      ),
+    );
+    const result = yield* toolkit
+      .handle("t3_thread_launch", { title: "Filters", projectId, buildItem: 3368 })
+      .pipe(
+        Stream.unwrap,
+        Stream.runCollect,
+        Effect.provide(WorkspaceProvider.layer.pipe(Layer.provideMerge(dependencies))),
+      );
+    expect(result.at(-1)?.result).toMatchObject({
+      code: "invalid_request",
+      message:
+        "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json.",
+    });
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

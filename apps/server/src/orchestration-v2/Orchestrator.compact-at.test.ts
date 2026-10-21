@@ -64,37 +64,41 @@ const createThread = Effect.fn("createThread")(function* (id: string) {
   return threadId;
 });
 
-it.effect("sets and clears a thread's compact-at point, projected to thread, shell and column", () =>
-  Effect.gen(function* () {
-    const orchestrator = yield* Orchestrator.OrchestratorV2;
-    const projections = yield* ProjectionStore.ProjectionStoreV2;
-    const sql = yield* SqlClient.SqlClient;
-    const threadId = yield* createThread("thread:compact-at");
-    const column = () =>
-      sql<{ readonly compactAt: number | null }>`
+it.effect(
+  "sets and clears a thread's compact-at point, projected to thread, shell and column",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const threadId = yield* createThread("thread:compact-at");
+      const column = () =>
+        sql<{ readonly compactAt: number | null }>`
         SELECT compact_at AS compactAt FROM orchestration_v2_projection_threads
         WHERE thread_id = ${threadId}`;
 
-    assert.isUndefined((yield* projections.getThreadProjection(threadId)).thread.compactAt ?? undefined);
-    yield* orchestrator.dispatch({
-      type: "thread.compact-at.set",
-      commandId: CommandId.make("compact-at-set"),
-      threadId,
-      compactAt: 150_000,
-    });
-    assert.equal((yield* projections.getThreadProjection(threadId)).thread.compactAt, 150_000);
-    assert.equal((yield* projections.getThreadShell(threadId))?.compactAt, 150_000);
-    assert.deepEqual(yield* column(), [{ compactAt: 150_000 }]);
+      assert.isUndefined(
+        (yield* projections.getThreadProjection(threadId)).thread.compactAt ?? undefined,
+      );
+      yield* orchestrator.dispatch({
+        type: "thread.compact-at.set",
+        commandId: CommandId.make("compact-at-set"),
+        threadId,
+        compactAt: 150_000,
+      });
+      assert.equal((yield* projections.getThreadProjection(threadId)).thread.compactAt, 150_000);
+      assert.equal((yield* projections.getThreadShell(threadId))?.compactAt, 150_000);
+      assert.deepEqual(yield* column(), [{ compactAt: 150_000 }]);
 
-    yield* orchestrator.dispatch({
-      type: "thread.compact-at.set",
-      commandId: CommandId.make("compact-at-clear"),
-      threadId,
-      compactAt: null,
-    });
-    assert.isNull((yield* projections.getThreadProjection(threadId)).thread.compactAt ?? null);
-    assert.deepEqual(yield* column(), [{ compactAt: null }]);
-  }).pipe(Effect.provide(layerTest)),
+      yield* orchestrator.dispatch({
+        type: "thread.compact-at.set",
+        commandId: CommandId.make("compact-at-clear"),
+        threadId,
+        compactAt: null,
+      });
+      assert.isNull((yield* projections.getThreadProjection(threadId)).thread.compactAt ?? null);
+      assert.deepEqual(yield* column(), [{ compactAt: null }]);
+    }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect("still decodes and projects the rollover events already stored", () =>

@@ -49,7 +49,9 @@ export class ReleaseApprovals extends Context.Service<
       requester: ReleaseApprovalRequester,
       input: OrchestratorMcpRequestReleaseApprovalInput,
     ) => Effect.Effect<OrchestratorMcpRequestReleaseApprovalResult, ReleaseApprovalError>;
-    readonly answer: (input: ReleaseApprovalAnswerInput) => Effect.Effect<void, ReleaseApprovalError>;
+    readonly answer: (
+      input: ReleaseApprovalAnswerInput,
+    ) => Effect.Effect<void, ReleaseApprovalError>;
   }
 >()("t3/releases/ReleaseApprovals") {}
 

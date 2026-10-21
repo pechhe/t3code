@@ -77,20 +77,11 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
           Effect.mapError(unavailable),
           Effect.map(Option.getOrUndefined),
         );
-        if (input.buildItem !== undefined) {
-          const project = yield* readProject;
-          const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
-          if (
-            input.workspaceStrategy !== undefined ||
-            project === undefined ||
-            (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay"
-          )
-            return yield* new OrchestratorMcpFailure({
-              code: "invalid_request",
-              message:
-                "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json and without workspaceStrategy.",
-            });
-        }
+        if (input.buildItem !== undefined && input.workspaceStrategy !== undefined)
+          return yield* new OrchestratorMcpFailure({
+            code: "invalid_request",
+            message: "buildItem picks the item's SlipJay workspace: omit workspaceStrategy.",
+          });
         // SlipJay's attach-issue always receives the canonical number, so a ref is resolved first.
         const buildItem =
           typeof input.buildItem === "string"
@@ -219,7 +210,10 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
                 message: error.message,
               });
             }
-            if (error._tag === "ThreadManagementProviderInstanceDisabledError") {
+            if (
+              error._tag === "ThreadManagementProviderInstanceDisabledError" ||
+              error._tag === "ThreadLaunchBuildItemError"
+            ) {
               return new OrchestratorMcpFailure({
                 code: "invalid_request",
                 message: error.message,

@@ -117,6 +117,9 @@ const makeHarness = Effect.gen(function* () {
       string,
       unknown
     > | null,
+    launched: [] as Array<ThreadLaunch.ThreadLaunchInput>,
+    /** Answers a fix launch; tests replace it to refuse one. */
+    refuseLaunch: null as ThreadLaunch.ThreadLaunchBuildItemError | null,
   };
   const logs: string[] = [];
   const logLayer = Logger.layer(
@@ -170,7 +173,15 @@ const makeHarness = Effect.gen(function* () {
     }),
     Layer.mock(Project.ProjectService)({}),
     Layer.mock(WorkspaceProvider.WorkspaceProvider)({}),
-    Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+    Layer.mock(ThreadLaunch.ThreadLaunchService)({
+      launch: (input) =>
+        world.refuseLaunch !== null
+          ? Effect.fail(world.refuseLaunch)
+          : Effect.sync(() => {
+              world.launched.push(input);
+              return { threadId: input.threadId } as never;
+            }),
+    }),
   );
   // One database for every boot, as the file is across a restart.
   const config = ServerConfig.layerTest(process.cwd(), { prefix: "t3code-build-home-test-" }).pipe(
@@ -436,6 +447,33 @@ const sendBack = {
 } as const;
 /** As a T3 lead reports its session to Build: harness `t3code`, its thread id as `sessionRef`. */
 const leadRef = { harness: "t3code", sessionRef: leadThread };
+
+it.effect(
+  "a fix launch opens the stuck Spec's workspace, or reports the launch service's refusal",
+  () =>
+    Effect.gen(function* () {
+      const { world, service } = yield* connected;
+      yield* service.read;
+      const input = {
+        threadId: ThreadId.make("thread-1"),
+        specNumber: 3180,
+        kind: "review_missing",
+      } as const;
+      const fixed = yield* service.fix(input);
+      assert.deepStrictEqual(
+        world.launched.map((launch) => [launch.threadId, launch.workspaceStrategy]),
+        [[fixed.threadId, { type: "worktree", baseRef: "HEAD", buildItem: 3180 }]],
+      );
+
+      world.refuseLaunch = new ThreadLaunch.ThreadLaunchBuildItemError({
+        projectId: ProjectId.make("project-1"),
+        buildItem: 3180,
+      });
+      const refused = yield* service.fix(input).pipe(Effect.flip);
+      assert.strictEqual(refused.reason, "launch_failed");
+      assert.strictEqual(refused.message, world.refuseLaunch.message);
+    }),
+);
 
 it("names the lead's T3 thread from either session form, and nothing else", () => {
   assert.deepStrictEqual(

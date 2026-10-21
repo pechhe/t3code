@@ -2112,6 +2112,13 @@ export const layerWsRpc = (
                         message: "Failed to launch thread",
                         cause,
                       }),
+                    ThreadLaunchBuildItemError: (cause) =>
+                      new OrchestrationV2ThreadLaunchError({
+                        commandId: input.commandId,
+                        projectId: input.projectId,
+                        message: cause.message,
+                        cause,
+                      }),
                     ThreadManagementProviderInstanceDisabledError: (cause) =>
                       new OrchestrationV2ThreadLaunchError({
                         commandId: input.commandId,

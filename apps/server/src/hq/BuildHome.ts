@@ -44,8 +44,6 @@ import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadMessageIntake from "../orchestration-v2/ThreadMessageIntake.ts";
-import * as Project from "../project/ProjectService.ts";
-import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { forkParked } from "../serverActivation.ts";
 import {
   BUILD_MAX_REREAD_INTERVAL_MS,
@@ -245,8 +243,6 @@ const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagementService.ThreadManagementService;
-  const projects = yield* Project.ProjectService;
-  const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const launches = yield* ThreadLaunch.ThreadLaunchService;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
   const launchContext = yield* Effect.context<FileSystem.FileSystem | ServerConfig.ServerConfig>();
@@ -681,16 +677,6 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError(() => failure("launch_failed", "T3 could not read the thread.")));
     if (shell === null || shell.deletedAt !== null)
       return yield* failure("thread_not_found", `Thread ${input.threadId} was not found.`);
-    const project = yield* projects.getById(shell.projectId).pipe(
-      Effect.mapError(() => failure("launch_failed", "T3 could not read the project.")),
-      Effect.map(Option.getOrUndefined),
-    );
-    // The same rule t3_thread_launch applies to buildItem: the item's workspace is a SlipJay one.
-    if (project === undefined || (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay")
-      return yield* failure(
-        "launch_failed",
-        "This thread's project has no slipjay.json, so it cannot open a workspace for a Build item.",
-      );
     const commandId = CommandId.make(
       `build-home:${yield* crypto.randomUUIDv4().pipe(Effect.orDie)}`,
     );
@@ -719,7 +705,8 @@ const make = Effect.gen(function* () {
       Effect.mapError((error) =>
         failure(
           "launch_failed",
-          error._tag === "ThreadManagementProviderInstanceDisabledError"
+          error._tag === "ThreadManagementProviderInstanceDisabledError" ||
+            error._tag === "ThreadLaunchBuildItemError"
             ? error.message
             : "T3 could not start the thread.",
         ),
