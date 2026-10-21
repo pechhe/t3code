@@ -4,7 +4,7 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NodeOS from "node:os";
 import * as NodeURL from "node:url";
-import { resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import { resolveWorkspaceT3Home } from "@t3tools/shared/devHome";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -24,7 +24,7 @@ export class MigrateDevDbNotInWorktreeError extends Schema.TaggedError<MigrateDe
   {},
 ) {
   override get message(): string {
-    return "Not inside a linked git worktree. Pass --base-dir to target an isolated .t3 directory.";
+    return "Not inside a linked git worktree or jj workspace. Pass --base-dir to target an isolated .t3 directory.";
   }
 }
 
@@ -515,7 +515,7 @@ export const runMigrateDevDb = Effect.fn("runMigrateDevDb")(function* (
   const baseDir =
     input.baseDir !== undefined
       ? path.resolve(input.baseDir)
-      : yield* resolveWorktreeT3Home(process.cwd());
+      : yield* resolveWorkspaceT3Home(process.cwd());
   if (baseDir === undefined) {
     return yield* new MigrateDevDbNotInWorktreeError();
   }

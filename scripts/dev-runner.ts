@@ -5,7 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as NetService from "@t3tools/shared/Net";
-import { resolveGitWorktreePath, resolveWorktreeT3Home } from "@t3tools/shared/devHome";
+import { resolveWorkspacePath } from "@t3tools/shared/devHome";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Config from "effect/Config";
@@ -709,7 +709,17 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
     return yield* new DevRunnerBuiltNeedsShareError({ mode: input.mode });
   }
 
-  const worktreePath = yield* resolveGitWorktreePath(yield* HostProcess.WorkingDirectory);
+  const cwd = yield* HostProcess.WorkingDirectory;
+  const explicitHome = input.t3Home?.trim() || undefined;
+  // An explicit --home-dir settles where state goes, so an ambiguous workspace
+  // cannot make it fail; without one the ambiguity must stop the start rather
+  // than fall through to the shared home.
+  const workspace = resolveWorkspacePath(cwd);
+  const worktreePath = yield* explicitHome === undefined
+    ? workspace
+    : workspace.pipe(
+        Effect.catchTags({ AmbiguousAgentWorkspaceError: () => Effect.succeed(undefined) }),
+      );
 
   const { offset, source } = yield* resolveOffset({
     portOffset,
@@ -726,17 +736,16 @@ export const runDevRunnerWithInput = Effect.fn("dev-runner.runDevRunnerWithInput
   });
 
   const hostEnvironment = yield* HostProcess.Environment;
-  // A dev server started inside a worktree defaults to that worktree's own
-  // (gitignored) `.t3` — see @t3tools/shared/devHome for why this must
-  // outrank an ambient T3CODE_HOME. `--home-dir` still wins.
-  const worktreeHome = yield* resolveWorktreeT3Home(yield* HostProcess.WorkingDirectory);
+  // A dev server started inside a git worktree or jj workspace defaults to
+  // that workspace's own (gitignored) `.t3` — see @t3tools/shared/devHome for
+  // why this must outrank an ambient T3CODE_HOME. `--home-dir` still wins.
+  const path = yield* Path.Path;
+  const worktreeHome = worktreePath === undefined ? undefined : path.join(worktreePath, ".t3");
   // Trim before choosing: `--home-dir ""` is not a selection, and treating it
   // as one would skip the worktree default and land on the shared home —
   // exactly the outcome this precedence exists to prevent.
   const resolvedT3Home =
-    (input.t3Home?.trim() || undefined) ??
-    worktreeHome ??
-    (hostEnvironment.T3CODE_HOME?.trim() || undefined);
+    explicitHome ?? worktreeHome ?? (hostEnvironment.T3CODE_HOME?.trim() || undefined);
   const env = yield* createDevRunnerEnv({
     mode: input.mode,
     baseEnv: hostEnvironment,
@@ -915,7 +924,7 @@ const devRunnerCli = Command.make("dev-runner", {
   ),
   t3Home: Flag.String("home-dir").pipe(
     Flag.withDescription(
-      "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME). Inside a git worktree this defaults to that worktree's own .t3 so dev state stays off the shared home.",
+      "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME). Inside a git worktree or jj workspace this defaults to that workspace's own .t3 so dev state stays off the shared home. Pass the flag directly after the task name; an extra `--` forwards it to Vite.",
     ),
     Flag.optional,
     Flag.map(Option.getOrUndefined),

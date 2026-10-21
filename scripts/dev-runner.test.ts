@@ -599,6 +599,23 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
         (root) => Effect.sync(() => NodeFS.rmSync(root, { recursive: true, force: true })),
       );
 
+      const makeJjWorkspace = (underSlipJay: boolean) =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            const base = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-devrunner-jj-"));
+            const root = underSlipJay
+              ? NodePath.join(base, ".slipjay", "workspaces", "t3-spare-abc123")
+              : base;
+            NodeFS.mkdirSync(NodePath.join(root, ".jj"), { recursive: true });
+            // A secondary jj workspace: a pointer file, and no `.git` at all.
+            NodeFS.writeFileSync(NodePath.join(root, ".jj", "repo"), "../../shared/.jj/repo");
+            const nested = NodePath.join(root, "apps", "server");
+            NodeFS.mkdirSync(nested, { recursive: true });
+            return { base, root, nested };
+          }),
+          ({ base }) => Effect.sync(() => NodeFS.rmSync(base, { recursive: true, force: true })),
+        );
+
       const spawnedHome = (input: {
         readonly t3Home: string | undefined;
         readonly cwd: string;
@@ -669,6 +686,43 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
             ambientHome: "/home/user/.t3",
           });
           assert.equal(home, path.join(path.resolve(root), ".t3"));
+        }).pipe(Effect.scoped),
+      );
+
+      it.effect("defaults a jj workspace root and nested directory to the workspace .t3", () =>
+        Effect.gen(function* () {
+          const path = yield* Path.Path;
+          const { root, nested } = yield* makeJjWorkspace(true);
+          for (const cwd of [root, nested]) {
+            const home = yield* spawnedHome({
+              t3Home: undefined,
+              cwd,
+              ambientHome: "/home/user/.t3",
+            });
+            assert.equal(home, path.join(path.resolve(root), ".t3"));
+          }
+        }).pipe(Effect.scoped),
+      );
+
+      it.effect("refuses to fall back to the shared home in an unrecognised agent workspace", () =>
+        Effect.gen(function* () {
+          const { base } = yield* makeJjWorkspace(true);
+          const unrecognised = NodePath.join(base, ".slipjay", "workspaces", "t3-spare-plain");
+          NodeFS.mkdirSync(unrecognised, { recursive: true });
+          const error = yield* spawnedHome({
+            t3Home: undefined,
+            cwd: unrecognised,
+            ambientHome: "/home/user/.t3",
+          }).pipe(Effect.flip);
+          assert.equal(error._tag, "AmbiguousAgentWorkspaceError");
+
+          const path = yield* Path.Path;
+          const home = yield* spawnedHome({
+            t3Home: "/tmp/explicit-home",
+            cwd: unrecognised,
+            ambientHome: "/home/user/.t3",
+          });
+          assert.equal(home, path.resolve("/tmp/explicit-home"));
         }).pipe(Effect.scoped),
       );
 

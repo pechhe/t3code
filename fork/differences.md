@@ -575,13 +575,13 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** deliberate behaviour change
 - **Why:** Dev work happens in many SlipJay workspaces and migrates live data.
-- **Requirements:** deterministic dev port runner for multi-instance local workflows; `migrate-dev-db` keeps stopped lead families and tolerates foreign-key pruning; dev state should isolate per jj workspace (open, currently not recognised).
-- **Integration points:** `scripts/dev-runner.ts`, `apps/server/scripts/migrate-dev-db.ts`.
-- **Proof:** apps/server/scripts/migrate-dev-db.test.ts.
-- **Upstream:** dev runner is upstream (unverified extent of fork edits).
+- **Requirements:** deterministic dev port runner for multi-instance local workflows; `migrate-dev-db` keeps stopped lead families and tolerates foreign-key pruning; dev and `migrate-dev-db` default to the `.t3` of a linked git worktree or secondary jj workspace (SlipJay's, with or without a `.git` file), from its root or any nested directory, over an ambient `T3CODE_HOME`; an explicit `--home-dir` / `--base-dir` wins; a SlipJay workspace directory or unreadable `.jj` where no root is recognised refuses to start rather than use the shared home.
+- **Integration points:** `scripts/dev-runner.ts`, `apps/server/scripts/migrate-dev-db.ts`, `packages/shared/src/devHome.ts` (also used by `t3 pair`).
+- **Proof:** apps/server/scripts/migrate-dev-db.test.ts, packages/shared/src/devHome.test.ts, scripts/dev-runner.test.ts.
+- **Upstream:** dev runner is upstream; workspace detection (`devHome.ts`) is upstream's git-only version plus the jj branch.
 - **Retire when:** upstream dev runner recognises jj workspaces.
 - **Decision:** `adapt` (v0.1.2-nightly.20261021.3473, 2026-10-21): upstream's dev seeding (#22744, #22776) runs `migrate-dev-db` for a worktree home, and its rule keeping settled (unarchived) threads is adopted; the fork's family limits and foreign-key pruning still apply. Earlier: `retain` (seed, 2026-10-19).
-- **Owner:** pechhe/t3code#66, #105, #127 (open); #49, #104, #106, #113 (closed).
+- **Owner:** Build #3163 (folds #2644, #3139, #3197, #4328, #4369); pechhe/t3code#66, #105 (open); #49, #104, #106, #113 (closed).
 
 ### quiet-run-read-state
 

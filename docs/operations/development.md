@@ -21,13 +21,15 @@ Use `vp run dev` for server and web, or `vp run dev:desktop` for the Electron cl
 `dev:server` and `dev:web` start those processes separately.
 See the [mobile README](../../apps/mobile/README.md) for native builds and Metro.
 
-Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`.
+Flags go directly after the task name, for example `vp run dev --home-dir /tmp/t3code-dev`. Do not add a `--` before them: it forwards `--home-dir` to Vite, which crashes.
 Add `--browser` to open a browser automatically.
 
 ### State and ports
 
-Linked worktrees default to their own `.t3/userdata`, even when `T3CODE_HOME` is set.
+Linked git worktrees and SlipJay (jj) workspaces default to their own `.t3/userdata`, from the workspace root or any nested directory, even when `T3CODE_HOME` is set.
 The main checkout defaults to `~/.t3/dev/userdata`. An explicit `--home-dir` wins in both cases.
+Inside a SlipJay workspace directory where no workspace root is recognised, the runner refuses to start instead of using the shared home; pass `--home-dir`.
+`vp run migrate-dev-db` follows the same default; `--base-dir` overrides it.
 Never run a development server against the live `~/.t3/userdata`.
 See [test data](../../AGENTS.md#test-data) for copying a consistent database snapshot.
 
