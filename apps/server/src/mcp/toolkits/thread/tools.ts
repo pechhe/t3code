@@ -32,6 +32,7 @@ import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskService.ts";
+import * as ThreadProjectMoveService from "../../../orchestration-v2/ThreadProjectMoveService.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -259,14 +260,13 @@ const ThreadSuggestProjectTool = Tool.make("t3_thread_suggest_project", {
 const ThreadMoveToProjectTool = Tool.make("t3_thread_move_to_project", {
   ...commandTool,
   description:
-    "Move a No project thread into a project. Once the thread has no active or queued run, T3 forks the conversation into the project at its root as targetThreadId, sends continuationPrompt there, and archives the No project thread. Moving this thread: call it, then end your turn; the moved thread continues the work with your conversation, so make continuationPrompt the next instruction. If the user chose Keep on an earlier move or suggestion, move only when they ask again. Omit threadId for this thread.",
+    "Move a No project thread into a project in place: it keeps its id and history and continues in the project's workspace (a workspace this thread already holds there, a fresh SlipJay workspace prepared when the next turn starts when the project uses SlipJay, otherwise the project root). Moving this thread ends the current turn, and continuationPrompt starts the next turn in the project, so make it the next instruction and stop. If the user chose Keep on an earlier move or suggestion, move only when they ask again. Omit threadId for this thread.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     projectId: ProjectId,
     continuationPrompt: Schema.optional(TrimmedNonEmptyString),
   }),
-  success: transferResult,
-  dependencies: projectMoveDependencies,
+  dependencies: [...commandTool.dependencies, ThreadProjectMoveService.ThreadProjectMoveService],
 })
   .annotate(Tool.Title, "Move a chat into a project")
   .annotate(Tool.Destructive, true);

@@ -202,10 +202,11 @@ export class ThreadLaunchService extends Context.Service<
     >;
     readonly prepareRun: (input: ThreadLaunchPreparationInput) => Effect.Effect<void>;
     /**
-     * Sends a run that is about to start back to workspace preparation when
-     * SlipJay released its thread's workspace, as Land does, so it runs in a
-     * fresh workspace like a first message. Reports whether it did; a failure
-     * leaves the run starting, so the caller can retry.
+     * Sends a run that is about to start back to workspace preparation when its
+     * thread has no SlipJay workspace to run in: SlipJay released it, as Land
+     * does, or a project move left the project's one to prepare. The run then
+     * starts in a fresh workspace like a first message. Reports whether it did;
+     * a failure leaves the run starting, so the caller can retry.
      */
     readonly prepareReleasedWorkspace: (
       input: ThreadLaunchPreparationInput,
@@ -1410,16 +1411,32 @@ const make = Effect.gen(function* () {
     return { thread, worktreePath: thread.worktreePath, project };
   });
 
+  // A project move commits before any workspace exists, so nothing is left to clean up when
+  // it fails; the chat's next turn prepares the project's workspace as a first message would.
+  const movedWithoutWorkspace = (threadId: ThreadId) =>
+    threads
+      .getThreadRecords(threadId, [])
+      .pipe(
+        Effect.map(
+          ({ thread }) =>
+            thread.projectMove?.pendingWorkspace === true &&
+            thread.worktreePath === null &&
+            thread.agentTask === undefined,
+        ),
+      );
+
   const prepareReleasedWorkspace: ThreadLaunchService["Service"]["prepareReleasedWorkspace"] =
     Effect.fn("ThreadLaunchService.prepareReleasedWorkspace")(function* (input) {
-      const released = yield* releasedWorkspace(input.threadId);
-      if (released === null) return false;
-      yield* threads.dispatch({
-        type: "thread.metadata.update",
-        commandId: CommandId.make(`${input.commandId}:workspace-replaced`),
-        threadId: input.threadId,
-        workspaceReplaced: true,
-      });
+      if (!(yield* movedWithoutWorkspace(input.threadId))) {
+        const released = yield* releasedWorkspace(input.threadId);
+        if (released === null) return false;
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`${input.commandId}:workspace-replaced`),
+          threadId: input.threadId,
+          workspaceReplaced: true,
+        });
+      }
       yield* threads.dispatch({
         type: "prepared-run.defer",
         commandId: input.commandId,

@@ -14,9 +14,12 @@ export function resolveUserMessagePresentation(message: {
   readonly createdBy?: OrchestrationV2Actor;
   readonly creationSource?: OrchestrationV2CreationSource;
   readonly scheduledTaskId?: ScheduledTaskId;
+  readonly threadId?: string;
+  readonly senderThreadId?: string;
 }): {
   readonly text: string;
-  readonly attribution: "automation" | "agent" | "t3code" | null;
+  /** `continuation` is a prompt the thread's own agent queued for itself, as a move does. */
+  readonly attribution: "automation" | "agent" | "continuation" | "t3code" | null;
   readonly scheduledTaskId: ScheduledTaskId | undefined;
 } {
   if (message.role !== "user") {
@@ -47,7 +50,9 @@ export function resolveUserMessagePresentation(message: {
         ? null
         : message.creationSource === "server"
           ? "t3code"
-          : "agent",
+          : message.senderThreadId !== undefined && message.senderThreadId === message.threadId
+            ? "continuation"
+            : "agent",
     scheduledTaskId: undefined,
   };
 }

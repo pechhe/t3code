@@ -626,7 +626,6 @@
   "apps/server/src/orchestration-v2/ProjectionRecovery.test.ts": 4.2,
   "apps/server/src/orchestration-v2/ProjectionSettlement.test.ts": 3.2,
   "apps/server/src/orchestration-v2/ProjectionStore.test.ts": 6.3,
-  "apps/server/src/orchestration-v2/ProjectMoveReactor.test.ts": 2.9,
   "apps/server/src/orchestration-v2/ProjectSettingsUpgrade.integration.test.ts": 3.1,
   "apps/server/src/orchestration-v2/ProjectStore.test.ts": 2.3,
   "apps/server/src/orchestration-v2/ProviderAdapterRegistry.test.ts": 2.3,

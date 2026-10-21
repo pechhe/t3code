@@ -583,8 +583,9 @@ function itemIcon(item: OrchestrationV2TurnItem): ThreadFeedActivity["icon"] {
       return isJavaScriptReplTool(item.toolName) ? "code" : "wrench";
     case "subagent":
       return "hammer";
-    case "run_interrupt_request":
     case "run_interrupt_result":
+      return item.moved === true ? "zap" : "warning";
+    case "run_interrupt_request":
     case "system_notice":
       return "warning";
     case "error":

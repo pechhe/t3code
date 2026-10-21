@@ -9,7 +9,6 @@ import {
   OrchestrationV2ProviderTurnTokenUsage,
   OrchestrationV2Run,
   OrchestrationV2ThreadProjection,
-  ProjectId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -62,7 +61,6 @@ export interface ThreadForkServiceV2Shape {
     readonly targetThreadId: ThreadId;
     readonly title?: string;
     readonly sideChat?: boolean;
-    readonly projectId?: ProjectId;
     readonly createdBy: OrchestrationV2Actor;
     readonly creationSource: OrchestrationV2CreationSource;
     readonly createdAt: DateTime.Utc;
@@ -90,12 +88,12 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
         agentTask,
         sideChat: _sourceSideChat,
         projectSuggestion: _sourceProjectSuggestion,
-        // Only a project move hands workspace attachments over; the fork command does that.
+        // Attachments stay held by the thread that attached them, and a move's Undo belongs
+        // to the moved thread.
         workspaceAttachments: _sourceWorkspaceAttachments,
+        projectMove: _sourceProjectMove,
         ...sourceThread
       } = input.sourceProjection.thread;
-      const targetProjectId =
-        input.projectId === sourceThread.projectId ? undefined : input.projectId;
       const targetThread: OrchestrationV2AppThread = {
         ...sourceThread,
         ...(agentTask === undefined || input.sideChat === true ? {} : { agentTask }),
@@ -133,18 +131,6 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
               pinnedAt: null,
               pinOrderKey: null,
               activeOrderKey: null,
-              linkedPullRequest: null,
-              pullRequests: [],
-              branchPullRequest: null,
-            }
-          : {}),
-        // A fork into another project runs at that project's root and leaves the
-        // source's folder, branch and pull requests behind.
-        ...(targetProjectId !== undefined
-          ? {
-              projectId: targetProjectId,
-              branch: null,
-              worktreePath: null,
               linkedPullRequest: null,
               pullRequests: [],
               branchPullRequest: null,

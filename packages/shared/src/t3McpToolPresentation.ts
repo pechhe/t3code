@@ -350,7 +350,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   ),
   t3_thread_move_to_project: tool(
     ["Move", "Moving", "Moved", "this chat into a project"],
-    "thread-fork",
+    "worktree-handoff",
   ),
   t3_thread_merge_back: tool(
     ["Merge", "Merging", "Requested a merge of", "thread context"],

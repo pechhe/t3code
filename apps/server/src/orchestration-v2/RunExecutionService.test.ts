@@ -2475,6 +2475,22 @@ it.effect("does not refresh pull requests for auxiliary or stale provider termin
   }),
 );
 
+it.effect("says where a moved thread went instead of blaming the user", () =>
+  Effect.gen(function* () {
+    const { written } = yield* captureRootRunTermination({
+      key: "moved",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      movedTo: () => Effect.succeed("Moved to project YardSmith"),
+    });
+    assert.deepInclude(written[0], {
+      type: "run_interrupt_result",
+      title: "Moved",
+      message: "Moved to project YardSmith",
+      moved: true,
+    });
+  }),
+);
+
 it.effect("refreshes pull requests after a provider stream exits with an error", () =>
   Effect.gen(function* () {
     const { written, observed } = yield* captureRootRunTermination({
@@ -2663,6 +2679,7 @@ function captureRootRunTermination(input: {
   readonly shouldFinalizeRun: () => Effect.Effect<boolean, ProjectionStore.ProjectionStoreV2Error>;
   readonly rejectTerminalWrite?: boolean;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
+  readonly movedTo?: () => Effect.Effect<string | undefined, never>;
   readonly seedOpenSubagent?: boolean;
   readonly events?: (
     ids: BackgroundScenarioIds,
@@ -2849,6 +2866,7 @@ function captureRootRunTermination(input: {
           : {
               hasUnpairedRunInterruptRequest: input.hasUnpairedRunInterruptRequest,
             }),
+        ...(input.movedTo === undefined ? {} : { movedTo: input.movedTo }),
         message: {
           messageId: MessageId.make(`message:${input.key}`),
           text: "interrupt projection",

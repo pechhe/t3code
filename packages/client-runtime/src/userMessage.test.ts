@@ -19,6 +19,16 @@ describe("resolveUserMessagePresentation", () => {
     }
   });
 
+  it("shows a prompt a thread queued for itself as a continuation, not another agent", () => {
+    const message = { role: "user", createdBy: "agent" as const, text: "Carry on." };
+    expect(
+      resolveUserMessagePresentation({ ...message, threadId: "chat", senderThreadId: "chat" }),
+    ).toMatchObject({ attribution: "continuation" });
+    expect(
+      resolveUserMessagePresentation({ ...message, threadId: "chat", senderThreadId: "lead" }),
+    ).toMatchObject({ attribution: "agent" });
+  });
+
   it("attributes older server-sent restart continuations to T3 Code, not another agent", () => {
     const text = "Note: the T3 server restarted.";
     expect(

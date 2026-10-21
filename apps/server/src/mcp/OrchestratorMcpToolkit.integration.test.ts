@@ -30,6 +30,7 @@ import { CodexOrchestratorReplayHarness } from "../orchestration-v2/Adapters/Cod
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadProjectMove from "../orchestration-v2/ThreadProjectMoveService.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -54,6 +55,7 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+  Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
   Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
 );
@@ -178,6 +180,7 @@ const layerUnusedScheduledTaskStub = Layer.succeed(
     setEnabled: () => Effect.die("ScheduledTaskService.setEnabled is unused in this test"),
     delete: () => Effect.die("ScheduledTaskService.delete is unused in this test"),
     deleteForThread: () => Effect.die("unused in this test"),
+    moveThreadProject: () => Effect.die("unused in this test"),
     runNow: () => Effect.die("ScheduledTaskService.runNow is unused in this test"),
     rotateWebhookToken: () => Effect.die("unused in this test"),
     listWebhookDeliveries: () => Effect.die("unused in this test"),

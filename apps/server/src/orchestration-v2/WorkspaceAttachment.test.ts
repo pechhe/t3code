@@ -268,7 +268,6 @@ const seedRun = (
     });
   });
 
-
 const attach = (
   threadId: ThreadId,
   name: string,
@@ -313,7 +312,6 @@ const attachmentsOf = (threadId: ThreadId) =>
       projectId: attachment.projectId,
       workspacePath: attachment.workspacePath,
       released: attachment.releasedAt !== null,
-      movedTo: attachment.movedTo ?? null,
     }));
   });
 
@@ -336,7 +334,6 @@ it.layer(layerTest)("workspace attachments", (it) => {
           projectId: ProjectId.make("project:api-hold"),
           workspacePath: "/workspaces/api-2",
           released: false,
-          movedTo: null,
         },
       ]);
 
@@ -345,7 +342,7 @@ it.layer(layerTest)("workspace attachments", (it) => {
     }),
   );
 
-  it.effect("a project move hands attachments to the moved chat, and Undo hands them back", () =>
+  it.effect("a project move promotes the held workspace, and Undo restores it", () =>
     Effect.gen(function* () {
       const chat = yield* createThread("chat-move");
       yield* createThread("api-move");
@@ -355,46 +352,147 @@ it.layer(layerTest)("workspace attachments", (it) => {
       yield* attach(chat, "web-move", "/workspaces/web-move", "adopted");
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const moved = ThreadId.make("thread:chat-move:moved");
-      yield* orchestrator.dispatch({
-        type: "thread.fork",
-        commandId: CommandId.make("command:move:chat-move"),
-        sourceThreadId: chat,
-        targetThreadId: moved,
-        sourcePoint: { type: "latest_finished" },
+      const record = (
+        id: string,
+        change:
+          | { readonly action: "revert" }
+          | {
+              readonly action: "apply";
+              readonly fromProjectId: ProjectId;
+              readonly projectId: ProjectId;
+              readonly worktreePath: string | null;
+              readonly branch: string | null;
+              readonly workspaceIssue: null;
+              readonly pendingWorkspace: boolean;
+            },
+      ) =>
+        orchestrator.dispatch({
+          type: "thread.project-move.record",
+          commandId: CommandId.make(`command:${id}:chat-move`),
+          threadId: chat,
+          change,
+        });
+      yield* record("move", {
+        action: "apply",
+        fromProjectId: ProjectId.make("project:chat-move"),
         projectId: ProjectId.make("project:api-move"),
-        moveWorkspaceAttachments: true,
-        createdBy: "user",
-        creationSource: "web",
+        worktreePath: "/workspaces/api-move",
+        branch: null,
+        workspaceIssue: null,
+        pendingWorkspace: false,
       });
 
-      // The attachment in the moved chat's project becomes its primary workspace.
-      const fork = yield* projections.getThread(moved);
-      assert.equal(fork.worktreePath, "/workspaces/api-move");
-      assert.deepEqual(yield* attachmentsOf(moved), [
+      const moved = yield* projections.getThread(chat);
+      assert.equal(moved.projectId, ProjectId.make("project:api-move"));
+      assert.equal(moved.worktreePath, "/workspaces/api-move");
+      assert.equal(moved.projectMove?.fromProjectId, ProjectId.make("project:chat-move"));
+      assert.equal(moved.projectMove?.runCount, 1);
+      assert.deepEqual(yield* attachmentsOf(chat), [
         {
           projectId: ProjectId.make("project:web-move"),
           workspacePath: "/workspaces/web-move",
           released: false,
-          movedTo: null,
         },
       ]);
-      assert.deepEqual(
-        (yield* attachmentsOf(chat)).map((attachment) => attachment.movedTo),
-        [moved, moved],
-      );
 
-      yield* orchestrator.dispatch({
-        type: "thread.workspace-attachments.reclaim",
-        commandId: CommandId.make("command:undo:chat-move"),
-        threadId: chat,
-        fromThreadId: moved,
-      });
+      yield* record("undo", { action: "revert" });
+      const restored = yield* projections.getThread(chat);
+      assert.equal(restored.projectId, ProjectId.make("project:chat-move"));
+      assert.isNull(restored.worktreePath);
+      assert.isNull(restored.projectMove);
       assert.deepEqual(
-        (yield* attachmentsOf(chat)).map((attachment) => attachment.movedTo),
-        [null, null],
+        (yield* attachmentsOf(chat)).map((attachment) => attachment.workspacePath).toSorted(),
+        ["/workspaces/api-move", "/workspaces/web-move"],
       );
-      assert.deepEqual(yield* attachmentsOf(moved), []);
+    }),
+  );
+
+  it.effect("Undo is refused once the moved chat has run in the project", () =>
+    Effect.gen(function* () {
+      const chat = yield* createThread("chat-ran");
+      yield* createThread("api-ran");
+      yield* seedRun(chat, { status: "completed", text: "done" });
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      yield* orchestrator.dispatch({
+        type: "thread.project-move.record",
+        commandId: CommandId.make("command:move:chat-ran"),
+        threadId: chat,
+        change: {
+          action: "apply",
+          fromProjectId: ProjectId.make("project:chat-ran"),
+          projectId: ProjectId.make("project:api-ran"),
+          worktreePath: null,
+          branch: null,
+          workspaceIssue: null,
+          pendingWorkspace: false,
+        },
+      });
+      yield* seedRun(chat, { ordinal: 2, status: "completed", text: "in the project" });
+      const undo = yield* Effect.exit(
+        orchestrator.dispatch({
+          type: "thread.project-move.record",
+          commandId: CommandId.make("command:undo:chat-ran"),
+          threadId: chat,
+          change: { action: "revert" },
+        }),
+      );
+      assert.isTrue(undo._tag === "Failure");
+    }),
+  );
+
+  it.effect("a second move recorded against the chat's old project is refused", () =>
+    Effect.gen(function* () {
+      const chat = yield* createThread("chat-race");
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const apply = (id: string, projectId: string) =>
+        orchestrator.dispatch({
+          type: "thread.project-move.record",
+          commandId: CommandId.make(`command:${id}:chat-race`),
+          threadId: chat,
+          change: {
+            action: "apply",
+            fromProjectId: ProjectId.make("project:chat-race"),
+            projectId: ProjectId.make(projectId),
+            worktreePath: null,
+            branch: null,
+            workspaceIssue: null,
+            pendingWorkspace: true,
+          },
+        });
+      yield* apply("first", "project:api-race");
+      const second = yield* Effect.exit(apply("second", "project:web-race"));
+      assert.isTrue(second._tag === "Failure");
+      const thread = yield* (yield* ProjectionStore.ProjectionStoreV2).getThread(chat);
+      assert.equal(thread.projectId, ProjectId.make("project:api-race"));
+    }),
+  );
+
+  it.effect("a move that promotes nothing keeps the chat's attachments in that project", () =>
+    Effect.gen(function* () {
+      const chat = yield* createThread("chat-keep");
+      yield* createThread("api-keep");
+      yield* attach(chat, "api-keep", "/workspaces/api-keep");
+      yield* (yield* Orchestrator.OrchestratorV2).dispatch({
+        type: "thread.project-move.record",
+        commandId: CommandId.make("command:move:chat-keep"),
+        threadId: chat,
+        change: {
+          action: "apply",
+          fromProjectId: ProjectId.make("project:chat-keep"),
+          projectId: ProjectId.make("project:api-keep"),
+          worktreePath: null,
+          branch: null,
+          workspaceIssue: null,
+          pendingWorkspace: true,
+        },
+      });
+      assert.deepEqual(yield* attachmentsOf(chat), [
+        {
+          projectId: ProjectId.make("project:api-keep"),
+          workspacePath: "/workspaces/api-keep",
+          released: false,
+        },
+      ]);
     }),
   );
 
@@ -416,7 +514,7 @@ it.layer(layerTest)("workspace attachments", (it) => {
         creationSource: "web",
       });
       assert.deepEqual(yield* attachmentsOf(fork), []);
-      assert.equal((yield* attachmentsOf(source))[0]?.movedTo, null);
+      assert.equal((yield* attachmentsOf(source)).length, 1);
     }),
   );
 });

@@ -148,7 +148,6 @@ export interface EnvironmentThreadShell {
     readonly reason: string;
     readonly suggestedAt: string;
     readonly dismissedAt: string | null;
-    readonly move: import("@t3tools/contracts").OrchestrationV2ThreadProjectMove | null;
   } | null;
   /** Slot in the user-arranged pinned order; null for keyless (legacy) pins. */
   readonly pinOrderKey: string | null;
@@ -318,7 +317,6 @@ export function presentThreadShell(
           reason: thread.projectSuggestion.reason,
           suggestedAt: iso(thread.projectSuggestion.suggestedAt),
           dismissedAt: nullableIso(thread.projectSuggestion.dismissedAt),
-          move: thread.projectSuggestion.move ?? null,
         }
       : null,
     pinOrderKey: thread.pinOrderKey ?? null,

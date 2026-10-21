@@ -20,10 +20,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
-import {
-  listedWorkspaceAttachments,
-  liveWorkspaceAttachments,
-} from "@t3tools/shared/workspaceAttachments";
+import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
@@ -308,6 +305,8 @@ const make = Effect.gen(function* () {
                     commandId: ids.continuationCommandId,
                     threadId: scope.thread.threadId,
                     messageId: ids.continuationMessageId,
+                    // Sent by the thread itself, so it reads as the chat continuing there.
+                    senderThreadId: scope.thread.threadId,
                     text: input.continuationPrompt,
                     attachments: [],
                     mode: "queue",
@@ -766,7 +765,7 @@ const make = Effect.gen(function* () {
         branch: projection.thread.branch,
         projectWorkspaceRoot: project.workspaceRoot,
         defaultStartFromOrigin,
-        attachments: listedWorkspaceAttachments(projection.thread),
+        attachments: projection.thread.workspaceAttachments ?? [],
       };
       return result;
     },

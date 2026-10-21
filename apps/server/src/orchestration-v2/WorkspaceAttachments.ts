@@ -4,10 +4,7 @@ import {
   type OrchestrationV2WorkspaceAttachment,
   ThreadId,
 } from "@t3tools/contracts";
-import {
-  listedWorkspaceAttachments,
-  liveWorkspaceAttachments,
-} from "@t3tools/shared/workspaceAttachments";
+import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -186,7 +183,7 @@ const make = Effect.gen(function* () {
         refuse("failed", `${prefix}: ${cause.message}`),
       );
     const shell = yield* threads.getThreadShell(threadId).pipe(failed("Unable to read the thread"));
-    const attachment = (shell === null ? [] : listedWorkspaceAttachments(shell)).find(
+    const attachment = (shell?.workspaceAttachments ?? []).find(
       (candidate) => candidate.workspacePath === workspacePath,
     );
     if (shell === null || attachment === undefined)

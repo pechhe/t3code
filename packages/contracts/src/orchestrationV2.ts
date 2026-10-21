@@ -442,18 +442,6 @@ export const OrchestrationV2ThreadWorkItem = Schema.Struct({
 export type OrchestrationV2ThreadWorkItem = typeof OrchestrationV2ThreadWorkItem.Type;
 
 /**
- * A move the agent made itself rather than suggested. Once the chat has no
- * active or queued run, T3 forks it into the project as `targetThreadId`,
- * archives the original and sends `continuation` to the moved chat. Keep
- * (dismissal) cancels a move not yet made.
- */
-export const OrchestrationV2ThreadProjectMove = Schema.Struct({
-  targetThreadId: ThreadId,
-  continuation: Schema.NullOr(TrimmedNonEmptyString),
-});
-export type OrchestrationV2ThreadProjectMove = typeof OrchestrationV2ThreadProjectMove.Type;
-
-/**
  * A project an agent suggested for its own No project chat. The user moves the
  * chat there or keeps it; a dismissed suggestion stays recorded so the chat is
  * suggested at most once.
@@ -463,7 +451,6 @@ export const OrchestrationV2ThreadProjectSuggestion = Schema.Struct({
   reason: TrimmedNonEmptyString,
   suggestedAt: Schema.DateTimeUtc,
   dismissedAt: Schema.NullOr(Schema.DateTimeUtc),
-  move: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectMove)),
 });
 export type OrchestrationV2ThreadProjectSuggestion =
   typeof OrchestrationV2ThreadProjectSuggestion.Type;
@@ -521,7 +508,7 @@ export type OrchestrationV2ThreadWatch = typeof OrchestrationV2ThreadWatch.Type;
 /**
  * A workspace in another registered project that this thread works in beside its primary
  * workspace. A project holds at most one live attachment per thread: one SlipJay has not
- * released and the thread has not handed to a moved chat.
+ * released.
  */
 export const OrchestrationV2WorkspaceAttachment = Schema.Struct({
   projectId: ProjectId,
@@ -534,10 +521,27 @@ export const OrchestrationV2WorkspaceAttachment = Schema.Struct({
   attachedAt: IsoDateTime,
   /** When SlipJay released it, for example after it landed. */
   releasedAt: Schema.NullOr(IsoDateTime),
-  /** The chat a project move handed it to; Undo hands it back. */
-  movedTo: Schema.optional(ThreadId),
 });
 export type OrchestrationV2WorkspaceAttachment = typeof OrchestrationV2WorkspaceAttachment.Type;
+
+/**
+ * Where a No project chat was before T3 moved it into a project, kept so Undo can put it
+ * back. The move keeps the thread itself: only its project and workspace change.
+ */
+export const OrchestrationV2ThreadProjectMove = Schema.Struct({
+  fromProjectId: ProjectId,
+  fromWorktreePath: Schema.NullOr(TrimmedNonEmptyString),
+  fromBranch: Schema.NullOr(TrimmedNonEmptyString),
+  fromWorkspaceIssue: Schema.NullOr(PositiveInt),
+  /** The attachment in the target project that became the primary workspace. */
+  promotedAttachment: Schema.NullOr(OrchestrationV2WorkspaceAttachment),
+  /** The chat runs in the project's default workspace, which a turn prepares whenever the
+      chat has none, including after a cancelled preparation. */
+  pendingWorkspace: Schema.Boolean,
+  /** Runs the thread had when it moved; Undo is refused once it has another. */
+  runCount: NonNegativeInt,
+});
+export type OrchestrationV2ThreadProjectMove = typeof OrchestrationV2ThreadProjectMove.Type;
 
 export const OrchestrationV2AppThread = Schema.Struct({
   advisorClosedAt: Schema.optional(Schema.DateTimeUtc),
@@ -601,6 +605,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   /** This thread's compact-at point, in context tokens; absent or null follows the provider's setting. */
   compactAt: Schema.optional(Schema.NullOr(PositiveInt)),
+  /** The last move from No project into a project, until Undo or the next run makes it final. */
+  projectMove: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectMove)),
   // Fractional-index slot in the user-arranged pinned order. Optional so
   // payloads from pre-reorder servers still decode.
   pinOrderKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
@@ -1736,6 +1742,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
     ...OrchestrationV2TurnItemBaseFields,
     type: Schema.Literal("run_interrupt_result"),
     message: Schema.String,
+    /** The run ended because its thread moved workspace or project, not because of a Stop. */
+    moved: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2526,6 +2534,8 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     ...OrchestrationV2TurnItemJsonBaseFields,
     type: Schema.Literal("run_interrupt_result"),
     message: Schema.String,
+    /** The run ended because its thread moved workspace or project, not because of a Stop. */
+    moved: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,
@@ -3059,9 +3069,8 @@ export const OrchestrationV2Command = Schema.Union([
       Schema.Union([
         Schema.Struct({
           projectId: ProjectId,
-          reason: TrimmedNonEmptyString,
           /** Replaces any earlier suggestion, dismissed or not. */
-          move: Schema.optional(OrchestrationV2ThreadProjectMove),
+          reason: TrimmedNonEmptyString,
         }),
         Schema.Literal("dismissed"),
       ]),
@@ -3320,19 +3329,23 @@ export const OrchestrationV2Command = Schema.Union([
     title: Schema.optional(TrimmedNonEmptyString),
     /** Open the fork as a side chat of the source thread. */
     sideChat: Schema.optional(Schema.Boolean),
-    /** Fork into this project, at its root, instead of the source's project and folder. */
-    projectId: Schema.optional(ProjectId),
-    /** A project move: the fork takes over the source's live workspace attachments, and one in
-        the fork's project becomes its primary workspace. */
-    moveWorkspaceAttachments: Schema.optional(Schema.Boolean),
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
-  /** Undoes a project move: hands the attachments `fromThreadId` took over back to `threadId`. */
+  /**
+   * Moves a No project chat into a project in place. The server prepares the chat's workspace
+   * in the project and records the move as `thread.project-move.record`.
+   */
   Schema.Struct({
-    type: Schema.Literal("thread.workspace-attachments.reclaim"),
+    type: Schema.Literal("thread.project.move"),
     commandId: CommandId,
     threadId: ThreadId,
-    fromThreadId: ThreadId,
+    projectId: ProjectId,
+  }),
+  /** Puts a moved chat back in No project, refused once it has run in the project. */
+  Schema.Struct({
+    type: Schema.Literal("thread.project.move.undo"),
+    commandId: CommandId,
+    threadId: ThreadId,
   }),
   Schema.Struct({
     type: Schema.Literal("thread.merge_back"),
@@ -3548,6 +3561,29 @@ const OrchestrationV2InternalCommand = Schema.Union([
         action: Schema.Literals(["release", "detach"]),
         workspacePath: TrimmedNonEmptyString,
       }),
+    ]),
+  }),
+  /**
+   * Records a project move, or its Undo. `apply` names the primary workspace the chat
+   * continues in: an attachment it already holds in the project, or none (null), when the
+   * project root serves or `pendingWorkspace` defers preparation to the next turn. It is
+   * refused unless the chat is still in `fromProjectId`, so concurrent moves cannot both land.
+   */
+  Schema.Struct({
+    type: Schema.Literal("thread.project-move.record"),
+    commandId: CommandId,
+    threadId: ThreadId,
+    change: Schema.Union([
+      Schema.Struct({
+        action: Schema.Literal("apply"),
+        fromProjectId: ProjectId,
+        projectId: ProjectId,
+        worktreePath: Schema.NullOr(TrimmedNonEmptyString),
+        branch: Schema.NullOr(TrimmedNonEmptyString),
+        workspaceIssue: Schema.NullOr(PositiveInt),
+        pendingWorkspace: Schema.Boolean,
+      }),
+      Schema.Struct({ action: Schema.Literal("revert") }),
     ]),
   }),
 ]);
