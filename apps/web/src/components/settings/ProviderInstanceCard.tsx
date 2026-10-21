@@ -779,7 +779,8 @@ export function ProviderInstanceCard({
   });
 
   const updateModelCompactAt = useStableCallback((slug: string, compactAt: number | null) => {
-    const { [slug]: _omit, ...rest } = modelCompactAt;
+    const rest = { ...modelCompactAt };
+    delete rest[slug];
     onModelCompactAtChange(compactAt === null ? rest : { ...rest, [slug]: compactAt });
   });
 

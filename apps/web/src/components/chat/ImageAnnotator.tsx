@@ -158,9 +158,11 @@ export function ImageAnnotator(props: {
     setSaving(true);
     try {
       await onDone(notedMarks(marks));
-    } finally {
+    } catch (error) {
       setSaving(false);
+      throw error;
     }
+    setSaving(false);
   };
 
   // The editor owns the keyboard while open, so Esc and Enter never reach the composer.

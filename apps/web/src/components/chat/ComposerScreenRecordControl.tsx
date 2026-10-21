@@ -30,14 +30,16 @@ export function useComposerScreenRecordingAvailable(): boolean {
   useEffect(() => {
     if (!getSupport || support !== undefined) return;
     let active = true;
-    desktopSupportRead ??= getSupport().then(
-      (value) => {
-        desktopSupport = value;
-      },
-      () => {
-        desktopSupport = null;
-      },
-    );
+    if (!desktopSupportRead) {
+      desktopSupportRead = getSupport().then(
+        (value) => {
+          desktopSupport = value;
+        },
+        () => {
+          desktopSupport = null;
+        },
+      );
+    }
     void desktopSupportRead.then(() => {
       if (active) setSupport(desktopSupport);
     });

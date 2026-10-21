@@ -91,6 +91,9 @@ export function DeviceModelSlider(props: {
     lockedContinuationGroupKey,
     getModelDisabledReason,
     lightColor,
+    disabled,
+    renderOverflow,
+    ref,
   } = props;
 
   const resolveSlot = useMemo(
@@ -145,16 +148,17 @@ export function DeviceModelSlider(props: {
 
   const selectSlot = (index: number) => {
     const slot = slots[index];
-    if (!slot || props.disabled || slot.disabledReason !== null || index === activeIndex) return;
+    if (!slot || disabled || slot.disabledReason !== null || index === activeIndex) return;
     playRotary();
     props.onSelect(slot.instanceId, slot.model);
   };
-  useImperativeHandle(props.ref, () => ({ selectSlot }));
+  useImperativeHandle(ref, () => ({ selectSlot }));
 
   const rename = (slot: Slot, name: string) => {
     setRenamingKey(null);
     const label = name.trim();
-    const { [slot.key]: _previous, ...others } = slotLabels;
+    const others = { ...slotLabels };
+    delete others[slot.key];
     const next = label && label !== slot.modelName ? { ...others, [slot.key]: label } : others;
     if (next[slot.key] !== slotLabels[slot.key]) {
       void updateClientSettings({ modelSlotLabels: next });
@@ -216,7 +220,7 @@ export function DeviceModelSlider(props: {
                   type="button"
                   className="device-slider__label"
                   style={{ "--slot": index } as CSSProperties}
-                  disabled={props.disabled}
+                  disabled={disabled}
                   aria-disabled={slot.disabledReason !== null || undefined}
                   aria-pressed={index === activeIndex}
                   onPointerDown={(event) => event.preventDefault()}
@@ -236,12 +240,12 @@ export function DeviceModelSlider(props: {
           </Tooltip>
         ),
       )}
-      {props.renderOverflow(
+      {renderOverflow(
         <button
           type="button"
           className="device-slider__label device-slider__label--menu"
           style={{ "--slot": FAVORITE_SLOTS } as CSSProperties}
-          disabled={props.disabled}
+          disabled={disabled}
           aria-label={overflowLabel === null ? "All models" : `${overflowLabel}, all models`}
           aria-pressed={overflowLabel !== null}
         >

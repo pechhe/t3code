@@ -58,26 +58,21 @@ describe("TelemetryExportSettings", () => {
     };
     await using screen = await render(<TelemetryExportSettings />);
 
-    const { container } = screen;
-    const field = (id: string) => container.querySelector<HTMLInputElement>(`#${id}`)!;
-    async function replace(id: string, value: string) {
-      await userEvent.clear(field(id));
-      await userEvent.type(field(id), value);
-    }
+    // One fill is one browser round trip; typing a URL key by key spends the test's budget on
+    // tens of them, and under parallel load that is where the click ran out of time.
+    const field = (id: string) => screen.container.querySelector<HTMLInputElement>(`#${id}`)!;
+    const replace = (id: string, value: string) => userEvent.fill(field(id), value);
     await replace("otlpTracesUrl", "http://draft/v1/traces");
     await replace("otlpTracesUrl", "http://old/v1/traces");
     state.observability = { ...state.observability, otlpTracesUrl: "http://other/v1/traces" };
     await screen.rerender(<TelemetryExportSettings />);
     await replace("otlpMetricsUrl", "http://new/v1/metrics");
-    const save = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Save",
-    )!;
-    await userEvent.click(save);
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
+    await expect.element(screen.getByText("Saved. Restart the server to apply.")).toBeVisible();
     expect(updateSettings).toHaveBeenCalledExactlyOnceWith({
       environmentId: "env",
       input: { patch: { observability: { otlpMetricsUrl: "http://new/v1/metrics" } } },
     });
-    expect(container.textContent).toContain("Saved. Restart the server to apply.");
   });
 });

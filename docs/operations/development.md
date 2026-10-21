@@ -186,8 +186,9 @@ the entry is removed when that Issue closes. `pnpm test:audit` (`--audit`) runs 
 complete suite in parallel with the quarantined tests included, for the nightly audit.
 
 When `SLIPJAY_TEST_REPORT_DIR` is set, each Vitest run also writes a JSON report there, and
-`slipjay-test-reports.json` lists them. Nothing is written otherwise, and a missing report never
-fails the gate. The budget's outcome is listed there too, as skipped rows the runner keeps in the landing's test
+`slipjay-test-reports.json` lists them. The audit (`--audit`) defaults the directory to
+`.t3/review/test-reports`, which `slipjay.json` lists in `evidencePaths`. Other runs write nothing
+without it, and a missing report never fails the gate. The budget's outcome is listed there too, as skipped rows the runner keeps in the landing's test
 report when it clips the console output: one row per deferred file (suite `landing-deferred`) and
 one row whose suite name is the budget summary, which says when the mandatory tests alone exceed
 the budget. The summary is also the output's last line.

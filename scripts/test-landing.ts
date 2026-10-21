@@ -880,11 +880,18 @@ export function writeManifest(reportDir: string, reports: ReadonlyArray<LandingR
   }
 }
 
+/** Where the audit writes its reports unless `SLIPJAY_TEST_REPORT_DIR` says otherwise. */
+const AUDIT_REPORT_DIR = ".t3/review/test-reports";
+
 async function run(args: ReadonlyArray<string>) {
+  // The audit keeps its reports even when the runner names no directory: slipjay.json lists
+  // `.t3/review` as evidence, so the reports outlive the run.
   let reportDir = process.env.SLIPJAY_TEST_REPORT_DIR
     ? NodePath.resolve(process.env.SLIPJAY_TEST_REPORT_DIR)
-    : undefined;
-  if (reportDir) {
+    : args.includes("--audit")
+      ? NodePath.join(ROOT, AUDIT_REPORT_DIR)
+      : undefined;
+  if (reportDir && !args.includes("--plan")) {
     try {
       NodeFS.mkdirSync(reportDir, { recursive: true });
     } catch (error) {

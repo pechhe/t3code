@@ -260,6 +260,8 @@ export type OrchestratorFixtureInputStep =
       readonly type: "interrupt";
       readonly targetRunIndex: number;
       readonly waitForTurnItemType?: OrchestrationV2TurnItem["type"];
+      /** Items of that type the run must have before the interrupt; defaults to one. */
+      readonly waitForTurnItemCount?: number;
     }
   | {
       readonly type: "stop_background_work";
@@ -841,6 +843,9 @@ export function materializeFixtureInput(input: {
               threadId: ids.threadId,
               runId: runIdFor(step.targetRunIndex),
               itemType: step.waitForTurnItemType,
+              ...(step.waitForTurnItemCount !== undefined
+                ? { count: step.waitForTurnItemCount }
+                : {}),
             });
           }
           pushDispatch(

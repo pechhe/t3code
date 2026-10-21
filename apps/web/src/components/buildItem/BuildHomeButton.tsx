@@ -296,9 +296,11 @@ export function BuildHomeButton(props: {
                           onState={setDecided}
                           notice={notices[need.spec.id] ?? null}
                           onNotice={(message) =>
-                            setNotices(({ [need.spec.id]: _previous, ...rest }) =>
-                              message === null ? rest : { ...rest, [need.spec.id]: message },
-                            )
+                            setNotices((previous) => {
+                              const rest = { ...previous };
+                              delete rest[need.spec.id];
+                              return message === null ? rest : { ...rest, [need.spec.id]: message };
+                            })
                           }
                         />
                       ) : (

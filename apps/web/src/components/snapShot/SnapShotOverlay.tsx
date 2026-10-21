@@ -48,9 +48,11 @@ function useStartSnapShotOverlayDraft(): () => Promise<DraftId | null> {
     return created?.draftId ?? null;
   };
   return () => {
-    startingOverlayDraft ??= start().finally(() => {
-      startingOverlayDraft = null;
-    });
+    if (!startingOverlayDraft) {
+      startingOverlayDraft = start().finally(() => {
+        startingOverlayDraft = null;
+      });
+    }
     return startingOverlayDraft;
   };
 }

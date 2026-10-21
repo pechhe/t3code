@@ -73,6 +73,8 @@ vi.mock(import("../hooks/useSettings"), async (original) => {
 });
 
 import ChatMarkdown from "./ChatMarkdown";
+import { chatMarkdownClipboardPayload, serializeTableElementToCsv } from "../markdown-clipboard";
+import { captureAssistantTextSelection } from "../lib/assistantTextSelection";
 
 function setup() {
   settingsOverrides.mathRenderingEnabled = false;
@@ -370,5 +372,51 @@ describe("ChatMarkdown Windows file links", () => {
       expect(container.innerHTML).not.toContain("d:alert");
       expect(fileHrefs(container)).toEqual([]);
     }
+  });
+});
+
+describe("ChatMarkdown math", () => {
+  it("renders table formulas and exports their TeX instead of duplicate glyph text", async () => {
+    setup();
+    settingsOverrides.mathRenderingEnabled = true;
+    await using rendered = await render(
+      <ChatMarkdown
+        cwd="/tmp/project"
+        text={
+          "| Name | Formula |\n| --- | --- |\n| Norm | $|x|$ and \\(\\|y\\|\\) |\n| Price | $5 and $10 |"
+        }
+      />,
+    );
+    rendered.container.setAttribute("data-assistant-citation-source", "assistant");
+    await act(async () => {
+      await import("./chat/MathTypeset");
+    });
+
+    const table = rendered.container.querySelector("table")!;
+    expect([...table.rows].map((row) => row.cells.length)).toEqual([2, 2, 2]);
+    expect(table.querySelectorAll(".katex")).toHaveLength(2);
+    const norm = table.querySelectorAll(".katex")[1]!;
+    expect([...norm.querySelectorAll(".katex-mathml mi")].map((node) => node.textContent)).toEqual([
+      "∥",
+      "y",
+      "∥",
+    ]);
+    expect(serializeTableElementToCsv(table)).toBe(
+      "Name,Formula\nNorm,\\(|x|\\) and \\(\\|y\\|\\)\nPrice,$5 and $10",
+    );
+    const glyph = table.querySelector(".katex-mathml mi")!.firstChild!;
+    const range = document.createRange();
+    range.setStart(glyph, 0);
+    range.setEnd(glyph, 1);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const payload = chatMarkdownClipboardPayload(selection)!;
+    expect(payload.text).toBe("\\(|x|\\)");
+    expect(payload.html).toContain("\\(|x|\\)");
+    expect(payload.html).not.toContain("katex");
+    expect(captureAssistantTextSelection(rendered.container, selection)?.selector.text).toBe(
+      "\\(|x|\\)",
+    );
   });
 });

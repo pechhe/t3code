@@ -5,6 +5,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 
 import { assert, describe, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 
 import {
   budgetedRuns,
@@ -1099,13 +1100,19 @@ describe("audit", () => {
     const result = NodeChildProcess.spawnSync(
       process.execPath,
       [NodePath.join(REPOSITORY_ROOT, "scripts/test-landing.ts"), "--audit", "--plan"],
-      { cwd: NodeOS.tmpdir(), encoding: "utf8", env: { ...process.env, PATH: "/nonexistent" } },
+      {
+        cwd: NodeOS.tmpdir(),
+        encoding: "utf8",
+        env: { ...process.env, PATH: "/nonexistent", SLIPJAY_TEST_REPORT_DIR: "" },
+      },
     );
     assert.strictEqual(result.status, 0, result.stderr);
     assert.include(result.stdout, '"kind": "complete"');
     assert.include(result.stdout, "Landing quarantine exclusions: []");
     assert.match(result.stdout, /\(cd apps\/server && node \S+test-landing-vitest\.ts run /);
     assert.match(result.stdout, /\(cd packages\/shared && node \S+test-landing-vitest\.ts run /);
+    // Without a report directory from the runner, the audit still writes reports, to an evidence path.
+    assert.include(result.stdout, ".t3/review/test-reports/vitest-packages-shared.json");
   });
 
   it("is the test:audit package script", () => {
@@ -1156,7 +1163,15 @@ describe("test reports", () => {
         ),
         { version: 1, reports: [present, missing] },
       );
-      assert.isFalse(writeManifest(NodePath.join(directory, "does", "not", "exist"), [present]));
+      // The refusal is expected; letting it print would put a writeManifest stack in the run's
+      // output that reads as a failure in a log scan.
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+      try {
+        assert.isFalse(writeManifest(NodePath.join(directory, "does", "not", "exist"), [present]));
+        assert.strictEqual(warn.mock.calls.length, 1);
+      } finally {
+        warn.mockRestore();
+      }
     } finally {
       NodeFS.rmSync(directory, { recursive: true, force: true });
     }

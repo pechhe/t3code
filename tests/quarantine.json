@@ -5,36 +5,6 @@
     "reason": "an unseen completion with only a background command presents as waiting, not ready"
   },
   {
-    "file": "apps/web/src/components/CommandPalette.focus.browser.test.tsx",
-    "issue": 3425,
-    "reason": "the file fails on t3peach run serially on the runner"
-  },
-  {
-    "file": "apps/web/src/components/chat/composerEventScope.browser.test.tsx",
-    "issue": 3425,
-    "reason": "the file fails on t3peach run serially on the runner"
-  },
-  {
-    "file": "apps/web/src/reactCompilerCoverage.test.ts",
-    "issue": 3425,
-    "reason": "the file fails on t3peach run serially on the runner"
-  },
-  {
-    "file": "apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts",
-    "issue": 3425,
-    "reason": "the file fails on t3peach run serially on the runner"
-  },
-  {
-    "file": "apps/desktop/scripts/browser-secret-native.test.mjs",
-    "issue": 3425,
-    "reason": "the file fails on t3peach run serially on the runner"
-  },
-  {
-    "file": "apps/desktop/src/preview/Manager.test.ts",
-    "issue": 3425,
-    "reason": "the file fails on t3peach run serially on the runner"
-  },
-  {
     "file": "apps/web/src/components/chat/HtmlRenderDialog.browser.test.tsx",
     "issue": 3426,
     "reason": "fails under parallel load on the runner; passes serially"
@@ -88,11 +58,6 @@
     "file": "packages/shared/src/nodeSqliteClient.test.ts",
     "issue": 3426,
     "reason": "fails under parallel load on the runner; passes serially"
-  },
-  {
-    "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx",
-    "issue": 3425,
-    "reason": "table formulas render no KaTeX on t3peach, run alone or on the runner"
   },
   {
     "file": "apps/server/integration/transferBudgetV2.integration.test.ts",

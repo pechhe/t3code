@@ -43,9 +43,11 @@ export function useProjectSuggestionBannerItem(
     setPending(true);
     try {
       await action();
-    } finally {
+    } catch (error) {
       setPending(false);
+      throw error;
     }
+    setPending(false);
   };
   return {
     id: `project-suggestion:${thread.id}`,

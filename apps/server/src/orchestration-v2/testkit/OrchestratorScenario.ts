@@ -75,6 +75,8 @@ export type OrchestratorV2ScenarioStep =
       readonly threadId: ThreadId;
       readonly runId: OrchestrationV2Run["id"];
       readonly itemType: OrchestrationV2TurnItem["type"];
+      /** Items of that type the run must have; defaults to one. */
+      readonly count?: number;
     }
   | {
       readonly type: "release_replay_gate_after_waiting";
@@ -451,6 +453,7 @@ export function runOrchestratorV2Scenario(
         threadId: ThreadId,
         runId: OrchestrationV2Run["id"],
         itemType: OrchestrationV2TurnItem["type"],
+        count: number,
         attemptsRemaining = SCENARIO_WAIT_ATTEMPTS,
         deadlineAt = scenarioWaitDeadline(),
       ): Effect.Effect<
@@ -460,10 +463,10 @@ export function runOrchestratorV2Scenario(
       > =>
         Effect.gen(function* () {
           const projection = yield* orchestrator.getThreadProjection(threadId);
-          const hasTurnItem = projection.turnItems.some(
-            (item) => item.runId === runId && item.type === itemType,
-          );
-          if (hasTurnItem) {
+          const hasTurnItems =
+            projection.turnItems.filter((item) => item.runId === runId && item.type === itemType)
+              .length >= count;
+          if (hasTurnItems) {
             return;
           }
           if (scenarioWaitExhausted(attemptsRemaining, deadlineAt)) {
@@ -477,6 +480,7 @@ export function runOrchestratorV2Scenario(
             threadId,
             runId,
             itemType,
+            count,
             attemptsRemaining - 1,
             deadlineAt,
           );
@@ -667,7 +671,7 @@ export function runOrchestratorV2Scenario(
             yield* finishHeldRun(step);
             break;
           case "await_run_turn_item":
-            yield* waitForRunTurnItem(step.threadId, step.runId, step.itemType);
+            yield* waitForRunTurnItem(step.threadId, step.runId, step.itemType, step.count ?? 1);
             break;
           case "release_replay_gate_after_waiting":
             yield* releaseReplayGateAfterWaiting(step.label, step.threadId, step.runId);

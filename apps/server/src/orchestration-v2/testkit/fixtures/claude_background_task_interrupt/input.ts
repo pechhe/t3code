@@ -14,7 +14,14 @@ export function claudeBackgroundTaskInterruptInput(): OrchestratorFixtureInput {
   return {
     steps: [
       { type: "message", text: CLAUDE_BACKGROUND_TASK_INTERRUPT_PROMPT },
-      { type: "interrupt", targetRunIndex: 1, waitForTurnItemType: "command_execution" },
+      // The background launch is the first command and the foreground one the second; an interrupt
+      // after only the first leaves the foreground command out of the run.
+      {
+        type: "interrupt",
+        targetRunIndex: 1,
+        waitForTurnItemType: "command_execution",
+        waitForTurnItemCount: 2,
+      },
     ],
   };
 }

@@ -95,6 +95,7 @@ import * as HqAgentConnections from "../../hq/HqAgentConnections.ts";
 import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
 import { provideDeterministicTestRuntime } from "../testkit/DeterministicRuntime.ts";
 import { runOrchestratorV2Scenario } from "../testkit/OrchestratorScenario.ts";
@@ -6121,7 +6122,14 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         driver: ProviderDriverKind.make("claudeAgent"),
         modelSelection: CLAUDE_MODEL_SELECTION,
       }).pipe(Effect.provide(IdAllocator.layer), provideDeterministicTestRuntime);
-      const scenario = { name: transcript.scenario, transcript, ...materialized };
+      // Checkpoints snapshot the run's cwd, which defaults to this checkout.
+      const workspace = yield* checkpointWorkspace(transcript.scenario);
+      const scenario = {
+        name: transcript.scenario,
+        transcript,
+        ...materialized,
+        runtimePolicyOverride: { cwd: workspace },
+      };
       yield* Effect.gen(function* () {
         const result = yield* runOrchestratorV2Scenario(scenario);
         assertBaseProjection({ result, transcript, runCount: 1, runStatuses: ["completed"] });
