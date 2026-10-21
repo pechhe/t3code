@@ -58,10 +58,5 @@
     "file": "packages/shared/src/nodeSqliteClient.test.ts",
     "issue": 3426,
     "reason": "fails under parallel load on the runner; passes serially"
-  },
-  {
-    "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
-    "issue": 4405,
-    "reason": "times out at 30s on the runner beside the other landing files; passes in about 1s alone"
   }
 ]
