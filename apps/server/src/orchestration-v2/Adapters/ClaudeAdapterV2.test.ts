@@ -14160,26 +14160,6 @@ describe("ClaudeAdapterV2 per-thread compact-at", () => {
     assert.equal((options.settings as { autoCompactWindow?: number }).autoCompactWindow, 153_000);
   });
 
-  it("opens the query with the model's own compact-at point, which a thread's point overrides", () => {
-    const base = {
-      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
-      nativeThreadId: "native-thread-model-compact-at",
-      resume: false,
-      cwd: "/workspace",
-      settings: {
-        ...AUTO_COMPACT_CLAUDE_SETTINGS,
-        modelCompactAt: { [CLAUDE_TEST_MODEL_SELECTION.model]: 95_000 },
-      },
-    };
-    const windowOf = (options: ReturnType<typeof ClaudeAdapterV2.makeClaudeQueryOptions>) =>
-      (options.settings as { autoCompactWindow?: number }).autoCompactWindow;
-    assert.equal(windowOf(ClaudeAdapterV2.makeClaudeQueryOptions(base)), 128_000);
-    assert.equal(
-      windowOf(ClaudeAdapterV2.makeClaudeQueryOptions({ ...base, compactAt: 120_000 })),
-      153_000,
-    );
-  });
-
   it("reports the actual compaction point, a reserve below the window", () => {
     const usage = ClaudeAdapterV2.claudeProviderTurnTokenUsage(
       { input_tokens: 10, output_tokens: 1 },

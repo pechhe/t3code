@@ -111,12 +111,49 @@ const foldProviderInstanceEnabledFlags = (settings: ServerSettings): ServerSetti
   };
 };
 
+/**
+ * A Claude instance briefly held per-model compact points of its own; they are now one server
+ * setting, so each is lifted out. A model already set there keeps its value.
+ */
+const foldInstanceModelCompactAt = (settings: ServerSettings): ServerSettings => {
+  let changed = false;
+  let modelCompactAt = settings.modelCompactAt;
+  const providerInstances: Record<string, ProviderInstanceConfig> = {};
+  for (const [instanceId, instance] of Object.entries(settings.providerInstances)) {
+    const config = instance.config;
+    const legacy =
+      config !== null && typeof config === "object" && !Array.isArray(config)
+        ? (config as { readonly modelCompactAt?: unknown }).modelCompactAt
+        : undefined;
+    if (legacy === undefined) {
+      providerInstances[instanceId] = instance;
+      continue;
+    }
+    const { modelCompactAt: _legacy, ...restConfig } = config as Record<string, unknown>;
+    if (typeof legacy === "object" && legacy !== null) {
+      const valid = Object.fromEntries(
+        Object.entries(legacy).filter(([, point]) => Number.isInteger(point) && Number(point) > 0),
+      ) as Record<string, number>;
+      modelCompactAt = { ...valid, ...modelCompactAt };
+    }
+    changed = true;
+    providerInstances[instanceId] = { ...instance, config: restConfig };
+  }
+  if (!changed) return settings;
+  return {
+    ...settings,
+    modelCompactAt,
+    providerInstances: providerInstances as ServerSettings["providerInstances"],
+  };
+};
+
 const normalizeServerSettings = (
   settings: ServerSettings,
 ): Effect.Effect<ServerSettings, ServerSettingsError> =>
   encodeServerSettings(settings).pipe(
     Effect.flatMap(decodeServerSettings),
     Effect.map(foldProviderInstanceEnabledFlags),
+    Effect.map(foldInstanceModelCompactAt),
     Effect.map((next) => ({ ...next, ...deriveLegacyProjectOverrides(next) })),
     Effect.mapError(
       (cause) =>
@@ -765,10 +802,12 @@ const make = Effect.gen(function* () {
             ),
           );
 
-    const loaded = foldProviderInstanceEnabledFlags(
-      legacyProviders === undefined
-        ? settings
-        : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
+    const loaded = foldInstanceModelCompactAt(
+      foldProviderInstanceEnabledFlags(
+        legacyProviders === undefined
+          ? settings
+          : migrateLegacyProviderSettings(settings, legacyProviders, providerHistory),
+      ),
     );
     const folded = settingsFileTrusted
       ? foldLegacyProjectSettings(loaded, legacyProjectRows)

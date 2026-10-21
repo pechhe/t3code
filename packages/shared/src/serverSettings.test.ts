@@ -71,6 +71,16 @@ describe("serverSettings helpers", () => {
       logsAfterDays: 30,
     });
   });
+  it("replaces the model compact points so a cleared model does not survive", () => {
+    const set = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      modelCompactAt: { haiku: 95_000, sonnet: 150_000 },
+    });
+    expect(set.modelCompactAt).toEqual({ haiku: 95_000, sonnet: 150_000 });
+    expect(
+      applyServerSettingsPatch(set, { modelCompactAt: { sonnet: 150_000 } }).modelCompactAt,
+    ).toEqual({ sonnet: 150_000 });
+  });
+
   it("replaces a source control host's patched field so a cleared account pin does not survive", () => {
     const pinned = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       sourceControlHosts: {

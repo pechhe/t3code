@@ -9,6 +9,7 @@ import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import {
   DEFAULT_SERVER_SETTINGS,
+  type EnvironmentId,
   type ProjectScopedServerSettingKey,
   type ServerSettings,
   type UnifiedSettings,
@@ -18,6 +19,7 @@ import {
   persistClientSettingsPatch,
   useMergedSettings,
   useMigrateModelPreferences,
+  useUpdateEnvironmentSettings,
 } from "../../hooks/useSettings";
 import { serverEnvironment } from "../../state/server";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -104,6 +106,23 @@ export function useUpdateScopedSettings() {
   const { scope, environments } = useSettingsScope();
   const run = useRunScopedPlan();
   return (patch: ScopedSettingsPatch) => run(planScopedSettingsPatch(scope, environments, patch));
+}
+
+/**
+ * Saves the per-model compact points. Under a settings scope they go to every environment the
+ * scope covers (a model's point is a preference, not machine state); outside one, to this environment.
+ */
+export function useUpdateModelCompactAt(environmentId: EnvironmentId) {
+  const context = useOptionalSettingsScope();
+  const run = useRunScopedPlan();
+  const updateEnvironmentSettings = useUpdateEnvironmentSettings(environmentId);
+  return (modelCompactAt: ServerSettings["modelCompactAt"]) => {
+    if (context === null) {
+      void updateEnvironmentSettings({ modelCompactAt });
+      return;
+    }
+    run(planScopedSettingsPatch(context.scope, context.environments, { modelCompactAt }));
+  };
 }
 
 export function useClearScopedSettings() {

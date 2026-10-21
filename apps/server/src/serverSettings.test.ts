@@ -212,6 +212,44 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(layerServerSettings())),
   );
 
+  it.effect("lifts per-model compact points off a Claude instance into the server setting", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      yield* fs.writeFileString(
+        config.settingsPath,
+        `{
+          "modelCompactAt": { "claude-sonnet-5-5": 120000 },
+          "providerInstances": {
+            "claudeAgent": {
+              "driver": "claudeAgent",
+              "config": {
+                "binaryPath": "claude",
+                "modelCompactAt": { "claude-haiku-5-5": 95000, "claude-sonnet-5-5": 80000 }
+              }
+            }
+          }
+        }`,
+      );
+
+      const settings = yield* service.getSettings;
+      // A point already set on the server wins over the one an instance held.
+      assert.deepEqual(settings.modelCompactAt, {
+        "claude-haiku-5-5": 95_000,
+        "claude-sonnet-5-5": 120_000,
+      });
+      assert.deepEqual(settings.providerInstances[ProviderInstanceId.make("claudeAgent")]?.config, {
+        binaryPath: "claude",
+      });
+      yield* service.updateSettings({ responseStreamingMode: "turn" });
+      const persisted = yield* decodeServerSettingsJson(
+        yield* fs.readFileString(config.settingsPath),
+      );
+      assert.deepEqual(persisted.modelCompactAt, settings.modelCompactAt);
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
   it("shows live response streaming only to clients that decode it", () => {
     const settings = {
       ...DEFAULT_SERVER_SETTINGS,

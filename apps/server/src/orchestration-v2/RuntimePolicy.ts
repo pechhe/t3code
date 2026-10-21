@@ -119,6 +119,21 @@ export const layerFromProjectStore: Layer.Layer<
               }),
             ),
           ));
+        // The thread's own point, else the one set for its model in the server settings.
+        const compactAt =
+          input.thread.compactAt ??
+          (yield* Effect.serviceOption(ServerSettings.ServerSettingsService).pipe(
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.succeed(null),
+                onSome: (service) =>
+                  service.getSettings.pipe(
+                    Effect.map((value) => value.modelCompactAt[input.modelSelection.model] ?? null),
+                    Effect.orElseSucceed(() => null),
+                  ),
+              }),
+            ),
+          ));
         if (input.thread.agentTask !== undefined) {
           const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           if (Option.isNone(managed) || instance === undefined)
@@ -210,7 +225,7 @@ export const layerFromProjectStore: Layer.Layer<
             interactionMode: "default",
             cwd,
             managedAgent: true,
-            ...(input.thread.compactAt == null ? {} : { compactAt: input.thread.compactAt }),
+            ...(compactAt == null ? {} : { compactAt }),
             ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
             approvalPolicy: "never",
             sandboxPolicy:
@@ -231,7 +246,7 @@ export const layerFromProjectStore: Layer.Layer<
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
-          ...(input.thread.compactAt == null ? {} : { compactAt: input.thread.compactAt }),
+          ...(compactAt == null ? {} : { compactAt }),
         });
       }),
     });

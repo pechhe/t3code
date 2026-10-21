@@ -47,6 +47,7 @@ import {
   useToggleEnvironmentModelFavorite,
 } from "../../hooks/useSettings";
 import { useStableCallback } from "../../hooks/useStableCallback";
+import { useUpdateModelCompactAt } from "./useScopedSettings";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { cn } from "../../lib/utils";
 import { resolveAppModelSelectionState } from "../../modelSelection";
@@ -607,6 +608,7 @@ export function EnvironmentProviderSettings({
   const canRefreshProviders = useEnvironmentScope(environmentId, AuthOrchestrationReadScope);
   const updateSettings = useUpdateEnvironmentSettings(environmentId);
   const updateModelPreferences = useUpdateEnvironmentModelPreferences(environmentId);
+  const updateModelCompactAt = useUpdateModelCompactAt(environmentId);
   const toggleModelFavorite = useToggleEnvironmentModelFavorite(environmentId);
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
   const serverProviders = useAtomValue(providersIgnoringCheckedAtAtom(environmentId));
@@ -959,6 +961,7 @@ export function EnvironmentProviderSettings({
 
   const stableUpdateModelPreferences = useStableCallback(updateModelPreferences);
   const stableToggleModelFavorite = useStableCallback(toggleModelFavorite);
+  const stableUpdateModelCompactAt = useStableCallback(updateModelCompactAt);
   const actions: ProviderInstanceRowActions = {
     acceptUrlAuthentication,
     runProviderUpdate,
@@ -969,6 +972,7 @@ export function EnvironmentProviderSettings({
     writeProjectOverride,
     updateModelPreferences: stableUpdateModelPreferences,
     toggleModelFavorite: stableToggleModelFavorite,
+    updateModelCompactAt: stableUpdateModelCompactAt,
     selectInstance: setSelectedInstanceId,
   };
   // resolveModelPreferences falls back to a fresh `[]`; keep it stable for the rows.
@@ -1016,6 +1020,7 @@ export function EnvironmentProviderSettings({
             : false
         }
         modelPreferences={settings.providerModelPreferences?.[row.instanceId]}
+        modelCompactAt={settings.modelCompactAt}
         favorites={favorites}
         actions={actions}
       />
@@ -1259,6 +1264,7 @@ interface ProviderInstanceRowActions {
   ) => void;
   readonly updateModelPreferences: ReturnType<typeof useUpdateEnvironmentModelPreferences>;
   readonly toggleModelFavorite: ReturnType<typeof useToggleEnvironmentModelFavorite>;
+  readonly updateModelCompactAt: (next: Record<string, number>) => void;
   readonly selectInstance: (instanceId: ProviderInstanceId) => void;
 }
 
@@ -1289,6 +1295,7 @@ function ProviderInstanceRow({
   projectOverrideValue,
   projectOverrideEffectiveEnabled,
   modelPreferences,
+  modelCompactAt,
   favorites,
   actions,
 }: {
@@ -1313,6 +1320,7 @@ function ProviderInstanceRow({
   readonly modelPreferences:
     | { readonly hiddenModels: ReadonlyArray<string>; readonly modelOrder: ReadonlyArray<string> }
     | undefined;
+  readonly modelCompactAt: Readonly<Record<string, number>>;
   readonly favorites: UnifiedSettings["favorites"];
   readonly actions: ProviderInstanceRowActions;
 }) {
@@ -1454,6 +1462,8 @@ function ProviderInstanceRow({
       hiddenModels={hiddenModels}
       favoriteModels={favoriteModels}
       modelOrder={modelOrder}
+      modelCompactAt={modelCompactAt}
+      onModelCompactAtChange={actions.updateModelCompactAt}
       onHiddenModelsChange={(next, affectedModels) => {
         const hidden = new Set(next);
         const models =

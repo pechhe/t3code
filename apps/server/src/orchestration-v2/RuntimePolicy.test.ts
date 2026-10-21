@@ -33,6 +33,7 @@ function makeThread(input: {
   readonly now: DateTime.Utc;
   readonly worktreePath: string | null;
   readonly runtimeMode?: RuntimeMode;
+  readonly compactAt?: number;
 }): OrchestrationV2AppThread {
   const threadId = ThreadId.make("thread:runtime-policy");
   return {
@@ -44,6 +45,7 @@ function makeThread(input: {
     providerInstanceId,
     modelSelection,
     runtimeMode: input.runtimeMode ?? "full-access",
+    ...(input.compactAt === undefined ? {} : { compactAt: input.compactAt }),
     interactionMode: "default",
     branch: null,
     worktreePath: input.worktreePath,
@@ -129,6 +131,33 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
       assert.equal(yield* modeFor(grokInstanceId, "full-access"), "full-access");
       assert.equal(yield* modeFor(providerInstanceId, "auto-accept-edits"), "auto-accept-edits");
     }),
+  );
+});
+
+it.layer(layerTest)("RuntimePolicyV2 compact-at", (it) => {
+  it.effect("defaults a thread to its model's point, which the thread's own point overrides", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const compactAtFor = (model: string, compactAt?: number) =>
+        policy
+          .resolve({
+            thread: makeThread({
+              now,
+              worktreePath: null,
+              runtimeMode: "full-access",
+              ...(compactAt === undefined ? {} : { compactAt }),
+            }),
+            modelSelection: { instanceId: providerInstanceId, model },
+          })
+          .pipe(Effect.map((resolved) => resolved.compactAt));
+
+      assert.equal(yield* compactAtFor("small-model"), 95_000);
+      assert.equal(yield* compactAtFor("small-model", 120_000), 120_000);
+      assert.isUndefined(yield* compactAtFor("other-model"));
+    }).pipe(
+      Effect.provide(ServerSettings.layerTest({ modelCompactAt: { "small-model": 95_000 } })),
+    ),
   );
 });
 

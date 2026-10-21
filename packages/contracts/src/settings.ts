@@ -634,6 +634,11 @@ export function makeProviderSettingsSchema<const Fields extends Schema.Struct.Fi
   );
 }
 
+export const ModelCompactAt = Schema.Record(
+  Schema.String,
+  Schema.Int.check(Schema.isGreaterThan(0)),
+);
+
 const AUTO_COMPACT_WINDOW_PATTERN = /^(?:|[1-9]\d{5}|1000000)$/;
 
 export const CodexSettings = makeProviderSettingsSchema(
@@ -741,10 +746,6 @@ export const ClaudeSettings = makeProviderSettingsSchema(
           clearWhenEmpty: "omit",
         },
       }),
-    ),
-    modelCompactAt: Schema.Record(Schema.String, Schema.Int.check(Schema.isGreaterThan(0))).pipe(
-      Schema.withDecodingDefault(Effect.succeed({})),
-      Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
     autoCompactWindow: TrimmedString.check(Schema.isPattern(AUTO_COMPACT_WINDOW_PATTERN)).pipe(
       Schema.withDecodingDefault(Effect.succeed("")),
@@ -1202,6 +1203,8 @@ export const ServerSettings = Schema.Struct({
   responseStreamingMode: ResponseStreamingMode.pipe(
     Schema.withDecodingDefault(Effect.succeed("paragraph" as const)),
   ),
+  /** Where a model's threads compact, in tokens, by model slug. A thread's own point overrides it. */
+  modelCompactAt: ModelCompactAt.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   enableProviderUpdateChecks: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   continueThreadsAfterServerUpdate: Schema.Boolean.pipe(
     Schema.withDecodingDefault(Effect.succeed(true)),
@@ -1534,6 +1537,8 @@ export const ServerSettingsPatch = Schema.Struct({
   ),
   worktreesDirectory: Schema.optionalKey(TrimmedString),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
+  /** Replaces the whole map; send every model's point, since a missing model loses its own. */
+  modelCompactAt: Schema.optionalKey(ModelCompactAt),
   enableProviderUpdateChecks: Schema.optionalKey(Schema.Boolean),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   enableAgentBrowserAccess: Schema.optionalKey(Schema.Boolean),

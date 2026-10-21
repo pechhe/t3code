@@ -580,6 +580,8 @@ interface ProviderInstanceCardProps {
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
   readonly modelOrder: ReadonlyArray<string>;
+  readonly modelCompactAt: Readonly<Record<string, number>>;
+  readonly onModelCompactAtChange: (next: Record<string, number>) => void;
   readonly onHiddenModelsChange: (
     next: ReadonlyArray<string>,
     affectedModels?: ReadonlyArray<string>,
@@ -606,7 +608,6 @@ interface ProviderInstanceCardProps {
 
 const EMPTY_ACP_PROJECTS: NonNullable<ProviderInstanceCardProps["acpProjects"]> = [];
 const NO_CUSTOM_MODELS: ReadonlyArray<CustomModelDefinition> = [];
-const NO_COMPACT_AT: Readonly<Record<string, number>> = {};
 
 /**
  * Unknown drivers (`driverOption === undefined`) get a read-only
@@ -634,6 +635,8 @@ export function ProviderInstanceCard({
   hiddenModels,
   favoriteModels,
   modelOrder,
+  modelCompactAt,
+  onModelCompactAtChange,
   onHiddenModelsChange,
   onFavoriteModelsChange,
   onToggleFavorite,
@@ -775,23 +778,9 @@ export function ProviderInstanceCard({
     onUpdate({ ...rest, config: nextConfig } as ProviderInstanceConfig);
   });
 
-  const storedCompactAt =
-    instance.config !== null && typeof instance.config === "object"
-      ? (instance.config as Record<string, unknown>).modelCompactAt
-      : undefined;
-  const compactAtByModel =
-    storedCompactAt !== null && typeof storedCompactAt === "object"
-      ? (storedCompactAt as Readonly<Record<string, number>>)
-      : NO_COMPACT_AT;
   const updateModelCompactAt = useStableCallback((slug: string, compactAt: number | null) => {
-    const { [slug]: _omit, ...rest } = compactAtByModel;
-    const nextConfig = nextConfigBlobWithValue(
-      instance.config,
-      "modelCompactAt",
-      compactAt === null ? rest : { ...rest, [slug]: compactAt },
-    );
-    const { config: _config, ...instanceRest } = instance;
-    onUpdate({ ...instanceRest, config: nextConfig } as ProviderInstanceConfig);
+    const { [slug]: _omit, ...rest } = modelCompactAt;
+    onModelCompactAtChange(compactAt === null ? rest : { ...rest, [slug]: compactAt });
   });
 
   const updateEnvironment = (environment: ReadonlyArray<ProviderInstanceEnvironmentVariable>) => {
@@ -1299,7 +1288,7 @@ export function ProviderInstanceCard({
                   hiddenModels={hiddenModels}
                   favoriteModels={favoriteModels}
                   modelOrder={modelOrder}
-                  compactAtByModel={driverKind === "claudeAgent" ? compactAtByModel : undefined}
+                  compactAtByModel={driverKind === "claudeAgent" ? modelCompactAt : undefined}
                   onCompactAtChange={
                     driverKind === "claudeAgent" ? updateModelCompactAt : undefined
                   }
