@@ -405,6 +405,7 @@ const SETTLE_SOUNDS = SettleSound.literals;
 
 const SETTLE_SOUND_LABELS = {
   off: "Off",
+  seat: "Seat",
   whoosh: "Metal whoosh",
   filed: "Filed",
   stamp: "Stamp",

@@ -268,10 +268,10 @@ function ExperimentDraft({
     <form onSubmit={(event) => void submit(event)} className="space-y-4 border-b p-4">
       <h3 className="text-sm font-medium">New trial</h3>
       <p className="text-xs text-muted-foreground">
-        Reviewer and delegation trials assign the selected model to eligible tasks. Orchestration-policy trials assign each
-        enrolled work package to inline-first or delegate-earlier before its parent decides how to
-        execute it. Empty eligibility filters include all projects, models or categories in this
-        environment.
+        Reviewer and delegation trials assign the selected model to eligible tasks.
+        Orchestration-policy trials assign each enrolled work package to inline-first or
+        delegate-earlier before its parent decides how to execute it. Empty eligibility filters
+        include all projects, models or categories in this environment.
       </p>
       <label className="block text-sm">
         Compare
@@ -464,11 +464,7 @@ function ExperimentDraft({
           {error}
         </p>
       )}
-      <Button
-        type="submit"
-        size="sm"
-        disabled={pending || !canCreate}
-      >
+      <Button type="submit" size="sm" disabled={pending || !canCreate}>
         {pending ? "Saving…" : "Save draft"}
       </Button>
     </form>

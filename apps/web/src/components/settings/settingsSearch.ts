@@ -163,9 +163,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "experiments",
     title: "Experiments",
     to: "/settings/experiments",
-    searchTerms: [
-      "trial compare reviewer delegation orchestration policy inline outcomes",
-    ],
+    searchTerms: ["trial compare reviewer delegation orchestration policy inline outcomes"],
   },
   {
     id: "storage-worktree-keep-when",
@@ -359,7 +357,9 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "settle-sound",
     title: "Settle sound",
     to: "/settings/appearance",
-    searchTerms: ["sound audio settle settled done thread whoosh metal stamp filed switch tap"],
+    searchTerms: [
+      "sound audio settle settled done thread seat whoosh metal stamp filed switch tap",
+    ],
   },
   {
     id: "send-motion",

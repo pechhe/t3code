@@ -195,6 +195,11 @@ const QUEUE_CUES: Record<QueueSound, Cue> = {
 /** What plays once a thread settles; `off` adds nothing. Kept under half a second, since settling repeats all day. */
 const SETTLE_CUES: Record<SettleSound, Cue | null> = {
   off: null,
+  // The keycap's click with a soft low thud under it: the thread sits down, in the composer's voice.
+  seat: (audio, output, at) => {
+    KEY_CLICKS.down(audio, output, at);
+    tone(audio, output, at, 0.12, [240, 150], 0.4, "triangle");
+  },
   whoosh: (audio, output, at) => playAt(audio, output, recordings.get("metalWhoosh"), at, 1, 1),
   filed: (audio, output, at) => {
     sweep(audio, output, at, 0.22, [5200, 1100], 1.5, 0.9);

@@ -333,9 +333,10 @@ export type SendSound = typeof SendSound.Type;
 export const QueueSound = Schema.Literals(["latch", "drop"]);
 export type QueueSound = typeof QueueSound.Type;
 
-/** What plays once a thread settles; `whoosh` is the metal recording ported from peach-pi. */
+/** What plays once a thread settles; `seat` is the default, `whoosh` the metal recording ported from peach-pi. */
 export const SettleSound = Schema.Literals([
   "off",
+  "seat",
   "whoosh",
   "filed",
   "stamp",
@@ -522,7 +523,7 @@ export const ClientSettingsSchema = Schema.Struct({
   sendMotion: SendMotion.pipe(Schema.withDecodingDefault(Effect.succeed("lift" as const))),
   sendSound: SendSound.pipe(Schema.withDecodingDefault(Effect.succeed("press" as const))),
   queueSound: QueueSound.pipe(Schema.withDecodingDefault(Effect.succeed("latch" as const))),
-  settleSound: SettleSound.pipe(Schema.withDecodingDefault(Effect.succeed("whoosh" as const))),
+  settleSound: SettleSound.pipe(Schema.withDecodingDefault(Effect.succeed("seat" as const))),
   /** The device composer's metal and screen; ids are defined by the web client. */
   composerFinish: TrimmedNonEmptyString.pipe(Schema.withDecodingDefault(Effect.succeed("auto"))),
   /** Names the composer's model slider shows for favourites, keyed by `instanceId:model`. */
