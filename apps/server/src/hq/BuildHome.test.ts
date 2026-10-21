@@ -244,10 +244,34 @@ it.effect("reads Home with T3's delegation, never shows it, and says when HQ ref
 
     hq.status = 401;
     yield* TestClock.adjust(60_000);
+    // A lapsed read answers with what it knew and refreshes behind it.
+    assert.strictEqual((yield* service.read).status, "ready");
+    yield* service.refreshed;
     assert.strictEqual((yield* service.read).status, "invalid_token");
     hq.status = 200;
     yield* TestClock.adjust(60_000);
+    yield* service.read;
+    yield* service.refreshed;
     assert.strictEqual((yield* service.read).status, "ready");
+  }),
+);
+
+it.effect("a read after Home lapses answers with what it knew and refreshes behind it", () =>
+  Effect.gen(function* () {
+    const { hq, service } = yield* connected;
+    const first = yield* service.read;
+    const known = hq.calls.length;
+    hq.answer = (body) =>
+      body.action === "home"
+        ? { status: 200, json: { status: "succeeded", value: { ...homeValue, count: 7 } } }
+        : { status: 200, json: { status: "succeeded", value: {} } };
+    yield* TestClock.adjust(60_000);
+    const lapsed = yield* service.read;
+    assert.strictEqual(lapsed.home?.count, first.home?.count);
+    yield* service.refreshed;
+    assert.strictEqual(hq.calls.length, known + 1);
+    assert.strictEqual((yield* service.read).home?.count, 7);
+    assert.strictEqual(hq.calls.length, known + 1);
   }),
 );
 
@@ -258,6 +282,7 @@ it.effect("an HQ that keeps failing is asked less often each time", () =>
     const attempts = Effect.gen(function* () {
       const before = hq.calls.length;
       yield* service.read;
+      yield* service.refreshed;
       return hq.calls.length - before;
     });
     assert.strictEqual(yield* attempts, 1);
@@ -301,6 +326,8 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
       needsYou: [{ ...entry, spec: { ...entry!.spec, readiness } }],
     };
     yield* TestClock.adjust(60_000);
+    yield* service.read;
+    yield* service.refreshed;
     const withoutChecks = (yield* service.read).home?.needsYou[0];
     assert.strictEqual(withoutChecks?.kind, "acceptance");
     if (withoutChecks?.kind === "acceptance") {
@@ -310,6 +337,8 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
 
     home = hqHomeWithStuckLine;
     yield* TestClock.adjust(60_000);
+    yield* service.read;
+    yield* service.refreshed;
     const withStuck = yield* service.read;
     assert.strictEqual(withStuck.home?.count, 1);
     assert.deepStrictEqual(withStuck.home?.needsYou, []);

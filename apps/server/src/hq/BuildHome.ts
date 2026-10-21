@@ -31,6 +31,7 @@ import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -176,6 +177,8 @@ export class BuildHome extends Context.Service<
   {
     /** Build Home as the button shows it; HQ is asked at most as often as Build items are. */
     readonly read: Effect.Effect<BuildHomeState>;
+    /** Resolves once any refresh of Home from HQ begun by a read has finished. */
+    readonly refreshed: Effect.Effect<void>;
     /** Accept or Send back as the person; a Send back's note is then delivered to the lead. */
     readonly decide: (
       input: BuildHomeDecideInput,
@@ -248,6 +251,8 @@ const make = Effect.gen(function* () {
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
   const launchContext = yield* Effect.context<FileSystem.FileSystem | ServerConfig.ServerConfig>();
   const lock = yield* KeyedLock.make<string>();
+  const scope = yield* Effect.scope;
+  let refreshing: Fiber.Fiber<unknown> | undefined;
   let cached: CachedHome | undefined;
 
   /** One call to HQ's decisions endpoint as the person. A transport failure carries nothing. */
@@ -349,8 +354,11 @@ const make = Effect.gen(function* () {
     Effect.map((now) => DateTime.formatIso(DateTime.makeUnsafe(now))),
   );
 
+  const isFresh = (previous: CachedHome, writeVersion: number, now: number) =>
+    previous.writeVersion === writeVersion && now - previous.attemptedAt < previous.intervalMs;
+
   /** Asks HQ for Home unless the last answer is still within its cadence. */
-  const readHome = lock.withLock(
+  const refreshHome = lock.withLock(
     "home",
     Effect.gen(function* () {
       const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
@@ -361,12 +369,7 @@ const make = Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis;
       const writeVersion = yield* hq.buildWriteVersion;
       const previous = cached?.key === connected.connection ? cached : undefined;
-      if (
-        previous !== undefined &&
-        previous.writeVersion === writeVersion &&
-        now - previous.attemptedAt < previous.intervalMs
-      )
-        return previous.state;
+      if (previous !== undefined && isFresh(previous, writeVersion, now)) return previous.state;
       const answered = yield* post({ action: "home" }).pipe(Effect.result);
       if (answered._tag === "Failure" && answered.failure.reason === "not_connected") {
         cached = undefined;
@@ -430,6 +433,26 @@ const make = Effect.gen(function* () {
       };
       return state;
     }),
+  );
+
+  /**
+   * Home as last known, refreshed from HQ in the background once its cadence lapses, so a slow
+   * HQ never holds a client up. The refresh outlives the client's request: a client that gives
+   * up still leaves its answer behind. Only a read with nothing known waits for HQ.
+   */
+  const readHome = Effect.gen(function* () {
+    const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+    const previous =
+      connected !== null && cached?.key === connected.connection ? cached : undefined;
+    const refresh = Effect.forkIn(refreshHome, scope);
+    if (previous === undefined) return yield* Fiber.join(yield* refresh);
+    const now = yield* Clock.currentTimeMillis;
+    const writeVersion = yield* hq.buildWriteVersion;
+    if (!isFresh(previous, writeVersion, now)) refreshing = yield* refresh;
+    return previous.state;
+  });
+  const refreshed = Effect.suspend(() =>
+    refreshing === undefined ? Effect.void : Fiber.await(refreshing).pipe(Effect.asVoid),
   );
 
   /** A decision changes what Home says, so the next read asks HQ. */
@@ -728,7 +751,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  return BuildHome.of({ read: readHome, decide, fix, settleDeliveries });
+  return BuildHome.of({ read: readHome, refreshed, decide, fix, settleDeliveries });
 });
 
 export const layer = Layer.effect(BuildHome, make);
