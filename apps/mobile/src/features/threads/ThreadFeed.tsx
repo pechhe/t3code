@@ -977,6 +977,22 @@ function AgentMessageAttribution(props: {
 }
 
 /** Scheduled tasks are managed from Settings; there is no per-task screen to open directly. */
+/** The prompt an agent queued for itself after moving its thread, kept to one line until opened. */
+function ThreadContinuationRow(props: { readonly text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Pressable
+      className="mb-5 gap-1 px-1"
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      onPress={() => setOpen((current) => !current)}
+    >
+      <Text className="font-t3-medium text-xs text-foreground-muted">Continued after the move</Text>
+      {open ? <Text className="text-xs text-foreground-muted">{props.text}</Text> : null}
+    </Pressable>
+  );
+}
+
 function ScheduledTaskAttribution() {
   const navigation = useNavigation();
   return (
@@ -1206,6 +1222,9 @@ function renderFeedEntry(
           opening={props.workflowOpening}
         />
       );
+    }
+    if (isUser && presentation.attribution === "continuation") {
+      return <ThreadContinuationRow text={presentation.text} />;
     }
     if (isUser) {
       const enterAnimated = isFreshTimestamp(message.createdAt);

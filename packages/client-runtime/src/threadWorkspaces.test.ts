@@ -1,4 +1,4 @@
-import { ProjectId, ThreadId, type OrchestrationV2WorkspaceAttachment } from "@t3tools/contracts";
+import { ProjectId, type OrchestrationV2WorkspaceAttachment } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -65,19 +65,14 @@ describe("resolveSelectedWorkspace", () => {
     ).toBe("/ws/home");
   });
 
-  it("falls back to primary once the selected attachment is released or moved", () => {
-    for (const changed of [
-      { releasedAt: "2026-10-19T01:00:00.000Z" },
-      { movedTo: ThreadId.make("fork") },
-    ]) {
-      const result = resolveSelectedWorkspace({
-        primary,
-        attachments: [attachment(changed)],
-        selectedWorkspacePath: "/ws/other",
-      });
-      expect(result.attachment).toBeNull();
-      expect(result.projectId).toBe(home);
-    }
+  it("falls back to primary once the selected attachment is released", () => {
+    const result = resolveSelectedWorkspace({
+      primary,
+      attachments: [attachment({ releasedAt: "2026-10-19T01:00:00.000Z" })],
+      selectedWorkspacePath: "/ws/other",
+    });
+    expect(result.attachment).toBeNull();
+    expect(result.projectId).toBe(home);
   });
 });
 
@@ -117,16 +112,6 @@ describe("deriveWorkspaceChips", () => {
     const chips = deriveWorkspaceChips({ primary: chipPrimary, attachments, selected });
     expect(chips[0]?.selected).toBe(true);
     expect(chips[1]).toMatchObject({ released: true, statusCwd: null, detachable: true });
-  });
-
-  it("omits attachments handed to a moved chat", () => {
-    const attachments = [attachment({ movedTo: ThreadId.make("fork") })];
-    const selected = resolveSelectedWorkspace({
-      primary,
-      attachments,
-      selectedWorkspacePath: null,
-    });
-    expect(deriveWorkspaceChips({ primary: chipPrimary, attachments, selected })).toEqual([]);
   });
 });
 
@@ -179,7 +164,6 @@ describe("attachmentsToRemoveOnDelete", () => {
       allocated,
       attachment({ workspacePath: "/ws/adopted", origin: "adopted" }),
       attachment({ workspacePath: "/ws/released", releasedAt: "2026-10-19T01:00:00.000Z" }),
-      attachment({ workspacePath: "/ws/moved", movedTo: ThreadId.make("fork") }),
     ]);
     expect(result).toEqual([allocated]);
   });

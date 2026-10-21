@@ -405,7 +405,7 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency: {
         mode: "serial",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.threadId]),
       },
     }),
     undoMoveToProject: createEnvironmentCommand(runtime, {
@@ -414,7 +414,7 @@ export function createThreadEnvironmentAtoms<R, E>(
       scheduler,
       concurrency: {
         mode: "serial",
-        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.threadId]),
       },
     }),
     dismissProjectSuggestion: createEnvironmentCommand(runtime, {

@@ -151,6 +151,8 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.mark-read":
     case "thread.mark-unread":
     case "thread.metadata.update":
+    case "thread.project.move":
+    case "thread.project.move.undo":
     case "thread.pull-request.link":
     case "thread.pull-request.unlink":
     case "thread.pull-request-link.sync":
@@ -189,8 +191,6 @@ function commandThreadIds(command: OrchestrationV2Command): ReadonlyArray<Thread
     case "thread.fork":
     case "thread.merge_back":
       return [command.sourceThreadId, command.targetThreadId];
-    case "thread.workspace-attachments.reclaim":
-      return [command.threadId, command.fromThreadId];
   }
 }
 

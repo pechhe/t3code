@@ -147,7 +147,6 @@ export interface EnvironmentThreadShell {
     readonly reason: string;
     readonly suggestedAt: string;
     readonly dismissedAt: string | null;
-    readonly move: import("@t3tools/contracts").OrchestrationV2ThreadProjectMove | null;
   } | null;
   /** The thread's own rollover thresholds, set from its composer. */
   readonly rolloverThresholds?:
@@ -321,7 +320,6 @@ export function presentThreadShell(
           reason: thread.projectSuggestion.reason,
           suggestedAt: iso(thread.projectSuggestion.suggestedAt),
           dismissedAt: nullableIso(thread.projectSuggestion.dismissedAt),
-          move: thread.projectSuggestion.move ?? null,
         }
       : null,
     rolloverThresholds: thread.rolloverThresholds ?? null,

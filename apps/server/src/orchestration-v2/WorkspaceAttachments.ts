@@ -4,10 +4,7 @@ import {
   type OrchestrationV2WorkspaceAttachment,
   ThreadId,
 } from "@t3tools/contracts";
-import {
-  listedWorkspaceAttachments,
-  liveWorkspaceAttachments,
-} from "@t3tools/shared/workspaceAttachments";
+import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -53,6 +50,15 @@ export class WorkspaceAttachments extends Context.Service<
      */
     readonly detach: (input: {
       readonly threadId: ThreadId;
+      readonly workspacePath: string;
+    }) => Effect.Effect<void, WorkspaceAttachmentError>;
+    /**
+     * Releases a workspace the thread allocated as its primary checkout, under the same
+     * refusals as `detach`. A folder that is no longer a checkout of the project is left alone.
+     */
+    readonly releaseWorkspace: (input: {
+      readonly threadId: ThreadId;
+      readonly projectRoot: string;
       readonly workspacePath: string;
     }) => Effect.Effect<void, WorkspaceAttachmentError>;
   }
@@ -176,17 +182,63 @@ const make = Effect.gen(function* () {
       ),
     );
 
+  const refuse = (reason: WorkspaceAttachmentError["reason"], message: string) =>
+    new WorkspaceAttachmentError({ reason, message });
+  const failed = (prefix: string) =>
+    Effect.mapError((cause: { readonly message: string }) =>
+      refuse("failed", `${prefix}: ${cause.message}`),
+    );
+
+  // Dropping a hold waits for work running in the workspace, whoever allocated it.
+  const assertIdle = Effect.fn("WorkspaceAttachments.assertIdle")(function* (
+    threadId: ThreadId,
+    workspacePath: string,
+  ) {
+    if (yield* landings.isLanding(workspacePath))
+      return yield* refuse("busy", `A Land is running in ${workspacePath}.`);
+    const occupants = yield* occupantsEverywhere(projects, threads, threadId).pipe(
+      failed("Unable to read the workspace's occupants"),
+    );
+    if (
+      occupants.some(
+        (occupant) =>
+          occupant.workspacePath === workspacePath && occupant.running && occupant.writes,
+      )
+    )
+      return yield* refuse("busy", `Another agent is writing in ${workspacePath}.`);
+  });
+
+  // Releases a SlipJay checkout the thread allocated; one with uncommitted edits stays.
+  const releaseAllocated = Effect.fn("WorkspaceAttachments.releaseAllocated")(function* (
+    root: string,
+    workspacePath: string,
+  ) {
+    if (!(yield* workspaces.contains(root, workspacePath))) return;
+    const status = yield* gitWorkflow
+      .localStatus({ cwd: workspacePath })
+      .pipe(failed("Unable to read the workspace's changes"));
+    const files = status.workingTree.files.map((file) => file.path);
+    if (files.length > 0)
+      return yield* refuse(
+        "unfinished",
+        `${workspacePath} has uncommitted edits: ${files.slice(0, 10).join(", ")}${
+          files.length > 10 ? ` and ${files.length - 10} more` : ""
+        }. Commit, land or discard them first; the workspace stays attached.`,
+      );
+    yield* workspaces
+      .remove({ cwd: root, path: workspacePath })
+      .pipe(
+        failed(
+          `Unable to release ${workspacePath}; it may hold unfinished work, and stays attached`,
+        ),
+      );
+  });
+
   const detach: WorkspaceAttachments["Service"]["detach"] = Effect.fn(
     "WorkspaceAttachments.detach",
   )(function* ({ threadId, workspacePath }) {
-    const refuse = (reason: WorkspaceAttachmentError["reason"], message: string) =>
-      new WorkspaceAttachmentError({ reason, message });
-    const failed = (prefix: string) =>
-      Effect.mapError((cause: { readonly message: string }) =>
-        refuse("failed", `${prefix}: ${cause.message}`),
-      );
     const shell = yield* threads.getThreadShell(threadId).pipe(failed("Unable to read the thread"));
-    const attachment = (shell === null ? [] : listedWorkspaceAttachments(shell)).find(
+    const attachment = (shell?.workspaceAttachments ?? []).find(
       (candidate) => candidate.workspacePath === workspacePath,
     );
     if (shell === null || attachment === undefined)
@@ -194,54 +246,31 @@ const make = Effect.gen(function* () {
         "not_found",
         `The thread has no workspace attached at ${workspacePath}.`,
       );
-    // Detaching drops the thread's hold, so it waits for work running in the workspace,
-    // whether the thread allocated it or adopted it.
     if (attachment.releasedAt === null) {
-      if (yield* landings.isLanding(workspacePath))
-        return yield* refuse("busy", `A Land is running in ${workspacePath}.`);
-      const occupants = yield* occupantsEverywhere(projects, threads, threadId).pipe(
-        failed("Unable to read the workspace's occupants"),
-      );
-      if (
-        occupants.some(
-          (occupant) =>
-            occupant.workspacePath === workspacePath && occupant.running && occupant.writes,
-        )
-      )
-        return yield* refuse("busy", `Another agent is writing in ${workspacePath}.`);
-    }
-    const root = yield* projectRoot(attachment);
-    if (
-      attachment.origin === "allocated" &&
-      attachment.releasedAt === null &&
-      root !== undefined &&
-      (yield* workspaces.contains(root, workspacePath))
-    ) {
-      const status = yield* gitWorkflow
-        .localStatus({ cwd: workspacePath })
-        .pipe(failed("Unable to read the workspace's changes"));
-      const files = status.workingTree.files.map((file) => file.path);
-      if (files.length > 0)
-        return yield* refuse(
-          "unfinished",
-          `${workspacePath} has uncommitted edits: ${files.slice(0, 10).join(", ")}${
-            files.length > 10 ? ` and ${files.length - 10} more` : ""
-          }. Commit, land or discard them first; the workspace stays attached.`,
-        );
-      yield* workspaces
-        .remove({ cwd: root, path: workspacePath })
-        .pipe(
-          failed(
-            `Unable to release ${workspacePath}; it may hold unfinished work, and stays attached`,
-          ),
-        );
+      yield* assertIdle(threadId, workspacePath);
+      const root = yield* projectRoot(attachment);
+      if (attachment.origin === "allocated" && root !== undefined)
+        yield* releaseAllocated(root, workspacePath);
     }
     yield* record(threadId, "detach", attachment).pipe(
       failed("The workspace was released, but the thread still lists it"),
     );
   });
 
-  return WorkspaceAttachments.of({ holders, markReleased, markReleasedAt, detach });
+  const releaseWorkspace: WorkspaceAttachments["Service"]["releaseWorkspace"] = Effect.fn(
+    "WorkspaceAttachments.releaseWorkspace",
+  )(function* ({ threadId, projectRoot: root, workspacePath }) {
+    yield* assertIdle(threadId, workspacePath);
+    yield* releaseAllocated(root, workspacePath);
+  });
+
+  return WorkspaceAttachments.of({
+    holders,
+    markReleased,
+    markReleasedAt,
+    detach,
+    releaseWorkspace,
+  });
 });
 
 export const layer = Layer.effect(WorkspaceAttachments, make);

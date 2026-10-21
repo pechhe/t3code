@@ -116,68 +116,6 @@ const createScratchThread = (threadId: ThreadId) =>
     return runId;
   });
 
-it.effect("forks a No project chat into a project at its root", () =>
-  Effect.gen(function* () {
-    const orchestrator = yield* Orchestrator.OrchestratorV2;
-    yield* seedProject(targetProjectId, "/work/yardsmith");
-    const sourceThreadId = ThreadId.make("project-move-source");
-    const targetThreadId = ThreadId.make("project-move-target-thread");
-    const runId = yield* createScratchThread(sourceThreadId);
-    yield* orchestrator.dispatch({
-      type: "thread.metadata.update",
-      commandId: CommandId.make("project-move-suggest"),
-      threadId: sourceThreadId,
-      projectSuggestion: { projectId: targetProjectId, reason: "HQ tasks" },
-    });
-
-    yield* orchestrator.dispatch({
-      type: "thread.fork",
-      commandId: CommandId.make("project-move-fork"),
-      sourceThreadId,
-      targetThreadId,
-      sourcePoint: { type: "latest_finished" },
-      title: "Chaser email",
-      projectId: targetProjectId,
-      createdBy: "user",
-      creationSource: "web",
-    });
-
-    const moved = yield* orchestrator.getThreadProjection(targetThreadId);
-    assert.equal(moved.thread.projectId, targetProjectId);
-    assert.isNull(moved.thread.worktreePath);
-    assert.isNull(moved.thread.branch);
-    assert.equal(moved.thread.title, "Chaser email");
-    assert.isUndefined(moved.thread.projectSuggestion);
-    assert.deepEqual(moved.thread.forkedFrom, { type: "run", threadId: sourceThreadId, runId });
-    const source = yield* orchestrator.getThreadProjection(sourceThreadId);
-    assert.equal(source.thread.projectId, scratchProjectId);
-    assert.equal(source.thread.worktreePath, "/scratch/2026-10-16-chaser-email");
-  }).pipe(Effect.provide(layer)),
-);
-
-it.effect("refuses to fork into a project that does not exist", () =>
-  Effect.gen(function* () {
-    const orchestrator = yield* Orchestrator.OrchestratorV2;
-    const sourceThreadId = ThreadId.make("project-move-missing-source");
-    yield* createScratchThread(sourceThreadId);
-
-    const error = yield* orchestrator
-      .dispatch({
-        type: "thread.fork",
-        commandId: CommandId.make("project-move-missing-fork"),
-        sourceThreadId,
-        targetThreadId: ThreadId.make("project-move-missing-target"),
-        sourcePoint: { type: "latest_finished" },
-        projectId: ProjectId.make("project-move-missing"),
-        createdBy: "user",
-        creationSource: "web",
-      })
-      .pipe(Effect.flip);
-
-    assert.include(String(error.cause ?? error.message), "was not found");
-  }).pipe(Effect.provide(layer)),
-);
-
 it.effect("records one project suggestion per chat and keeps a dismissal final", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

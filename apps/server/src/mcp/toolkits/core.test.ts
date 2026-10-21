@@ -40,6 +40,7 @@ import * as ServerSecretStore from "../../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../../config.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "../../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadProjectMove from "../../orchestration-v2/ThreadProjectMoveService.ts";
 import * as GitVcsDriver from "../../vcs/GitVcsDriver.ts";
 import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadSearch from "../../orchestration-v2/ThreadSearch.ts";
@@ -101,6 +102,7 @@ const layerThreadToolkitWith = (
   )({}),
 ) =>
   McpHttpServer.layerThreadToolkit.pipe(
+    Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
     Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
     Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
     Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
@@ -806,6 +808,7 @@ it.effect(
     }).pipe(
       Effect.provide(
         McpHttpServer.layerThreadToolkit.pipe(
+          Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
           Layer.provide(
             Layer.mock(ThreadSearch.ThreadSearch)({
               search: () => Effect.succeed({ matches: [] } as never),

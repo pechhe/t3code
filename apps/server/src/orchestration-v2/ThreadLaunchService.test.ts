@@ -3953,6 +3953,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
         retryPreparation: launches.retryPreparation,
         prepareRun: launches.prepareRun,
         prepareReleasedWorkspace: launches.prepareReleasedWorkspace,
+        allocateProjectWorkspace: launches.allocateProjectWorkspace,
         terminalCwd: launches.terminalCwd,
       }),
       Effect.flip,

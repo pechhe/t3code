@@ -582,6 +582,8 @@ export interface RunExecutionServiceV2StartRootRunInput {
   readonly shouldStartProviderTurn?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
   readonly shouldFinalizeRun?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
+  /** Where the thread moved, when a workspace or project move cut the run short. */
+  readonly movedTo?: () => Effect.Effect<string | undefined, never>;
   readonly message: ProviderAdapter.ProviderAdapterV2TurnMessage;
   readonly modelSelection: ModelSelection;
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
@@ -632,6 +634,7 @@ export const layer: Layer.Layer<
         readonly attempt: OrchestrationV2RunAttempt;
         readonly shouldFinalizeRun?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
         readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
+        readonly movedTo?: () => Effect.Effect<string | undefined, never>;
         readonly openRunOwnedSubagents?: OpenRunOwnedSubagentProjection;
         // Only for finalisation after the provider stream is gone: nothing will report these
         // items' results, so settle them with the run.
@@ -646,6 +649,10 @@ export const layer: Layer.Layer<
         };
       }) {
         const completedAt = input.completedAt ?? (yield* DateTime.now);
+        const movedToMessage =
+          input.terminal.status === "interrupted" && input.movedTo !== undefined
+            ? input.movedTo()
+            : Effect.succeed(undefined);
         const finalizedAttempt: OrchestrationV2RunAttempt | null = {
           ...input.attempt,
           status: input.terminal.status,
@@ -677,6 +684,7 @@ export const layer: Layer.Layer<
                       rootNode: input.rootNode,
                       providerThread: input.providerThread,
                       completedAt,
+                      moved: yield* movedToMessage,
                     }),
                   },
                 ],
@@ -820,6 +828,7 @@ export const layer: Layer.Layer<
                       rootNode: input.rootNode,
                       providerThread: input.providerThread,
                       completedAt,
+                      moved: yield* movedToMessage,
                     }),
                   },
                 ]
@@ -1091,6 +1100,7 @@ export const layer: Layer.Layer<
               : {
                   hasUnpairedRunInterruptRequest: input.hasUnpairedRunInterruptRequest,
                 }),
+            ...(input.movedTo === undefined ? {} : { movedTo: input.movedTo }),
             openRunOwnedSubagents: openSubagents,
             terminal,
             failureItemPersisted: terminal.status === "failed",
@@ -1738,6 +1748,8 @@ export function makeInterruptResultTurnItem(input: {
   readonly rootNode: OrchestrationV2ExecutionNode;
   readonly providerThread: OrchestrationV2ProviderThread;
   readonly completedAt: DateTime.Utc;
+  /** Where the thread moved, when that is what ended the run. */
+  readonly moved?: string | undefined;
 }): OrchestrationV2TurnItem {
   return {
     id: input.idAllocator.derive.runSignalTurnItem({
@@ -1756,11 +1768,12 @@ export function makeInterruptResultTurnItem(input: {
     }),
     ordinal: input.run.ordinal * 100 + 98,
     status: "interrupted",
-    title: "Interrupted",
+    title: input.moved === undefined ? "Interrupted" : "Moved",
     startedAt: input.completedAt,
     completedAt: input.completedAt,
     updatedAt: input.completedAt,
     type: "run_interrupt_result",
-    message: "Run interrupted by user",
+    message: input.moved ?? "Run interrupted by user",
+    ...(input.moved === undefined ? {} : { moved: true }),
   };
 }

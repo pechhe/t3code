@@ -1,6 +1,7 @@
 import {
-  type CommandId,
+  CommandId,
   type EnvironmentId,
+  MessageId,
   type ProjectId,
   type RuntimeRequestId,
   ThreadId,
@@ -25,6 +26,7 @@ import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ProviderRegistry from "../../../provider/ProviderRegistry.ts";
+import * as ThreadProjectMove from "../../../orchestration-v2/ThreadProjectMoveService.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -201,23 +203,24 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
   ),
   t3_thread_move_to_project: writesThread((input) =>
     Effect.gen(function* () {
-      const { threads, projection } = yield* readThread(input.threadId);
-      yield* assertMovableToProject(projection.thread.projectId, input.projectId);
+      const { projection } = yield* readThread(input.threadId);
       const commandId = yield* newCommandId();
-      const targetThreadId = ThreadId.make(`${commandId}:move`);
-      const result = yield* threads
-        .dispatch({
-          type: "thread.metadata.update",
+      const result = yield* (yield* ThreadProjectMove.ThreadProjectMoveService)
+        .move({
           commandId,
           threadId: projection.thread.id,
-          projectSuggestion: {
-            projectId: input.projectId,
-            reason: "Moving here as asked in this chat.",
-            move: { targetThreadId, continuation: input.continuationPrompt ?? null },
-          },
+          projectId: input.projectId,
+          continuation:
+            input.continuationPrompt === undefined
+              ? undefined
+              : {
+                  commandId: CommandId.make(`${commandId}:continuation`),
+                  messageId: MessageId.make(`${commandId}:continuation`),
+                  text: input.continuationPrompt,
+                },
         })
-        .pipe(Effect.mapError(dispatchFailure));
-      return { sequence: result.sequence, targetThreadId };
+        .pipe(Effect.mapError((error) => invalid(error.message)));
+      return { sequence: result.sequence };
     }),
   ),
   t3_thread_merge_back: McpToolAccess.writesThreads(

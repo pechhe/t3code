@@ -3950,6 +3950,22 @@ it.effect("emits run_interrupt_result when hard-stop finalizes the active attemp
   }),
 );
 
+it.effect("says where a moved thread went instead of blaming the user", () =>
+  Effect.gen(function* () {
+    const { written } = yield* captureRootRunTermination({
+      key: "moved",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      movedTo: () => Effect.succeed("Moved to project YardSmith"),
+    });
+    assert.deepInclude(written[0], {
+      type: "run_interrupt_result",
+      title: "Moved",
+      message: "Moved to project YardSmith",
+      moved: true,
+    });
+  }),
+);
+
 it.effect.each(["completed", "interrupted", "cancelled", "failed"] as const)(
   "refreshes pull requests after the current root run %s",
   (status) =>
@@ -4447,6 +4463,7 @@ function captureRootRunTermination(input: {
   readonly shouldFinalizeRun: () => Effect.Effect<boolean, ProjectionStore.ProjectionStoreV2Error>;
   readonly rejectTerminalWrite?: boolean;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
+  readonly movedTo?: () => Effect.Effect<string | undefined, never>;
   readonly seedOpenSubagent?: boolean;
   readonly events?: (
     ids: BackgroundScenarioIds,
@@ -4633,6 +4650,7 @@ function captureRootRunTermination(input: {
           : {
               hasUnpairedRunInterruptRequest: input.hasUnpairedRunInterruptRequest,
             }),
+        ...(input.movedTo === undefined ? {} : { movedTo: input.movedTo }),
         message: {
           messageId: MessageId.make(`message:${input.key}`),
           text: "interrupt projection",

@@ -232,17 +232,11 @@ export interface OpenSideChatInput extends CommandMetadata {
 
 export type KeepSideChatInput = ThreadCommandInput;
 
-export interface MoveThreadToProjectInput extends CommandMetadata {
-  readonly sourceThreadId: ThreadId;
-  readonly targetThreadId: ThreadId;
+export interface MoveThreadToProjectInput extends ThreadCommandInput {
   readonly projectId: ProjectId;
-  readonly title: string;
 }
 
-export interface UndoMoveThreadToProjectInput extends CommandMetadata {
-  readonly sourceThreadId: ThreadId;
-  readonly targetThreadId: ThreadId;
-}
+export type UndoMoveThreadToProjectInput = ThreadCommandInput;
 
 export type DismissProjectSuggestionInput = ThreadCommandInput;
 
@@ -1075,52 +1069,25 @@ export const keepSideChat = Effect.fn("EnvironmentCommands.keepSideChat")(functi
   });
 });
 
-/**
- * Moves a No project chat into a project: forks its latest finished turn into
- * the project, at the project's root, then archives the original.
- */
+/** Moves a No project chat into a project in place; the server prepares its workspace there. */
 export const moveThreadToProject = Effect.fn("EnvironmentCommands.moveThreadToProject")(function* (
   input: MoveThreadToProjectInput,
 ) {
-  const commandId = yield* allocateCommandId(input);
-  yield* dispatch({
-    type: "thread.fork",
-    commandId,
-    createdBy: "user",
-    creationSource: input.creationSource ?? "web",
-    sourceThreadId: input.sourceThreadId,
-    targetThreadId: input.targetThreadId,
-    sourcePoint: { type: "latest_finished" },
-    title: input.title,
-    projectId: input.projectId,
-    moveWorkspaceAttachments: true,
-  });
   return yield* dispatch({
-    type: "thread.archive",
-    commandId: CommandId.make(`${commandId}:archive-source`),
-    threadId: input.sourceThreadId,
+    type: "thread.project.move",
+    commandId: yield* allocateCommandId(input),
+    threadId: input.threadId,
+    projectId: input.projectId,
   });
 });
 
-/** Restores a moved chat's original with the workspaces the move handed over, and removes the moved chat. */
+/** Puts a moved chat back in No project while it has not run in the project. */
 export const undoMoveThreadToProject = Effect.fn("EnvironmentCommands.undoMoveThreadToProject")(
   function* (input: UndoMoveThreadToProjectInput) {
-    const commandId = yield* allocateCommandId(input);
-    yield* dispatch({
-      type: "thread.unarchive",
-      commandId,
-      threadId: input.sourceThreadId,
-    });
-    yield* dispatch({
-      type: "thread.workspace-attachments.reclaim",
-      commandId: CommandId.make(`${commandId}:reclaim-workspaces`),
-      threadId: input.sourceThreadId,
-      fromThreadId: input.targetThreadId,
-    });
     return yield* dispatch({
-      type: "thread.delete",
-      commandId: CommandId.make(`${commandId}:delete-moved`),
-      threadId: input.targetThreadId,
+      type: "thread.project.move.undo",
+      commandId: yield* allocateCommandId(input),
+      threadId: input.threadId,
     });
   },
 );

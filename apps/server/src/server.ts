@@ -22,7 +22,6 @@ import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQ
 import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
 import * as BuildWatchReactor from "./orchestration-v2/BuildWatchReactor.ts";
 import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
-import * as ProjectMoveReactor from "./orchestration-v2/ProjectMoveReactor.ts";
 // Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
 // @effect-diagnostics nodeBuiltinImport:off
 import * as NodeHttp from "node:http";
@@ -677,11 +676,6 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* (yield* ThreadWatchReactor.ThreadWatchReactor).start();
     }),
   ).pipe(Layer.provide(ThreadWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
-  Layer.effectDiscard(
-    Effect.gen(function* () {
-      yield* (yield* ProjectMoveReactor.ProjectMoveReactor).start();
-    }),
-  ).pipe(Layer.provide(ProjectMoveReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* HqAgentLifecycleReactor.HqAgentLifecycleReactor).start();

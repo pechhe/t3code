@@ -43,6 +43,7 @@ import {
   ArrowRightLeftIcon,
   ArrowRightIcon,
   ArrowUpIcon,
+  FolderInputIcon,
   GitForkIcon,
   MessageSquareIcon,
   MinusIcon,
@@ -111,6 +112,8 @@ export function V2LifecycleRow(props: {
     );
   }
   if (item.type === "run_interrupt_result") {
+    if (item.moved === true)
+      return <TimelineSystemDivider label={item.message} icon={FolderInputIcon} />;
     return (
       <TimelineSystemDivider
         label="Run interrupted"

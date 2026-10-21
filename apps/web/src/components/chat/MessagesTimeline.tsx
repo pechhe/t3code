@@ -2297,7 +2297,30 @@ function UserMessageRow({ row }: { row: Extract<TimelineRow, { kind: "message" }
   );
 }
 
+/** The prompt an agent queued for itself after moving its thread, kept to one line until opened. */
+function ThreadContinuationRow({ text }: { readonly text: string }) {
+  return (
+    <details
+      className="group px-1 text-xs text-muted-foreground"
+      data-user-message-attribution="continuation"
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 [&::-webkit-details-marker]:hidden">
+        <ChevronRightIcon className="size-3.5 transition-transform group-open:rotate-90" />
+        <span className="font-medium">Continued after the move</span>
+      </summary>
+      <p className="mt-1 ps-5 whitespace-pre-wrap">{text}</p>
+    </details>
+  );
+}
+
 function UserTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+  const presentation = resolveUserMessagePresentation(row.message);
+  if (presentation.attribution === "continuation")
+    return <ThreadContinuationRow text={presentation.text} />;
+  return <UserMessageTimelineRow row={row} />;
+}
+
+function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
   const ctx = use(TimelineRowCtx);
   const bubbleRef = useRef<HTMLDivElement | null>(null);
   // A message the composer just sent arrives from where its text sat.

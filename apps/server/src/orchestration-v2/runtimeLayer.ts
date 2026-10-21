@@ -55,6 +55,7 @@ import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
 import * as BuildHome from "../hq/BuildHome.ts";
+import * as ThreadProjectMoveService from "./ThreadProjectMoveService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
 import * as ThreadForkService from "./ThreadForkService.ts";
@@ -313,6 +314,19 @@ const layerScheduledTaskProvided = ScheduledTaskService.layer.pipe(
     ),
   ),
 );
+const layerThreadProjectMoveProvided = ThreadProjectMoveService.layer.pipe(
+  Layer.provide(
+    Layer.mergeAll(
+      layerThreadManagementProvided,
+      layerProjectService,
+      layerManagedProjectFoldersProvided,
+      WorkspaceProvider.layer,
+      layerThreadLaunchProvided,
+      layerWorkspaceAttachmentsProvided,
+      layerScheduledTaskProvided,
+    ),
+  ),
+);
 const layerProviderContinuationWorkerProvided = ProviderContinuationService.layer.pipe(
   Layer.provide(
     Layer.mergeAll(
@@ -402,6 +416,7 @@ export const layerProduction = Layer.mergeAll(
   layerWorkspaceAttachmentsProvided,
   layerThreadLifecycleProvided,
   layerScheduledTaskProvided,
+  layerThreadProjectMoveProvided,
   RunSetupRecorder.storeLayer,
   layerSecretRequestsProvided,
   ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),

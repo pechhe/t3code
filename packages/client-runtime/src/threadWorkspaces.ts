@@ -1,5 +1,4 @@
 import type { OrchestrationV2WorkspaceAttachment, ProjectId } from "@t3tools/contracts";
-import { listedWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 
 export interface SelectedWorkspace {
   /** The project whose root, scripts and icon this workspace uses. */
@@ -23,7 +22,7 @@ export function resolveSelectedWorkspace(input: {
   const attachment =
     input.selectedWorkspacePath === null
       ? undefined
-      : listedWorkspaceAttachments({ workspaceAttachments: input.attachments }).find(
+      : (input.attachments ?? []).find(
           (candidate) =>
             candidate.workspacePath === input.selectedWorkspacePath &&
             candidate.releasedAt === null,
@@ -59,7 +58,7 @@ export function deriveWorkspaceChips(input: {
   attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment> | undefined;
   selected: SelectedWorkspace;
 }): ReadonlyArray<WorkspaceChip> {
-  const attachments = listedWorkspaceAttachments({ workspaceAttachments: input.attachments });
+  const attachments = input.attachments ?? [];
   if (attachments.length === 0) return [];
   const selectedPath = input.selected.attachment?.workspacePath ?? null;
   return [
@@ -94,7 +93,7 @@ export function deriveWorkspaceChips(input: {
 export function attachmentsToRemoveOnDelete(
   attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment> | undefined,
 ): ReadonlyArray<OrchestrationV2WorkspaceAttachment> {
-  return listedWorkspaceAttachments({ workspaceAttachments: attachments }).filter(
+  return (attachments ?? []).filter(
     (attachment) => attachment.origin === "allocated" && attachment.releasedAt === null,
   );
 }

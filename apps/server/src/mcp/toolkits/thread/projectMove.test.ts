@@ -15,6 +15,7 @@ import { McpSchema, McpServer } from "effect/ai";
 
 import * as RunSetupRecorder from "../../../agents/RunSetupRecorder.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadProjectMove from "../../../orchestration-v2/ThreadProjectMoveService.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
@@ -23,6 +24,10 @@ import * as ScheduledTaskService from "../../../scheduledTasks/ScheduledTaskServ
 import * as McpHttpServer from "../../McpHttpServer.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccessTestkit from "../../McpToolAccess.testkit.ts";
+
+type ThreadProjectMoveInput = Parameters<
+  ThreadProjectMove.ThreadProjectMoveService["Service"]["move"]
+>[0];
 
 const threadId = ThreadId.make("project-move-thread");
 const scratchProjectId = ProjectId.make("project:scratch");
@@ -58,8 +63,27 @@ const declaredFailure = (result: McpSchema.CallToolResult) => {
 };
 
 /** The thread toolkit for one caller thread in `projectId`, recording dispatched commands. */
-const layerFor = (projectId: ProjectId, dispatched: Array<OrchestrationV2ServerCommand>) =>
+const layerFor = (
+  projectId: ProjectId,
+  dispatched: Array<OrchestrationV2ServerCommand>,
+  moves: Array<ThreadProjectMoveInput> = [],
+) =>
   McpHttpServer.layerThreadToolkit.pipe(
+    Layer.provide(
+      Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({
+        move: (input) =>
+          input.projectId === targetProjectId
+            ? Effect.sync(() => {
+                moves.push(input);
+                return { sequence: 7 } as never;
+              })
+            : Effect.fail(
+                new ThreadProjectMove.ThreadProjectMoveError({
+                  message: "The project was not found.",
+                }),
+              ),
+      }),
+    ),
     Layer.provide(Layer.mock(ThreadSearch.ThreadSearch)({})),
     Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),
     Layer.provide(Layer.mock(RunSetupRecorder.RunSetupStore)({})),
@@ -141,7 +165,7 @@ it.effect("a No project chat records the agent's project suggestion", () => {
   }).pipe(Effect.provide(layerFor(scratchProjectId, dispatched)));
 });
 
-it.effect("a chat already in a project cannot be suggested or moved", () => {
+it.effect("a chat already in a project cannot be suggested", () => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   return Effect.gen(function* () {
     const suggested = yield* call("t3_thread_suggest_project", {
@@ -149,13 +173,11 @@ it.effect("a chat already in a project cannot be suggested or moved", () => {
       reason: "Belongs elsewhere",
     });
     expect(declaredFailure(suggested)).toMatchObject({ code: "invalid_request" });
-    const moved = yield* call("t3_thread_move_to_project", { projectId: targetProjectId });
-    expect(declaredFailure(moved)).toMatchObject({ code: "invalid_request" });
     expect(dispatched).toEqual([]);
   }).pipe(Effect.provide(layerFor(ProjectId.make("project:other"), dispatched)));
 });
 
-it.effect("refuses a move into a project that does not exist", () => {
+it.effect("a refused move reaches the agent as an invalid request", () => {
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   return Effect.gen(function* () {
     const moved = yield* call("t3_thread_move_to_project", {
@@ -166,31 +188,21 @@ it.effect("refuses a move into a project that does not exist", () => {
   }).pipe(Effect.provide(layerFor(scratchProjectId, dispatched)));
 });
 
-it.effect("a move is recorded for T3 to make once the chat's turn ends", () => {
-  const dispatched: Array<OrchestrationV2ServerCommand> = [];
+it.effect("moves the chat in place and queues the continuation as its next turn", () => {
+  const moves: Array<ThreadProjectMoveInput> = [];
   return Effect.gen(function* () {
     const result = yield* call("t3_thread_move_to_project", {
       projectId: targetProjectId,
       continuationPrompt: "Continue the chaser email.",
     });
     expect(result.isError).toBe(false);
-    expect(dispatched).toMatchObject([
+    expect(result.structuredContent).toEqual({ sequence: 7 });
+    expect(moves).toMatchObject([
       {
-        type: "thread.metadata.update",
         threadId,
-        projectSuggestion: {
-          projectId: targetProjectId,
-          move: { continuation: "Continue the chaser email." },
-        },
+        projectId: targetProjectId,
+        continuation: { text: "Continue the chaser email." },
       },
     ]);
-    const update = dispatched[0] as Extract<
-      OrchestrationV2ServerCommand,
-      { type: "thread.metadata.update" }
-    >;
-    const suggestion = update.projectSuggestion;
-    expect(result.structuredContent).toMatchObject({
-      targetThreadId: typeof suggestion === "object" ? suggestion.move?.targetThreadId : undefined,
-    });
-  }).pipe(Effect.provide(layerFor(scratchProjectId, dispatched)));
+  }).pipe(Effect.provide(layerFor(scratchProjectId, [], moves)));
 });

@@ -33,6 +33,7 @@ import * as VcsStatusBroadcaster from "../../../vcs/VcsStatusBroadcaster.ts";
 import * as ServerSecretStore from "../../../auth/ServerSecretStore.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadProjectMove from "../../../orchestration-v2/ThreadProjectMoveService.ts";
 import * as WorkspaceAttachments from "../../../orchestration-v2/WorkspaceAttachments.ts";
 import * as ThreadSearch from "../../../orchestration-v2/ThreadSearch.ts";
 import * as PreviewManager from "../../../preview/Manager.ts";
@@ -71,6 +72,7 @@ const layerStubServices = Layer.mergeAll(
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(SourceControlRepositoryService.SourceControlRepositoryService)({}),
   Layer.mock(ThreadLaunchService.ThreadLaunchService)({}),
+  Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({}),
   Layer.mock(WorkspaceAttachments.WorkspaceAttachments)({}),
   Layer.mock(ThreadSearch.ThreadSearch)({}),
   McpProviderSessions.layer,
