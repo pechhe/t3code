@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as NodeVM from "node:vm";
 
 import {
+  PHI_ARIA_STATE,
   PHI_RUNNER_PROGRAM,
   translatePhiOperation,
   type PhiOperation,
@@ -189,6 +190,10 @@ async function round(
     elementError?: string;
     dialog?: boolean;
     page?: ReadonlyArray<FakeNode>;
+    /** What the ARIA state function returns for a control, by ref. */
+    ariaStates?: Record<string, string>;
+    /** Whether any control on the page could carry ARIA state. Defaults to true. */
+    ariaPresent?: boolean;
   } = {},
 ) {
   const calls: Array<unknown> = [];
@@ -223,13 +228,21 @@ async function round(
     snapshotText: async (input?: { within?: string }) => page?.text(input?.within) ?? "",
     js: async (expression: string) =>
       // The wait's visible-match probe; the display:contents scan never queries the document.
-      expression.includes("contentDocument")
-        ? ([options.cssShown ?? []].flat()[polls.css++] ??
-          [options.cssShown ?? []].flat().at(-1) ??
-          false)
-        : (page?.js(expression) ?? { roots: [], texts: [] }),
-    callOnElement: async (target: string, declaration: string) =>
-      page?.callOn(target, declaration) ?? { roots: [], texts: [] },
+      expression.includes("aria-pressed")
+        ? (options.ariaPresent ?? true)
+        : expression.includes("contentDocument")
+          ? ([options.cssShown ?? []].flat()[polls.css++] ??
+            [options.cssShown ?? []].flat().at(-1) ??
+            false)
+          : (page?.js(expression) ?? { roots: [], texts: [] }),
+    callOnElement: async (target: string, declaration: string) => {
+      if (declaration.includes("aria-")) {
+        const state = options.ariaStates?.[target.slice(1)];
+        if (state === "gone") throw new Error("callOnElement: target not found: " + target);
+        return state ?? "";
+      }
+      return page?.callOn(target, declaration) ?? { roots: [], texts: [] };
+    },
     screenshot: async () => "fixture.png",
     require: () => ({ readFileSync: () => Buffer.alloc(24), unlinkSync: () => {} }),
     listAgentSpaces: async () => [
@@ -243,6 +256,10 @@ async function round(
     click: async (...args: Array<unknown>) => {
       guard();
       calls.push(["click", ...args]);
+    },
+    hover: async (...args: Array<unknown>) => {
+      guard();
+      calls.push(["hover", ...args]);
     },
     fillInput: async (target: string, text: string) => {
       guard();
@@ -346,6 +363,19 @@ describe("Phi operation translation", () => {
     ).toThrow("does not support this locator");
   });
 
+  it("translates hover to a locator or coordinate target", () => {
+    expect(
+      translatePhiOperation("hover", { locator: "aria-ref=tab-a-document-1-element-1" }, refs),
+    ).toMatchObject({ operation: "hover", target: "@123" });
+    expect(translatePhiOperation("hover", { x: 4, y: 9, timeoutMs: 2000 }, refs)).toMatchObject({
+      operation: "hover",
+      x: 4,
+      y: 9,
+      timeout: 2,
+    });
+    expect(() => translatePhiOperation("hover", { locator: "button", x: 1, y: 2 }, refs)).toThrow();
+  });
+
   it("converts modifier arrays into Phi's bitmask without double counting", () => {
     expect(
       translatePhiOperation(
@@ -395,6 +425,67 @@ describe("fixed Phi skill adapter", () => {
     const clear = await round(translatePhiOperation("type", { text: "", clear: true }, refs));
     expect(clear.value).toBe("");
     expect(clear.calls).toContainEqual(["fill", "loc=css::focus", ""]);
+  });
+
+  it("hovers by target after waiting for it, or by coordinates", async () => {
+    const byTarget = await round(
+      translatePhiOperation("hover", { selector: ".menu", timeoutMs: 3000 }, refs),
+    );
+    expect(byTarget.calls).toContainEqual(["wait-element", "loc=css:.menu"]);
+    expect(byTarget.calls).toContainEqual(["hover", "loc=css:.menu"]);
+    const byPoint = await round(translatePhiOperation("hover", { x: 4, y: 9 }, refs));
+    expect(byPoint.calls).toContainEqual(["hover", 4, 9]);
+  });
+
+  it("reads ARIA state from each control without evaluating anything the caller sent", async () => {
+    const result = await round(translatePhiOperation("snapshot", {}, refs), {
+      page: [
+        { tag: "button", name: "Bold" },
+        { tag: "button", name: "Italic" },
+        { tag: "button", name: "Gone" },
+      ],
+      ariaStates: { "2": "pressed=true", "3": "", "4": "gone" },
+    });
+    const outcome = result.calls.at(-1) as {
+      t3Phi: { result: { states: Record<string, string>; statesSkipped: number } };
+    };
+    expect(outcome.t3Phi.result.states).toEqual({ "2": "pressed=true" });
+    expect(outcome.t3Phi.result.statesSkipped).toBe(0);
+  });
+
+  it("reads no control when the page has none that could carry ARIA state", async () => {
+    const result = await round(translatePhiOperation("snapshot", {}, refs), {
+      page: [{ tag: "button", name: "Bold" }],
+      ariaPresent: false,
+      ariaStates: { "2": "pressed=true" },
+    });
+    const outcome = result.calls.at(-1) as {
+      t3Phi: { result: { states: Record<string, string>; statesSkipped: number } };
+    };
+    expect(outcome.t3Phi.result.states).toEqual({});
+    expect(outcome.t3Phi.result.statesSkipped).toBe(0);
+  });
+
+  it("describes a control's ARIA attributes and native checked state, and nothing else", () => {
+    const read = (attributes: Record<string, string>, native: object = {}) =>
+      NodeVM.runInNewContext(`(${PHI_ARIA_STATE}).call(element)`, {
+        element: {
+          localName: "button",
+          getAttribute: (name: string) => attributes[name] ?? null,
+          ...native,
+        },
+      });
+    expect(read({ "aria-pressed": "true", "aria-expanded": "false" })).toBe(
+      "pressed=true expanded=false",
+    );
+    expect(read({ "aria-selected": "true", "aria-current": "page" })).toBe(
+      "selected=true current=page",
+    );
+    expect(read({})).toBe("");
+    expect(read({}, { localName: "input", type: "checkbox", checked: true })).toBe("checked=true");
+    expect(
+      read({ "aria-checked": "mixed" }, { localName: "input", type: "checkbox", checked: false }),
+    ).toBe("checked=mixed");
   });
 
   it("passes supported modified keys to the skill without inventing editing commands", async () => {

@@ -80,6 +80,10 @@ const ObservedSnapshot = Schema.Struct({
   text: Schema.String,
   /** Hidden or zero-size elements the scan left out. */
   omitted: Schema.optional(Schema.Int),
+  /** ARIA state per observed element ref, read from the page; absent for a control with none. */
+  states: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  /** Controls beyond the bound that were not asked for their state. */
+  statesSkipped: Schema.optional(Schema.Int),
   observed: Schema.Struct({
     url: Schema.String,
     title: Schema.String,
@@ -114,6 +118,41 @@ export const capLongNames = (text: string) =>
   });
 
 const MAX_SNAPSHOT_TEXT_CHARS = 20_000;
+
+/** A page controls these values, so only plain tokens such as `pressed=true` pass. */
+const ARIA_STATE = /^[a-z]+=[\w-]{1,32}(?: [a-z]+=[\w-]{1,32}){0,4}$/;
+const MAX_STATE_BLOCK_CHARS = 2_000;
+
+/**
+ * Leads the text, ahead of the page: the MCP layer bounds a snapshot by cutting its end, and a
+ * long page must not take the state with it. Lines are server-built from validated tokens, so
+ * nothing the page wrote reaches the agent outside the untrusted-content envelope.
+ */
+const withStates = (
+  text: string,
+  states: ReadonlyArray<readonly [ref: string, state: string]>,
+  skipped: number | undefined,
+) => {
+  let used = 0;
+  const lines: Array<string> = [];
+  let unlisted = skipped ?? 0;
+  for (const [ref, state] of states) {
+    const line = `aria-ref=${ref}: ${ARIA_STATE.test(state) ? state : "(unrecognised value)"}`;
+    if (used + line.length > MAX_STATE_BLOCK_CHARS) unlisted += 1;
+    else {
+      lines.push(line);
+      used += line.length;
+    }
+  }
+  return lines.length === 0 && unlisted === 0
+    ? text
+    : [
+        "[ARIA state]",
+        ...lines,
+        ...(unlisted ? [`[${unlisted} more controls not shown for ARIA state]`] : []),
+        text,
+      ].join("\n");
+};
 
 /** The runner hands over the whole scan so names can be cut first; keep its envelope lines. */
 const boundText = (text: string) => {
@@ -623,6 +662,10 @@ const make = Effect.gen(function* () {
           const text = result.text.replace(/\bref=(\d+)\b/g, (_match, id: string) =>
             names.has(id) ? `aria-ref=${names.get(id)}` : "[unavailable-ref]",
           );
+          const states = Object.entries(result.states ?? {}).flatMap(([id, state]) => {
+            const ref = names.get(id);
+            return ref === undefined ? [] : [[ref, state] as const];
+          });
           // A scoped snapshot is how an agent reads a capped name in full.
           const scoped = action.target !== undefined;
           // visibleText already lists every element once, tagged with its ref. Repeating them in
@@ -631,7 +674,11 @@ const make = Effect.gen(function* () {
             url: result.observed.url,
             title: result.observed.title,
             loading: false,
-            visibleText: withOmitted(boundText(scoped ? text : capLongNames(text)), result.omitted),
+            visibleText: withStates(
+              withOmitted(boundText(scoped ? text : capLongNames(text)), result.omitted),
+              states,
+              result.statesSkipped,
+            ),
             interactiveElements: [],
             accessibilityTree: null,
             consoleEntries: [],

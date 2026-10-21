@@ -1,5 +1,6 @@
 import {
   PreviewAutomationClickInput,
+  PreviewAutomationHoverInput,
   PreviewAutomationNavigateInput,
   PreviewAutomationOpenInput,
   PreviewAutomationPressInput,
@@ -18,6 +19,7 @@ import * as Schema from "effect/Schema";
 const decodeOpen = Schema.decodeUnknownSync(PreviewAutomationOpenInput);
 const decodeNavigate = Schema.decodeUnknownSync(PreviewAutomationNavigateInput);
 const decodeClick = Schema.decodeUnknownSync(PreviewAutomationClickInput);
+const decodeHover = Schema.decodeUnknownSync(PreviewAutomationHoverInput);
 const decodeType = Schema.decodeUnknownSync(PreviewAutomationTypeInput);
 const decodePress = Schema.decodeUnknownSync(PreviewAutomationPressInput);
 const decodeScroll = Schema.decodeUnknownSync(PreviewAutomationScrollInput);
@@ -31,6 +33,7 @@ export const PHI_OPERATIONS = [
   "navigate",
   "snapshot",
   "click",
+  "hover",
   "type",
   "press",
   "scroll",
@@ -164,6 +167,16 @@ export function translatePhiOperation(
         clickCount: value.clickCount,
       };
     }
+    case "hover": {
+      const value = decodeHover(input);
+      return {
+        operation,
+        target: target(value, refs),
+        timeout: value.timeoutMs === undefined ? undefined : value.timeoutMs / 1000,
+        x: value.x,
+        y: value.y,
+      };
+    }
     case "type": {
       const value = decodeType(input);
       return {
@@ -260,6 +273,41 @@ export const PHI_ANY_VISIBLE_MATCH = String.raw`(selector) => {
     }
   })];
   return documents(document).some(root => Array.from(root.querySelectorAll(selector)).some(shown));
+}`;
+
+/**
+ * Page function behind a snapshot's ARIA state: one control's pressed, selected, expanded, checked
+ * and current state, from its ARIA attributes and, for a native checkbox or radio, its checked
+ * property. It only reads, takes no argument and is called with the control as `this`; Phi's scan
+ * records none of this. Kept as source because it runs in the page.
+ */
+export const PHI_ARIA_STATE = String.raw`function () {
+  const states = [];
+  for (const name of ['pressed', 'selected', 'expanded', 'checked', 'current']) {
+    const value = this.getAttribute('aria-' + name);
+    if (value !== null) states.push(name + '=' + value);
+  }
+  if (this.localName === 'input' && (this.type === 'checkbox' || this.type === 'radio') &&
+      this.getAttribute('aria-checked') === null) states.push('checked=' + this.checked);
+  return states.join(' ');
+}`;
+
+/**
+ * Page function behind the check that any control could carry ARIA state, in the page or a
+ * same-origin frame, which is as far as Phi's own scan reaches: it lists no control inside a shadow
+ * root or a cross-origin frame. Most pages have none, and a snapshot then skips the per-control reads.
+ * Kept as source because it runs in the page.
+ */
+export const PHI_HAS_ARIA_STATE = String.raw`() => {
+  const documents = (root) => [root, ...Array.from(root.querySelectorAll('iframe, frame')).flatMap(frame => {
+    try {
+      return frame.contentDocument ? documents(frame.contentDocument) : [];
+    } catch {
+      return [];
+    }
+  })];
+  const selector = '[aria-pressed],[aria-selected],[aria-expanded],[aria-checked],[aria-current],input[type=checkbox],input[type=radio]';
+  return documents(document).some(root => root.querySelector(selector) !== null);
 }`;
 
 /**
@@ -390,6 +438,11 @@ const contentsRoots = (root) => {
 // The server cuts long names, then bounds the text, so the scan must not cut it first: a cut
 // could take the later controls' refs with it.
 const MAX_SCAN_CHARS = 200000;
+const MAX_STATE_READS = 100;
+// Each read is a round trip to the browser; the snapshot itself still has to finish in time.
+const STATE_READ_BUDGET_MS = 4000;
+const hasAriaState = ${PHI_HAS_ARIA_STATE};
+const ariaState = ${JSON.stringify(PHI_ARIA_STATE)};
 const scanPage = async (withText, within) => {
   const observed = await observe({within});
   const parts = withText ? [await snapshotText({within, maxChars: MAX_SCAN_CHARS})] : [];
@@ -448,7 +501,7 @@ if (op.operation === 'status') {
   // Both lanes handle close above; this switch only operates on a live owned tab.
   try {
     // A requested timeout bounds the wait for the target to appear; the helpers then act on it.
-    if (['click', 'type'].includes(op.operation) && op.target !== undefined && op.timeout !== undefined)
+    if (['click', 'hover', 'type'].includes(op.operation) && op.target !== undefined && op.timeout !== undefined)
       await waitForElement(op.target, {timeout: op.timeout});
     switch (op.operation) {
       case 'open': result = request.attachFocusedTab
@@ -457,15 +510,34 @@ if (op.operation === 'status') {
       case 'navigate': result = await goto(op.url, {timeout: op.timeout}); break;
       case 'snapshot': {
         const {observed, text, omitted} = await scanPage(true, op.target);
+        // Phi's scan carries no ARIA state, so ask each control, up to a bound and a time budget.
+        // A control that has since gone away is skipped: its absence from the list is not a state.
+        const states = {};
+        const controls = (observed.elements ?? []).filter(element =>
+          element.ref !== null && element.role !== 'iframe' && element.role !== 'editable');
+        const asked = controls.slice(0, MAX_STATE_READS);
+        const stateDeadline = Date.now() + STATE_READ_BUDGET_MS;
+        let read = 0;
+        if (asked.length && await js('(' + hasAriaState + ')()')) {
+          for (; read < asked.length && Date.now() < stateDeadline; read++) {
+            try {
+              const state = await callOnElement('@' + asked[read].ref, ariaState);
+              if (state) states[asked[read].ref] = state;
+            } catch (error) {
+              if (!/target not found/.test(error?.message ?? '')) throw error;
+            }
+          }
+        } else read = controls.length;
         const file = await screenshot();
         const fs = require('node:fs');
         try {
           const png = fs.readFileSync(file);
-          result = { observed, text, omitted, screenshot: {mimeType: 'image/png', data: png.toString('base64'),
+          result = { observed, text, omitted, states, statesSkipped: controls.length - read, screenshot: {mimeType: 'image/png', data: png.toString('base64'),
             width: png.readUInt32BE(16), height: png.readUInt32BE(20)} };
         } finally { fs.unlinkSync(file); }
         break;
       }
+      case 'hover': result = op.target !== undefined ? await hover(op.target) : await hover(op.x, op.y); break;
       case 'click': result = op.target !== undefined
         ? await click(op.target, {button: op.button, clickCount: op.clickCount})
         : await click(op.x, op.y, {button: op.button, clickCount: op.clickCount}); break;

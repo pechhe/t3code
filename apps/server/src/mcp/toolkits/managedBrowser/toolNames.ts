@@ -8,6 +8,7 @@ export const MANAGED_BROWSER_TOOL_NAMES = [
   "preview_navigate",
   "preview_snapshot",
   "preview_click",
+  "preview_hover",
   "preview_type",
   "preview_press",
   "preview_scroll",

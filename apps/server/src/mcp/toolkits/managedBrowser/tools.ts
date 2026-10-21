@@ -17,6 +17,7 @@ export const ManagedBrowserToolkit = Toolkit.make(
   preview.preview_status,
   preview.preview_navigate,
   preview.preview_click,
+  preview.preview_hover,
   preview.preview_type,
   preview.preview_press,
   preview.preview_scroll,

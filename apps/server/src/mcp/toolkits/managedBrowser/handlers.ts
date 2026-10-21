@@ -28,6 +28,9 @@ export const layer = McpToolAccess.toLayer(ManagedBrowserToolkit, {
   preview_click: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<object>("click", input, input.timeoutMs),
   ),
+  preview_hover: McpToolAccess.asManagedBrowser((input) =>
+    invokeTargeted<object>("hover", input, input.timeoutMs),
+  ),
   preview_type: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<object>("type", input, input.timeoutMs),
   ),

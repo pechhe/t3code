@@ -304,7 +304,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Managed browser/UI roles drive the shared browser tools within scope.
-- **Requirements:** own MCP endpoint for managed browser; snapshots small enough for Haiku, scoped by locator; `preview_wait_for` waits for disappearance; wait and resize allowed for browser roles; read-only browser roles keep Phi.
+- **Requirements:** own MCP endpoint for managed browser; snapshots small enough for Haiku, scoped by locator; `preview_wait_for` waits for disappearance; wait, resize and hover allowed for browser roles; read-only browser roles keep Phi; a Phi snapshot lists ARIA state (pressed, selected, expanded, checked, current) read by a fixed read-only page function, with no page evaluate.
 - **Integration points:** `ManagedBrowserAccess`; `managedBrowser` toolkit; preview toolkit.
 - **Proof:** apps/server/src/mcp/McpManagedBrowser.test.ts, ManagedBrowserAccess.test.ts.
 - **Upstream:** none known.
