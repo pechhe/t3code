@@ -587,7 +587,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** an agent turn with nothing to report finishes without raising its thread.
-- **Requirements:** #155 / Spec #152: agents can finish a no-change sweep without making its bound thread unread or sending completion notifications. Failed/interrupted runs remain visible; explicit mark-unread overrides the quiet request.
+- **Requirements:** #155 / Spec #152: agents can finish a no-change sweep without making its bound thread unread or sending completion notifications. Failed/interrupted runs remain visible; explicit mark-unread overrides the quiet request. A completion alert waits 5 s and is dropped if the thread starts working again (a subagent return or queued message wakes it straight after a run ends).
 - **Integration points:** `t3_thread_organize.mark_read`, ThreadManagementService, `thread.mark-read` / existing `thread.visited` event, optional `readOnCompletionRunId` in thread contracts and shell projection; shared client unread derivation, web notification decisions, shared mobile agent-awareness projection. The run-bound request survives restarts and is evaluated with completion, avoiding a second command's notification race.
 - **Proof:** focused quiet-run cases in server `runtimeLayer.test.ts`, client-runtime projection and unread tests, web notification decision tests, and shared agent-awareness tests.
 - **Upstream:** existing read/visit command path reused; live upstream lookup unavailable in this network-restricted workspace. A focused mark-read reverse is suitable for upstream consideration.

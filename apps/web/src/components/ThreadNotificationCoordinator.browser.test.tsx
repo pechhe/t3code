@@ -3,7 +3,8 @@ import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { render, stubGlobal, type Screen } from "../../test/render";
+import { COMPLETION_SETTLE_MS } from "./ThreadNotificationCoordinator";
+import { fakeTimers, render, stubGlobal, type Screen } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   mode: "off" as ClientSettings["notificationMode"],
@@ -201,6 +202,7 @@ function setup() {
 describe("thread notifications", () => {
   it("holds completion alerts until commands and monitors have finished", async () => {
     await using app = setup();
+    using _timers = fakeTimers();
     await app.render();
     state.background = [{ taskId: "watch", kind: "monitor" }];
     await app.complete();
@@ -211,6 +213,8 @@ describe("thread notifications", () => {
     expect(state.notification).not.toHaveBeenCalled();
     state.background = [];
     await app.render();
+    expect(state.add).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(COMPLETION_SETTLE_MS);
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.add).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: "Thread completed" }),

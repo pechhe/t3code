@@ -31,6 +31,8 @@ import { resolveThreadNotificationKind } from "./ThreadNotificationCoordinator.l
 import { resolveSidebarThreadStatus } from "./Sidebar.logic";
 import { toastManager } from "./ui/toast";
 
+export const COMPLETION_SETTLE_MS = 5_000;
+
 export function ThreadNotificationCoordinator() {
   const environmentIds = useEnvironmentIds();
   const mode = useClientSettings((settings) => settings.notificationMode);
@@ -121,6 +123,15 @@ function EnvironmentNotifications({
     strict: false,
   });
   const previous = useRef(new Map<ThreadId, NotificationState>());
+  const settling = useRef(new Map<ThreadId, ReturnType<typeof setTimeout>>());
+
+  useEffect(() => {
+    const timers = settling.current;
+    return () => {
+      for (const timer of timers.values()) clearTimeout(timer);
+      timers.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (threads === null) {
@@ -145,6 +156,10 @@ function EnvironmentNotifications({
       const thread = presentThreadShell(environmentId, rawThread, subagentRequest);
       let status = resolveSidebarThreadStatus(thread);
       if (status === "ready" && thread.latestRun?.status === "failed") status = "failed";
+      if (status !== "ready" || thread.latestRun?.status !== "completed") {
+        clearTimeout(settling.current.get(thread.id));
+        settling.current.delete(thread.id);
+      }
       const attention =
         status === "input" || status === "approval" || status === "failed" || status === "limited"
           ? `${thread.latestRun?.runId ?? ""}:${status}`
@@ -177,72 +192,88 @@ function EnvironmentNotifications({
               : status === "failed"
                 ? "Thread failed"
                 : "Input needed";
-      if (hasNotificationSound(mode)) {
-        void playNotificationSound(kind, () =>
-          hasNotificationSound(getClientSettings().notificationMode),
-        );
-      }
-      if (
-        inAppNotificationsEnabled &&
-        document.visibilityState === "visible" &&
-        document.hasFocus() &&
-        (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
-      ) {
-        const toastId = toastManager.add({
-          type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
-          title,
-          description: thread.title,
-          data: {
-            hideCopyButton: true,
-            leadingIcon:
-              kind === "completion" ? (
-                <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
-              ) : status === "approval" ? (
-                <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
-              ) : status === "failed" ? (
-                <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
-              ) : (
-                <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
-              ),
-          },
-          actionProps: {
-            children: "Open thread",
-            onClick: () => {
-              toastManager.close(toastId);
-              void navigate({
-                to: "/$environmentId/$threadId",
-                params: { environmentId, threadId: thread.id },
-              });
+      const deliver = () => {
+        if (hasNotificationSound(mode)) {
+          void playNotificationSound(kind, () =>
+            hasNotificationSound(getClientSettings().notificationMode),
+          );
+        }
+        if (
+          inAppNotificationsEnabled &&
+          document.visibilityState === "visible" &&
+          document.hasFocus() &&
+          (activeEnvironmentId !== environmentId || activeThreadId !== thread.id)
+        ) {
+          const toastId = toastManager.add({
+            type: kind === "completion" ? "success" : status === "failed" ? "error" : "warning",
+            title,
+            description: thread.title,
+            data: {
+              hideCopyButton: true,
+              leadingIcon:
+                kind === "completion" ? (
+                  <CircleCheckIcon aria-hidden className="size-4 text-success-foreground" />
+                ) : status === "approval" ? (
+                  <ShieldQuestionIcon aria-hidden className="size-4 text-warning-foreground" />
+                ) : status === "failed" ? (
+                  <CircleAlertIcon aria-hidden className="size-4 text-destructive-foreground" />
+                ) : (
+                  <MessageCircleQuestionIcon aria-hidden className="size-4 text-info-foreground" />
+                ),
             },
-          },
-        });
-        continue;
-      }
-      if (
-        !hasDesktopNotifications(mode) ||
-        (document.visibilityState === "visible" && document.hasFocus()) ||
-        typeof Notification === "undefined" ||
-        Notification.permission !== "granted"
-      )
-        continue;
-      try {
-        const notification = new Notification(title, {
-          body: thread.title,
-          tag: threadNotificationTag(environmentId, thread.id),
-          silent: true,
-        });
-        onNotification(environmentId, notification);
-        notification.addEventListener("click", () => {
-          notification.close();
-          window.focus();
-          void window.desktopBridge?.revealWindow?.().catch(() => undefined);
-          void navigate({
-            to: "/$environmentId/$threadId",
-            params: { environmentId, threadId: thread.id },
+            actionProps: {
+              children: "Open thread",
+              onClick: () => {
+                toastManager.close(toastId);
+                void navigate({
+                  to: "/$environmentId/$threadId",
+                  params: { environmentId, threadId: thread.id },
+                });
+              },
+            },
           });
-        });
-      } catch {
-        // Some browsers expose Notification but reject desktop presentation.
+          return;
+        }
+        if (
+          !hasDesktopNotifications(mode) ||
+          (document.visibilityState === "visible" && document.hasFocus()) ||
+          typeof Notification === "undefined" ||
+          Notification.permission !== "granted"
+        )
+          return;
+        try {
+          const notification = new Notification(title, {
+            body: thread.title,
+            tag: threadNotificationTag(environmentId, thread.id),
+            silent: true,
+          });
+          onNotification(environmentId, notification);
+          notification.addEventListener("click", () => {
+            notification.close();
+            window.focus();
+            void window.desktopBridge?.revealWindow?.().catch(() => undefined);
+            void navigate({
+              to: "/$environmentId/$threadId",
+              params: { environmentId, threadId: thread.id },
+            });
+          });
+        } catch {
+          // Some browsers expose Notification but reject desktop presentation.
+        }
+      };
+      // A finished run can be followed straight away by a wake (a subagent returning, a
+      // queued message), so a completion only counts once the thread stays settled.
+      if (kind === "completion") {
+        clearTimeout(settling.current.get(thread.id));
+        settling.current.set(
+          thread.id,
+          setTimeout(() => {
+            settling.current.delete(thread.id);
+            deliver();
+          }, COMPLETION_SETTLE_MS),
+        );
+      } else {
+        deliver();
       }
     }
     previous.current = next;
