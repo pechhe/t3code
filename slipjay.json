@@ -4,7 +4,7 @@
   "tracker": "build",
   "integrationBranch": "t3peach",
   "remote": "origin",
-  "spares": 8,
+  "spares": 4,
   "generatedPaths": [
     ".t3/userdata",
     ".t3/caches",
