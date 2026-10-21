@@ -46,6 +46,10 @@ UPSTREAM_URL="${T3FORK_UPSTREAM_URL:-https://github.com/pingdotgg/t3code.git}"
 APP_NAME="T3 Code (Nightly).app"
 INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$APP_NAME"
 IDENTITY="${T3FORK_SIGNING_IDENTITY:-Peach Pi Local Signing}"
+# A private keychain holding only the signing identity, so signing works over ssh,
+# where the login keychain is locked. `setup-signing` creates it once on the Mac.
+SIGNING_KEYCHAIN="$STATE/signing.keychain-db"
+SIGNING_PASS="$STATE/signing.pass"
 # The SSH host whose remote runtime is the fork too; empty skips it. The host
 # reaches this Mac as `mac` and keeps a clone of the fork at VPS_CLONE, a path
 # on that host (a leading ~ is its home).
@@ -673,7 +677,7 @@ build() {
   stage="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 't3code-desktop-mac-stage-*' -newer "$marker" -print -quit)"
   app="$stage/app/dist/mac-arm64/$APP_NAME"
   if [ -z "$fail" ] && ! { [ -d "$app" ] &&
-    codesign --force --deep --sign "$IDENTITY" "$app" &&
+    sign_app "$app" &&
     codesign --verify --deep --strict "$app"; }; then
     fail="signing the app"
   fi
@@ -813,7 +817,34 @@ status() {
   return 0
 }
 
+sign_app() {
+  local keychain=()
+  if [ -f "$SIGNING_PASS" ] && [ -f "$SIGNING_KEYCHAIN" ]; then
+    security unlock-keychain -p "$(cat "$SIGNING_PASS")" "$SIGNING_KEYCHAIN" || return 1
+    keychain=(--keychain "$SIGNING_KEYCHAIN")
+  fi
+  codesign --force --deep --sign "$IDENTITY" ${keychain[@]+"${keychain[@]}"} "$1"
+}
+
+# Run once in a Terminal on the Mac: copies the identity out of the login keychain
+# (macOS asks for its password) into a keychain this script can unlock unattended.
+setup_signing() {
+  local pass tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  pass="$(openssl rand -hex 24)"
+  security export -k login.keychain-db -t identities -f pkcs12 -P "$pass" -o "$tmp/id.p12" || return 1
+  rm -f "$SIGNING_KEYCHAIN"
+  security create-keychain -p "$pass" "$SIGNING_KEYCHAIN" || return 1
+  security set-keychain-settings "$SIGNING_KEYCHAIN"
+  security import "$tmp/id.p12" -k "$SIGNING_KEYCHAIN" -P "$pass" -T /usr/bin/codesign || return 1
+  security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pass" "$SIGNING_KEYCHAIN" >/dev/null || return 1
+  (umask 077 && printf '%s' "$pass" >"$SIGNING_PASS")
+  echo "signing keychain ready: $SIGNING_KEYCHAIN"
+}
+
 case "${1:-}" in
+  setup-signing) setup_signing ;;
   "")
     exec >>"$STATE/nightly.log" 2>&1
     acquire lock || {
@@ -863,7 +894,7 @@ case "${1:-}" in
     ;;
   status) status ;;
   *)
-    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] | install [--on-quit | --wait-for-quit] | attempt <tag> <action> ... | status]" >&2
+    echo "usage: $0 [--install-agent | build [--rev <commit>] [--recovery <reason>] | install [--on-quit | --wait-for-quit] | setup-signing | attempt <tag> <action> ... | status]" >&2
     exit 2
     ;;
 esac
