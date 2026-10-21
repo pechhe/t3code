@@ -10,6 +10,8 @@
     ".t3/caches",
     ".t3/test-tmp",
     "apps/*/dist-electron",
+    ".generated",
+    "apps/*/.generated",
     ".pnpm-store"
   ],
   "evidencePaths": [
