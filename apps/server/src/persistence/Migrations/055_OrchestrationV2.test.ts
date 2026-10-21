@@ -44,6 +44,8 @@ layer("055_OrchestrationV2", (it) => {
         [78, "BuildSendBackDeliveries"],
         [79, "WebhookDedupe"],
         [80, "ThreadCompactAt"],
+        [81, "DropHandedWorkspaceAttachments"],
+        [82, "BuildNoteDeliveries"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -90,6 +92,8 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 78, name: "BuildSendBackDeliveries" },
         { migration_id: 79, name: "WebhookDedupe" },
         { migration_id: 80, name: "ThreadCompactAt" },
+        { migration_id: 81, name: "DropHandedWorkspaceAttachments" },
+        { migration_id: 82, name: "BuildNoteDeliveries" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

@@ -64,7 +64,7 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // Deciding acts as the person in HQ through T3's stored delegation, so it takes owner scope. Only a
   // person can supply that delegation: t3_hq_connection takes a one-use request_secret reference.
   [WS_METHODS.buildHomeDecide]: AuthSettingsWriteScope,
-  [WS_METHODS.buildHomeFix]: AuthOrchestrationOperateScope,
+  [WS_METHODS.buildHomeAnswer]: AuthSettingsWriteScope,
   [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksSetEnabled]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,

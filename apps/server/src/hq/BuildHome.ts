@@ -1,21 +1,14 @@
 /**
- * Build Home for T3's Build button (pechhe/yardsmith Specs #4070, #4367). It reads and decides
- * through T3's one HQ connection: `HqAgentConnections.decide` presents the person's delegation to
- * HQ's decisions endpoint, which allows only Accept, Send back and the reads that refresh the
- * cards, as the person. No client, agent, prompt, workspace or log ever sees the delegation.
- *
- * A Send back is delivered to the lead thread that reported the Spec's newest session, exactly
- * once: the note is queued as a user message under a command id derived from HQ's finding id, so
- * a retry or a restart replays the same command, and an outbox row keyed by that id lives until
- * HQ has accepted the delivery report.
+ * Build Home and person-note delivery use the person's delegated HQ connection. The delegation
+ * stays on the server. An outbox survives restarts; deterministic command, message and thread
+ * ids let retries recover a send or launch whose delivery report did not reach HQ.
  */
 import {
   BuildHomeError,
   type BuildHome as BuildHomeView,
   type BuildHomeDecideInput,
   type BuildHomeDecideResult,
-  type BuildHomeFixInput,
-  type BuildHomeFixResult,
+  type BuildHomeAnswerInput,
   type BuildHomeItem,
   type BuildHomeNeed,
   type BuildHomeState,
@@ -25,9 +18,9 @@ import {
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { buildItemUrl } from "@t3tools/shared/buildLinks";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -40,12 +33,12 @@ import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerConfig from "../config.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as ThreadMessageIntake from "../orchestration-v2/ThreadMessageIntake.ts";
 import * as Project from "../project/ProjectService.ts";
-import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import { forkParked } from "../serverActivation.ts";
 import {
   BUILD_MAX_REREAD_INTERVAL_MS,
@@ -97,37 +90,38 @@ const HqAcceptance = Schema.Struct({
     reviewSummary: Schema.optional(Schema.NullOr(Schema.String)),
     tryIt: Schema.optional(Schema.NullOr(Schema.String)),
     card: Schema.optional(Schema.NullOr(HqCard)),
+    resolvedFindings: Schema.optional(
+      Schema.Array(
+        Schema.Struct({
+          // HQ's review finding says what it was in `summary`.
+          finding: Schema.Struct({ summary: Schema.String }),
+        }),
+      ),
+    ),
   }),
-});
-const HqFindingNeed = Schema.Struct({
-  kind: Schema.Literal("finding"),
-  spec: HqItem,
-  finding: Schema.Unknown,
 });
 const HqHoldNeed = Schema.Struct({
   kind: Schema.Literal("hold"),
   item: HqItem,
-  hold: Schema.Struct({ kind: Schema.String, note: Schema.String }),
+  hold: Schema.Struct({
+    id: Schema.optional(Schema.String),
+    kind: Schema.String,
+    note: Schema.String,
+    openedAt: Schema.optional(Schema.NullOr(Schema.String)),
+  }),
 });
 const HqDecisionNeed = Schema.Struct({ kind: Schema.Literal("decision"), decision: HqItem });
+const HqArcNeed = Schema.Struct({
+  kind: Schema.Literals(["arc_review", "arc_check_in"]),
+  arc: HqItem,
+  since: Schema.optional(Schema.NullOr(Schema.String)),
+});
 const HqHome = Schema.Struct({
   needsYou: Schema.Array(Schema.Unknown),
-  stuck: Schema.Array(
-    Schema.Struct({
-      kind: Schema.String,
-      spec: HqItem,
-      blocker: Schema.String,
-      fix: Schema.String,
-      since: Schema.String,
-      prompt: Schema.String,
-    }),
-  ),
-  inProgress: Schema.Array(Schema.Struct({ spec: HqItem, liveLead: Schema.Boolean })),
-  count: Schema.Int,
 });
 const decodeHome = Schema.decodeUnknownOption(HqHome);
 const decodeAcceptance = Schema.decodeUnknownOption(HqAcceptance);
-const decodeFindingNeed = Schema.decodeUnknownOption(HqFindingNeed);
+const decodeArcNeed = Schema.decodeUnknownOption(HqArcNeed);
 const decodeHoldNeed = Schema.decodeUnknownOption(HqHoldNeed);
 const decodeDecisionNeed = Schema.decodeUnknownOption(HqDecisionNeed);
 
@@ -144,16 +138,6 @@ const HqOutcome = Schema.Struct({
 });
 const decodeOutcome = Schema.decodeUnknownOption(HqOutcome);
 
-/** A first line of whatever text a review finding carries; Build's finding shape is its own. */
-const textOf = (value: unknown): string | null => {
-  if (typeof value !== "object" || value === null) return null;
-  for (const key of ["title", "summary", "text", "description"]) {
-    const field = (value as Record<string, unknown>)[key];
-    if (typeof field === "string" && field !== "") return field;
-  }
-  return null;
-};
-
 const itemOf = (item: typeof HqItem.Type): BuildHomeItem => ({
   id: item.id,
   number: item.number,
@@ -165,6 +149,9 @@ const itemOf = (item: typeof HqItem.Type): BuildHomeItem => ({
 const refusalMessages: Record<string, string> = {
   send_back_note_required: "Add a note to send this back.",
   acceptance_card_stale: "This Spec changed after the card was shown.",
+  hold_unavailable: "This hold is no longer available.",
+  hold_not_person: "This hold does not need a person to answer it.",
+  answer_required: "Add an answer to this hold.",
   hq_access_denied: "HQ no longer lets this account use Build.",
 };
 
@@ -183,9 +170,10 @@ export class BuildHome extends Context.Service<
     readonly decide: (
       input: BuildHomeDecideInput,
     ) => Effect.Effect<BuildHomeDecideResult, BuildHomeError>;
-    /** "Do it": a new thread for the Spec, bound to its Build item, with the stuck line's prompt. */
-    readonly fix: (input: BuildHomeFixInput) => Effect.Effect<BuildHomeFixResult, BuildHomeError>;
-    /** Delivers and reports every Send back not yet reported; the retry loop runs this. */
+    readonly answer: (
+      input: BuildHomeAnswerInput,
+    ) => Effect.Effect<BuildHomeDecideResult, BuildHomeError>;
+    /** Claims, delivers and reports pending person notes; the retry loop runs this. */
     readonly settleDeliveries: Effect.Effect<{ readonly failed: number }>;
   }
 >()("t3/hq/BuildHome") {}
@@ -193,7 +181,6 @@ export class BuildHome extends Context.Service<
 interface CachedHome extends ReadCadence {
   readonly key: string;
   readonly state: BuildHomeState;
-  readonly prompts: ReadonlyMap<string, string>;
   readonly attemptedAt: number;
 }
 
@@ -208,12 +195,36 @@ interface DeliveryRow {
   readonly reportedAt: string | null;
   /** The HQ that recorded the finding; only it is told how delivery went. */
   readonly hqOrigin: string;
+  readonly noteKind: "send_back" | "answer";
+  readonly specProject: string | null;
+  readonly specNumber: number | null;
+  readonly claimed: number;
+  readonly deliveredThreadId: string | null;
 }
 
+const HqNote = Schema.Struct({
+  id: Schema.String,
+  note: Schema.String,
+  kind: Schema.Literals(["send_back", "answer"]),
+  spec: Schema.Struct({
+    id: Schema.String,
+    number: Schema.Int,
+    ref: Schema.optional(Schema.NullOr(Schema.String)),
+    title: Schema.String,
+    project: Schema.NullOr(Schema.String),
+  }),
+  leadThread: Schema.NullOr(Schema.Struct({ harness: Schema.String, sessionRef: Schema.String })),
+  claim: Schema.NullOr(Schema.Struct({ environmentId: Schema.String })),
+});
+const decodeNotes = Schema.decodeUnknownOption(
+  Schema.Union([Schema.Array(HqNote), Schema.Struct({ notes: Schema.Array(HqNote) })]),
+);
+
 /**
- * The T3 thread a Build lead session names (Spec #4070): T3 leads report harness `t3code` with
- * their thread id as `sessionRef`; `t3` with `<environment>/<thread>` also names one. Null for any
- * other harness or form; `environmentId` is null for a bare thread id, meaning this environment.
+ * The T3 thread a Build lead session names (Spec #4070): harness `t3code` or `t3`, with a bare thread
+ * id (how T3 leads report themselves) or `<environment>/<thread>` (how T3 reports a delivered note).
+ * Null for any other harness or form; `environmentId` is null for a bare thread id, meaning this
+ * environment.
  */
 export const leadThreadOf = (lead: { readonly harness: string; readonly sessionRef: string }) => {
   if (lead.harness !== "t3code" && lead.harness !== "t3") return null;
@@ -242,11 +253,10 @@ const notConnected = new BuildHomeError({
 const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
   const hq = yield* HqAgentConnections.HqAgentConnections;
-  const crypto = yield* Crypto.Crypto;
   const sql = yield* SqlClient.SqlClient;
   const threads = yield* ThreadManagementService.ThreadManagementService;
+  const settings = yield* ServerSettings.ServerSettingsService;
   const projects = yield* Project.ProjectService;
-  const workspaces = yield* WorkspaceProvider.WorkspaceProvider;
   const launches = yield* ThreadLaunch.ThreadLaunchService;
   const environmentId = yield* (yield* ServerEnvironment.ServerEnvironment).getEnvironmentId;
   const launchContext = yield* Effect.context<FileSystem.FileSystem | ServerConfig.ServerConfig>();
@@ -277,15 +287,53 @@ const make = Effect.gen(function* () {
     readAt,
   });
 
+  // An older HQ is asked again after a while, so updating HQ needs no T3 restart.
+  let capabilities: { key: string; answer: boolean; notes: boolean; at: number } | undefined;
+  const probe = Effect.fn("BuildHome.probe")(
+    function* () {
+      const connection = yield* hq.read;
+      if (connection === null) return { answer: false, notes: false };
+      const now = yield* Clock.currentTimeMillis;
+      if (
+        capabilities?.key === connection.connection &&
+        (capabilities.notes || now - capabilities.at < Duration.toMillis(Duration.minutes(5)))
+      )
+        return capabilities;
+      const response = yield* post({ action: "notes", undelivered: true }, connection.origin);
+      const raw = decodeJson(response.text);
+      const invalid =
+        response.status === 400 &&
+        Option.exists(
+          raw,
+          (value) =>
+            typeof value === "object" &&
+            value !== null &&
+            "error" in value &&
+            value.error === "action_invalid",
+        );
+      if (
+        invalid ||
+        (response.status === 200 &&
+          Option.exists(response.outcome, (o) => o.status === "succeeded"))
+      ) {
+        capabilities = { key: response.connection, answer: !invalid, notes: !invalid, at: now };
+      }
+      return capabilities?.key === connection.connection
+        ? capabilities
+        : { answer: false, notes: false };
+    },
+    (effect) => lock.withLock("capabilities", effect),
+  );
+
   const viewOf = (
     home: typeof HqHome.Type,
     origin: string,
-  ): { readonly view: BuildHomeView; readonly prompts: Map<string, string> } => {
+    supported: { answer: boolean; notes: boolean },
+  ): BuildHomeView => {
     const needsYou = home.needsYou.flatMap((raw): ReadonlyArray<BuildHomeNeed> => {
       const acceptance = decodeAcceptance(raw);
       if (Option.isSome(acceptance)) {
         const spec = acceptance.value.spec;
-        const rows = spec.readiness.rows;
         const card = spec.card ?? null;
         return [
           {
@@ -296,21 +344,14 @@ const make = Effect.gen(function* () {
             checks: spec.readiness.checks ?? [],
             reviewSummary: spec.reviewSummary ?? null,
             tryIt: spec.tryIt ?? null,
-            rows,
+            rows: spec.readiness.rows,
             card,
+            resolvedFindings: (spec.resolvedFindings ?? []).map(({ finding }) => ({
+              title: finding.summary,
+            })),
           },
         ];
       }
-      const finding = decodeFindingNeed(raw);
-      if (Option.isSome(finding))
-        return [
-          {
-            kind: "finding",
-            spec: itemOf(finding.value.spec),
-            url: buildItemUrl(origin, finding.value.spec.number),
-            detail: textOf(finding.value.finding),
-          },
-        ];
       const hold = decodeHoldNeed(raw);
       if (Option.isSome(hold))
         return [
@@ -318,35 +359,42 @@ const make = Effect.gen(function* () {
             kind: "hold",
             spec: itemOf(hold.value.item),
             url: buildItemUrl(origin, hold.value.item.number),
-            detail: hold.value.hold.note === "" ? hold.value.hold.kind : hold.value.hold.note,
+            holdId: hold.value.hold.id ?? null,
+            holdKind: hold.value.hold.kind,
+            question: hold.value.hold.note,
+            since: hold.value.hold.openedAt ?? null,
           },
         ];
       const decision = decodeDecisionNeed(raw);
-      return Option.isSome(decision)
-        ? [
-            {
-              kind: "decision",
-              spec: itemOf(decision.value.decision),
-              url: buildItemUrl(origin, decision.value.decision.number),
-              detail: null,
-            },
-          ]
-        : [];
+      if (Option.isSome(decision))
+        return [
+          {
+            kind: "decision",
+            spec: itemOf(decision.value.decision),
+            url: buildItemUrl(origin, decision.value.decision.number),
+            detail: null,
+          },
+        ];
+      const arc = decodeArcNeed(raw);
+      if (Option.isSome(arc))
+        return [
+          {
+            kind: arc.value.kind,
+            spec: itemOf(arc.value.arc),
+            // Each action adds its own `?act=`.
+            url: buildItemUrl(origin, arc.value.arc.number),
+            detail:
+              arc.value.kind === "arc_review"
+                ? "Review date reached: continue or close"
+                : `No check-in since ${arc.value.since ?? "unknown"}`,
+          },
+        ];
+      return [];
     });
     return {
-      view: {
-        needsYou,
-        stuck: home.stuck.map(({ prompt: _prompt, ...line }) => ({
-          ...line,
-          spec: itemOf(line.spec),
-        })),
-        inProgress: home.inProgress.map((entry) => ({
-          spec: itemOf(entry.spec),
-          liveLead: entry.liveLead,
-        })),
-        count: home.count,
-      },
-      prompts: new Map(home.stuck.map((line) => [`${line.spec.number}:${line.kind}`, line.prompt])),
+      needsYou,
+      count: needsYou.length,
+      capabilities: { answer: supported.answer, notes: supported.notes },
     };
   };
 
@@ -388,7 +436,10 @@ const make = Effect.gen(function* () {
             )
           : Option.none();
       if (Option.isSome(value)) {
-        const { view, prompts } = viewOf(value.value, origin);
+        const supported = yield* probe().pipe(
+          Effect.orElseSucceed(() => ({ answer: false, notes: false })),
+        );
+        const view = viewOf(value.value, origin, supported);
         // HQ counts every need; one T3 cannot read would otherwise vanish from the cards silently.
         const dropped = value.value.needsYou.length - view.needsYou.length;
         if (dropped > 0)
@@ -405,7 +456,6 @@ const make = Effect.gen(function* () {
           writeVersion,
           fingerprint,
           intervalMs: nextInterval(fresh, fingerprint),
-          prompts,
           state: stateOf(origin, "ready", view, DateTime.formatIso(DateTime.makeUnsafe(now))),
         };
         return cached.state;
@@ -428,7 +478,6 @@ const make = Effect.gen(function* () {
           fresh?.state.status === "unavailable"
             ? Math.min(fresh.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
             : BUILD_REREAD_INTERVAL_MS,
-        prompts: fresh?.prompts ?? new Map(),
         state,
       };
       return state;
@@ -460,68 +509,151 @@ const make = Effect.gen(function* () {
     cached = undefined;
   });
 
-  // ---------------------------------------------------------------------------------------
-  // Send back delivery
-
   const unreportedDeliveries = sql<DeliveryRow>`
       SELECT finding_id AS "findingId", spec_label AS "specLabel", note,
         lead_harness AS "leadHarness", lead_session_ref AS "leadSessionRef", state, detail,
-        reported_at AS "reportedAt", hq_origin AS "hqOrigin"
+        reported_at AS "reportedAt", hq_origin AS "hqOrigin", note_kind AS "noteKind",
+        spec_project AS "specProject", spec_number AS "specNumber", claimed,
+        delivered_thread_id AS "deliveredThreadId"
       FROM build_send_back_deliveries
       WHERE reported_at IS NULL
       ORDER BY created_at
     `;
 
   /** The thread a lead's session names, or why there is none this environment can write to. */
-  const deliver = (row: DeliveryRow) =>
-    Effect.gen(function* () {
-      const undeliverable = (detail: string) =>
-        Effect.succeed({ state: "undeliverable" as const, detail });
-      if (row.leadHarness === null || row.leadSessionRef === null)
-        return yield* undeliverable("Build had no lead session for this Spec.");
-      const lead = leadThreadOf({ harness: row.leadHarness, sessionRef: row.leadSessionRef });
-      if (lead === null) return yield* undeliverable("The lead is not a T3 thread.");
-      if (lead.environmentId !== null && lead.environmentId !== environmentId)
-        return yield* undeliverable("The lead thread is in another T3 environment.");
-      const threadId = ThreadId.make(lead.threadId);
-      const shell = yield* threads.getThreadShell(threadId);
-      if (shell === null || shell.deletedAt !== null)
-        return yield* undeliverable("The lead thread no longer exists.");
-      if (shell.archivedAt !== null) return yield* undeliverable("The lead thread is archived.");
-      const id = `build-send-back:${row.findingId}`;
-      // The command id is the finding's, so sending again after a crash replays the first send.
-      yield* threads.sendToThread({
-        projectId: shell.projectId,
-        commandId: CommandId.make(id),
-        threadId,
-        messageId: MessageId.make(id),
-        text: sendBackMessageText(row),
-        attachments: [],
-        // Never interrupts a running tool; an idle thread starts a turn at once.
-        mode: "queue",
+  const deliver = Effect.fn("BuildHome.deliver")(function* (row: DeliveryRow) {
+    const undeliverable = (detail: string) =>
+      Effect.succeed({ state: "undeliverable" as const, detail });
+    if (row.claimed === 0 && (row.leadHarness === null || row.leadSessionRef === null))
+      return yield* undeliverable("Build had no lead session for this Spec.");
+    const lead =
+      row.leadHarness === null || row.leadSessionRef === null
+        ? null
+        : leadThreadOf({ harness: row.leadHarness, sessionRef: row.leadSessionRef });
+    if (row.claimed === 0 && lead === null)
+      return yield* undeliverable("The lead is not a T3 thread.");
+    if (lead !== null && lead.environmentId !== null && lead.environmentId !== environmentId)
+      return yield* undeliverable("The lead thread is in another T3 environment.");
+    const fallbackId = `build-note:${row.findingId}`;
+    const target = row.deliveredThreadId ?? lead?.threadId;
+    const shell =
+      target === undefined ? null : yield* threads.getThreadShell(ThreadId.make(target));
+    if (row.claimed === 0 && (shell === null || shell.deletedAt !== null))
+      return yield* undeliverable("The lead thread no longer exists.");
+    if (row.claimed === 0 && shell?.archivedAt !== null)
+      return yield* undeliverable("The lead thread is archived.");
+    const text =
+      row.claimed === 0
+        ? sendBackMessageText(row)
+        : row.noteKind === "answer"
+          ? `Your owner answered your hold on ${row.specLabel}: ${row.note}`
+          : `Your owner sent ${row.specLabel} back: ${row.note}`;
+    if (
+      row.claimed !== 0 &&
+      (target === fallbackId ||
+        shell === null ||
+        shell.deletedAt !== null ||
+        shell.archivedAt !== null)
+    ) {
+      const snapshot = yield* projects.snapshot;
+      const project = snapshot.projects.find(
+        (p) =>
+          p.deletedAt === null &&
+          row.specProject !== null &&
+          p.repositoryIdentity?.canonicalKey.split("/").slice(1).join("/").toLowerCase() ===
+            row.specProject.toLowerCase(),
+      );
+      if (project === undefined)
+        return yield* undeliverable(
+          `No registered T3 project matches ${row.specProject ?? "this Spec's repository"}.`,
+        );
+      if (row.specNumber === null)
+        return yield* Effect.fail(
+          new BuildHomeError({
+            reason: "launch_failed",
+            message: "The note has no Build item number.",
+          }),
+        );
+      if (project.defaultModelSelection === null)
+        return yield* Effect.fail(
+          new BuildHomeError({
+            reason: "launch_failed",
+            message: "The matching project has no default model.",
+          }),
+        );
+      yield* sql`UPDATE build_send_back_deliveries SET delivered_thread_id = ${fallbackId} WHERE finding_id = ${row.findingId}`;
+      yield* ThreadMessageIntake.launchThread({
+        commandId: CommandId.make(fallbackId),
+        threadId: ThreadId.make(fallbackId),
+        projectId: project.id,
+        title: row.specLabel,
+        modelSelection: project.defaultModelSelection,
+        // The project's own default, as any new thread there gets: Build never asks to babysit it.
+        runtimeMode: resolveProjectSettings(yield* settings.getSettings, project.id, project)
+          .settings.defaultRuntimeMode,
+        interactionMode: "default",
+        workspaceStrategy: { type: "worktree", baseRef: "HEAD", buildItem: row.specNumber },
+        initialMessage: {
+          messageId: MessageId.make(`build-send-back:${row.findingId}`),
+          text,
+          attachments: [],
+        },
         createdBy: "user",
         creationSource: "server",
-      });
+      }).pipe(
+        Effect.provideService(ThreadLaunch.ThreadLaunchService, launches),
+        Effect.provideContext(launchContext),
+      );
       return { state: "delivered" as const, detail: null };
+    }
+    if (shell === null || target === undefined)
+      return yield* undeliverable("The lead thread no longer exists.");
+    const threadId = ThreadId.make(target);
+    yield* sql`UPDATE build_send_back_deliveries SET delivered_thread_id = ${threadId} WHERE finding_id = ${row.findingId}`;
+    const id = `build-send-back:${row.findingId}`;
+    // The command id is the finding's, so sending again after a crash replays the first send.
+    yield* threads.sendToThread({
+      projectId: shell.projectId,
+      commandId: CommandId.make(id),
+      threadId,
+      messageId: MessageId.make(id),
+      text,
+      attachments: [],
+      // Never interrupts a running tool; an idle thread starts a turn at once.
+      mode: "queue",
+      createdBy: "user",
+      creationSource: "server",
     });
+    return { state: "delivered" as const, detail: null };
+  });
 
   /** Takes a row as far as it goes; true when HQ has accepted its report. */
   const settle = (row: DeliveryRow) =>
     lock.withLock(
       `delivery:${row.findingId}`,
       Effect.gen(function* () {
+        const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+        if (connected?.origin !== row.hqOrigin) return false;
         let state = row.state;
         let detail = row.detail;
         if (state === "pending") {
           const outcome = yield* deliver(row).pipe(
-            Effect.catchTag(
-              ["ThreadManagementThreadArchivedError", "ThreadManagementThreadNotFoundError"],
-              () =>
-                Effect.succeed({
-                  state: "undeliverable" as const,
-                  detail: "The lead thread is archived or gone.",
-                }),
-            ),
+            Effect.catchTags({
+              ThreadManagementThreadArchivedError: () =>
+                row.claimed === 0
+                  ? Effect.succeed({
+                      state: "undeliverable" as const,
+                      detail: "The lead thread is archived or gone.",
+                    })
+                  : deliver({ ...row, deliveredThreadId: `build-note:${row.findingId}` }),
+              ThreadManagementThreadNotFoundError: () =>
+                row.claimed === 0
+                  ? Effect.succeed({
+                      state: "undeliverable" as const,
+                      detail: "The lead thread is archived or gone.",
+                    })
+                  : deliver({ ...row, deliveredThreadId: `build-note:${row.findingId}` }),
+            }),
             Effect.option,
           );
           // A failure to write the thread stays pending: the next pass sends under the same id.
@@ -533,20 +665,44 @@ const make = Effect.gen(function* () {
         }
         if (row.reportedAt !== null) return true;
         // Reported only to the HQ that recorded it; after reconnecting elsewhere it waits for that one.
+        const [destination] = yield* sql<{
+          threadId: string | null;
+        }>`SELECT delivered_thread_id AS "threadId" FROM build_send_back_deliveries WHERE finding_id = ${row.findingId}`;
         const response = yield* post(
           {
             action: "delivery",
             findingId: row.findingId,
             state,
+            ...(row.claimed === 0
+              ? {}
+              : {
+                  environmentId,
+                  ...(destination?.threadId == null
+                    ? {}
+                    : {
+                        thread: {
+                          harness: "t3code",
+                          sessionRef: `${environmentId}/${destination.threadId}`,
+                        },
+                      }),
+                }),
             ...(detail === null ? {} : { detail }),
           },
           row.hqOrigin,
         ).pipe(Effect.option);
-        // A duplicate means HQ already has this report.
+        // A duplicate means HQ already has this report. A note delivered or claimed elsewhere since,
+        // say after "Start a new thread instead", is no longer this environment's to report.
         const accepted =
           Option.isSome(response) &&
-          (response.value.status === 200 ||
-            Option.exists(response.value.outcome, (outcome) => outcome.status === "duplicate"));
+          ((response.value.status === 200 &&
+            Option.exists(response.value.outcome, (outcome) => outcome.status === "succeeded")) ||
+            Option.exists(
+              response.value.outcome,
+              (outcome) =>
+                outcome.status === "duplicate" ||
+                outcome.code === "note_claimed_elsewhere" ||
+                outcome.code === "note_delivered",
+            ));
         if (!accepted) return false;
         const at = yield* isoNow;
         yield* sql`UPDATE build_send_back_deliveries SET reported_at = ${at}
@@ -555,9 +711,66 @@ const make = Effect.gen(function* () {
       }),
     );
 
+  const collectNotes = Effect.fn("BuildHome.collectNotes")(
+    function* () {
+      const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
+      if (connected === null) return;
+      const supported = yield* probe();
+      if (!supported.notes) return;
+      const response = yield* post({ action: "notes", undelivered: true }, connected.origin);
+      const decoded = response.outcome.pipe(
+        Option.filter((o) => response.status === 200 && o.status === "succeeded"),
+        Option.flatMap((o) => decodeNotes(o.value)),
+      );
+      if (Option.isNone(decoded))
+        return yield* Effect.fail(
+          new BuildHomeError({
+            reason: "launch_failed",
+            message: "HQ could not read undelivered notes.",
+          }),
+        );
+      const notes = "notes" in decoded.value ? decoded.value.notes : decoded.value;
+      for (const note of notes) {
+        if (note.claim !== null && note.claim.environmentId !== environmentId) continue;
+        const lead = note.leadThread === null ? null : leadThreadOf(note.leadThread);
+        if (lead !== null) {
+          if (lead.environmentId !== null && lead.environmentId !== environmentId) continue;
+          if (lead.environmentId === null) {
+            const shell = yield* threads.getThreadShell(ThreadId.make(lead.threadId));
+            if (shell === null || shell.deletedAt !== null) continue;
+          }
+        }
+        const claim = yield* post(
+          { action: "claim", noteId: note.id, environmentId },
+          response.origin,
+        );
+        if (!Option.exists(claim.outcome, (o) => claim.status === 200 && o.status === "succeeded"))
+          continue;
+        yield* enqueue({
+          findingId: note.id,
+          specLabel: note.spec.ref || `#${note.spec.number}`,
+          note: note.note,
+          lead: note.leadThread,
+          hqOrigin: response.origin,
+          noteKind: note.kind,
+          specProject: note.spec.project,
+          specNumber: note.spec.number,
+          claimed: true,
+        });
+      }
+    },
+    (effect) => lock.withLock("notes", effect),
+  );
+
   const settleDeliveries: BuildHome["Service"]["settleDeliveries"] = Effect.gen(function* () {
-    const rows = yield* unreportedDeliveries;
     let failed = 0;
+    yield* collectNotes().pipe(
+      Effect.catchCause((cause) => {
+        failed += 1;
+        return Effect.logWarning("Could not collect Build notes", cause);
+      }),
+    );
+    const rows = yield* unreportedDeliveries;
     for (const row of rows) {
       const done = yield* settle(row).pipe(
         Effect.catchCause((cause) =>
@@ -584,17 +797,31 @@ const make = Effect.gen(function* () {
     readonly note: string;
     readonly lead: { readonly harness: string; readonly sessionRef: string } | null;
     readonly hqOrigin: string;
+    readonly noteKind?: "send_back" | "answer";
+    readonly specProject?: string | null;
+    readonly specNumber?: number;
+    readonly claimed?: boolean;
   }) {
     const at = yield* isoNow;
-    // Keyed by finding, so HQ answering the same Send back twice still means one delivery.
-    yield* sql`INSERT OR IGNORE INTO build_send_back_deliveries
-      (finding_id, spec_label, note, lead_harness, lead_session_ref, state, created_at, hq_origin)
+    // Keyed by finding, so HQ answering the same Send back twice still means one delivery. A claimed
+    // note HQ still lists as pending after this environment reported it undeliverable, or with another lead, was
+    // sent to a new thread ("Start a new thread instead"): it starts over.
+    yield* sql`INSERT INTO build_send_back_deliveries
+      (finding_id, spec_label, note, lead_harness, lead_session_ref, state, created_at, hq_origin,
+        note_kind, spec_project, spec_number, claimed)
       VALUES (${input.findingId}, ${input.specLabel}, ${input.note},
         ${input.lead?.harness ?? null}, ${input.lead?.sessionRef ?? null}, 'pending', ${at},
-        ${input.hqOrigin})`;
+        ${input.hqOrigin}, ${input.noteKind ?? "send_back"}, ${input.specProject ?? null},
+        ${input.specNumber ?? null}, ${input.claimed ? 1 : 0})
+      ON CONFLICT (finding_id) DO UPDATE SET
+        lead_harness = excluded.lead_harness, lead_session_ref = excluded.lead_session_ref,
+        state = 'pending', detail = NULL, reported_at = NULL, delivered_thread_id = NULL,
+        hq_origin = excluded.hq_origin
+      WHERE excluded.claimed = 1 AND build_send_back_deliveries.claimed = 1 AND (
+        (build_send_back_deliveries.state = 'undeliverable'
+          AND build_send_back_deliveries.reported_at IS NOT NULL)
+        OR build_send_back_deliveries.lead_session_ref IS NOT excluded.lead_session_ref)`;
   });
-
-  // ---------------------------------------------------------------------------------------
 
   const decide: BuildHome["Service"]["decide"] = Effect.fn("BuildHome.decide")(function* (input) {
     const answered = yield* post({
@@ -635,7 +862,10 @@ const make = Effect.gen(function* () {
     if (status === 200 && Option.exists(outcome, (found) => found.status === "succeeded")) {
       const decided = outcome.pipe(Option.flatMap((found) => decodeDecided(found.value)));
       yield* forget;
-      if (Option.isSome(decided) && decided.value.finding !== null) {
+      const supported = yield* probe().pipe(
+        Effect.orElseSucceed(() => ({ answer: false, notes: false })),
+      );
+      if (!supported.notes && Option.isSome(decided) && decided.value.finding !== null) {
         // Delivery never fails the decision: HQ has it, and the outbox keeps trying.
         yield* enqueue({
           findingId: decided.value.finding.id,
@@ -648,6 +878,7 @@ const make = Effect.gen(function* () {
           Effect.catchCause((cause) => Effect.logWarning("Could not queue a Send back", cause)),
         );
       }
+      if (supported.notes) yield* settleDeliveries;
       return { outcome: "decided" as const, message: null, state: yield* readHome };
     }
     const code = Option.getOrUndefined(Option.map(outcome, (found) => found.code ?? undefined));
@@ -662,70 +893,36 @@ const make = Effect.gen(function* () {
     return yield* refused(hqErrorMessage(code));
   });
 
-  const fix: BuildHome["Service"]["fix"] = Effect.fn("BuildHome.fix")(function* (input) {
+  const answer: BuildHome["Service"]["answer"] = Effect.fn("BuildHome.answer")(function* (input) {
     const state = yield* readHome;
     if (state.status === "not_connected") return yield* notConnected;
-    const prompt = cached?.prompts.get(`${input.specNumber}:${input.kind}`) ?? undefined;
-    const line = state.home?.stuck.find(
-      (stuck) => stuck.spec.number === input.specNumber && stuck.kind === input.kind,
+    const supported = yield* probe().pipe(
+      Effect.orElseSucceed(() => ({ answer: false, notes: false })),
     );
-    if (prompt === undefined || line === undefined)
-      return yield* new BuildHomeError({
-        reason: "stuck_line_not_found",
-        message: "That item is no longer stuck. Build Home has been refreshed.",
-      });
-    const failure = (reason: BuildHomeError["reason"], message: string) =>
-      new BuildHomeError({ reason, message });
-    const shell = yield* threads
-      .getThreadShell(input.threadId)
-      .pipe(Effect.mapError(() => failure("launch_failed", "T3 could not read the thread.")));
-    if (shell === null || shell.deletedAt !== null)
-      return yield* failure("thread_not_found", `Thread ${input.threadId} was not found.`);
-    const project = yield* projects.getById(shell.projectId).pipe(
-      Effect.mapError(() => failure("launch_failed", "T3 could not read the project.")),
-      Effect.map(Option.getOrUndefined),
-    );
-    // The same rule t3_thread_launch applies to buildItem: the item's workspace is a SlipJay one.
-    if (project === undefined || (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay")
-      return yield* failure(
-        "launch_failed",
-        "This thread's project has no slipjay.json, so it cannot open a workspace for a Build item.",
-      );
-    const commandId = CommandId.make(
-      `build-home:${yield* crypto.randomUUIDv4().pipe(Effect.orDie)}`,
-    );
-    const threadId = ThreadId.make(commandId);
-    const label = line.spec.ref || `#${line.spec.number}`;
-    const result = yield* ThreadMessageIntake.launchThread({
-      commandId,
-      threadId,
-      projectId: shell.projectId,
-      title: `${label}: ${line.fix}`.slice(0, 80),
-      modelSelection: shell.modelSelection,
-      runtimeMode: shell.runtimeMode,
-      interactionMode: shell.interactionMode,
-      workspaceStrategy: { type: "worktree", baseRef: "HEAD", buildItem: input.specNumber },
-      initialMessage: {
-        messageId: MessageId.make(commandId),
-        senderThreadId: input.threadId,
-        text: prompt,
-        attachments: [],
-      },
-      createdBy: "user",
-      creationSource: "web",
-    }).pipe(
-      Effect.provideService(ThreadLaunch.ThreadLaunchService, launches),
-      Effect.provideContext(launchContext),
-      Effect.mapError((error) =>
-        failure(
-          "launch_failed",
-          error._tag === "ThreadManagementProviderInstanceDisabledError"
-            ? error.message
-            : "T3 could not start the thread.",
-        ),
-      ),
-    );
-    return { threadId: result.threadId };
+    if (!supported.answer)
+      return {
+        outcome: "refused",
+        message: "This HQ does not support answering holds from T3 yet.",
+        state,
+      };
+    const response = yield* post({
+      action: "answer",
+      ...input,
+      via: { client: "t3", environmentId },
+    }).pipe(Effect.option);
+    if (
+      Option.isSome(response) &&
+      response.value.status === 200 &&
+      Option.exists(response.value.outcome, (o) => o.status === "succeeded")
+    ) {
+      yield* forget;
+      yield* settleDeliveries;
+      return { outcome: "decided", message: null, state: yield* readHome };
+    }
+    const code = Option.isSome(response)
+      ? Option.getOrUndefined(Option.map(response.value.outcome, (o) => o.code))
+      : undefined;
+    return { outcome: "refused", message: hqErrorMessage(code), state };
   });
 
   // Retries what a restart or an outage left behind: first at once, then with backoff while any
@@ -751,7 +948,7 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  return BuildHome.of({ read: readHome, refreshed, decide, fix, settleDeliveries });
+  return BuildHome.of({ read: readHome, refreshed, decide, answer, settleDeliveries });
 });
 
 export const layer = Layer.effect(BuildHome, make);

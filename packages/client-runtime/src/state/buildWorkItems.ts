@@ -69,9 +69,9 @@ export function createBuildWorkItemAtoms<R, E>(
       label: "environment-data:build:home:decide",
       tag: WS_METHODS.buildHomeDecide,
     }),
-    homeFix: createEnvironmentRpcCommand(runtime, {
-      label: "environment-data:build:home:fix",
-      tag: WS_METHODS.buildHomeFix,
+    homeAnswer: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:build:home:answer",
+      tag: WS_METHODS.buildHomeAnswer,
     }),
   };
 }

@@ -1,15 +1,8 @@
-import type { BuildHomeAcceptanceNeed, BuildHomeState } from "@t3tools/contracts";
+import type { BuildHome, BuildHomeNeed, BuildHomeState } from "@t3tools/contracts";
 
-/** The amber count on the Build button: Needs you and Stuck. Nothing, rather than 0, when none. */
+/** The amber count on the Build button: Needs you. Nothing, rather than 0, when none. */
 export const buildButtonCount = (state: BuildHomeState | null | undefined): number =>
   state?.status === "ready" || state?.status === "unavailable" ? (state.home?.count ?? 0) : 0;
-
-/** Send back needs a note; Accept needs only a card to decide on. */
-export const buildDecisionEnabled = (
-  need: Pick<BuildHomeAcceptanceNeed, "card">,
-  decision: "accept" | "send_back",
-  note: string,
-) => need.card !== null && (decision === "accept" || note.trim() !== "");
 
 /** The newer of a decision's own answer and the polled read, so a later poll is never hidden by an earlier decision. */
 export const latestBuildHomeState = (
@@ -19,4 +12,66 @@ export const latestBuildHomeState = (
   if (decided === null) return polled ?? null;
   if (polled == null) return decided;
   return (polled.readAt ?? "") > (decided.readAt ?? "") ? polled : decided;
+};
+
+/** Inbox's two groups, as Weave's Inbox shows them (YS-260): Specs to accept, then what waits on you. */
+export const buildInboxGroups = [
+  { key: "accept", label: "To accept" },
+  { key: "waiting", label: "Waiting on you" },
+] as const;
+export type BuildInboxGroup = (typeof buildInboxGroups)[number]["key"];
+
+export const buildInboxGroupOf = (need: BuildHomeNeed): BuildInboxGroup =>
+  need.kind === "acceptance" ? "accept" : "waiting";
+
+/** One entry per need: a Spec once, a hold by its id, since one Spec can hold more than one question. */
+export const buildInboxKey = (need: BuildHomeNeed) =>
+  need.kind === "hold" && need.holdId !== null
+    ? `hold:${need.holdId}`
+    : `${need.kind}:${need.spec.id}`;
+
+/** Home's needs in Inbox order: every group in turn, each keeping HQ's order. */
+export const buildInboxEntries = (home: BuildHome | null): readonly BuildHomeNeed[] =>
+  home === null
+    ? []
+    : buildInboxGroups.flatMap((group) =>
+        home.needsYou.filter((need) => buildInboxGroupOf(need) === group.key),
+      );
+
+/**
+ * The selected entry: the one chosen, else the entry now at its place (after a decision the next
+ * one, or the last when it was last), else the first.
+ */
+export const buildInboxSelection = (
+  entries: readonly BuildHomeNeed[],
+  chosen: { key: string; index: number } | null,
+): BuildHomeNeed | null => {
+  if (entries.length === 0) return null;
+  if (chosen === null) return entries[0] ?? null;
+  return (
+    entries.find((need) => buildInboxKey(need) === chosen.key) ??
+    entries[Math.min(chosen.index, entries.length - 1)] ??
+    null
+  );
+};
+
+/** Why an entry is in the Inbox: a few words for its row, and a line under its title. */
+export const buildInboxReason = (need: BuildHomeNeed): { label: string; detail: string } => {
+  switch (need.kind) {
+    case "acceptance":
+      return { label: "To accept", detail: "Live on staging and reviewed" };
+    case "hold":
+      return need.holdKind === "decision"
+        ? { label: "Your call", detail: "The agent is waiting for your decision" }
+        : { label: "Question", detail: "The agent is waiting for information" };
+    case "decision":
+      return { label: "Decision", detail: "A Proposed Decision to accept or supersede" };
+    case "arc_review":
+      return {
+        label: "Review date",
+        detail: "The Arc reached its review date: continue with a new one, or close it",
+      };
+    case "arc_check_in":
+      return { label: "Check in", detail: need.detail ?? "The Arc is due a check-in" };
+  }
 };

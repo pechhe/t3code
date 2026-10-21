@@ -2159,7 +2159,7 @@ export const layerWsRpc = (
           ),
         [WS_METHODS.buildHomeRead]: () => buildHome.read,
         [WS_METHODS.buildHomeDecide]: (input) => buildHome.decide(input),
-        [WS_METHODS.buildHomeFix]: (input) => buildHome.fix(input),
+        [WS_METHODS.buildHomeAnswer]: (input) => buildHome.answer(input),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>

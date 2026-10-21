@@ -37,6 +37,7 @@ describe("RPC authorization scopes", () => {
 
   it("keeps Build decisions, which act as the person in HQ, to settings owners", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.buildHomeDecide)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.buildHomeAnswer)).toBe(AuthSettingsWriteScope);
   });
 
   it("restricts policy reads and saves to settings owners", () => {
