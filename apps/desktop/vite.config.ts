@@ -1,4 +1,6 @@
 import "vite-plus/test/config";
+import * as NodeURL from "node:url";
+
 import { defaultInclude, defineConfig } from "vite-plus";
 
 import { isDesktopRuntimeExternalDependency } from "../../scripts/lib/desktop-external-packages.ts";
@@ -154,6 +156,11 @@ export default defineConfig({
     },
   ],
   test: {
+    alias: {
+      electron: NodeURL.fileURLToPath(
+        new URL("./src/electron/electronTestStub.ts", import.meta.url),
+      ),
+    },
     include: [...defaultInclude, "../../native/kde-snap-shot/src/*.test.ts"],
     // The Windows lane runs workspace suites concurrently; filesystem-heavy
     // desktop integration tests can exceed Vitest's 5 second default there.
