@@ -27,6 +27,8 @@ import type { EnvironmentThread } from "@t3tools/client-runtime/state/shell";
 import type { deriveThreadActivityRun } from "@t3tools/client-runtime/state/thread-execution";
 import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
 
+const TIMELINE_ANCHOR_EASE_MS = 110;
+const TIMELINE_ANCHOR_EASE_TIMEOUT_MS = 1500;
 const TIMELINE_SCROLL_CANCEL_SENTINEL = Object.freeze({});
 
 interface TimelineAnchor {
@@ -473,22 +475,59 @@ export function useTimelineFollow(input: TimelineFollowInput) {
           }
           return;
         }
-        // LegendList waits for queued layout and the animation before resolving.
-        void list
-          .scrollToIndex({
-            index: anchorIndex,
-            animated: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-            viewPosition: 0,
-            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
-          })
-          .then(() => {
-            if (
-              legendListRef.current === list &&
-              positionedTimelineAnchorRef.current === messageId
-            ) {
-              settledTimelineAnchorRef.current = messageId;
-            }
-          });
+        const settle = () => {
+          // A final instant placement lets LegendList's own state agree with
+          // where the ease ended.
+          void list
+            .scrollToIndex({
+              index: anchorIndex,
+              animated: false,
+              viewPosition: 0,
+              viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+            })
+            .then(() => {
+              if (
+                legendListRef.current === list &&
+                positionedTimelineAnchorRef.current === messageId
+              ) {
+                settledTimelineAnchorRef.current = messageId;
+              }
+            });
+        };
+        const node = list.getScrollableNode() as HTMLElement | null;
+        if (!node || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+          settle();
+          return;
+        }
+        // The browser's smooth scroll is cancelled by any layout shift while
+        // the new turn mounts, stranding the sent message at the bottom. Ease
+        // by hand toward the anchor's live position each frame instead.
+        const startedAt = performance.now();
+        let last = startedAt;
+        const step = (now: number) => {
+          if (legendListRef.current !== list || positionedTimelineAnchorRef.current !== messageId) {
+            return;
+          }
+          const top = list.getState().positionAtIndex(anchorIndex);
+          if (top === undefined || now - startedAt > TIMELINE_ANCHOR_EASE_TIMEOUT_MS) {
+            settle();
+            return;
+          }
+          const target = Math.min(
+            Math.max(0, top - CHAT_LIST_ANCHOR_OFFSET),
+            Math.max(0, node.scrollHeight - node.clientHeight),
+          );
+          const remaining = target - node.scrollTop;
+          if (Math.abs(remaining) < 0.5) {
+            settle();
+            return;
+          }
+          const dt = Math.min(50, now - last);
+          last = now;
+          node.scrollTop += remaining * (1 - Math.exp(-dt / TIMELINE_ANCHOR_EASE_MS));
+          requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
       });
     };
     requestAnimationFrame(() => positionAnchor(12));
