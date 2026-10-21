@@ -196,7 +196,8 @@ export type OrchestrationV2ProviderTurnTokenUsage =
  * point maps to window = compactAt + reserve within those limits.
  */
 export const CLAUDE_COMPACT_RESERVE = 33_000;
-const CLAUDE_MIN_COMPACT_WINDOW = 100_000;
+/** Both providers' auto-compact settings accept 100k–1M tokens. */
+const MIN_AUTO_COMPACT_WINDOW = 100_000;
 
 /**
  * The range a thread's compact-at point can take for a provider, given the model's window.
@@ -209,11 +210,14 @@ export const compactAtBounds = (
 ): { readonly min: number; readonly max: number } | null => {
   if (maxTokens == null || !Number.isFinite(maxTokens) || maxTokens <= 0) return null;
   if (driver === "claudeAgent") {
-    const min = CLAUDE_MIN_COMPACT_WINDOW - CLAUDE_COMPACT_RESERVE;
+    const min = MIN_AUTO_COMPACT_WINDOW - CLAUDE_COMPACT_RESERVE;
     const max = maxTokens - CLAUDE_COMPACT_RESERVE;
     return max < min ? null : { min, max };
   }
-  return { min: 1, max: maxTokens - Math.min(20_000, Math.floor(maxTokens / 10)) };
+  // Below the settings' floor Codex would compact after nearly every turn.
+  const min = MIN_AUTO_COMPACT_WINDOW;
+  const max = maxTokens - Math.min(20_000, Math.floor(maxTokens / 10));
+  return max < min ? null : { min, max };
 };
 
 export const OrchestrationV2ContextTransfer = Schema.Struct({

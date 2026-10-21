@@ -7545,6 +7545,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               // process. After a restart or idle release, load it the same way
               // the next turn would before reverting.
               if (!loaded) {
+                compactLimitByNativeThread.set(
+                  threadId,
+                  codexCompactLimit(input.runtimePolicy, autoCompactWindow),
+                );
                 yield* client.raw.request("thread/resume", {
                   threadId,
                   excludeTurns: true,

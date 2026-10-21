@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema";
 
 import { NodeId, RunAttemptId, TrimmedNonEmptyString } from "./index.ts";
 import {
+  compactAtBounds,
   latestProviderTurnForAttempt,
   OrchestrationV2ProviderCapabilities,
   OrchestrationV2ProviderThread,
@@ -624,5 +625,17 @@ describe("latestProviderTurnForAttempt", () => {
     ];
     expect(latestProviderTurnForAttempt(turns, RunAttemptId.make("goal-attempt"))?.id).toBe("last");
     expect(latestProviderTurnForAttempt(turns, null)).toBeUndefined();
+  });
+});
+
+describe("compactAtBounds", () => {
+  it("keeps a thread's point within what each provider's auto-compact setting accepts", () => {
+    expect(compactAtBounds("claudeAgent", 200_000)).toEqual({ min: 67_000, max: 167_000 });
+    expect(compactAtBounds("codex", 272_000)).toEqual({ min: 100_000, max: 252_000 });
+  });
+
+  it("offers no range when the model's window cannot reach the provider's floor", () => {
+    expect(compactAtBounds("codex", 100_000)).toBeNull();
+    expect(compactAtBounds("claudeAgent", 90_000)).toBeNull();
   });
 });
