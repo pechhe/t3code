@@ -3,186 +3,137 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.1-nightly.20261020.3438",
-      "sha": "fe27e8e3dc12dcbb108e9a28fd9b8cb65f34ae92"
-    },
-    "target": {
       "tag": "v0.1.2-nightly.20261021.3457",
       "sha": "e64766c56ac6fc1678e6107052feb0047a35337f"
+    },
+    "target": {
+      "tag": "v0.1.2-nightly.20261021.3473",
+      "sha": "1688f965682d331da16a8c39f049592361f69c8d"
     }
   },
   "fork": {
-    "base": "dcad35774071d7e0a87c6713a4187b8d10592e42"
+    "base": "654d2eaee0dd89adf02b1a7e5fa6a3a5bb5bed85"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "ed0f18a6e326d832b3b058fba22c0718465a13bf"
+    "blob": "8a8f85d7c414848fca7c87a616da39b8544ab098"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.2-nightly.20261021.3457@1792567461",
-  "reviewedAt": "2026-10-21T10:00:00Z",
+  "attempt": "v0.1.2-nightly.20261021.3473@1792582826",
+  "reviewedAt": "2026-10-21T12:05:38Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:4ad156b1-e383-47ac-bdc1-cae9c2c03176",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:7d6c059b-72d3-492f-a07f-aa5cc7ec181b",
     "model": "claude-opus-5-5"
   },
   "coverage": {
-    "upstreamCommits": 45,
+    "upstreamCommits": 78,
     "entriesConsidered": [
-      "agent-process-ledger",
+      "build-items-hq",
+      "dev-state-tooling",
+      "device-composer",
       "image-annotation",
-      "managed-browser-roles",
+      "linked-environments",
+      "live-response-streaming",
       "managed-delegation",
-      "mobile-fork-screens",
       "perf-markdown-blocks",
       "perf-secret-reads",
-      "quiet-run-read-state",
-      "snapshot-overlay",
+      "project-themes",
+      "side-chat",
+      "slipjay-delivery-config",
+      "subagent-return-chip",
       "t3-agent-cli",
-      "thread-watches",
-      "unattended-threads"
+      "thread-workflow-chip",
+      "web-client-customisation"
     ],
     "areas": [
-      "All 45 incoming commits (fe27e8e3..e64766c5) by subject and stat; 135 conflicts (109 content, 25 deleted upstream/modified in the fork, 1 the reverse) resolved file by file against both sides and their record entries; the 17 non-test resolutions and three silent auto-merge breaks (unexported production callers) read individually",
-      "Test hygiene batch (#22557 deletes ~11k tests, second-pass prunes #22588-#22599, bans on per-test timeouts, wall-clock reads, real-clock waits, polling loops and frame waits #22560-#22565): upstream taken as base in 116 conflicted test files; 267 fork test registrations kept and adapted to the new rules, 13 files deleted; fork tests that only exercised pruned upstream behaviour dropped",
-      "Server: orphaned follow-up cancellation (#22581) against managed-delegation; stopped-run notification silencing (#22615, new optional latestRunStopRequested shell field) against quiet-run-read-state and thread-watches; atomic secret creation (#22559) against perf-secret-reads; test-only export removals (#22557, #22592) against fork production callers",
-      "Mobile batch (#21388-#21409, #22518, #22121): undo, background-work sheet, proposed plans, project removal, model controls and chips against mobile-fork-screens, build-items-hq and image-annotation; web Mermaid via pele (#21472, #22570) against perf-markdown-blocks (ChatMarkdown only passes fewer props; block splitting untouched); dialogs (#21960), database space notice (#22575), \"use client\" removal (#22587)",
-      "Persistence: no new migrations; Migrations.ts and Sqlite.ts only drop exports. Contracts: one optional shell field and a keybindings tweak",
-      "Rebased onto t3peach dcad3577 after two fork commits landed: thread compact-at (7116c125: contracts, Claude adapter, migration 080) and launch-failure cause text (dcad3577: ThreadLaunchService). Upstream touches neither feature; its only overlap is test pruning in ClaudeAdapterV2.test.ts and 055_OrchestrationV2.test.ts, resolved by keeping upstream's deletions plus the fork's new refused-compact-at test"
+      "All 78 incoming commits (e64766c5..1688f965) by subject and stat; server conflicts (AcpMcpStdioBridge, OrchestratorMcpService cancel_task, project toolkit handlers and test, migrate-dev-db test, pnpm-lock) resolved by hand against both sides and their record entries",
+      "Web refactor batch (ChatView hook extraction, composer and command palette splits, timeline row modules, Sidebar rows, Connections and Settings panel splits): fork behaviour re-applied inside upstream's extracted modules by four delegated workers; upstream's send-during-approval (a93b03c8) and steer segment split (a8bb769d) adopted on top; fork web-components delta over upstream unchanged (+27,482/-5,803 vs +27,477/-5,840)",
+      "Server: stop clears a stuck delegate (#22653) and delegate finalisation with Grok command completion (#22709) against managed-delegation; `t3 thread` CLI over the shared mcpToolSession (#22732) against t3-agent-cli; project default model and mode ceiling against the fork's WorkspaceProvider and watch refusal in the project toolkit",
+      "Tooling: dev seeding (#22744, #22776) and settled-thread retention against dev-state-tooling; check:changed (#22767, #22784) and replay fixture split (#22717) against the landing test selector; pnpm 12 and Vite+ 1.3 (#22738, #22716) with lockfile regenerated by vp i",
+      "Persistence and contracts: no new migrations; no contract changes touching fork schemas"
     ],
     "exclusions": [
       {
         "what": "Web, desktop and mobile UI in a running client",
-        "why": "No browser or device pass in this unattended attempt; covered by typecheck and the full web, server, package, desktop and mobile suites"
+        "why": "No browser or device pass in this unattended attempt; covered by web typecheck, focused unit and browser suites, and the landing gate"
       },
       {
-        "what": "CI and release workflow changes (#22584, #22613, #22524 follow-ups) and tailscale cleanup (#22602)",
-        "why": "Upstream release infrastructure; the fork builds locally with scripts/fork-nightly.sh"
+        "what": "Release and Vercel workflow changes (#22813, #22817), Electron 44.9.3, mobile simulator decoding and xcrun shim",
+        "why": "Upstream release and simulator infrastructure with no fork overlap; the fork builds locally with scripts/fork-nightly.sh"
       },
       {
         "what": "Lint",
-        "why": "Not part of the landing gate; nine prefer-effect-fn errors in OrchestratorMcpService/ws.ts reproduce on the fork base, and upstream's new test rules may flag other fork-only tests"
+        "why": "Not part of the landing gate"
       }
     ]
   },
   "dispositions": [
     {
       "entry": "managed-delegation",
-      "upstream": "Idle orphaned follow-ups cancellable without a running parent (#22581)",
+      "upstream": "Stop clears a stuck delegate (#22653); finalise delegates when leftover work settles (#22709)",
       "decision": "adapt",
       "requirements": [
-        "task_cancel and follow-up semantics of the managed layer",
-        "completion delivery unchanged"
+        "task_cancel stays exclusive and recursive",
+        "completion hold covers all leftover work"
       ],
       "evidence": [
-        "OrchestratorMcpService.ts integrates the subagent.stop orphan repair into the managed cancellation section",
-        "OrchestratorMcpService.test.ts (all cases incl. \"cancels an orphaned follow-up through its parent\") passes"
-      ]
-    },
-    {
-      "entry": "perf-secret-reads",
-      "upstream": "Atomic secret creation via temp file and link (#22559)",
-      "decision": "adapt",
-      "requirements": [
-        "repeated reads served from memory",
-        "writes and directory changes clear the cache"
-      ],
-      "evidence": [
-        "ServerSecretStore.create uses upstream's temp+link and still forgets the cache",
-        "ServerSecretStore.test.ts (\"serves repeated reads without rereading the file\", \"sees a secret another process writes\") passes with controlled watcher streams"
-      ]
-    },
-    {
-      "entry": "quiet-run-read-state",
-      "upstream": "Silence notifications for a stopped run (#22615)",
-      "decision": "retain",
-      "requirements": ["run-bound quiet completion marks read without notification"],
-      "evidence": [
-        "agentAwareness.ts and ThreadNotificationCoordinator.tsx apply both rules",
-        "packages/shared/src/agentAwareness.test.ts and the web suite pass"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "Mobile undo, background-work sheet, proposed plans and related fixes (#21395, #21401, #21393 and batch)",
-      "decision": "adapt",
-      "requirements": [
-        "settle confirmation names stopped background work",
-        "Build item route and release approval activity kept"
-      ],
-      "evidence": [
-        "useThreadListActions.ts confirms before mutation and undo claim; Stack.tsx registers both routes; threadActivity.ts keeps release approvals beside plans",
-        "useThreadListActions.test.ts, threadActivity.test.ts and mobile typecheck pass"
+        "OrchestratorMcpService.ts cancel_task terminal branch stops, cancels the orphan and reports cancelled inside policy.exclusive",
+        "OrchestratorMcpService, DelegatedCompletionDelivery, ThreadStop and AcpAdapterV2 tests pass"
       ]
     },
     {
       "entry": "t3-agent-cli",
-      "upstream": "Test-only export removal (#22557)",
-      "decision": "retain",
-      "requirements": ["AgentCliClient calls callAcpMcpTool"],
-      "evidence": ["AcpMcpStdioBridge export restored; server typecheck passes"]
-    },
-    {
-      "entry": "managed-browser-roles",
-      "upstream": "Test-only export removal (#22592)",
-      "decision": "retain",
-      "requirements": ["managed browser handler calls normalizePreviewOpenInput"],
-      "evidence": ["preview handlers export restored; server typecheck passes"]
-    },
-    {
-      "entry": "snapshot-overlay",
-      "upstream": "Test pruning deletes ActiveWindow.test.ts; macSnapShotArguments unexported (#22557)",
-      "decision": "retain",
-      "requirements": ["one-shot macOS capture helper"],
+      "upstream": "`t3 thread` CLI and shared mcpToolSession (#22732)",
+      "decision": "adapt",
+      "requirements": ["AgentCliClient calls callAcpMcpTool", "t3 agent stays registered"],
       "evidence": [
-        "MacSnapShot.ts keeps the helper; MacSnapShot.test.ts and DesktopSnapShot.test.ts pass"
+        "AcpMcpStdioBridge.ts exports callAcpMcpTool over mcpToolSession; binCli.ts registers both commands",
+        "cli/thread and AcpMcpStdioBridge tests pass; server typecheck passes"
       ]
     },
     {
-      "entry": "image-annotation",
-      "upstream": "Icon-only mobile chip presentation (#22518)",
-      "decision": "retain",
-      "requirements": ["pencil chip for annotated images"],
+      "entry": "dev-state-tooling",
+      "upstream": "Dev seeding on first load (#22744, #22776); settled threads kept",
+      "decision": "adapt",
+      "requirements": [
+        "seeding never writes the live database",
+        "family limits and foreign-key pruning"
+      ],
       "evidence": [
-        "composerChipPresentation.ts maps the pencil chip in the new scheme; mobile typecheck passes"
+        "migrate-dev-db.test.ts 10/10 with settled-thread expectations",
+        "dev-runner tests pass"
       ]
     },
     {
-      "entry": "agent-process-ledger",
-      "upstream": "Test-only export removal in DesktopApp.ts (#22557)",
+      "entry": "slipjay-delivery-config",
+      "upstream": "Replay fixture split (#22717); test deletions; check:changed (#22767)",
       "decision": "retain",
-      "requirements": ["quit finalizer reaps stopped servers' pids"],
-      "evidence": ["DesktopApp.ts keeps the pid-returning finalizer; desktop typecheck passes"]
-    },
-    {
-      "entry": "perf-markdown-blocks",
-      "upstream": "Mermaid diagrams rendered with pele (#21472, #22570)",
-      "decision": "retain",
-      "requirements": ["streamed messages re-render only changed blocks"],
+      "requirements": ["landing selector maps every test it names"],
       "evidence": [
-        "upstream changes ChatMarkdown only to drop the Mermaid theme prop and move the basename lookup import; splitMarkdownBlocks and ChatMarkdownBlock untouched",
-        "web suite incl. ChatMarkdown.browser.test.tsx and packages/shared markdownBlocks.test.ts pass"
+        "test-landing-inputs.ts adds AcpRegistryReplayFixtures and drops deleted tests",
+        "scripts/test-landing.test.ts 67/67",
+        "test-landing-vitest.ts spawns listing in the workspace directory; node scripts/test-landing.ts --plan passes"
       ]
     },
     {
-      "entry": "thread-watches",
-      "upstream": "Stopped-run notification silencing (#22615) and blocked-on-wait shell fields",
-      "decision": "retain",
-      "requirements": ["watch wakes and pending-wait strip unchanged"],
+      "entry": "linked-environments",
+      "upstream": "Thread-link chips in markdown (#22615)",
+      "decision": "adapt",
+      "requirements": ["environment-qualified links resolve only in their environment"],
       "evidence": [
-        "#22615 only adds latestRunStopRequested to the shell; ThreadWatch and pendingBackgroundWork code untouched by the merge",
-        "orchestrationV2PendingBackgroundWork.test.ts and the server suite pass"
+        "MarkdownThreadLink renders upstream's chip with the fork's qualification",
+        "ChatMarkdown browser tests pass"
       ]
     },
     {
-      "entry": "unattended-threads",
-      "upstream": "Mobile settle with undo and background-work stop (#21401, #21395)",
+      "entry": "web-client-customisation",
+      "upstream": "Web module extraction (ChatView hooks, composer, command palette, Sidebar, settings panels)",
       "decision": "retain",
-      "requirements": ["settling stops pending background work only after confirmation"],
+      "requirements": ["fork UI behaviour kept in upstream's new modules"],
       "evidence": [
-        "useThreadListActions.ts sends stopBackgroundWork only after the fork confirmation; UnattendedReactor untouched",
-        "useThreadListActions.test.ts and the server suite pass"
+        "web typecheck passes; ChatView 77, composer 87, timeline 110, markdown 15, sidebar/settings 113 unit tests pass; 6 browser files (24 tests) pass"
       ]
     }
   ],
@@ -191,47 +142,37 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile from the auto-merge unchanged"
+      "note": "pnpm 12.14.0; lockfile regenerated after taking upstream's side"
     },
     {
-      "command": "vp run --filter t3 typecheck; desktop, mobile, client-runtime, shared typechecks",
+      "command": "vp run --filter t3 typecheck; vp run --filter @t3tools/web typecheck",
       "result": "passed",
       "note": "in the merge clone, 2026-10-21"
     },
     {
-      "command": "vp run --filter @t3tools/web typecheck",
+      "command": "focused server tests (OrchestratorMcpService, project handlers, AcpMcpStdioBridge, cli/thread, DelegatedCompletionDelivery, ThreadStop, AcpAdapterV2, xaiAcpExtension, ServerSecretStore, migrate-dev-db, dev-runner)",
       "result": "passed",
-      "note": "in the merge clone, 2026-10-21"
+      "note": "on the Mac, 2026-10-21"
     },
     {
-      "command": "web unit+browser suite (VPS)",
-      "result": "failed",
-      "note": "7 React Compiler coverage bailouts in fork components also fail on the fork base; 10 browser files that timed out at load 35 pass on rerun"
-    },
-    {
-      "command": "vp test run --dir apps/server (VPS)",
-      "result": "failed",
-      "note": "474/475 files pass; GitVcsDriverCore review-diff-preview case also fails on the fork base"
-    },
-    {
-      "command": "vp test run --dir packages (VPS)",
+      "command": "vp test run scripts/test-landing.test.ts scripts/fork-upstream-receipt.test.ts",
       "result": "passed",
-      "note": "after restoring upstream's OpenCode step-usage case list (31/31); 383/384 before"
+      "note": "on the Mac, 2026-10-21"
     },
     {
-      "command": "vp test run --dir apps/desktop (VPS)",
-      "result": "failed",
-      "note": "99/105 files pass; 6 need an installed Electron, absent on the VPS (environmental)"
-    },
-    {
-      "command": "vp test run --dir apps/mobile (VPS)",
-      "result": "failed",
-      "note": "190/195 files pass; the same 5 files fail on the fork base"
+      "command": "focused web unit and browser tests (ChatView, composer, timeline, markdown, sidebar, settings)",
+      "result": "passed",
+      "note": "on the Mac, 2026-10-21"
     },
     {
       "command": "vp test run apps/server/src/cli/AgentCliClient.test.ts (Mac)",
       "result": "failed",
-      "note": "one credential case fails identically on the fork base"
+      "note": "one credential case fails identically on the fork base (macOS secret watcher race)"
+    },
+    {
+      "command": "node scripts/test-landing.ts --plan",
+      "result": "passed",
+      "note": "after listing from each workspace's directory; the first landing gate (op_00mvi4bkk4) failed listing scripts and oxlint-plugin-t3code against upstream's root projects"
     }
   ],
   "result": "reconciled"

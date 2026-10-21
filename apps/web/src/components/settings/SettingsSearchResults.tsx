@@ -37,7 +37,9 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
     })),
   ),
   "/settings/appearance": lazy(() =>
-    import("./SettingsPanels").then((module) => ({ default: module.AppearanceSettingsPanel })),
+    import("./AppearanceSettingsPanel").then((module) => ({
+      default: module.AppearanceSettingsPanel,
+    })),
   ),
   "/settings/keybindings": lazy(() =>
     import("./KeybindingsSettings").then((module) => ({
@@ -83,7 +85,7 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
     import("./ConnectionsSettings").then((module) => ({ default: module.ConnectionsSettings })),
   ),
   "/settings/archived": lazy(() =>
-    import("./SettingsPanels").then((module) => ({ default: module.ArchivedThreadsPanel })),
+    import("./ArchivedThreadsPanel").then((module) => ({ default: module.ArchivedThreadsPanel })),
   ),
 };
 

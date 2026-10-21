@@ -163,7 +163,12 @@ export function listTests(request: ListRequest) {
     const child = NodeChildProcess.spawn(
       process.execPath,
       ["--max-old-space-size=8192", import.meta.filename, "list", JSON.stringify(request)],
-      { stdio: ["ignore", "pipe", "inherit"] },
+      // The root config adds per-package projects only when run from the repo root, so a
+      // workspace borrowing it lists from its own directory, as its runs do.
+      {
+        cwd: NodePath.join(request.root, request.directory),
+        stdio: ["ignore", "pipe", "inherit"],
+      },
     );
     let output = "";
     child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));

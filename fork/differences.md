@@ -4,8 +4,8 @@ This record lists the material, deliberate differences between the T3peach fork 
 
 ## Baseline
 
-- Upstream: v0.1.2-nightly.20261021.3457 (`e64766c56ac6fc1678e6107052feb0047a35337f`)
-- Fork: `d4749f3116adf1a16fe0698bac953f0daebacef2`
+- Upstream: v0.1.2-nightly.20261021.3473 (`1688f965682d331da16a8c39f049592361f69c8d`)
+- Fork: `654d2eaee0dd89adf02b1a7e5fa6a3a5bb5bed85`
 
 ## Coverage
 
@@ -93,7 +93,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/mcp/OrchestratorMcpService.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts, TaskCancelNativeSubagent.integration.test.ts; apps/server/src/agents/ManagedAgentService.test.ts, writerWorkspacePreflight.test.ts; orchestration-v2/AdvisorIdleClose.test.ts; the landing gate runs them when a change reaches them.
 - **Upstream:** upstream has the base orchestrator MCP and subagents; the managed layer is the fork's. Overlap risk is high on `OrchestratorMcpService`.
 - **Retire when:** upstream ships equivalent managed scope and follow-up covering the requirements.
-- **Decision:** `adapt` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's repair for idle orphaned follow-ups (#22581: stopping an app-owned task whose child is idle cancels only that child's orphaned tasks) merged into the fork's managed cancellation, keeping recursive mode checks, queued-run cancellation and completion delivery (OrchestratorMcpService.test.ts "cancels an orphaned follow-up through its parent"). Earlier: `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's delegated model-option inheritance (`target.options`), `pendingApproval` ending `mode=wait` (#20037), settled-leaf omission and result delivery without history handoffs (#22117) layered onto the role-based `delegate_task`; external agent results report `pendingApproval: null`. Upstream's command-kind exception to the completion hold (commands such as dev servers do not hold it) stays replaced by the fork's hold-everything rule; the mobile thread list test is aligned with it. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's deduplicated terminal results and context transfers (#19759) combined with managed handoff evidence; ordinary Codex threads use upstream's dotted MCP overrides while managed tasks keep whole-table disabling. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit. Those instructions say only when and why to delegate; field mechanics live once, in the `delegate_task` description.
+- **Decision:** `adapt` (v0.1.2-nightly.20261021.3473, 2026-10-21): upstream's stop-clears-stuck-delegate fix (#22653: `task_cancel` on a settled task still cancels its orphaned follow-up and reports `cancelled`) folded into the fork's exclusive cancellation, and its delegate finalisation when leftover work settles (#22709) kept under the fork's hold-everything completion rule. Earlier: `adapt` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's repair for idle orphaned follow-ups (#22581: stopping an app-owned task whose child is idle cancels only that child's orphaned tasks) merged into the fork's managed cancellation, keeping recursive mode checks, queued-run cancellation and completion delivery (OrchestratorMcpService.test.ts "cancels an orphaned follow-up through its parent"). Earlier: `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's delegated model-option inheritance (`target.options`), `pendingApproval` ending `mode=wait` (#20037), settled-leaf omission and result delivery without history handoffs (#22117) layered onto the role-based `delegate_task`; external agent results report `pendingApproval: null`. Upstream's command-kind exception to the completion hold (commands such as dev servers do not hold it) stays replaced by the fork's hold-everything rule; the mobile thread list test is aligned with it. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's deduplicated terminal results and context transfers (#19759) combined with managed handoff evidence; ordinary Codex threads use upstream's dotted MCP overrides while managed tasks keep whole-table disabling. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): upstream's base fixes adopted into the managed paths: worktree delegation refuses a parent checkout outside the project (non-SlipJay base only), `task_cancel` cancels the task's queued turn, the setup script skips the main checkout as well as managed tasks, and the orchestration instructions are split into sections under Codex's 4,000-byte entry limit. Those instructions say only when and why to delegate; field mechanics live once, in the `delegate_task` description.
 - **Owner:** pechhe/t3code#14, #15, #17, #18, #31, #40, #62, #93, #131 (closed); open: #123, #136, #146.
 
 ### t3-agent-cli
@@ -105,7 +105,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/cli/AgentCliClient.test.ts, agent.test.ts; apps/server/src/agents/ExternalAgentWorkService.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent external-agent CLI covering the requirements.
-- **Decision:** `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's removal of test-only exports (#22557) reverted for `callAcpMcpTool`, which `AgentCliClient` calls in production. Earlier: `retain` (seed, 2026-10-19).
+- **Decision:** `adapt` (v0.1.2-nightly.20261021.3473, 2026-10-21): upstream's `t3 thread` command (#22732, local token) sits beside `t3 agent` (OAuth); the bridge adopts upstream's shared `mcpToolSession` and keeps the exported `callAcpMcpTool` that `AgentCliClient` calls. Earlier: `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's removal of test-only exports (#22557) reverted for `callAcpMcpTool`, which `AgentCliClient` calls in production. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#6, #64 (closed); none open.
 
 ### run-setup-records
@@ -190,7 +190,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** scripts/test-landing.test.ts for the selector; the verification list itself otherwise.
 - **Upstream:** none known.
 - **Retire when:** not applicable while the fork uses SlipJay.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `retain` (v0.1.2-nightly.20261021.3473, 2026-10-21): the landing test selector drops tests upstream deleted (#22557 and earlier) and maps upstream's split ACP registry replay fixture (#22717); it lists each workspace's tests from that workspace's directory, since upstream's root config adds per-package projects only when run from the repository root (#22714); upstream's `check:changed` (#22767, #22784) is a developer command and does not replace the gate selector. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#3, #122 (open), #112 (open).
 
 ### build-items-hq
@@ -273,7 +273,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/src/peers/PeerEnvironments.test.ts, ThreadDirectory.test.ts.
 - **Upstream:** upstream resolves unqualified thread links across connected environments (#21505) and refuses foreign thread attachments (#18310); peer sessions, thread directory and linked-thread attachments are the fork's.
 - **Retire when:** upstream ships equivalent cross-environment thread access.
-- **Decision:** `adapt` (v0.1.1-nightly.20261020.3411, 2026-10-20): upstream's snooze semantics in the MCP thread tools (#22202), skill chips in the mobile thread feed (#22120) and reverted question previews (#22229) merged with the fork's cross-environment listing, qualified link resolution and environment-qualified answer projection; upstream's add-project-to-another-machine flow (#22254) and Connect reachability check (#22172) do not touch peer sessions. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's cross-environment thread-link resolution (#21505) adopted for unqualified links (unique match only); explicitly environment-qualified links never fall back to another environment, and copied remote links carry their environment. Upstream's blanket refusal of foreign thread attachments (#18310) is not applied to linked peers. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the MCP thread list and read descriptions carry both upstream's `pullRequests` note and the linked-environment text.
+- **Decision:** `adapt` (v0.1.2-nightly.20261021.3473, 2026-10-21): upstream's thread-link chips in markdown (#22615) adopted; the chip still resolves environment-qualified links only in their own environment. Earlier: `adapt` (v0.1.1-nightly.20261020.3411, 2026-10-20): upstream's snooze semantics in the MCP thread tools (#22202), skill chips in the mobile thread feed (#22120) and reverted question previews (#22229) merged with the fork's cross-environment listing, qualified link resolution and environment-qualified answer projection; upstream's add-project-to-another-machine flow (#22254) and Connect reachability check (#22172) do not touch peer sessions. Earlier: `adapt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's cross-environment thread-link resolution (#21505) adopted for unqualified links (unique match only); explicitly environment-qualified links never fall back to another environment, and copied remote links carry their environment. Upstream's blanket refusal of foreign thread attachments (#18310) is not applied to linked peers. Earlier: `retain` (v0.1.1-nightly.20261019.3348, 2026-10-19): the MCP thread list and read descriptions carry both upstream's `pullRequests` note and the linked-environment text.
 - **Owner:** pechhe/t3code#33–38 (closed).
 
 ### account-pools
@@ -580,7 +580,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Proof:** apps/server/scripts/migrate-dev-db.test.ts.
 - **Upstream:** dev runner is upstream (unverified extent of fork edits).
 - **Retire when:** upstream dev runner recognises jj workspaces.
-- **Decision:** `retain` (seed, 2026-10-19).
+- **Decision:** `adapt` (v0.1.2-nightly.20261021.3473, 2026-10-21): upstream's dev seeding (#22744, #22776) runs `migrate-dev-db` for a worktree home, and its rule keeping settled (unarchived) threads is adopted; the fork's family limits and foreign-key pruning still apply. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#66, #105, #127 (open); #49, #104, #106, #113 (closed).
 
 ### quiet-run-read-state

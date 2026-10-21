@@ -3496,8 +3496,7 @@ const make = Effect.gen(function* () {
           ),
         );
         // A follow-up that lost its child run (#19002) stays running on the parent, while its
-        // status here comes from the child's last run. The parent cancels it, and any other
-        // orphan of the same child, when that child is idle.
+        // status here comes from the child's last run. Stop on the parent cancels that task.
         const cancelOrphan = Effect.gen(function* () {
           if (parentTask?.runId == null || !isOrchestrationV2WorkActive(parentTask.status))
             return false;
@@ -3520,12 +3519,13 @@ const make = Effect.gen(function* () {
           return subagents.some((task) => task.id === input.taskId && task.status === "cancelled");
         });
         if (isTerminalTaskStatus(current.status)) {
-          if (yield* cancelOrphan) return { taskId: input.taskId, status: "cancelled" as const };
+          // The child can still run work for another turn, so it is stopped either way.
           yield* stopWithinLimit;
+          const cancelled = yield* cancelOrphan;
           yield* disposeCompletionDelivery;
           return {
             taskId: input.taskId,
-            status: current.status,
+            status: cancelled ? ("cancelled" as const) : current.status,
           } satisfies OrchestratorMcpTaskCancelResult;
         }
         // A task waiting on its own delegates has work to stop below it. One with neither

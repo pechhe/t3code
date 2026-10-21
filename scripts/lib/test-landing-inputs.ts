@@ -37,17 +37,9 @@ const serverTest = (...names: ReadonlyArray<string>) =>
 // The spawned program's imports are invisible to the importing test's graph.
 const SOURCE_SPAWNERS = [
   ...serverTest(
-    "cli/sshHelper.test.ts",
-    "compileCache.test.ts",
-    "git/detachStackFrame.memory.test.ts",
     "outboundHttp.test.ts",
-    "orchestration-v2/ProviderTurnStartService.memory.test.ts",
     "processRunner.test.ts",
-    "rpcInitialItems.memory.test.ts",
-    "preview/DesktopBrowserChannel.test.ts",
   ),
-  "packages/shared/src/observability.memory.test.ts",
-  "packages/provider-cursor/src/server/CursorSdk.test.ts",
 ];
 const FIXTURE_DIRECTORY_READERS = serverTest(
   "provider/ProviderInstanceRegistry.test.ts",
@@ -61,9 +53,9 @@ const REPLAY_TRANSCRIPT_READERS = [
   ...serverTest(
     "mcp/OrchestratorMcpToolkit.integration.test.ts",
     "orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
+    "orchestration-v2/testkit/AcpRegistryReplayFixtures.integration.test.ts",
     "orchestration-v2/testkit/ClaudeReplayFixtures.integration.test.ts",
     "orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts",
-    "orchestration-v2/testkit/OrchestratorReplayFixtures.integration.test.ts",
     "orchestration-v2/testkit/OrchestratorReplayRecovery.integration.test.ts",
     "orchestration-v2/testkit/OrchestratorReplayRestartBackgroundNote.integration.test.ts",
     "orchestration-v2/testkit/ThreadFork.integration.test.ts",
@@ -110,11 +102,6 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "fixture programs spawned from disk",
   },
   {
-    when: /^apps\/server\/src\//,
-    select: serverTest("orchestration-v2/V1ImportBoundary.test.ts"),
-    reason: "test reads every production source file",
-  },
-  {
     when: /^\.github\/triage\//,
     select: serverTest("cli/triagePrompt.test.ts"),
     reason: "the bundled playbook must equal the repository copy",
@@ -145,11 +132,6 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "launcher files are copied and run by the test",
   },
   {
-    when: /^scripts\/install\.sh$/,
-    select: ["scripts/install.test.ts"],
-    reason: "test runs the installer",
-  },
-  {
     when: /^scripts\/fork-(?:nightly|reconcile-fixtures)\.sh$/,
     select: ["scripts/fork-nightly.test.ts"],
     reason: "test runs the script",
@@ -168,11 +150,6 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     when: /^scripts\/knip-schemas\.ts$/,
     select: ["scripts/knip-schemas.test.ts"],
     reason: "test runs knip with the preprocessor",
-  },
-  {
-    when: /^(?:scripts\/lib\/cursor-sdk|packages\/provider-cursor\/)/,
-    select: ["scripts/lib/cursor-sdk-packaging.test.ts"],
-    reason: "test imports Cursor SDK source in a child process",
   },
   {
     when: /^oxlint-plugin-t3code\//,
@@ -198,22 +175,9 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "fixture scripts run by the test",
   },
   {
-    when: /^apps\/mobile\/scripts\/fixtures\//,
-    select: [
-      "apps/mobile/scripts/notification-center-manager.test.ts",
-      "apps/mobile/scripts/permissions-service.test.ts",
-    ],
-    reason: "native source fixtures read from disk",
-  },
-  {
     when: /^apps\/mobile\/(?:global\.css$|scripts\/)/,
     select: ["apps/mobile/scripts/generate-uniwind-themes.test.ts"],
     reason: "test reads global.css and the generator",
-  },
-  {
-    when: /^apps\/mobile\/src\/lib\/uniwind-platform-variants\.fixture\.cjs$/,
-    select: ["apps/mobile/src/lib/uniwind-platform-variants.test.ts"],
-    reason: "fixture run in a child process",
   },
   {
     when: /^apps\/mobile\/(?:src|scripts)\//,
@@ -264,7 +228,6 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     when: /^apps\/desktop\/gnome-extension\//,
     select: [
       "apps/desktop/src/snapShot/GnomeCaptureSetup.test.ts",
-      "apps/desktop/src/snapShot/LinuxSnapShot.dbus.test.ts",
       "scripts/build-desktop-artifact.test.ts",
     ],
     reason: "extension bundle read from disk or imported across workspaces",

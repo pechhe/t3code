@@ -45,6 +45,13 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         ["failed-thread", "project-kept", "failed", "{}", "2026-08-05"],
         ["settled-thread", "project-kept", "completed", '{"settledAt":"2026-08-01"}', "2026-08-05"],
         [
+          "archived-thread",
+          "project-kept",
+          "completed",
+          '{"archivedAt":"2026-08-01"}',
+          "2026-08-05",
+        ],
+        [
           "limit-thread",
           "project-kept",
           "completed",
@@ -74,23 +81,23 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         VALUES ('session-shared', 'running-thread'), ('session-shared', 'stopped-thread')`;
       yield* sql`INSERT INTO orchestration_v2_projection_context_transfers
         (context_transfer_id, source_thread_id, target_thread_id, type, status, updated_at, payload_json)
-        VALUES ('transfer-1', 'settled-thread', 'stopped-thread', 'provider_handoff', 'completed', '2026-08-01', '{}')`;
+        VALUES ('transfer-1', 'archived-thread', 'stopped-thread', 'provider_handoff', 'completed', '2026-08-01', '{}')`;
       yield* sql`INSERT INTO scheduled_tasks
         (task_id, title, prompt, enabled, schedule_json, project_id, workspace_strategy_json,
           model_selection_json, runtime_mode, interaction_mode, created_by, creation_source,
           created_at, updated_at, last_run_status, run_count)
         VALUES ('task-1', 'Nightly', 'Run it', 1, '{}', 'project-kept', '{}', '{}',
           'full-access', 'default', 'user', 'user', '2026-08-01', '2026-08-01', 'never', 0)`;
-      // An experiment observation of a settled thread's assignment has no thread_id itself.
+      // An experiment observation of an archived thread's assignment has no thread_id itself.
       yield* sql`INSERT INTO experiments (id, definition_json, status, created_at, updated_at)
         VALUES ('experiment-1', '{}', 'running', '2026-08-01', '2026-08-01')`;
       yield* sql`INSERT INTO experiment_assignments
         (id, experiment_id, unit_kind, unit_id, thread_id, stratum, variant_id, assignment_method, payload_json)
         VALUES
-        ('assignment-settled', 'experiment-1', 'thread', 'settled-thread', 'settled-thread', 's', 'a', 'randomized', '{}'),
+        ('assignment-archived', 'experiment-1', 'thread', 'archived-thread', 'archived-thread', 's', 'a', 'randomized', '{}'),
         ('assignment-kept', 'experiment-1', 'thread', 'stopped-thread', 'stopped-thread', 's', 'a', 'randomized', '{}')`;
       yield* sql`INSERT INTO experiment_observations (id, assignment_id, payload_json)
-        VALUES ('observation-settled', 'assignment-settled', '{}'),
+        VALUES ('observation-archived', 'assignment-archived', '{}'),
           ('observation-kept', 'assignment-kept', '{}')`;
       yield* sql`INSERT INTO auth_sessions (session_id, subject, scopes, method, issued_at, expires_at)
         VALUES ('session-1', 'user', '[]', 'pairing', '2026-08-01', '2027-08-01')`;
@@ -101,7 +108,7 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
 
 it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
   it.effect.each([
-    { phase: "snapshot", removedThread: "settled-thread" },
+    { phase: "snapshot", removedThread: "archived-thread" },
     { phase: "prune", removedThread: "running-thread" },
   ])(
     "drops transitive foreign-key children during $phase, including WITHOUT ROWID",
@@ -173,7 +180,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       }),
   );
 
-  it.effect("keeps stopped thread families from live projects and clears pending work", () =>
+  it.effect("keeps stopped and settled thread families and clears pending work", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -209,11 +216,11 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       );
       assert.deepStrictEqual(
         kept.threads.map((row) => row.thread_id),
-        ["fork-thread", "limit-thread", "stopped-thread"],
+        ["fork-thread", "limit-thread", "settled-thread", "stopped-thread"],
       );
       assert.deepStrictEqual(
         kept.events.map((row) => row.stream_id),
-        ["fork-thread", "limit-thread", "stopped-thread"],
+        ["fork-thread", "limit-thread", "settled-thread", "stopped-thread"],
       );
       assert.deepStrictEqual(
         kept.sessions.map((row) => row.provider_session_id),
@@ -273,7 +280,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       // superseded limit marker do not make a family live.
       assert.deepStrictEqual(
         kept.threads.map((row) => row.thread_id),
-        ["fork-thread", "limit-thread", "stopped-thread"],
+        ["fork-thread", "limit-thread", "settled-thread", "stopped-thread"],
       );
       assert.deepStrictEqual(kept.sessions, [
         { provider_session_id: "session-idle", status: "stopped", json: "stopped" },
@@ -282,7 +289,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
     }),
   );
 
-  it.effect("never copies a settled thread's rows, and new events append after the source's", () =>
+  it.effect("never copies an archived thread, and new events append after the source's", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-slice-" });
@@ -306,18 +313,43 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         result.databasePath,
         Effect.gen(function* () {
           const sql = yield* SqlClient.SqlClient;
-          const [settledRows] = yield* sql<{ count: number }>`
+          const [archivedRows] = yield* sql<{ count: number }>`
             SELECT
-              (SELECT COUNT(*) FROM orchestration_v2_projection_runs WHERE thread_id = 'settled-thread')
-              + (SELECT COUNT(*) FROM orchestration_events WHERE stream_id = 'settled-thread')
+              (SELECT COUNT(*) FROM orchestration_v2_projection_runs WHERE thread_id = 'archived-thread')
+              + (SELECT COUNT(*) FROM orchestration_events WHERE stream_id = 'archived-thread')
               AS count`;
           const [sequence] = yield* sql<{ seq: number }>`
             SELECT seq FROM sqlite_sequence WHERE name = 'orchestration_events'`;
-          return { settledRows: settledRows?.count, sequence: sequence?.seq };
+          return { archivedRows: archivedRows?.count, sequence: sequence?.seq };
         }),
       );
-      assert.equal(copied.settledRows, 0);
+      assert.equal(copied.archivedRows, 0);
       assert.equal(copied.sequence, sourceSequence?.seq);
+    }),
+  );
+
+  it.effect("skips a thread family larger than the per-project limit", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-family-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-family-dest-" });
+      const source = yield* createFixtureSource(sourceDir);
+
+      // stopped-thread and its fork are 2 threads; settled-thread and limit-thread are 1 each.
+      const result = yield* runMigrateDevDb(
+        { baseDir: destDir, source, projects: 5, threadsPerProject: 1 },
+        { sharedHome: sourceDir },
+      );
+      const threads = yield* withDatabase(
+        result.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* sql<{ thread_id: string }>`
+            SELECT thread_id FROM orchestration_v2_projection_threads`;
+        }),
+      );
+      assert.equal(threads.length, 1);
+      assert.include(["settled-thread", "limit-thread"], threads[0]?.thread_id);
     }),
   );
 

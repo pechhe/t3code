@@ -1112,6 +1112,73 @@ describe("deriveMessagesTimelineRows", () => {
     },
   );
 
+  it("splits a settled turn's work at each steer and keeps the total time on top", () => {
+    const runId = RunId.make("steered-run");
+    const time = (second: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, second)).toISOString();
+    const message = (
+      id: string,
+      second: number,
+      role: "user" | "assistant",
+      inputIntent?: "turn_start" | "steer",
+    ): TimelineEntry => ({
+      kind: "message",
+      id,
+      createdAt: time(second),
+      message: {
+        id: MessageId.make(id),
+        role,
+        text: id,
+        runId,
+        ...(inputIntent ? { inputIntent } : {}),
+        createdAt: time(second),
+        updatedAt: time(second),
+        streaming: false,
+      },
+    });
+    const work = (id: string, second: number): TimelineEntry => ({
+      kind: "work",
+      id,
+      createdAt: time(second),
+      entry: { id, createdAt: time(second), runId, label: "Ran command", tone: "tool" },
+    });
+    const rows = (expandedRunIds: ReadonlySet<RunId>) =>
+      deriveMessagesTimelineRows({
+        timelineEntries: [
+          message("prompt", 0, "user", "turn_start"),
+          work("work-before-steer", 4),
+          message("steer", 10, "user", "steer"),
+          work("work-after-steer", 15),
+          message("final", 30, "assistant"),
+        ],
+        latestRun: { runId, status: "completed", startedAt: time(0), completedAt: time(30) },
+        isWorking: false,
+        expandedRunIds,
+        turnDiffSummaries: [],
+        supportsConversationRollback: false,
+      });
+
+    const segmentKey = RunId.make(`${runId}:steer:steer`);
+    const collapsed = rows(new Set());
+    expect(collapsed.map((row) => row.id)).toEqual([
+      "prompt",
+      `turn-fold:${runId}`,
+      "steer",
+      `turn-fold:${segmentKey}`,
+      "final",
+    ]);
+    expect(collapsed[1]).toMatchObject({ label: "Worked for 30s" });
+    expect(collapsed[3]).toMatchObject({ label: "Continued for 20s", createdAt: time(10) });
+
+    expect(rows(new Set([segmentKey])).map((row) => row.id)).toEqual([
+      "prompt",
+      `turn-fold:${runId}`,
+      "steer",
+      `turn-fold:${segmentKey}`,
+      "work-after-steer",
+      "final",
+    ]);
+  });
+
   it("keeps the previous turn folded while a newly sent message awaits its turn", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
@@ -3291,6 +3358,43 @@ describe("one request reads as one response", () => {
     ]);
   });
 
+  it("splits work at a steer in a later wake run without hiding return chips", () => {
+    const steer = {
+      ...message("steer-after-wake", "wake-a", 22, "user"),
+      message: {
+        ...message("steer-after-wake", "wake-a", 22, "user").message,
+        inputIntent: "steer" as const,
+      },
+    };
+    const steeredInput = {
+      ...input,
+      timelineEntries: [...timelineEntries.slice(0, 6), steer, ...timelineEntries.slice(6)],
+    };
+    const rows = deriveMessagesTimelineRows(steeredInput);
+    const folds = rows.filter((row) => row.kind === "turn-fold");
+    expect(folds.map((row) => row.runId)).toEqual([
+      RunId.make("initial"),
+      RunId.make("initial:steer:steer-after-wake"),
+    ]);
+    expect(folds[0]?.label).toBe("Worked for 45s · 3 runs");
+    expect(rows.map((row) => row.id)).not.toContain("ack-a");
+    expect(
+      rows.flatMap((row) =>
+        row.kind === "subagent-returns" ? row.entries.map((entry) => entry.id) : [],
+      ),
+    ).toEqual(["return-a", "return-b"]);
+    const expanded = deriveMessagesTimelineRows({
+      ...steeredInput,
+      expandedRunIds: new Set([RunId.make("initial:steer:steer-after-wake")]),
+    });
+    expect(expanded.map((row) => row.id)).toContain("ack-a");
+    expect(expanded.find((row) => row.id === "return-b")).toMatchObject({
+      kind: "subagent-returns",
+      wake: true,
+    });
+    expect(findSubagentCardRow(expanded, "node-2")).toMatchObject({ rowId: "card-2" });
+  });
+
   it("counts the runs the fold spans", () => {
     const fold = deriveMessagesTimelineRows(input).find((row) => row.kind === "turn-fold");
     expect(fold?.label).toBe("Worked for 45s · 3 runs");
@@ -3574,6 +3678,49 @@ describe("linked timeline resources", () => {
       "turn-fold:resource-run",
       "intro",
       "created",
+      "final",
+      "summary:created",
+      "assistant-meta:final",
+    ]);
+  });
+
+  it("shows a created chat after a steer only when that steer's segment is open", () => {
+    const message = (id: string, role: "user" | "assistant", second: number) => ({
+      kind: "message" as const,
+      id,
+      createdAt: `2026-09-08T10:00:0${second}Z`,
+      message: {
+        id: MessageId.make(id),
+        role,
+        text: id,
+        runId,
+        ...(role === "user" ? { inputIntent: "steer" as const } : {}),
+        streaming: false,
+        createdAt: `2026-09-08T10:00:0${second}Z`,
+        updatedAt: `2026-09-08T10:00:0${second}Z`,
+      },
+    });
+    const timelineEntries = [
+      message("intro", "assistant", 0),
+      message("steer", "user", 1),
+      event("created", "thread_created"),
+      message("after-steer", "assistant", 3),
+      message("final", "assistant", 4),
+    ];
+    const segmentKey = RunId.make(`${runId}:steer:steer`);
+    const rowIds = (expanded: RunId[]) =>
+      deriveMessagesTimelineRows({
+        ...common,
+        timelineEntries,
+        expandedRunIds: new Set(expanded),
+      }).map((row) => row.id);
+    expect(rowIds([runId])).not.toContain("created");
+    expect(rowIds([segmentKey])).toEqual([
+      `turn-fold:${runId}`,
+      "steer",
+      `turn-fold:${segmentKey}`,
+      "created",
+      "after-steer",
       "final",
       "summary:created",
       "assistant-meta:final",
