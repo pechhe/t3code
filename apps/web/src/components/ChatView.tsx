@@ -137,7 +137,15 @@ import { truncate } from "@t3tools/shared/String";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/shared/threadReference";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
-import { type SetStateAction, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  type SetStateAction,
+  startTransition,
+  useEffect,
+  useLayoutEffect,
+  useOptimistic,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
@@ -6339,20 +6347,25 @@ export default function ChatView(props: ChatViewProps) {
   const awayOn = isServerThread
     ? activeThreadShell?.workflow?.unattended === true
     : draftThread?.unattended === true;
+  // The key latches as it is released, not when the server's answer arrives.
+  const [awayShown, setAwayShown] = useOptimistic(awayOn);
   const toggleAway = () => {
     if (!isServerThread) {
       if (draftId) setDraftThreadContext(draftId, { unattended: !awayOn });
       return;
     }
     if (!activeThread) return;
-    void updateThreadMetadata({
-      environmentId: activeThread.environmentId,
-      input: {
-        threadId: activeThread.id,
-        // The agent names its workflow later and keeps the stance; solo until it does.
-        workflow: { kind: activeThreadShell?.workflow?.kind ?? "solo", unattended: !awayOn },
-      },
-    }).then((result) => {
+    const thread = activeThread;
+    startTransition(async () => {
+      setAwayShown(!awayOn);
+      const result = await updateThreadMetadata({
+        environmentId: thread.environmentId,
+        input: {
+          threadId: thread.id,
+          // The agent names its workflow later and keeps the stance; solo until it does.
+          workflow: { kind: activeThreadShell?.workflow?.kind ?? "solo", unattended: !awayOn },
+        },
+      });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         toastManager.add({
@@ -6365,7 +6378,7 @@ export default function ChatView(props: ChatViewProps) {
   };
   const deviceAwayKey = (
     <ComposerAwayKey
-      on={awayOn}
+      on={awayShown}
       disabled={isServerThread ? !canOperateThread : !draftId}
       onToggle={toggleAway}
     />

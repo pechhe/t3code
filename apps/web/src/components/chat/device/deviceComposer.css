@@ -87,6 +87,10 @@
   --cap-pressed-shadow:
     inset 0 2px 5px oklch(0 0 0 / 0.4), inset 0 1px 0 oklch(0.42 0.004 250 / 0.5),
     inset 0 0 0 1px oklch(0.55 0.004 250 / 0.5), 0 1px 2px oklch(0 0 0 / 0.4);
+  --cap-latched-shadow:
+    inset 0 1px 0 oklch(1 0.002 250 / 0.75), inset 0 -1px 1px oklch(0.42 0.004 250 / 0.5),
+    inset 0 0 0 1px oklch(0.6 0.004 250 / 0.4), 0 0 0 1px oklch(0.34 0.004 250 / 0.6),
+    0 1px 1px oklch(0 0 0 / 0.3), 0 2px 4px -1px oklch(0 0 0 / 0.3);
   --cap-ink: oklch(0.14 0.004 250);
   --cap-glyph-shadow: drop-shadow(0 1px 0 oklch(1 0.002 250 / 0.55))
     drop-shadow(0 -0.5px 0.5px oklch(0.22 0.005 250 / 0.7));
@@ -165,6 +169,10 @@
     inset 0 1.5px 0 oklch(0.6 0.004 265 / 0.6), inset 0 -1.5px 1px oklch(0 0 0 / 0.62),
     inset 0 0 0 1px oklch(0 0 0 / 0.5), 0 0 0 1px oklch(0 0 0 / 0.72), 0 2px 2px oklch(0 0 0 / 0.5),
     0 5px 9px -2px oklch(0 0 0 / 0.5);
+  --cap-latched-shadow:
+    inset 0 1px 0 oklch(0.6 0.004 265 / 0.5), inset 0 -1px 1px oklch(0 0 0 / 0.55),
+    inset 0 0 0 1px oklch(0 0 0 / 0.5), 0 0 0 1px oklch(0 0 0 / 0.72), 0 1px 1px oklch(0 0 0 / 0.5),
+    0 2px 4px -1px oklch(0 0 0 / 0.45);
   --cap-ink: oklch(0.82 0.004 265);
   --cap-glyph-shadow: drop-shadow(0 1px 0 oklch(0 0 0 / 0.6))
     drop-shadow(0 -0.5px 0.5px oklch(0.7 0.004 265 / 0.5));
@@ -1269,6 +1277,16 @@
     0 0 6px oklch(0.8 0.18 60 / 0.8),
     0 0 12px oklch(0.8 0.18 60 / 0.4);
 }
+/* Latched, Fast sits only a touch below proud; the press goes deeper, so it clicks in and
+   springs back to rest just lower than it started. */
+.device-cap--fast[aria-pressed="true"] {
+  transform: translateY(0.5px);
+  box-shadow: var(--cap-latched-shadow);
+}
+.device-cap--fast:active:not([aria-disabled]) {
+  transform: translateY(1.5px);
+  box-shadow: var(--cap-pressed-shadow);
+}
 .device-cap--fast[aria-disabled] {
   cursor: default;
   opacity: 0.45;
@@ -1299,8 +1317,9 @@
     0 0 12px color-mix(in oklch, var(--account-light) 40%, transparent);
 }
 
-/* Away is a latching key, not a cap: pressed, it stays sunk in its well and its moon glows
-   night blue, so the stance reads from across the room. */
+/* Away is a latching key, not a cap: the press bottoms out, then it springs back to rest a
+   little lower but still proud, and its moon glows night blue so the stance reads from
+   across the room. */
 .device-key {
   display: flex;
   align-items: center;
@@ -1327,8 +1346,8 @@
 }
 .device-key[aria-pressed="true"] {
   color: oklch(0.86 0.09 250);
-  transform: translateY(2px);
-  box-shadow: var(--cap-pressed-shadow);
+  transform: translateY(1px);
+  box-shadow: var(--cap-latched-shadow);
 }
 .device-key[aria-pressed="true"] svg {
   fill: currentColor;
