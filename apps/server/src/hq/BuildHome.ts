@@ -232,7 +232,8 @@ export const sendBackMessageText = (input: { readonly specLabel: string; readonl
 
 const notConnected = new BuildHomeError({
   reason: "not_connected",
-  message: "Connect T3 to YardSmith HQ in Settings first.",
+  message:
+    "T3 is not connected to YardSmith HQ. Create a delegation in HQ Settings → Connections → T3 agents, then ask any thread to connect T3 to HQ with it.",
 });
 
 const make = Effect.gen(function* () {
@@ -600,7 +601,7 @@ const make = Effect.gen(function* () {
       return {
         outcome: "refused" as const,
         message:
-          "HQ refused T3's delegation: it was revoked or has expired. Reconnect T3 to HQ in Settings.",
+          "HQ refused T3's delegation: it expired or was revoked. Create a new one in HQ Settings → Connections → T3 agents, then ask any thread to reconnect T3 to HQ with it.",
         state: stateOf(origin, "invalid_token", null, null),
       };
     }
