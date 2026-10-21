@@ -13,6 +13,10 @@
 #      or a landed integration that no selected build holds yet (`build`). The
 #      agent builds, because only it can first check that no agent turn is
 #      running on the VPS, whose service the runtime install restarts.
+#   Only a tag whose upstream release publishes the assets the build downloads
+#   is sent or built. A tag without them is skipped with the missing asset
+#   recorded on its attempt (`unavailable`), so it never holds a complete newer
+#   release back, and is sent once the release appears.
 #
 # Subcommands, for the agent and by hand:
 #   build [--rev <commit>] [--recovery <reason>]
@@ -43,6 +47,7 @@ STATE="${T3FORK_STATE:-$HOME/.t3fork}"
 REPO="${T3FORK_REPO:-$STATE/repo}"
 ORIGIN_URL="${T3FORK_ORIGIN_URL:-$(git -C "$REPO" remote get-url origin 2>/dev/null || echo https://github.com/pechhe/t3code.git)}"
 UPSTREAM_URL="${T3FORK_UPSTREAM_URL:-https://github.com/pingdotgg/t3code.git}"
+RELEASES="${T3FORK_RELEASES_URL:-https://github.com/pingdotgg/t3code/releases/download}"
 APP_NAME="T3 Code (Nightly).app"
 INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$APP_NAME"
 IDENTITY="${T3FORK_SIGNING_IDENTITY:-Peach Pi Local Signing}"
@@ -337,6 +342,66 @@ attempt_new() {
     '{tag: $tag, sha: $sha, attempt: $id, phase: $phase, dispatches: 0}' >"$file"
 }
 
+# --- Upstream release assets -------------------------------------------------
+
+# Whether an upstream tag's published release carries what the fork build downloads
+# (SHA256SUMS and the Linux archive that scripts/fork-vps-runtime.sh build verifies;
+# keep the two in step). Prints the absent asset and returns 1, or returns 2 when
+# the answer is unknown, so a network failure is never read as "published" or "absent".
+# A one-byte range read, since a HEAD of a signed release asset URL is refused.
+release_gap() {
+  local tag="$1" asset code
+  for asset in SHA256SUMS "t3-${tag#v}-linux-x64.tar.gz"; do
+    code="$(curl -sL -r 0-0 --connect-timeout 30 --max-time 60 -o /dev/null -w '%{http_code}' "$RELEASES/$tag/$asset" 2>/dev/null)" || return 2
+    case "$code" in
+      200 | 206) ;;
+      404)
+        if [ "$asset" = SHA256SUMS ]; then
+          echo "upstream has no published release for $tag (no $asset)"
+        else
+          echo "the upstream release of $tag lacks $asset"
+        fi
+        return 1
+        ;;
+      *) return 2 ;;
+    esac
+  done
+}
+
+# Keeps the missing asset on the tag's attempt (created for a tag that has none),
+# and says so once per reason. Called with attempts.lock held.
+record_unavailable() {
+  local tag="$1" sha="$2" reason="$3" file
+  attempt_new "$tag" "$sha" unpublished
+  file="$(attempt_file "$tag")"
+  [ "$(json_get "$file" .unavailable)" = "$reason" ] && return 0
+  attempt_set "$tag" --arg r "$reason" '.unavailable = $r'
+  notify "Upstream $tag is skipped: $reason"
+}
+
+# The tag's release is published, so it is buildable again. Called with attempts.lock held.
+clear_unavailable() {
+  local file
+  file="$(attempt_file "$1")"
+  [ -n "$(json_get "$file" .unavailable)" ] || return 0
+  attempt_set "$1" 'del(.unavailable) | if .phase == "unpublished" then .phase = "new" else . end'
+}
+
+# A claimed update holds newer tags back, as does an owner decision. A claim on a tag
+# whose release is not published holds nothing: its build cannot run, so the
+# claim is stale and a complete newer release supersedes it.
+holds_back() {
+  local file="$1" rc=0
+  case "$(json_get "$file" .phase)" in
+    claimed)
+      release_gap "$(json_get "$file" .tag)" >/dev/null || rc=$?
+      [ "$rc" -ne 1 ]
+      ;;
+    blocked) [ "$(json_get "$file" .blocked.kind)" = owner-decision ] ;;
+    *) return 1 ;;
+  esac
+}
+
 # dispatch <tag> <update|build>: asks the agent to merge the tag, or to build it.
 dispatch() {
   local tag="$1" action="$2" file url_file="$STATE/rebase-webhook-url" requested=dispatched
@@ -399,10 +464,27 @@ notify_quiet_claim() {
 mark_landed() {
   local tag="$1" phase="$2" reason="$3"
   [ "$phase" = blocked ] && [ "$reason" = publication ] && return 0
-  case "$phase" in new | dispatched | dispatch-failed | awaiting-manual | retry | blocked | superseded)
-    attempt_set "$tag" '.phase = "landed" | del(.blocked)'
-    ;;
+  case "$phase" in
+    new | dispatched | dispatch-failed | awaiting-manual | retry | blocked | superseded)
+      attempt_set "$tag" '.phase = "landed" | del(.blocked)'
+      ;;
+    unpublished)
+      # Merged by a newer tag's update: the skip is over.
+      attempt_set "$tag" '.phase = "landed" | del(.unavailable)'
+      ;;
   esac
+}
+
+# Every attempt whose commit the fork now contains is landed, whichever tag's update
+# carried it. Called with attempts.lock held.
+settle_landed_attempts() {
+  local file
+  for file in "$STATE"/attempts/*.json; do
+    [ -f "$file" ] || continue
+    if git merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
+      mark_landed "$(json_get "$file" .tag)" "$(json_get "$file" .phase)" "$(json_get "$file" .blocked.kind)"
+    fi
+  done
 }
 
 # One update is in flight at a time, so two agents never build competing merges.
@@ -416,12 +498,11 @@ update_attempts() {
     phase="$(json_get "$file" .phase)"
     reason="$(json_get "$file" .blocked.kind)"
     if git merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
-      mark_landed "$other" "$phase" "$reason"
       continue
     fi
-    case "$phase" in superseded) continue ;; esac
+    case "$phase" in superseded | unpublished) continue ;; esac
     [ "$other" = "$tag" ] && continue
-    if [ "$phase" = claimed ] || { [ "$phase" = blocked ] && [ "$reason" = owner-decision ]; }; then
+    if holds_back "$file"; then
       log "upstream $tag waits for attempt $(json_get "$file" .attempt) ($phase${reason:+: $reason})"
       notify_quiet_claim "$other" "$file" "upstream $tag is held back by"
       return 0
@@ -431,6 +512,7 @@ update_attempts() {
 
   attempt_new "$tag" "$sha" new
   file="$(attempt_file "$tag")"
+  clear_unavailable "$tag"
   case "$(json_get "$file" .phase)" in
     new | dispatch-failed | retry | awaiting-manual) dispatch "$tag" update ;;
     dispatched) redispatch_due "$tag" update ;;
@@ -484,6 +566,16 @@ request_build() {
       notify_quiet_claim "$tag" "$file" "upstream $tag landed but is held by"
       ;;
   esac
+  local gap rc=0
+  gap="$(release_gap "$tag")" || rc=$?
+  if [ "$rc" -eq 1 ]; then
+    record_unavailable "$tag" "$upstream" "$gap"
+    return 0
+  elif [ "$rc" -ne 0 ]; then
+    log "could not check the release of $tag; trying again next hour"
+    return 0
+  fi
+  clear_unavailable "$tag"
   case "$(json_get "$file" .phase)" in
     landed | active | dispatch-failed | awaiting-manual | retry) dispatch "$tag" build ;;
     build-requested) redispatch_due "$tag" build ;;
@@ -508,6 +600,12 @@ attempt_command() {
       phase="$(json_get "$file" .phase)"
       if [ "$phase" = active ]; then
         echo "attempt $(json_get "$file" .attempt) is already landed and active" >&2
+        exit 3
+      fi
+      local gap rc=0
+      gap="$(release_gap "$tag")" || rc=$?
+      if [ "$rc" -eq 1 ]; then
+        echo "upstream $tag cannot be built yet: $gap; claim it once the release is published" >&2
         exit 3
       fi
       # A blocked attempt stays its holder's: a duplicate dispatch delivered before
@@ -538,8 +636,7 @@ attempt_command() {
         for other in "$STATE"/attempts/*.json; do
           [ -f "$other" ] && [ "$other" != "$file" ] || continue
           git -C "$REPO" merge-base --is-ancestor "$(json_get "$other" .sha)" "origin/$BRANCH" 2>/dev/null && continue
-          if [ "$(json_get "$other" .phase)" = claimed ] ||
-            { [ "$(json_get "$other" .phase)" = blocked ] && [ "$(json_get "$other" .blocked.kind)" = owner-decision ]; }; then
+          if holds_back "$other"; then
             echo "attempt $(json_get "$other" .attempt) ($(json_get "$other" .phase) by $(json_get "$other" .claimedBy)) holds every other update back; resume it there, or run fork-nightly.sh attempt $(json_get "$other" .tag) retry" >&2
             exit 3
           fi
@@ -646,6 +743,19 @@ build() {
     return 1
   fi
   version="${tag#v}"
+  # The release can have gone since it was requested; the VPS build checks again as it downloads.
+  local gap rc=0
+  gap="$(release_gap "$tag")" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # Not build-failed.json: that would stop a retry of this head once the release publishes.
+    notify "Not building $source: ${gap:-could not check the upstream release of $tag}"
+    if [ "$rc" -eq 1 ] && [ -f "$(attempt_file "$tag")" ]; then
+      acquire attempts.lock wait
+      record_unavailable "$tag" "$upstream" "$gap"
+      release attempts.lock
+    fi
+    return 1
+  fi
   log "building $version from $source ($check)"
 
   local marker="$STATE/build-started" fail=""
@@ -669,12 +779,25 @@ build() {
       command vp run dist:desktop:artifact --platform mac --target dir --arch arm64 \
         --build-version "$version" --output-dir "$STATE/build" --keep-stage
   ) || fail="the app build"
+  local vps_rc=0
   if [ -n "$vps_pid" ]; then
-    wait "$vps_pid" || fail="${fail:-the $VPS server build}"
+    wait "$vps_pid" || vps_rc=$?
+    [ "$vps_rc" -eq 0 ] || fail="${fail:-the $VPS server build}"
     cat "$vps_log" >>"$STATE/nightly.log"
   fi
   local stage app
   stage="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 't3code-desktop-mac-stage-*' -newer "$marker" -print -quit)"
+  if [ "$vps_rc" -eq 3 ]; then
+    # The release lost an asset after the check above. Like that check, this leaves
+    # build-failed.json alone so the head is requested again once the release is complete.
+    [ -z "$stage" ] || rm -rf "$stage"
+    gap="$(grep -m1 'no downloadable' "$vps_log" || echo "the upstream release of $tag lacks an asset the $VPS build needs")"
+    notify "Not building $source: $gap"
+    acquire attempts.lock wait
+    record_unavailable "$tag" "$upstream" "$gap"
+    release attempts.lock
+    return 1
+  fi
   app="$stage/app/dist/mac-arm64/$APP_NAME"
   if [ -z "$fail" ] && ! { [ -d "$app" ] &&
     sign_app "$app" &&
@@ -742,6 +865,33 @@ reset_clone() {
   git -C "$REPO" checkout --quiet --force -B "$BRANCH" "origin/$BRANCH" && git -C "$REPO" clean --quiet -fd
 }
 
+# Sets TARGET_TAG and TARGET_SHA to the newest upstream nightly the fork has not
+# merged whose release is published, empty when there is none. A newer tag without
+# its release or assets is recorded and passed over; one that cannot be checked
+# stops the search, so an older tag is never chosen on a guess. Called with
+# attempts.lock held.
+newest_publishable_tag() {
+  local tag sha gap rc
+  TARGET_TAG="" TARGET_SHA=""
+  while read -r tag; do
+    sha="$(git rev-parse "$tag^{commit}")"
+    if git merge-base --is-ancestor "$sha" "origin/$BRANCH"; then return 0; fi
+    rc=0
+    gap="$(release_gap "$tag")" || rc=$?
+    case "$rc" in
+      0)
+        TARGET_TAG="$tag" TARGET_SHA="$sha"
+        return 0
+        ;;
+      1) record_unavailable "$tag" "$sha" "$gap" ;;
+      *)
+        log "could not check the release of $tag; trying again next hour"
+        return 0
+        ;;
+    esac
+  done < <(git for-each-ref --sort=-creatordate --format='%(refname:short)' 'refs/tags/v*-nightly.*')
+}
+
 hourly() {
   ensure_clone
   cd "$REPO"
@@ -750,13 +900,10 @@ hourly() {
     return 0
   fi
   reset_clone
-  local tag sha
-  tag="$(git for-each-ref --count=1 --sort=-creatordate --format='%(refname:short)' 'refs/tags/v*-nightly.*')"
   acquire attempts.lock wait
-  if [ -n "$tag" ]; then
-    sha="$(git rev-parse "$tag^{commit}")"
-    if ! git merge-base --is-ancestor "$sha" "origin/$BRANCH"; then update_attempts "$tag" "$sha"; fi
-  fi
+  settle_landed_attempts
+  newest_publishable_tag
+  if [ -n "$TARGET_TAG" ]; then update_attempts "$TARGET_TAG" "$TARGET_SHA"; fi
   request_build
   release attempts.lock
 }
@@ -812,7 +959,7 @@ status() {
     echo "replaced, not yet kept as previous: $(jq -c '{source, version}' "$REPLACED_RECEIPT" 2>/dev/null || echo unidentified)"
   fi
   for file in "$STATE"/attempts/*.json; do
-    [ -f "$file" ] && echo "attempt: $(jq -c '{attempt, phase, action, claimedBy, blocked, landing}' "$file")"
+    [ -f "$file" ] && echo "attempt: $(jq -c '{attempt, phase, action, claimedBy, blocked, landing, unavailable}' "$file")"
   done
   return 0
 }

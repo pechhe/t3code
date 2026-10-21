@@ -42,12 +42,23 @@ cp -R "$1" "$2"
   pgrep: `echo "$*" >> "$T3_TEST_ROOT/pgrep.log"
 [ -e "$T3_TEST_ROOT/running" ]
 `,
-  curl: `body=""; prev=""
+  curl: `body=""; prev=""; probe=""
 for a; do
   [ "$prev" = -d ] && body="$a"
+  [ "$prev" = -w ] && probe=1
   prev="$a"
   url="$a"
 done
+# A release-asset probe: published unless T3_TEST_ABSENT names a part of its URL.
+if [ -n "$probe" ]; then
+  printf '%s\\n' "$url" >> "$T3_TEST_ROOT/probe.log"
+  [ "$T3_TEST_PROBE" = fail ] && exit 7
+  for part in $T3_TEST_ABSENT; do
+    case "$url" in *"$part"*) printf 404; exit 0 ;; esac
+  done
+  printf 206
+  exit 0
+fi
 jq -cn --arg url "$url" --arg body "$body" '{url: $url, body: $body}' >> "$T3_TEST_ROOT/curl.log"
 [ "$T3_TEST_CURL" = fail ] && exit 7
 exit 0
@@ -55,6 +66,13 @@ exit 0
   // A build that gets past selection stops at the app build.
   vp: `printf '%s\\n' "vp $*" >> "$T3_TEST_ROOT/calls.log"
 exit 1
+`,
+  // The VPS build step: its exit status is whatever T3_TEST_VPS_STATUS says (3: a release asset is missing).
+  ssh: `printf '%s\\n' "ssh $*" >> "$T3_TEST_ROOT/calls.log"
+case "$*" in *" build "*)
+  [ "$T3_TEST_VPS_STATUS" != 3 ] || { echo "the upstream release v1 has no downloadable SHA256SUMS (u)" >&2; exit 3; }
+  exit "\${T3_TEST_VPS_STATUS:-0}" ;;
+esac
 `,
   // The script's waits shrink so polling loops finish quickly.
   sleep: `exec /bin/sleep 0.2
@@ -1427,6 +1445,246 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
       TIMEOUT,
     );
   });
+  describe("release eligibility", () => {
+    const zero = { T3FORK_REDISPATCH_SECONDS: "0" };
+    const noRelease = (tag: string) => ({ T3_TEST_ABSENT: `${tag}/` });
+
+    it(
+      "dispatches neither a tag-only nor an incomplete release, and names what is absent",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          expect((await run(f, [], noRelease(OLD_TAG))).code).toBe(0);
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "unpublished",
+            unavailable: `upstream has no published release for ${OLD_TAG} (no SHA256SUMS)`,
+          });
+
+          await run(f, [], { T3_TEST_ABSENT: `${OLD_TAG}/t3-` });
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "unpublished",
+            unavailable: `the upstream release of ${OLD_TAG} lacks t3-${OLD_TAG.slice(1)}-linux-x64.tar.gz`,
+          });
+          await expectNoBuild(f);
+
+          // Once the release is complete the same tag is dispatched as a normal update.
+          await run(f, []);
+          expect(await curlCalls(f)).toHaveLength(1);
+          const attempt = await attemptOf(f, OLD_TAG);
+          expect(attempt).toMatchObject({ phase: "dispatched", dispatches: 1 });
+          expect(attempt).not.toHaveProperty("unavailable");
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "selects the published release past a newer tag that has none, and past a stale claim",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          const newSha = await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          // The newest tag has no release: the older, complete one goes out.
+          await run(f, [], noRelease(NEW_TAG));
+          const sent = await curlCalls(f);
+          expect(sent.map((c) => c.body.tag)).toEqual([OLD_TAG]);
+          expect(await attemptOf(f, NEW_TAG)).toMatchObject({ phase: "unpublished", sha: newSha });
+        });
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          // An agent claimed the older tag, whose release is missing.
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          await run(f, [], { ...zero, ...noRelease(OLD_TAG) });
+          const sent = await curlCalls(f);
+          expect(sent.map((c) => c.body.tag)).toEqual([NEW_TAG]);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "superseded",
+            supersededBy: NEW_TAG,
+          });
+          expect(await attemptOf(f, NEW_TAG)).toMatchObject({ phase: "dispatched" });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "ends a skipped tag's skip once a newer tag's update has merged it",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, [], noRelease(OLD_TAG));
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "unpublished" });
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          await run(f, [], noRelease(OLD_TAG));
+          expect((await curlCalls(f)).map((c) => c.body.tag)).toEqual([NEW_TAG]);
+          // The newer tag's update lands: its merge carries the skipped tag's commit too.
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["checkout", "-q", "t3peach"]);
+          await git(
+            work,
+            ["merge", "-q", "--no-ff", "-m", "Merge update", "main"],
+            "2099-01-03T00:00:00Z",
+          );
+          await git(work, ["push", "-q", f.origin, "t3peach"]);
+          await run(f, [], noRelease(OLD_TAG));
+          const attempt = await attemptOf(f, OLD_TAG);
+          expect(attempt).toMatchObject({ phase: "landed" });
+          expect(attempt).not.toHaveProperty("unavailable");
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "leaves the head retryable when the VPS build finds its release incomplete",
+      async () => {
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const tag = "v0.1.0-nightly.20260103.1";
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", tag, "side"]);
+          await git(work, ["push", "-q", f.upstream, tag]);
+          const refused = await run(f, ["build", "--rev", head, "--recovery", "roll back"], {
+            T3FORK_VPS: "vps",
+            T3_TEST_VPS_STATUS: "3",
+          });
+          expect(refused.code).not.toBe(0);
+          expect(await nightlyLog(f)).toContain(
+            `Not building ${head}: the upstream release v1 has no downloadable SHA256SUMS`,
+          );
+          expect(await exists(stateFile(f, "build-failed.json"))).toBe(false);
+          expect(await attemptOf(f, tag)).toMatchObject({
+            unavailable: expect.stringContaining("no downloadable SHA256SUMS"),
+          });
+          expect(await exists(stateFile(f, "selected.json.tmp"))).toBe(false);
+        });
+        // Any other VPS failure is a failed build of that head.
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const tag = "v0.1.0-nightly.20260103.1";
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", tag, "side"]);
+          await git(work, ["push", "-q", f.upstream, tag]);
+          await run(f, ["build", "--rev", head, "--recovery", "roll back"], {
+            T3FORK_VPS: "vps",
+            T3_TEST_VPS_STATUS: "1",
+          });
+          expect(await readJson(stateFile(f, "build-failed.json"))).toMatchObject({ source: head });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "still holds a newer tag behind a claim on a published release",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          await run(f, [], zero);
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "claimed" });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "dispatches nothing, and records nothing, when the release cannot be checked",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          expect((await run(f, [], { T3_TEST_PROBE: "fail" })).code).toBe(0);
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await exists(stateFile(f, "attempts"))).toBe(true);
+          expect(await exists(stateFile(f, "attempts", `${OLD_TAG}.json`))).toBe(false);
+          expect(await exists(stateFile(f, "attempts", `${NEW_TAG}.json`))).toBe(false);
+          expect(await nightlyLog(f)).toContain(`could not check the release of ${NEW_TAG}`);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses to claim an update whose release is not published",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          const refused = await run(
+            f,
+            ["attempt", OLD_TAG, "claim", "threadA"],
+            noRelease(OLD_TAG),
+          );
+          expect(refused.code).toBe(3);
+          expect(refused.stderr).toContain(`no published release for ${OLD_TAG}`);
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadA"])).code).toBe(0);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "requests the build of a landed integration only once its release is published",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          const { upstream } = await landIntegration(f, BUILD_TAG, "2026-02-01T00:00:00Z");
+          await run(f, [], { ...zero, T3_TEST_ABSENT: `${BUILD_TAG}/t3-` });
+          expect(await curlCalls(f)).toEqual([]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({
+            phase: "landed",
+            sha: upstream,
+            unavailable: `the upstream release of ${BUILD_TAG} lacks t3-${BUILD_TAG.slice(1)}-linux-x64.tar.gz`,
+          });
+          await run(f, [], zero);
+          expect((await curlCalls(f)).map((c) => c.body.action)).toEqual(["build"]);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({ phase: "build-requested" });
+          expect(await attemptOf(f, BUILD_TAG)).not.toHaveProperty("unavailable");
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "does not build a tag whose release has no assets, and keeps the head retryable",
+      async () => {
+        await withFixture(async (f) => {
+          const head = await seedRepos(f);
+          const tag = "v0.1.0-nightly.20260103.1";
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["tag", tag, "side"]);
+          await git(work, ["push", "-q", f.upstream, tag]);
+          const refused = await run(
+            f,
+            ["build", "--rev", head, "--recovery", "roll back"],
+            noRelease(tag),
+          );
+          expect(refused.code).not.toBe(0);
+          expect(await nightlyLog(f)).toContain(
+            `Not building ${head}: upstream has no published release for ${tag}`,
+          );
+          expect(await calls(f, "vp")).toEqual([]);
+          expect(await exists(stateFile(f, "build-failed.json"))).toBe(false);
+          expect(await exists(stateFile(f, "build-started"))).toBe(false);
+          expect(await exists(stateFile(f, "attempts", `${tag}.json`))).toBe(false);
+        });
+      },
+      TIMEOUT,
+    );
+  });
+
   describe("build requests", () => {
     const zero = { T3FORK_REDISPATCH_SECONDS: "0" };
 

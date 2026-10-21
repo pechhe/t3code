@@ -39,7 +39,7 @@ VERSIONS="$HOME/.t3/runtime/versions"
 TARGET="$VERSIONS/$VERSION"
 PENDING="$VERSIONS/.fork-pending-$VERSION.tar.gz"
 SOURCE="${3:-}"
-RELEASES=https://github.com/pingdotgg/t3code/releases/download
+RELEASES="${T3FORK_RELEASES_URL:-https://github.com/pingdotgg/t3code/releases/download}"
 ARCHIVE="t3-$VERSION-linux-x64.tar.gz"
 # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
 SEA_NODE_VERSION=26.8.2
@@ -85,17 +85,27 @@ commit="$(git rev-parse HEAD)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"; git -C "$CLONE" checkout --quiet -- .' EXIT
 
+# The release's own manifest and archive come first, so a version whose assets are
+# not published fails here with the asset named, before the build. Nothing from
+# another release stands in for them. Exit status 3 means the release lacks an
+# asset, which fork-nightly.sh treats as "not published yet", not as a failed build.
+fetch_asset() {
+  curl -fsSL --connect-timeout 30 --max-time 240 "$RELEASES/v$VERSION/$1" -o "$work/$1" || {
+    echo "the upstream release v$VERSION has no downloadable $1 ($RELEASES/v$VERSION/$1); not building a runtime from another release" >&2
+    exit 3
+  }
+}
+mkdir "$work/official"
+fetch_asset SHA256SUMS
+fetch_asset "$ARCHIVE"
+(cd "$work" && grep " \*\{0,1\}$ARCHIVE$" SHA256SUMS | sha256sum -c --quiet -)
+tar -xzf "$work/$ARCHIVE" -C "$work/official" --strip-components=1
+
 command vp i
 node scripts/update-release-package-versions.ts "$VERSION" >/dev/null
 command vp run --filter t3 build
 PATH="$HOME/.local/share/vite-plus/fallback-bin:$PATH" VP_NODE_VERSION="$SEA_NODE_VERSION" \
   node apps/server/scripts/cli.ts build-exe
-
-mkdir "$work/official"
-curl -fsSL --connect-timeout 30 "$RELEASES/v$VERSION/SHA256SUMS" -o "$work/SHA256SUMS"
-curl -fsSL --connect-timeout 30 --max-time 240 "$RELEASES/v$VERSION/$ARCHIVE" -o "$work/$ARCHIVE"
-(cd "$work" && grep " \*\{0,1\}$ARCHIVE$" SHA256SUMS | sha256sum -c --quiet -)
-tar -xzf "$work/$ARCHIVE" -C "$work/official" --strip-components=1
 
 node scripts/build-cli-archive.ts --platform linux --arch x64 --version "$VERSION" \
   --resource-monitor-dir "$work/official/resource-monitor" --output-dir "$work/fork"

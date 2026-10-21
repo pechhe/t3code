@@ -188,6 +188,62 @@ esac
       }
     });
 
+    it.each(["SHA256SUMS", "linux-x64.tar.gz"])(
+      "stops before building when its own release lacks %s",
+      async (missing) => {
+        const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-release-"));
+        try {
+          const home = NodePath.join(root, "home");
+          const bin = NodePath.join(root, "bin");
+          const clone = NodePath.join(root, "clone");
+          const version = "0.1.1-nightly.20261020.3399";
+          for (const path of [home, bin, NodePath.join(clone, "scripts")]) {
+            await NodeFSP.mkdir(path, { recursive: true });
+          }
+          const script = NodePath.join(clone, "scripts/fork-vps-runtime.sh");
+          await NodeFSP.copyFile(NodePath.join(import.meta.dirname, "fork-vps-runtime.sh"), script);
+          const stub = (name: string, body: string) =>
+            NodeFSP.writeFile(NodePath.join(bin, name), `#!/bin/sh\n${body}`, { mode: 0o755 });
+          await stub("git", "echo fixture-commit\n");
+          await stub("vp", 'echo "vp $*" >> "$T3_TEST_LOG"\n');
+          await stub("node", 'echo "node $*" >> "$T3_TEST_LOG"\n');
+          await stub(
+            "curl",
+            `for a; do case "$a" in https://*) url="$a" ;; esac; done
+echo "$url" >> "$T3_TEST_LOG"
+case "$url" in *${missing}) exit 22 ;; esac
+`,
+          );
+          const log = NodePath.join(root, "calls");
+          await NodeFSP.writeFile(log, "");
+          const build = execFile("bash", [script, "build", version], {
+            env: {
+              ...process.env,
+              HOME: home,
+              PATH: `${bin}:${process.env.PATH}`,
+              T3_TEST_LOG: log,
+              T3FORK_RELEASES_URL: "https://releases.invalid",
+            },
+            timeout: 10000,
+          });
+          await expect(build).rejects.toMatchObject({
+            code: 3,
+            stderr: expect.stringContaining(`release v${version} has no downloadable`),
+          });
+          const calls = (await NodeFSP.readFile(log, "utf8")).trim().split("\n").filter(Boolean);
+          // Only this version's release is asked for.
+          expect(
+            calls.every((call) => call.startsWith(`https://releases.invalid/v${version}/`)),
+          ).toBe(true);
+          await expect(
+            NodeFSP.readdir(NodePath.join(home, ".t3/runtime/versions")),
+          ).rejects.toThrow();
+        } finally {
+          await NodeFSP.rm(root, { recursive: true, force: true });
+        }
+      },
+    );
+
     it("refuses a built runtime from a commit other than the selected one", async () => {
       const root = await NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "t3-fork-source-"));
       try {
