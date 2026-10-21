@@ -1,7 +1,13 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
-import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import {
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ThreadId,
+  type Project as T3Project,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Logger from "effect/Logger";
@@ -13,15 +19,15 @@ import * as Scope from "effect/Scope";
 import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientError, HttpClientResponse, HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
-import { inspect } from "node:util";
+import * as NodeUtil from "node:util";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { ServerConfig } from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as ThreadLaunch from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as Project from "../project/ProjectService.ts";
-import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as BuildHome from "./BuildHome.ts";
 import { hqHomeWithOwnerCard, hqHomeWithStuckLine } from "./BuildHome.hqFixtures.ts";
@@ -89,9 +95,11 @@ const makeHarness = Effect.gen(function* () {
     status: 200,
     /** Answers one call; tests replace it. */
     answer: (body: Record<string, unknown>): { status: number; json: unknown } =>
-      body.action === "home"
-        ? { status: 200, json: { status: "succeeded", value: homeValue } }
-        : { status: 200, json: { status: "succeeded", value: {} } },
+      body.action === "notes"
+        ? { status: 400, json: { error: "action_invalid" } }
+        : body.action === "home"
+          ? { status: 200, json: { status: "succeeded", value: homeValue } }
+          : { status: 200, json: { status: "succeeded", value: {} } },
   };
   const client = HttpClient.make((request) =>
     Effect.gen(function* () {
@@ -112,6 +120,12 @@ const makeHarness = Effect.gen(function* () {
     }),
   );
   const world = {
+    projects: [] as T3Project[],
+    launches: [] as ThreadLaunch.ThreadLaunchInput[],
+    launchAttempts: [] as ThreadLaunch.ThreadLaunchInput[],
+    sendAttempts: [] as string[],
+    failAfterSend: false,
+    failAfterLaunch: false,
     sent: [] as Array<{ threadId: string; commandId: string; text: string }>,
     shell: { deletedAt: null, archivedAt: null, projectId: ProjectId.make("project-1") } as Record<
       string,
@@ -120,7 +134,7 @@ const makeHarness = Effect.gen(function* () {
   };
   const logs: string[] = [];
   const logLayer = Logger.layer(
-    [Logger.make(({ message }) => void logs.push(inspect(message, { depth: 10 })))],
+    [Logger.make(({ message }) => void logs.push(NodeUtil.inspect(message, { depth: 10 })))],
     { mergeWithExisting: false },
   );
   const platform = Layer.mergeAll(
@@ -154,23 +168,44 @@ const makeHarness = Effect.gen(function* () {
   // T3's own HQ connection: decisions go out with the delegation it stores.
   const deps = Layer.mergeAll(
     platform,
+    ServerSettings.layerTest({ defaultRuntimeMode: "full-access" }),
     HqAgentConnections.layer.pipe(Layer.provide(platform)),
-    // Not a receipt store: it records every send, so a duplicate would show.
+    // Models the command receipt boundary: attempts remain visible even when a retry replays a receipt.
     Layer.mock(ThreadManagementService.ThreadManagementService)({
-      getThreadShell: () => Effect.succeed(world.shell as never),
+      getThreadShell: (id) =>
+        Effect.succeed((id.startsWith("build-note:") ? null : world.shell) as never),
       sendToThread: (input) =>
-        Effect.sync(() => {
-          world.sent.push({
-            threadId: input.threadId,
-            commandId: input.commandId,
-            text: input.text,
-          });
+        Effect.gen(function* () {
+          world.sendAttempts.push(input.commandId);
+          if (!world.sent.some((sent) => sent.commandId === input.commandId))
+            world.sent.push({
+              threadId: input.threadId,
+              commandId: input.commandId,
+              text: input.text,
+            });
+          if (world.failAfterSend) {
+            world.failAfterSend = false;
+            return yield* Effect.die("process stopped after the send committed");
+          }
           return {} as never;
         }),
     }),
-    Layer.mock(Project.ProjectService)({}),
-    Layer.mock(WorkspaceProvider.WorkspaceProvider)({}),
-    Layer.mock(ThreadLaunch.ThreadLaunchService)({}),
+    Layer.mock(Project.ProjectService)({
+      snapshot: Effect.sync(() => ({ projects: world.projects }) as never),
+    }),
+    Layer.mock(ThreadLaunch.ThreadLaunchService)({
+      launch: (input) =>
+        Effect.gen(function* () {
+          world.launchAttempts.push(input);
+          if (!world.launches.some((launch) => launch.commandId === input.commandId))
+            world.launches.push(input);
+          if (world.failAfterLaunch) {
+            world.failAfterLaunch = false;
+            return yield* Effect.die("process stopped after the launch committed");
+          }
+          return { threadId: input.threadId } as never;
+        }),
+    }),
   );
   // One database for every boot, as the file is across a restart.
   const config = ServerConfig.layerTest(process.cwd(), { prefix: "t3code-build-home-test-" }).pipe(
@@ -223,7 +258,7 @@ it.effect("reads Home with T3's delegation, never shows it, and says when HQ ref
     const { hq, service, logs } = yield* connected;
     const state = yield* service.read;
     assert.strictEqual(state.status, "ready");
-    assert.strictEqual(state.home?.count, 2);
+    assert.strictEqual(state.home?.count, 1);
     assert.strictEqual(state.buildUrl, "https://hq.example.test/build");
     const need = state.home?.needsYou[0];
     assert.strictEqual(need?.kind, "acceptance");
@@ -234,11 +269,12 @@ it.effect("reads Home with T3's delegation, never shows it, and says when HQ ref
       );
       assert.deepStrictEqual(need.repositories, ["pechhe/yardsmith"]);
     }
-    assert.strictEqual(state.home?.stuck[0]?.fix, "re-run it");
+    assert.isFalse("stuck" in state.home!);
+    assert.isFalse("inProgress" in state.home!);
     assert.strictEqual(hq.calls[0]?.url, `${origin}/api/build/decisions`);
     assert.strictEqual(hq.calls[0]?.auth, `Bearer ${delegation}`);
     // Neither the state a client receives, nor a log, carries the delegation or a stuck line's prompt.
-    const surfaces = inspect([state, logs], { depth: 20 });
+    const surfaces = NodeUtil.inspect([state, logs], { depth: 20 });
     assert.notInclude(surfaces, delegation);
     assert.notInclude(surfaces, "Re-run the review of #3180");
 
@@ -262,9 +298,21 @@ it.effect("a read after Home lapses answers with what it knew and refreshes behi
     const first = yield* service.read;
     const known = hq.calls.length;
     hq.answer = (body) =>
-      body.action === "home"
-        ? { status: 200, json: { status: "succeeded", value: { ...homeValue, count: 7 } } }
-        : { status: 200, json: { status: "succeeded", value: {} } };
+      body.action === "notes"
+        ? { status: 400, json: { error: "action_invalid" } }
+        : body.action === "home"
+          ? {
+              status: 200,
+              json: {
+                status: "succeeded",
+                value: {
+                  ...homeValue,
+                  needsYou: Array.from({ length: 7 }, () => acceptance),
+                  count: 7,
+                },
+              },
+            }
+          : { status: 200, json: { status: "succeeded", value: {} } };
     yield* TestClock.adjust(60_000);
     const lapsed = yield* service.read;
     assert.strictEqual(lapsed.home?.count, first.home?.count);
@@ -280,10 +328,10 @@ it.effect("an HQ that keeps failing is asked less often each time", () =>
     const { hq, service } = yield* connected;
     hq.status = 503;
     const attempts = Effect.gen(function* () {
-      const before = hq.calls.length;
+      const before = hq.calls.filter((c) => c.body.action === "home").length;
       yield* service.read;
       yield* service.refreshed;
-      return hq.calls.length - before;
+      return hq.calls.filter((c) => c.body.action === "home").length - before;
     });
     assert.strictEqual(yield* attempts, 1);
     // Failures wait 60s, then 120s, then 240s before the next attempt reaches HQ.
@@ -301,9 +349,11 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
     const { hq, service } = yield* connected;
     let home: unknown = hqHomeWithOwnerCard;
     hq.answer = (body) =>
-      body.action === "home"
-        ? { status: 200, json: { status: "succeeded", value: home } }
-        : { status: 200, json: { status: "succeeded", value: {} } };
+      body.action === "notes"
+        ? { status: 400, json: { error: "action_invalid" } }
+        : body.action === "home"
+          ? { status: 200, json: { status: "succeeded", value: home } }
+          : { status: 200, json: { status: "succeeded", value: {} } };
     yield* TestClock.adjust(60_000);
     const withCard = yield* service.read;
     assert.strictEqual(withCard.status, "ready");
@@ -340,9 +390,9 @@ it.effect("reads Home as HQ actually answers it: an owner card, then a stuck lin
     yield* service.read;
     yield* service.refreshed;
     const withStuck = yield* service.read;
-    assert.strictEqual(withStuck.home?.count, 1);
+    assert.strictEqual(withStuck.home?.count, 0);
     assert.deepStrictEqual(withStuck.home?.needsYou, []);
-    assert.strictEqual(withStuck.home?.stuck[0]?.kind, "send_back_undelivered");
+    assert.isFalse("stuck" in withStuck.home!);
   }),
 );
 
@@ -387,9 +437,11 @@ it.effect("a stale card is refreshed and said so", () =>
   Effect.gen(function* () {
     const { hq, service } = yield* connected;
     hq.answer = (body) =>
-      body.action === "decide"
-        ? { status: 409, json: { status: "stale", code: "acceptance_card_stale" } }
-        : { status: 200, json: { status: "succeeded", value: homeValue } };
+      body.action === "notes"
+        ? { status: 400, json: { error: "action_invalid" } }
+        : body.action === "decide"
+          ? { status: 409, json: { status: "stale", code: "acceptance_card_stale" } }
+          : { status: 200, json: { status: "succeeded", value: homeValue } };
     const result = yield* service.decide({ specId: "item-4071", decision: "accept", card });
     assert.strictEqual(result.outcome, "stale");
     assert.strictEqual(result.state.status, "ready");
@@ -410,6 +462,7 @@ it.effect("a stale card is refreshed and said so", () =>
 const sendBackAnswer =
   (lead: { harness: string; sessionRef: string } | null, deliveryStatus = 200) =>
   (body: Record<string, unknown>) => {
+    if (body.action === "notes") return { status: 400, json: { error: "action_invalid" } };
     if (body.action === "decide")
       return {
         status: 200,
@@ -558,5 +611,412 @@ it.effect("a lead that cannot be written to is reported undeliverable", () =>
       assert.strictEqual(report?.state, "undeliverable");
       assert.include(String(report?.detail).toLowerCase(), detail.toLowerCase());
     }
+  }),
+);
+
+const note = (
+  id = "note-1",
+  lead: { harness: string; sessionRef: string } | null = {
+    harness: "t3code",
+    sessionRef: `${environmentId}/${leadThread}`,
+  },
+) => ({
+  id,
+  note: "Use the current route",
+  kind: "send_back" as "send_back" | "answer",
+  spec: { id: "spec-1", number: 4530, ref: "YS-260", title: "Inbox", project: "pechhe/yardsmith" },
+  leadThread: lead,
+  claim: null as { environmentId: string } | null,
+});
+const project: T3Project = {
+  id: ProjectId.make("project-1"),
+  title: "YardSmith",
+  workspaceRoot: "/yardsmith",
+  repositoryIdentity: {
+    canonicalKey: "github.com/pechhe/yardsmith",
+    locator: {
+      source: "git-remote",
+      remoteName: "origin",
+      remoteUrl: "git@github.com:pechhe/yardsmith.git",
+    },
+    origin: { canonicalKey: "github.com/other/upstream" },
+  },
+  defaultModelSelection: {
+    instanceId: ProviderInstanceId.make("codex_custom"),
+    model: "gpt-5.1-codex",
+  },
+  scripts: [],
+  createdAt: "2026-10-21T00:00:00Z",
+  updatedAt: "2026-10-21T00:00:00Z",
+  deletedAt: null,
+};
+const noteAnswer =
+  (notes: ReturnType<typeof note>[], deliveryStatus = 200, claimStatus = "succeeded") =>
+  (body: Record<string, unknown>) => ({
+    status: body.action === "delivery" ? deliveryStatus : 200,
+    json: {
+      status: body.action === "claim" ? claimStatus : "succeeded",
+      ...(body.action === "claim" && claimStatus !== "succeeded"
+        ? { code: "note_claimed_elsewhere" }
+        : {}),
+      value: body.action === "notes" ? notes : homeValue,
+    },
+  });
+
+it.effect(
+  "decodes old needs without findings or obsolete sections and probes once per connection",
+  () =>
+    Effect.gen(function* () {
+      const { hq, service, connections } = yield* connected;
+      const oldAnswer = hq.answer;
+      hq.answer = (body) =>
+        body.action === "home"
+          ? {
+              status: 200,
+              json: {
+                status: "succeeded",
+                value: {
+                  needsYou: [
+                    acceptance,
+                    { kind: "finding", item: item(1) },
+                    {
+                      kind: "hold",
+                      item: item(2),
+                      hold: { kind: "decision", note: "Choose a route" },
+                    },
+                  ],
+                  stuck: "unreadable",
+                  inProgress: false,
+                },
+              },
+            }
+          : oldAnswer(body);
+      const state = yield* service.read;
+      assert.deepStrictEqual(state.home?.capabilities, { answer: false, notes: false });
+      assert.strictEqual(state.home?.count, 2);
+      const needs = state.home!.needsYou;
+      assert.deepStrictEqual(needs[0]?.kind === "acceptance" && needs[0].resolvedFindings, []);
+      assert.deepStrictEqual(needs[1], {
+        kind: "hold",
+        spec: { ...item(2), ref: null },
+        url: `${origin}/build/2`,
+        holdId: null,
+        holdKind: "decision",
+        question: "Choose a route",
+        since: null,
+      });
+      yield* service.settleDeliveries;
+      yield* service.answer({ itemId: "item-2", holdId: "hold-1", answer: "A" });
+      assert.strictEqual(hq.calls.filter((c) => c.body.action === "notes").length, 1);
+      assert.strictEqual(hq.calls.filter((c) => c.body.action === "answer").length, 0);
+      // An older HQ is asked again after a while, so an HQ update needs no T3 restart.
+      yield* TestClock.adjust("5 minutes");
+      yield* service.read;
+      assert.strictEqual(hq.calls.filter((c) => c.body.action === "notes").length, 2);
+      yield* connections.connect({ origin: "https://new-hq.example.test", delegation });
+      yield* service.read;
+      assert.strictEqual(hq.calls.filter((c) => c.body.action === "notes").length, 3);
+    }),
+);
+
+it.effect("decodes Inbox holds, resolved findings, decisions and Arc actions", () =>
+  Effect.gen(function* () {
+    const { hq, service } = yield* connected;
+    hq.answer = (body) => ({
+      status: 200,
+      json: {
+        status: "succeeded",
+        value:
+          body.action === "notes"
+            ? []
+            : {
+                needsYou: [
+                  {
+                    ...acceptance,
+                    spec: {
+                      ...acceptance.spec,
+                      resolvedFindings: [
+                        { runId: "r1", finding: { summary: "Fixed route", severity: "blocking" } },
+                      ],
+                    },
+                  },
+                  {
+                    kind: "hold",
+                    item: item(2),
+                    hold: {
+                      id: "hold-1",
+                      kind: "decision",
+                      note: "Choose",
+                      openedAt: "2026-10-20",
+                    },
+                  },
+                  { kind: "decision", decision: item(3) },
+                  { kind: "arc_review", arc: item(4) },
+                  { kind: "arc_check_in", arc: item(5), since: "2026-10-19" },
+                ],
+              },
+      },
+    });
+    const home = (yield* service.read).home!;
+    assert.deepStrictEqual(home.capabilities, { answer: true, notes: true });
+    assert.strictEqual(home.count, 5);
+    assert.deepStrictEqual(
+      home.needsYou[0]?.kind === "acceptance" && home.needsYou[0].resolvedFindings,
+      [{ title: "Fixed route" }],
+    );
+    assert.strictEqual(home.needsYou[1]?.kind === "hold" && home.needsYou[1].holdId, "hold-1");
+    assert.deepStrictEqual(
+      home.needsYou.slice(2).map((n) => [n.kind, n.url, "detail" in n ? n.detail : null]),
+      [
+        ["decision", `${origin}/build/3`, null],
+        ["arc_review", `${origin}/build/4`, "Review date reached: continue or close"],
+        ["arc_check_in", `${origin}/build/5`, "No check-in since 2026-10-19"],
+      ],
+    );
+  }),
+);
+
+it.effect("claims only locally owned or unowned notes and respects existing claims", () =>
+  Effect.gen(function* () {
+    for (const [lead, present, claimedBy, expected] of [
+      [{ harness: "t3code", sessionRef: `${environmentId}/${leadThread}` }, false, null, true],
+      [{ harness: "t3code", sessionRef: `elsewhere/${leadThread}` }, true, null, false],
+      [{ harness: "t3code", sessionRef: leadThread }, true, null, true],
+      [{ harness: "t3code", sessionRef: leadThread }, false, null, false],
+      [null, false, null, true],
+      [{ harness: "codex", sessionRef: "outside" }, false, null, true],
+      [null, false, "elsewhere", false],
+      [null, false, environmentId, true],
+    ] as const) {
+      const { hq, world, service } = yield* connected;
+      if (!present) world.shell = null;
+      const n = note("note-claim", lead);
+      n.claim = claimedBy === null ? null : { environmentId: claimedBy };
+      hq.answer = noteAnswer([n]);
+      yield* service.settleDeliveries;
+      assert.strictEqual(
+        hq.calls.some((c) => c.body.action === "claim"),
+        expected,
+      );
+      assert.strictEqual(deliveries(hq).length, expected ? 1 : 0);
+    }
+  }),
+);
+
+it.effect("does not deliver a claim HQ refused", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    hq.answer = noteAnswer([note()], 200, "refused");
+    yield* service.settleDeliveries;
+    assert.strictEqual(world.sent.length, 0);
+    assert.deepStrictEqual(deliveries(hq), []);
+  }),
+);
+
+it.effect("queues a claimed note with a deterministic message and reports its destination", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    hq.answer = noteAnswer([note()]);
+    yield* service.settleDeliveries;
+    yield* service.settleDeliveries;
+    assert.deepStrictEqual(world.sent, [
+      {
+        threadId: leadThread,
+        commandId: "build-send-back:note-1",
+        text: "Your owner sent YS-260 back: Use the current route",
+      },
+    ]);
+    assert.deepStrictEqual(deliveries(hq), [
+      {
+        action: "delivery",
+        findingId: "note-1",
+        state: "delivered",
+        environmentId,
+        thread: { harness: "t3code", sessionRef: `${environmentId}/${leadThread}` },
+      },
+    ]);
+  }),
+);
+
+it.effect("replays the same message receipt after a crash between send and outbox update", () =>
+  Effect.gen(function* () {
+    const h = yield* connected;
+    h.hq.answer = noteAnswer([note()]);
+    h.world.failAfterSend = true;
+    yield* h.service.settleDeliveries;
+    assert.strictEqual(h.world.sent.length, 1);
+    assert.deepStrictEqual(deliveries(h.hq), []);
+    yield* h.stop;
+    const restarted = yield* h.boot;
+    yield* restarted.service.settleDeliveries;
+    assert.deepStrictEqual(h.world.sendAttempts, [
+      "build-send-back:note-1",
+      "build-send-back:note-1",
+    ]);
+    assert.strictEqual(h.world.sent.length, 1);
+    assert.strictEqual(deliveries(h.hq).at(-1)?.state, "delivered");
+    yield* restarted.stop;
+  }),
+);
+
+it.effect(
+  "launches a Build-bound thread with the matching project's default model for missing or archived leads",
+  () =>
+    Effect.gen(function* () {
+      for (const archived of [false, true]) {
+        const { hq, world, service } = yield* connected;
+        world.projects = [project];
+        world.shell = archived ? { archivedAt: "2026-10-20", deletedAt: null } : null;
+        hq.answer = noteAnswer([note()]);
+        yield* service.settleDeliveries;
+        assert.strictEqual(world.launches.length, 1);
+        const launched = world.launches[0]!;
+        assert.strictEqual(launched.threadId, "build-note:note-1");
+        assert.strictEqual(launched.projectId, project.id);
+        assert.strictEqual(launched.runtimeMode, "full-access");
+        assert.deepStrictEqual(launched.modelSelection, project.defaultModelSelection);
+        assert.deepStrictEqual(launched.workspaceStrategy, {
+          type: "worktree",
+          baseRef: "HEAD",
+          buildItem: 4530,
+        });
+        assert.strictEqual(
+          launched.initialMessage?.text,
+          "Your owner sent YS-260 back: Use the current route",
+        );
+        assert.strictEqual(world.sent.length, 0);
+        assert.deepStrictEqual(deliveries(hq)[0]?.thread, {
+          harness: "t3code",
+          sessionRef: `${environmentId}/build-note:note-1`,
+        });
+      }
+    }),
+);
+
+it.effect("replays the same launch receipt after a crash without creating a second thread", () =>
+  Effect.gen(function* () {
+    const h = yield* connected;
+    h.world.projects = [project];
+    h.world.shell = null;
+    h.world.failAfterLaunch = true;
+    h.hq.answer = noteAnswer([note()]);
+    yield* h.service.settleDeliveries;
+    assert.strictEqual(h.world.launches.length, 1);
+    yield* h.stop;
+    const restarted = yield* h.boot;
+    yield* restarted.service.settleDeliveries;
+    assert.strictEqual(h.world.launches.length, 1);
+    assert.deepStrictEqual(
+      h.world.launchAttempts.map((a) => [
+        String(a.threadId),
+        String(a.commandId),
+        String(a.initialMessage?.messageId),
+      ]),
+      [
+        ["build-note:note-1", "build-note:note-1", "build-send-back:note-1"],
+        ["build-note:note-1", "build-note:note-1", "build-send-back:note-1"],
+      ],
+    );
+    assert.strictEqual(deliveries(h.hq).at(-1)?.state, "delivered");
+    yield* restarted.stop;
+  }),
+);
+
+it.effect("reports an unowned note undeliverable when no project matches", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    hq.answer = noteAnswer([note("no-project", null)]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(world.launches.length, 0);
+    assert.strictEqual(deliveries(hq)[0]?.state, "undeliverable");
+    assert.strictEqual(
+      deliveries(hq)[0]?.detail,
+      "No registered T3 project matches pechhe/yardsmith.",
+    );
+  }),
+);
+
+it.effect("refuses answers on older HQ and delivers new HQ answers through the note loop", () =>
+  Effect.gen(function* () {
+    const old = yield* connected;
+    const input = { itemId: "item-1", holdId: "hold-1", answer: "Use the current route" };
+    const refused = yield* old.service.answer(input);
+    assert.strictEqual(refused.outcome, "refused");
+    assert.include(refused.message!, "does not support answering holds");
+    assert.isFalse(old.hq.calls.some((c) => c.body.action === "answer"));
+
+    const { hq, world, service } = yield* connected;
+    const n = note();
+    n.kind = "answer";
+    let answered = false;
+    const respond = noteAnswer([]);
+    hq.answer = (body) => {
+      if (body.action === "answer") answered = true;
+      return body.action === "notes" ? noteAnswer(answered ? [n] : [])(body) : respond(body);
+    };
+    assert.strictEqual((yield* service.answer(input)).outcome, "decided");
+    assert.deepStrictEqual(hq.calls.find((c) => c.body.action === "answer")?.body, {
+      action: "answer",
+      ...input,
+      via: { client: "t3", environmentId },
+    });
+    assert.strictEqual(
+      world.sent[0]?.text,
+      "Your owner answered your hold on YS-260: Use the current route",
+    );
+  }),
+);
+
+it.effect(
+  "delivers a note sent to a new thread after this environment reported it undeliverable",
+  () =>
+    Effect.gen(function* () {
+      const { hq, world, service } = yield* connected;
+      hq.answer = noteAnswer([note("note-1", null)]);
+      yield* service.settleDeliveries;
+      assert.strictEqual(deliveries(hq)[0]?.state, "undeliverable");
+      // "Start a new thread instead": HQ lists it as pending again, and this environment claims it.
+      world.projects = [project];
+      yield* service.settleDeliveries;
+      assert.strictEqual(world.launches.length, 1);
+      assert.strictEqual(deliveries(hq).at(-1)?.state, "delivered");
+      yield* service.settleDeliveries;
+      assert.strictEqual(world.launches.length, 1);
+    }),
+);
+
+it.effect("a note sent to a new thread before its delivery leaves its old lead", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    world.projects = [project];
+    hq.answer = noteAnswer([note()], 503);
+    yield* service.settleDeliveries;
+    assert.strictEqual(world.sent[0]?.threadId, leadThread);
+    hq.answer = noteAnswer([note("note-1", null)]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(world.launches.length, 1);
+    assert.deepStrictEqual(deliveries(hq).at(-1)?.thread, {
+      harness: "t3code",
+      sessionRef: `${environmentId}/build-note:note-1`,
+    });
+  }),
+);
+
+it.effect("stops reporting a note HQ says is now another environment's", () =>
+  Effect.gen(function* () {
+    const { hq, service } = yield* connected;
+    const respond = noteAnswer([note()]);
+    let listed = true;
+    hq.answer = (body) =>
+      body.action === "delivery"
+        ? { status: 409, json: { status: "refused", code: "note_claimed_elsewhere" } }
+        : body.action === "notes"
+          ? noteAnswer(listed ? [note()] : [])(body)
+          : respond(body);
+    yield* service.settleDeliveries;
+    listed = false;
+    const reports = deliveries(hq).length;
+    assert.deepStrictEqual(yield* service.settleDeliveries, { failed: 0 });
+    assert.strictEqual(deliveries(hq).length, reports);
   }),
 );

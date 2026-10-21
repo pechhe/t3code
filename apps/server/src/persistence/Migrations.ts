@@ -84,6 +84,7 @@ import Migration0078 from "./Migrations/078_BuildSendBackDeliveries.ts";
 import Migration0079 from "./Migrations/079_WebhookDedupe.ts";
 import Migration0080 from "./Migrations/080_ThreadCompactAt.ts";
 import Migration0081 from "./Migrations/081_DropHandedWorkspaceAttachments.ts";
+import Migration0082 from "./Migrations/082_BuildNoteDeliveries.ts";
 
 const migrationEntries = [
   [1, "OrchestrationEvents", Migration0001],
@@ -168,6 +169,7 @@ const migrationEntries = [
   [79, "WebhookDedupe", Migration0079],
   [80, "ThreadCompactAt", Migration0080],
   [81, "DropHandedWorkspaceAttachments", Migration0081],
+  [82, "BuildNoteDeliveries", Migration0082],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

@@ -102,7 +102,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.buildWorkItemLink]: "build",
   [WS_METHODS.buildHomeRead]: "build",
   [WS_METHODS.buildHomeDecide]: "build",
-  [WS_METHODS.buildHomeFix]: "build",
+  [WS_METHODS.buildHomeAnswer]: "build",
   [WS_METHODS.scheduledTasksList]: "scheduledTasks",
   [WS_METHODS.scheduledTasksSubscribe]: "scheduledTasks",
   [WS_METHODS.scheduledTasksUpsert]: "scheduledTasks",

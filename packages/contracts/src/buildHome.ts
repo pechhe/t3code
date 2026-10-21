@@ -4,7 +4,7 @@
  */
 import * as Schema from "effect/Schema";
 
-import { IsoDateTime, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { IsoDateTime, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 
 /** A Spec as Build Home names it; the label comes from `number` and `ref` as everywhere else. */
 export const BuildHomeItem = Schema.Struct({
@@ -48,45 +48,42 @@ export const BuildHomeAcceptanceNeed = Schema.Struct({
   reviewSummary: Schema.NullOr(Schema.String),
   tryIt: Schema.NullOr(Schema.String),
   rows: Schema.Array(BuildHomeRow),
+  resolvedFindings: Schema.Array(Schema.Struct({ title: Schema.String })),
   /** Null without a judged review: the card can then be read but not decided. */
   card: Schema.NullOr(BuildHomeCard),
 });
 export type BuildHomeAcceptanceNeed = typeof BuildHomeAcceptanceNeed.Type;
 
-/** A finding, hold or Proposed Decision: T3 shows it and sends the person to Weave. */
+export const BuildHomeHoldNeed = Schema.Struct({
+  kind: Schema.Literal("hold"),
+  spec: BuildHomeItem,
+  url: Schema.String,
+  holdId: Schema.NullOr(Schema.String),
+  holdKind: Schema.String,
+  question: Schema.String,
+  since: Schema.NullOr(Schema.String),
+});
+export type BuildHomeHoldNeed = typeof BuildHomeHoldNeed.Type;
+
 export const BuildHomeOtherNeed = Schema.Struct({
-  kind: Schema.Literals(["finding", "hold", "decision"]),
+  kind: Schema.Literals(["decision", "arc_review", "arc_check_in"]),
   spec: BuildHomeItem,
   url: Schema.String,
   detail: Schema.NullOr(Schema.String),
 });
 export type BuildHomeOtherNeed = typeof BuildHomeOtherNeed.Type;
 
-export const BuildHomeNeed = Schema.Union([BuildHomeAcceptanceNeed, BuildHomeOtherNeed]);
+export const BuildHomeNeed = Schema.Union([
+  BuildHomeAcceptanceNeed,
+  BuildHomeHoldNeed,
+  BuildHomeOtherNeed,
+]);
 export type BuildHomeNeed = typeof BuildHomeNeed.Type;
-
-/** `prompt` stays on the server: "Do it" starts the thread from the line it last read. */
-export const BuildHomeStuckLine = Schema.Struct({
-  kind: Schema.String,
-  spec: BuildHomeItem,
-  blocker: Schema.String,
-  fix: Schema.String,
-  since: Schema.String,
-});
-export type BuildHomeStuckLine = typeof BuildHomeStuckLine.Type;
-
-export const BuildHomeInProgress = Schema.Struct({
-  spec: BuildHomeItem,
-  liveLead: Schema.Boolean,
-});
-export type BuildHomeInProgress = typeof BuildHomeInProgress.Type;
 
 export const BuildHome = Schema.Struct({
   needsYou: Schema.Array(BuildHomeNeed),
-  stuck: Schema.Array(BuildHomeStuckLine),
-  inProgress: Schema.Array(BuildHomeInProgress),
-  /** Needs you and Stuck; In progress is not counted. */
   count: Schema.Int,
+  capabilities: Schema.Struct({ answer: Schema.Boolean, notes: Schema.Boolean }),
 });
 export type BuildHome = typeof BuildHome.Type;
 
@@ -128,23 +125,14 @@ export const BuildHomeDecideResult = Schema.Struct({
 });
 export type BuildHomeDecideResult = typeof BuildHomeDecideResult.Type;
 
-/** "Do it": a new thread for the Spec, started from the stuck line's own prompt. */
-export const BuildHomeFixInput = Schema.Struct({
-  /** The thread whose project and model the new thread starts with. */
-  threadId: ThreadId,
-  specNumber: PositiveInt,
-  kind: TrimmedNonEmptyString,
+export const BuildHomeAnswerInput = Schema.Struct({
+  itemId: TrimmedNonEmptyString,
+  holdId: TrimmedNonEmptyString,
+  answer: TrimmedNonEmptyString,
 });
-export type BuildHomeFixInput = typeof BuildHomeFixInput.Type;
-export const BuildHomeFixResult = Schema.Struct({ threadId: ThreadId });
-export type BuildHomeFixResult = typeof BuildHomeFixResult.Type;
+export type BuildHomeAnswerInput = typeof BuildHomeAnswerInput.Type;
 
 export class BuildHomeError extends Schema.TaggedError<BuildHomeError>()("BuildHomeError", {
-  reason: Schema.Literals([
-    "not_connected",
-    "thread_not_found",
-    "stuck_line_not_found",
-    "launch_failed",
-  ]),
+  reason: Schema.Literals(["not_connected", "thread_not_found", "launch_failed"]),
   message: Schema.String,
 }) {}
