@@ -13,8 +13,13 @@ import * as HqAgentConnections from "./HqAgentConnections.ts";
 
 /**
  * Ends a thread's HQ agent when its work is over: a delegated task that completed, failed or was
- * cancelled, or a thread that was archived or deleted. An interrupted run is left alone, since a
+ * cancelled. A deleted thread's agent is dropped. An interrupted run is left alone, since a
  * restart continues it. T3 only ever ends agents; revoking one is the person's call in HQ.
+ *
+ * Archiving a thread keeps its agent. HQ lets only the agent that opened a Build bind or session
+ * end it, and an ended agent is replaced by one with a new id, so ending it on archive would leave
+ * an open session that nothing can end once the thread is unarchived. Whether the thread still
+ * links a Build item at that point says nothing about whether its agent owns a session.
  */
 export class HqAgentLifecycleReactor extends Context.Service<
   HqAgentLifecycleReactor,
@@ -53,8 +58,6 @@ const make = Effect.gen(function* () {
             return;
           return yield* withAgentOf(event.threadId, connections.end);
         }
-        case "thread.archived":
-          return yield* withAgentOf(event.threadId, connections.end);
         case "thread.deleted":
           return yield* withAgentOf(event.threadId, connections.forget);
         default:
@@ -72,9 +75,7 @@ const make = Effect.gen(function* () {
       const ends = yield* FiberSet.make<void, never>();
       yield* forkParked(
         Stream.runForEach(engine.streamDomainEvents, (event) =>
-          event.type === "run.updated" ||
-          event.type === "thread.archived" ||
-          event.type === "thread.deleted"
+          event.type === "run.updated" || event.type === "thread.deleted"
             ? FiberSet.run(ends, handle(event)).pipe(Effect.asVoid)
             : Effect.void,
         ).pipe(

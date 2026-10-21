@@ -91,16 +91,13 @@ it.effect("an interrupted task or a lead's finished turn keeps its agent", () =>
   ),
 );
 
-it.effect("archiving ends a lead's agent and deleting also drops its connection", () =>
+it.effect("archiving keeps a lead's agent and deleting drops its connection", () =>
   withReactor(({ reactor, calls }) =>
     Effect.gen(function* () {
       yield* reactor.handle(threadEvent("thread.archived", lead));
+      assert.deepStrictEqual(calls, []);
       yield* reactor.handle(threadEvent("thread.deleted", lead));
-      const agent = { threadId: lead, role: "lead" };
-      assert.deepStrictEqual(calls, [
-        { kind: "end", agent },
-        { kind: "forget", agent },
-      ]);
+      assert.deepStrictEqual(calls, [{ kind: "forget", agent: { threadId: lead, role: "lead" } }]);
     }),
   ),
 );
