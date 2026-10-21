@@ -506,6 +506,32 @@ it.effect.each([
     }).pipe(Effect.provide(layerTest)),
 );
 
+it.effect("a delegated task keeps the fingerprint of the request that created it", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const parentThreadId = ThreadId.make("thread:fingerprint-parent");
+    yield* createWatchingThread(parentThreadId, 1);
+    yield* send(parentThreadId, "parent", "start_immediately");
+    const parentRun = (yield* orchestrator.getThreadProjection(parentThreadId)).runs.at(-1)!;
+    yield* orchestrator.dispatch({
+      type: "delegated_task.request",
+      commandId: CommandId.make("delegate:fingerprinted"),
+      parentThreadId,
+      parentRunId: parentRun.id,
+      parentNodeId: parentRun.rootNodeId!,
+      task: "fingerprinted task",
+      requestFingerprint: "f".repeat(64),
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const projection = yield* orchestrator.getThreadProjection(parentThreadId);
+    assert.equal(projection.subagents[0]!.requestFingerprint, "f".repeat(64));
+  }).pipe(Effect.provide(layerTest)),
+);
+
 it.effect("Stop still stops the thread when a delegated child cannot be read", () =>
   Effect.gen(function* () {
     const orchestrator = yield* Orchestrator.OrchestratorV2;

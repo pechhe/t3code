@@ -2762,6 +2762,18 @@ const make = Effect.gen(function* () {
       const requestFingerprint = yield* crypto
         .digest("SHA-256", new TextEncoder().encode(fingerprintText))
         .pipe(Effect.map(Hex.encode), Effect.orDie);
+      // Managed work compares its binding's fingerprint below; an unmanaged retry compares the
+      // fingerprint recorded on the task its first call created.
+      if (input.agentTask === undefined && isRetryOfAcceptedDelegation) {
+        const prior = parent.subagents.find(
+          (task) => task.id === deriveIds.delegatedTaskNode({ commandId }),
+        );
+        if (prior !== undefined && prior.requestFingerprint !== requestFingerprint)
+          return yield* failure(
+            "invalid_request",
+            "The request identity already belongs to a different task.",
+          );
+      }
       const managed =
         input.agentTask === undefined
           ? undefined
@@ -3165,6 +3177,7 @@ const make = Effect.gen(function* () {
             parentThreadId: scope.thread.threadId,
             parentRunId: parentRun.id,
             parentNodeId,
+            requestFingerprint,
             ...(prepared === undefined
               ? {}
               : {

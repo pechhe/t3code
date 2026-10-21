@@ -167,7 +167,9 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const browserToolsAvailable = managedBrowser || (request.browserToolsAvailable ?? true);
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
-        requestNamespace: providerSessionId,
+        // A retry after a reconnect or server restart arrives on a fresh credential, so request
+        // identity follows the thread, which both share.
+        requestNamespace: `thread:${request.threadId}`,
         thread: {
           threadId: ThreadId.make(request.threadId),
           providerSessionId,

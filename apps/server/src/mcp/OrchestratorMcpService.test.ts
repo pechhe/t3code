@@ -29,6 +29,9 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import { HttpServer } from "effect/http";
+import * as NetAddress from "effect/net/NetAddress";
+import { derive } from "@t3tools/provider-core/server/IdAllocator";
 
 import { CodexProviderCapabilitiesV2 } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
@@ -56,7 +59,9 @@ import * as ScheduledTaskService from "../scheduledTasks/ScheduledTaskService.ts
 import * as ServerSettings from "../serverSettings.ts";
 import * as SecretRequests from "../secrets/SecretRequests.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
+import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
+import * as McpSessionRegistry from "./McpSessionRegistry.ts";
 import { idleThreadProjection, liveThreadShell } from "./McpToolAccess.testkit.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -2030,6 +2035,7 @@ describe("OrchestratorMcpService provider resolution", () => {
         const altInstanceId = ProviderInstanceId.make("codex-alt");
         const dispatched = yield* Ref.make<ReadonlyArray<unknown>>([]);
         const accepted = yield* Ref.make(false);
+        const fingerprint = yield* Ref.make<string | undefined>(undefined);
         const everyCandidateDisabled = yield* Ref.make(false);
         const task = {
           id: taskId,
@@ -2061,10 +2067,10 @@ describe("OrchestratorMcpService provider resolution", () => {
           ),
           Layer.mock(ThreadManagementService.ThreadManagementService)({
             getThreadRecords: (threadId) =>
-              Ref.get(accepted).pipe(
-                Effect.map((isAccepted) =>
+              Effect.all([Ref.get(accepted), Ref.get(fingerprint)]).pipe(
+                Effect.map(([isAccepted, requestFingerprint]) =>
                   threadId === parentThreadId
-                    ? parentProjection(isAccepted ? [task] : [])
+                    ? parentProjection(isAccepted ? [{ ...task, requestFingerprint }] : [])
                     : childProjection,
                 ),
               ),
@@ -2087,6 +2093,12 @@ describe("OrchestratorMcpService provider resolution", () => {
             dispatch: (command) =>
               Ref.update(dispatched, (commands) => [...commands, command]).pipe(
                 Effect.andThen(Ref.set(accepted, true)),
+                Effect.andThen(
+                  Ref.set(
+                    fingerprint,
+                    (command as { requestFingerprint?: string }).requestFingerprint,
+                  ),
+                ),
                 Effect.as({
                   sequence: 1,
                   storedEvents: [
@@ -2148,6 +2160,203 @@ describe("OrchestratorMcpService provider resolution", () => {
         }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies))));
       }),
   );
+
+  describe("retrying delegate_task on a fresh MCP credential", () => {
+    const issueScopes = Effect.gen(function* () {
+      const registry = yield* McpSessionRegistry.__testing.make({ now: () => 1_000 }).pipe(
+        Effect.provideService(
+          HttpServer.HttpServer,
+          HttpServer.HttpServer.of({
+            address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 43123),
+            serve: (() => Effect.void) as HttpServer.HttpServer["Service"]["serve"],
+          }),
+        ),
+        Effect.provideService(
+          ServerEnvironment.ServerEnvironment,
+          ServerEnvironment.ServerEnvironment.of({
+            getEnvironmentId: Effect.succeed(scope.environmentId),
+            getDescriptor: Effect.die("unused"),
+          }),
+        ),
+        Effect.provide(NodeServices.layer),
+      );
+      const connect = (threadId: ThreadId) =>
+        registry
+          .issue({
+            threadId,
+            providerInstanceId: codexInstanceId,
+            capabilities: new Set(["orchestration"]),
+          })
+          .pipe(
+            Effect.flatMap((issued) =>
+              registry.resolve(issued.config.authorizationHeader.replace(/^Bearer\s+/, "")),
+            ),
+            Effect.map((resolved) => resolved!),
+          );
+      return { connect };
+    });
+
+    // Each created task derives its id from the command, as the orchestrator does, and a
+    // repeated command id replays the stored result, so `created` counts real executions.
+    const harness = Effect.gen(function* () {
+      const created = yield* Ref.make<ReadonlyArray<{ commandId: string; task: unknown }>>([]);
+      const taskFor = (
+        commandId: CommandId,
+        owner: ThreadId,
+        prompt: string,
+        requestFingerprint: string | undefined,
+      ) => ({
+        id: derive.delegatedTaskNode({ commandId }),
+        threadId: owner,
+        runId: parentRunId,
+        parentNodeId,
+        origin: "app_owned",
+        createdBy: "agent",
+        driver: ProviderDriverKind.make("codex"),
+        providerInstanceId: codexInstanceId,
+        providerThreadId: null,
+        childThreadId,
+        nativeTaskRef: null,
+        prompt,
+        requestFingerprint,
+        title: null,
+        model: "gpt-5.4",
+        status: "running",
+        result: null,
+        startedAt: null,
+        completedAt: null,
+      });
+      const dependencies = Layer.mergeAll(
+        Layer.merge(
+          NodeServices.layer,
+          Layer.mock(Experiments.ExperimentService)({
+            assignForTask: () => Effect.succeed([]),
+            assignments: () => Effect.succeed([]),
+          }),
+        ),
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          hasReceipt: (commandId) =>
+            Ref.get(created).pipe(
+              Effect.map((all) => all.some((entry) => entry.commandId === commandId)),
+            ),
+          assertProviderInstanceEnabled: () => Effect.void,
+          isProviderInstanceEnabledForProject: () => Effect.succeed(true),
+          getThreadRecords: (threadId) =>
+            Ref.get(created).pipe(
+              Effect.map((all) =>
+                threadId === childThreadId
+                  ? childProjection
+                  : {
+                      ...parentProjection(all.map((entry) => entry.task)),
+                      thread: { ...parentProjection([]).thread, id: threadId },
+                    },
+              ),
+            ),
+          dispatch: (command) =>
+            Effect.gen(function* () {
+              const delegation = command as Extract<
+                OrchestrationV2ServerCommand,
+                { readonly type: "delegated_task.request" }
+              >;
+              const prior = (yield* Ref.get(created)).find(
+                (entry) => entry.commandId === delegation.commandId,
+              );
+              const task =
+                prior?.task ??
+                taskFor(
+                  delegation.commandId,
+                  delegation.parentThreadId,
+                  delegation.task,
+                  delegation.requestFingerprint,
+                );
+              if (prior === undefined)
+                yield* Ref.update(created, (all) => [
+                  ...all,
+                  { commandId: delegation.commandId, task },
+                ]);
+              return {
+                sequence: 1,
+                storedEvents: [
+                  {
+                    sequence: 1,
+                    commandId: null,
+                    event: { type: "subagent.updated", payload: task },
+                  },
+                ],
+              } as never;
+            }),
+        }),
+        providerRegistryLayer([
+          providerSnapshot({
+            instanceId: codexInstanceId,
+            driver: ProviderDriverKind.make("codex"),
+            model: "gpt-5.4",
+          }),
+        ]),
+        adapterRegistryLayer([codexInstanceId]),
+        Layer.mock(ProjectService.ProjectService)({}),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
+        ServerSettings.layerTest(),
+      );
+      return { created, layer: layerOrchestratorService.pipe(Layer.provide(dependencies)) };
+    });
+
+    const request = {
+      task: "Review the change.",
+      target: { driverKind: ProviderDriverKind.make("codex") },
+      mode: "async",
+      clientRequestId: "review-131-change-r1",
+    } as const;
+
+    it.effect("returns the original task, refuses a changed request, and runs once", () =>
+      Effect.gen(function* () {
+        const { created, layer } = yield* harness;
+        const { connect } = yield* issueScopes;
+        const before = yield* connect(parentThreadId);
+        // The response is lost and the agent reconnects on a fresh credential.
+        const after = yield* connect(parentThreadId);
+        assert.notEqual(before.thread.providerSessionId, after.thread.providerSessionId);
+
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const first = yield* service.delegateTask(before, request);
+          const retry = yield* service.delegateTask(after, request);
+          assert.equal(retry.taskId, first.taskId);
+          assert.equal((yield* Ref.get(created)).length, 1);
+
+          for (const changed of [
+            { ...request, task: "Review something else." },
+            { ...request, target: { providerInstanceId: codexInstanceId, model: "gpt-5.4" } },
+            { ...request, title: "Another title" },
+            { ...request, interactionMode: "plan" as const },
+          ]) {
+            const refused = yield* service.delegateTask(after, changed).pipe(Effect.flip);
+            assert.equal(refused.code, "invalid_request");
+          }
+          assert.equal((yield* Ref.get(created)).length, 1);
+        }).pipe(Effect.provide(layer));
+      }),
+    );
+
+    it.effect("does not reuse another thread's task for the same textual id", () =>
+      Effect.gen(function* () {
+        const { created, layer } = yield* harness;
+        const { connect } = yield* issueScopes;
+        const owner = yield* connect(parentThreadId);
+        const other = yield* connect(ThreadId.make("thread:mcp-providers-other"));
+
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const first = yield* service.delegateTask(owner, request);
+          const second = yield* service.delegateTask(other, request);
+          assert.notEqual(second.taskId, first.taskId);
+          assert.equal((yield* Ref.get(created)).length, 2);
+        }).pipe(Effect.provide(layer));
+      }),
+    );
+  });
 
   it.live.each([
     { name: "parent instance", parentEnabled: true, model: "gpt-5.4" },

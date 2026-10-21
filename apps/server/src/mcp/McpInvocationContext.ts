@@ -62,7 +62,10 @@ export interface McpInvocationScope {
    * `/mcp/browser` endpoint, pinned to Phi, and is refused by the general `/mcp` endpoint.
    */
   readonly managedBrowser?: true;
-  /** Namespaces idempotency keys so two callers reusing a clientRequestId cannot collide. */
+  /**
+   * Namespaces idempotency keys so two callers reusing a clientRequestId cannot collide. It names
+   * the caller (thread or client session), never the transient MCP connection.
+   */
   readonly requestNamespace: string;
   readonly thread: McpThreadCaller | undefined;
   readonly client: McpClientCaller | undefined;
