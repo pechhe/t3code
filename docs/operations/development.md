@@ -184,6 +184,10 @@ A flaky test can be quarantined in `tests/quarantine.json` as
 out of every run it makes; `pnpm test` and CI still run it. Each entry names an open Issue, and
 the entry is removed when that Issue closes. `pnpm test:audit` (`--audit`) runs every workspace's
 complete suite in parallel with the quarantined tests included, for the nightly audit.
+The audit installs with `--force`: the runner reuses one `node_modules` between commits, and
+pnpm 11.10 linked a newly patched dependency from the unpatched files when it upgraded that
+install in place (#4416), so a patch the commit just added silently did not apply. Only a
+reinstall from the store repaired it. Check the pinned pnpm before dropping the flag.
 
 When `SLIPJAY_TEST_REPORT_DIR` is set, each Vitest run also writes a JSON report there, and
 `slipjay-test-reports.json` lists them. The audit (`--audit`) defaults the directory to

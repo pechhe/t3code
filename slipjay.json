@@ -73,7 +73,8 @@
         "executable": "pnpm",
         "args": [
           "install",
-          "--frozen-lockfile"
+          "--frozen-lockfile",
+          "--force"
         ]
       },
       {
