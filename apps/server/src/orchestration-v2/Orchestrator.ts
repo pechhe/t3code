@@ -3764,16 +3764,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               ? {}
               : {
                   worktreePath: command.worktreePath,
+                  // A thread on the project checkout keeps its Build item, which only a failed
+                  // workspace replacement leaves there, until a workspace takes it over.
                   workspaceIssue:
                     command.workspaceIssue ??
-                    (command.worktreePath === thread.worktreePath
+                    (command.worktreePath === thread.worktreePath || thread.worktreePath == null
                       ? (thread.workspaceIssue ?? null)
                       : null),
                 }),
             ...(command.keepSideChat === true ? { sideChat: false } : {}),
             ...(command.workflow === undefined ? {} : { workflow: command.workflow }),
             ...(command.workItem === undefined ? {} : { workItem: command.workItem }),
-            ...(command.workspaceReplaced === true ? { workspaceReplacedAt: now } : {}),
+            ...(command.workspaceReplaced === undefined
+              ? {}
+              : { workspaceReplacedAt: now, workspaceReplacement: command.workspaceReplaced }),
             ...(command.projectSuggestion === undefined
               ? {}
               : {

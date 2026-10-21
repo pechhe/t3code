@@ -114,15 +114,23 @@ export const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string
  * Sent with the turn that runs in a SlipJay workspace allocated after SlipJay removed the
  * thread's previous one, which it does only once that workspace holds no unlanded work.
  */
-export const replacedWorkspaceNote = (workspacePath: string): string =>
-  `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. This turn runs in a fresh checkout at the integration head: ${workspacePath}. Work landed from earlier turns is on the integration branch; read the workspace's instruction files before working.`;
+export const replacedWorkspaceNote = (workspacePath: string, detail?: string): string =>
+  `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. This turn runs in a fresh checkout at the integration head: ${workspacePath}. Work landed from earlier turns is on the integration branch; read the workspace's instruction files before working.${detail === undefined ? "" : ` ${detail}`}`;
 
 /**
  * Sent instead when no replacement could be allocated, so the turn runs in the project's own
  * checkout, which other threads share.
  */
-export const unreplacedWorkspaceNote = (checkout: string): string =>
-  `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. T3 could not allocate a fresh one, so this turn runs in the project's own checkout: ${checkout}. Before changing any files, allocate a workspace (\`slipjay start --integration --json "<task>"\`) and move this thread into it with t3_worktree_handoff.`;
+export const unreplacedWorkspaceNote = (
+  checkout: string,
+  detail?: string,
+  buildItem?: number,
+): string =>
+  `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. T3 could not allocate a fresh one${detail === undefined ? "" : ` (${detail})`}, so this turn runs in the project's own checkout: ${checkout}. Before changing any files, allocate a workspace (\`slipjay start --integration --json "<task>"\`) and move this thread into it with t3_worktree_handoff.${
+    buildItem === undefined
+      ? ""
+      : ` This thread works under Build item #${buildItem}: attach it to that workspace with \`slipjay attach-issue ${buildItem}\`.`
+  }`;
 
 /**
  * The checkout a turn starts in when T3 replaced the thread's removed SlipJay workspace and no
@@ -131,11 +139,19 @@ export const unreplacedWorkspaceNote = (checkout: string): string =>
  * Null without a replacement to report.
  */
 export const replacedWorkspace = (
-  thread: Pick<OrchestrationV2AppThread, "worktreePath" | "workspaceReplacedAt">,
+  thread: Pick<
+    OrchestrationV2AppThread,
+    "worktreePath" | "workspaceReplacedAt" | "workspaceReplacement" | "workspaceIssue"
+  >,
   attempts: ReadonlyArray<Pick<OrchestrationV2RunAttempt, "id" | "runId" | "startedAt">>,
   providerTurns: ReadonlyArray<Pick<OrchestrationV2ProviderTurn, "runAttemptId">>,
   runId: RunId,
-): { readonly worktreePath: string | null } | null => {
+): {
+  readonly worktreePath: string | null;
+  readonly detail?: string;
+  /** The Build item a thread left on the project checkout still works under. */
+  readonly buildItem?: number;
+} | null => {
   const replacedAt = thread.workspaceReplacedAt;
   if (replacedAt == null) return null;
   // Another run's attempt since the replacement already said so, but only if its provider
@@ -148,7 +164,15 @@ export const replacedWorkspace = (
       DateTime.toEpochMillis(attempt.startedAt) >= DateTime.toEpochMillis(replacedAt) &&
       told.has(attempt.id),
   );
-  return toldEarlier ? null : { worktreePath: thread.worktreePath };
+  const detail = thread.workspaceReplacement?.detail;
+  const buildItem = thread.worktreePath === null ? thread.workspaceIssue : undefined;
+  return toldEarlier
+    ? null
+    : {
+        worktreePath: thread.worktreePath,
+        ...(detail === undefined ? {} : { detail }),
+        ...(buildItem == null ? {} : { buildItem }),
+      };
 };
 
 export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStartError>()(
@@ -1404,8 +1428,12 @@ export const layer: Layer.Layer<
             replaced === null
               ? ""
               : replaced.worktreePath === null
-                ? unreplacedWorkspaceNote(resolvedRuntimePolicy.cwd ?? "")
-                : replacedWorkspaceNote(replaced.worktreePath),
+                ? unreplacedWorkspaceNote(
+                    resolvedRuntimePolicy.cwd ?? "",
+                    replaced.detail,
+                    replaced.buildItem,
+                  )
+                : replacedWorkspaceNote(replaced.worktreePath, replaced.detail),
             scheduled ? SCHEDULED_TASK_NOTE : "",
           ]
             .filter((part) => part !== "")

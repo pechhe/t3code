@@ -12,6 +12,7 @@ import {
   type OrchestrationV2Actor,
   type OrchestrationV2CreationSource,
   type OrchestrationV2ProviderThreadNativeMetadata,
+  type OrchestrationV2WorkspaceReplacement,
   type OrchestrationV2ThreadProjection,
   type OrchestrationV2ThreadWorkflow,
   type ProviderDriverKind,
@@ -242,6 +243,11 @@ function describeCause(error: unknown): string {
   return messages.join(" Caused by: ");
 }
 
+const MAX_REPLACEMENT_DETAIL_CHARS = 1500;
+
+const attachFailureDetail = (buildItem: number, failure: string): string =>
+  `Build item #${buildItem} is still this thread's, but SlipJay could not attach it to the fresh checkout: ${failure.slice(0, MAX_REPLACEMENT_DETAIL_CHARS)}`;
+
 function failureDetail(error: unknown): string {
   if (isThreadLaunchError(error)) {
     return `Workspace preparation failed during ${error.operation.replaceAll("-", " ")}: ${describeCause(error.cause)}`;
@@ -377,6 +383,8 @@ const make = Effect.gen(function* () {
     let createdWorktreePath: string | null = null;
     let createdBySlipJay = false;
     let workspaceIssue: number | null = null;
+    // How a workspace SlipJay removed was answered, recorded with the new binding.
+    let workspaceReplacement: OrchestrationV2WorkspaceReplacement | undefined;
     // The workspace the thread was bound to when a SlipJay checkout was chosen for it.
     let boundWorktreePath: string | null | undefined;
     let setupTerminalId: string | null = null;
@@ -524,17 +532,31 @@ const make = Effect.gen(function* () {
                       threadId,
                       removedWorktreePath: bound,
                       error: error.message,
-                    }).pipe(Effect.as(null)),
+                    }).pipe(
+                      Effect.as({ failure: error.message.slice(0, MAX_REPLACEMENT_DETAIL_CHARS) }),
+                    ),
                   ),
                 );
-            if (allocation === null) {
+            // The thread stays under its Build item through any replacement, even a failed one:
+            // the turn note names it, and leaving the project checkout keeps it.
+            if (replacing) workspaceIssue = owned ?? null;
+            if ("failure" in allocation) {
+              workspaceReplacement = { outcome: "unavailable", detail: allocation.failure };
               worktreePath = null;
               branch = null;
               return;
             }
             worktreePath = allocation.workspacePath;
             branch = null;
-            workspaceIssue = allocation.issue;
+            workspaceIssue = allocation.issue ?? workspaceIssue;
+            if (replacing) {
+              workspaceReplacement = {
+                outcome: "fresh",
+                ...(allocation.attachFailure === undefined || owned === undefined
+                  ? {}
+                  : { detail: attachFailureDetail(owned, allocation.attachFailure) }),
+              };
+            }
             if (allocation.created) {
               createdWorktreePath = worktreePath;
               createdBySlipJay = true;
@@ -620,6 +642,9 @@ const make = Effect.gen(function* () {
             branch,
             worktreePath,
             ...(workspaceIssue === null ? {} : { workspaceIssue }),
+            ...(workspaceReplacement === undefined
+              ? {}
+              : { workspaceReplaced: workspaceReplacement }),
             // Compare-and-set, so a terminal that rebound the thread while this run
             // allocated keeps its checkout; the run then adopts that checkout.
             ...(boundWorktreePath === undefined ? {} : { expectedWorktreePath: boundWorktreePath }),
@@ -646,6 +671,7 @@ const make = Effect.gen(function* () {
                 worktreePath = current;
                 branch = null;
                 workspaceIssue = null;
+                workspaceReplacement = undefined;
               }),
             ),
             Effect.mapError(mapError(input, "update-thread", threadId)),
@@ -1434,7 +1460,10 @@ const make = Effect.gen(function* () {
           type: "thread.metadata.update",
           commandId: CommandId.make(`${input.commandId}:workspace-replaced`),
           threadId: input.threadId,
-          workspaceReplaced: true,
+          // Marks the replacement under way; the preparation records how it ended. Compare-and-set,
+          // so a terminal that already replaced the workspace keeps the outcome it recorded.
+          expectedWorktreePath: released.worktreePath,
+          workspaceReplaced: { outcome: "unavailable" },
         });
       }
       yield* threads.dispatch({
@@ -1466,6 +1495,7 @@ const make = Effect.gen(function* () {
         workspacePath: worktreePath,
         created,
         issue,
+        attachFailure,
       } = yield* workspaces.allocate({
         projectRoot: released.project.workspaceRoot,
         task: released.thread.title,
@@ -1480,8 +1510,14 @@ const make = Effect.gen(function* () {
           branch: null,
           worktreePath,
           expectedWorktreePath: released.worktreePath,
-          workspaceReplaced: true,
-          ...(issue === null ? {} : { workspaceIssue: issue }),
+          workspaceReplaced: {
+            outcome: "fresh",
+            ...(attachFailure === undefined || buildItem === undefined
+              ? {}
+              : { detail: attachFailureDetail(buildItem, attachFailure) }),
+          },
+          // The thread stays under its Build item even when it could not be attached.
+          ...((issue ?? buildItem) === undefined ? {} : { workspaceIssue: issue ?? buildItem }),
         })
         .pipe(
           Effect.onError(() =>

@@ -172,11 +172,15 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
     }),
   );
   it.effect.each([
-    { attachCode: 0, issue: 42 },
-    { attachCode: 1, issue: null },
+    { attachCode: 0, issue: 42, attachFailure: undefined },
+    {
+      attachCode: 1,
+      issue: null,
+      attachFailure: "SlipJay could not allocate a workspace for /project (slipjay exited with 1).",
+    },
   ])(
     "attaches a Build item to a new checkout only when no other workspace holds it: %o",
-    ({ attachCode, issue }) =>
+    ({ attachCode, issue, attachFailure }) =>
       Effect.gen(function* () {
         const commands: Array<{ readonly args: string[]; readonly cwd: string | undefined }> = [];
         const service = yield* Workspaces.make.pipe(
@@ -201,7 +205,12 @@ it.layer(NodeServices.layer)("WorkspaceProvider lifecycle", (it) => {
             task: "work",
             issue: { number: 42, mode: "attach" },
           }),
-        ).toEqual({ workspacePath: "/fresh", created: true, issue });
+        ).toEqual({
+          workspacePath: "/fresh",
+          created: true,
+          issue,
+          ...(attachFailure === undefined ? {} : { attachFailure }),
+        });
         expect(commands).toEqual([
           { args: ["slipjay", "start", "--integration", "--json", "work"], cwd: "/project" },
           { args: ["slipjay", "attach-issue", "42"], cwd: "/fresh" },

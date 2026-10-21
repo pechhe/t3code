@@ -30,7 +30,11 @@ import * as EffectWorker from "./EffectWorker.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
-import { replacedWorkspace, replacedWorkspaceNote } from "./ProviderTurnStartService.ts";
+import {
+  replacedWorkspace,
+  replacedWorkspaceNote,
+  unreplacedWorkspaceNote,
+} from "./ProviderTurnStartService.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 
 interface StartedTurn {
@@ -220,7 +224,7 @@ it.live.each([
             branch: null,
             worktreePath: fresh,
             expectedWorktreePath: first,
-            workspaceReplaced: true,
+            workspaceReplaced: { outcome: "fresh" },
           });
           yield* runTurn("second");
           yield* runTurn("third");
@@ -277,5 +281,51 @@ it("reports a removed workspace that could not be replaced, once", () => {
   assert.isNull(replacedWorkspace(thread, [earlier], [{ runAttemptId: earlier.id }], current));
   assert.isNull(
     replacedWorkspace({ worktreePath: null, workspaceReplacedAt: null }, [], [], current),
+  );
+});
+
+it("tells the turn why a removed workspace could not be replaced or take its Build item", () => {
+  const replacedAt = DateTime.makeUnsafe("2026-10-19T12:00:00Z");
+  const current = RunId.make("run:current");
+  const unavailable = replacedWorkspace(
+    {
+      worktreePath: null,
+      workspaceReplacedAt: replacedAt,
+      workspaceReplacement: { outcome: "unavailable", detail: "the spare pool is empty" },
+    },
+    [],
+    [],
+    current,
+  );
+  assert.deepEqual(unavailable, { worktreePath: null, detail: "the spare pool is empty" });
+  assert.include(
+    unreplacedWorkspaceNote("/project", unavailable?.detail),
+    "the spare pool is empty",
+  );
+  // A thread left on the project checkout is told which Build item to attach to its workspace.
+  assert.include(unreplacedWorkspaceNote("/project", undefined, 42), "slipjay attach-issue 42");
+  assert.equal(
+    replacedWorkspace(
+      { worktreePath: null, workspaceReplacedAt: replacedAt, workspaceIssue: 42 },
+      [],
+      [],
+      current,
+    )?.buildItem,
+    42,
+  );
+
+  const fresh = replacedWorkspace(
+    {
+      worktreePath: "/slipjay/workspaces/fresh",
+      workspaceReplacedAt: replacedAt,
+      workspaceReplacement: { outcome: "fresh", detail: "Build item #42 is held elsewhere" },
+    },
+    [],
+    [],
+    current,
+  );
+  assert.include(
+    replacedWorkspaceNote("/slipjay/workspaces/fresh", fresh?.detail),
+    "Build item #42 is held elsewhere",
   );
 });

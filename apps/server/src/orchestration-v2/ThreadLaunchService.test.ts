@@ -1991,6 +1991,132 @@ it.effect("starts on the project checkout when a released workspace cannot be re
   }),
 );
 
+/**
+ * Sends the next turn of an idle Build item thread through workspace replacement, after SlipJay
+ * removed its checkout.
+ */
+const replaceIdleWorkspace = (
+  harness: ReturnType<typeof makeHarness>,
+  thread: string,
+  via: "link" | "launch",
+) =>
+  Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const threadId = yield* idleSlipJayThread(thread, via);
+    harness.releasedPaths.add("/slipjay/workspaces/first");
+    yield* threads.sendToThread({
+      projectId,
+      commandId: CommandId.make(`command:${thread}:next`),
+      threadId,
+      messageId: MessageId.make(`message:${thread}:next`),
+      text: "Next turn",
+      attachments: [],
+      mode: "auto",
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const next = (yield* threads.getThreadProjection(threadId)).runs.at(-1)!;
+    assert.isTrue(
+      yield* launches.prepareReleasedWorkspace({
+        commandId: CommandId.make(`command:${thread}:released`),
+        threadId,
+        runId: next.id,
+      }),
+    );
+    yield* waitForThreadProjection(threads, threadId, () =>
+      threads
+        .getThreadProjection(threadId)
+        .pipe(
+          Effect.map(
+            ({ thread: current, runs }) =>
+              runs.at(-1)?.status === "starting" &&
+              current.workspaceReplacement?.outcome !== undefined &&
+              current.worktreePath !== "/slipjay/workspaces/first",
+          ),
+        ),
+    );
+    return (yield* threads.getThreadProjection(threadId)).thread;
+  });
+
+it.effect.each(["link", "launch"] as const)(
+  "keeps the Build item and records why when a removed workspace cannot be replaced (%s)",
+  (via) =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const harness = makeHarness({
+        slipjay: true,
+        allocateWorkspace: (input) =>
+          calls++ === 0
+            ? Effect.succeed(
+                allocated("/slipjay/workspaces/first", true, input.issue?.number ?? null),
+              )
+            : Effect.fail(
+                new WorkspaceProvider.WorkspaceProviderError({
+                  operation: "allocate",
+                  projectRoot: project.workspaceRoot,
+                  exitCode: 1,
+                  detail: "the spare pool is empty",
+                }),
+              ),
+      });
+      yield* Effect.gen(function* () {
+        const thread = yield* replaceIdleWorkspace(
+          harness,
+          `thread:launch:fallback-keeps-item:${via}`,
+          via,
+        );
+        assert.isNull(thread.worktreePath);
+        assert.equal(thread.workspaceIssue, 42);
+        assert.equal(thread.workspaceReplacement?.outcome, "unavailable");
+        assert.include(thread.workspaceReplacement?.detail, "the spare pool is empty");
+        // The agent allocates its own workspace and hands the thread over to it, as the turn
+        // note says; the handoff names no item, and the thread still keeps its own.
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        yield* threads.dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make(`command:fallback-keeps-item:${via}:handoff`),
+          threadId: thread.id,
+          branch: null,
+          worktreePath: "/slipjay/workspaces/agent-chosen",
+          expectedWorktreePath: null,
+        });
+        assert.equal((yield* threads.getThreadProjection(thread.id)).thread.workspaceIssue, 42);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect.each(["link", "launch"] as const)(
+  "keeps the Build item and records why when a fresh checkout cannot take it (%s)",
+  (via) =>
+    Effect.gen(function* () {
+      let calls = 0;
+      const harness = makeHarness({
+        slipjay: true,
+        allocateWorkspace: (input) =>
+          calls++ === 0
+            ? Effect.succeed(
+                allocated("/slipjay/workspaces/first", true, input.issue?.number ?? null),
+              )
+            : Effect.succeed({
+                ...allocated("/slipjay/workspaces/fresh", true, null),
+                attachFailure: "item 42 is held by another workspace",
+              }),
+      });
+      yield* Effect.gen(function* () {
+        const thread = yield* replaceIdleWorkspace(
+          harness,
+          `thread:launch:attach-fails-keeps-item:${via}`,
+          via,
+        );
+        assert.equal(thread.worktreePath, "/slipjay/workspaces/fresh");
+        assert.equal(thread.workspaceIssue, 42);
+        assert.equal(thread.workspaceReplacement?.outcome, "fresh");
+        assert.include(thread.workspaceReplacement?.detail, "item 42 is held by another workspace");
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
 it.effect("binds a thread launched for a Build item to that item's workspace", () =>
   Effect.gen(function* () {
     const harness = makeHarness({

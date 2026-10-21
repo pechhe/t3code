@@ -161,6 +161,11 @@ export const dispatchCommand = Effect.fn("ThreadMessageIntake.dispatchCommand")(
         ),
       );
   }
+  if (command.type === "thread.metadata.update" && command.workspaceReplaced !== undefined) {
+    // Only the server records how a removed workspace was replaced; its text reaches the agent.
+    const { workspaceReplaced: _serverOnly, ...clientCommand } = command;
+    return yield* threads.dispatch(clientCommand);
+  }
   if (
     command.type !== "message.dispatch" &&
     (command.type !== "queued-run.edit" || command.attachments === undefined)

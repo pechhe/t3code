@@ -442,6 +442,17 @@ export const OrchestrationV2ThreadWorkItem = Schema.Struct({
 export type OrchestrationV2ThreadWorkItem = typeof OrchestrationV2ThreadWorkItem.Type;
 
 /**
+ * How T3 answered SlipJay removing the thread's workspace, for the next turn to report: a
+ * fresh checkout, or none because allocation failed. `detail` is what went wrong, such as the
+ * allocation failure or the Build item that could not be attached to a fresh checkout.
+ */
+export const OrchestrationV2WorkspaceReplacement = Schema.Struct({
+  outcome: Schema.Literals(["fresh", "unavailable"]),
+  detail: Schema.optional(TrimmedNonEmptyString),
+});
+export type OrchestrationV2WorkspaceReplacement = typeof OrchestrationV2WorkspaceReplacement.Type;
+
+/**
  * A project an agent suggested for its own No project chat. The user moves the
  * chat there or keeps it; a dismissed suggestion stays recorded so the chat is
  * suggested at most once.
@@ -600,7 +611,11 @@ export const OrchestrationV2AppThread = Schema.Struct({
   workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
   /** When T3 replaced the thread's SlipJay workspace after SlipJay removed it; the next turn says so. */
   workspaceReplacedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
-  /** The Build item the thread's SlipJay workspace belongs to; a replacement stays under it. */
+  workspaceReplacement: Schema.optional(Schema.NullOr(OrchestrationV2WorkspaceReplacement)),
+  /**
+   * The Build item the thread's SlipJay workspace belongs to. A replacement stays under it, even
+   * when its checkout could not be attached to the item or none could be allocated.
+   */
   workspaceIssue: Schema.optional(Schema.NullOr(PositiveInt)),
   projectSuggestion: Schema.optional(Schema.NullOr(OrchestrationV2ThreadProjectSuggestion)),
   /** This thread's compact-at point, in context tokens; absent or null follows the provider's setting. */
@@ -3063,7 +3078,7 @@ export const OrchestrationV2Command = Schema.Union([
     /** Link (object) or unlink (null) the thread's Build item; absent leaves it unchanged. */
     workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
     /** Records that the new worktreePath replaces a SlipJay workspace SlipJay removed. */
-    workspaceReplaced: Schema.optional(Schema.Literal(true)),
+    workspaceReplaced: Schema.optional(OrchestrationV2WorkspaceReplacement),
     /** The Build item the new worktreePath belongs to; a new worktreePath without one clears it. */
     workspaceIssue: Schema.optional(PositiveInt),
     /** Record a suggested project, or dismiss the recorded one; absent leaves it unchanged. */

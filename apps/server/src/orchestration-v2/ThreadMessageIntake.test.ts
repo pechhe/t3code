@@ -132,6 +132,22 @@ it.effect("claims question uploads and passes readable paths through the V2 requ
   }).pipe(Effect.provide(layerIntakeTest)),
 );
 
+it.effect("drops a client's workspace replacement record before dispatching", () =>
+  Effect.gen(function* () {
+    const captured: OrchestrationV2ServerCommand[] = [];
+    yield* dispatchCommand({
+      type: "thread.metadata.update",
+      commandId: CommandId.make("metadata-1"),
+      threadId: ThreadId.make("thread-metadata"),
+      title: "Renamed",
+      workspaceReplaced: { outcome: "fresh", detail: "text for the agent" },
+    }).pipe(Effect.provide(layerFailingDispatch(captured)), Effect.result);
+    expect(captured).toHaveLength(1);
+    expect(captured[0]).toMatchObject({ type: "thread.metadata.update", title: "Renamed" });
+    expect(captured[0]).not.toHaveProperty("workspaceReplaced");
+  }).pipe(Effect.provide(layerIntakeTest)),
+);
+
 it.effect("retains claimed copies when dispatch failure may have been accepted", () =>
   Effect.gen(function* () {
     const config = yield* ServerConfig.ServerConfig;

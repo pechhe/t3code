@@ -71,14 +71,20 @@ export class WorkspaceProvider extends Context.Service<
      * Build item's existing workspace when it has one, with `created` false: the caller must
      * not release a checkout it did not create. An `issue` to `attach` always gets a new
      * checkout, which takes the item only when no other workspace holds it. `issue` in the
-     * result is the item the workspace belongs to.
+     * result is the item the workspace belongs to; when the attach failed it is null and
+     * `attachFailure` says why, since the checkout is still usable.
      */
     readonly allocate: (input: {
       readonly projectRoot: string;
       readonly task: string;
       readonly issue?: { readonly number: number; readonly mode: "resume" | "attach" };
     }) => Effect.Effect<
-      { readonly workspacePath: string; readonly created: boolean; readonly issue: number | null },
+      {
+        readonly workspacePath: string;
+        readonly created: boolean;
+        readonly issue: number | null;
+        readonly attachFailure?: string;
+      },
       WorkspaceProviderError
     >;
     /** Removes an allocated SlipJay workspace; SlipJay keeps one holding unfinished work. */
@@ -166,28 +172,29 @@ export const make = Effect.gen(function* () {
         // Resuming would hand over a workspace that may be another thread's. Attaching
         // refuses an item another workspace holds, so this checkout only ever belongs to
         // the thread that asked for it.
-        const attached =
+        const attachFailure =
           issue === undefined || resume
-            ? true
+            ? undefined
             : yield* slipjay(
                 "allocate",
                 root,
                 ["attach-issue", String(issue.number)],
                 result.workspacePath,
               ).pipe(
-                Effect.as(true),
+                Effect.as(undefined),
                 Effect.catch((error) =>
                   Effect.logWarning("SlipJay workspace allocated without its Issue", {
                     workspacePath: result.workspacePath,
                     issue: issue.number,
                     error: error.message,
-                  }).pipe(Effect.as(false)),
+                  }).pipe(Effect.as(error.message)),
                 ),
               );
         const allocation = {
           workspacePath: result.workspacePath,
           created: result.created ?? false,
-          issue: issue !== undefined && attached ? issue.number : null,
+          issue: issue !== undefined && attachFailure === undefined ? issue.number : null,
+          ...(attachFailure === undefined ? {} : { attachFailure }),
         };
         // SlipJay emits the path after preparation. Cancellation waits for that
         // receipt so a workspace it created can be returned rather than orphaned.
