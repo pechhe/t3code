@@ -1528,8 +1528,8 @@ const make = Effect.gen(function* () {
         task: released.thread.title,
         ...(buildItem === undefined ? {} : { issue: { number: buildItem, mode: "attach" } }),
       });
-      // Compare-and-set: a turn preparing a workspace at the same time keeps its own.
-      yield* threads
+      // Compare-and-set: a turn or terminal recovering the thread at the same time keeps its own.
+      const bound = yield* threads
         .dispatch({
           type: "thread.metadata.update",
           commandId: CommandId.make(`command:terminal-workspace:${threadId}:${worktreePath}`),
@@ -1547,6 +1547,7 @@ const make = Effect.gen(function* () {
           ...((issue ?? buildItem) === undefined ? {} : { workspaceIssue: issue ?? buildItem }),
         })
         .pipe(
+          Effect.as(worktreePath),
           Effect.onError(() =>
             created
               ? workspaces
@@ -1554,8 +1555,22 @@ const make = Effect.gen(function* () {
                   .pipe(Effect.ignoreCause({ log: true }))
               : Effect.void,
           ),
+          // The loser's own allocation is redundant: it opens where the winner bound.
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              const current = (yield* threads.getThreadShell(threadId))?.worktreePath;
+              if (
+                current == null ||
+                current === released.worktreePath ||
+                !(yield* workspaces.contains(released.project.workspaceRoot, current))
+              ) {
+                return yield* error;
+              }
+              return current;
+            }),
+          ),
         );
-      return { cwd: path.join(worktreePath, relative), worktreePath };
+      return { cwd: path.join(bound, relative), worktreePath: bound };
     },
   );
 

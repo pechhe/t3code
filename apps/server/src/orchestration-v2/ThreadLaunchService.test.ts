@@ -1970,6 +1970,84 @@ it.effect("keeps the checkout a terminal opened while the same thread's turn was
   }),
 );
 
+it.effect("opens a terminal that lost the recovery race in the checkout the turn bound", () =>
+  Effect.gen(function* () {
+    const terminalAllocating = yield* Deferred.make<void>();
+    const terminalAllocated = yield* Deferred.make<void>();
+    let calls = 0;
+    const harness = makeHarness({
+      slipjay: true,
+      allocateWorkspace: (input) => {
+        const call = calls++;
+        const issue = input.issue?.number ?? null;
+        if (call === 0) return Effect.succeed(allocated("/slipjay/workspaces/first", true, issue));
+        if (call === 1)
+          return Deferred.succeed(terminalAllocating, undefined).pipe(
+            Effect.andThen(Deferred.await(terminalAllocated)),
+            Effect.as(allocated("/slipjay/workspaces/terminal", true, issue)),
+          );
+        return Effect.succeed(allocated("/slipjay/workspaces/turn", true, issue));
+      },
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const threadId = yield* idleSlipJayThread("thread:launch:terminal-loses-race");
+      harness.releasedPaths.add("/slipjay/workspaces/first");
+      harness.releasedPaths.add("/slipjay/workspaces/first/.jj");
+
+      const terminal = yield* Effect.forkChild(
+        launches.terminalCwd({
+          threadId,
+          cwd: "/slipjay/workspaces/first/apps/web",
+          worktreePath: "/slipjay/workspaces/first",
+        }),
+      );
+      yield* Deferred.await(terminalAllocating);
+      // The turn recovers the same workspace and binds the thread first.
+      yield* threads.sendToThread({
+        projectId,
+        commandId: CommandId.make("command:terminal-loses-race:next"),
+        threadId,
+        messageId: MessageId.make("message:terminal-loses-race:next"),
+        text: "Next turn",
+        attachments: [],
+        mode: "auto",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      const next = (yield* threads.getThreadProjection(threadId)).runs.at(-1)!;
+      assert.isTrue(
+        yield* launches.prepareReleasedWorkspace({
+          commandId: CommandId.make("command:terminal-loses-race:released"),
+          threadId,
+          runId: next.id,
+        }),
+      );
+      yield* waitForThreadProjection(threads, threadId, () =>
+        threads
+          .getThreadProjection(threadId)
+          .pipe(Effect.map(({ thread }) => thread.worktreePath === "/slipjay/workspaces/turn")),
+      );
+      yield* Deferred.succeed(terminalAllocated, undefined);
+
+      assert.deepEqual(yield* Fiber.join(terminal), {
+        cwd: "/slipjay/workspaces/turn/apps/web",
+        worktreePath: "/slipjay/workspaces/turn",
+      });
+      // The loser releases only its own redundant allocation.
+      assert.deepEqual(
+        harness.releaseWorkspace.mock.calls.map(([input]) => input.path),
+        ["/slipjay/workspaces/terminal"],
+      );
+      assert.equal(
+        (yield* threads.getThreadProjection(threadId)).thread.worktreePath,
+        "/slipjay/workspaces/turn",
+      );
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("does not unbind a terminal's checkout when the cancelled turn cleans up its own", () =>
   Effect.gen(function* () {
     const turnAllocating = yield* Deferred.make<void>();

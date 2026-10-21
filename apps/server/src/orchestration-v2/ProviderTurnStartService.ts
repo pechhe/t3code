@@ -673,7 +673,11 @@ export const layer: Layer.Layer<
             title: "Workspace missing",
             failure: makeProviderFailure({
               class: "validation_error",
-              message: `The thread's workspace ${worktreePath} no longer exists.`,
+              message: `The thread's workspace ${worktreePath} no longer exists.${
+                projection.thread.agentTask === undefined
+                  ? ""
+                  : " T3 does not replace a delegated task's workspace, which belongs to the work that assigned it: ask its lead to assign the work again in a workspace of its own."
+              }`,
             }),
           },
         });

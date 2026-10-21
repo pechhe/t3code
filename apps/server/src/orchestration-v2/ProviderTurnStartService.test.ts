@@ -288,6 +288,8 @@ function makeLocalCommandHarness(input: {
   readonly worktreePath?: string;
   /** Defaults to a git branch whenever a worktree is bound; null is a SlipJay workspace. */
   readonly branch?: string | null;
+  /** The thread is a delegated task, whose workspace belongs to the work that assigned it. */
+  readonly delegated?: boolean;
   readonly worktreesDir?: string;
   readonly fileSystem?: FileSystem.FileSystem;
   readonly previousNativeSession?: boolean;
@@ -373,6 +375,7 @@ function makeLocalCommandHarness(input: {
             ? null
             : "feature/restore",
       worktreePath: input.worktreePath ?? null,
+      ...(input.delegated === true ? { agentTask: { role: "implementation-worker" } } : {}),
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -1202,6 +1205,28 @@ effectIt.effect("fails a run whose workspace is gone without starting a provider
         },
       },
     ]);
+  }),
+);
+
+effectIt.effect("says a delegated task's removed workspace is not replaced", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({
+      text: "Continue",
+      worktreePath: "/tmp/released-slipjay-workspace",
+      branch: null,
+      delegated: true,
+      fileSystem: FileSystem.makeNoop({ exists: () => Effect.succeed(false) }),
+    });
+
+    yield* harness.start;
+
+    expect(harness.startRootRun).not.toHaveBeenCalled();
+    expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+    const [item] = harness.projection().turnItems;
+    expect(item).toMatchObject({ type: "error", title: "Workspace missing" });
+    expect(item?.type === "error" ? item.failure.message : "").toContain(
+      "T3 does not replace a delegated task's workspace",
+    );
   }),
 );
 
