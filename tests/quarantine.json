@@ -93,5 +93,10 @@
     "file": "apps/web/src/components/ChatMarkdown.browser.test.tsx",
     "issue": 3425,
     "reason": "table formulas render no KaTeX on t3peach, run alone or on the runner"
+  },
+  {
+    "file": "apps/server/integration/transferBudgetV2.integration.test.ts",
+    "issue": 4405,
+    "reason": "times out at 30s on the runner beside the other landing files; passes in about 1s alone"
   }
 ]

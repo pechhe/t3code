@@ -1214,6 +1214,53 @@ effectIt.effect("fails a starting run when its last start attempt cannot load th
   }),
 );
 
+effectIt.effect("fails a starting run when its last start attempt is refused by runtime policy", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({ text: "Continue" });
+    harness.resolveRuntimePolicy.mockReturnValue(
+      Effect.fail(
+        new RuntimePolicy.RuntimePolicyResolveError({
+          projectId: "project" as never,
+          providerInstanceId: "codex" as never,
+          cause: new Error("The workspace is not at the stated sourceRevision."),
+        }),
+      ) as never,
+    );
+
+    yield* harness.start;
+
+    expect(harness.open).not.toHaveBeenCalled();
+    const projection = harness.projection();
+    expect(projection.runs.at(-1)).toMatchObject({ status: "failed", startedAt: null });
+    expect(projection.turnItems).toMatchObject([
+      {
+        type: "error",
+        title: "Provider turn failed to start",
+        failure: { message: "The workspace is not at the stated sourceRevision." },
+      },
+    ]);
+  }),
+);
+
+effectIt.effect("leaves the run starting when a runtime policy refusal will be retried", () =>
+  Effect.gen(function* () {
+    const harness = makeLocalCommandHarness({ text: "Continue" });
+    harness.resolveRuntimePolicy.mockReturnValue(
+      Effect.fail(
+        new RuntimePolicy.RuntimePolicyResolveError({
+          projectId: "project" as never,
+          providerInstanceId: "codex" as never,
+        }),
+      ) as never,
+    );
+
+    yield* harness.startWithRetry.pipe(Effect.flip);
+
+    expect(harness.writeIfRunCurrent).not.toHaveBeenCalled();
+    expect(harness.projection().runs.at(-1)?.status).toBe("starting");
+  }),
+);
+
 effectIt.effect("leaves the run starting when a thread-load failure will be retried", () =>
   Effect.gen(function* () {
     const harness = makeLocalCommandHarness({
