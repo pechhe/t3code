@@ -10,6 +10,7 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
@@ -27,8 +28,11 @@ const requester = (name: string) => ({
 const lead = requester("lead");
 const other = requester("other");
 
-const ask = (candidate: string): OrchestratorMcpRequestReleaseApprovalInput => ({
-  repository: "pechhe/yardsmith",
+const ask = (
+  candidate: string,
+  repository = "pechhe/yardsmith",
+): OrchestratorMcpRequestReleaseApprovalInput => ({
+  repository,
   candidate,
   base: "c".repeat(40),
   summary: {
@@ -50,7 +54,7 @@ const withService = <A, E>(
       Extract<OrchestrationV2ServerCommand, { type: "release_approval.record" }>
     >;
     readonly sent: Array<Sent>;
-  }) => Effect.Effect<A, E>,
+  }) => Effect.Effect<A, E, SqlClient.SqlClient>,
   options: {
     readonly archived?: ReadonlySet<ThreadId>;
     readonly failCardWrites?: (command: { readonly threadId: ThreadId }) => boolean;
@@ -93,7 +97,7 @@ const withService = <A, E>(
     }).pipe(
       Effect.provide(
         ReleaseApprovals.layer.pipe(
-          Layer.provide(
+          Layer.provideMerge(
             Layer.mergeAll(threadManagement, NodeCrypto.layer, SqlitePersistence.layerMemory),
           ),
         ),
@@ -375,3 +379,107 @@ it.effect("updates the other threads' cards even when the asking thread's fails"
     { failCardWrites: (command) => failing && command.threadId === lead.threadId },
   );
 });
+
+/** The open card of each approval is its latest recorded state. */
+const finalStatuses = (records: ReadonlyArray<{ approvalId: string; approvalStatus: string }>) =>
+  new Map(records.map((record) => [record.approvalId, record.approvalStatus]));
+
+it.effect("treats repository names that differ only in case as one repository", () =>
+  withService(({ service, records }) =>
+    Effect.gen(function* () {
+      const first = yield* service.request(lead, ask(candidateA, "pechhe/YardSmith"));
+      const joined = yield* service.request(other, ask(candidateA, "pechhe/yardsmith"));
+      assert.strictEqual(joined.requestId, first.requestId);
+      assert.isTrue(joined.joined);
+
+      const newer = yield* service.request(lead, ask(candidateB, "PECHHE/YARDSMITH"));
+      assert.strictEqual(newer.supersededCandidate, candidateA);
+      assert.deepStrictEqual(
+        [...finalStatuses(records)].filter(([, status]) => status === "pending"),
+        [[newer.requestId, "pending"]],
+      );
+
+      yield* service.answer({
+        approvalId: newer.requestId,
+        candidate: candidateB,
+        decision: "approved",
+      });
+      const approved = yield* service.request(other, ask(candidateB, "Pechhe/yardSmith"));
+      assert.strictEqual(approved.status, "approved");
+      assert.strictEqual(approved.requestId, newer.requestId);
+    }),
+  ),
+);
+
+it.effect("leaves one open card when threads ask for the same candidate at once", () =>
+  withService(({ service, records }) =>
+    Effect.gen(function* () {
+      const [a, b] = yield* Effect.all(
+        [
+          service.request(lead, ask(candidateA, "pechhe/YardSmith")),
+          service.request(other, ask(candidateA, "pechhe/yardsmith")),
+        ],
+        { concurrency: "unbounded" },
+      );
+      assert.strictEqual(a.requestId, b.requestId);
+      assert.deepStrictEqual([a.joined, b.joined].toSorted(), [false, true]);
+      assert.deepStrictEqual([...finalStatuses(records).values()], ["pending"]);
+    }),
+  ),
+);
+
+it.effect("leaves one open card when threads ask for different candidates at once", () =>
+  withService(({ service, records }) =>
+    Effect.gen(function* () {
+      const [a, b] = yield* Effect.all(
+        [
+          service.request(lead, ask(candidateA, "pechhe/YardSmith")),
+          service.request(other, ask(candidateB, "pechhe/yardsmith")),
+        ],
+        { concurrency: "unbounded" },
+      );
+      assert.notStrictEqual(a.requestId, b.requestId);
+      // Whichever asked second replaced the first, so exactly one card is still open.
+      assert.lengthOf(
+        [a.supersededCandidate, b.supersededCandidate].filter((c) => c !== null),
+        1,
+      );
+      const statuses = finalStatuses(records);
+      assert.strictEqual(statuses.size, 2);
+      assert.deepStrictEqual([...statuses.values()].toSorted(), ["pending", "superseded"]);
+    }),
+  ),
+);
+
+it.effect("replaces every open card that rows stored under two casings left behind", () =>
+  withService(({ service }) =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const seed = (approvalId: string, repository: string, candidate: string) => sql`
+        INSERT INTO release_approvals (
+          approval_id, repository, candidate, base, summary_json, details, status,
+          answer_json, superseded_by, requested_at, updated_at
+        ) VALUES (
+          ${approvalId}, ${repository}, ${candidate}, ${"c".repeat(40)},
+          '{"commits":1,"items":[],"migrations":[],"verification":{"status":"passed"},"coveredByEarlierApproval":false}',
+          '', 'pending', NULL, NULL, '2026-10-18T12:00:00.000Z', '2026-10-18T12:00:00.000Z'
+        )
+      `;
+      yield* seed("release-approval:old", "pechhe/YardSmith", candidateA);
+      yield* seed("release-approval:new", "pechhe/yardsmith", candidateB);
+
+      const joined = yield* service.request(lead, ask(candidateA));
+      assert.strictEqual(joined.requestId, "release-approval:old");
+      assert.isTrue(joined.joined);
+      assert.strictEqual(joined.supersededCandidate, null);
+
+      const rows = yield* sql<{ readonly approvalId: string; readonly status: string }>`
+        SELECT approval_id AS "approvalId", status FROM release_approvals ORDER BY approval_id
+      `;
+      assert.deepStrictEqual(rows, [
+        { approvalId: "release-approval:new", status: "superseded" },
+        { approvalId: "release-approval:old", status: "pending" },
+      ]);
+    }),
+  ),
+);

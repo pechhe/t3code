@@ -49,7 +49,9 @@ export class ReleaseApprovals extends Context.Service<
       requester: ReleaseApprovalRequester,
       input: OrchestratorMcpRequestReleaseApprovalInput,
     ) => Effect.Effect<OrchestratorMcpRequestReleaseApprovalResult, ReleaseApprovalError>;
-    readonly answer: (input: ReleaseApprovalAnswerInput) => Effect.Effect<void, ReleaseApprovalError>;
+    readonly answer: (
+      input: ReleaseApprovalAnswerInput,
+    ) => Effect.Effect<void, ReleaseApprovalError>;
   }
 >()("t3/releases/ReleaseApprovals") {}
 
@@ -121,6 +123,10 @@ const make = Effect.gen(function* () {
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
   const lock = yield* KeyedLock.make<string>();
 
+  // GitHub treats `pechhe/YardSmith` and `pechhe/yardsmith` as one repository, so the lock and
+  // every lookup compare this key. A row keeps the casing its first request used.
+  const repositoryKey = (repository: string) => repository.toLowerCase();
+
   const findApprovals = (where: { readonly repository: string; readonly status: string }) =>
     sql<ApprovalRow>`
       SELECT
@@ -128,7 +134,7 @@ const make = Effect.gen(function* () {
         details, status, answer_json AS "answerJson", superseded_by AS "supersededBy",
         requested_at AS "requestedAt"
       FROM release_approvals
-      WHERE repository = ${where.repository} AND status = ${where.status}
+      WHERE lower(repository) = ${repositoryKey(where.repository)} AND status = ${where.status}
       ORDER BY requested_at DESC
     `;
 
@@ -235,7 +241,7 @@ const make = Effect.gen(function* () {
         SELECT requester.thread_id AS "threadId"
         FROM release_approval_requesters requester
         JOIN release_approvals approval ON approval.approval_id = requester.approval_id
-        WHERE approval.repository = ${superseded.repository}
+        WHERE lower(approval.repository) = ${repositoryKey(superseded.repository)}
           AND approval.candidate = ${superseded.supersededBy}
       `;
       const onNewer = new Set(newer.map((row) => row.threadId));
@@ -267,7 +273,7 @@ const make = Effect.gen(function* () {
     `;
     return lock
       .withLock(
-        input.repository,
+        repositoryKey(input.repository),
         Effect.gen(function* () {
           const approved = (yield* findApprovals({
             repository: input.repository,
@@ -286,16 +292,37 @@ const make = Effect.gen(function* () {
 
           const now = DateTime.formatIso(yield* DateTime.now);
           const revision = yield* crypto.randomUUIDv4();
-          const open = (yield* findApprovals({
-            repository: input.repository,
-            status: "pending",
-          }))[0];
+          // A repository has one open card, but rows stored before the key ignored case can
+          // leave several: the ask keeps the one for its own candidate and replaces the rest.
+          const opens = yield* findApprovals({ repository: input.repository, status: "pending" });
+          const open = opens.find((row) => row.candidate === input.candidate);
+          const replaced = opens.filter((row) => row !== open);
+          const supersede = Effect.gen(function* () {
+            for (const row of replaced) {
+              yield* sql`
+                UPDATE release_approvals
+                SET status = 'superseded', superseded_by = ${input.candidate}, updated_at = ${now}
+                WHERE approval_id = ${row.approvalId}
+              `;
+            }
+          });
+          const settleReplaced = Effect.gen(function* () {
+            for (const row of replaced) {
+              const superseded = yield* findApproval(row.approvalId);
+              if (superseded === undefined) continue;
+              yield* forEachRequester(superseded.approvalId, (requesterRow) => [
+                recordCard(superseded, requesterRow, revision),
+              ]);
+              yield* notifySuperseded(superseded);
+            }
+          });
 
-          if (open !== undefined && open.candidate === input.candidate) {
+          if (open !== undefined) {
             // The latest ask carries the freshest summary, such as verification that has
             // since passed; every requester's card shows it.
             yield* sql.withTransaction(
               Effect.gen(function* () {
+                yield* supersede;
                 yield* sql`
                   UPDATE release_approvals
                   SET base = ${input.base}, summary_json = ${encodeSummary(input.summary)},
@@ -305,6 +332,7 @@ const make = Effect.gen(function* () {
                 yield* addRequester(open.approvalId, now);
               }),
             );
+            yield* settleReplaced;
             const updated = yield* findApproval(open.approvalId);
             if (updated !== undefined) {
               yield* forEachRequester(
@@ -328,14 +356,7 @@ const make = Effect.gen(function* () {
           // never ends up with a superseded card and nothing in its place.
           yield* sql.withTransaction(
             Effect.gen(function* () {
-              if (open !== undefined) {
-                yield* sql`
-                  UPDATE release_approvals
-                  SET status = 'superseded', superseded_by = ${input.candidate},
-                    updated_at = ${now}
-                  WHERE approval_id = ${open.approvalId}
-                `;
-              }
+              yield* supersede;
               yield* sql`
                 INSERT INTO release_approvals (
                   approval_id, repository, candidate, base, summary_json, details, status,
@@ -350,13 +371,7 @@ const make = Effect.gen(function* () {
             }),
           );
 
-          const superseded = open === undefined ? undefined : yield* findApproval(open.approvalId);
-          if (superseded !== undefined) {
-            yield* forEachRequester(superseded.approvalId, (row) => [
-              recordCard(superseded, row, revision),
-            ]);
-            yield* notifySuperseded(superseded);
-          }
+          yield* settleReplaced;
           const created = yield* findApproval(approvalId);
           if (created !== undefined) {
             yield* forEachRequester(
@@ -370,7 +385,7 @@ const make = Effect.gen(function* () {
             status: "pending" as const,
             candidate: input.candidate,
             joined: false,
-            supersededCandidate: open?.candidate ?? null,
+            supersededCandidate: replaced[0]?.candidate ?? null,
             answer: null,
           };
         }),
@@ -417,7 +432,7 @@ const make = Effect.gen(function* () {
       const found = yield* findApproval(input.approvalId);
       if (found === undefined) return yield* new ReleaseApprovalError({ reason: "not_found" });
       yield* lock.withLock(
-        found.repository,
+        repositoryKey(found.repository),
         Effect.gen(function* () {
           const approval = yield* findApproval(input.approvalId);
           if (approval === undefined) {
