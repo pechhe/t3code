@@ -116,9 +116,16 @@ describe("selection", () => {
     ]);
   });
 
-  it("a change outside apps/server runs the tests it affects and not the server's", () => {
+  it("a change outside apps/server runs only the server tests it affects", () => {
     const plan = select(["packages/client-runtime/src/state/threads.ts"]);
-    assert.deepStrictEqual(directories(plan), ["apps/web", "packages/client-runtime"]);
+    assert.deepStrictEqual(
+      plan.kind === "related" && plan.runs.map((run) => [run.directory, run.mode]),
+      [
+        ["apps/server", "related"],
+        ["apps/web", "related"],
+        ["packages/client-runtime", "related"],
+      ],
+    );
   });
 
   it("follows an undeclared relative import through EXTRA_EDGES", () => {

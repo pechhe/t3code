@@ -7,6 +7,7 @@
  */
 export const EXTRA_EDGES: ReadonlyArray<readonly [from: string, to: string]> = [
   ["apps/mobile", "scripts"],
+  ["apps/server", "packages/client-runtime"],
   ["apps/server", "scripts"],
   ["oxlint-plugin-t3code", "packages/client-runtime"],
   ["oxlint-plugin-t3code", "packages/shared"],
@@ -39,7 +40,9 @@ const SOURCE_SPAWNERS = [
     "cli/sshHelper.test.ts",
     "compileCache.test.ts",
     "git/detachStackFrame.memory.test.ts",
+    "outboundHttp.test.ts",
     "orchestration-v2/ProviderTurnStartService.memory.test.ts",
+    "processRunner.test.ts",
     "rpcInitialItems.memory.test.ts",
     "preview/DesktopBrowserChannel.test.ts",
   ),
@@ -60,6 +63,7 @@ const REPLAY_TRANSCRIPT_READERS = [
     "orchestration-v2/OpenCode2OrchestratorV2.integration.test.ts",
     "orchestration-v2/testkit/ClaudeReplayFixtures.integration.test.ts",
     "orchestration-v2/testkit/CodexReplayFixtures.integration.test.ts",
+    "orchestration-v2/testkit/OrchestratorReplayFixtures.integration.test.ts",
     "orchestration-v2/testkit/OrchestratorReplayRecovery.integration.test.ts",
     "orchestration-v2/testkit/OrchestratorReplayRestartBackgroundNote.integration.test.ts",
     "orchestration-v2/testkit/ThreadFork.integration.test.ts",
@@ -114,6 +118,11 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     when: /^\.github\/triage\//,
     select: serverTest("cli/triagePrompt.test.ts"),
     reason: "the bundled playbook must equal the repository copy",
+  },
+  {
+    when: /^docs\/user\/t3-connect-troubleshooting\.md$/,
+    select: serverTest("cloud/ConnectReachability.test.ts"),
+    reason: "test reads the troubleshooting guide",
   },
   {
     when: /^fork\/shipped-client\//,
@@ -227,13 +236,19 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "imported with ?raw",
   },
   {
+    when: /^native\/libghostty-vt\/include\/ghostty\/vt\/key\/event\.h$/,
+    select: ["apps/web/src/terminal/ghostty/keyCodes.test.ts"],
+    reason: "imported with ?raw",
+  },
+  {
     when: /^apps\/web\/src\/terminal\/ghostty\/vendor\//,
     select: [
+      "apps/server/src/terminal/Manager.test.ts",
       "apps/web/src/terminal/ghostty/core.test.ts",
       "apps/web/src/terminal/ghostty/runtimeAbi.test.ts",
       "apps/web/src/terminal/ghostty/surface.test.ts",
     ],
-    reason: "WebAssembly imported with ?inline",
+    reason: "WebAssembly imported with ?inline, or read from disk",
   },
   {
     when: /^apps\/web\/index\.html$/,
