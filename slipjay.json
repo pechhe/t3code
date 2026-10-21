@@ -12,6 +12,7 @@
     "apps/*/dist-electron",
     ".generated",
     "apps/*/.generated",
+    ".vite-hooks/_",
     ".pnpm-store"
   ],
   "evidencePaths": [
