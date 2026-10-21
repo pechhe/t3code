@@ -406,6 +406,11 @@ const SETTLE_SOUNDS = SettleSound.literals;
 const SETTLE_SOUND_LABELS = {
   off: "Off",
   seat: "Seat",
+  tick: "Tick (key down, key up)",
+  press: "Press (machined)",
+  pair: "Pair (rising clicks)",
+  soft: "Soft (airy)",
+  detent: "Detent (rotary)",
   whoosh: "Metal whoosh",
   filed: "Filed",
   stamp: "Stamp",

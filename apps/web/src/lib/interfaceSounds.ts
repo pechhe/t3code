@@ -200,6 +200,22 @@ const SETTLE_CUES: Record<SettleSound, Cue | null> = {
     KEY_CLICKS.down(audio, output, at);
     tone(audio, output, at, 0.12, [240, 150], 0.4, "triangle");
   },
+  // Candidates to audition; the losers get deleted once one is chosen.
+  tick: (audio, output, at) => {
+    KEY_CLICKS.down(audio, output, at);
+    KEY_CLICKS.up(audio, output, at + 0.09);
+  },
+  press: (audio, output, at) => playAt(audio, output, recordings.get("pressDown"), at, 1.1, 0.7),
+  pair: (audio, output, at) => {
+    KEY_CLICKS.down(audio, output, at);
+    KEY_CLICKS.up(audio, output, at + 0.07);
+    tone(audio, output, at + 0.07, 0.18, [1760, 1755], 0.12);
+  },
+  soft: (audio, output, at) => {
+    sweep(audio, output, at, 0.14, [1800, 600], 1.1, 0.8, "lowpass");
+    tone(audio, output, at + 0.02, 0.12, [520, 390], 0.25);
+  },
+  detent: (audio, output, at) => playAt(audio, output, recordings.get("rotary"), at, 1.1, 0.8),
   whoosh: (audio, output, at) => playAt(audio, output, recordings.get("metalWhoosh"), at, 1, 1),
   filed: (audio, output, at) => {
     sweep(audio, output, at, 0.22, [5200, 1100], 1.5, 0.9);

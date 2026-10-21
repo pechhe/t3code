@@ -358,7 +358,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Settle sound",
     to: "/settings/appearance",
     searchTerms: [
-      "sound audio settle settled done thread seat whoosh metal stamp filed switch tap",
+      "sound audio settle settled done thread seat tick press pair soft detent whoosh metal stamp filed switch tap",
     ],
   },
   {

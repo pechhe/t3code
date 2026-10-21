@@ -337,6 +337,11 @@ export type QueueSound = typeof QueueSound.Type;
 export const SettleSound = Schema.Literals([
   "off",
   "seat",
+  "tick",
+  "press",
+  "pair",
+  "soft",
+  "detent",
   "whoosh",
   "filed",
   "stamp",
