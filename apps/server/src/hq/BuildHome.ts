@@ -420,7 +420,11 @@ const make = Effect.gen(function* () {
         attemptedAt: now,
         writeVersion,
         fingerprint: undefined,
-        intervalMs: BUILD_REREAD_INTERVAL_MS,
+        // A struggling HQ is not asked every minute: consecutive failures double the wait.
+        intervalMs:
+          fresh?.state.status === "unavailable"
+            ? Math.min(fresh.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
+            : BUILD_REREAD_INTERVAL_MS,
         prompts: fresh?.prompts ?? new Map(),
         state,
       };

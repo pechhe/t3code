@@ -35,6 +35,9 @@ const untrackedRpcAckMethods = new Set<string>([
   WS_METHODS.serverReportClientActivity,
   // Waits for a landing in the runner's queue, whose progress the settings form shows.
   WS_METHODS.vcsSlipJaySetPolicy,
+  // A background poll that waits on YardSmith HQ for up to its 60s timeout; the Build chip
+  // already shows when HQ is unavailable.
+  WS_METHODS.buildHomeRead,
 ]);
 const longRunningRpcAckMethods = new Set<string>([
   WS_METHODS.serverUpdateProvider,

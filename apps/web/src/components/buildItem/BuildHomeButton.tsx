@@ -260,7 +260,11 @@ export function BuildHomeButton(props: {
       </PopoverTrigger>
       <PopoverPopup side="bottom" align="end" width="lg" padding="compact">
         <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto text-sm">
-          {state === null || state.status === "not_connected" ? (
+          {state === null ? (
+            <p className="m-0 text-xs text-muted-foreground">
+              {query.error === null ? "Reading Build from HQ…" : "Couldn't read Build from T3."}
+            </p>
+          ) : state.status === "not_connected" ? (
             <p className="m-0 text-xs text-muted-foreground">
               T3 is not connected to YardSmith HQ. Create a delegation in HQ Settings → Connections
               → T3 agents, then ask any thread to connect T3 to HQ with it.

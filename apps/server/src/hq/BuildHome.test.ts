@@ -251,6 +251,26 @@ it.effect("reads Home with T3's delegation, never shows it, and says when HQ ref
   }),
 );
 
+it.effect("an HQ that keeps failing is asked less often each time", () =>
+  Effect.gen(function* () {
+    const { hq, service } = yield* connected;
+    hq.status = 503;
+    const attempts = Effect.gen(function* () {
+      const before = hq.calls.length;
+      yield* service.read;
+      return hq.calls.length - before;
+    });
+    assert.strictEqual(yield* attempts, 1);
+    // Failures wait 60s, then 120s, then 240s before the next attempt reaches HQ.
+    for (const waitMs of [60_000, 120_000, 240_000]) {
+      yield* TestClock.adjust(waitMs - 1);
+      assert.strictEqual(yield* attempts, 0);
+      yield* TestClock.adjust(1);
+      assert.strictEqual(yield* attempts, 1);
+    }
+  }),
+);
+
 it.effect("reads Home as HQ actually answers it: an owner card, then a stuck line", () =>
   Effect.gen(function* () {
     const { hq, service } = yield* connected;
