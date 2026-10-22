@@ -415,6 +415,7 @@ export function selectThreadRelationshipShells(
   for (const watch of current?.threadWatches ?? []) {
     if (watch.target.kind === "thread") named.add(watch.target.threadId);
   }
+  for (const ended of current?.endedThreadWatches ?? []) named.add(ended.threadId);
   const isWatcher = (thread: OrchestrationV2ThreadShell) =>
     !thread.archivedAt &&
     (thread.threadWatches ?? []).some(

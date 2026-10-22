@@ -128,16 +128,15 @@ function ThreadLineageRowList(props: {
   );
 }
 
-function ThreadLineageGroup(props: {
+function ThreadLineageGroup<Row>(props: {
   readonly label: string | null;
-  readonly rows: ReadonlyArray<ThreadRelationshipWalkRow>;
-  readonly children: (rows: ReadonlyArray<ThreadRelationshipWalkRow>) => ReactNode;
+  readonly rows: ReadonlyArray<Row>;
+  readonly failedCount: number;
+  readonly children: (rows: ReadonlyArray<Row>) => ReactNode;
 }) {
   const [visibleCount, setVisibleCount] = useState(THREAD_LINEAGE_INITIAL_COUNT);
   const { visibleRows, hiddenCount } = resolveThreadLineageWindow(props.rows, visibleCount);
-  const failedCount = props.rows.filter(
-    ({ edge }) => edge.status === "failed" || edge.status === "error",
-  ).length;
+  const { failedCount } = props;
   if (props.rows.length === 0) return null;
   return (
     <div>
@@ -161,7 +160,55 @@ function ThreadLineageGroup(props: {
 }
 
 // Watches are not graph edges (see deriveThreadWatchRelationships), so these rows get their own
-// small group: the same row look, but no stop control and no per-row subagent detail.
+// small row: the same look, but no stop control and no per-row subagent detail.
+function ThreadWatchRow(props: {
+  readonly threadId: ThreadId;
+  readonly badge?: string;
+  readonly graph: ReturnType<typeof deriveThreadRelationshipGraph>;
+  readonly titles: ReadonlyMap<ThreadId, string>;
+  readonly providers: ReadonlyArray<ServerProvider> | undefined;
+  readonly onOpenThread: (threadId: ThreadId) => void;
+}) {
+  const { threadId } = props;
+  const node = props.graph.nodes.get(threadId);
+  const status = threadShellRelationshipStatus(node?.thread);
+  const title = node?.thread?.title ?? props.titles.get(threadId) ?? threadId;
+  const provider = props.providers?.find(
+    (entry) => entry.instanceId === node?.thread?.providerInstanceId,
+  );
+  const failed = status === "failed" || status === "error";
+  return (
+    <li className="group relative flex h-8 items-center rounded-lg">
+      <ThreadDetailsControl
+        size="sm"
+        variant="ghost"
+        part="row"
+        aria-label={`Open ${title} chat`}
+        disabled={node?.thread == null}
+        onClick={() => props.onOpenThread(threadId)}
+      >
+        <ThreadRelationshipIcon
+          driver={provider?.driver}
+          provider={provider}
+          fallbackIcon={EyeIcon}
+          status={status}
+        />
+        <span className="block min-w-0 flex-1 truncate text-left text-sm font-medium leading-4 text-foreground/85">
+          {title}
+        </span>
+        {props.badge ? (
+          <span className="shrink-0 text-2xs text-muted-foreground">{props.badge}</span>
+        ) : null}
+        <span
+          className={`shrink-0 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"}`}
+        >
+          {threadRelationshipStatusLabel(status)}
+        </span>
+      </ThreadDetailsControl>
+    </li>
+  );
+}
+
 function ThreadWatchGroup(props: {
   readonly label: string;
   readonly rows: ReadonlyArray<ThreadWatchRelationshipRow>;
@@ -170,54 +217,15 @@ function ThreadWatchGroup(props: {
   readonly providers: ReadonlyArray<ServerProvider> | undefined;
   readonly onOpenThread: (threadId: ThreadId) => void;
 }) {
-  const [visibleCount, setVisibleCount] = useState(THREAD_LINEAGE_INITIAL_COUNT);
-  const { visibleRows, hiddenCount } = resolveThreadLineageWindow(props.rows, visibleCount);
-  if (props.rows.length === 0) return null;
+  const { rows, label, ...rowProps } = props;
   return (
-    <div>
-      <SectionHeader>{props.label}</SectionHeader>
-      <ThreadLineageRowList
-        hiddenCount={hiddenCount}
-        onShowMore={() => setVisibleCount((count) => count + THREAD_LINEAGE_PAGE_COUNT)}
-      >
-        {visibleRows.map(({ threadId }) => {
-          const node = props.graph.nodes.get(threadId);
-          const status = threadShellRelationshipStatus(node?.thread);
-          const title = node?.thread?.title ?? props.titles.get(threadId) ?? threadId;
-          const provider = props.providers?.find(
-            (entry) => entry.instanceId === node?.thread?.providerInstanceId,
-          );
-          const failed = status === "failed" || status === "error";
-          return (
-            <li key={threadId} className="group relative flex h-8 items-center rounded-lg">
-              <ThreadDetailsControl
-                size="sm"
-                variant="ghost"
-                part="row"
-                aria-label={`Open ${title} chat`}
-                disabled={node?.thread == null}
-                onClick={() => props.onOpenThread(threadId)}
-              >
-                <ThreadRelationshipIcon
-                  driver={provider?.driver}
-                  provider={provider}
-                  fallbackIcon={EyeIcon}
-                  status={status}
-                />
-                <span className="block min-w-0 flex-1 truncate text-left text-sm font-medium leading-4 text-foreground/85">
-                  {title}
-                </span>
-                <span
-                  className={`shrink-0 text-2xs ${failed ? "text-destructive" : "text-muted-foreground"}`}
-                >
-                  {threadRelationshipStatusLabel(status)}
-                </span>
-              </ThreadDetailsControl>
-            </li>
-          );
-        })}
-      </ThreadLineageRowList>
-    </div>
+    <ThreadLineageGroup label={label} rows={rows} failedCount={0}>
+      {(visibleRows) =>
+        visibleRows.map(({ threadId }) => (
+          <ThreadWatchRow key={threadId} threadId={threadId} {...rowProps} />
+        ))
+      }
+    </ThreadLineageGroup>
   );
 }
 
@@ -367,6 +375,26 @@ export function ThreadRelationshipsPanel(props: {
   const canMerge = mergeTargetThreadId !== null && latestMergeBackRun !== null;
   const canDetach = projection ? canDetachThreadProviderSession(projection) : false;
 
+  const { watching, watchedBy, watched } = deriveThreadWatchRelationships({
+    threadId: props.threadId,
+    threadWatches: currentThread?.threadWatches,
+    endedThreadWatches: currentThread?.endedThreadWatches,
+    watcherThreadIds: watchers.map((watcher) => watcher.id),
+  });
+  const watchTitles = new Map<ThreadId, string>([
+    ...watchers.map((watcher) => [watcher.id, watcher.title] as const),
+    ...(currentThread?.threadWatches ?? []).flatMap((watch) =>
+      watch.target.kind === "thread" ? [[watch.target.threadId, watch.title] as const] : [],
+    ),
+    ...(currentThread?.endedThreadWatches ?? []).map(
+      (ended) => [ended.threadId, ended.title] as const,
+    ),
+  ]);
+  // Finished watches join the "Earlier" list. A thread already in the graph (a finished subagent
+  // that was also watched) keeps its graph row and gets no second one.
+  const graphThreadIds = new Set(relationshipRows.map((row) => row.threadId));
+  const earlierWatched = watched.filter((row) => !graphThreadIds.has(row.threadId));
+
   const {
     related = [],
     active = [],
@@ -393,7 +421,7 @@ export function ThreadRelationshipsPanel(props: {
     ],
     [
       { id: "advisors", label: "Advisors", rows: advisors },
-      { id: "previous", label: "Previous agents", rows: previous },
+      { id: "previous", label: "Earlier", rows: previous, watched: earlierWatched },
     ],
   ];
   const runningCount =
@@ -402,23 +430,12 @@ export function ThreadRelationshipsPanel(props: {
     ).length ?? 0) +
     [...active, ...advisors].filter(({ edge }) => edge.status === "running").length;
 
-  const { watching, watchedBy } = deriveThreadWatchRelationships({
-    threadId: props.threadId,
-    threadWatches: currentThread?.threadWatches,
-    watcherThreadIds: watchers.map((watcher) => watcher.id),
-  });
-  const watchTitles = new Map<ThreadId, string>([
-    ...watchers.map((watcher) => [watcher.id, watcher.title] as const),
-    ...(currentThread?.threadWatches ?? []).flatMap((watch) =>
-      watch.target.kind === "thread" ? [[watch.target.threadId, watch.title] as const] : [],
-    ),
-  ]);
-
   if (
     relationshipRows.length === 0 &&
     runningCount === 0 &&
     watching.length === 0 &&
-    watchedBy.length === 0
+    watchedBy.length === 0 &&
+    earlierWatched.length === 0
   ) {
     return null;
   }
@@ -489,14 +506,38 @@ export function ThreadRelationshipsPanel(props: {
       ? null
       : (graph.nodes.get(mergeTargetThreadId)?.thread?.title ?? null);
 
+  // Finished watches ride in the same list as the graph rows they sit beside, so one list pages
+  // and counts failures once.
   const renderGroup = (group: {
     readonly id: string;
     readonly label: string | null;
     readonly rows: ReadonlyArray<ThreadRelationshipWalkRow>;
+    readonly watched?: ReadonlyArray<ThreadWatchRelationshipRow>;
   }) => (
-    <ThreadLineageGroup key={`${scopedThreadKey(ref)}:${group.id}`} {...group}>
+    <ThreadLineageGroup
+      key={`${scopedThreadKey(ref)}:${group.id}`}
+      label={group.label}
+      rows={[...group.rows, ...(group.watched ?? [])]}
+      failedCount={
+        group.rows.filter(({ edge }) => edge.status === "failed" || edge.status === "error").length
+      }
+    >
       {(visibleRows) =>
-        visibleRows.map(({ threadId, edge }) => {
+        visibleRows.map((row) => {
+          if (!("edge" in row)) {
+            return (
+              <ThreadWatchRow
+                key={row.threadId}
+                threadId={row.threadId}
+                badge="Watched"
+                graph={graph}
+                titles={watchTitles}
+                providers={providers}
+                onOpenThread={openThread}
+              />
+            );
+          }
+          const { threadId, edge } = row;
           const node = graph.nodes.get(threadId);
           const isSubagent = edge.kind === "subagent";
           const isMergeTarget = threadId === mergeTargetThreadId;

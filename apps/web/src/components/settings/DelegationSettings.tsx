@@ -875,7 +875,7 @@ function PermissionsSection() {
         serverScoped
         settingKeys={["delegation"]}
         {...searchableSetting("delegation-advisor-idle-close")}
-        description="Closes advisors whose result was delivered. Closed advisors stay readable in Previous agents."
+        description="Closes advisors whose result was delivered. Closed advisors stay readable in Earlier."
         control={
           <Choice
             label="Close idle advisors"

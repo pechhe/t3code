@@ -1689,6 +1689,9 @@ export function threadShellFromProjection(
     ...(projection.thread.threadWatches === undefined
       ? {}
       : { threadWatches: projection.thread.threadWatches }),
+    ...(projection.thread.endedThreadWatches === undefined
+      ? {}
+      : { endedThreadWatches: projection.thread.endedThreadWatches }),
     ...(projection.thread.workspaceAttachments === undefined
       ? {}
       : { workspaceAttachments: projection.thread.workspaceAttachments }),
@@ -1974,6 +1977,9 @@ function shellFromState(input: {
     ...(input.state.thread.threadWatches === undefined
       ? {}
       : { threadWatches: input.state.thread.threadWatches }),
+    ...(input.state.thread.endedThreadWatches === undefined
+      ? {}
+      : { endedThreadWatches: input.state.thread.endedThreadWatches }),
     ...(input.state.thread.workspaceAttachments === undefined
       ? {}
       : { workspaceAttachments: input.state.thread.workspaceAttachments }),

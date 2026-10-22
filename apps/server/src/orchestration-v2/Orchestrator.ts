@@ -616,9 +616,42 @@ function withPullRequestWatch(
   return ended === undefined ? rest : { ...rest, endedWatch: ended };
 }
 
-function withoutThreadWatches(thread: OrchestrationV2AppThread): OrchestrationV2AppThread {
-  const { threadWatches: _watches, ...rest } = thread;
-  return rest;
+const ENDED_THREAD_WATCH_LIMIT = 50;
+
+// A watch that ends for any reason (unwatched, fired, the watcher settled or archived) leaves its
+// watched thread behind in `endedThreadWatches`, so Lineage keeps it findable. Watching a thread
+// again takes it back out of the history.
+function withThreadWatches(
+  thread: OrchestrationV2AppThread,
+  remaining: ReadonlyArray<OrchestrationV2ThreadWatch>,
+  now: DateTime.Utc,
+): OrchestrationV2AppThread {
+  const { threadWatches: _watches, endedThreadWatches: previouslyEnded, ...rest } = thread;
+  const stillWatching = new Set(remaining.map((watch) => watch.id));
+  const watchedIds = new Set(
+    remaining.flatMap((watch) => (watch.target.kind === "thread" ? [watch.target.threadId] : [])),
+  );
+  const endedAt = DateTime.formatIso(now);
+  const ended = [
+    ...(thread.threadWatches ?? []).flatMap((watch) =>
+      watch.target.kind === "thread" && !stillWatching.has(watch.id)
+        ? [{ threadId: watch.target.threadId, title: watch.title, endedAt }]
+        : [],
+    ),
+    ...(previouslyEnded ?? []),
+  ];
+  const history = ended
+    .filter(
+      (entry, index) =>
+        !watchedIds.has(entry.threadId) &&
+        ended.findIndex((other) => other.threadId === entry.threadId) === index,
+    )
+    .slice(0, ENDED_THREAD_WATCH_LIMIT);
+  return {
+    ...rest,
+    ...(remaining.length === 0 ? {} : { threadWatches: remaining }),
+    ...(history.length === 0 ? {} : { endedThreadWatches: history }),
+  };
 }
 
 function withWorkspaceAttachments(
@@ -2894,10 +2927,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         threadId: thread.id,
         providerInstanceId: thread.providerInstanceId,
         occurredAt: yield* DateTime.now,
-        payload:
-          watches.length === 0
-            ? withoutThreadWatches(thread)
-            : { ...thread, threadWatches: watches },
+        payload: withThreadWatches(thread, watches, yield* DateTime.now),
       });
     });
 
@@ -3594,7 +3624,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           return projectMoveThread!;
         case "thread.archive":
           return {
-            ...withoutThreadWatches(thread),
+            ...withThreadWatches(thread, [], now),
             archivedAt: now,
             titleRegeneration: null,
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
@@ -3607,7 +3637,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           const alreadySettled =
             thread.settledOverride === "settled" && thread.settledAt !== null && !wasPinned;
           return {
-            ...withoutThreadWatches(thread),
+            ...withThreadWatches(thread, [], now),
             settledOverride: "settled",
             settledAt: alreadySettled ? thread.settledAt : (command.settledAt ?? now),
             pullRequests: thread.pullRequests?.map((link) => withPullRequestWatch(link, undefined)),
@@ -10111,7 +10141,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         providerInstanceId: thread.providerInstanceId,
         occurredAt: input.now,
         payload: {
-          ...withoutThreadWatches(thread),
+          ...withThreadWatches(thread, [], input.now),
           pullRequests: pullRequests.map((link) => withPullRequestWatch(link, undefined)),
         },
       });

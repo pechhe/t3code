@@ -156,7 +156,7 @@ applies to new delegations and leaves running children alone.
 Idle advisor closing is off by default. Set a period in minutes to close advisors
 whose final result has been delivered and which have no running or queued work.
 The server checks every minute, including after a restart. Closed advisors remain
-readable under Previous agents; start a new advisor for further work.
+readable under Earlier; start a new advisor for further work.
 
 ## Trusted Claude writers
 

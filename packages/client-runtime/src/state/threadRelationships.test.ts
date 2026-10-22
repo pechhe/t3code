@@ -433,10 +433,23 @@ describe("thread watch relationships", () => {
         watch({ kind: "thread", threadId: self }),
         watch({ kind: "build_item" }),
       ],
+      endedThreadWatches: [],
       watcherThreadIds: [watcher, watcher],
     });
     expect(result.watching).toEqual([{ threadId: other, kind: "watching" }]);
     expect(result.watchedBy).toEqual([{ threadId: watcher, kind: "watchedBy" }]);
+  });
+
+  it("lists finished watches once, minus the thread itself and any it watches again", () => {
+    const ended = (threadId: ThreadId) => ({ threadId, title: "t", endedAt: "x" }) as never;
+    const again = ThreadId.make("again");
+    const result = deriveThreadWatchRelationships({
+      threadId: self,
+      threadWatches: [watch({ kind: "thread", threadId: again })],
+      endedThreadWatches: [ended(other), ended(other), ended(self), ended(again)],
+      watcherThreadIds: [],
+    });
+    expect(result.watched).toEqual([{ threadId: other, kind: "watched" }]);
   });
 
   it("is empty without watches", () => {
@@ -444,9 +457,10 @@ describe("thread watch relationships", () => {
       deriveThreadWatchRelationships({
         threadId: self,
         threadWatches: undefined,
+        endedThreadWatches: undefined,
         watcherThreadIds: [],
       }),
-    ).toEqual({ watching: [], watchedBy: [] });
+    ).toEqual({ watching: [], watchedBy: [], watched: [] });
   });
 
   it("derives a thread's live status the way graph rows do", () => {

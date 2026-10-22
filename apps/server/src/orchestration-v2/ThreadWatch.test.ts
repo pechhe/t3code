@@ -609,6 +609,13 @@ it.layer(layerTest)("thread watches", (it) => {
       assert.include(wake?.text, "> Landed abc123.");
       assert.equal(wake?.id, MessageId.make(`message:${started?.id}`));
       assert.lengthOf(yield* watchesOf(lead), 0);
+      // The finished watch stays as Lineage history.
+      assert.deepEqual(
+        (yield* orchestrator.getThreadShell(lead))?.endedThreadWatches?.map(
+          (ended) => ended.threadId,
+        ),
+        [worker],
+      );
 
       // Neither another look nor a replayed fire wakes it twice.
       yield* reactor.sweep;
@@ -626,6 +633,8 @@ it.layer(layerTest)("thread watches", (it) => {
       // Watching again starts a new watch, which wakes once more.
       yield* watch(lead, worker);
       assert.lengthOf(yield* wakes(lead), 2);
+      // The second watch ended too, but the thread is listed once.
+      assert.lengthOf((yield* orchestrator.getThreadShell(lead))?.endedThreadWatches ?? [], 1);
     }),
   );
 
@@ -944,6 +953,13 @@ it.layer(layerTest)("thread watches", (it) => {
             threadId: lead,
           });
         assert.lengthOf(yield* watchesOf(lead), 0, ending);
+        assert.deepEqual(
+          (yield* orchestrator.getThreadShell(lead))?.endedThreadWatches?.map(
+            (ended) => ended.threadId,
+          ),
+          [worker],
+          ending,
+        );
       }
       yield* observe(yield* seedRun(worker, { status: "completed", text: "Done." }));
       for (const ending of ["unwatch", "stop", "archive", "settle"]) {

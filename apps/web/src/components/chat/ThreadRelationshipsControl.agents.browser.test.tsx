@@ -224,7 +224,7 @@ it("keeps managed advisor conversations in their own visible section through fol
     state.shells = [{ environmentId: "test", source: { ...child, status } }];
     await update();
     expect(text()).toContain("Advisors");
-    expect(text()).not.toContain("Previous agents");
+    expect(text()).not.toContain("Earlier");
     expect(allByLabel("Open Architecture advice chat")).toHaveLength(1);
   }
   await click(byLabel("Open Architecture advice chat"));
@@ -242,8 +242,45 @@ it("keeps managed advisor conversations in their own visible section through fol
     },
   ];
   await update();
-  expect(text()).toContain("Previous agents");
+  expect(text()).toContain("Earlier");
   expect(text()).not.toContain("Advisors");
   expect(text()).toContain("Closed");
   expect(byLabel("Open Architecture advice chat")).toBeDefined();
+});
+
+it("lists a thread the current thread finished watching under Earlier with a Watched badge", async () => {
+  await using fixture = await setup();
+  const { render, byLabel, textNodes } = fixture;
+  state.shells = [
+    { environmentId: "test", source: { id: "parent", lineage: {} } },
+    {
+      environmentId: "test",
+      source: { id: "done", title: "Fix the login", status: "completed", lineage: {} },
+    },
+  ];
+  state.projection = {
+    thread: {
+      id: "parent",
+      lineage: { relationshipToParent: null },
+      endedThreadWatches: [{ threadId: "done", title: "Fix the login" }],
+    },
+    runs: [],
+    providerThreads: [],
+    providerSessions: [],
+    contextTransfers: [],
+    subagents: [],
+  };
+  await render(
+    <ThreadRelationshipsPanel
+      environmentId={EnvironmentId.make("test")}
+      threadId={ThreadId.make("parent")}
+    />,
+  );
+  const text = textNodes(" ");
+  expect(text).toContain("Earlier");
+  expect(text).toContain("Watched");
+  await act(async () => byLabel("Open Fix the login chat").click());
+  expect(state.navigate).toHaveBeenCalledWith(
+    expect.objectContaining({ params: expect.objectContaining({ threadId: "done" }) }),
+  );
 });

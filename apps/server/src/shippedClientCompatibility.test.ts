@@ -1,4 +1,9 @@
-import { DEFAULT_SERVER_SETTINGS, ProjectId, ServerSettings } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  OrchestrationV2ThreadShell,
+  ProjectId,
+  ServerSettings,
+} from "@t3tools/contracts";
 import { assert, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Effect from "effect/Effect";
@@ -97,3 +102,16 @@ it.effect(
       assert.deepEqual(violations(sent, shipped, "settings"), []);
     }).pipe(Effect.provide(NodeServices.layer)),
 );
+
+it("a client that predates endedThreadWatches still decodes a thread shell that carries it", () => {
+  const { id, title, threadWatches } = OrchestrationV2ThreadShell.fields;
+  const shippedShell = Schema.Struct({ id, title, threadWatches });
+  const decoded = Schema.decodeUnknownSync(shippedShell)({
+    id: "thread-1",
+    title: "Lead",
+    endedThreadWatches: [
+      { threadId: "thread-2", title: "Worker", endedAt: "2026-10-22T00:00:00Z" },
+    ],
+  });
+  assert.deepEqual(Object.keys(decoded).toSorted(), ["id", "title"]);
+});

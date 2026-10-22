@@ -218,7 +218,7 @@ export function threadShellRelationshipStatus(
   return thread?.activityRunStatus ?? thread?.status ?? null;
 }
 
-export type ThreadWatchRelationshipKind = "watching" | "watchedBy";
+export type ThreadWatchRelationshipKind = "watching" | "watchedBy" | "watched";
 
 export interface ThreadWatchRelationshipRow {
   readonly threadId: ThreadId;
@@ -234,10 +234,13 @@ export interface ThreadWatchRelationshipRow {
 export function deriveThreadWatchRelationships(input: {
   readonly threadId: ThreadId;
   readonly threadWatches: OrchestrationV2ThreadShell["threadWatches"];
+  readonly endedThreadWatches: OrchestrationV2ThreadShell["endedThreadWatches"];
   readonly watcherThreadIds: ReadonlyArray<ThreadId>;
 }): {
   readonly watching: ReadonlyArray<ThreadWatchRelationshipRow>;
   readonly watchedBy: ReadonlyArray<ThreadWatchRelationshipRow>;
+  /** Threads this one finished watching, newest first, minus any it watches again. */
+  readonly watched: ReadonlyArray<ThreadWatchRelationshipRow>;
 } {
   const watching = new Set<ThreadId>();
   for (const watch of input.threadWatches ?? []) {
@@ -245,8 +248,15 @@ export function deriveThreadWatchRelationships(input: {
       watching.add(watch.target.threadId);
     }
   }
+  const watched = new Set<ThreadId>();
+  for (const ended of input.endedThreadWatches ?? []) {
+    if (ended.threadId !== input.threadId && !watching.has(ended.threadId)) {
+      watched.add(ended.threadId);
+    }
+  }
   return {
     watching: [...watching].map((threadId) => ({ threadId, kind: "watching" })),
+    watched: [...watched].map((threadId) => ({ threadId, kind: "watched" })),
     watchedBy: [...new Set(input.watcherThreadIds)].map((threadId) => ({
       threadId,
       kind: "watchedBy",

@@ -524,6 +524,14 @@ export const OrchestrationV2ThreadWatch = Schema.Struct({
   );
 export type OrchestrationV2ThreadWatch = typeof OrchestrationV2ThreadWatch.Type;
 
+/** A watch of another thread that has ended, kept so the watched thread stays findable in Lineage. */
+export const OrchestrationV2EndedThreadWatch = Schema.Struct({
+  threadId: ThreadId,
+  title: TrimmedNonEmptyString,
+  endedAt: IsoDateTime,
+});
+export type OrchestrationV2EndedThreadWatch = typeof OrchestrationV2EndedThreadWatch.Type;
+
 /**
  * A workspace in another registered project that this thread works in beside its primary
  * workspace. A project holds at most one live attachment per thread: one SlipJay has not
@@ -580,6 +588,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
+  endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   activeProviderThreadId: Schema.NullOr(ProviderThreadId),
@@ -2156,6 +2165,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   linkedPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   pullRequests: Schema.optional(Schema.Array(ThreadPullRequestLink)),
   threadWatches: Schema.optional(Schema.Array(OrchestrationV2ThreadWatch)),
+  endedThreadWatches: Schema.optional(Schema.Array(OrchestrationV2EndedThreadWatch)),
   workspaceAttachments: Schema.optional(Schema.Array(OrchestrationV2WorkspaceAttachment)),
   branchPullRequest: Schema.optional(Schema.NullOr(ThreadLinkedPullRequest)),
   lineage: OrchestrationV2AppThreadLineage,

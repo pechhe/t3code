@@ -82,4 +82,16 @@ describe("selectThreadRelationshipShells", () => {
       selectThreadRelationshipShells(threadId, null, threads).map((thread) => thread.id),
     ).toEqual(["current", "watched", "watcher"]);
   });
+
+  it("keeps the threads the thread finished watching", () => {
+    const threads = [
+      { ...shell("current"), endedThreadWatches: [{ threadId: "finished" }] },
+      shell("finished"),
+      shell("unrelated"),
+    ] as OrchestrationV2ThreadShell[];
+
+    expect(
+      selectThreadRelationshipShells(threadId, null, threads).map((thread) => thread.id),
+    ).toEqual(["current", "finished"]);
+  });
 });
