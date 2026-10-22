@@ -2051,14 +2051,6 @@ code {
   color: var(--info-foreground);
 }
 
-/* A chip paints its own surface over the selection highlight, which would break
-   a selection crossing it into pieces. Dropping the surface while the selection
-   covers the chip leaves the highlight as one continuous run. */
-.chat-markdown [data-selection-covered] {
-  background-color: transparent;
-  border-color: transparent;
-}
-
 .chat-markdown
   a:not(
     .chat-markdown-file-link,
@@ -2598,4 +2590,15 @@ code {
       );
     }
   }
+}
+
+/* A chip paints its own surface over the selection highlight, which would break
+   a selection crossing it into pieces. Dropping the surface, including the
+   chip's own badges and labels, leaves the highlight as one continuous run.
+   Unlayered so it outranks both the chip's bg-* utilities and the inline-code
+   rule above, which is unlayered too. */
+.chat-markdown [data-selection-covered],
+.chat-markdown [data-selection-covered] * {
+  background-color: transparent;
+  border-color: transparent;
 }

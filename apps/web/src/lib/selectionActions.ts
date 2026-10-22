@@ -29,9 +29,11 @@ export function resolveSelectionActionPosition(options: {
 type SelectionRect = { left: number; top: number; right: number; bottom: number };
 
 const SELECTED_CHIP_ATTRIBUTE = "data-selection-covered";
-// Context chips, and markdown file links, whose tooltip anchor renders the chip
-// without the slot attribute.
-const CHIP_SELECTOR = '[data-slot="context-chip"], .chat-markdown-file-link';
+// Context chips, markdown file links (whose tooltip anchor renders the chip
+// without the slot attribute), and inline code, which paints the same kind of
+// surface.
+const CHIP_SELECTOR =
+  '[data-slot="context-chip"], .chat-markdown-file-link, .chat-markdown :not(pre) > code';
 
 /**
  * A chip's own surface paints over the selection highlight, so a selection that

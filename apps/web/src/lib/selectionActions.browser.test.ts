@@ -100,4 +100,29 @@ describe("markSelectionCoveredChips", () => {
       teardown(viewport);
     }
   });
+
+  it("marks inline code, which paints the same surface as a chip", () => {
+    const viewport = document.createElement("div");
+    const markdown = document.createElement("div");
+    markdown.className = "chat-markdown";
+    const paragraph = document.createElement("p");
+    const code = document.createElement("code");
+    code.textContent = "SESSION_TOOL_ENDPOINTS";
+    paragraph.append("Alpha ", code, " beta");
+    markdown.append(paragraph);
+    viewport.append(markdown);
+    document.body.append(viewport);
+    try {
+      const selection = select(() => {
+        const range = document.createRange();
+        range.selectNodeContents(paragraph);
+        return range;
+      });
+
+      markSelectionCoveredChips(viewport, selection);
+      expect(code.hasAttribute("data-selection-covered")).toBe(true);
+    } finally {
+      teardown(viewport);
+    }
+  });
 });
