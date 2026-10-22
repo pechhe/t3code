@@ -1279,6 +1279,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
       const link = (
         <a
           {...props}
+          draggable={false}
           className={cn(props.className, pullRequestAutolink === "commit" && "font-mono")}
           data-markdown-copy={pullRequestCopy}
           data-markdown-image-link={!hasText || undefined}

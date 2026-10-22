@@ -329,7 +329,7 @@ export const MarkdownFileLink = memo(function MarkdownFileLink({
             <ContextChip
               kind="mention"
               dir="ltr"
-              render={<a href={href} />}
+              render={<a href={href} draggable={false} />}
               className={MARKDOWN_FILE_LINK_CLASS_NAME}
               data-markdown-copy={copyMarkdown}
               onClick={(event) => {

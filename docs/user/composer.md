@@ -152,11 +152,11 @@ Leaving reasoning level or service tier unset uses the provider's own configurat
 ## Quote an assistant response
 
 On web and desktop, select text within one assistant response and choose
-**Cite in composer**. You can add a comment about the quote and write instructions
-around it.
+**Reply**. The quote goes into the composer with a comment field, so you can write
+instructions around it.
 
-To quote it in a different thread, choose **Copy** instead and paste into that thread's composer.
-The paste becomes the same citation chip, linked to the thread it came from.
+To quote it in a different thread, choose **Copy for another thread** instead and paste into that
+thread's composer. The paste becomes the same citation chip, linked to the thread it came from.
 
 Select the quote in a draft or sent message to return to its source. If the source
 is unavailable or has changed, the saved quote remains readable.

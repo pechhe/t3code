@@ -15,8 +15,7 @@ import {
 import {
   isSelectionRectVisible,
   observeSelectionActions,
-  resolveSelectionActionPosition,
-  type SelectionActionPoint,
+  resolveSelectionActionPlacement,
 } from "~/lib/selectionActions";
 import { writeTextToClipboard } from "~/hooks/useCopyToClipboard";
 import { Button } from "../ui/button";
@@ -37,7 +36,8 @@ export function AssistantSelectionToolbar({
 }) {
   const [selection, setSelection] = useState<{
     citation: AssistantCitation;
-    position: SelectionActionPoint;
+    // The selected text that is on screen, which the toolbar is placed clear of.
+    visible: { left: number; top: number; bottom: number };
     sourceAnchor: AssistantCitationSourceAnchor;
   } | null>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
@@ -47,14 +47,19 @@ export function AssistantSelectionToolbar({
     const toolbar = toolbarRef.current;
     if (!toolbar || !selection) return;
     const rect = toolbar.getBoundingClientRect();
-    toolbar.style.left = `${Math.max(8, Math.min(selection.position.x, window.innerWidth - rect.width - 8))}px`;
-    toolbar.style.top = `${Math.max(8, Math.min(selection.position.y, window.innerHeight - rect.height - 8))}px`;
+    const position = resolveSelectionActionPlacement({
+      selection: selection.visible,
+      size: { width: rect.width, height: rect.height },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    });
+    toolbar.style.left = `${position.x}px`;
+    toolbar.style.top = `${position.y}px`;
   }, [selection]);
 
   useEffect(() => {
     if (!viewport) return;
     const clear = () => setSelection(null);
-    const update = (pointer: SelectionActionPoint | null) => {
+    const update = () => {
       const nativeSelection = window.getSelection();
       const captured = captureAssistantTextSelection(viewport, nativeSelection);
       const messageId = captured?.source.dataset.assistantCitationSource;
@@ -114,16 +119,11 @@ export function AssistantSelectionToolbar({
         clear();
         return;
       }
-      const rects = captured.range.getClientRects();
-      const pointerOnText =
-        pointer !== null &&
-        Array.from(rects).some(
-          (line) =>
-            pointer.x >= line.left - 8 &&
-            pointer.x <= line.right + 8 &&
-            pointer.y >= line.top - 8 &&
-            pointer.y <= line.bottom + 8,
-        );
+      const lines = Array.from(captured.range.getClientRects()).filter((line) =>
+        isSelectionRectVisible(line, [viewportRect]),
+      );
+      const firstLine = lines.at(0) ?? rect;
+      const lastLine = lines.at(-1) ?? rect;
       setSelection({
         sourceAnchor: { source: captured.source, range: captured.range, viewport },
         citation: {
@@ -132,19 +132,18 @@ export function AssistantSelectionToolbar({
           messageId: MessageId.make(messageId),
           ...captured.selector,
         },
-        position: resolveSelectionActionPosition({
-          bounds: viewportRect,
-          selectionRect: rects.item(rects.length - 1) ?? rect,
-          pointer: pointerOnText ? pointer : null,
-          viewport: { width: window.innerWidth, height: window.innerHeight },
-        }),
+        visible: {
+          left: firstLine.left,
+          top: Math.max(firstLine.top, viewportRect.top),
+          bottom: Math.min(lastLine.bottom, viewportRect.bottom),
+        },
       });
     };
     const actions = observeSelectionActions({
       element: viewport,
       getActionElement: () => toolbarRef.current,
       restoreAfterScroll: true,
-      onSelection: update,
+      onSelection: () => update(),
       onDismiss: clear,
     });
     actionsRef.current = actions;
@@ -218,7 +217,7 @@ export function AssistantSelectionToolbar({
     <div
       ref={toolbarRef}
       className="fixed z-50 flex max-w-[calc(100vw-1rem)] gap-1"
-      style={{ left: selection.position.x, top: selection.position.y }}
+      style={{ left: selection.visible.left, top: selection.visible.top }}
       onPointerDown={(event) => event.preventDefault()}
       onKeyDown={(event) => {
         event.stopPropagation();
@@ -233,11 +232,11 @@ export function AssistantSelectionToolbar({
         size="xs"
         variant="glass"
         disabled={tooLong}
-        aria-label={tooLong ? "Selection is too long to cite" : "Cite selection in composer"}
+        aria-label={tooLong ? "Selection is too long to reply to" : "Reply with this selection"}
         onClick={cite}
       >
         <QuoteIcon aria-hidden="true" className="size-3.5" />
-        {tooLong ? "Shorten selection" : "Cite"}
+        {tooLong ? "Shorten selection" : "Reply"}
       </Button>
       {tooLong ? null : (
         <Button
@@ -248,7 +247,7 @@ export function AssistantSelectionToolbar({
           onClick={copy}
         >
           <CopyIcon aria-hidden="true" className="size-3.5" />
-          Copy
+          Copy for another thread
         </Button>
       )}
     </div>,

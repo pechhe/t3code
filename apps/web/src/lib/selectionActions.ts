@@ -28,6 +28,41 @@ export function resolveSelectionActionPosition(options: {
 
 type SelectionRect = { left: number; top: number; right: number; bottom: number };
 
+export const SELECTION_ACTION_EDGE_PX = 8;
+export const SELECTION_ACTION_GAP_PX = 6;
+
+/**
+ * Places a selection's action toolbar clear of the selected text: above its
+ * visible lines, below them when there is no room above, and only over them when
+ * the selection is taller than the viewport. Sitting on the text would cover what
+ * the actions act on and swallow the press that extends the selection.
+ */
+export function resolveSelectionActionPlacement(options: {
+  selection: Pick<SelectionRect, "left" | "top" | "bottom">;
+  size: { width: number; height: number };
+  viewport: { width: number; height: number };
+}): SelectionActionPoint {
+  const { selection, size, viewport } = options;
+  const above = selection.top - size.height - SELECTION_ACTION_GAP_PX;
+  const below = selection.bottom + SELECTION_ACTION_GAP_PX;
+  const top =
+    above >= SELECTION_ACTION_EDGE_PX
+      ? above
+      : below + size.height <= viewport.height - SELECTION_ACTION_EDGE_PX
+        ? below
+        : viewport.height - size.height - SELECTION_ACTION_EDGE_PX;
+  return {
+    x: Math.max(
+      SELECTION_ACTION_EDGE_PX,
+      Math.min(selection.left, viewport.width - size.width - SELECTION_ACTION_EDGE_PX),
+    ),
+    y: Math.max(
+      SELECTION_ACTION_EDGE_PX,
+      Math.min(top, viewport.height - size.height - SELECTION_ACTION_EDGE_PX),
+    ),
+  };
+}
+
 export function isSelectionRectVisible(rect: SelectionRect, clips: readonly SelectionRect[]) {
   let { left, top, right, bottom } = rect;
   for (const clip of clips) {
