@@ -23,7 +23,7 @@ import { createUpwardScrollDetector, isTimelineScrollTarget } from "./timelineSc
 import { resolveTimelineIsAtEnd } from "./MessagesTimeline.logic";
 import { releaseChatTimelineAnchor } from "../ChatView.logic";
 import type { Dispatch, RefObject } from "react";
-import type { EnvironmentThread } from "@t3tools/client-runtime/state/shell";
+import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import type { deriveThreadActivityRun } from "@t3tools/client-runtime/state/thread-execution";
 import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
 
@@ -45,7 +45,7 @@ interface TimelineFollowInput {
   readonly activeThreadKey: string | null;
   readonly activeThreadId: ThreadId | undefined;
   readonly isServerThread: boolean;
-  readonly serverProjection: EnvironmentThread["projection"] | null;
+  readonly serverProjection: ThreadStructure | null;
   readonly threadStatus: EnvironmentThreadStatus;
   readonly activeActivityRun: ReturnType<typeof deriveThreadActivityRun>;
   readonly setTimelineAnchor: Dispatch<SetStateAction<TimelineAnchor>>;

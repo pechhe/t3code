@@ -3,48 +3,47 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.2-nightly.20261021.3499",
-      "sha": "b5a226e49c52ecab4ddc2d678a7012d97e651a6a"
-    },
-    "target": {
       "tag": "v0.1.2-nightly.20261022.3512",
       "sha": "3b95e7831b11b17627dff16843bc087bfca397ec"
+    },
+    "target": {
+      "tag": "v0.1.2-nightly.20261022.3526",
+      "sha": "f054d1b8018721bd997d99cbb918a7b17bf098a4"
     }
   },
   "fork": {
-    "base": "4ac120cb5ecd55e9742f3783b308c16b40ea5ccc"
+    "base": "d52b75db7805abad788f0a8f15b2cc5490953813"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "35850462dc1fad1d6e4cf3cc7b79e6753a14dbe9"
+    "blob": "248f4a63033fe33a61d05f3d70da6ddf0c485132"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.2-nightly.20261022.3512@1792664093",
-  "reviewedAt": "2026-10-22T10:23:24Z",
+  "attempt": "v0.1.2-nightly.20261022.3526@1792674910",
+  "reviewedAt": "2026-10-22T13:54:52Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:dbd764d8-8b58-404e-8110-3568b9df9bdd",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:aa68b53f-4c33-4660-abe5-dd27507799e3",
     "model": "claude-sonnet-5-5"
   },
   "coverage": {
-    "upstreamCommits": 32,
+    "upstreamCommits": 10,
     "entriesConsidered": [
-      "slipjay-workspaces",
-      "scheduled-tasks-extensions",
-      "account-pools",
-      "web-client-customisation",
+      "agent-process-ledger",
+      "compact-line",
+      "mobile-fork-screens",
       "live-response-streaming",
-      "perf-markdown-blocks",
-      "mobile-fork-screens"
+      "snapshot-overlay",
+      "device-composer",
+      "build-items-hq"
     ],
     "areas": [
-      "All 32 incoming commits (b5a226e4..3b95e783) by subject and stat; six conflicts (ProviderTurnStartService and test, RunExecutionService and test, ChatMarkdown, ChatHeader) resolved against both sides and their record entries",
-      "Server: abandoned-turn recovery (#23169) and provider interrupt on ingestion failure against slipjay-workspaces' tolerant runtime-policy resolve and deliberate-detach finalisation (detach skips the new interrupt); run metrics export (#22094), webhook array filters (#23282), Pi fork while running (#23052), source-control HTTPS clone retry (#23170), GitCafe reviewers/labels/line counts as upstream-owned",
-      "Web: RTL text direction (#22777) in ChatMarkdown plugin lists and the thread title against web-client-customisation's split copy-ID title and perf-markdown-blocks/live-response-streaming; list layout pass cap (#23315), sidebar paused videos (#23106), Git refs refresh (#23314) as upstream fixes",
-      "Usage limits ChatGPT Business admin request (#23361) against account-pools",
-      "Mobile Duo/iPad fixes (#22976-#23366) are upstream-owned mobile; Screens dependency unchanged; Node 26.12.1 pin (#23165) outside fork entries",
-      "Persistence and contracts: no new migrations; contract changes additive"
+      "All 10 incoming commits (3b95e783..f054d1b8) by subject and stat; thirteen conflicts (mobile Stack, ThreadFeed, ThreadGitControls, ThreadRouteScreen, useThreadHeaderOptions; ClaudeAdapterV2 and its query-runner test; serverSettings and test; ChatView, TimelineUserMessageRow, useTimelineFollow; pnpm-lock) resolved against both sides and their record entries",
+      "Server: Claude CLI watcher on server death (#23389) against agent-process-ledger; idle compaction older-client repair (#23454) against compact-line's instance fold; SSH runtime pruning (#23113) as upstream-owned",
+      "Web: ChatView/ThreadTimeline stream split (#23117, #23124) against live-response-streaming, snapshot-overlay and the fork's timeline follow; folded agent message rows (#23135) against the fork's send arrival and continuation rows",
+      "Mobile: draft/thread navigation unification (#23467), folded agent rows, Dynamic Island fix (#23327) against mobile-fork-screens' Build item header, Jujutsu review gating and automation bubble",
+      "Persistence and contracts: no new migrations; settings contract change additive; typecheck tooling change (#23023) and CI setup (#23582) outside fork entries"
     ],
     "exclusions": [
       {
@@ -52,99 +51,96 @@
         "why": "No browser or device pass in this unattended webhook run; covered by typecheck, focused tests and the landing gate"
       },
       {
-        "what": "Lint",
-        "why": "Not part of the landing gate"
+        "what": "Browser tests (MessagesTimeline.browser.test.tsx)",
+        "why": "Run by the landing gate, not locally"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "slipjay-workspaces",
-      "upstream": "Stop abandoned turns before continuing threads (#23169) and interrupt of the live provider turn when event ingestion fails",
+      "entry": "agent-process-ledger",
+      "upstream": "A Claude agent stops when the server that started it dies (#23389)",
       "decision": "adapt",
       "requirements": [
-        "a run that ends without a provider terminal by detach or stream failure interrupts its open items",
-        "a deliberate workspace detach settles the run as interrupted, not failed",
-        "a start-time runtime-policy refusal settles the run rather than leaving it starting"
+        "a Claude CLI and its commands stop when its server dies or is killed",
+        "other providers' groups stay recorded and reaped by ProcessGroupLedger"
       ],
       "evidence": [
-        "RunExecutionService.test.ts (48) and ProviderTurnStartService.test.ts (38) pass, fork detach cases beside upstream's recovery cases",
+        "ClaudeAdapterV2 uses upstream's spawnClaudeProcessGroup untracked; ClaudeAgentSdkQueryRunner.test.ts and serverSettings.test.ts pass (54)",
         "apps/server typecheck clean"
       ]
     },
     {
-      "entry": "scheduled-tasks-extensions",
-      "upstream": "Webhook filter [] array wildcard (#23282)",
-      "decision": "adopt",
+      "entry": "compact-line",
+      "upstream": "Older clients connect again after idle compaction modes (#23454)",
+      "decision": "retain",
       "requirements": [
-        "webhook-started tasks work"
+        "per-instance modelCompactAt folds into the server setting on load",
+        "shipped clients decode compactIdleThreads as a boolean"
       ],
       "evidence": [
-        "apps/server src/scheduledTasks tests and shippedClientCompatibility.test.ts pass (85 tests)"
+        "serverSettings.test.ts keeps the instance fold and adds upstream's idle compaction cases; packages/contracts and shared typecheck clean"
       ]
     },
     {
-      "entry": "account-pools",
-      "upstream": "ChatGPT Business usage-limit admin request (#23361)",
-      "decision": "adopt",
-      "requirements": [
-        "pool switch on limit unaffected"
-      ],
-      "evidence": [
-        "packages/shared usageLimits tests pass (40)"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "upstream": "Right-to-left text direction (#22777) on the thread title",
+      "entry": "mobile-fork-screens",
+      "upstream": "Unified draft and thread navigation (#23467) and folded agent message rows (#23135)",
       "decision": "adapt",
       "requirements": [
-        "thread ID copy from the title",
-        "thread actions chevron"
+        "Build item header opens the linked item",
+        "Jujutsu checkouts keep review and diff enabled",
+        "automation bubble keeps its border"
       ],
       "evidence": [
-        "ChatHeader keeps the split copy/actions buttons with dir set on the title h2; apps/web typecheck clean"
+        "ThreadRouteScreen passes titleContent through ThreadHeader inside ThreadScreenBinding; ThreadGitControls ORs canReview with hasThread; apps/mobile typecheck clean"
       ]
     },
     {
-      "entry": "perf-markdown-blocks",
-      "upstream": "Markdown text-direction rehype plugin (#22777)",
-      "decision": "adapt",
+      "entry": "live-response-streaming",
+      "upstream": "ChatView no longer re-renders on streamed text (#23117, #23124)",
+      "decision": "retain",
       "requirements": [
-        "a message renders as memoised top-level blocks",
-        "calm word fade-in covers the newest two blocks"
+        "eased anchor and live-edge follow",
+        "calm streaming props reach the timeline"
       ],
       "evidence": [
-        "rehypeTextDirection added to both fork plugin lists in ChatMarkdown; markdownTextDirection.test.ts passes (3); apps/web typecheck clean"
+        "ChatView passes the fork's timeline props to ThreadTimeline; useTimelineFollow keeps the fork's follow without upstream's tool-activity release; MessagesTimeline.logic and timelineScrollAnchoring tests pass (161 with ChatView.logic); apps/web typecheck clean"
+      ]
+    },
+    {
+      "entry": "snapshot-overlay",
+      "upstream": "ChatView split into ThreadTimeline",
+      "decision": "retain",
+      "requirements": [
+        "overlay presentation shows only the composer and what sits above it",
+        "sent message arrives from the composer"
+      ],
+      "evidence": [
+        "overlay dock, presentation flag and playSendArrival kept in ChatView and TimelineUserMessageRow; apps/web typecheck clean"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp i",
+      "command": "vp run typecheck (apps/server, apps/web, apps/mobile, packages/contracts, shared, client-runtime, provider-core)",
       "result": "passed",
-      "note": "lockfile unchanged by install"
+      "note": "no errors"
     },
     {
-      "command": "apps/server vp run typecheck; apps/web vp run typecheck",
+      "command": "vp test run src/serverSettings.test.ts src/orchestration-v2/Adapters/ClaudeAgentSdkQueryRunner.test.ts (apps/server)",
       "result": "passed",
-      "note": "no errors in the merge clone workspace"
+      "note": "54 passed"
     },
     {
-      "command": "apps/server vp test run RunExecutionService.test, ProviderTurnStartService.test",
+      "command": "vp test run MessagesTimeline.logic.test.ts timelineScrollAnchoring.test.tsx ChatView.logic.test.ts (apps/web)",
       "result": "passed",
-      "note": "48 and 38 tests"
+      "note": "161 passed"
     },
     {
-      "command": "apps/server vp test run shippedClientCompatibility.test src/scheduledTasks",
-      "result": "passed",
-      "note": "85 tests"
-    },
-    {
-      "command": "apps/web vp test run markdownTextDirection.test; packages/shared vp test run usageLimits",
-      "result": "passed",
-      "note": "3 and 40 tests"
+      "command": "MessagesTimeline.browser.test.tsx",
+      "result": "not-run",
+      "note": "browser tests run in the landing gate"
     }
   ],
   "result": "reconciled"
