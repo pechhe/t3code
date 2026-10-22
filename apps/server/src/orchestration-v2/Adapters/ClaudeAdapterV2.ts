@@ -6896,6 +6896,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           readonly failure?: OrchestrationV2ProviderFailure;
           readonly threadDisposition?: "reusable" | "broken";
           readonly result?: SDKResultMessage;
+          /** The turn ended because T3 closed its query, not because Claude aborted it. */
+          readonly closedByServer?: true;
         }) {
           yield* textDeltas.flushTurn(input.context.nativeTurnId);
           yield* reasoningDeltas.flushTurn(input.context.nativeTurnId);
@@ -7067,6 +7069,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   status: input.status,
                   failure: null,
                   threadDisposition,
+                  ...(input.status === "interrupted" && input.closedByServer === true
+                    ? { interruptCause: "server-close" as const }
+                    : {}),
                 };
           yield* Effect.all(
             [
@@ -7234,8 +7239,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           // A replacement query can reuse the native thread id; only this query's turn is ours.
           const context = closedQuery.lastTurn;
           if (context === null) return;
-          const interrupted =
-            closedQuery.stopping || (yield* Ref.get(interruptedTurns)).has(context.providerTurnId);
+          const interruptRequested = (yield* Ref.get(interruptedTurns)).has(context.providerTurnId);
+          const interrupted = closedQuery.stopping || interruptRequested;
           // Finalization can yield to a replacement process; capture ownership and outcomes first.
           const subagents = yield* Ref.get(sessionSubagentsByTaskId);
           const buffered = (yield* Ref.get(wakeBuffers)).get(closedQuery.nativeThreadId)?.messages;
@@ -7245,7 +7250,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               status: interrupted ? "interrupted" : "failed",
               completedAt: yield* DateTime.now,
               ...(interrupted
-                ? {}
+                ? interruptRequested
+                  ? {}
+                  : { closedByServer: true as const }
                 : {
                     failure: makeProviderFailure({
                       cause: cause === undefined ? undefined : Cause.squash(cause),

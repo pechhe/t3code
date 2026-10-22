@@ -2397,6 +2397,7 @@ it.effect("emits run_interrupt_result when superseded attempt still has a hard-s
       });
     }).pipe(Effect.provide(IdAllocator.layer));
     assert.equal(written[0]?.parentItemId, expectedRequestId);
+    assert.deepInclude(written[0], { cause: "user" });
   }),
 );
 
@@ -2486,7 +2487,66 @@ it.effect("says where a moved thread went instead of blaming the user", () =>
       type: "run_interrupt_result",
       title: "Moved",
       message: "Moved to project YardSmith",
-      moved: true,
+      cause: "move",
+    });
+  }),
+);
+
+it.effect(
+  "records a provider abort (an aborted_tools result, or a run later continued by a limit-pool switch) without blaming the user when no Stop was requested",
+  () =>
+    Effect.gen(function* () {
+      const { written } = yield* captureRootRunTermination({
+        key: "provider-abort",
+        shouldFinalizeRun: () => Effect.succeed(true),
+        hasUnpairedRunInterruptRequest: () => Effect.succeed(false),
+      });
+      assert.deepInclude(written[0], {
+        type: "run_interrupt_result",
+        cause: "provider-abort",
+      });
+      assert.notInclude(
+        written[0]?.type === "run_interrupt_result" ? written[0].message : "",
+        "user",
+      );
+    }),
+);
+
+it.effect("records a server-closed query as its own cause", () =>
+  Effect.gen(function* () {
+    const { written } = yield* captureRootRunTermination({
+      key: "server-close",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      hasUnpairedRunInterruptRequest: () => Effect.succeed(false),
+      events: (ids) =>
+        Stream.make({
+          ...rootTerminalEvent(ids, "interrupted"),
+          interruptCause: "server-close",
+        } as ProviderAdapter.ProviderAdapterV2Event),
+    });
+    assert.deepInclude(written[0], {
+      type: "run_interrupt_result",
+      cause: "server-close",
+    });
+  }),
+);
+
+it.effect("keeps the user's Stop as the cause when the provider ends the run after it", () =>
+  Effect.gen(function* () {
+    const { written } = yield* captureRootRunTermination({
+      key: "user-stop",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      hasUnpairedRunInterruptRequest: () => Effect.succeed(true),
+      events: (ids) =>
+        Stream.make({
+          ...rootTerminalEvent(ids, "interrupted"),
+          interruptCause: "server-close",
+        } as ProviderAdapter.ProviderAdapterV2Event),
+    });
+    assert.deepInclude(written[0], {
+      type: "run_interrupt_result",
+      cause: "user",
+      message: "Run interrupted by user",
     });
   }),
 );

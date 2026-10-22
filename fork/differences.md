@@ -629,3 +629,14 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Retire when:** upstream scopes MCP tools per session or per role with the same coverage.
 - **Constraints:** external OAuth MCP clients keep the legacy full `/mcp` catalogue. A new tool must be assigned a family by this table; a mixed toolkit must be filtered by its handlers, not just its name. The `queue` family is reachable from workspace and research profiles, not the ordinary control plane. The ordinary control plane deliberately omits the attachment, terminal, pull-request and project-admin families, which stay on the workspace profile; `html_render` and `html_preview` travel together in control.
 - **Owner:** no open item.
+
+### run-interrupt-cause
+
+- **Kind:** deliberate behaviour change
+- **Why:** Every run that ended `interrupted` was recorded as "Run interrupted by user" and could read "You stopped", including provider aborts and closed queries the user never asked for.
+- **Requirements:** the run's `run_interrupt_result` item carries `cause`: `user` only when the run has an unpaired interrupt request (a Stop), `move` when the thread moved, else `server-close` when the adapter reports T3 closed the query (`interruptCause` on `turn.terminal`), else `provider-abort`; the message says what happened and never blames the user for the last two; the web timeline never labels a run "You stopped" (a stopped run always carries its interrupt items and is shown as those). A steer supersedes the attempt and writes no interrupt item. Items written before causes decode without one.
+- **Integration points:** `cause` on `run_interrupt_result` in `packages/contracts/src/orchestrationV2.ts` (additive optional field, so shipped clients ignore it); `interruptCause` on the `turn.terminal` event in `packages/provider-core/src/server/ProviderAdapter.ts`; `makeInterruptResultTurnItem` and `writeFinalRunEvents` in `RunExecutionService`; `settleInterruptedRun` in the Orchestrator; Claude's `finalizeActiveTurnAfterQueryExit`. Other adapters report no cause, so their aborts read as `provider-abort`. Mobile still labels any interrupt result as stopped (`threadActivity.ts`).
+- **Proof:** RunExecutionService.test.ts (provider abort, server close, user stop, move, steer supersede), ClaudeAdapterV2.test.ts ("active steering"), MessagesTimeline.logic.test.ts.
+- **Upstream:** none known; a general fix that upstream could take.
+- **Retire when:** upstream records why a run was interrupted.
+- **Owner:** YardSmith HQ Build #4748 (T3-184).

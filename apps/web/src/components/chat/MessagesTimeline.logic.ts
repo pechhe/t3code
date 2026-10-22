@@ -1245,8 +1245,6 @@ function deriveTurnFolds(input: {
       continue;
     }
 
-    const isLatestInterruptedTurn =
-      input.latestRun?.runId === runId && input.latestRun.status === "interrupted";
     // A turn cut short by a steer leaves trailing work entries behind its
     // terminal message — take whichever ended last.
     const lastEntryEnd =
@@ -1265,11 +1263,9 @@ function deriveTurnFolds(input: {
             maxIsoTimestamp(terminalEntry?.message.updatedAt ?? null, lastEntryEnd) ?? lastEntryEnd,
           );
     const duration = elapsedMs !== null ? formatDuration(elapsedMs) : null;
-    const label = isLatestInterruptedTurn
-      ? duration
-        ? `You stopped after ${duration}`
-        : "You stopped this response"
-      : `${duration ? `Worked for ${duration}` : "Worked"}${runCount > 1 ? ` · ${runCount} runs` : ""}`;
+    // A run the user stopped has an interrupt item, which holds it open above; a folded
+    // run never reads as stopped, whatever status the provider ended it with.
+    const label = `${duration ? `Worked for ${duration}` : "Worked"}${runCount > 1 ? ` · ${runCount} runs` : ""}`;
 
     // The top row keeps the whole turn's time, steers included. Work after a
     // steer folds under its own row below that steer, keyed apart from the run

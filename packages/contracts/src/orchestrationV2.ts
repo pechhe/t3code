@@ -1676,6 +1676,18 @@ const OrchestrationV2ReleaseApprovalRequestFields = {
   ...OrchestrationV2ReleaseApprovalStateFields,
 } as const;
 
+/**
+ * Why a run ended `interrupted`. A user Stop is the only `user` cause; the others
+ * must never be presented as the user's doing.
+ */
+export const OrchestrationV2RunInterruptCause = Schema.Literals([
+  "user",
+  "move",
+  "provider-abort",
+  "server-close",
+]);
+export type OrchestrationV2RunInterruptCause = typeof OrchestrationV2RunInterruptCause.Type;
+
 export const OrchestrationV2TurnItem = Schema.Union([
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -1793,6 +1805,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
     message: Schema.String,
     /** The run ended because its thread moved workspace or project, not because of a Stop. */
     moved: Schema.optional(Schema.Boolean),
+    /** What ended the run; absent on items written before causes were recorded. */
+    cause: Schema.optional(OrchestrationV2RunInterruptCause),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2593,6 +2607,8 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     message: Schema.String,
     /** The run ended because its thread moved workspace or project, not because of a Stop. */
     moved: Schema.optional(Schema.Boolean),
+    /** What ended the run; absent on items written before causes were recorded. */
+    cause: Schema.optional(OrchestrationV2RunInterruptCause),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,

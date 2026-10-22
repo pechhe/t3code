@@ -4068,6 +4068,8 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           );
         }
         assert.lengthOf(harness.terminalEvents(), 1);
+        // The provider aborted on its own: the adapter never claims the server closed it.
+        assert.notProperty(harness.terminalEvents()[0] ?? {}, "interruptCause");
       }).pipe(
         Effect.provide(
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),

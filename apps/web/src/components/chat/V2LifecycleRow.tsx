@@ -116,13 +116,15 @@ export function V2LifecycleRow(props: {
     );
   }
   if (item.type === "run_interrupt_result") {
-    if (item.moved === true)
+    if (item.cause === "move" || item.moved === true)
       return <TimelineSystemDivider label={item.message} icon={FolderInputIcon} />;
     return (
       <TimelineSystemDivider
         label="Run interrupted"
         detail={item.message}
-        tone="danger"
+        tone={
+          item.cause === "provider-abort" || item.cause === "server-close" ? "neutral" : "danger"
+        }
         icon={XIcon}
       />
     );

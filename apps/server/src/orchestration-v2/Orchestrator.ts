@@ -9898,6 +9898,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           rootNode,
           providerThread,
           completedAt: input.now,
+          // Both commands settle a Stop the user asked for.
+          cause: "user",
         }),
       });
     }
@@ -10651,6 +10653,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         updatedAt: now,
         type: "run_interrupt_result",
         message: "Run interrupted before provider start",
+        cause: "user",
       };
       yield* emitEvent({
         type: "turn-item.updated",

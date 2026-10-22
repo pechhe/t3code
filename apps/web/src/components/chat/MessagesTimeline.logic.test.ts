@@ -953,7 +953,7 @@ describe("deriveMessagesTimelineRows", () => {
     expect(foldRow?.label).toBe("Worked for 12s");
   });
 
-  it("uses latest-turn timings and the stopped label for an interrupted latest turn", () => {
+  it("uses latest-turn timings without a stopped label when no user interrupt was recorded", () => {
     const rows = deriveMessagesTimelineRows({
       timelineEntries: [
         {
@@ -985,7 +985,7 @@ describe("deriveMessagesTimelineRows", () => {
       expect.objectContaining({
         kind: "turn-fold",
         runId: "turn-1",
-        label: "You stopped after 47s",
+        label: "Worked for 47s",
         expanded: false,
       }),
     ]);

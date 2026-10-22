@@ -187,6 +187,12 @@ export const ProviderAdapterV2Event = Schema.Union([
     status: Schema.Literals(["completed", "interrupted", "cancelled"]),
     failure: Schema.Null,
     threadDisposition: Schema.Literals(["reusable", "broken"]),
+    /**
+     * What ended an `interrupted` turn when the adapter knows it was not the provider
+     * aborting on its own. The server adds `user` and `move` from its own records, so an
+     * adapter never claims either; absent means the provider aborted.
+     */
+    interruptCause: Schema.optional(Schema.Literal("server-close")),
   }),
   Schema.Struct({
     type: Schema.Literal("turn.terminal"),

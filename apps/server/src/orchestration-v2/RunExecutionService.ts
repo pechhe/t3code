@@ -14,6 +14,7 @@ import {
   type OrchestrationV2ProviderThread,
   type OrchestrationV2ProviderTurn,
   type OrchestrationV2Run,
+  type OrchestrationV2RunInterruptCause,
   type OrchestrationV2RunAttempt,
   type OrchestrationV2Subagent,
   type OrchestrationV2TurnItem,
@@ -655,6 +656,29 @@ export const layer: Layer.Layer<
           input.terminal.status === "interrupted" && input.movedTo !== undefined
             ? input.movedTo()
             : Effect.succeed(undefined);
+        const interruptResultItem = Effect.gen(function* () {
+          const moved = yield* movedToMessage;
+          const stoppedByUser =
+            input.hasUnpairedRunInterruptRequest === undefined
+              ? false
+              : yield* input.hasUnpairedRunInterruptRequest();
+          return makeInterruptResultTurnItem({
+            idAllocator,
+            run: input.run,
+            rootNode: input.rootNode,
+            providerThread: input.providerThread,
+            completedAt,
+            cause:
+              moved !== undefined
+                ? "move"
+                : stoppedByUser
+                  ? "user"
+                  : ((input.terminal.status === "interrupted"
+                      ? input.terminal.interruptCause
+                      : undefined) ?? "provider-abort"),
+            moved,
+          });
+        });
         const finalizedAttempt: OrchestrationV2RunAttempt | null = {
           ...input.attempt,
           status: input.terminal.status,
@@ -680,14 +704,7 @@ export const layer: Layer.Layer<
                     nodeId: input.rootNode.id,
                     providerInstanceId: input.run.providerInstanceId,
                     occurredAt: completedAt,
-                    payload: makeInterruptResultTurnItem({
-                      idAllocator,
-                      run: input.run,
-                      rootNode: input.rootNode,
-                      providerThread: input.providerThread,
-                      completedAt,
-                      moved: yield* movedToMessage,
-                    }),
+                    payload: yield* interruptResultItem,
                   },
                 ],
               });
@@ -842,14 +859,7 @@ export const layer: Layer.Layer<
                     nodeId: input.rootNode.id,
                     providerInstanceId: input.run.providerInstanceId,
                     occurredAt: completedAt,
-                    payload: makeInterruptResultTurnItem({
-                      idAllocator,
-                      run: input.run,
-                      rootNode: input.rootNode,
-                      providerThread: input.providerThread,
-                      completedAt,
-                      moved: yield* movedToMessage,
-                    }),
+                    payload: yield* interruptResultItem,
                   },
                 ]
               : []),
@@ -1797,13 +1807,20 @@ export const layer: Layer.Layer<
   }),
 );
 
+const INTERRUPT_CAUSE_MESSAGES = {
+  user: "Run interrupted by user",
+  "provider-abort": "The provider ended the run before it finished",
+  "server-close": "The provider session was closed before the run finished",
+} as const;
+
 export function makeInterruptResultTurnItem(input: {
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly run: OrchestrationV2Run;
   readonly rootNode: OrchestrationV2ExecutionNode;
   readonly providerThread: OrchestrationV2ProviderThread;
   readonly completedAt: DateTime.Utc;
-  /** Where the thread moved, when that is what ended the run. */
+  readonly cause: OrchestrationV2RunInterruptCause;
+  /** Where the thread moved, which is the message when `cause` is `move`. */
   readonly moved?: string | undefined;
 }): OrchestrationV2TurnItem {
   return {
@@ -1823,12 +1840,13 @@ export function makeInterruptResultTurnItem(input: {
     }),
     ordinal: input.run.ordinal * 100 + 98,
     status: "interrupted",
-    title: input.moved === undefined ? "Interrupted" : "Moved",
+    title: input.cause === "move" ? "Moved" : "Interrupted",
     startedAt: input.completedAt,
     completedAt: input.completedAt,
     updatedAt: input.completedAt,
     type: "run_interrupt_result",
-    message: input.moved ?? "Run interrupted by user",
-    ...(input.moved === undefined ? {} : { moved: true }),
+    message:
+      input.cause === "move" ? (input.moved ?? "Moved") : INTERRUPT_CAUSE_MESSAGES[input.cause],
+    cause: input.cause,
   };
 }
