@@ -114,5 +114,6 @@
     "verifyP50Seconds": 90,
     "verifyP90Seconds": 180,
     "testFileSeconds": 30
-  }
+  },
+  "process": "development"
 }
