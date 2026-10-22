@@ -67,6 +67,7 @@ const layerFor = (
   projectId: ProjectId,
   dispatched: Array<OrchestrationV2ServerCommand>,
   moves: Array<ThreadProjectMoveInput> = [],
+  movedThreadId: ThreadId = threadId,
 ) =>
   McpHttpServer.layerThreadToolkit.pipe(
     Layer.provide(
@@ -122,7 +123,7 @@ const layerFor = (
         getProjectThreadRecords: () =>
           Effect.succeed({
             thread: {
-              id: threadId,
+              id: movedThreadId,
               projectId,
               title: "Chaser email",
               runtimeMode: "full-access",
@@ -186,6 +187,32 @@ it.effect("a refused move reaches the agent as an invalid request", () => {
     expect(declaredFailure(moved)).toMatchObject({ code: "invalid_request" });
     expect(dispatched).toEqual([]);
   }).pipe(Effect.provide(layerFor(scratchProjectId, dispatched)));
+});
+
+it.effect("a chat that moves itself continues without restating the work", () => {
+  const moves: Array<ThreadProjectMoveInput> = [];
+  return Effect.gen(function* () {
+    const result = yield* call("t3_thread_move_to_project", { projectId: targetProjectId });
+    expect(result.isError).toBe(false);
+    // No text: the move service writes the continuation, since the chat carries on itself.
+    expect(moves).toMatchObject([
+      { threadId, projectId: targetProjectId, continuation: { senderThreadId: threadId } },
+    ]);
+    expect(moves[0]?.continuation?.text).toBeUndefined();
+  }).pipe(Effect.provide(layerFor(scratchProjectId, [], moves)));
+});
+
+it.effect("another thread moving a chat leaves it idle unless it says what happens next", () => {
+  const moves: Array<ThreadProjectMoveInput> = [];
+  const movedThreadId = ThreadId.make("moved-thread");
+  return Effect.gen(function* () {
+    const result = yield* call("t3_thread_move_to_project", {
+      threadId: movedThreadId,
+      projectId: targetProjectId,
+    });
+    expect(result.isError).toBe(false);
+    expect(moves).toMatchObject([{ threadId: movedThreadId, continuation: undefined }]);
+  }).pipe(Effect.provide(layerFor(scratchProjectId, [], moves, movedThreadId)));
 });
 
 it.effect("moves the chat in place and queues the continuation as its next turn", () => {

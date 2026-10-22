@@ -75,7 +75,7 @@ export const SIDE_CHAT_NOTE =
  * so it can offer a better home for the chat once one is clear.
  */
 export const NO_PROJECT_NOTE =
-  "This chat is in No project: it runs in its own scratch folder and cannot see project code. When the user's request is work in one of their projects (t3_project_list), call t3_thread_move_to_project with that project and a continuationPrompt before doing the work, then end your turn; this chat moves into the project and the continuationPrompt starts its next turn there. When the work spans projects, move into the one holding most of it and attach the others with t3_worktree_attach. When the fit is likely but unclear, call t3_thread_suggest_project once with a one-line reason instead; the user then chooses Move or Keep.";
+  "This chat is in No project: it runs in its own scratch folder and cannot see project code. When the user's request is work in one of their projects (t3_project_list), call t3_thread_move_to_project with that project before doing the work, then end your turn; this chat moves into the project and T3 starts its next turn there with the conversation carried over. Pass continuationPrompt only for a one-sentence next step the conversation does not already say, never a summary or handoff of the work so far. When the work spans projects, move into the one holding most of it and attach the others with t3_worktree_attach. When the fit is likely but unclear, call t3_thread_suggest_project once with a one-line reason instead; the user then chooses Move or Keep.";
 
 const INSTRUCTION_FILES = ["AGENTS.md", "CLAUDE.md"];
 

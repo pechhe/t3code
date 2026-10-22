@@ -211,19 +211,24 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       const { projection } = yield* readThread(input.threadId);
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const commandId = yield* newCommandId();
+      // A self-move reads as the chat continuing: its next turn starts there with the
+      // conversation carried over, so T3 writes the continuation unless the agent names a
+      // next step. Another thread moving this one says what happens next, or nothing does.
+      const continues = scope.thread?.threadId === projection.thread.id;
       const result = yield* (yield* ThreadProjectMove.ThreadProjectMoveService)
         .move({
           commandId,
           threadId: projection.thread.id,
           projectId: input.projectId,
           continuation:
-            input.continuationPrompt === undefined
+            input.continuationPrompt === undefined && !continues
               ? undefined
               : {
                   commandId: CommandId.make(`${commandId}:continuation`),
                   messageId: MessageId.make(`${commandId}:continuation`),
-                  text: input.continuationPrompt,
-                  // A self-move reads as the chat continuing; another thread's stays its own.
+                  ...(input.continuationPrompt === undefined
+                    ? {}
+                    : { text: input.continuationPrompt }),
                   senderThreadId: scope.thread?.threadId,
                 },
         })

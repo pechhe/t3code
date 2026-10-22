@@ -21,10 +21,18 @@ export class ThreadProjectMoveError extends Schema.TaggedError<ThreadProjectMove
 export interface ThreadProjectMoveContinuation {
   readonly commandId: CommandId;
   readonly messageId: MessageId;
-  readonly text: string;
+  /** Omitted for a move that needs no next step beyond continuing: the service writes it. */
+  readonly text?: string | undefined;
   /** The thread whose agent asked for the move; the moved thread itself for a self-move. */
   readonly senderThreadId: ThreadId | undefined;
 }
+
+/**
+ * The continuation T3 queues when a chat moves itself: the conversation carries over, so the
+ * next turn only needs to know where it now works and that it should carry on.
+ */
+const movedContinuationText = (projectTitle: string) =>
+  `This chat has moved into ${projectTitle}. The conversation carried over, so continue the work you were about to start; follow this project's instructions.`;
 
 /**
  * Moves a No project chat into a project in place: the thread keeps its id and history and
@@ -162,7 +170,7 @@ const make = Effect.gen(function* () {
           ...(input.continuation.senderThreadId === undefined
             ? {}
             : { senderThreadId: input.continuation.senderThreadId }),
-          text: input.continuation.text,
+          text: input.continuation.text ?? movedContinuationText(project.title),
           attachments: [],
           mode: "queue",
           createdBy: "agent",

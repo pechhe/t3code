@@ -137,6 +137,26 @@ it.effect("moves a No project chat at once and leaves its workspace to the next 
   }),
 );
 
+it.effect("continues a chat that moved itself without naming a next step", () =>
+  Effect.gen(function* () {
+    const fake = setup({ thread: { projectId: scratchId, worktreePath: "/scratch/chat" } });
+    yield* fake.run((service) =>
+      service.move({
+        commandId,
+        threadId,
+        projectId: targetId,
+        continuation: {
+          commandId: CommandId.make("move:continuation"),
+          messageId: MessageId.make("move:continuation"),
+          senderThreadId: threadId,
+        },
+      }),
+    );
+    assert.equal(fake.sent.length, 1);
+    assert.include(fake.sent[0]?.text ?? "", "moved into target");
+  }),
+);
+
 it.effect("runs a chat moved into a project without SlipJay at the project root", () =>
   Effect.gen(function* () {
     const fake = setup({
