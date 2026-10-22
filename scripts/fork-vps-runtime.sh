@@ -41,8 +41,6 @@ PENDING="$VERSIONS/.fork-pending-$VERSION.tar.gz"
 SOURCE="${3:-}"
 RELEASES="${T3FORK_RELEASES_URL:-https://github.com/pingdotgg/t3code/releases/download}"
 ARCHIVE="t3-$VERSION-linux-x64.tar.gz"
-# Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
-SEA_NODE_VERSION=26.8.2
 
 cd "$CLONE"
 
@@ -104,6 +102,8 @@ tar -xzf "$work/$ARCHIVE" -C "$work/official" --strip-components=1
 command vp i
 node scripts/update-release-package-versions.ts "$VERSION" >/dev/null
 command vp run --filter t3 build
+# The native executable must be built with the Node that package.json pins.
+SEA_NODE_VERSION=$(sed -n 's/^    "node": "\([0-9.]*\)".*/\1/p' package.json)
 PATH="$HOME/.local/share/vite-plus/fallback-bin:$PATH" VP_NODE_VERSION="$SEA_NODE_VERSION" \
   node apps/server/scripts/cli.ts build-exe
 
