@@ -1470,6 +1470,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
                             "yardsmith-hq": {
                               url: HqTestkit.hqEndpoint,
                               http_headers: { Authorization: connection.authorizationHeader },
+                              default_tools_approval_mode: "approve",
                             },
                           },
                         },

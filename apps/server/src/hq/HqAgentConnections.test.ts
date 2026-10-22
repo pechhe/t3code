@@ -268,9 +268,15 @@ it.effect("Claude and Codex get a yardsmith-hq server that carries no HQ credent
     });
     assert.deepStrictEqual(Object.keys(claude.mcpServers ?? {}), ["yardsmith-hq"]);
     assert.include(claude.allowedTools ?? [], "mcp__yardsmith-hq__*");
-    const codexServers = codex.config.mcp_servers as Record<string, { url: string }>;
+    const codexServers = codex.config.mcp_servers as Record<
+      string,
+      { url: string; default_tools_approval_mode?: string }
+    >;
     assert.deepStrictEqual(Object.keys(codexServers), ["yardsmith-hq"]);
     assert.strictEqual(codexServers["yardsmith-hq"]!.url, hqEndpoint);
+    // Codex denies an unapproved MCP tool under `approval_policy: never`, so its HQ server
+    // must pre-approve like Claude's wildcard or a reviewer cannot record its review.
+    assert.strictEqual(codexServers["yardsmith-hq"]!.default_tools_approval_mode, "approve");
     assertNoSecretsIn(claude, codex);
   }),
 );

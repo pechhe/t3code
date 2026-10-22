@@ -1426,6 +1426,11 @@ export function codexThreadRuntimeParams(input: {
                 [HqAgentConnections.HQ_MCP_SERVER_NAME]: {
                   url: hq.endpoint,
                   http_headers: { Authorization: hq.authorizationHeader },
+                  // Claude pre-approves the whole HQ wildcard, and this is its Codex equal:
+                  // what the agent may do in HQ is HQ's decision for its role, not Codex's
+                  // approval prompt. Under `approval_policy: never` an unapproved MCP tool is
+                  // denied outright, which left a Codex reviewer unable to record its review.
+                  default_tools_approval_mode: "approve",
                 },
               }),
         };
