@@ -24,8 +24,10 @@ if that project exists there. Otherwise it selects an environment that has it.
 A thread does not need a project, and a new thread starts without one. To go back
 to no project after picking one, pick the **No project** chip on the new-thread
 screen, or press `mod+alt+n`. On mobile, pick **No project** from the project
-list. It starts on your current machine; before sending, pick another machine
-from the machine menu to move it there. To move a draft into a project, pick its
+list. On web and desktop it starts on the machine the composer's machine switch was
+last left on, which is the newest thread's machine until you move it; move that
+switch before sending to run the draft somewhere else. On mobile it starts on the
+machine of the project you picked it from. To move a draft into a project, pick its
 chip.
 
 Each thread without a project works in its own folder under `~/.t3/scratch` (the

@@ -498,7 +498,7 @@ function OpenCommandPaletteDialog(props: {
   const {
     scratchEnvironmentId,
     scratchWorkspaceRootFor,
-    lastStartedEnvironmentId,
+    newThreadEnvironmentId,
     startScratchThread,
   } = useScratchProject();
   const moveThreadToProject = useMoveThreadToProject();
@@ -737,7 +737,7 @@ function OpenCommandPaletteDialog(props: {
     activeThread?.environmentId ?? activeDraftThread?.environmentId ?? null;
   const currentProjectId = activeThread?.projectId ?? activeDraftThread?.projectId ?? null;
   const scratchTargetEnvironmentId = scratchEnvironmentId(
-    lastStartedEnvironmentId() ?? primaryEnvironmentId,
+    newThreadEnvironmentId() ?? primaryEnvironmentId,
   );
   const currentProjectCwd = currentProjectId
     ? (projectCwdById.get(currentProjectId) ?? null)

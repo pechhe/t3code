@@ -19,6 +19,7 @@ import {
 import { useComposerDraftStore, DraftId } from "../../composerDraftStore";
 import { type EnvironmentPresentation, useEnvironmentProviders } from "../../state/environments";
 import { useProjects } from "../../state/entities";
+import { useUiStateStore } from "../../uiStateStore";
 import type { DraftSessionState } from "../../composerDraftStore";
 
 interface DraftEnvironmentRoutingInput {
@@ -67,6 +68,7 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
     sendInFlightRef,
   } = input;
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
+  const setNewThreadEnvironmentId = useUiStateStore((store) => store.setNewThreadEnvironmentId);
   const getDraftSession = useComposerDraftStore((store) => store.getDraftSession);
   const setLogicalProjectDraftThreadId = useComposerDraftStore(
     (store) => store.setLogicalProjectDraftThreadId,
@@ -143,6 +145,9 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       });
       return;
     }
+    // Automatic routing picks a machine each time, so it stops the switch's position from
+    // carrying into the next new thread.
+    setNewThreadEnvironmentId(null);
     loadBalancing.refresh(
       logicalProjectEnvironments.map((environment) => environment.environmentId),
     );
@@ -219,6 +224,8 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       )
         return;
       const projectRef = scopeProjectRef(target.environmentId, project.id);
+      // The switch keeps this position: the next new thread starts on the same machine.
+      setNewThreadEnvironmentId(target.environmentId);
       if (activeProjectIsScratch) {
         setLogicalProjectDraftThreadId(
           deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings),

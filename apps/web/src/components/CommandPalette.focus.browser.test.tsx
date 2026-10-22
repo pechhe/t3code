@@ -35,7 +35,7 @@ vi.mock("../hooks/useSettings", async (importOriginal) => ({
 vi.mock("../hooks/useScratchProject", () => ({
   useScratchProject: () => ({
     scratchEnvironmentId: () => null,
-    lastStartedEnvironmentId: () => null,
+    newThreadEnvironmentId: () => null,
   }),
 }));
 vi.mock("../hooks/useNewProject", () => ({ useNewProject: () => vi.fn() }));

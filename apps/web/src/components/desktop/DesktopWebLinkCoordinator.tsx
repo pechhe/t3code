@@ -75,7 +75,7 @@ export function DesktopWebLinkCoordinator() {
   const primaryEnvironment = usePrimaryEnvironment();
   const openPullRequestsInApp = useClientSettings((settings) => settings.pullRequestLinksOpenInApp);
   const openChangeRequest = useOpenChangeRequestLink();
-  const { scratchEnvironmentId, openScratchProject } = useScratchProject();
+  const { scratchEnvironmentId, newThreadEnvironmentId, openScratchProject } = useScratchProject();
   const openThread = useNewThreadHandler();
   const openPreview = useAtomCommand(previewEnvironment.open, { reportFailure: false });
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -96,7 +96,9 @@ export function DesktopWebLinkCoordinator() {
     );
 
   const startThread = async (url: string): Promise<ScopedThreadRef | null> => {
-    const environmentId = scratchEnvironmentId(primaryEnvironment?.environmentId ?? null);
+    const environmentId = scratchEnvironmentId(
+      newThreadEnvironmentId() ?? primaryEnvironment?.environmentId ?? null,
+    );
     if (environmentId === null) {
       reportFailure(url);
       return null;

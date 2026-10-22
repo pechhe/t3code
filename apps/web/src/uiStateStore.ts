@@ -34,6 +34,7 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  newThreadEnvironmentId?: string | null;
 }
 
 export interface UiProjectState {
@@ -54,12 +55,18 @@ export interface UiEndpointState {
   defaultAdvertisedEndpointKey: string | null;
 }
 
+export interface UiNewThreadState {
+  // The machine the composer's switch was last moved to on an unsent draft. Device-local,
+  // because it describes this client's last choice, not the environments' own setup.
+  newThreadEnvironmentId: string | null;
+}
+
 export interface UiPullRequestState {
   pullRequestMergeMethod: PullRequestMergeMethod;
 }
 
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState, UiNewThreadState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -70,6 +77,7 @@ const initialState: UiState = {
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
+  newThreadEnvironmentId: null,
 };
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
@@ -186,6 +194,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     pullRequestMergeMethod: isPullRequestMergeMethod(parsed.pullRequestMergeMethod)
       ? parsed.pullRequestMergeMethod
       : initialState.pullRequestMergeMethod,
+    newThreadEnvironmentId: sanitizeOptionalKey(parsed.newThreadEnvironmentId),
   };
 }
 
@@ -261,6 +270,7 @@ export function persistState(state: UiState): void {
         threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
         threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
         pullRequestMergeMethod: state.pullRequestMergeMethod,
+        newThreadEnvironmentId: state.newThreadEnvironmentId,
       } satisfies PersistedUiState),
     );
     if (!legacyKeysCleanedUp) {
@@ -507,6 +517,7 @@ interface UiStateStore extends UiState {
     startingChoice: ThemeChoice,
   ) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
+  setNewThreadEnvironmentId: (environmentId: string | null) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -531,6 +542,12 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setProjectThemeHalf: (projectKey, appearance, themeId, startingChoice) =>
     set((state) => setProjectThemeHalf(state, projectKey, appearance, themeId, startingChoice)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
+  setNewThreadEnvironmentId: (environmentId) =>
+    set((state) =>
+      state.newThreadEnvironmentId === environmentId
+        ? state
+        : { ...state, newThreadEnvironmentId: environmentId },
+    ),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>

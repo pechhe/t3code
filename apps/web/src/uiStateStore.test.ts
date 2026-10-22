@@ -27,6 +27,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
     pullRequestMergeMethod: "merge",
+    newThreadEnvironmentId: null,
     ...overrides,
   };
 }
@@ -166,6 +167,7 @@ describe("parsePersistedState", () => {
       sidebarProjectScopeKey: null,
       projectThemeByKey: {},
       pullRequestMergeMethod: "merge",
+      newThreadEnvironmentId: null,
       threadChangedFilesExpandedById: {
         "environment:thread-1": {
           "turn-1": false,
@@ -254,6 +256,7 @@ describe("uiStateStore persistence", () => {
       },
       defaultAdvertisedEndpointKey: "desktop-core:lan:http",
       projectThemeByKey: { logical: { theme: "ocean", dark: "grove" } },
+      newThreadEnvironmentId: "peach-box",
     });
 
     persistState(state);
@@ -280,10 +283,22 @@ describe("uiStateStore persistence", () => {
         },
       },
       pullRequestMergeMethod: "merge",
+      newThreadEnvironmentId: "peach-box",
     });
     expect(parsePersistedState(persisted)).toEqual({
       ...state,
     });
+  });
+
+  it("reads only a stored new-thread machine", () => {
+    expect(
+      parsePersistedState({ newThreadEnvironmentId: "peach-box" }).newThreadEnvironmentId,
+    ).toBe("peach-box");
+    expect(
+      parsePersistedState({ newThreadEnvironmentId: 5 as unknown as string })
+        .newThreadEnvironmentId,
+    ).toBeNull();
+    expect(parsePersistedState({ newThreadEnvironmentId: "" }).newThreadEnvironmentId).toBeNull();
   });
 
   it("restores the sidebar project scope across reloads", () => {

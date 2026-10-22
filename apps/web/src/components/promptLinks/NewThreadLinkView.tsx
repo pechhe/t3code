@@ -68,8 +68,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const handleNewThread = useNewThreadHandler();
-  const { scratchEnvironmentId, lastStartedEnvironmentId, openScratchProject } =
-    useScratchProject();
+  const { scratchEnvironmentId, newThreadEnvironmentId, openScratchProject } = useScratchProject();
   const startProjectClone = useAtomCommand(sourceControlEnvironment.startProjectClone, {
     reportFailure: false,
   });
@@ -88,7 +87,7 @@ export function NewThreadLinkView({ link }: { readonly link: NewThreadLink }) {
     );
 
   const lastActiveEnvironmentId = () => {
-    return lastStartedEnvironmentId() ?? primaryEnvironmentId;
+    return newThreadEnvironmentId() ?? primaryEnvironmentId;
   };
 
   const openDraft = async (project: EnvironmentProject, extraPrompt?: string) => {

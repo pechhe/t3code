@@ -5,7 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { EnvironmentId } from "@t3tools/contracts";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useEnvironments } from "~/state/environments";
@@ -13,7 +13,9 @@ import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { isSidebarSubagentThread } from "~/components/Sidebar.logic";
 import { readThreadShells } from "~/state/entities";
+import { useUiStateStore } from "~/uiStateStore";
 import { useNewThreadHandler } from "./useHandleNewThread";
+import { resolveNewThreadEnvironmentId } from "./newThreadEnvironment.logic";
 
 function reportScratchFailure(title: string, error: unknown) {
   toastManager.add(
@@ -55,6 +57,19 @@ export function useScratchProject() {
     return latest?.environmentId ?? null;
   };
 
+  // Where the composer's switch was last left, so a new thread opens on the machine the
+  // user chose rather than wherever the newest thread happened to start.
+  const newThreadEnvironmentId = (): EnvironmentId | null => {
+    const remembered = useUiStateStore.getState().newThreadEnvironmentId;
+    return resolveNewThreadEnvironmentId({
+      remembered: remembered === null ? null : EnvironmentId.make(remembered),
+      lastStarted: lastStartedEnvironmentId(),
+      scratchEnvironmentIds: environments
+        .filter((entry) => scratchWorkspaceRootFor(entry.environmentId) !== null)
+        .map((entry) => entry.environmentId),
+    });
+  };
+
   const openScratchProject = async (
     environmentId: EnvironmentId,
     failureTitle = "Could not start without a project",
@@ -79,7 +94,7 @@ export function useScratchProject() {
   return {
     scratchWorkspaceRootFor,
     scratchEnvironmentId,
-    lastStartedEnvironmentId,
+    newThreadEnvironmentId,
     openScratchProject,
     startScratchThread,
   };
