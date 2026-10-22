@@ -1131,6 +1131,26 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "notifies once when the claimed attempt for the newest tag goes quiet",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          const env = { T3FORK_REDISPATCH_SECONDS: "0" };
+          await run(f, [], env);
+          await run(f, [], env);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "claimed",
+            quietNotified: true,
+          });
+          expect((await nightlyLog(f)).match(/has made no progress/g)).toHaveLength(1);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "keeps a publication block, and its retry route, when the update lands",
       async () => {
         await withFixture(async (f) => {

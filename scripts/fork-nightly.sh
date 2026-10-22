@@ -517,6 +517,7 @@ update_attempts() {
     new | dispatch-failed | retry | awaiting-manual) dispatch "$tag" update ;;
     dispatched) redispatch_due "$tag" update ;;
     blocked) log "upstream $tag is blocked: $(json_get "$file" .blocked.summary)" ;;
+    claimed) notify_quiet_claim "$tag" "$file" "upstream $tag is waiting on" ;;
   esac
 }
 
