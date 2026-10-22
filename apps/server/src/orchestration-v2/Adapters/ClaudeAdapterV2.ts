@@ -51,6 +51,7 @@ import {
   type SDKRateLimitInfo,
   type SDKResultMessage,
   type SDKUserMessage,
+  type HookCallbackMatcher,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
   AskUserQuestionInput,
@@ -140,6 +141,7 @@ import {
   type CompiledClaudeModelSelection,
 } from "../../claudeModelOptions.ts";
 import * as ServerConfig from "../../config.ts";
+import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as ServerSettings from "../../serverSettings.ts";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
 import { signalProcessGroup } from "@t3tools/provider-core/server/processGroup";
@@ -1362,6 +1364,7 @@ export function makeClaudeQueryOptions(input: {
   readonly disallowedTools?: ReadonlyArray<string>;
   readonly permissionMode?: PermissionMode;
   readonly canUseTool?: CanUseTool;
+  readonly hooks?: ClaudeQueryOptions["hooks"];
   readonly onUserDialog?: ClaudeQueryOptions["onUserDialog"];
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
   /** An assigned instruction experiment variant, appended after T3's own instructions. */
@@ -1454,6 +1457,7 @@ export function makeClaudeQueryOptions(input: {
     ...(input.allowedTools === undefined ? {} : { allowedTools: [...input.allowedTools] }),
     ...(input.disallowedTools === undefined ? {} : { disallowedTools: [...input.disallowedTools] }),
     ...(input.canUseTool === undefined ? {} : { canUseTool: input.canUseTool }),
+    ...(input.hooks === undefined ? {} : { hooks: input.hooks }),
     ...(input.allowDangerouslySkipPermissions === true
       ? { allowDangerouslySkipPermissions: true }
       : {}),
@@ -2501,6 +2505,38 @@ function claudeNativeToolInputFromUnknown(input: unknown): ClaudeNativeToolInput
     ? { type: "record", value: input }
     : { type: "non_record", value: input };
 }
+
+/**
+ * Claude's own guard hook: a `PreToolUse` callback the SDK runs before it executes
+ * the tool, in every permission mode. `canUseTool` is not called under
+ * `bypassPermissions` — the mode agents run in — so this is the one place a denied
+ * command can still be stopped. SlipJay decides; T3 only carries its answer.
+ */
+const slipJayGuardHook = (input: {
+  readonly guard: SlipJayGuard.SlipJayGuard["Service"];
+  readonly cwd: string;
+  readonly runPromise: <A>(effect: Effect.Effect<A, never, never>) => Promise<A>;
+}): HookCallbackMatcher => ({
+  matcher: "Bash",
+  hooks: [
+    async (hookInput) => {
+      const command = field(field(hookInput, "tool_input"), "command");
+      if (typeof command !== "string" || command.trim().length === 0) return { continue: true };
+      const decision = await input
+        .runPromise(input.guard.check({ cwd: input.cwd, command }))
+        .catch(() => null);
+      if (decision === null || decision.allowed) return { continue: true };
+      return {
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason:
+            decision.reason ?? "SlipJay guard denied this command in a SlipJay repository.",
+        },
+      };
+    },
+  ],
+});
 
 function claudeNativeToolInputFromRecord(input: Record<string, unknown>): ClaudeNativeToolInput {
   return { type: "record", value: input };
@@ -4109,6 +4145,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readAgentServers = yield* AgentMcpServers.makeReader;
   const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);
+  const slipJayGuard = yield* Effect.serviceOption(SlipJayGuard.SlipJayGuard);
   const { attachmentsDir, fileSystem, path, crypto, idAllocator, queryRunner } = adapterOptions;
   const subagentModelCatalog = scopeClaudeModelCatalog(
     BUNDLED_CLAUDE_MODEL_CATALOG,
@@ -6759,49 +6796,54 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         });
         const textDeltas = yield* makeProviderTextDeltaCoalescer({
           flushIntervalMs: PROVIDER_TEXT_FLUSH_INTERVAL_MS,
-          emit: (update) =>
-            Effect.gen(function* () {
-              const context = yield* Ref.get(activeTurn);
-              if (context === null || context.nativeTurnId !== update.turnId) return;
-              if (update.text.length === 0) return;
-              if (context.assistant.emittedNativeItemIds.has(update.itemId)) return;
-              const startedAt = context.assistant.streamedStartedAt.get(update.itemId);
-              if (startedAt === undefined) return;
-              // The completed snapshot normally owns the final text. A turn that
-              // ends first completes the block with the text streamed so far.
-              if (update.completed) {
-                yield* emitAssistantTextArtifacts({
-                  context,
-                  nativeItemId: update.itemId,
-                  text: update.text,
-                });
-                return;
-              }
-              const artifacts = buildAssistantArtifacts({
-                idAllocator,
-                turnInput: context.input,
-                providerTurnId: context.providerTurnId,
+          // One call per coalesced flush, so a span per delta would cost more than it shows.
+          emit: Effect.fnUntraced(function* (update: {
+            turnId: string;
+            itemId: string;
+            text: string;
+            completed: boolean;
+          }) {
+            const context = yield* Ref.get(activeTurn);
+            if (context === null || context.nativeTurnId !== update.turnId) return;
+            if (update.text.length === 0) return;
+            if (context.assistant.emittedNativeItemIds.has(update.itemId)) return;
+            const startedAt = context.assistant.streamedStartedAt.get(update.itemId);
+            if (startedAt === undefined) return;
+            // The completed snapshot normally owns the final text. A turn that
+            // ends first completes the block with the text streamed so far.
+            if (update.completed) {
+              yield* emitAssistantTextArtifacts({
+                context,
                 nativeItemId: update.itemId,
                 text: update.text,
-                ordinal: yield* resolveItemOrdinal(context, update.itemId),
-                startedAt,
-                completedAt: yield* DateTime.now,
-                createdAt: startedAt,
-                streaming: true,
               });
-              // The snapshot may have completed the block while this update was built.
-              if (context.assistant.emittedNativeItemIds.has(update.itemId)) return;
-              yield* emitProviderEvent({
-                type: "message.updated",
-                driver: CLAUDE_PROVIDER,
-                message: artifacts.message,
-              });
-              yield* emitProviderEvent({
-                type: "turn_item.updated",
-                driver: CLAUDE_PROVIDER,
-                turnItem: artifacts.turnItem,
-              });
-            }),
+              return;
+            }
+            const artifacts = buildAssistantArtifacts({
+              idAllocator,
+              turnInput: context.input,
+              providerTurnId: context.providerTurnId,
+              nativeItemId: update.itemId,
+              text: update.text,
+              ordinal: yield* resolveItemOrdinal(context, update.itemId),
+              startedAt,
+              completedAt: yield* DateTime.now,
+              createdAt: startedAt,
+              streaming: true,
+            });
+            // The snapshot may have completed the block while this update was built.
+            if (context.assistant.emittedNativeItemIds.has(update.itemId)) return;
+            yield* emitProviderEvent({
+              type: "message.updated",
+              driver: CLAUDE_PROVIDER,
+              message: artifacts.message,
+            });
+            yield* emitProviderEvent({
+              type: "turn_item.updated",
+              driver: CLAUDE_PROVIDER,
+              turnItem: artifacts.turnItem,
+            });
+          }),
         });
         const reasoningDeltas = yield* makeProviderTextDeltaCoalescer({
           flushIntervalMs: PROVIDER_TEXT_FLUSH_INTERVAL_MS,
@@ -9701,6 +9743,19 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   allowDangerouslySkipPermissions: queryPolicy.allowDangerouslySkipPermissions,
                 }),
             canUseTool,
+            ...(Option.isSome(slipJayGuard) && turnInput.runtimePolicy.cwd !== null
+              ? {
+                  hooks: {
+                    PreToolUse: [
+                      slipJayGuardHook({
+                        guard: slipJayGuard.value,
+                        cwd: turnInput.runtimePolicy.cwd,
+                        runPromise,
+                      }),
+                    ],
+                  },
+                }
+              : {}),
             onUserDialog,
             supportedDialogKinds: ["resume_return"],
             ...(t3McpSession?.delegated === true ? { t3Delegated: true } : {}),

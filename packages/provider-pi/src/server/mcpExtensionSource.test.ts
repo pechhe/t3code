@@ -130,6 +130,86 @@ describe("Pi MCP tool results", () => {
   });
 });
 
+describe("Pi command guard", () => {
+  type ToolCallHook = (
+    event: { toolName: string; input: unknown },
+    ctx: { signal: AbortSignal; ui: { confirm: (title: string) => Promise<boolean> } },
+  ) => Promise<{ block: true; reason: string } | undefined>;
+
+  it("blocks a command the repository guard refuses, in every runtime mode", async () => {
+    for (const runtimeMode of ["full-access", "auto", "approval-required"]) {
+      const bridge = await loadMcpBridge({
+        modern: true,
+        runtimeMode,
+        result: { structuredContent: { allowed: false, reason: "main is protected" } },
+      });
+      const hook = bridge.handlers.get("tool_call") as unknown as ToolCallHook;
+      let confirmed = false;
+      const refusal = await hook(
+        { toolName: "bash", input: { command: "git push origin main" } },
+        {
+          signal: new AbortController().signal,
+          ui: {
+            confirm: async () => {
+              confirmed = true;
+              return true;
+            },
+          },
+        },
+      );
+      assert.deepEqual(refusal, { block: true, reason: "main is protected" });
+      assert.isFalse(confirmed, "a guarded refusal never asks the user");
+      const call = bridge.requests.find((request) => request.method === "tools/call");
+      assert.deepEqual(call?.params, {
+        name: "t3_guard_command",
+        arguments: { cwd: "/fixture/workspace", command: "git push origin main" },
+      });
+    }
+  });
+
+  it("leaves an allowed command to the runtime mode", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      runtimeMode: "full-access",
+      result: { structuredContent: { allowed: true, reason: null } },
+    });
+    const hook = bridge.handlers.get("tool_call") as unknown as ToolCallHook;
+    assert.isUndefined(
+      await hook(
+        { toolName: "bash", input: { command: "git status" } },
+        { signal: new AbortController().signal, ui: { confirm: async () => true } },
+      ),
+    );
+  });
+
+  it("lets the call through when T3's bridge is absent", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      runtimeMode: "full-access",
+      withoutT3: true,
+    });
+    const hook = bridge.handlers.get("tool_call") as unknown as ToolCallHook;
+    assert.isUndefined(
+      await hook(
+        { toolName: "bash", input: { command: "git push origin main" } },
+        { signal: new AbortController().signal, ui: { confirm: async () => true } },
+      ),
+    );
+  });
+
+  it("lets the call through when the guard cannot answer", async () => {
+    const bridge = await loadMcpBridge({ modern: true, runtimeMode: "full-access" });
+    const hook = bridge.handlers.get("tool_call") as unknown as ToolCallHook;
+    // The default fixture answers tools/call with a browser snapshot, no guard decision.
+    assert.isUndefined(
+      await hook(
+        { toolName: "bash", input: { command: "git status" } },
+        { signal: new AbortController().signal, ui: { confirm: async () => true } },
+      ),
+    );
+  });
+});
+
 describe("Pi MCP tool exposure", () => {
   const discoveryContext = {
     model: { api: "anthropic-messages" },

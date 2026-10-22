@@ -95,6 +95,7 @@ export async function loadMcpBridge(
   );
   await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
     process: {
+      cwd: () => "/fixture/workspace",
       env: {
         ...(options.withoutT3
           ? {}

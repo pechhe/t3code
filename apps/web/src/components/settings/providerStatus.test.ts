@@ -2,6 +2,7 @@ import { ProviderDriverKind, ProviderInstanceId, type ServerProvider } from "@t3
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  getCommandGuardSummary,
   getProviderSummary,
   getProviderVersionAdvisoryPresentation,
   getProviderStatusKey,
@@ -231,5 +232,21 @@ it("shows compatibility in the version popover even when the installed version i
     updateCommand: null,
     emphasis: "normal",
     targetVersion: null,
+  });
+});
+
+describe("getCommandGuardSummary", () => {
+  it("names a driver T3 cannot stop before execution", () => {
+    expect(getCommandGuardSummary("observe-only")).toEqual({
+      headline: "Not guarded",
+      detail:
+        "This driver gives T3 no point to stop a command before it runs, so a repository's guard cannot block commands here.",
+      unguarded: true,
+    });
+    expect(getCommandGuardSummary("blocking")?.unguarded).toBe(false);
+  });
+
+  it("treats a driver that reports nothing as unguarded", () => {
+    expect(getCommandGuardSummary(undefined)?.unguarded).toBe(true);
   });
 });

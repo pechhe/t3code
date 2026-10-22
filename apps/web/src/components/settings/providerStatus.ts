@@ -44,6 +44,32 @@ export function getProviderStatusKey(provider: ServerProvider | undefined): Prov
   return provider?.status ?? "warning";
 }
 
+/**
+ * What Settings says about a driver's command guard. A driver with no point before
+ * execution is named as unguarded rather than left looking guarded by omission.
+ */
+export function getCommandGuardSummary(guard: ServerProvider["toolCallGuard"]): {
+  readonly headline: string;
+  readonly detail: string;
+  readonly unguarded: boolean;
+} {
+  if (guard === "blocking") {
+    return {
+      headline: "Guarded",
+      detail:
+        "T3 runs the repository's SlipJay guard before each command and blocks a refused one.",
+      unguarded: false,
+    };
+  }
+  // A driver that reports nothing has proven nothing: name it unguarded.
+  return {
+    headline: "Not guarded",
+    detail:
+      "This driver gives T3 no point to stop a command before it runs, so a repository's guard cannot block commands here.",
+    unguarded: true,
+  };
+}
+
 export function getProviderSummary(provider: ServerProvider | undefined) {
   if (!provider) {
     return {

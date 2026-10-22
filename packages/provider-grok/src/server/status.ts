@@ -49,6 +49,7 @@ import { discoverGrokSkills } from "./skills.ts";
 import { grokProbeEnvironment } from "./probeEnvironment.ts";
 
 const GROK_PRESENTATION = {
+  toolCallGuard: "blocking",
   displayName: "Grok",
   supportsConversationRollback: false,
   showInteractionModeToggle: false,

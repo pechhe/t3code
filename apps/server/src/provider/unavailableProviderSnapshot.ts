@@ -27,7 +27,8 @@ export const buildUnavailableProviderSnapshot = Effect.fn(
 
   // No driver ran, so its setup capabilities are still unknown.
   const { setup: _setup, ...base } = buildServerProvider({
-    presentation: { displayName },
+    // A driver this build does not have cannot be shown as guarded.
+    presentation: { displayName, toolCallGuard: "observe-only" },
     enabled: false,
     checkedAt,
     models: [],

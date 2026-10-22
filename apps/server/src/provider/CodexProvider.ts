@@ -79,6 +79,7 @@ const CODEX_AUTH_PROBE_TIMEOUT_MS = 20_000;
 const CODEX_DISCOVERY_MARGIN_MS = 250;
 
 const CODEX_PRESENTATION = {
+  toolCallGuard: "blocking",
   displayName: "Codex",
   showInteractionModeToggle: true,
   reportsContextWindow: true,

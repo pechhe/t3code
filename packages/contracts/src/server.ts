@@ -233,6 +233,14 @@ export const ServerProvider = Schema.Struct({
   supportedRuntimeModes: Schema.optional(ForwardCompatibleArray(RuntimeMode)),
   requiresNewThreadForModelChange: Schema.optional(Schema.Boolean),
   supportsConversationRollback: Schema.optional(Schema.Boolean),
+  /**
+   * `blocking` when T3 stops a repository-guarded command before the agent runs it,
+   * `observe-only` when this driver offers no such point. Settings names the ones
+   * T3 cannot block rather than implying every command is guarded.
+   */
+  // Always present on a current snapshot; a client that finds it missing must treat
+  // the driver as unguarded rather than as guarded by omission.
+  toolCallGuard: Schema.optional(Schema.Literals(["blocking", "observe-only"])),
   supportsTextGeneration: Schema.optional(Schema.Boolean),
   setup: Schema.optional(
     Schema.Struct({

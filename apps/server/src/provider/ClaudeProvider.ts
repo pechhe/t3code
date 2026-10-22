@@ -58,6 +58,7 @@ const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabili
 });
 
 const CLAUDE_PRESENTATION = {
+  toolCallGuard: "blocking",
   displayName: "Claude",
   showInteractionModeToggle: true,
   reportsContextWindow: true,

@@ -43,6 +43,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
+import * as CommandGuard from "@t3tools/provider-core/server/commandGuard";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -7132,6 +7133,115 @@ describe("AcpAdapterV2", () => {
         );
       }).pipe(Effect.provide(layerTest), Effect.scoped),
   );
+
+  it.effect("declines an execute permission the host guard refuses", () => {
+    const guarded: Array<{ cwd: string | null; command: string }> = [];
+    return Effect.gen(function* () {
+      type RuntimeService = AcpSessionRuntime.AcpSessionRuntime["Service"];
+      type PermissionResponse = EffectAcpSchema.RequestPermissionResponse;
+      let requestPermission: Parameters<RuntimeService["handleRequestPermission"]>[0] | undefined;
+      let response: PermissionResponse | undefined;
+      const instanceId = ProviderInstanceId.make("acp-test-guard-command");
+      const path = yield* Path.Path;
+      const adapter = yield* makeAcpAdapterV2({
+        instanceId,
+        selfInvocation: yield* resolveSelfInvocation(),
+        flavor: {
+          driver: ACP_TEST_DRIVER,
+          capabilities: AcpProviderCapabilitiesV2,
+          makeRuntime: makeMockRuntime({
+            childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+            mockAgentPath: yield* path.fromFileUrl(
+              new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+            ),
+            wrapRuntime: (runtime) => ({
+              ...runtime,
+              handleRequestPermission: (handler) =>
+                Effect.sync(() => {
+                  requestPermission = handler;
+                }).pipe(Effect.andThen(runtime.handleRequestPermission(handler))),
+              prompt: () =>
+                Effect.gen(function* () {
+                  if (requestPermission === undefined) {
+                    return yield* Effect.die("ACP adapter must register a permission handler");
+                  }
+                  response = yield* requestPermission(
+                    {
+                      sessionId: "mock-session-1",
+                      toolCall: {
+                        toolCallId: "guarded-command",
+                        title: "git push origin main",
+                        kind: "execute",
+                        rawInput: { command: "git push origin main" },
+                      },
+                      options: [
+                        { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+                        { optionId: "reject-once", name: "Reject once", kind: "reject_once" },
+                      ],
+                    },
+                    { requestId: "guarded-command-request", method: "session/request_permission" },
+                  );
+                  return { stopReason: "end_turn" as const };
+                }),
+            }),
+          }),
+        },
+      });
+      const threadId = ThreadId.make("thread-acp-guard-command");
+      const modelSelection = { instanceId, model: "default" };
+      const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        cwd: process.cwd(),
+      });
+      const runtime = yield* adapter.openSession({
+        threadId,
+        providerSessionId: ProviderSessionId.make("session-acp-guard-command"),
+        modelSelection,
+        runtimePolicy,
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId,
+        modelSelection,
+        runtimePolicy,
+      });
+      yield* runtime.startTurn(
+        makeTurnInput({
+          threadId,
+          providerThread,
+          instanceId,
+          runtimePolicy,
+          now: yield* DateTime.now,
+        }),
+      );
+      yield* runtime.events.pipe(
+        Stream.takeUntil((event) => event.type === "turn.terminal"),
+        Stream.runDrain,
+      );
+
+      assert.deepEqual(guarded, [{ cwd: process.cwd(), command: "git push origin main" }]);
+      assert.equal(response?.outcome.outcome, "selected");
+      assert.equal(
+        response?.outcome.outcome === "selected" ? response.outcome.optionId : undefined,
+        "reject-once",
+      );
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          layerTest,
+          Layer.succeed(CommandGuard.CommandGuard, {
+            check: (input: { cwd: string; command: string }) =>
+              Effect.sync(() => {
+                guarded.push({ cwd: input.cwd, command: input.command });
+                return { allowed: false, reason: "main is protected" };
+              }),
+            governs: () => Effect.succeed(true),
+          }),
+        ),
+      ),
+      Effect.scoped,
+    );
+  });
 });
 
 describe("acpPostSettleContinuationOfferEvidence", () => {

@@ -69,6 +69,7 @@ import {
   getProviderStatusKey,
   getProviderSummary,
   getProviderVersionLabel,
+  getCommandGuardSummary,
 } from "./providerStatus";
 
 const ENVIRONMENT_VARIABLE_NAME_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
@@ -667,6 +668,7 @@ export function ProviderInstanceCard({
   const summary = enabled
     ? getProviderSummary(effectiveProvider)
     : { headline: "Disabled", detail: null };
+  const commandGuard = getCommandGuardSummary(liveProvider?.toolCallGuard);
   const authEmail = liveProvider?.auth.email?.trim();
   const isAuthenticated = enabled && liveProvider?.auth.status === "authenticated";
   const authLabel =
@@ -1214,6 +1216,23 @@ export function ProviderInstanceCard({
             </div>
           }
         />
+        {commandGuard === null ? null : (
+          <SettingsRow
+            title="Command guard"
+            status={
+              <span className="flex flex-wrap items-baseline gap-x-1.5">
+                {commandGuard.unguarded ? (
+                  <Badge variant="warning" size="sm">
+                    {commandGuard.headline}
+                  </Badge>
+                ) : (
+                  <span className="font-medium text-foreground">{commandGuard.headline}</span>
+                )}
+                <span>{commandGuard.detail}</span>
+              </span>
+            }
+          />
+        )}
       </SettingsSection>
 
       {instance.pool !== undefined ? (

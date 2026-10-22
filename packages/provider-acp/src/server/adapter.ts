@@ -68,6 +68,7 @@ import type * as EffectAcpProtocol from "effect-acp/protocol";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
 import { formatReadToolLabel, formatSearchToolLabel } from "@t3tools/shared/toolActivity";
+import * as CommandGuard from "@t3tools/provider-core/server/commandGuard";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import {
   makeAcpMcpOverAcpBridge,
@@ -96,6 +97,7 @@ import {
 import {
   acpClientExecuteDisposition,
   acpMcpToolApprovalElicitationDisposition,
+  acpExecuteCommand,
   acpPermissionDisposition,
   type AcpPermissionDisposition,
   makeAcpClientPolicyGrants,
@@ -6056,9 +6058,30 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
                   const context = followsAgentWorkState
                     ? yield* Ref.get(activeTurn)
                     : yield* activeContext;
-                  const disposition = dispositionFor(
-                    context?.input.runtimePolicy ?? latestRuntimePolicy,
-                  );
+                  const policy = context?.input.runtimePolicy ?? latestRuntimePolicy;
+                  // A repository's own guard gets the last word before an agent command
+                  // runs: ACP's permission request is the only point ahead of execution,
+                  // and a refusal declines the request, so nobody is asked and nothing runs.
+                  // The kind is the agent's own label; a call that carries a shell
+                  // command is judged on the command, not on how it was labelled.
+                  const command = acpExecuteCommand(params.toolCall.rawInput);
+                  if (command !== null && policy.cwd !== null) {
+                    const decision = yield* CommandGuard.guardCommand({
+                      cwd: policy.cwd,
+                      command,
+                    });
+                    if (!decision.allowed) {
+                      const optionId = selectPermissionOptionId(params, "decline");
+                      return {
+                        _tag: "Immediate" as const,
+                        response:
+                          optionId === undefined
+                            ? ({ outcome: { outcome: "cancelled" } } as const)
+                            : ({ outcome: { outcome: "selected", optionId } } as const),
+                      };
+                    }
+                  }
+                  const disposition = dispositionFor(policy);
                   if (disposition === "allow") {
                     const optionId = selectAutoApprovedPermissionOption(params);
                     return {

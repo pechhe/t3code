@@ -24,6 +24,7 @@ import {
 import * as CursorSdkCatalog from "./CursorSdkCatalog.ts";
 
 const CURSOR_PRESENTATION = {
+  toolCallGuard: "observe-only",
   displayName: "Cursor",
   supportsConversationRollback: false,
   showInteractionModeToggle: true,

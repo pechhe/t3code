@@ -388,7 +388,48 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       NodePath.resolve(tool.sourceInfo.path) === NodePath.resolve(extensionPath));
   };
 
+  // The repository's guard runs in T3, not here: Pi leaves permission policy to
+  // extensions, so this hook is the only point that sees a command before it runs.
+  // Every mode asks, including full access, and a guard that cannot answer lets the
+  // call through, as the harness hooks did.
+  const guardRefusal = async (
+    event: { readonly toolName: string; readonly input: unknown },
+    ctx: { readonly signal?: AbortSignal },
+  ): Promise<{ block: true; reason: string } | undefined> => {
+    if (event.toolName !== "bash") return undefined;
+    const input = event.input as { readonly command?: unknown } | null | undefined;
+    const command = typeof input?.command === "string" ? input.command : undefined;
+    if (command === undefined || command.trim().length === 0) return undefined;
+    try {
+      const t3 = servers.find((server) => server.name === "t3-code");
+      if (t3 === undefined) return undefined;
+      const result = (await t3.client.callTool(
+        "t3_guard_command",
+        { cwd: process.cwd(), command },
+        ctx.signal,
+      )) as
+        | {
+            readonly structuredContent?: { readonly allowed?: boolean; readonly reason?: string | null };
+            readonly content?: ReadonlyArray<{ readonly type?: string; readonly text?: string }>;
+          }
+        | undefined;
+      const decision = result?.structuredContent as
+        | { readonly allowed?: boolean; readonly reason?: string | null }
+        | undefined;
+      if (decision?.allowed !== false) return undefined;
+      const reason =
+        typeof decision.reason === "string" && decision.reason.trim().length > 0
+          ? decision.reason
+          : "This command is blocked by the repository's SlipJay guard.";
+      return { block: true, reason };
+    } catch {
+      return undefined;
+    }
+  };
+
   pi.on("tool_call", async (event, ctx) => {
+    const refusal = await guardRefusal(event, ctx);
+    if (refusal !== undefined) return refusal;
     const mode = runtimeMode();
     if (mode === "full-access") return;
     if ((event.toolName === "tool_search" ? hasBuiltinToolSearch() : READ_ONLY_TOOLS.has(event.toolName)) || isApprovedMcpTool(event.toolName)) {

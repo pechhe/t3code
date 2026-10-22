@@ -87,6 +87,8 @@ import {
 import * as HtmlHandlers from "./toolkits/html/handlers.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import { HtmlPreviewTool, HtmlPreviewToolkit, HtmlRenderToolkit } from "./toolkits/html/tools.ts";
+import { GuardToolkit } from "./toolkits/guard/tools.ts";
+import * as GuardHandlers from "./toolkits/guard/handlers.ts";
 
 const mcpResourceMetadataUrl = (request: HttpServerRequest.HttpServerRequest) =>
   HttpServerRequest.toURL(request).pipe(
@@ -1271,7 +1273,12 @@ export const layerManagedBrowserToolkit = Layer.fresh(
   ),
 );
 
+const layerGuardToolkit = toolkitRegistration(GuardToolkit, GuardHandlers.layer).pipe(
+  Layer.provide(GuardHandlers.guardLayer),
+);
+
 const legacyLayer = Layer.mergeAll(
+  layerGuardToolkit,
   layerManagedBrowserToolkit,
   layerPreviewToolkit,
   layerOrchestratorToolkit,

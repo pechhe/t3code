@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ClaudeAdapterV2 from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
@@ -5,8 +6,10 @@ import * as CodexAdapterV2 from "../orchestration-v2/Adapters/CodexAdapterV2.ts"
 import * as CursorAgentSdk from "@t3tools/provider-cursor/server/CursorAgentSdk";
 import * as CursorSdk from "@t3tools/provider-cursor/server/CursorSdk";
 import * as CursorKeychain from "@t3tools/provider-cursor/server/CursorKeychain";
+import * as CommandGuard from "@t3tools/provider-core/server/commandGuard";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
+import * as SlipJayGuard from "../project/SlipJayGuard.ts";
 
 export type ProviderOrchestrationAdapterInfrastructure =
   | ClaudeAdapterV2.ClaudeAgentSdkQueryRunner
@@ -14,7 +17,9 @@ export type ProviderOrchestrationAdapterInfrastructure =
   | CursorAgentSdk.CursorAgentSdkRunner
   | CursorSdk.CursorSdk
   | CursorKeychain.CursorKeychain
-  | IdAllocator.IdAllocatorV2;
+  | IdAllocator.IdAllocatorV2
+  | SlipJayGuard.SlipJayGuard
+  | CommandGuard.CommandGuard;
 
 /**
  * `providerContinuationRequestsLayer` must be the same layer reference the
@@ -28,4 +33,14 @@ export const layer = Layer.mergeAll(
   CursorKeychain.layer,
   IdAllocator.layer,
   ProviderContinuationRequests.layer,
+  SlipJayGuard.sharedLayer,
+  // The port every provider package asks, so a driver outside this app reaches the
+  // same guard the server-side drivers call directly.
+  Layer.effect(
+    CommandGuard.CommandGuard,
+    Effect.map(SlipJayGuard.SlipJayGuard, (guard) => ({
+      check: guard.check,
+      governs: guard.governs,
+    })),
+  ).pipe(Layer.provide(SlipJayGuard.sharedLayer)),
 );

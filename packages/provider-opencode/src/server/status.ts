@@ -26,6 +26,7 @@ import type { Agent, ProviderListResponse } from "@opencode-ai/sdk/v2";
 import * as OpenCodeServerOwner from "./OpenCodeServerOwner.ts";
 
 const OPENCODE_PRESENTATION = {
+  toolCallGuard: "observe-only",
   displayName: "OpenCode",
   showInteractionModeToggle: false,
 } as const;

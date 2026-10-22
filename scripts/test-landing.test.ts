@@ -275,6 +275,8 @@ describe("tests the import graph cannot see", () => {
       "reads node_modules, which only a lockfile change moves",
     "apps/mobile/src/lib/uniwind-dev-refresh.test.ts":
       "reads node_modules, which only a lockfile change moves",
+    "apps/server/src/provider/CodexManagedRuntime.test.ts":
+      "spawns the server's own bin.ts by URL, which no input rule owns",
     "apps/server/src/provider/acp/AcpSessionRuntime.processTree.test.ts":
       "compiles scripts/acp-thread-spawn-helper.c, mapped by the scripts rule",
     "apps/web/src/components/diffs/codeViewSearch.test.ts":
@@ -948,6 +950,7 @@ describe("an empty whole suite", () => {
 });
 
 describe("the Vitest runner", () => {
+  // oxlint-disable-next-line t3code/no-test-timeout-or-unreasoned-skip -- spawns real vitest runs in a temporary checkout.
   it("runs exactly the requested files, not a sibling its path prefixes, and fails with them or their teardown", () => {
     const root = NodeFS.realpathSync(
       NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-landing-run-")),

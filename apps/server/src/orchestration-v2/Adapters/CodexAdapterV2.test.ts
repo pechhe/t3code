@@ -63,6 +63,7 @@ import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/to
 import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { makeReplayServerConfig, withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
+import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as CodexAdapterV2Testkit from "./CodexAdapterV2.testkit.ts";
 
 const replayTranscriptJson = Schema.fromJsonString(CodexReplay.CodexAppServerReplayTranscript);
@@ -140,10 +141,12 @@ describe("CodexAdapterV2 runtime policy", () => {
     Effect.gen(function* () {
       const build = (
         runtimeMode: "approval-required" | "auto-accept-edits" | "auto" | "full-access",
+        guardToolCalls = false,
       ) =>
         CodexAdapterV2.buildCodexTurnStartParams({
           nativeThreadId: `native-${runtimeMode}`,
           codexInput: [{ type: "text", text: "test" }],
+          guardToolCalls,
           runtimePolicy: {
             runtimeMode,
             interactionMode: "default",
@@ -172,6 +175,13 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.equal(fullAccess.approvalPolicy, "never");
       assert.equal(fullAccess.approvalsReviewer, "user");
       assert.equal(fullAccess.sandboxPolicy?.type, "dangerFullAccess");
+
+      // Full access never asks, so a guarded repository's commands would never reach
+      // the guard; there the mode asks and answers for itself.
+      const guardedFullAccess = yield* build("full-access", true);
+      assert.equal(guardedFullAccess.approvalPolicy, "untrusted");
+      assert.equal(guardedFullAccess.approvalsReviewer, "user");
+      assert.equal(guardedFullAccess.sandboxPolicy?.type, "dangerFullAccess");
     }),
   );
 
@@ -6948,4 +6958,162 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       }
     }).pipe(Effect.scoped),
   );
+
+  describe("CodexAdapterV2 SlipJay guard", () => {
+    const nativeThreadId = "thread-codex-guard";
+    const nativeTurnId = "turn-codex-guard";
+    const prompt = "Push the branch.";
+
+    const turnStarted: CodexReplay.CodexAppServerReplayEntry = {
+      type: "emit_inbound",
+      label: "turn started",
+      frame: {
+        method: "turn/started",
+        params: {
+          threadId: nativeThreadId,
+          turn: makeCodexReplayTurn({ id: nativeTurnId, status: "inProgress" }),
+        },
+      },
+    };
+
+    it.effect("declines a guarded command with SlipJay's message and never asks the user", () => {
+      const seen: Array<SlipJayGuard.SlipJayGuardInput> = [];
+      return Effect.scoped(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          const idAllocator = yield* IdAllocator.IdAllocatorV2;
+          const serverConfig = yield* makeReplayServerConfig("codex-guard").pipe(Effect.orDie);
+          const transcript = makeCodexReplayTranscript({
+            scenario: "codex-guard",
+            entries: [
+              // A governed workspace asks for approval in full access so the guard sees
+              // every command; the rest of the preamble is unchanged.
+              ...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }).map((entry) => {
+                if (entry.type !== "expect_outbound" || entry.label !== "turn/start") return entry;
+                const frame = entry.frame as { params: Record<string, unknown> };
+                return {
+                  ...entry,
+                  frame: { ...frame, params: { ...frame.params, approvalPolicy: "untrusted" } },
+                };
+              }),
+              turnStarted,
+              {
+                type: "emit_inbound",
+                label: "guarded command approval",
+                frame: {
+                  id: 100,
+                  method: "item/commandExecution/requestApproval",
+                  params: {
+                    threadId: nativeThreadId,
+                    turnId: nativeTurnId,
+                    itemId: "guarded-command",
+                    command: "git push origin main",
+                    cwd: "/workspace",
+                  },
+                },
+              },
+              // The guard answers before the user is ever asked: Codex gets a plain decline.
+              {
+                type: "expect_outbound",
+                label: "guarded command decision",
+                frame: { id: 100, result: { decision: "decline" } },
+              },
+              // An allowed command is accepted once, never for the session: Codex must
+              // ask again next time, because a jj verdict moves with the working copy.
+              {
+                type: "emit_inbound",
+                label: "allowed command approval",
+                frame: {
+                  id: 101,
+                  method: "item/commandExecution/requestApproval",
+                  params: {
+                    threadId: nativeThreadId,
+                    turnId: nativeTurnId,
+                    itemId: "allowed-command",
+                    command: "git status",
+                    cwd: "/workspace",
+                  },
+                },
+              },
+              {
+                type: "expect_outbound",
+                label: "allowed command decision",
+                frame: { id: 101, result: { decision: "accept" } },
+              },
+              {
+                type: "emit_inbound",
+                label: "turn completed",
+                frame: {
+                  method: "turn/completed",
+                  params: {
+                    threadId: nativeThreadId,
+                    turn: makeCodexReplayTurn({ id: nativeTurnId, status: "completed" }),
+                  },
+                },
+              },
+            ],
+          });
+          const events: Array<ProviderAdapter.ProviderAdapterV2Event> = [];
+          const harness = yield* makeCodexReplayHarness(transcript, (event) =>
+            Effect.sync(() => {
+              events.push(event);
+            }),
+          );
+          yield* harness.runtime.startTurn(
+            makeCodexTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now: yield* DateTime.now,
+              attemptId: RunAttemptId.make("codex-guard-attempt"),
+              text: prompt,
+            }),
+          );
+          yield* harness.firstTerminal;
+
+          assert.deepStrictEqual(seen, [
+            { cwd: "/workspace", command: "git push origin main" },
+            { cwd: "/workspace", command: "git status" },
+          ]);
+          const declined = events.flatMap((event) =>
+            event.type === "runtime_request.updated" && event.runtimeRequest.status === "resolved"
+              ? [event.runtimeRequest]
+              : [],
+          );
+          assert.lengthOf(declined, 1);
+          assert.equal(declined[0]!.decision, "decline");
+          assert.isFalse(
+            events.some(
+              (event) =>
+                event.type === "runtime_request.updated" &&
+                event.runtimeRequest.status === "pending",
+            ),
+          );
+          const shownPrompts = events.flatMap((event) =>
+            event.type === "turn_item.updated" && event.turnItem.type === "approval_request"
+              ? [event.turnItem.prompt]
+              : [],
+          );
+          assert.deepStrictEqual(shownPrompts, ["Use `slipjay land` instead."]);
+        }).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              IdAllocator.layer,
+              McpProviderSessions.layer,
+              NodeServices.layer,
+              Layer.succeed(SlipJayGuard.SlipJayGuard, {
+                check: (input: SlipJayGuard.SlipJayGuardInput) =>
+                  Effect.sync(() => {
+                    seen.push(input);
+                    return input.command === "git status"
+                      ? { allowed: true, reason: null }
+                      : { allowed: false, reason: "Use `slipjay land` instead." };
+                  }),
+                governs: () => Effect.succeed(true),
+              }),
+            ),
+          ),
+        ),
+      );
+    });
+  });
 });

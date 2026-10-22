@@ -9,6 +9,7 @@ import * as NodePath from "node:path";
 
 import {
   acpClientExecuteDisposition,
+  acpExecuteCommand,
   acpMcpToolApprovalElicitationDisposition,
   acpPermissionDisposition,
   makeAcpClientPolicyGrants,
@@ -29,6 +30,27 @@ function permissionRequest(
     },
   };
 }
+
+describe("acpExecuteCommand", () => {
+  it("reads the command an execute tool call carries", () => {
+    assert.strictEqual(
+      acpExecuteCommand({ command: "git push origin main" }),
+      "git push origin main",
+    );
+    assert.strictEqual(
+      acpExecuteCommand({ command: ["git", "push", "origin", "main"] }),
+      "git push origin main",
+    );
+  });
+
+  it("is null when the call carries no command", () => {
+    assert.isNull(acpExecuteCommand(undefined));
+    assert.isNull(acpExecuteCommand(null));
+    assert.isNull(acpExecuteCommand({}));
+    assert.isNull(acpExecuteCommand({ command: "   " }));
+    assert.isNull(acpExecuteCommand({ command: 42 }));
+  });
+});
 
 describe("acpPermissionDisposition", () => {
   const cwd = NodePath.resolve(process.cwd(), "acp-permission-workspace");

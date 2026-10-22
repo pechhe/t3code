@@ -95,6 +95,7 @@ import type * as ProviderContinuationRequests from "@t3tools/provider-core/serve
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
+import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import { ClaudeOrchestratorReplayHarness } from "./ClaudeAdapterV2.testkit.ts";
@@ -14572,5 +14573,236 @@ describe("ClaudeAdapterV2 per-thread compact-at", () => {
     );
     assert.isNumber(usage.maxTokens);
     assert.equal(usage.autoCompactThreshold, usage.maxTokens! - CLAUDE_COMPACT_RESERVE);
+  });
+});
+
+describe("ClaudeAdapterV2 SlipJay guard", () => {
+  const withGuard = (check: SlipJayGuard.SlipJayGuard["Service"]["check"]) =>
+    Layer.succeed(SlipJayGuard.SlipJayGuard, { check, governs: () => Effect.succeed(true) });
+
+  it.effect("refuses a guarded command in full access, where canUseTool is never asked", () => {
+    const seen: Array<SlipJayGuard.SlipJayGuardInput> = [];
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-guard-",
+        });
+        let openedOptions: ClaudeAdapterV2.ClaudeAgentSdkQueryOptions | undefined;
+        const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
+          instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
+          settings: DEFAULT_CLAUDE_SETTINGS,
+          environment: {},
+          attachmentsDir,
+          fileSystem,
+          path: yield* Path.Path,
+          crypto: yield* Crypto.Crypto,
+          idAllocator,
+          queryRunner: {
+            allocateSessionId: Effect.succeed("native-thread-claude-guard"),
+            open: (input) =>
+              Effect.sync(() => {
+                openedOptions = input.options;
+                return {
+                  messages: Stream.never,
+                  offer: () => Effect.void,
+                  setModel: () => Effect.void,
+                  applyFlagSettings: () => Effect.void,
+                  setPermissionMode: () => Effect.void,
+                  backgroundTasks: () => Effect.succeed(false),
+                  stopTask: () => Effect.void,
+                  interrupt: Effect.void,
+                  close: Effect.void,
+                };
+              }),
+            forkSession: () => Effect.die("unused"),
+            subagentLaunchToolUseId: () => Effect.succeed(null),
+            assertComplete: Effect.void,
+          },
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: "/workspace",
+        });
+        const threadId = ThreadId.make("thread-claude-guard");
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("provider-session-claude-guard"),
+          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+          runtimePolicy,
+        });
+        const now = yield* DateTime.now;
+        yield* runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId,
+            providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-guard"),
+            text: "Push the branch.",
+            attachments: [],
+            runtimePolicy,
+          }),
+        );
+        // The mode that runs agents: canUseTool is never asked, so the hook is the guard.
+        assert.equal(openedOptions?.permissionMode, "bypassPermissions");
+        const hook = openedOptions?.hooks?.PreToolUse?.[0]?.hooks[0];
+        assert.isFunction(hook);
+
+        const result = yield* Effect.promise(() =>
+          hook!(
+            {
+              hook_event_name: "PreToolUse",
+              session_id: "native-thread-claude-guard",
+              transcript_path: "/tmp/transcript.jsonl",
+              cwd: "/workspace",
+              tool_name: "Bash",
+              tool_input: { command: "git push origin main" },
+              tool_use_id: "tool-bash-guard",
+            },
+            "tool-bash-guard",
+            { signal: new AbortController().signal },
+          ),
+        );
+
+        assert.deepStrictEqual(seen, [{ cwd: "/workspace", command: "git push origin main" }]);
+        assert.deepStrictEqual(result, {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse",
+            permissionDecision: "deny",
+            permissionDecisionReason: "Use `slipjay land` instead.",
+          },
+        });
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            withGuard((input) =>
+              Effect.sync(() => {
+                seen.push(input);
+                return { allowed: false, reason: "Use `slipjay land` instead." };
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
+  });
+
+  it.effect("lets a command through when the guard allows it", () => {
+    const seen: Array<SlipJayGuard.SlipJayGuardInput> = [];
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const fileSystem = yield* FileSystem.FileSystem;
+        const idAllocator = yield* IdAllocator.IdAllocatorV2;
+        const attachmentsDir = yield* fileSystem.makeTempDirectoryScoped({
+          prefix: "t3-claude-guard-allowed-",
+        });
+        let openedOptions: ClaudeAdapterV2.ClaudeAgentSdkQueryOptions | undefined;
+        const adapter = yield* ClaudeAdapterV2.makeClaudeAdapterV2({
+          instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
+          settings: DEFAULT_CLAUDE_SETTINGS,
+          environment: {},
+          attachmentsDir,
+          fileSystem,
+          path: yield* Path.Path,
+          crypto: yield* Crypto.Crypto,
+          idAllocator,
+          queryRunner: {
+            allocateSessionId: Effect.succeed("native-thread-claude-guard-allowed"),
+            open: (input) =>
+              Effect.sync(() => {
+                openedOptions = input.options;
+                return {
+                  messages: Stream.never,
+                  offer: () => Effect.void,
+                  setModel: () => Effect.void,
+                  applyFlagSettings: () => Effect.void,
+                  setPermissionMode: () => Effect.void,
+                  backgroundTasks: () => Effect.succeed(false),
+                  stopTask: () => Effect.void,
+                  interrupt: Effect.void,
+                  close: Effect.void,
+                };
+              }),
+            forkSession: () => Effect.die("unused"),
+            subagentLaunchToolUseId: () => Effect.succeed(null),
+            assertComplete: Effect.void,
+          },
+        });
+        const runtimePolicy = ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: "/workspace",
+        });
+        const threadId = ThreadId.make("thread-claude-guard-allowed");
+        const runtime = yield* adapter.openSession({
+          threadId,
+          providerSessionId: ProviderSessionId.make("provider-session-claude-guard-allowed"),
+          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+          runtimePolicy,
+        });
+        const providerThread = yield* runtime.ensureThread({
+          threadId,
+          modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+          runtimePolicy,
+        });
+        const now = yield* DateTime.now;
+        yield* runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId,
+            providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-guard-allowed"),
+            text: "Check the status.",
+            attachments: [],
+            runtimePolicy,
+          }),
+        );
+        const hook = openedOptions?.hooks?.PreToolUse?.[0]?.hooks[0];
+        assert.isFunction(hook);
+
+        const result = yield* Effect.promise(() =>
+          hook!(
+            {
+              hook_event_name: "PreToolUse",
+              session_id: "native-thread-claude-guard-allowed",
+              transcript_path: "/tmp/transcript.jsonl",
+              cwd: "/workspace",
+              tool_name: "Bash",
+              tool_input: { command: "git status" },
+              tool_use_id: "tool-bash-guard-allowed",
+            },
+            "tool-bash-guard-allowed",
+            { signal: new AbortController().signal },
+          ),
+        );
+
+        assert.deepStrictEqual(seen, [{ cwd: "/workspace", command: "git status" }]);
+        assert.deepStrictEqual(result, { continue: true });
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            withGuard((input) =>
+              Effect.sync(() => {
+                seen.push(input);
+                return { allowed: true, reason: null };
+              }),
+            ),
+          ),
+        ),
+      ),
+    );
   });
 });

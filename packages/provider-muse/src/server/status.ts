@@ -21,6 +21,7 @@ import {
 } from "@t3tools/provider-core/server/snapshotProbe";
 
 const MUSE_PRESENTATION = {
+  toolCallGuard: "observe-only",
   displayName: "Muse Code",
   showInteractionModeToggle: false,
   reportsContextWindow: true,

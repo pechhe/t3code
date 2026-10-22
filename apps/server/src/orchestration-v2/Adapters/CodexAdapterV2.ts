@@ -128,6 +128,7 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -708,7 +709,10 @@ const isProviderAdapterRuntimeRequestResponseError = Schema.is(
   ProviderAdapter.ProviderAdapterRuntimeRequestResponseError,
 );
 
-function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
+function codexRuntimeModeTurnDefaults(
+  runtimeMode: RuntimeMode,
+  guardToolCalls: boolean,
+): {
   readonly approvalPolicy: CodexSchema.V2TurnStartParams__AskForApproval;
   readonly approvalsReviewer: CodexSchema.V2TurnStartParams__ApprovalsReviewer;
   readonly sandboxPolicy: CodexSchema.V2TurnStartParams__SandboxPolicy;
@@ -739,8 +743,12 @@ function codexRuntimeModeTurnDefaults(runtimeMode: RuntimeMode): {
         },
       };
     case "full-access":
+      // `never` hides every command from T3, so a guarded repository's commands would
+      // never reach the guard. Asking there keeps full access prompt-free (the handler
+      // answers for the mode) while every command passes the guard. Outside one, the
+      // round trip is pure cost, so the mode keeps `never`.
       return {
-        approvalPolicy: "never",
+        approvalPolicy: guardToolCalls ? "untrusted" : "never",
         approvalsReviewer: "user",
         sandboxPolicy: {
           type: "dangerFullAccess",
@@ -764,12 +772,19 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly delegated?: boolean;
     /** False when the listing has no html tools, so the child text must not name them. */
     readonly listsHtml?: boolean;
+    readonly browserToolsAvailable?: boolean;
+    readonly deviceToolsAvailable?: boolean;
+    /** Whether every command must pass the guard, so a mode that never asks must ask. */
+    readonly guardToolCalls?: boolean;
     /** ChatGPT token sharing does not accept service tiers. */
     readonly omitServiceTier?: boolean;
     readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
     readonly instructionOverlay?: ProviderAdapter.ProviderAdapterV2TurnInput["instructionOverlay"];
   }) {
-    const runtimeModeDefaults = codexRuntimeModeTurnDefaults(input.runtimePolicy.runtimeMode);
+    const runtimeModeDefaults = codexRuntimeModeTurnDefaults(
+      input.runtimePolicy.runtimeMode,
+      input.guardToolCalls === true,
+    );
     const approvalPolicy =
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
@@ -1866,6 +1881,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.succeed(undefined) : mcpSessions.read(threadId);
   const readAgentServers = yield* AgentMcpServers.makeReader;
+  const slipJayGuard = yield* Effect.serviceOption(SlipJayGuard.SlipJayGuard);
   const { clientFactory, crypto, fileSystem, idAllocator, serverConfig } = adapterOptions;
   const continuationRequests = adapterOptions.continuationRequests;
 
@@ -5344,6 +5360,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           }).pipe(Effect.orDie, turnTerminalizationPermit.withPermits(1)),
         );
 
+        /** Whether a guarded repository's commands must reach the guard in this mode. */
+        const guardsGovern = (cwd: string) =>
+          Option.isSome(slipJayGuard)
+            ? slipJayGuard.value.governs(cwd).pipe(Effect.orElseSucceed(() => false))
+            : Effect.succeed(false);
+        const guardToolCalls = Option.isSome(slipJayGuard);
+
         yield* client.handleServerRequest("item/commandExecution/requestApproval", (payload) =>
           Effect.gen(function* () {
             const context = yield* awaitActiveTurn(payload.turnId);
@@ -5353,6 +5376,82 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
+            // SlipJay governs a repository's branches and its workspaces' unfinished
+            // work. Codex has no channel for a reason on a decline, so the command is
+            // shown as a declined approval carrying SlipJay's own message.
+            const command = payload.command;
+            const guardCwd = payload.cwd ?? context.input.runtimePolicy.cwd;
+            if (
+              command !== null &&
+              command !== undefined &&
+              guardCwd !== null &&
+              Option.isSome(slipJayGuard)
+            ) {
+              const guarded = yield* slipJayGuard.value.check({ cwd: guardCwd, command });
+              if (!guarded.allowed) {
+                const reason =
+                  guarded.reason ?? "SlipJay guard denied this command in a SlipJay repository.";
+                const artifacts = yield* buildApprovalRequestArtifacts({
+                  context,
+                  nativeItemId: payload.itemId,
+                  nativeRequestId: payload.approvalId ?? payload.itemId,
+                  requestKind: "command",
+                  prompt: reason,
+                });
+                const resolvedAt = yield* DateTime.now;
+                yield* Effect.all(
+                  [
+                    emitProviderEvent({
+                      type: "node.updated",
+                      driver: CODEX_PROVIDER,
+                      node: { ...artifacts.node, status: "completed", completedAt: resolvedAt },
+                    }),
+                    emitProviderEvent({
+                      type: "runtime_request.updated",
+                      driver: CODEX_PROVIDER,
+                      runtimeRequest: {
+                        ...artifacts.request,
+                        status: "resolved",
+                        decision: "decline",
+                        resolvedAt,
+                      },
+                    }),
+                    emitProviderEvent({
+                      type: "turn_item.updated",
+                      driver: CODEX_PROVIDER,
+                      turnItem: {
+                        ...artifacts.turnItem,
+                        status: "completed",
+                        completedAt: resolvedAt,
+                        updatedAt: resolvedAt,
+                      },
+                    }),
+                  ],
+                  { concurrency: 1 },
+                );
+                return {
+                  decision: "decline",
+                } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
+              }
+            }
+
+            // Full access answers for itself: the guard above is the only thing that
+            // can refuse a command, so asking the user here would break the mode.
+            // One-shot, never for the session: Codex stops asking once a command is
+            // session-approved, and a state-dependent verdict (a jj command) must be
+            // asked about again the next time it runs. Only a guarded repository asks
+            // in this mode; anywhere else the question came from a caller's own policy
+            // override, which keeps its normal answer.
+            if (
+              context.input.runtimePolicy.runtimeMode === "full-access" &&
+              context.input.runtimePolicy.cwd !== null &&
+              (yield* guardsGovern(context.input.runtimePolicy.cwd))
+            ) {
+              return {
+                decision: "accept",
+              } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
+            }
+
             const allowance = sessionAllowance(payload.threadId, context);
             if (allowance.has("command")) {
               return {
@@ -5425,6 +5524,18 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
+            // A guarded repository makes full access ask about commands; asking must not
+            // turn a patch into a prompt the mode never had.
+            if (
+              context.input.runtimePolicy.runtimeMode === "full-access" &&
+              context.input.runtimePolicy.cwd !== null &&
+              (yield* guardsGovern(context.input.runtimePolicy.cwd))
+            ) {
+              return {
+                decision: "accept",
+              } satisfies CodexSchema.FileChangeRequestApprovalResponse;
+            }
+
             const allowance = sessionAllowance(payload.threadId, context);
             if (allowance.has("file-change")) {
               return {
@@ -5497,6 +5608,17 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 `No active Codex turn context for permissions approval turn ${payload.turnId}.`,
                 payload,
               );
+            }
+
+            if (
+              context.input.runtimePolicy.runtimeMode === "full-access" &&
+              context.input.runtimePolicy.cwd !== null &&
+              (yield* guardsGovern(context.input.runtimePolicy.cwd))
+            ) {
+              return {
+                permissions: payload.permissions,
+                scope: "turn",
+              } satisfies CodexSchema.PermissionsRequestApprovalResponse;
             }
 
             const requestKind = providerRequestKindFromPermissions(payload.permissions);
@@ -5640,6 +5762,36 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
+            const command = payload.command.join(" ");
+            const guardCwd = payload.cwd ?? context.input.runtimePolicy.cwd;
+            if (command.length > 0 && guardCwd !== null && Option.isSome(slipJayGuard)) {
+              const guarded = yield* slipJayGuard.value.check({ cwd: guardCwd, command });
+              if (!guarded.allowed) {
+                // `denied` carries a rejection, which this older protocol can show the
+                // agent; `abort` would also stop the turn, unlike every other driver.
+                return {
+                  decision: {
+                    denied: {
+                      rejection:
+                        guarded.reason ??
+                        "SlipJay guard denied this command in a SlipJay repository.",
+                    },
+                  },
+                } satisfies CodexSchema.ExecCommandApprovalResponse;
+              }
+            }
+
+            if (
+              context.input.runtimePolicy.runtimeMode === "full-access" &&
+              context.input.runtimePolicy.cwd !== null &&
+              (yield* guardsGovern(context.input.runtimePolicy.cwd))
+            ) {
+              // Once, not for the session: a state-dependent verdict must be asked again.
+              return {
+                decision: "approved",
+              } satisfies CodexSchema.ExecCommandApprovalResponse;
+            }
+
             const allowance = sessionAllowance(payload.conversationId, context);
             if (allowance.has("command")) {
               return {
@@ -5710,6 +5862,16 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
+            if (
+              context.input.runtimePolicy.runtimeMode === "full-access" &&
+              context.input.runtimePolicy.cwd !== null &&
+              (yield* guardsGovern(context.input.runtimePolicy.cwd))
+            ) {
+              return {
+                decision: "approved",
+              } satisfies CodexSchema.ApplyPatchApprovalResponse;
+            }
+
             const allowance = sessionAllowance(payload.conversationId, context);
             if (allowance.has("file-change")) {
               return {
@@ -6577,6 +6739,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               delegated: mcpSession?.delegated === true,
               ...(mcpSession?.listsHtml === false ? { listsHtml: false } : {}),
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
+              guardToolCalls:
+                guardToolCalls &&
+                turnInput.runtimePolicy.cwd !== null &&
+                (yield* guardsGovern(turnInput.runtimePolicy.cwd)),
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
               ...(turnInput.instructionOverlay === undefined
                 ? {}

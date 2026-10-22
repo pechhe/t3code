@@ -49,6 +49,7 @@ import {
 } from "./commands.ts";
 
 const PI_PRESENTATION = {
+  toolCallGuard: "blocking",
   displayName: "Pi",
   showInteractionModeToggle: false,
   supportedRuntimeModes: ["approval-required", "auto-accept-edits", "full-access"],

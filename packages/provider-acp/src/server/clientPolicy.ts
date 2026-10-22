@@ -199,6 +199,18 @@ function isAcpMutationKind(toolKind: string): boolean {
   return toolKind === "edit" || toolKind === "delete" || toolKind === "move";
 }
 
+/** The shell command an ACP tool call carries, when it carries one. */
+export const acpExecuteCommand = (rawInput: unknown): string | null => {
+  if (rawInput === null || typeof rawInput !== "object") return null;
+  const command = (rawInput as { command?: unknown }).command;
+  if (typeof command === "string") return command.trim().length > 0 ? command : null;
+  if (Array.isArray(command) && command.every((part) => typeof part === "string")) {
+    const joined = command.join(" ").trim();
+    return joined.length > 0 ? joined : null;
+  }
+  return null;
+};
+
 export function acpPermissionDisposition(
   runtimePolicy: AcpRuntimePolicy,
   request: EffectAcpSchema.RequestPermissionRequest,
