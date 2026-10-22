@@ -45,7 +45,7 @@ import {
   BUILD_REREAD_INTERVAL_MS,
   fingerprintOf,
   nextInterval,
-  type ReadCadence,
+  type Cadence,
 } from "./BuildWorkItems.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 
@@ -181,7 +181,11 @@ export class BuildHome extends Context.Service<
   }
 >()("t3/hq/BuildHome") {}
 
-interface CachedHome extends ReadCadence {
+/**
+ * Home is one projection of every Spec, so no single agent's write expires it: only its own
+ * cadence does, and a person's own decision or answer forgets it.
+ */
+interface CachedHome extends Cadence {
   readonly key: string;
   readonly state: BuildHomeState;
   readonly attemptedAt: number;
@@ -423,8 +427,8 @@ const make = Effect.gen(function* () {
     Effect.map((now) => DateTime.formatIso(DateTime.makeUnsafe(now))),
   );
 
-  const isFresh = (previous: CachedHome, writeVersion: number, now: number) =>
-    previous.writeVersion === writeVersion && now - previous.attemptedAt < previous.intervalMs;
+  const isFresh = (previous: CachedHome, now: number) =>
+    now - previous.attemptedAt < previous.intervalMs;
 
   /** Asks HQ for Home unless the last answer is still within its cadence. */
   const refreshHome = lock.withLock(
@@ -436,9 +440,8 @@ const make = Effect.gen(function* () {
         return stateOf(null, "not_connected", null, null);
       }
       const now = yield* Clock.currentTimeMillis;
-      const writeVersion = yield* hq.buildWriteVersion;
       const previous = cached?.key === connected.connection ? cached : undefined;
-      if (previous !== undefined && isFresh(previous, writeVersion, now)) return previous.state;
+      if (previous !== undefined && isFresh(previous, now)) return previous.state;
       const answered = yield* post({ action: "home" }).pipe(Effect.result);
       if (answered._tag === "Failure" && answered.failure.reason === "not_connected") {
         cached = undefined;
@@ -474,7 +477,6 @@ const make = Effect.gen(function* () {
         cached = {
           key,
           attemptedAt: now,
-          writeVersion,
           fingerprint,
           intervalMs: nextInterval(fresh, fingerprint),
           state: stateOf(origin, "ready", view, DateTime.formatIso(DateTime.makeUnsafe(now))),
@@ -492,7 +494,6 @@ const make = Effect.gen(function* () {
       cached = {
         key,
         attemptedAt: now,
-        writeVersion,
         fingerprint: undefined,
         // A struggling HQ is not asked every minute: consecutive failures double the wait.
         intervalMs:
@@ -517,8 +518,7 @@ const make = Effect.gen(function* () {
     const refresh = Effect.forkIn(refreshHome, scope);
     if (previous === undefined) return yield* Fiber.join(yield* refresh);
     const now = yield* Clock.currentTimeMillis;
-    const writeVersion = yield* hq.buildWriteVersion;
-    if (!isFresh(previous, writeVersion, now)) refreshing = yield* refresh;
+    if (!isFresh(previous, now)) refreshing = yield* refresh;
     return previous.state;
   });
   const refreshed = Effect.suspend(() =>

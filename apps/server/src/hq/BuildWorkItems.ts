@@ -44,17 +44,21 @@ export const BUILD_REREAD_INTERVAL_MS = 60_000;
 export const BUILD_MAX_REREAD_INTERVAL_MS = 4 * BUILD_REREAD_INTERVAL_MS;
 export const fingerprintOf = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-export interface ReadCadence {
+export interface Cadence {
   readonly intervalMs: number;
-  readonly writeVersion: number;
   readonly fingerprint: string | undefined;
+}
+
+/** A read an agent's own Build write expires, as a work item's is. */
+export interface ReadCadence extends Cadence {
+  readonly writeVersion: number;
 }
 
 /**
  * A Build write through T3 makes the next request reread at once; the back-off itself follows
  * only whether this result changed, so another thread's unrelated write keeps it settled.
  */
-export const nextInterval = (previous: ReadCadence | undefined, fingerprint: string | undefined) =>
+export const nextInterval = (previous: Cadence | undefined, fingerprint: string | undefined) =>
   fingerprint !== undefined && previous?.fingerprint === fingerprint
     ? Math.min(previous.intervalMs * 2, BUILD_MAX_REREAD_INTERVAL_MS)
     : BUILD_REREAD_INTERVAL_MS;

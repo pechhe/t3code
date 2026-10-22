@@ -110,6 +110,28 @@ const makeHarness = Effect.gen(function* () {
       const body = parseJson(
         request.body._tag === "Uint8Array" ? new TextDecoder().decode(request.body.body) : "{}",
       ) as Record<string, unknown>;
+      // An agent's exchange and MCP calls go to HQ too; they are not Build decisions.
+      const path = new URL(request.url).pathname;
+      if (path === "/api/mcp/agents")
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response(
+            JSON.stringify({
+              token: `yshqa_${"t".repeat(43)}`,
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              agent: { executingAgentId: "agent:1", role: "lead", model: "m" },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      if (path === "/api/mcp")
+        return HttpClientResponse.fromWeb(
+          request,
+          new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: {} }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
       hq.calls.push({ url: request.url, auth: request.headers.authorization ?? "", body });
       const answer =
         hq.status === 200 ? hq.answer(body) : { status: hq.status, json: { error: "x" } };
@@ -326,6 +348,43 @@ it.effect("a read after Home lapses answers with what it knew and refreshes behi
     assert.strictEqual(hq.calls.length, known + 1);
     assert.strictEqual((yield* service.read).home?.count, 7);
     assert.strictEqual(hq.calls.length, known + 1);
+  }),
+);
+
+it.effect("an agent's Build writes do not make Home read again before its interval lapses", () =>
+  Effect.gen(function* () {
+    const { hq, service, connections } = yield* connected;
+    yield* service.read;
+    const homeCalls = () => hq.calls.filter((call) => call.body.action === "home").length;
+    const known = homeCalls();
+    yield* connections.prepare({ threadId: leadThread, role: "lead", model: "claude-opus-5-5" });
+    const agent = yield* connections.connection(leadThread);
+    const version = yield* connections.buildWriteVersion;
+    for (const id of [1, 2, 3]) {
+      yield* connections.forward({
+        authorization: agent!.authorizationHeader,
+        contentType: undefined,
+        accept: undefined,
+        protocolVersion: undefined,
+        body: new TextEncoder().encode(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id,
+            method: "tools/call",
+            params: { name: "hq_build_set_status", arguments: {} },
+          }),
+        ),
+      });
+    }
+    assert.isAbove(yield* connections.buildWriteVersion, version);
+    yield* TestClock.adjust(30_000);
+    yield* service.read;
+    yield* service.refreshed;
+    assert.strictEqual(homeCalls(), known);
+    yield* TestClock.adjust(60_000);
+    yield* service.read;
+    yield* service.refreshed;
+    assert.strictEqual(homeCalls(), known + 1);
   }),
 );
 
