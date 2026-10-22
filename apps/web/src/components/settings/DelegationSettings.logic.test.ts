@@ -15,6 +15,7 @@ import {
   runsFast,
   setCaller,
   setModelFast,
+  setModelOptions,
   splitGroup,
   unavailableReason,
 } from "./DelegationSettings.logic";
@@ -171,6 +172,20 @@ describe("delegation settings", () => {
     expect(fast.models["sol"]!.options).toEqual({ serviceTier: "fast" });
     expect(runsFast(fast.models["sol"])).toBe(true);
     expect(setModelFast(fast, "sol", false).models["sol"]).toEqual(manifest().models["sol"]);
+  });
+
+  it("stores a trait picked in the effort menu as the model's fixed option", () => {
+    // The service tier belongs to the model, while effort belongs to the job's list entry.
+    const standard = setModelOptions(manifest(), "sol", [
+      { id: "reasoning", value: "high" },
+      { id: "serviceTier", value: "default" },
+    ]);
+    expect(standard.models["sol"]!.options).toEqual({ serviceTier: "default" });
+    expect(runsFast(standard.models["sol"])).toBe(false);
+    // Picking only effort leaves no fixed options behind.
+    expect(
+      setModelOptions(standard, "sol", [{ id: "reasoning", value: "low" }]).models["sol"],
+    ).toEqual(manifest().models["sol"]);
   });
 
   it("offers fast only when the account's model has the fast tier", () => {

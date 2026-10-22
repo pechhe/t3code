@@ -2,6 +2,7 @@ import {
   AgentRole,
   type AgentListEntry,
   type AgentPolicyManifest,
+  type ProviderOptionSelection,
   type ServerProvider,
 } from "@t3tools/contracts";
 
@@ -258,14 +259,33 @@ export function runsFast(binding: Binding | undefined): boolean {
 export function setModelFast(manifest: Manifest, alias: string, fast: boolean): Manifest {
   const binding = manifest.models[alias];
   if (binding === undefined) return manifest;
-  const { [FAST_OPTION.id]: _, ...others } = binding.options ?? {};
-  const options = fast ? { ...others, [FAST_OPTION.id]: FAST_OPTION.value } : others;
-  const { options: __, ...rest } = binding;
+  return setModelOptions(manifest, alias, [
+    ...Object.entries(binding.options ?? {})
+      .filter(([id]) => id !== FAST_OPTION.id)
+      .map(([id, value]) => ({ id, value })),
+    ...(fast ? [FAST_OPTION] : []),
+  ]);
+}
+
+/** Replaces a model's fixed traits, such as its service tier, leaving effort to its list entry. */
+export function setModelOptions(
+  manifest: Manifest,
+  alias: string,
+  options: ReadonlyArray<ProviderOptionSelection> | undefined,
+): Manifest {
+  const binding = manifest.models[alias];
+  if (binding === undefined) return manifest;
+  const fixed = Object.fromEntries(
+    (options ?? [])
+      .filter((option) => typeof option.value === "string" && option.id !== binding.effortOption)
+      .map((option) => [option.id, option.value as string]),
+  );
+  const { options: _previous, ...rest } = binding;
   return {
     ...manifest,
     models: {
       ...manifest.models,
-      [alias]: Object.keys(options).length > 0 ? { ...rest, options } : rest,
+      [alias]: Object.keys(fixed).length > 0 ? { ...rest, options: fixed } : rest,
     },
   };
 }

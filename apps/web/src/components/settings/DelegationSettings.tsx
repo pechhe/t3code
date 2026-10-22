@@ -37,6 +37,7 @@ import {
   setCaller,
   setEntryEffort,
   setLarge,
+  setModelOptions,
   offersFast,
   runsFast,
   setModelFast,
@@ -578,6 +579,9 @@ function JobRow({
                       onChange={(effort) =>
                         onChange(setEntryEffort(manifest, group.list, entry.model, effort))
                       }
+                      onModelOptionsChange={(options) =>
+                        onChange(setModelOptions(manifest, entry.model, options))
+                      }
                     />
                     {offersFast(binding, providers) ? (
                       <Tooltip>
@@ -783,6 +787,9 @@ function ExceptionLine({
           effort={large.effort}
           disabled={disabled}
           onChange={(effort) => onChange((m, r) => setLarge(m, r, { ...large, effort }))}
+          onModelOptionsChange={(options) =>
+            onChange((m) => setModelOptions(m, large.model, options))
+          }
         />
       </>
     );

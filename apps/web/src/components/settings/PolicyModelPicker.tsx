@@ -3,6 +3,7 @@ import type {
   AgentPolicyManifest,
   EnvironmentId,
   ProviderInstanceId,
+  ProviderOptionSelection,
   ServerProvider,
 } from "@t3tools/contracts";
 import type { ReactElement } from "react";
@@ -94,6 +95,8 @@ export function PolicyEffortPicker(props: {
   effort: string | undefined;
   disabled?: boolean;
   onChange: (effort: string) => void;
+  /** Other traits the model offers, such as its service tier, which the policy fixes per model. */
+  onModelOptionsChange?: (options: ReadonlyArray<ProviderOptionSelection> | undefined) => void;
 }) {
   const { settings, entries } = useInstanceEntries(props.environmentId);
   const binding = props.binding;
@@ -111,13 +114,17 @@ export function PolicyEffortPicker(props: {
       provider={entry.driverKind}
       models={entry.models}
       model={binding.model}
-      modelOptions={[{ id: effortOption, value: props.effort ?? "" }]}
+      modelOptions={[
+        { id: effortOption, value: props.effort ?? "" },
+        ...Object.entries(binding.options ?? {}).map(([id, value]) => ({ id, value })),
+      ]}
       allowPromptInjectedEffort={false}
       planModeEnabled={settings.planModeEnabled}
       disabled={props.disabled ?? false}
       onModelOptionsChange={(options) => {
         const value = options?.find((option) => option.id === effortOption)?.value;
         if (typeof value === "string" && value !== props.effort) props.onChange(value);
+        else props.onModelOptionsChange?.(options);
       }}
     />
   );
