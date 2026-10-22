@@ -185,6 +185,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
   compactDisabled: boolean;
   compactDisabledReason: string | null;
   compactBeforeSendTokens: number | null;
+  compactionModelName: string | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
   device: boolean;
@@ -229,6 +230,7 @@ export const ComposerFooterPrimaryActions = memo(function ComposerFooterPrimaryA
         onInterrupt={props.onInterrupt}
         onImplementPlanInNewThread={props.onImplementPlanInNewThread}
         compactBeforeSendTokens={props.compactBeforeSendTokens}
+        compactionModelName={props.compactionModelName}
         keepFullHistory={props.keepFullHistory}
         onToggleKeepFullHistory={props.onToggleKeepFullHistory}
         device={props.device}

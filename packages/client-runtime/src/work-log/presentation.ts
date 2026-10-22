@@ -18,6 +18,7 @@ import { classifyMarkdownImageSource } from "@t3tools/client-runtime/markdown-im
 import { resolveMediaSource } from "@t3tools/client-runtime/media-source";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { isWorkspaceImagePreviewPath } from "@t3tools/shared/filePreview";
+import { formatModelSlugName } from "@t3tools/shared/model";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 import { classifyToolActivity } from "@t3tools/shared/toolActivity";
 import { toolOutputIndicatesFailure } from "@t3tools/shared/toolOutput";
@@ -51,8 +52,19 @@ export function toolItemForDisplay(item: OrchestrationV2TurnItem): Orchestration
 
 type CompactionLabelItem = Pick<
   Extract<OrchestrationV2TurnItem, { type: "compaction" }>,
-  "status" | "beforeTokenCount" | "afterTokenCount"
+  "status" | "beforeTokenCount" | "afterTokenCount" | "model" | "windowTooSmall"
 >;
+
+/** The model a cheaper-model compaction ran on, as the row names it; null on the conversation's own. */
+export function contextCompactionModelName(
+  item: Pick<CompactionLabelItem, "model">,
+): string | null {
+  return item.model ? formatModelSlugName(item.model).replace(/^Claude /, "") : null;
+}
+
+/** Said on a row whose chosen model could not take the thread, so the conversation's model compacted. */
+export const CONTEXT_COMPACTION_WINDOW_TOO_SMALL =
+  "The model chosen to compact has a smaller window than this thread, so the conversation's model did";
 
 export function contextCompactionTokenCounts(
   item: CompactionLabelItem,
@@ -68,14 +80,17 @@ export function contextCompactionTokenCounts(
 }
 
 export function contextCompactionLabel(item: CompactionLabelItem): string {
-  if (item.status === "failed") return "Context compaction failed";
+  const model = contextCompactionModelName(item);
+  if (item.status === "failed")
+    return model ? `Context compaction failed on ${model}` : "Context compaction failed";
   if (item.status === "cancelled" || item.status === "interrupted")
     return "Context compaction stopped";
-  if (isOrchestrationV2WorkActive(item.status)) return "Compacting context";
+  if (isOrchestrationV2WorkActive(item.status))
+    return model ? `Compacting context with ${model}` : "Compacting context";
   const tokens = contextCompactionTokenCounts(item);
-  return tokens
-    ? `Context compacted ${tokens.before} → ${tokens.after} tokens`
-    : "Context compacted";
+  const counts = tokens ? `${tokens.before} → ${tokens.after} tokens` : null;
+  if (model) return ["Context compacted", model, counts].filter(Boolean).join(" · ");
+  return counts ? `Context compacted ${counts}` : "Context compacted";
 }
 
 export interface WorkLogPresentationEntry {

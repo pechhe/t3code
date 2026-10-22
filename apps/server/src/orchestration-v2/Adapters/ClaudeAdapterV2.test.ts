@@ -210,6 +210,7 @@ function makeClaudeTestTurnInput(input: {
   readonly messageCreatedBy?: ProviderAdapter.ProviderAdapterV2TurnInput["message"]["createdBy"];
   readonly messageCreationSource?: ProviderAdapter.ProviderAdapterV2TurnInput["message"]["creationSource"];
   readonly modelSelection?: ModelSelection;
+  readonly compaction?: ProviderAdapter.ProviderAdapterV2TurnInput["compaction"];
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
 }): ProviderAdapter.ProviderAdapterV2TurnInput {
   return {
@@ -233,6 +234,7 @@ function makeClaudeTestTurnInput(input: {
       videoFrames: input.videoFrames,
     },
     modelSelection: input.modelSelection ?? CLAUDE_TEST_MODEL_SELECTION,
+    ...(input.compaction === undefined ? {} : { compaction: input.compaction }),
     runtimePolicy: input.runtimePolicy ?? CLAUDE_TEST_RUNTIME_POLICY,
   };
 }
@@ -5370,6 +5372,280 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         ),
       ),
   );
+
+  describe("compaction on another model", () => {
+    const CONVERSATION = {
+      instanceId: ProviderInstanceId.make(ClaudeAdapterV2.CLAUDE_PROVIDER),
+      model: "claude-sonnet-5-5",
+    } satisfies ModelSelection;
+    const CHEAP = {
+      instanceId: ProviderInstanceId.make(ClaudeAdapterV2.CLAUDE_PROVIDER),
+      model: "claude-haiku-4-5",
+    } satisfies ModelSelection;
+    const COMPACT_AT = 300_000;
+    const compactionItems = (events: ReadonlyArray<ProviderAdapter.ProviderAdapterV2Event>) =>
+      events.flatMap((event) =>
+        event.type === "turn_item.updated" && event.turnItem.type === "compaction"
+          ? [event.turnItem]
+          : [],
+      );
+    const startCompaction = (
+      harness: Effect.Success<typeof makeWakeHarness>,
+      ordinal: number,
+      compaction: ProviderAdapter.ProviderAdapterV2TurnInput["compaction"],
+      text = "/compact",
+    ) =>
+      harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: DateTime.makeUnsafe(0),
+          attemptId: RunAttemptId.make(`attempt-cheap-compaction-${ordinal}`),
+          text,
+          attachments: [],
+          providerTurnOrdinal: ordinal,
+          modelSelection: CONVERSATION,
+          ...(compaction === undefined ? {} : { compaction }),
+          runtimePolicy: { ...CLAUDE_TEST_RUNTIME_POLICY, compactAt: COMPACT_AT },
+        }),
+      );
+    const finishCompaction = Effect.fnUntraced(function* (
+      harness: Effect.Success<typeof makeWakeHarness>,
+      ordinal: number,
+      outcome: "success" | "failed" = "success",
+    ) {
+      yield* harness.offerAndWait(claudeSdkFrame(wakeTurnInit));
+      yield* harness.offerAndWait(
+        claudeSdkFrame({
+          type: "system",
+          subtype: "status",
+          status: "compacting",
+          uuid: `00000000-0000-4000-8000-0000000c0${ordinal}01`,
+          session_id: WAKE_NATIVE_SESSION,
+        }),
+      );
+      yield* harness.offerAndWait(
+        outcome === "success"
+          ? claudeSdkFrame({
+              type: "system",
+              subtype: "compact_boundary",
+              compact_metadata: { trigger: "manual", pre_tokens: 251_000, post_tokens: 12_000 },
+              uuid: `00000000-0000-4000-8000-0000000c0${ordinal}02`,
+              session_id: WAKE_NATIVE_SESSION,
+            })
+          : claudeSdkFrame({
+              type: "system",
+              subtype: "status",
+              status: null,
+              compact_result: "failed",
+              compact_error: "Not enough messages to compact.",
+              uuid: `00000000-0000-4000-8000-0000000c0${ordinal}02`,
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+      );
+      yield* Queue.offer(
+        harness.processQueues.at(-1)!,
+        claudeSdkFrame({
+          ...makeResultFrame({
+            uuid: `00000000-0000-4000-8000-0000000c0${ordinal}03`,
+            result: "",
+            numTurns: 0,
+            terminalReason: null,
+          }),
+          local_command: "compact",
+        }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+    });
+    const provide = Effect.provide(
+      Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+    );
+
+    it.effect(
+      "summarises on the chosen model while the thread's window, compact point and usage stay the conversation's",
+      () =>
+        Effect.gen(function* () {
+          const harness = yield* makeWakeHarness;
+          yield* startCompaction(harness, 1, { modelSelection: CHEAP });
+          const opened = harness.getOpenedOptions();
+          assert.equal(opened?.model, "claude-haiku-4-5");
+          // The conversation's 1M window bounds the point; Haiku's 200k window would clamp it.
+          assert.equal(
+            (opened?.settings as { autoCompactWindow?: number } | undefined)?.autoCompactWindow,
+            COMPACT_AT + CLAUDE_COMPACT_RESERVE,
+          );
+          yield* finishCompaction(harness, 1);
+
+          const [, settled] = compactionItems(harness.events);
+          assert.equal(settled?.status, "completed");
+          assert.equal(settled?.model, "claude-haiku-4-5");
+          assert.equal(settled?.beforeTokenCount, 251_000);
+          assert.equal(settled?.afterTokenCount, 12_000);
+          const usages = harness.events.flatMap((event) =>
+            event.type === "provider_turn.updated" && event.providerTurn.tokenUsage
+              ? [event.providerTurn.tokenUsage]
+              : [],
+          );
+          assert.isNotEmpty(usages);
+          for (const usage of usages) {
+            assert.equal(usage.maxTokens, 1_000_000);
+            assert.equal(usage.autoCompactThreshold, COMPACT_AT);
+            assert.equal(usage.compactedWith, "claude-haiku-4-5");
+          }
+        }).pipe(Effect.scoped, provide),
+    );
+
+    it.effect("names the chosen model on a compaction that fails after it starts", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        yield* startCompaction(harness, 1, { modelSelection: CHEAP });
+        yield* finishCompaction(harness, 1, "failed");
+        const items = compactionItems(harness.events);
+        assert.deepEqual(
+          items.map((item) => [item.status, item.model]),
+          [
+            ["running", "claude-haiku-4-5"],
+            ["failed", "claude-haiku-4-5"],
+          ],
+        );
+        // The failure never retries on the conversation's model.
+        assert.lengthOf(harness.processQueues, 1);
+        assert.equal(harness.getOpenedOptions()?.model, "claude-haiku-4-5");
+      }).pipe(Effect.scoped, provide),
+    );
+
+    it.effect(
+      "summarises on the conversation's model and says so when the window is too small",
+      () =>
+        Effect.gen(function* () {
+          const harness = yield* makeWakeHarness;
+          yield* startCompaction(harness, 1, { windowTooSmall: true });
+          assert.equal(harness.getOpenedOptions()?.model, "claude-sonnet-5-5");
+          yield* finishCompaction(harness, 1);
+          const [, settled] = compactionItems(harness.events);
+          assert.equal(settled?.windowTooSmall, true);
+          assert.isUndefined(settled?.model);
+        }).pipe(Effect.scoped, provide),
+    );
+
+    it.effect("opens for the conversation's model as always when nothing is chosen", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        yield* startCompaction(harness, 1, undefined);
+        assert.equal(harness.getOpenedOptions()?.model, "claude-sonnet-5-5");
+        yield* finishCompaction(harness, 1);
+        const [, settled] = compactionItems(harness.events);
+        assert.isUndefined(settled?.model);
+        assert.isUndefined(settled?.windowTooSmall);
+        for (const event of harness.events) {
+          if (event.type === "provider_turn.updated") {
+            assert.isUndefined(event.providerTurn.tokenUsage?.compactedWith);
+          }
+        }
+      }).pipe(Effect.scoped, provide),
+    );
+
+    const finishNormalTurn = Effect.fnUntraced(function* (
+      harness: Effect.Success<typeof makeWakeHarness>,
+      ordinal: number,
+    ) {
+      yield* harness.offerAndWait(claudeSdkFrame(wakeTurnInit));
+      yield* Queue.offer(
+        harness.processQueues.at(-1)!,
+        makeResultFrame({
+          uuid: `00000000-0000-4000-8000-0000000c0${ordinal}99`,
+          result: "Done.",
+        }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+    });
+    const modelChanges = (harness: Effect.Success<typeof makeWakeHarness>) =>
+      harness.liveSelectionChanges.flatMap((change) =>
+        typeof change === "object" && change !== null && "model" in change ? [change.model] : [],
+      );
+
+    it.effect("switches the live session to the chosen model and back for the next turn", () =>
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const OPUS = { ...CONVERSATION, model: "claude-opus-5-5" };
+        yield* startCompaction(harness, 1, undefined, "Continue.");
+        yield* finishNormalTurn(harness, 1);
+        yield* startCompaction(harness, 2, { modelSelection: OPUS });
+        yield* finishCompaction(harness, 2);
+        yield* startCompaction(harness, 3, undefined, "Next message.");
+        assert.deepEqual(modelChanges(harness), ["claude-opus-5-5", "claude-sonnet-5-5"]);
+        assert.lengthOf(harness.processQueues, 1);
+      }).pipe(Effect.scoped, provide),
+    );
+
+    it.effect(
+      "leaves the thread on the conversation's model when a compaction on the chosen model is interrupted",
+      () =>
+        Effect.gen(function* () {
+          const harness = yield* makeWakeHarnessWithOptions({
+            close: (sdkMessages) => Queue.shutdown(sdkMessages),
+            freshQueueOnReopen: true,
+          });
+          const OPUS = { ...CONVERSATION, model: "claude-opus-5-5" };
+          yield* startCompaction(harness, 1, undefined, "Continue.");
+          yield* finishNormalTurn(harness, 1);
+          yield* startCompaction(harness, 2, { modelSelection: OPUS });
+          yield* harness.offerAndWait(
+            claudeSdkFrame({
+              type: "system",
+              subtype: "status",
+              status: "compacting",
+              uuid: "00000000-0000-4000-8000-0000000c0201",
+              session_id: WAKE_NATIVE_SESSION,
+            }),
+          );
+          const idAllocator = yield* IdAllocator.IdAllocatorV2;
+          yield* harness.runtime.interruptTurn({
+            providerThread: harness.providerThread,
+            providerTurnId: idAllocator.derive.providerTurn({
+              driver: ClaudeAdapterV2.CLAUDE_PROVIDER,
+              nativeTurnId: "turn:attempt-cheap-compaction-2",
+            }),
+          });
+          assert.equal((yield* Queue.take(harness.terminalReceipts)).status, "interrupted");
+          assert.deepEqual(
+            compactionItems(harness.events).map((item) => [item.status, item.model]),
+            [
+              ["running", "claude-opus-5-5"],
+              ["interrupted", "claude-opus-5-5"],
+            ],
+          );
+
+          // The next turn goes back to the conversation's model, never the interrupted one.
+          yield* startCompaction(harness, 3, undefined, "Next message.");
+          assert.equal(harness.getOpenedOptions()?.model, "claude-sonnet-5-5");
+        }).pipe(Effect.scoped, provide),
+    );
+
+    it.effect(
+      "reopens the session for a chosen model that cannot be applied live, keeping the conversation's compact window",
+      () =>
+        Effect.gen(function* () {
+          const harness = yield* makeWakeHarnessWithOptions({ freshQueueOnReopen: true });
+          const openedWindow = () =>
+            (harness.getOpenedOptions()?.settings as { autoCompactWindow?: number } | undefined)
+              ?.autoCompactWindow;
+          yield* startCompaction(harness, 1, undefined, "Continue.");
+          yield* finishNormalTurn(harness, 1);
+          assert.lengthOf(harness.processQueues, 1);
+
+          yield* startCompaction(harness, 2, { modelSelection: CHEAP });
+          assert.lengthOf(harness.processQueues, 2);
+          assert.equal(harness.getOpenedOptions()?.model, "claude-haiku-4-5");
+          assert.equal(openedWindow(), COMPACT_AT + CLAUDE_COMPACT_RESERVE);
+          yield* finishCompaction(harness, 2);
+
+          // Switching back to the conversation's model needs no second process.
+          yield* startCompaction(harness, 3, undefined, "Next message.");
+          assert.lengthOf(harness.processQueues, 2);
+        }).pipe(Effect.scoped, provide),
+    );
+  });
 
   it.effect("shows automatic compaction before its boundary and completes the same item", () =>
     Effect.gen(function* () {

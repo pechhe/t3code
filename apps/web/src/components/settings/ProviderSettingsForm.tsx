@@ -25,6 +25,14 @@ export type SettingsFormDefinition = Pick<ProviderClientDefinition, "settingsSch
 };
 import { SettingsRow } from "./settingsLayout";
 
+/** Stands for "no model chosen", which the config stores as an omitted value. */
+const EMPTY_MODEL_OPTION = "__none__";
+
+export interface ProviderSettingsModelOption {
+  readonly slug: string;
+  readonly name: string;
+}
+
 export interface ProviderSettingsFieldModel {
   readonly key: string;
   readonly control: ProviderSettingsFormControl;
@@ -85,6 +93,7 @@ function readFieldBooleanDefault(
 export function deriveProviderSettingsFields(
   definition: SettingsFormDefinition,
   value?: unknown,
+  models?: ReadonlyArray<ProviderSettingsModelOption>,
 ): ReadonlyArray<ProviderSettingsFieldModel> {
   const isLocalAcp =
     definition.driverKind === "acpRegistry" &&
@@ -107,6 +116,8 @@ export function deriveProviderSettingsFields(
       const fieldSchema = definition.settingsSchema.fields[key]!;
       const formAnnotation = readProviderSettingsFormAnnotation(fieldSchema);
       if (formAnnotation.hidden) return [];
+      // A model picker needs the instance's models, which only the instance card has.
+      if (formAnnotation.modelOptions !== undefined && models === undefined) return [];
       if (isLocalAcp && key !== "source" && key !== "commandPath") return [];
 
       const annotatedTitle = readFieldAnnotationString(fieldSchema, "title");
@@ -136,6 +147,16 @@ export function deriveProviderSettingsFields(
             : {}),
           ...(formAnnotation.control === "select" && formAnnotation.options
             ? { options: formAnnotation.options }
+            : {}),
+          ...(formAnnotation.control === "select" &&
+          formAnnotation.modelOptions !== undefined &&
+          models !== undefined
+            ? {
+                options: [
+                  { value: EMPTY_MODEL_OPTION, label: formAnnotation.modelOptions.emptyLabel },
+                  ...models.map((model) => ({ value: model.slug, label: model.name })),
+                ],
+              }
             : {}),
         } satisfies ProviderSettingsFieldModel,
       ];
@@ -294,6 +315,8 @@ interface ProviderSettingsFormProps {
   readonly value: unknown;
   readonly idPrefix: string;
   readonly variant: "card" | "dialog" | "settings";
+  /** The instance's models, for fields that pick one. Those fields stay hidden without it. */
+  readonly models?: ReadonlyArray<ProviderSettingsModelOption> | undefined;
   readonly onChange: (nextConfig: Record<string, unknown> | undefined) => void;
 }
 
@@ -564,9 +587,10 @@ export function ProviderSettingsForm({
   value,
   idPrefix,
   variant,
+  models,
   onChange,
 }: ProviderSettingsFormProps) {
-  const fields = deriveProviderSettingsFields(definition, value);
+  const fields = deriveProviderSettingsFields(definition, value, models);
   const isLocalAcp =
     definition.driverKind === "acpRegistry" &&
     readProviderConfigString(value, "source") === "local";

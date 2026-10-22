@@ -492,6 +492,16 @@ export interface ProviderAdapterV2TurnInput {
    * agent's usual instructions. Only adapters that support an overlay receive one.
    */
   readonly instructionOverlay?: { readonly text: string; readonly sha256: string };
+  /**
+   * Set on a `/compact` turn whose summary a model other than the conversation's writes. That
+   * model never travels as `modelSelection`: the run, the thread and the recorded context window
+   * stay the conversation's, and only the adapter reads this when it opens the summary.
+   */
+  readonly compaction?: {
+    readonly modelSelection?: ModelSelection;
+    /** The setting's model was passed over because its window is smaller than the thread. */
+    readonly windowTooSmall?: boolean;
+  };
 }
 
 export interface ProviderAdapterV2SteerInput {

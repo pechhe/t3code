@@ -186,6 +186,11 @@ export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
   /** Where the provider will compact this session, in context tokens, as last applied. */
   autoCompactThreshold: Schema.optional(PositiveInt),
   promptCacheExpiresAt: Schema.optional(Schema.String),
+  /**
+   * The model that summarised this turn when T3 Code compacted on one other than the
+   * conversation's. Its cache fields describe that model's request, not the conversation's.
+   */
+  compactedWith: Schema.optional(Schema.String),
   updatedAt: Schema.String,
 });
 export type OrchestrationV2ProviderTurnTokenUsage =
@@ -1807,6 +1812,10 @@ export const OrchestrationV2TurnItem = Schema.Union([
     summary: Schema.optional(Schema.String),
     beforeTokenCount: Schema.optional(NonNegativeInt),
     afterTokenCount: Schema.optional(NonNegativeInt),
+    /** The model that summarised, when T3 Code chose one other than the conversation's. */
+    model: Schema.optional(Schema.String),
+    /** The setting's model was passed over because its window is smaller than the thread. */
+    windowTooSmall: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2603,6 +2612,10 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     summary: Schema.optional(Schema.String),
     beforeTokenCount: Schema.optional(NonNegativeInt),
     afterTokenCount: Schema.optional(NonNegativeInt),
+    /** The model that summarised, when T3 Code chose one other than the conversation's. */
+    model: Schema.optional(Schema.String),
+    /** The setting's model was passed over because its window is smaller than the thread. */
+    windowTooSmall: Schema.optional(Schema.Boolean),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,

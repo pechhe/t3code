@@ -5,6 +5,7 @@ import * as DateTime from "effect/DateTime";
 
 import {
   commandDetailRepeatsCommand,
+  contextCompactionLabel,
   extractCommandOutputText,
   resolveWorkEntryToolPresentation,
   toolItemForDisplay,
@@ -242,5 +243,24 @@ describe("command work-log details", () => {
         data: { command: "pnpm test" },
       }),
     ).toBe(false);
+  });
+});
+
+describe("contextCompactionLabel", () => {
+  const done = { status: "completed", beforeTokenCount: 251_000, afterTokenCount: 12_000 } as const;
+
+  it("reads as before when the conversation's own model compacted", () => {
+    expect(contextCompactionLabel(done)).toBe("Context compacted 251K → 12K tokens");
+    expect(contextCompactionLabel({ status: "failed" })).toBe("Context compaction failed");
+  });
+
+  it("names the model that compacted", () => {
+    const model = "claude-haiku-4-5";
+    expect(contextCompactionLabel({ ...done, model })).toBe(
+      "Context compacted · Haiku 4.5 · 251K → 12K tokens",
+    );
+    expect(contextCompactionLabel({ status: "failed", model })).toBe(
+      "Context compaction failed on Haiku 4.5",
+    );
   });
 });

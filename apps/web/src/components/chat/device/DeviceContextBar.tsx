@@ -34,6 +34,8 @@ export function DeviceContextBar(props: {
   compactDisabledReason: string | null;
   /** History the next send would summarise first; null when it sends as is. */
   compactBeforeSendTokens: number | null;
+  /** The cheaper model that summarises that history; null when the conversation's own does. */
+  compactionModelName: string | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
   canOperateThread: boolean;
@@ -99,6 +101,7 @@ export function DeviceContextBar(props: {
         {props.compactBeforeSendTokens !== null ? (
           <CompactOnSendFlag
             tokens={props.compactBeforeSendTokens}
+            modelName={props.compactionModelName}
             armed={!props.keepFullHistory}
             disabled={!props.canOperateThread}
             onToggle={props.onToggleKeepFullHistory}
@@ -138,11 +141,13 @@ export function DeviceContextBar(props: {
  */
 function CompactOnSendFlag(props: {
   tokens: number;
+  modelName: string | null;
   armed: boolean;
   disabled: boolean;
   onToggle: () => void;
 }) {
   const tokens = formatContextWindowTokens(props.tokens);
+  const withModel = props.modelName ? ` with ${props.modelName}` : "";
   return (
     <Tooltip>
       <TooltipTrigger
@@ -152,7 +157,7 @@ function CompactOnSendFlag(props: {
             className="device-context__flag"
             aria-pressed={props.armed}
             disabled={props.disabled}
-            aria-label={`Compact ${tokens} tokens of history before sending`}
+            aria-label={`Compact ${tokens} tokens of history${withModel} before sending`}
             onPointerDown={(event) => event.preventDefault()}
             onClick={props.onToggle}
           />
@@ -160,7 +165,8 @@ function CompactOnSendFlag(props: {
       >
         {props.armed ? (
           <>
-            ▸ compacts on send<span className="device-context__flag-off">✕</span>
+            ▸ compacts on send{props.modelName ? ` · ${props.modelName}` : ""}
+            <span className="device-context__flag-off">✕</span>
           </>
         ) : (
           "compact on send?"
@@ -168,7 +174,7 @@ function CompactOnSendFlag(props: {
       </TooltipTrigger>
       <TooltipPopup side="top">
         {props.armed
-          ? `Next send summarises ${tokens} tokens first. Click to keep the full history`
+          ? `Next send summarises ${tokens} tokens first${withModel}. Click to keep the full history`
           : `Next send keeps all ${tokens} tokens. Click to compact first`}
       </TooltipPopup>
     </Tooltip>

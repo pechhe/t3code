@@ -4,6 +4,7 @@ import { projectComposerContextForProvider } from "@t3tools/shared/composerConte
 import {
   CommandId,
   latestProviderTurnForAttempt,
+  resolveClaudeCompactionSetting,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2ProviderThread,
@@ -39,6 +40,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
+import { planClaudeCompaction } from "./ClaudeCompactionPlan.ts";
 import {
   DEFAULT_HANDOFF_TOKEN_CAP,
   handoffTokenCapConfig,
@@ -1584,6 +1586,28 @@ export const layer: Layer.Layer<
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);
+      // The server cannot tell a typed /compact from compact-on-send or idle compaction, so all
+      // of them follow the instance's "Compact with" setting.
+      const compaction =
+        providerThread.driver === "claudeAgent" &&
+        message.attachments.length === 0 &&
+        message.text.trim().toLowerCase() === "/compact"
+          ? planClaudeCompaction({
+              setting: resolveClaudeCompactionSetting(
+                yield* serverSettings.getSettings.pipe(
+                  Effect.orElseSucceed(() => ({ providerInstances: {} })),
+                ),
+                run.providerInstanceId,
+              ),
+              modelSelection: run.modelSelection,
+              usages: projection.providerTurns.flatMap((turn) =>
+                turn.providerThreadId === providerThread.id && turn.tokenUsage !== undefined
+                  ? [turn.tokenUsage]
+                  : [],
+              ),
+              nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+            })
+          : undefined;
       return runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,
@@ -1633,6 +1657,7 @@ export const layer: Layer.Layer<
             : { senderThreadId: message.senderThreadId }),
         },
         modelSelection: run.modelSelection,
+        ...(compaction === undefined ? {} : { compaction }),
         runtimePolicy: resolvedRuntimePolicy,
       });
     });

@@ -1108,6 +1108,8 @@ export function ProviderInstanceCard({
       value={instance.config}
       idPrefix={`provider-instance-${instanceId}`}
       variant="settings"
+      // Compaction guards on the chosen model's window, which only catalog models report.
+      models={modelsForDisplay.filter((model) => model.contextWindowTokens !== undefined)}
       onChange={updateConfig}
     />
   ) : (

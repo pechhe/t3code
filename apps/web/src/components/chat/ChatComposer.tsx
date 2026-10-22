@@ -438,6 +438,8 @@ export interface ChatComposerProps {
   isCompacting: boolean;
   bannerItems: readonly ComposerBannerStackItem[];
   resumeCompactionTokens: number | null;
+  /** The cheaper model that summarises that history; null when the conversation's own does. */
+  resumeCompactionModelName: string | null;
   keepFullHistory: boolean;
   onToggleKeepFullHistory: () => void;
   onUsageLimitsCommand?: (() => void) | undefined;
@@ -4118,6 +4120,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   compactDisabledReason={resolvedCompactDisabledReason}
                   {...(compactCommandAvailable ? { onCompact: compactThreadContext } : {})}
                   compactBeforeSendTokens={compactOnSend}
+                  compactionModelName={props.resumeCompactionModelName}
                   keepFullHistory={props.keepFullHistory}
                   onToggleKeepFullHistory={props.onToggleKeepFullHistory}
                   canOperateThread={canOperateThread}
@@ -4230,6 +4233,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                     onInterrupt={handleInterruptPrimaryActionStable}
                     onImplementPlanInNewThread={handleImplementPlanInNewThreadPrimaryActionStable}
                     compactBeforeSendTokens={compactOnSend}
+                    compactionModelName={props.resumeCompactionModelName}
                     keepFullHistory={props.keepFullHistory}
                     onToggleKeepFullHistory={props.onToggleKeepFullHistory}
                     compactDisabled={

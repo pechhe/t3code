@@ -69,6 +69,8 @@ interface ComposerPrimaryActionsProps {
   onInterrupt: () => void;
   onImplementPlanInNewThread: () => void;
   compactBeforeSendTokens?: number | null;
+  /** The cheaper model that summarises that history; null when the conversation's own does. */
+  compactionModelName?: string | null;
   keepFullHistory?: boolean;
   onToggleKeepFullHistory?: () => void;
   /** Render send and stop as the composer's machined dial. */
@@ -128,6 +130,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   onInterrupt,
   onImplementPlanInNewThread,
   compactBeforeSendTokens = null,
+  compactionModelName = null,
   keepFullHistory = false,
   onToggleKeepFullHistory,
   device = false,
@@ -478,7 +481,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
   const submitTooltip =
     submitStatus ??
     (compactsBeforeSend
-      ? `Summarize ${compactTokens} tokens of history, then send`
+      ? `Summarize ${compactTokens} tokens of history${compactionModelName ? ` with ${compactionModelName}` : ""}, then send`
       : isRunning && !isEditingQueuedMessage && canSteer
         ? `Click to ${followUpBehavior}, Ctrl/⌘-click${alternateShortcutLabel ? ` or ${alternateShortcutLabel}` : ""} to ${alternateAction}`
         : submitLabel);
@@ -604,7 +607,7 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
               )}
               {...pointerFocusProps}
               aria-pressed={!keepFullHistory}
-              aria-label={`Compact ${compactTokens} tokens of history before sending`}
+              aria-label={`Compact ${compactTokens} tokens of history${compactionModelName ? ` with ${compactionModelName}` : ""} before sending`}
               disabled={!canOperateThread}
               onClick={onToggleKeepFullHistory}
             />
@@ -612,13 +615,16 @@ export const ComposerPrimaryActions = memo(function ComposerPrimaryActions({
         >
           <Minimize2Icon aria-hidden="true" />
           {keepFullHistory ? "Full" : "Compact"}
+          {!keepFullHistory && compactionModelName ? (
+            <span className="max-w-24 truncate">{compactionModelName}</span>
+          ) : null}
           <span>{compactTokens}</span>
         </TooltipTrigger>
         <TooltipPopup>
           <div>
             {keepFullHistory
               ? `Next send keeps all ${compactTokens} tokens.`
-              : `Next send compacts ${compactTokens} tokens first.`}
+              : `Next send compacts ${compactTokens} tokens first${compactionModelName ? ` with ${compactionModelName}` : ""}.`}
           </div>
           <div>{keepFullHistory ? "Click to compact first" : "Click to keep full history"}</div>
         </TooltipPopup>

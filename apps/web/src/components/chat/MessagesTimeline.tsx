@@ -1,3 +1,4 @@
+import { CONTEXT_COMPACTION_WINDOW_TOO_SMALL } from "@t3tools/client-runtime/work-log/presentation";
 import { useStableCallback } from "~/hooks/useStableCallback";
 import { ThreadFindTimelineContext } from "./ThreadFindProvider";
 import { MarkdownFindContext } from "./markdownFindContext";
@@ -1433,13 +1434,14 @@ function ContextCompactionTimelineRow({
       <Minimize2Icon aria-hidden="true" className="size-3" />
       {row.tokenCounts ? (
         <>
-          Context compacted {row.tokenCounts.before}
+          Context compacted{row.modelName ? ` · ${row.modelName} ·` : ""} {row.tokenCounts.before}
           <ArrowRightIcon aria-hidden="true" className="size-3" />
           {row.tokenCounts.after} tokens
         </>
       ) : (
         row.label
       )}
+      {row.windowTooSmall ? ` · ${CONTEXT_COMPACTION_WINDOW_TOO_SMALL}` : null}
     </span>
   );
   return (

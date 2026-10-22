@@ -1,3 +1,7 @@
+import {
+  CONTEXT_COMPACTION_WINDOW_TOO_SMALL,
+  contextCompactionModelName,
+} from "@t3tools/client-runtime/work-log/presentation";
 import { type OrchestrationV2TurnItem } from "@t3tools/contracts";
 import { providerErrorPresentation } from "../../session-logic";
 import {
@@ -69,9 +73,16 @@ export function v2EventPresentation(item: OrchestrationV2TurnItem): {
         item.beforeTokenCount === undefined && item.afterTokenCount === undefined
           ? null
           : `${item.beforeTokenCount ?? "?"} → ${item.afterTokenCount ?? "?"} tokens`;
+      const model = contextCompactionModelName(item);
       return {
-        label: "Context compacted",
-        detail: item.summary ?? tokenSummary,
+        label: model ? `Context compacted · ${model}` : "Context compacted",
+        detail:
+          [
+            item.summary ?? tokenSummary,
+            item.windowTooSmall ? CONTEXT_COMPACTION_WINDOW_TOO_SMALL : null,
+          ]
+            .filter(Boolean)
+            .join(" · ") || null,
         tone: item.status === "failed" ? "danger" : "muted",
         icon: MinusIcon,
       };

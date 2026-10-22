@@ -586,6 +586,7 @@ export interface RunExecutionServiceV2StartRootRunInput {
   readonly movedTo?: () => Effect.Effect<string | undefined, never>;
   readonly message: ProviderAdapter.ProviderAdapterV2TurnMessage;
   readonly modelSelection: ModelSelection;
+  readonly compaction?: ProviderAdapter.ProviderAdapterV2TurnInput["compaction"];
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
 }
 
@@ -1700,6 +1701,7 @@ export const layer: Layer.Layer<
           providerThread: input.providerThread,
           message: input.message,
           modelSelection: input.modelSelection,
+          ...(input.compaction === undefined ? {} : { compaction: input.compaction }),
           runtimePolicy: input.runtimePolicy,
           ...(appContext.length === 0 ? {} : { appContext }),
           ...(overlay === null

@@ -21,6 +21,7 @@ import {
   summarizeToolGroup,
   toolGroupAction,
   toolGroupSummaryKind,
+  contextCompactionModelName,
   contextCompactionTokenCounts,
   type ToolGroupSummaryKind,
 } from "@t3tools/client-runtime/work-log/presentation";
@@ -608,6 +609,9 @@ type MessagesTimelineRowContent =
       createdAt: string;
       label: string;
       tokenCounts: ReturnType<typeof contextCompactionTokenCounts>;
+      /** The cheaper model that compacted, when it was not the conversation's own. */
+      modelName: string | null;
+      windowTooSmall: boolean;
       active: boolean;
     }
   | {
@@ -1767,6 +1771,9 @@ export function deriveMessagesTimelineRows(input: {
         label: timelineEntry.entry.label,
         tokenCounts:
           compaction?.type === "compaction" ? contextCompactionTokenCounts(compaction) : null,
+        modelName:
+          compaction?.type === "compaction" ? contextCompactionModelName(compaction) : null,
+        windowTooSmall: compaction?.type === "compaction" && compaction.windowTooSmall === true,
         active,
       });
       continue;

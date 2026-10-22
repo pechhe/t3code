@@ -1,3 +1,7 @@
+import {
+  CONTEXT_COMPACTION_WINDOW_TOO_SMALL,
+  contextCompactionModelName,
+} from "@t3tools/client-runtime/work-log/presentation";
 import { ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { AgentElapsed } from "./AgentElapsed";
 import { projectedSubagentsToRuntime } from "@t3tools/client-runtime/state/subagentRuntime";
@@ -128,17 +132,28 @@ export function V2LifecycleRow(props: {
       item.beforeTokenCount === undefined && item.afterTokenCount === undefined
         ? null
         : `${item.beforeTokenCount ?? "?"} → ${item.afterTokenCount ?? "?"} tokens`;
+    const model = contextCompactionModelName(item);
     const label =
       item.status === "failed"
-        ? "Context compaction failed"
+        ? model
+          ? `Context compaction failed on ${model}`
+          : "Context compaction failed"
         : item.status === "cancelled" || item.status === "interrupted"
           ? "Context compaction stopped"
           : item.status === "pending" || item.status === "running" || item.status === "waiting"
-            ? "Compacting context"
-            : "Context compacted";
-    return (
-      <TimelineSystemDivider label={label} detail={item.summary ?? tokenDetail} icon={MinusIcon} />
-    );
+            ? model
+              ? `Compacting context with ${model}`
+              : "Compacting context"
+            : model
+              ? `Context compacted · ${model}`
+              : "Context compacted";
+    const detail = [
+      item.summary ?? tokenDetail,
+      item.windowTooSmall ? CONTEXT_COMPACTION_WINDOW_TOO_SMALL : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    return <TimelineSystemDivider label={label} detail={detail || null} icon={MinusIcon} />;
   }
   if (item.type === "handoff") {
     return (

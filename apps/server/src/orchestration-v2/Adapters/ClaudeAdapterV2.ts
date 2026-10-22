@@ -1339,6 +1339,12 @@ export function claudeQueryEnvironment(
 
 export function makeClaudeQueryOptions(input: {
   readonly modelSelection: ModelSelection;
+  /**
+   * The conversation's selection when `modelSelection` opens the session for a compaction on
+   * another model: the thread's auto-compact point follows the conversation's window, never the
+   * summarising model's.
+   */
+  readonly contextWindowSelection?: ModelSelection;
   readonly managedAgent?: boolean | undefined;
   readonly nativeThreadId: string;
   readonly resume: boolean;
@@ -1411,7 +1417,7 @@ export function makeClaudeQueryOptions(input: {
       ...(input.settings === undefined ? {} : { instanceWindow: input.settings.autoCompactWindow }),
       compactAt: input.compactAt ?? null,
     },
-    claudeContextWindow(input.modelSelection),
+    claudeContextWindow(input.contextWindowSelection ?? input.modelSelection),
   );
   const effectiveQuerySettings =
     autoCompactWindow === undefined
@@ -3658,8 +3664,16 @@ interface ActiveClaudeSubagent {
   lastAssistantMessageId: string | null;
 }
 
+/** Marks the usage of a compaction a model other than the conversation's summarised. */
+function compactedWithUsage(context: {
+  readonly input: ProviderAdapter.ProviderAdapterV2TurnInput;
+}) {
+  const model = context.input.compaction?.modelSelection?.model;
+  return model === undefined ? {} : { compactedWith: model };
+}
+
 interface ClaudeLiveQueryContext {
-  /** The model the process runs, which bounds its compaction window. */
+  /** The conversation's model, which bounds the process's compaction window even while a compaction runs on another. */
   modelSelection: ModelSelection;
   /** The thread compact-at point the process was last given; null follows the instance setting. */
   compactAt: number | null;
@@ -4548,7 +4562,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
               status: "running",
               startedAt: context.startedAt,
               completedAt: null,
-              tokenUsage,
+              tokenUsage: { ...tokenUsage, ...compactedWithUsage(context) },
             },
           });
         });
@@ -8107,6 +8121,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 driver: CLAUDE_PROVIDER,
                 status: "running",
                 title: "Compacting context",
+                ...(context.input.compaction?.modelSelection === undefined
+                  ? {}
+                  : { model: context.input.compaction.modelSelection.model }),
+                ...(context.input.compaction?.windowTooSmall === true
+                  ? { windowTooSmall: true }
+                  : {}),
                 startedAt: now,
                 completedAt: null,
                 updatedAt: now,
@@ -8149,6 +8169,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   tokenUsage: {
                     usedTokens: afterTokenCount,
                     maxTokens,
+                    ...compactedWithUsage(context),
                     ...claudeAutoCompactThreshold(
                       {
                         instanceWindow: adapterOptions.settings.autoCompactWindow,
@@ -9523,7 +9544,10 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           const queryPolicyKey = `${claudeEffectiveQueryPolicyKey(queryPolicy, mcpOverrides)}:${
             turnInput.instructionOverlay?.sha256 ?? ""
           }`;
-          const compiledSelection = compileClaudeModelSelection(turnInput.modelSelection);
+          // A compaction on another model opens or switches the session for the summary only; the
+          // turn's own selection stays the conversation's.
+          const querySelection = turnInput.compaction?.modelSelection ?? turnInput.modelSelection;
+          const compiledSelection = compileClaudeModelSelection(querySelection);
           const resumeSessionAt = yield* getNativeConversationHeadId(turnInput.providerThread);
           const existing = yield* Ref.get(queryContext);
           // A continuation prompts nothing: it drains output the live process
@@ -9631,7 +9655,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           yield* Ref.set(compactAtRef, turnInput.runtimePolicy.compactAt ?? null);
           const queryOptions = makeClaudeQueryOptions({
             managedAgent: turnInput.runtimePolicy.managedAgent,
-            modelSelection: turnInput.modelSelection,
+            modelSelection: querySelection,
+            contextWindowSelection: turnInput.modelSelection,
             nativeThreadId,
             resume: shouldResume,
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
@@ -9831,7 +9856,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 : yield* makeClaudeUserMessageWithAttachments({
                     text: applyClaudePromptEffortPrefix(
                       turnInput.message.text,
-                      compileClaudeModelSelection(turnInput.modelSelection).promptEffort,
+                      compileClaudeModelSelection(
+                        turnInput.compaction?.modelSelection ?? turnInput.modelSelection,
+                      ).promptEffort,
                     ),
                     attachments: turnInput.message.attachments,
                     videoFrames: turnInput.message.videoFrames,

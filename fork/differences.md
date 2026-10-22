@@ -59,6 +59,17 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (v0.1.2-nightly.20261022.3526, 2026-10-22): upstream's older-client repair for idle compaction modes (#23454: `compactIdleThreads` keeps a boolean for shipped clients while `idleCompaction` carries the mode, and the server writes the field on load) merged beside the fold of per-instance `modelCompactAt`; both run in the normalisation pipeline (instance fold first, then idle-compaction field) and both tests stay in serverSettings.test.ts. Earlier: `retain` (v0.1.2-nightly.20261021.3499, 2026-10-22): upstream's idle compaction modes with per-Claude-instance overrides (#23037: `compactIdleThreads`, `idleCompaction`) merged beside the compact line; they decide when an idle thread compacts, not where, so `compactAt`/`autoCompactWindow` are unchanged. Claude's `autoCompactWindow` keeps the fork's shared `AUTO_COMPACT_WINDOW_PATTERN`. Earlier: `retain` (2026-10-21, #4361): context-rollover retired in favour of native compaction with a per-thread compact line.
 - **Owner:** YardSmith HQ Build #4361.
 
+### compact-model
+
+- **Kind:** durable extension
+- **Why:** A Claude compaction summarises the whole thread. Once the prompt cache has expired that pass is uncached on whichever model runs it, so a cheaper model saves money; while the cache is warm the conversation's own model is cheaper. The thread must never move to the cheap model.
+- **Requirements:** each Claude instance has `compactModel` (default none) and `compactOnlyWhenCold` (default on). Every `/compact` T3 starts on a Claude thread (compact-on-send, the meter's Compact context, `beforeCacheExpires` idle compaction, a typed `/compact`) is planned at turn start by `ClaudeCompactionPlan` using `chooseClaudeCompactionModel` in `packages/shared/src/claudeCompaction.ts`, which the web chip also uses, only to label. The chosen model travels as the adapter-only `ProviderAdapterV2TurnInput.compaction`, never as the turn's or thread's `modelSelection`, so no `thread.model-selection-updated` is written and the recorded window and threshold stay the conversation's. Cold means `promptCacheExpiresAt` of the latest usage not marked `compactedWith` has passed; an unknown expiry keeps the conversation's model. A chosen model whose window (`ServerProviderModel.contextWindowTokens`) is smaller than the thread's tokens is passed over and the compaction item carries `windowTooSmall`. A session reopened for the compaction keeps the conversation's `autoCompactWindow`. The compaction item carries the `model` that summarised; the chip, device flag, send tooltip and the three timeline renderers of that item name it. A failure after compaction starts fails on the chosen model.
+- **Integration points:** `ClaudeSettings` in contracts, `resolveClaudeCompactionSetting`, `ProviderTurnStartService` → `RunExecutionService` → `ClaudeAdapterV2` (`contextWindowSelection`, `compactedWith`), `ProviderSettingsForm` `modelOptions`, `contextCompactionLabel` in client-runtime.
+- **Proof:** packages/shared/src/claudeCompaction.test.ts, ProviderTurnStartService.test.ts ("Claude compaction model"), Adapters/ClaudeAdapterV2.test.ts ("compaction on another model"), ContextWindowMeter.logic.test.ts, work-log/presentation.test.ts.
+- **Upstream:** none; upstream has idle compaction modes (#23037) but no compaction model.
+- **Retire when:** upstream lets a compaction pick its own model.
+- **Owner:** YardSmith HQ Build #4729.
+
 ### experiments
 
 - **Kind:** durable extension

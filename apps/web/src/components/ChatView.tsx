@@ -89,6 +89,7 @@ import {
   type ThreadId,
   type RunId,
   ProviderInteractionMode,
+  resolveClaudeCompactionSetting,
   resolveIdleCompaction,
   RuntimeMode,
 } from "@t3tools/contracts";
@@ -331,6 +332,7 @@ import { resolveThreadSyncPhase } from "../threadSync";
 import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
+  resolveCompactionModelDisplayName,
   shouldOfferResumeCompaction,
 } from "./chat/ContextWindowMeter.logic";
 import {
@@ -2625,6 +2627,28 @@ export default function ChatView(props: ChatViewProps) {
     })
       ? activeContextWindow.usedTokens
       : null;
+  const resumeCompactionModelName =
+    resumeCompactionTokens !== null &&
+    selectedProviderEntry !== undefined &&
+    activeThread !== undefined
+      ? resolveCompactionModelDisplayName({
+          setting: resolveClaudeCompactionSetting(settings, selectedProviderEntry.instanceId),
+          conversationModel:
+            resolveSelectableModel(
+              selectedProviderEntry.driverKind,
+              activeThread.modelSelection.model,
+              selectedProviderEntry.models,
+            ) ?? activeThread.modelSelection.model,
+          models: selectedProviderEntry.models,
+          usages: (serverProjection?.providerTurns ?? []).flatMap((turn) =>
+            turn.tokenUsage !== undefined && turn.providerThreadId === activeProviderThread?.id
+              ? [turn.tokenUsage]
+              : [],
+          ),
+          usedTokens: resumeCompactionTokens,
+          now: `${nowMinute}:00.000Z`,
+        })
+      : null;
   const [fullHistoryThreadKeys, setFullHistoryThreadKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -3836,6 +3860,7 @@ export default function ChatView(props: ChatViewProps) {
                               deviceAwayKey={deviceAwayKey}
                               bannerItems={composerBannerItems}
                               resumeCompactionTokens={resumeCompactionTokens}
+                              resumeCompactionModelName={resumeCompactionModelName}
                               keepFullHistory={keepFullHistory}
                               onToggleKeepFullHistory={toggleKeepFullHistoryStable}
                               onUsageLimitsCommand={

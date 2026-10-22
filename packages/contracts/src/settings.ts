@@ -584,6 +584,11 @@ export interface ProviderSettingsFormAnnotation {
   readonly clearWhenEmpty?: "omit" | "persist" | undefined;
 
   readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
+  /**
+   * A select over the instance's own models, led by an empty choice with this label. The form
+   * hides the field where it has no model list to offer.
+   */
+  readonly modelOptions?: { readonly emptyLabel: string } | undefined;
 }
 
 export function secretSettingsFields(schema: {
@@ -802,9 +807,39 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         },
       }),
     ),
+    compactModel: TrimmedString.pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Compact with",
+        description:
+          "The model that summarises a conversation when T3 Code compacts it. The conversation keeps its own model.",
+        providerSettingsForm: {
+          control: "select",
+          modelOptions: { emptyLabel: "Same as the conversation" },
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
+    compactOnlyWhenCold: Schema.Boolean.pipe(
+      Schema.withDecodingDefault(Effect.succeed(true)),
+      Schema.annotateKey({
+        title: "Only when the prompt cache has expired",
+        description:
+          "While a conversation's prompt cache is warm, its own model compacts it at a tenth of the input price. Off uses the model above every time.",
+        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "homePath", "autoCompactWindow", "idleCompaction", "launchArgs"],
+    order: [
+      "binaryPath",
+      "homePath",
+      "autoCompactWindow",
+      "idleCompaction",
+      "compactModel",
+      "compactOnlyWhenCold",
+      "launchArgs",
+    ],
   },
 );
 export type ClaudeSettings = typeof ClaudeSettings.Type;
@@ -1529,6 +1564,23 @@ export const resolveIdleCompaction = (
     Option.getOrElse(() => "default" as const),
   );
   return override === "default" ? globalIdleCompaction(settings) : override;
+};
+
+/** The instance's "Compact with" model and whether it applies only once the prompt cache expired. */
+export const resolveClaudeCompactionSetting = (
+  settings: Pick<ServerSettings, "providerInstances">,
+  instanceId: ProviderInstanceId,
+): { readonly model: string; readonly onlyWhenCold: boolean } => {
+  const instance = Object.hasOwn(settings.providerInstances, instanceId)
+    ? settings.providerInstances[instanceId]
+    : undefined;
+  return decodeClaudeSettings(instance?.config ?? {}).pipe(
+    Option.map((config) => ({
+      model: config.compactModel,
+      onlyWhenCold: config.compactOnlyWhenCold,
+    })),
+    Option.getOrElse(() => ({ model: "", onlyWhenCold: true })),
+  );
 };
 
 export const ServerSettingsOperation = Schema.Literals([

@@ -3,6 +3,7 @@ import {
   type ModelCapabilities,
   type ModelSelection,
   ProviderDriverKind,
+  ProviderInstanceId,
   type ServerProviderModel,
   type ServerProviderUpdateRequiredModel,
 } from "@t3tools/contracts";
@@ -54,8 +55,17 @@ function tryResolveClaudeModelCatalog(
     });
   }
 
+  const catalog = { models };
   return {
-    models,
+    models: models.map((entry) => {
+      const contextWindowTokens = resolveClaudeCatalogContextWindowTokens(catalog, {
+        instanceId: ProviderInstanceId.make(CLAUDE),
+        model: entry.model.slug,
+      });
+      return contextWindowTokens === undefined
+        ? entry
+        : { ...entry, model: { ...entry.model, contextWindowTokens } };
+    }),
   };
 }
 

@@ -4,6 +4,7 @@ import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
   hasAvailableCompactionProvider,
   hasDismissedResumeCompaction,
+  resolveCompactionModelDisplayName,
   resolveContextWindowModelDisplayName,
   shouldReserveContextWindowMeter,
 } from "./ContextWindowMeter.logic";
@@ -155,5 +156,43 @@ describe("shouldReserveContextWindowMeter", () => {
         providerReportsContextWindow: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveCompactionModelDisplayName", () => {
+  const haiku = {
+    slug: "claude-haiku-4-5",
+    name: "Claude Haiku 4.5",
+    isCustom: false,
+    capabilities: null,
+    contextWindowTokens: 200_000,
+  };
+  const input = {
+    setting: { model: "claude-haiku-4-5", onlyWhenCold: true },
+    conversationModel: "claude-sonnet-5-5",
+    models: [haiku],
+    usages: [
+      {
+        usedTokens: 150_000,
+        updatedAt: "2026-09-04T10:00:00.000Z",
+        promptCacheExpiresAt: "2026-09-04T11:00:00.000Z",
+      },
+    ],
+    usedTokens: 150_000,
+    now: "2026-09-04T12:00:00.000Z",
+  };
+
+  it("names the cheaper model once the cache has expired", () => {
+    expect(resolveCompactionModelDisplayName(input)).toBe("Haiku 4.5");
+  });
+
+  it("names nothing while the cache is warm, so the chip reads as before", () => {
+    expect(resolveCompactionModelDisplayName({ ...input, now: "2026-09-04T10:30:00.000Z" })).toBe(
+      null,
+    );
+  });
+
+  it("names nothing when the chosen model's window is smaller than the thread", () => {
+    expect(resolveCompactionModelDisplayName({ ...input, usedTokens: 300_000 })).toBe(null);
   });
 });

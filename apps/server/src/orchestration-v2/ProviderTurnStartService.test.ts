@@ -4,7 +4,7 @@ import type { ChatAttachment } from "@t3tools/contracts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as VideoFrames from "../videoFrames/VideoFrames.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { it as effectIt } from "@effect/vitest";
 import {
   CheckpointScopeId,
@@ -20,6 +20,7 @@ import {
   RunId,
   ThreadId,
   ProjectId,
+  type OrchestrationV2ProviderTurnTokenUsage,
   type OrchestrationV2ThreadProjection,
   OrchestrationV2DomainEvent,
 } from "@t3tools/contracts";
@@ -35,6 +36,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as PlatformError from "effect/PlatformError";
 import * as Schema from "effect/Schema";
+import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerConfig from "../config.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
@@ -68,6 +70,7 @@ const normalize = (target: string) => {
 const layerWorktreeLocation = (
   worktreesDir = managedWorktreesDir,
   config: Partial<ServerConfig.ServerConfig["Service"]> = {},
+  settings: Parameters<typeof ServerSettings.layerTest>[0] = {},
 ) =>
   Layer.mergeAll(
     Path.layer,
@@ -76,7 +79,7 @@ const layerWorktreeLocation = (
       baseDir: "/tmp/provider-turn-start-data",
       ...config,
     } as ServerConfig.ServerConfig["Service"]),
-    ServerSettings.layerTest(),
+    ServerSettings.layerTest(settings),
   );
 
 /** Starts a run on a thread whose worktree folder is missing, with routing reads failing after. */
@@ -295,6 +298,11 @@ function makeLocalCommandHarness(input: {
   readonly fileSystem?: FileSystem.FileSystem;
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
+  /** Runs the turn on a Claude conversation with these server settings and prior token usage. */
+  readonly claude?: {
+    readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
+    readonly usages: ReadonlyArray<OrchestrationV2ProviderTurnTokenUsage>;
+  };
   readonly logoutFailure?: string;
   readonly openFailure?: unknown;
   readonly ensureThreadFailure?: unknown;
@@ -321,7 +329,7 @@ function makeLocalCommandHarness(input: {
   const providerSessionId = ProviderSessionId.make("new-provider-session");
   const oldProviderThreadId = ProviderThreadId.make("existing-native-provider-thread");
   const oldInstanceId = ProviderInstanceId.make("antigravity-personal");
-  const newInstanceId = ProviderInstanceId.make("codex-personal");
+  const newInstanceId = ProviderInstanceId.make(input.claude ? "claudeAgent" : "codex-personal");
   const checkpointScopeId = CheckpointScopeId.make("scope-native-account-command");
   const messageId = MessageId.make("message-native-account-command");
   const run: OrchestrationV2ThreadProjection["runs"][number] = {
@@ -329,7 +337,10 @@ function makeLocalCommandHarness(input: {
     threadId,
     ordinal: 2,
     providerInstanceId: newInstanceId,
-    modelSelection: { instanceId: newInstanceId, model: "gpt-5.4" },
+    modelSelection: {
+      instanceId: newInstanceId,
+      model: input.claude ? "claude-sonnet-5-5" : "gpt-5.4",
+    },
     providerThreadId,
     userMessageId: messageId,
     rootNodeId,
@@ -343,7 +354,7 @@ function makeLocalCommandHarness(input: {
   };
   const providerThread: OrchestrationV2ThreadProjection["providerThreads"][number] = {
     id: providerThreadId,
-    driver: ProviderDriverKind.make("codex"),
+    driver: ProviderDriverKind.make(input.claude ? "claudeAgent" : "codex"),
     providerInstanceId: newInstanceId,
     providerSessionId,
     appThreadId: threadId,
@@ -478,7 +489,18 @@ function makeLocalCommandHarness(input: {
       },
     ],
     providerSessions: [],
-    providerTurns: [],
+    providerTurns: (input.claude?.usages ?? []).map((tokenUsage, index) => ({
+      id: ProviderTurnId.make(`claude-usage-turn-${index}`),
+      providerThreadId,
+      nodeId: NodeId.make(`claude-usage-node-${index}`),
+      runAttemptId: RunAttemptId.make(`claude-usage-attempt-${index}`),
+      ordinal: index + 1,
+      nativeTurnRef: null,
+      status: "completed" as const,
+      startedAt: now,
+      completedAt: now,
+      tokenUsage,
+    })),
     contextHandoffs: [],
     contextTransfers: [],
     turnItems: [],
@@ -668,7 +690,8 @@ function makeLocalCommandHarness(input: {
   );
   const tryHandlePromptCommand = vi.fn(() =>
     input.logoutFailure === undefined
-      ? Effect.succeed(true)
+      ? // A Claude conversation's /compact is no account command; the provider runs it.
+        Effect.succeed(input.claude === undefined)
       : Effect.fail(
           new ProviderSetupError({
             instanceId: oldInstanceId,
@@ -733,6 +756,7 @@ function makeLocalCommandHarness(input: {
         layerWorktreeLocation(
           input.worktreesDir,
           input.attachmentsDir === undefined ? {} : { attachmentsDir: input.attachmentsDir },
+          input.claude?.settings,
         ),
         input.fileSystem === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
@@ -1422,6 +1446,135 @@ effectIt.effect("says a delegated task's removed workspace is not replaced", () 
     );
   }),
 );
+
+const CLAUDE_INSTANCE = "claudeAgent";
+const claudeCompactSettings = (
+  config: { compactModel?: string; compactOnlyWhenCold?: boolean },
+  expiresAtIso?: string,
+) => ({
+  settings: {
+    providerInstances: {
+      [CLAUDE_INSTANCE]: { driver: "claudeAgent", config },
+    },
+  } as never,
+  usages: [
+    {
+      usedTokens: 150_000,
+      updatedAt: "2026-09-04T10:00:00.000Z",
+      ...(expiresAtIso === undefined ? {} : { promptCacheExpiresAt: expiresAtIso }),
+    },
+  ],
+});
+// The cache either expired an hour before the test clock's 2026-09-04T12:00Z or has an hour left.
+const setClaudeClock = TestClock.setTime(Date.parse("2026-09-04T12:00:00Z"));
+const CACHE_EXPIRED = "2026-09-04T11:00:00.000Z";
+const CACHE_WARM = "2026-09-04T13:00:00.000Z";
+
+describe("Claude compaction model", () => {
+  effectIt.effect.each([
+    {
+      name: "cold, Haiku chosen: Haiku summarises while the run stays on the conversation's model",
+      config: { compactModel: "claude-haiku-4-5" },
+      expires: CACHE_EXPIRED,
+      expected: "claude-haiku-4-5",
+    },
+    {
+      name: "warm: the conversation's model summarises",
+      config: { compactModel: "claude-haiku-4-5" },
+      expires: CACHE_WARM,
+      expected: undefined,
+    },
+    {
+      name: "warm with the cold-only switch off: Haiku summarises",
+      config: { compactModel: "claude-haiku-4-5", compactOnlyWhenCold: false },
+      expires: CACHE_WARM,
+      expected: "claude-haiku-4-5",
+    },
+    {
+      name: "no model chosen: today's behaviour",
+      config: {},
+      expires: CACHE_EXPIRED,
+      expected: undefined,
+    },
+    {
+      name: "cache expiry unknown: the conversation's model summarises",
+      config: { compactModel: "claude-haiku-4-5" },
+      expires: undefined,
+      expected: undefined,
+    },
+  ] as const)("$name", ({ config, expires, expected }) =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Hello"],
+        failReadsAfterRunning: true,
+        claude: claudeCompactSettings(config, expires),
+      });
+
+      yield* harness.start;
+
+      const started = harness.startRootRun.mock.calls[0]?.[0];
+      // Neither the run nor the thread ever takes the summarising model.
+      expect(started?.run.modelSelection.model).toBe("claude-sonnet-5-5");
+      expect(started?.compaction?.modelSelection?.model).toBe(expected);
+      expect(harness.events.some((event) => event.type === "thread.model-selection-updated")).toBe(
+        false,
+      );
+    }),
+  );
+
+  effectIt.effect("leaves a Haiku-sized window out when the thread is bigger than it", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const claude = claudeCompactSettings({ compactModel: "claude-haiku-4-5" }, CACHE_EXPIRED);
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Hello"],
+        failReadsAfterRunning: true,
+        claude: { ...claude, usages: [{ ...claude.usages[0]!, usedTokens: 300_000 }] },
+      });
+
+      yield* harness.start;
+
+      const started = harness.startRootRun.mock.calls[0]?.[0];
+      expect(started?.compaction).toEqual({ windowTooSmall: true });
+    }),
+  );
+
+  effectIt.effect("treats a hand-typed /compact like any other", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "  /COMPACT ",
+        previousMessages: ["Hello"],
+        failReadsAfterRunning: true,
+        claude: claudeCompactSettings({ compactModel: "claude-haiku-4-5" }, CACHE_EXPIRED),
+      });
+
+      yield* harness.start;
+
+      expect(harness.startRootRun.mock.calls[0]?.[0].compaction?.modelSelection?.model).toBe(
+        "claude-haiku-4-5",
+      );
+    }),
+  );
+
+  effectIt.effect("ignores the setting for an ordinary message", () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        previousMessages: ["Hello"],
+        failReadsAfterRunning: true,
+        claude: claudeCompactSettings({ compactModel: "claude-haiku-4-5" }, CACHE_EXPIRED),
+      });
+
+      yield* harness.start;
+
+      expect(harness.startRootRun.mock.calls[0]?.[0].compaction).toBeUndefined();
+    }),
+  );
+});
 
 for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
   effectIt.effect(
