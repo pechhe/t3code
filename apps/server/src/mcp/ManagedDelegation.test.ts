@@ -691,7 +691,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         });
         // A genuinely unsupported option is refused by name and value, with the correction.
         for (const [index, [option, stated]] of [
-          [{ id: "fastMode", value: false }, "fastMode=false"],
+          [{ id: "fastMode", value: true }, "fastMode=true"],
           [{ id: "effort", value: "high" }, "effort=high"],
         ].entries()) {
           const refused = yield* h.delegate({
@@ -717,6 +717,18 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
           target: { providerInstanceId: alternate.instanceId },
         });
         expect(h.dispatched[5]).toMatchObject({ modelSelection: named.selection });
+        // Echoing the lead's own fastMode=false is inherited, not chosen: it is dropped and the
+        // role starts with exactly its own options.
+        yield* h.delegate({
+          task: "Review the Spec",
+          clientRequestId: "echoed-inherited",
+          agentTask: review,
+          target: { model: claudeModel, options: [{ id: "fastMode", value: false }] },
+        });
+        expect(h.dispatched[6]).toMatchObject({
+          modelSelection: own,
+          agentTask: { requested: own, effective: own },
+        });
       }),
   );
 

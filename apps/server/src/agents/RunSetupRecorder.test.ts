@@ -155,7 +155,12 @@ describe("captureRunSetup", () => {
       const stored = decodeStored(
         JSON.stringify({
           ...record,
-          rollover: { softLimit: 220_000, hardLimit: 280_000, held: false, noteRecipe: "rollover-v3" },
+          rollover: {
+            softLimit: 220_000,
+            hardLimit: 280_000,
+            held: false,
+            noteRecipe: "rollover-v3",
+          },
         }),
       );
       assert.deepEqual(stored.rollover, {
@@ -706,15 +711,13 @@ describe("setup cut points", () => {
       const recorder = yield* RunSetup.RunSetupRecorder;
       // The test clock starts at the epoch, so this run started a minute before the
       // recorder: a run brought back by a restart.
-      yield* recorder.record(
-        {
-          id: RunId.make("run:restarted:1"),
-          threadId,
-          ordinal: 1,
-          startedAt: DateTime.makeUnsafe(-60 * 1000),
-          modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
-        } as never,
-      );
+      yield* recorder.record({
+        id: RunId.make("run:restarted:1"),
+        threadId,
+        ordinal: 1,
+        startedAt: DateTime.makeUnsafe(-60 * 1000),
+        modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
+      } as never);
       const [record] = yield* storedSetups(threadId, 1);
       assert.isNull(record?.instructions);
       assert.isNull(record?.skills);
@@ -770,15 +773,13 @@ describe("setup cut points", () => {
       const recorder = yield* RunSetup.RunSetupRecorder;
       gate = yield* Deferred.make<void>();
       const reading = yield* Effect.forkChild(
-        recorder.record(
-          {
-            id: RunId.make("run:slow:1"),
-            threadId,
-            ordinal: 1,
-            startedAt: DateTime.makeUnsafe(0),
-            modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
-          } as never,
-        ),
+        recorder.record({
+          id: RunId.make("run:slow:1"),
+          threadId,
+          ordinal: 1,
+          startedAt: DateTime.makeUnsafe(0),
+          modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
+        } as never),
       );
       yield* Effect.yieldNow;
       // The capture began on time but its reads took longer than the bound.

@@ -64,6 +64,12 @@ type ResolutionInput = {
   readonly allowTrustedClaudeWriters?: boolean;
   /** The model the asking agent runs, which a role's `callers` exception may key on. */
   readonly callerModel?: string;
+  /**
+   * The account, model and options the asking agent itself runs with. A caller that echoes its
+   * options back for that same account and model is not choosing them, so those the role does
+   * not set are dropped, never refused.
+   */
+  readonly caller?: ModelSelection;
   readonly selection?: RequestedModel;
   /**
    * What the caller found out about the Phi route. A role with the phi tool profile needs it:
@@ -289,6 +295,7 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
       });
     }
   }
+  const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
   let candidates = eligible;
   if (input.selection !== undefined) {
     const selection = input.selection;
@@ -305,24 +312,38 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         candidates: diagnostics,
         detail: `${requestedName(selection)} is not eligible for ${request.role}: ${explain(input, diagnostics, selection.instanceId)}`,
       });
-    const options = selection.options;
-    // A choice may name an eligible model, but cannot inherit hidden or unsupported
-    // effort/options. Stated options must be the role's own; omitted ones are the role's.
-    const mismatch = (value: ModelSelection) =>
-      options?.find(
+    // A choice may name an eligible model, but cannot pick effort or options the role does not
+    // set. Stated options must be the role's own; omitted ones are the role's. An option the
+    // caller merely inherited (its own id and value, on the same account and model) and the
+    // role does not set is dropped, so echoing `fastMode=false` back is harmless.
+    const mismatches = (value: ModelSelection) =>
+      (selection.options ?? []).filter(
         (option) =>
           !value.options?.some(
             (expected) => expected.id === option.id && expected.value === option.value,
+          ) &&
+          !(
+            input.caller?.instanceId === value.instanceId &&
+            input.caller.model === value.model &&
+            input.caller.options?.some(
+              (own) => own.id === option.id && own.value === option.value,
+            ) &&
+            !value.options?.some((expected) => expected.id === option.id)
           ),
       );
-    const matching = requested.filter(({ selection: value }) => mismatch(value) === undefined);
+    const matching = requested.filter(({ selection: value }) => mismatches(value).length === 0);
     if (matching.length === 0) {
-      const first = requested[0]!.selection;
-      const offending = mismatch(first)!;
+      // Name the account that would otherwise serve, not one that is out of allowance.
+      const named =
+        requested.find(({ provider }) => !isProviderUsageExhausted(provider, nowMs))?.selection ??
+        requested[0]!.selection;
+      const offending = mismatches(named)
+        .map((option) => `${option.id}=${String(option.value)}`)
+        .join(", ");
       return yield* new AgentRoleError({
         reason: "unsupported-options",
         candidates: diagnostics,
-        detail: `option ${offending.id}=${String(offending.value)} is not part of ${request.role}'s selection of ${first.model} on ${first.instanceId}, which is ${optionList(first)}; omit target.options or state exactly those`,
+        detail: `option ${offending} ${mismatches(named).length === 1 ? "is" : "are"} not part of ${request.role}'s selection of ${named.model} on ${named.instanceId}, which is ${optionList(named)}; omit target.options or state exactly those`,
       });
     }
     candidates = matching;
@@ -345,7 +366,6 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     candidate.provider.driver !== authorDriver
       ? 1
       : 0;
-  const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
   const byUsageReset = compareByUsageReset(nowMs);
   const limitedInstances = new Set(
     eligible

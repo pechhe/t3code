@@ -2597,7 +2597,12 @@ const make = Effect.gen(function* () {
               providerInstanceId: input.providerInstanceId,
               model: input.model,
             }),
-            ...(parent === undefined ? {} : { callerModel: parent.thread.modelSelection.model }),
+            ...(parent === undefined
+              ? {}
+              : {
+                  callerModel: parent.thread.modelSelection.model,
+                  caller: parent.thread.modelSelection,
+                }),
           })
           .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
         return { ...result, environmentId: scope.environmentId };
@@ -3084,6 +3089,7 @@ const make = Effect.gen(function* () {
                       workspacePath: leadCheckout ?? null,
                       ...workspaceAuthority,
                       callerModel: parent.thread.modelSelection.model,
+                      caller: parent.thread.modelSelection,
                       ...selectionOf(input.target),
                     })
                     .pipe(Effect.mapError((error) => failure("capability_denied", error.message))),
