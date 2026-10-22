@@ -1615,6 +1615,32 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "keeps a newer dispatched tag whose release vanished, and sends it again once it returns",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          const newSha = await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          await run(f, []);
+          expect(await attemptOf(f, NEW_TAG)).toMatchObject({ phase: "dispatched" });
+          // The newer release loses its assets: the older, complete tag goes out.
+          await run(f, [], noRelease(NEW_TAG));
+          expect((await curlCalls(f)).map((c) => c.body.tag)).toEqual([NEW_TAG, OLD_TAG]);
+          expect(await attemptOf(f, NEW_TAG)).toMatchObject({ phase: "dispatched", sha: newSha });
+          // Its release is complete again: the newer tag is sent once more.
+          await run(f, [], zero);
+          expect((await curlCalls(f)).map((c) => c.body.tag)).toEqual([NEW_TAG, OLD_TAG, NEW_TAG]);
+          expect(await attemptOf(f, NEW_TAG)).toMatchObject({ phase: "dispatched", dispatches: 2 });
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "superseded",
+            supersededBy: NEW_TAG,
+          });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "ends a skipped tag's skip once a newer tag's update has merged it",
       async () => {
         await withFixture(async (f) => {

@@ -538,6 +538,10 @@ update_attempts() {
     fi
     case "$phase" in superseded | unpublished) continue ;; esac
     [ "$other" = "$tag" ] && continue
+    # Only an older attempt is superseded. A newer tag is not the one being sent
+    # because its release is incomplete right now; it keeps its place and is sent
+    # again once the release returns.
+    git merge-base --is-ancestor "$(json_get "$file" .sha)" "$sha" 2>/dev/null || continue
     if holds_back "$file"; then
       log "upstream $tag waits for attempt $(json_get "$file" .attempt) ($phase${reason:+: $reason})"
       notify_quiet_claim "$other" "$file" "upstream $tag is held back by"
