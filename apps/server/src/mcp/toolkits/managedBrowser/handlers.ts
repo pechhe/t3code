@@ -3,6 +3,7 @@ import type {
   PreviewAutomationResizeResult,
   PreviewAutomationSnapshot,
   PreviewAutomationStatus,
+  PreviewAutomationSelectResult,
 } from "@t3tools/contracts";
 
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -25,19 +26,24 @@ export const layer = McpToolAccess.toLayer(ManagedBrowserToolkit, {
   preview_navigate: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<PreviewAutomationStatus>("navigate", input, input.timeoutMs),
   ),
-  preview_click: McpToolAccess.asManagedBrowser((input) =>
-    invokeTargeted<object>("click", input, input.timeoutMs),
-  ),
-  preview_hover: McpToolAccess.asManagedBrowser((input) =>
-    invokeTargeted<object>("hover", input, input.timeoutMs),
-  ),
-  preview_type: McpToolAccess.asManagedBrowser((input) =>
-    invokeTargeted<object>("type", input, input.timeoutMs),
-  ),
-  preview_press: McpToolAccess.asManagedBrowser((input) => invokeTargeted<object>("press", input)),
-  preview_scroll: McpToolAccess.asManagedBrowser((input) =>
-    invokeTargeted<object>("scroll", input),
-  ),
+  preview_interact: McpToolAccess.asManagedBrowser(({ action, ...input }) => {
+    switch (action) {
+      case "click":
+        return invokeTargeted<object>("click", input, input.timeoutMs);
+      case "type":
+        return invokeTargeted<object>("type", input, input.timeoutMs);
+      case "hover":
+        return invokeTargeted<object>("hover", input, input.timeoutMs);
+      case "select":
+        return invokeTargeted<PreviewAutomationSelectResult>("select", input, input.timeoutMs);
+      case "drag":
+        return invokeTargeted<object>("drag", input, input.timeoutMs);
+      case "press":
+        return invokeTargeted<object>("press", input, input.timeoutMs);
+      case "scroll":
+        return invokeTargeted<object>("scroll", input, input.timeoutMs);
+    }
+  }),
   preview_wait_for: McpToolAccess.asManagedBrowser((input) =>
     invokeTargeted<object>("waitFor", input, input.timeoutMs),
   ),

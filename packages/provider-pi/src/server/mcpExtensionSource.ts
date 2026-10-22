@@ -88,15 +88,42 @@ function parseSseOrJson(body: string, contentType: string): JsonRpcResponse {
   return JSON.parse(body) as JsonRpcResponse;
 }
 
+const isNullSchema = (value: unknown): boolean =>
+  typeof value === "object" && value !== null && (value as { type?: unknown }).type === "null";
+
+/** anyOf: [X, {type: "null"}] is just X; optionality is already carried by required. */
+function collapseNullUnion(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(collapseNullUnion);
+  if (typeof schema !== "object" || schema === null) return schema;
+  const record = schema as Record<string, unknown>;
+  const anyOf = Array.isArray(record.anyOf) ? record.anyOf : undefined;
+  if (anyOf !== undefined) {
+    const nonNull = anyOf.filter((entry) => !isNullSchema(entry));
+    if (nonNull.length === 1 && nonNull.length !== anyOf.length) {
+      const { anyOf: _anyOf, ...rest } = record;
+      const branch = nonNull[0];
+      return collapseNullUnion(
+        typeof branch === "object" && branch !== null
+          ? { ...rest, ...(branch as Record<string, unknown>) }
+          : rest,
+      );
+    }
+  }
+  return Object.fromEntries(
+    Object.entries(record).map(([key, value]) => [key, collapseNullUnion(value)]),
+  );
+}
+
 function jsonSchemaToTypebox(schema: Record<string, unknown> | undefined) {
   const unsafe = (Type as { Unsafe?: (value: unknown) => unknown }).Unsafe;
   if (typeof unsafe === "function" && schema !== undefined) {
     // Zero-argument MCP tools may omit "properties", which some OpenAI-compatible
     // servers reject. Declare it, as Pi does for its own MCP tools.
+    const collapsed = collapseNullUnion(schema) as Record<string, unknown>;
     return unsafe({
-      ...schema,
-      type: schema.type ?? "object",
-      ...(schema.properties === undefined ? { properties: {} } : {}),
+      ...collapsed,
+      type: collapsed.type ?? "object",
+      ...(collapsed.properties === undefined ? { properties: {} } : {}),
     });
   }
   return Type.Object({}, { additionalProperties: true });
@@ -421,7 +448,7 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   // mcp.json configures it; retry a failed connection at session_start.
   await ensureStarted().catch(() => undefined);
 
-  const reconcileDiscovery = (ctx: Pick<ExtensionContext, "model">) => {
+  const reconcileDiscovery = () => {
     if (!supportsExposure) return;
     // A disabled or replaced search builtin cannot discover deferred tools.
     const hasToolSearch = hasBuiltinToolSearch();
@@ -429,23 +456,19 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
     deferOptionalTools = hasToolSearch;
     if (exposureChanged) registerTools();
     const active = pi.getActiveTools();
-    // Completion gateways can silently drop calls to undeclared tools named
-    // in history or guidance. Eagerly load T3 schemas, including after tree
-    // restores, while retaining deferred exposure for Pi's allowlist rules.
-    // Pi still applies --tools/--exclude-tools to this active loadout.
-    const required = [
-      ...(hasToolSearch ? ["tool_search"] : []),
-      ...(ctx.model?.api === "openai-completions" ? catalog.map((tool) => "mcp__t3-code__" + tool.name) : []),
-    ];
+    // The server already lists the thread's full set, so a completions gateway
+    // needs no eager catalogue. Restore only the search builtin that discovers
+    // deferred tools; Pi still applies --tools/--exclude-tools.
+    const required = hasToolSearch ? ["tool_search"] : [];
     const missing = required.filter((name) => !active.includes(name));
     if (missing.length > 0) pi.setActiveTools([...active, ...missing]);
   };
 
   // Tree navigation restores its saved loadout after session_start.
-  pi.on("session_tree", (_event, ctx) => reconcileDiscovery(ctx));
-  pi.on("model_select", (_event, ctx) => reconcileDiscovery(ctx));
+  pi.on("session_tree", () => reconcileDiscovery());
+  pi.on("model_select", () => reconcileDiscovery());
   pi.on("session_start", async (_event, ctx) => {
-    reconcileDiscovery(ctx);
+    reconcileDiscovery();
     try {
       await ensureStarted();
     } catch (error) {
@@ -455,8 +478,8 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
   });
 
   // Keep guidance in the system prompt so leading slash commands still expand.
-  pi.on("before_agent_start", (event, ctx) => {
-    reconcileDiscovery(ctx);
+  pi.on("before_agent_start", (event) => {
+    reconcileDiscovery();
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.

@@ -1,4 +1,6 @@
 import {
+  type AgentRole,
+  type AgentToolProfile,
   type McpClientAccess,
   type EnvironmentId,
   McpCapabilityUnavailableError,
@@ -62,6 +64,11 @@ export interface McpInvocationScope {
    * `/mcp/browser` endpoint, pinned to Phi, and is refused by the general `/mcp` endpoint.
    */
   readonly managedBrowser?: true;
+  /** The session tool endpoint this credential may use; absent on external client credentials. */
+  readonly endpointKey?: string;
+  /** The thread's listing profile; absent on external client credentials, which keep the full list. */
+  readonly toolProfile?: AgentToolProfile;
+  readonly agentRole?: AgentRole;
   /**
    * Namespaces idempotency keys so two callers reusing a clientRequestId cannot collide. It names
    * the caller (thread or client session), never the transient MCP connection.

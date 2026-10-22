@@ -1,4 +1,5 @@
 import { expect, it } from "@effect/vitest";
+import * as Schema from "effect/Schema";
 import { Tool } from "effect/ai";
 
 import { PreviewToolkit } from "./tools.ts";
@@ -54,4 +55,10 @@ it("exports provider-compatible object schemas with described parameters", () =>
       ).toBe(true);
     }
   }
+});
+
+it("keeps a select result when preview_interact encodes it", () => {
+  const tool = PreviewToolkit.tools.preview_interact;
+  const encoded = Schema.encodeSync(tool.successSchema)({ selected: ["b", "c"] });
+  expect(encoded).toEqual({ selected: ["b", "c"] });
 });

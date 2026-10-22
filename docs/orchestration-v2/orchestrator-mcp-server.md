@@ -28,14 +28,22 @@ responses.
 
 ## Transport And Authentication
 
-The orchestration tools share the existing authenticated HTTP MCP endpoint:
+The orchestration tools use the authenticated HTTP MCP endpoints:
 
 ```text
-http://127.0.0.1:<server-port>/mcp
+http://127.0.0.1:<server-port>/mcp/control
+http://127.0.0.1:<server-port>/mcp/workspace
+http://127.0.0.1:<server-port>/mcp/research
+http://127.0.0.1:<server-port>/mcp/preview
+http://127.0.0.1:<server-port>/mcp/ui-verifier
+http://127.0.0.1:<server-port>/mcp/implementation-phi
 ```
 
-The provider-visible server key is `t3-code`. The endpoint registers both the
-preview toolkit and the orchestration toolkit.
+The provider-visible server key is `t3-code`. Each endpoint serves one session
+tool profile from `packages/contracts/src/mcpToolPolicy.ts`; an ordinary thread
+gets `/mcp/control`, a Phi role gets `/mcp/preview`, and so on. The legacy
+`/mcp` endpoint serves external client credentials with the full catalogue, and
+`/mcp/browser` serves a managed browser task.
 
 Before `ProviderSessionManager` opens a new V2 provider session, it asks
 `McpSessionRegistry` for a credential scoped to:
@@ -45,7 +53,9 @@ Before `ProviderSessionManager` opens a new V2 provider session, it asks
 - the concrete provider instance; and
 - the provider session.
 
-The credential grants `preview` and `orchestration` capabilities. Credentials
+The credential records the thread's role and tool profile, and its endpoint is
+chosen from that profile. It also grants the call-time `preview`, `orchestration`,
+`worktree` and `pull-requests` capabilities. Credentials
 expire after a maximum lifetime, expire when idle, and are revoked when the
 provider session is released. The raw token is not persisted in orchestration
 state.
@@ -62,7 +72,7 @@ Codex app-server receives the remote MCP server through command-line config
 overrides:
 
 ```text
--c mcp_servers.t3-code.url=http://127.0.0.1:<port>/mcp
+-c mcp_servers.t3-code.url=http://127.0.0.1:<port>/mcp/control
 -c mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"
 ```
 
@@ -79,7 +89,7 @@ Claude receives an HTTP MCP server in its query options:
   mcpServers: {
     "t3-code": {
       type: "http",
-      url: "http://127.0.0.1:<port>/mcp",
+      url: "http://127.0.0.1:<port>/mcp/control",
       headers: {
         Authorization: "Bearer <provider-session-token>",
       },
@@ -155,7 +165,7 @@ extension into the server cache and spawns
 `pi --mode rpc --extension <cache>/pi-t3-mcp-extension.ts` with:
 
 ```text
-T3_MCP_URL=http://127.0.0.1:<port>/mcp
+T3_MCP_URL=http://127.0.0.1:<port>/mcp/control
 T3_MCP_BEARER_TOKEN=<provider-session-token>
 ```
 

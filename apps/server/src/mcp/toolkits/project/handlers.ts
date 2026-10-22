@@ -34,7 +34,7 @@ const access = Effect.gen(function* () {
   yield* readCaller();
   return yield* Project.ProjectService;
 });
-export const layer = McpToolAccess.toLayer(ProjectToolkit, {
+export const handlers = {
   t3_thread_launch: McpToolAccess.startsThreads(
     (input) => input,
     (input, { runtimeMode, interactionMode }) =>
@@ -366,4 +366,6 @@ export const layer = McpToolAccess.toLayer(ProjectToolkit, {
       );
     }),
   ),
-});
+} satisfies McpToolAccess.Handlers<typeof ProjectToolkit.tools>;
+
+export const layer = McpToolAccess.toLayer(ProjectToolkit, handlers);

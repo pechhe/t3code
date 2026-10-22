@@ -74,6 +74,7 @@ export * from "./experiments.ts";
 export * from "./agentPolicy.ts";
 export * from "./agentPolicySettings.ts";
 export * from "./runSetup.ts";
+export * from "./mcpToolPolicy.ts";
 
 export * from "./browserBackend.ts";
 export * from "./fleetSummary.ts";

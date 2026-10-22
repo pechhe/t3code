@@ -81,7 +81,7 @@ const OrchestratorMcpScheduleFromJsonString = Schema.fromJsonString(
     "Compatibility-only JSON encoding of the schedule object. Prefer a structured object.",
 });
 
-const OrchestratorMcpSchedule = Schema.Union([
+export const OrchestratorMcpSchedule = Schema.Union([
   ScheduledTaskUpsertSchedule,
   OrchestratorMcpScheduleFromJsonString,
 ]).annotate({
@@ -739,6 +739,19 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
 });
 export type OrchestratorMcpScheduleTaskInput = typeof OrchestratorMcpScheduleTaskInput.Type;
 
+/**
+ * The wire form advertises `schedule` compactly: the handler decodes it with
+ * `OrchestratorMcpSchedule`, including the compatibility JSON-string shape.
+ */
+export const OrchestratorMcpScheduleTaskWireInput = Schema.Struct({
+  ...OrchestratorMcpScheduleTaskInput.fields,
+  schedule: Schema.Unknown.annotate({
+    description:
+      "Trigger object: {type:'interval', everyMs}, {type:'fixed_time', timeOfDay, weekdays?}, or {type:'webhook'}. Never stringify it unless the provider requires the compatibility form.",
+  }),
+});
+export type OrchestratorMcpScheduleTaskWireInput = typeof OrchestratorMcpScheduleTaskWireInput.Type;
+
 export const OrchestratorMcpScheduledTask = Schema.Struct({
   scheduledTaskId: ScheduledTaskId,
   title: Schema.String,
@@ -789,6 +802,21 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;
+
+/**
+ * The wire form advertises `schedule` without repeating the whole schedule
+ * union: `schedule_task` already declares it once, and the handler decodes this
+ * object with that same schema.
+ */
+export const OrchestratorMcpUpdateScheduledTaskWireInput = Schema.Struct({
+  ...OrchestratorMcpUpdateScheduledTaskInput.fields,
+  schedule: Schema.optional(Schema.Unknown).annotate({
+    description:
+      "Replacement schedule, in the same shape schedule_task accepts. Omit to keep the current schedule.",
+  }),
+});
+export type OrchestratorMcpUpdateScheduledTaskWireInput =
+  typeof OrchestratorMcpUpdateScheduledTaskWireInput.Type;
 
 export const OrchestratorMcpRequestReleaseApprovalInput = Schema.Struct({
   repository: TrimmedNonEmptyString.annotate({

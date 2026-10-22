@@ -216,26 +216,27 @@ const handlers = {
     const { includeImage: _includeImage, save: _save, ...operationInput } = input ?? {};
     return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
   }),
-  preview_click: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<object>("click", input, input.timeoutMs),
-  ),
-  preview_type: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<object>("type", input, input.timeoutMs),
-  ),
-  preview_hover: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<object>("hover", input, input.timeoutMs),
-  ),
-  preview_select: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<PreviewAutomationSelectResult>("select", input, input.timeoutMs),
-  ),
-  preview_drag: McpToolAccess.actsAsCaller((input) =>
-    invokeTargeted<object>("drag", input, input.timeoutMs),
-  ),
+  preview_interact: McpToolAccess.actsAsCaller(({ action, ...input }) => {
+    switch (action) {
+      case "click":
+        return invokeTargeted<object>("click", input, input.timeoutMs);
+      case "type":
+        return invokeTargeted<object>("type", input, input.timeoutMs);
+      case "hover":
+        return invokeTargeted<object>("hover", input, input.timeoutMs);
+      case "select":
+        return invokeTargeted<PreviewAutomationSelectResult>("select", input, input.timeoutMs);
+      case "drag":
+        return invokeTargeted<object>("drag", input, input.timeoutMs);
+      case "press":
+        return invokeTargeted<object>("press", input, input.timeoutMs);
+      case "scroll":
+        return invokeTargeted<object>("scroll", input, input.timeoutMs);
+    }
+  }),
   preview_upload: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<object>("upload", input, input.timeoutMs),
   ),
-  preview_press: McpToolAccess.actsAsCaller((input) => invokeTargeted<object>("press", input)),
-  preview_scroll: McpToolAccess.actsAsCaller((input) => invokeTargeted<object>("scroll", input)),
   preview_evaluate: McpToolAccess.actsAsCaller(({ tabId, ...input }) =>
     invoke<unknown>("evaluate", input, undefined, tabId).pipe(
       Effect.map(({ result, toolIcon }) => ({
