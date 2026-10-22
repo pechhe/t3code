@@ -3,6 +3,8 @@ import { findRevealRef } from "./markdownFindContext";
 import { type MessageId, type ServerProviderSkill, ThreadId } from "@t3tools/contracts";
 import { resolveUserMessagePresentation } from "@t3tools/client-runtime/user-message";
 import { Link } from "@tanstack/react-router";
+import { useEnvironmentQuery } from "../../state/query";
+import { serverEnvironment } from "../../state/server";
 import { replaceComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 import { memo, use, useState, useRef, useLayoutEffect, type ReactNode } from "react";
 import {
@@ -16,7 +18,15 @@ import {
   isVideoAttachment,
 } from "../../types";
 import ChatMarkdown from "../ChatMarkdown";
-import { ChevronRightIcon, DownloadIcon, EyeIcon, Redo2Icon, Undo2Icon } from "lucide-react";
+import {
+  CalendarClockIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  DownloadIcon,
+  EyeIcon,
+  Redo2Icon,
+  Undo2Icon,
+} from "lucide-react";
 import { Link as LinkIconNode } from "lucide";
 import { Button, InlineButton } from "../ui/button";
 import { useAssetUrlRefresh, useAssetUrls, useAssetUrlState } from "../../assets/assetUrls";
@@ -53,7 +63,11 @@ import { cn } from "~/lib/utils";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
 import { WorkflowOpeningBlock } from "./WorkflowOpeningBlock";
 import { TimelineRowCtx, TimelineRowActivityCtx, type TimelineRow } from "./timelineRowContext";
-import { MESSAGE_HEADING_LEVEL, MessageAuthorHeading } from "./TimelineRowParts";
+import {
+  MESSAGE_HEADING_LEVEL,
+  MessageAuthorHeading,
+  TimelineRowTimestamp,
+} from "./TimelineRowParts";
 import { UserMessageContextReferenceChip } from "./UserMessageContextChips";
 import { resolvePreviewAnnotationImage } from "./TimelineUserMessageRow.logic";
 
@@ -109,6 +123,11 @@ export function UserMessageRow({ row }: { row: Extract<TimelineRow, { kind: "mes
       environmentId={ctx.activeThreadEnvironmentId}
       onOpenThread={(threadId) => ctx.onOpenThread(ThreadId.make(threadId))}
     />
+  ) : resolveUserMessagePresentation({
+      ...row.message,
+      ...(ctx.threadRef ? { threadId: ctx.threadRef.threadId } : {}),
+    }).attribution === "automation" ? (
+    <AutomationMessageRow row={row} />
   ) : (
     <UserTimelineRow row={row} />
   );
@@ -127,6 +146,126 @@ function ThreadContinuationRow({ text }: { readonly text: string }) {
       </summary>
       <p className="mt-1 ps-5 whitespace-pre-wrap">{text}</p>
     </details>
+  );
+}
+
+/** Automation prompts are long, repeated runbooks; a folded bubble keeps them out of the way. */
+function AutomationMessageRow({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+  const ctx = use(TimelineRowCtx);
+  const [expanded, setExpanded] = useState(false);
+  const revealRef = findRevealRef(() => setExpanded(true));
+  const { text, scheduledTaskId } = resolveUserMessagePresentation(row.message);
+  const tasksQuery = useEnvironmentQuery(
+    scheduledTaskId
+      ? serverEnvironment.scheduledTasksLive({
+          environmentId: ctx.activeThreadEnvironmentId,
+          input: {},
+        })
+      : null,
+  );
+  const taskTitle = tasksQuery.data?.tasks.find((task) => task.id === scheduledTaskId)?.title;
+  const summary = taskTitle ?? text.trim().split(/\r?\n/, 1)[0] ?? "";
+
+  const revertTurnCount = row.revertTurnCount;
+  const promptLink = promptLinkFor(text);
+  // Find reads the DOM, so a folded prompt stays mounted but hidden while find is open.
+  const bodyMounted = expanded || ctx.findActive;
+
+  return (
+    <div className="group flex flex-col items-end gap-1" data-user-message-attribution="automation">
+      {row.message.inputIntent === "steer" ||
+      row.message.inputIntent === "promoted_queued_to_steer" ? (
+        <UserMessageIntentMarker intent={row.message.inputIntent} />
+      ) : null}
+      <div
+        className={cn(
+          "min-w-0 max-w-[80%] rounded-2xl bg-message text-message-foreground",
+          expanded && "w-full",
+        )}
+      >
+        <button
+          type="button"
+          aria-expanded={expanded}
+          data-scroll-anchor-ignore
+          onClick={() => setExpanded((value) => !value)}
+          className="flex w-full min-w-0 items-center gap-1.5 rounded-2xl px-3 py-2 text-left text-sm focus-visible:outline-2 focus-visible:outline-ring"
+        >
+          <CalendarClockIcon className="size-4 shrink-0 stroke-2 text-muted-foreground" />
+          <span className="shrink-0 text-muted-foreground">Automation</span>
+          <span className="min-w-0 flex-1 truncate">{summary}</span>
+          <ChevronDownIcon
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
+        </button>
+        {bodyMounted ? (
+          // `beforematch` does not bubble, so the reveal listener sits on the hidden fold itself.
+          <div
+            ref={revealRef}
+            hidden={!expanded}
+            className={cn("px-3 pb-3", !ctx.findActive && "max-h-96 overflow-auto")}
+            data-thread-find-text="true"
+          >
+            <UserMessageBody text={text} skills={ctx.skills} markdownCwd={ctx.markdownCwd} />
+          </div>
+        ) : null}
+      </div>
+      <UserMessageProjectedStatus row={row} />
+      {expanded ? (
+        <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
+          <div className="flex shrink-0 items-center gap-2">
+            {scheduledTaskId ? (
+              <Link
+                to="/scheduled"
+                search={{ environmentId: ctx.activeThreadEnvironmentId, taskId: scheduledTaskId }}
+                className="rounded-sm text-xs text-muted-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
+              >
+                Open automation
+              </Link>
+            ) : null}
+            <TimelineRowTimestamp
+              createdAt={row.message.createdAt}
+              timestampFormat={ctx.timestampFormat}
+              alwaysVisible
+            />
+            <div className="flex items-center gap-0.5">
+              {typeof revertTurnCount === "number" && (
+                <RevertUserMessageButton turnCount={revertTurnCount} messageId={row.message.id} />
+              )}
+              <MessageCopyButton text={text} variant="ghost" />
+              {promptLink !== null && (
+                <MessageCopyButton
+                  text={promptLink}
+                  label="Copy prompt link"
+                  icon={LinkIconNode}
+                  variant="ghost"
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function UserMessageProjectedStatus({ row }: { row: Extract<TimelineRow, { kind: "message" }> }) {
+  const status = row.projectedItem?.item.status;
+  if (
+    status === undefined ||
+    status === "completed" ||
+    status === "pending" ||
+    status === "waiting"
+  )
+    return null;
+  return (
+    <div className="me-1 flex items-center gap-1.5">
+      <span className="rounded-full border border-destructive/25 bg-destructive/8 px-1.5 py-0.5 text-3xs font-medium text-destructive">
+        {status}
+      </span>
+    </div>
   );
 }
 
@@ -173,8 +312,6 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
     ...row.message,
     ...(ctx.threadRef ? { threadId: ctx.threadRef.threadId } : {}),
   });
-  // A scheduled run's prompt is not the user's own message, so it does not read as one.
-  const scheduled = userMessage.attribution === "automation";
   const resolvedContext = resolveUserMessageContext(row.message);
   const previewImages = userImages.filter((image) => image.name.startsWith("preview-annotation-"));
   const revertTurnCount = row.revertTurnCount;
@@ -287,28 +424,8 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
   };
 
   return (
-    <div className={cn("group flex flex-col gap-1", scheduled ? "items-start" : "items-end")}>
-      {scheduled ? (
-        <p
-          className="ms-1 text-2xs text-muted-foreground/70"
-          data-user-message-attribution="automation"
-        >
-          {userMessage.scheduledTaskId ? (
-            <Link
-              to="/scheduled"
-              search={{
-                environmentId: ctx.activeThreadEnvironmentId,
-                taskId: userMessage.scheduledTaskId,
-              }}
-              className="rounded-sm hover:text-muted-foreground hover:underline focus-visible:outline-2 focus-visible:outline-ring"
-            >
-              Scheduled task
-            </Link>
-          ) : (
-            "Scheduled task"
-          )}
-        </p>
-      ) : userMessage.attribution === "t3code" ? (
+    <div className="group flex flex-col items-end gap-1">
+      {userMessage.attribution === "t3code" ? (
         <p
           className="me-1 text-2xs text-muted-foreground/70"
           data-user-message-attribution="t3code"
@@ -336,14 +453,9 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
       ) : null}
       <div
         ref={bubbleRef}
-        className={cn(
-          "relative max-w-[80%] rounded-2xl p-3",
-          scheduled
-            ? "border border-border/70 bg-muted/40 text-foreground"
-            : "bg-message text-message-foreground",
-        )}
+        className="relative max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground"
       >
-        <MessageAuthorHeading>{scheduled ? "Scheduled task" : "You"}</MessageAuthorHeading>
+        <MessageAuthorHeading>You</MessageAuthorHeading>
         {(regularImages.length > 0 || userVideos.length > 0) && (
           <div className="mb-2 grid max-w-[210px] grid-cols-2 gap-2">
             {regularImages.map((image) => (
@@ -458,22 +570,8 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
           />
         </div>
       </div>
-      {row.projectedItem &&
-      row.projectedItem.item.status !== "completed" &&
-      row.projectedItem.item.status !== "pending" &&
-      row.projectedItem.item.status !== "waiting" ? (
-        <div className="me-1 flex items-center gap-1.5">
-          <span className="rounded-full border border-destructive/25 bg-destructive/8 px-1.5 py-0.5 text-3xs font-medium text-destructive">
-            {row.projectedItem.item.status}
-          </span>
-        </div>
-      ) : null}
-      <div
-        className={cn(
-          "flex w-full max-w-[80%] items-center pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100",
-          scheduled ? "justify-start" : "justify-end",
-        )}
-      >
+      <UserMessageProjectedStatus row={row} />
+      <div className="flex w-full max-w-[80%] items-center justify-end pe-1 text-xs tabular-nums opacity-0 transition-opacity duration-200 pointer-coarse:opacity-100 focus-within:opacity-100 group-hover:opacity-100">
         <div className="flex shrink-0 items-center gap-2">
           <Tooltip>
             <TooltipTrigger render={<p className="text-muted-foreground text-xs tabular-nums" />}>

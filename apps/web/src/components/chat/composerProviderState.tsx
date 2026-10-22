@@ -26,6 +26,7 @@ import {
   shouldRenderTraitsControls,
   TraitsMenuContent,
   TraitsPicker,
+  type PromptUltrathink,
 } from "./TraitsPicker";
 
 export type ComposerProviderStateInput = {
@@ -57,8 +58,8 @@ export type TraitsRenderInput = {
   models: ReadonlyArray<ServerProviderModel>;
   modelOptions: ReadonlyArray<ProviderOptionSelection> | undefined;
   reportedModelSelection?: ModelSelection | null | undefined;
-  prompt: string;
-  onPromptChange: (prompt: string) => void;
+  promptUltrathink: PromptUltrathink;
+  onPromptEdit: (edit: (prompt: string) => string) => void;
   planModeEnabled: boolean;
   size?: ComposerControlSize;
   hidden?: boolean;
@@ -257,8 +258,8 @@ export function resolveTraitsControlProps(input: TraitsRenderInput) {
     models,
     modelOptions,
     reportedModelSelection,
-    prompt,
-    onPromptChange,
+    promptUltrathink,
+    onPromptEdit,
     planModeEnabled,
     size,
     hidden,
@@ -280,7 +281,7 @@ export function resolveTraitsControlProps(input: TraitsRenderInput) {
       models,
       model,
       modelOptions: resolvedModelOptions,
-      prompt,
+      promptUltrathink,
       planModeEnabled,
     })
   ) {
@@ -295,8 +296,8 @@ export function resolveTraitsControlProps(input: TraitsRenderInput) {
     model,
     modelOptions: resolvedModelOptions,
     reportedModelSelection,
-    prompt,
-    onPromptChange,
+    promptUltrathink,
+    onPromptEdit,
     planModeEnabled,
     ...(size !== undefined ? { size } : {}),
     ...(hidden !== undefined ? { hidden } : {}),

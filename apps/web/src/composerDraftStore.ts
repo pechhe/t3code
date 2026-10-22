@@ -2768,9 +2768,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
               startFromOrigin: nextStartFromOrigin,
-              ...((options.unattended ?? existing.unattended)
-                ? { unattended: true }
-                : {}),
+              ...((options.unattended ?? existing.unattended) ? { unattended: true } : {}),
               promotedTo: existing.promotedTo ?? null,
             };
             const isUnchanged =

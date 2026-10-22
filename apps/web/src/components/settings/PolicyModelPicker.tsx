@@ -117,8 +117,6 @@ export function PolicyEffortPicker(props: {
       provider={entry.driverKind}
       models={entry.models}
       model={binding.model}
-      prompt=""
-      onPromptChange={() => {}}
       modelOptions={[{ id: binding.effortOption, value: props.effort }]}
       allowPromptInjectedEffort={false}
       planModeEnabled={settings.planModeEnabled}

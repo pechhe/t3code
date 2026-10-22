@@ -79,7 +79,7 @@ the dialog.
 ## Track subscription limits
 
 **Usage → Limits** pools every subscription account it can see per provider, so with several Codex
-or Claude accounts across your environments and hubs you read one number per window rather than a
+or Claude accounts across your enabled environments and hubs you read one number per window rather than a
 list. Each window card shows how much of the pool is left and a bar with one segment per account,
 kept in the same column across windows. Accounts count by plan size: a segment is as wide as its
 plan's multiplier (Max 20x is twenty times a Pro account), so the pooled figure is what is left of

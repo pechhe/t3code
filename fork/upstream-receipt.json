@@ -3,51 +3,61 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.2-nightly.20261021.3473",
-      "sha": "1688f965682d331da16a8c39f049592361f69c8d"
-    },
-    "target": {
       "tag": "v0.1.2-nightly.20261021.3486",
       "sha": "680152e27b2a961686389ca69a1557cbb2c55f08"
+    },
+    "target": {
+      "tag": "v0.1.2-nightly.20261021.3499",
+      "sha": "b5a226e49c52ecab4ddc2d678a7012d97e651a6a"
     }
   },
   "fork": {
-    "base": "1193038b675345d8a4156e66e9138e55588c75cc"
+    "base": "9bc4b8f78740f07afebac7f132c115e5ea3b459b"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "9f0f111d49fbde0e840b013f66b8e122c1895ad2"
+    "blob": "ac7a8881cf33ba7c1a650f76a9f5897d1930475f"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.2-nightly.20261021.3486@1792606301",
-  "reviewedAt": "2026-10-21T18:25:00Z",
+  "attempt": "v0.1.2-nightly.20261021.3499@1792629938",
+  "reviewedAt": "2026-10-22T01:15:00Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:eb0abf58-8bf3-4e81-b37a-cd8f741beeb8",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:bca97a28-3a8f-499e-bd10-7b770c3e2f56",
     "model": "claude-opus-5-5"
   },
   "coverage": {
-    "upstreamCommits": 15,
+    "upstreamCommits": 72,
     "entriesConsidered": [
-      "managed-delegation",
-      "agent-policy-roles",
-      "dev-state-tooling",
+      "device-composer",
       "compact-line",
-      "t3-agent-cli",
-      "slipjay-delivery-config"
+      "scheduled-tasks-extensions",
+      "managed-delegation",
+      "account-pools",
+      "linked-environments",
+      "image-annotation",
+      "side-chat",
+      "live-response-streaming",
+      "unattended-threads",
+      "web-client-customisation",
+      "slipjay-workspaces",
+      "mobile-fork-screens",
+      "desktop-fork-build"
     ],
     "areas": [
-      "All 15 incoming commits (1688f965..680152e2) by subject and stat; conflicts in pair.ts, OrchestratorMcpService (service, test), orchestrator toolkit handlers and tools, threadAccess.test, ClaudeAdapterV2, client-runtime commands.test, orchestrationInstructions and pnpm-lock resolved against both sides and their record entries",
-      "MCP: short capabilities model list with search (#22889) against managed-delegation and agent-policy-roles; bare-uuid thread_not_found hint (#22452) beside the fork's external-work owner checks in threadAccess; already-answered questions (#22850) in the thread toolkit",
-      "Server: t3 pair worktree guard (#22855) against dev-state-tooling's jj-aware devHome; delegated Claude child cache TTL (#22841) beside compact-line's per-thread compactAt in ClaudeAdapterV2; queue send-selected on stopped threads (#22790) in Orchestrator and client-runtime; JAVA_HOME from login shell (#22856), commit prompt CLAUDE.md dedupe (#22848), status refresh diff (#21872)",
-      "Providers: Codex multi-file patch (#22541), OpenCode out-of-funds (#22596), Antigravity question options (#22019); source control: GitLab MR diff paging (#21909); shared ChatGPT callback URL (#21750); desktop abandoned browser sign-in (#22903)",
-      "Persistence and contracts: no new migrations; contract change is the additive orchestrator_capabilities search input and omittedModels, and queued-run.start runId"
+      "All 72 incoming commits (680152e2..b5a226e4) by subject and stat; conflicts in ChatView, ChatComposer, TimelineUserMessageRow, TraitsPicker, composerProviderState, mobile ThreadFeed, ClaudeAdapterV2, contracts settings/settings.test/orchestratorMcp and pnpm-lock resolved against both sides and their record entries",
+      "Web: upstream's ChatView/ChatComposer decomposition into hooks (#23042-#23103) against device-composer, compact-line, image-annotation, side-chat, live-response-streaming, unattended-threads, linked-environments and web-client-customisation; fork logic placed in the hook that now owns each concern; composer shortcuts hook adapted to the fork keybinding set",
+      "Automation rows (#22638) against scheduled-tasks-extensions on web and mobile; approvals in full access say why (#22546) and idle compaction modes (#23037) beside compact-line in ClaudeAdapterV2 and settings",
+      "Client/runtime: usage limits skip disabled connections (#22936) against account-pools; sidebar streaming re-render (#22730) and branch toolbar caching (#23103) as perf; t3_thread_read clamps (#22901) against managed-delegation's environmentId input",
+      "Server/providers: scheduled task ordering (#22899), Windows worktree junction removal (#21099, git worktrees on Windows; jj workspaces unaffected), PR draft sync, push refusal messages, Forgejo/GitCafe links, OpenCode todos, Cursor closed-stream write, Pi MCP schemas, Codex update detection, desktop Clerk upstream fix (#23038, removes upstream's own clerkOAuthCancel shim)",
+      "Persistence and contracts: no new migrations; contract changes are additive (idleCompaction instance setting, compactIdleThreads accepting legacy booleans, approval reason) and decode in the shipped-client compatibility test",
+      "Rebased onto t3peach 9bc4b8f787 after a stale-receipt refusal; the intervening landing (fork-nightly quiet-claim notification, T3-74) touches only scripts/fork-nightly.sh and its test, no overlap with this merge"
     ],
     "exclusions": [
       {
         "what": "Web, desktop and mobile UI in a running client",
-        "why": "No browser or device pass in this unattended attempt; covered by typecheck, focused unit tests and the landing gate"
+        "why": "No browser or device pass in this unattended webhook run; covered by typecheck, focused unit and browser tests and the landing gate"
       },
       {
         "what": "Lint",
@@ -57,45 +67,91 @@
   },
   "dispositions": [
     {
-      "entry": "managed-delegation",
-      "upstream": "Short orchestrator_capabilities model list with search (#22889)",
+      "entry": "device-composer",
+      "upstream": "ChatView and ChatComposer split into hooks and ComposerControlsBar (#23042-#23103)",
       "decision": "adapt",
       "requirements": [
-        "delegation stays role-first",
-        "model descriptors still reachable for target.options"
+        "device composer, Fast switch, pool account chip, reasoning dial and Away key render as before",
+        "annotated images stash and restore with their marks",
+        "terminal cwd follows the selected SlipJay workspace"
       ],
       "evidence": [
-        "tools.ts description keeps 'not the delegation menu' plus upstream's list/search text; orchestrationInstructions points raw targets at search",
-        "OrchestratorMcpService.test.ts 44/44 including upstream's listed-models cases (fork-only ExperimentService and ReleaseApprovals mocks added)"
+        "apps/web typecheck clean",
+        "composerProviderState.test.tsx, composerSend.logic.test.ts, ChatView.logic.test.ts, useChatShortcuts.browser.test.tsx pass"
       ]
     },
     {
-      "entry": "dev-state-tooling",
-      "upstream": "t3 pair in a worktree no longer falls back to the live install (#22855)",
-      "decision": "adapt",
-      "requirements": ["jj workspaces get the same no-fallback guard", "explicit --base-dir wins"],
+      "entry": "scheduled-tasks-extensions",
+      "upstream": "Compact automation timeline rows (#22638); stable order on toggle (#22899)",
+      "decision": "adopt",
+      "requirements": ["scheduled prompts do not read as the user's"],
       "evidence": [
-        "pair.ts uses resolveWorkspaceT3Home(HostProcess.WorkingDirectory) with upstream's no-fallback branch",
-        "pair.test.ts and devHome.test.ts pass"
+        "MessagesTimeline.browser.test.tsx passes (upstream automation cases)",
+        "ScheduledTaskService.schedule.test.ts passes",
+        "web link points at the fork /scheduled route; mobile typecheck clean"
       ]
     },
     {
       "entry": "compact-line",
-      "upstream": "Delegated Claude children follow subagent cache TTL (#22841)",
+      "upstream": "Idle compaction global default with per-instance overrides (#23037)",
       "decision": "retain",
-      "requirements": ["per-thread compactAt still reaches Claude query options"],
+      "requirements": ["per-thread compactAt and autoCompactWindow unchanged"],
       "evidence": [
-        "ClaudeAdapterV2 query options carry both compactAt and claudeQueryEnvironment",
-        "ClaudeAdapterV2.test.ts passes"
+        "ClaudeAdapterV2.test.ts passes",
+        "packages/contracts settings.test.ts passes (fork Codex auto-compaction and upstream resolveIdleCompaction cases)"
       ]
     },
     {
-      "entry": "t3-agent-cli",
-      "upstream": "Bare uuid hint in thread_not_found (#22452)",
+      "entry": "managed-delegation",
+      "upstream": "t3_thread_read clamps oversized page sizes (#22901)",
+      "decision": "adopt",
+      "requirements": ["environmentId read input and linked thread search kept"],
+      "evidence": ["contracts typecheck and orchestratorMcp tests pass; server typecheck clean"]
+    },
+    {
+      "entry": "account-pools",
+      "upstream": "Usage limits skip disabled connections (#22936)",
+      "decision": "adopt",
+      "requirements": ["pool usage card unaffected"],
+      "evidence": ["client-runtime presentation.test.ts passes"]
+    },
+    {
+      "entry": "linked-environments",
+      "upstream": "useComposerSend (#23062) carries the foreign-thread send refusal (#18310)",
       "decision": "retain",
-      "requirements": ["a foreign OAuth session cannot read external work"],
+      "requirements": ["linked threads attach as readable chips and send"],
       "evidence": [
-        "threadAccess.test.ts keeps the fork's three owner cases beside upstream's two lookup cases; all pass"
+        "web useComposerSend has no threadContextsOutsideEnvironment guard, as ChatView at ec67c3d961 had none; mobile keeps upstream's guard"
+      ]
+    },
+    {
+      "entry": "image-annotation",
+      "upstream": "Composer stash and send moved into useComposerStash and useComposerSend (#23046, #23062)",
+      "decision": "retain",
+      "requirements": [
+        "annotated images stash their original and marks",
+        "send waits until restored marks are drawn"
+      ],
+      "evidence": [
+        "useComposerStash stashes annotation.original with annotationMarks; useComposerSend.ts guard \"Image notes are still being restored\"; ChatComposer redraws marks on restore (reviewer trace)"
+      ]
+    },
+    {
+      "entry": "side-chat",
+      "upstream": "ChatView banners and overlays moved out (#23072, #23101)",
+      "decision": "retain",
+      "requirements": ["side chat card above the composer"],
+      "evidence": [
+        "SideChatCard still mounted in ChatView with insertSideChatAnswer (reviewer trace)"
+      ]
+    },
+    {
+      "entry": "live-response-streaming",
+      "upstream": "ChatView decomposition (#23062-#23103)",
+      "decision": "retain",
+      "requirements": ["calm streaming in the timeline"],
+      "evidence": [
+        "calmStreaming still passed to MessagesTimeline; AssistantMessageText and SideChatCard use calm (reviewer trace)"
       ]
     }
   ],
@@ -107,29 +163,29 @@
       "note": "pnpm 12.14.0; lockfile regenerated after taking upstream's side"
     },
     {
-      "command": "vp run --filter t3 typecheck; --filter @t3tools/web; --filter @t3tools/client-runtime",
+      "command": "vp run --filter @t3tools/contracts typecheck; vp run --filter t3 typecheck; apps/mobile vp run typecheck; vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "in the workspace, 2026-10-21"
+      "note": "in the merge clone, 2026-10-22"
     },
     {
-      "command": "focused server tests (pair, OrchestratorMcpService, threadAccess, toolkits/core, ClaudeAdapterV2, CodexAdapterV2, OpenCode2AdapterV2, SteeringCompletion, Orchestrator.compact-at, os-jank, GitManager, GitVcsDriverCore)",
+      "command": "vp test run contracts settings.test, orchestratorMcp.test",
       "result": "passed",
-      "note": "on the Mac, 2026-10-21"
+      "note": "34 tests"
     },
     {
-      "command": "focused package tests (client-runtime commands and threadWorkflows, provider-core server, provider-opencode status, shared codexAuthHandoff and devHome, source-control-gitlab, mobile queue presentation, desktop clerkOAuthCancel)",
+      "command": "vp test run ClaudeAdapterV2.test, ScheduledTaskService.schedule.test, client-runtime presentation.test, threadShell.test, ProviderInstanceRegistry.test, shippedClientCompatibility.test",
       "result": "passed",
-      "note": "on the Mac, 2026-10-21"
+      "note": "257 tests"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/Adapters/AntigravityAdapterV2.test.ts (Mac)",
-      "result": "failed",
-      "note": "one file-confinement case fails only under macOS's /var -> /private/var tmpdir symlink; passes with TMPDIR=/private/tmp; files untouched by the merge's conflicts"
+      "command": "apps/web vp test run composerProviderState.test, composerSend.logic.test, ChatView.logic.test, useChatShortcuts.browser.test, MessagesTimeline.browser.test, UsageToggleShortcut.browser.test",
+      "result": "passed",
+      "note": "89 tests"
     },
     {
-      "command": "node scripts/test-landing.ts --plan",
+      "command": "ticket-reviewer (fresh context), review:t3code:fork-3499:change on a39a80ff",
       "result": "passed",
-      "note": "in the workspace, 2026-10-21"
+      "note": "0 blocking, 0 should-fix; suspected gaps (foreign-thread guard, missing dispositions) answered by these dispositions"
     }
   ],
   "result": "reconciled"

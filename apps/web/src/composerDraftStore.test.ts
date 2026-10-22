@@ -834,12 +834,14 @@ describe("composerDraftStore project draft thread mapping", () => {
 
     const merge = useComposerDraftStore.persist.getOptions().merge!;
     const reloaded = merge(
-      JSON.parse(JSON.stringify(partializeComposerDraftStoreState(useComposerDraftStore.getState()))),
+      JSON.parse(
+        JSON.stringify(partializeComposerDraftStoreState(useComposerDraftStore.getState())),
+      ),
       useComposerDraftStore.getInitialState(),
     );
-    expect(Object.values(reloaded.draftThreadsByThreadKey).map((draft) => draft.unattended)).toEqual(
-      [true],
-    );
+    expect(
+      Object.values(reloaded.draftThreadsByThreadKey).map((draft) => draft.unattended),
+    ).toEqual([true]);
 
     useComposerDraftStore.getState().setDraftThreadContext(draftId, { unattended: false });
     expect(useComposerDraftStore.getState().getDraftThread(draftId)?.unattended).toBeUndefined();
