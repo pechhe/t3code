@@ -1014,6 +1014,22 @@ it.effect("delivers a note sent back on a Proposed Decision to its source Spec's
   }),
 );
 
+it.effect("names no Decision when the viewer cannot see the one sent back", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    const n = note();
+    n.kind = "decision";
+    n.note = "Only your own number counts";
+    n.decision = null;
+    hq.answer = noteAnswer([n]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(
+      world.sent[0]?.text,
+      "Your owner sent back a Decision that YS-260 proposed, to revise or drop: Only your own number counts",
+    );
+  }),
+);
+
 it.effect(
   "delivers a note sent to a new thread after this environment reported it undeliverable",
   () =>

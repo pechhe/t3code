@@ -570,7 +570,7 @@ const make = Effect.gen(function* () {
         : row.noteKind === "answer"
           ? `Your owner answered your hold on ${row.specLabel}: ${row.note}`
           : row.noteKind === "decision"
-            ? `Your owner sent back Decision ${row.decisionLabel ?? ""}, which ${row.specLabel} proposed, to revise or drop: ${row.note}`
+            ? `Your owner sent back ${row.decisionLabel ? `Decision ${row.decisionLabel}, which` : "a Decision that"} ${row.specLabel} proposed, to revise or drop: ${row.note}`
             : `Your owner sent ${row.specLabel} back: ${row.note}`;
     if (
       row.claimed !== 0 &&
