@@ -512,3 +512,91 @@ describe("Pi skill references", () => {
     }
   });
 });
+
+describe("Pi agent MCP servers", () => {
+  const weave = {
+    name: "yardsmith-hq",
+    url: "http://weave.invalid/mcp/yardsmith-hq",
+    authorizationHeader: "Bearer thread-weave-credential",
+    tools: ["hq_build_read", "hq_build_update"],
+  };
+  const discoveryContext = {
+    model: { api: "anthropic-messages" },
+    ui: { notify: () => undefined },
+  };
+
+  it("attaches each agent server under its own name and credential beside t3-code", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      toolSearchAvailable: true,
+      agentServers: [weave],
+    });
+    await bridge.handlers.get("session_start")!({ systemPrompt: "" }, discoveryContext);
+    const read = bridge.tools.find((tool) => tool.name === "mcp__yardsmith-hq__hq_build_read");
+    assert.isDefined(read);
+    assert.equal(read!.exposure, "deferred");
+    assert.equal(
+      bridge.tools.find((tool) => tool.name === "mcp__yardsmith_hq__hq_build_read")?.exposure,
+      "hidden",
+    );
+    assert.isDefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__delegate_task"));
+    assert.isUndefined(bridge.tools.find((tool) => tool.name === "mcp__t3-code__hq_build_read"));
+
+    await read!.execute("read", { ref: "T3-191" });
+    assert.equal(bridge.transports.at(-1)?.url, weave.url);
+    assert.equal(bridge.transports.at(-1)?.authorization, weave.authorizationHeader);
+    assert.deepEqual(bridge.requests.at(-1)?.params, {
+      name: "hq_build_read",
+      arguments: { ref: "T3-191" },
+    });
+  });
+
+  it("attaches agent servers to a thread without a t3-code session", async () => {
+    const bridge = await loadMcpBridge({ modern: true, withoutT3: true, agentServers: [weave] });
+    assert.deepEqual(
+      bridge.tools
+        .map((tool) => tool.name)
+        .filter((name) => name.startsWith("mcp__yardsmith-hq__")),
+      ["mcp__yardsmith-hq__hq_build_read", "mcp__yardsmith-hq__hq_build_update"],
+    );
+    assert.isFalse(bridge.tools.some((tool) => tool.name.startsWith("mcp__t3-code__")));
+    assert.isFalse(bridge.transports.some((transport) => transport.url.includes("fixture")));
+  });
+
+  it("calls agent server tools without a T3 prompt, which the server authorises for the role", async () => {
+    const bridge = await loadMcpBridge({
+      modern: true,
+      runtimeMode: "approval-required",
+      agentServers: [weave],
+    });
+    const hook = bridge.handlers.get("tool_call") as unknown as (
+      event: { toolName: string; input: unknown },
+      ctx: { ui: { confirm: (title: string) => Promise<boolean> } },
+    ) => Promise<{ block: true; reason: string } | undefined>;
+    const confirmations: string[] = [];
+    const ctx = {
+      ui: {
+        confirm: async (title: string) => {
+          confirmations.push(title);
+          return false;
+        },
+      },
+    };
+    assert.isUndefined(
+      await hook({ toolName: "mcp__yardsmith-hq__hq_build_update", input: {} }, ctx),
+    );
+    assert.isUndefined(
+      await hook({ toolName: "mcp__yardsmith_hq__hq_build_update", input: {} }, ctx),
+    );
+    assert.equal(
+      (await hook({ toolName: "mcp__t3-code__delegate_task", input: {} }, ctx))?.block,
+      true,
+    );
+    bridge.setBridgeSourcePath("/user/extensions/replacement.ts");
+    assert.equal(
+      (await hook({ toolName: "mcp__yardsmith-hq__hq_build_update", input: {} }, ctx))?.block,
+      true,
+    );
+    assert.equal(confirmations.length, 2);
+  });
+});

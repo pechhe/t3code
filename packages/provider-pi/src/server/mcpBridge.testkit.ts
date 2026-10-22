@@ -48,6 +48,14 @@ export async function loadMcpBridge(
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
     readonly inputSchema?: Record<string, unknown>;
+    /** Omits the thread's t3-code session, as a thread without T3 tools has none. */
+    readonly withoutT3?: boolean;
+    readonly agentServers?: ReadonlyArray<{
+      readonly name: string;
+      readonly url: string;
+      readonly authorizationHeader: string;
+      readonly tools: ReadonlyArray<string>;
+    }>;
   } = {},
 ) {
   const handlers = new Map<string, AgentStartHook>();
@@ -88,8 +96,20 @@ export async function loadMcpBridge(
   await NodeVM.runInNewContext(`${source}\nt3McpExtension(pi)`, {
     process: {
       env: {
-        T3_MCP_URL: "http://fixture.invalid/mcp",
-        T3_MCP_BEARER_TOKEN: "fixture-token",
+        ...(options.withoutT3
+          ? {}
+          : { T3_MCP_URL: "http://fixture.invalid/mcp", T3_MCP_BEARER_TOKEN: "fixture-token" }),
+        ...(options.agentServers === undefined
+          ? {}
+          : {
+              T3_MCP_AGENT_SERVERS: JSON.stringify(
+                options.agentServers.map(({ name, url, authorizationHeader }) => ({
+                  name,
+                  url,
+                  authorizationHeader,
+                })),
+              ),
+            }),
         T3_PI_MCP_EXTENSION_PATH: "/fixture/pi-t3-extension.ts",
         T3_PI_RUNTIME_MODE: options.runtimeMode,
       },
@@ -113,9 +133,19 @@ export async function loadMcpBridge(
         params?: unknown;
       };
       requests.push(request);
+      const agentServer = options.agentServers?.find((server) => server.url === url);
       const result =
         request.method === "tools/list"
-          ? { tools: catalog }
+          ? {
+              tools:
+                agentServer === undefined
+                  ? catalog
+                  : agentServer.tools.map((name) => ({
+                      name,
+                      description: name,
+                      inputSchema: { type: "object", properties: {} },
+                    })),
+            }
           : request.method === "tools/call"
             ? (options.result ?? { content: [{ type: "text", text: "browser snapshot" }] })
             : {};

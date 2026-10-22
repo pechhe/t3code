@@ -91,7 +91,6 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
-import * as HqAgentConnections from "../../hq/HqAgentConnections.ts";
 import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -1217,7 +1216,7 @@ describe("ClaudeAdapterV2 YardSmith HQ connection", () => {
               subagentLaunchToolUseId: () => Effect.succeed(null),
               assertComplete: Effect.void,
             },
-          }).pipe(Effect.provideService(HqAgentConnections.HqAgentConnections, hq.connections));
+          }).pipe(Effect.provide(HqTestkit.agentMcpServersFor(hq.connections)));
           const runtime = yield* adapter.openSession({
             threadId,
             providerSessionId: ProviderSessionId.make("provider-session-claude-hq"),

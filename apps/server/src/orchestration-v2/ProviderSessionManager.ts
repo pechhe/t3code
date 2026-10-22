@@ -469,10 +469,12 @@ export const layerWithOptions = (
       const mcpPrepareLock = yield* KeyedLock.make<ThreadId>();
       const hqConnections = yield* Effect.serviceOption(HqAgentConnections.HqAgentConnections);
       /**
-       * Only the Claude and Codex adapters attach the connection this prepares. It runs on attach
-       * and before every turn, so a new HQ connection or a changed model reaches the next
-       * turn: Claude reopens its process for a new MCP server, while a live Codex thread keeps the
-       * servers it started with until it is next started or resumed.
+       * Every adapter attaches the connection this prepares, through the shared agent-server list
+       * (`HqAgentConnections.agentMcpServersLayer`). It runs on attach and before every turn, so a
+       * new HQ connection or a changed model reaches the next turn where the adapter reads the list
+       * per turn (Claude reopens its process for a new MCP server; OpenCode 2 re-registers it),
+       * while a session that keeps the servers it opened with (Codex, Pi, ACP, Cursor, OpenCode 1,
+       * Muse) picks it up when it is next started or resumed.
        */
       const prepareHqConnection = (threadId: ThreadId, model?: string) =>
         Option.isNone(hqConnections)

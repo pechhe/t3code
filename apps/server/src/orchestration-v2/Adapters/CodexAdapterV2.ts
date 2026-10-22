@@ -128,8 +128,8 @@ import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEve
 import { codexAppServerArgs, resolveCodexLaunchArgs } from "../../provider/codexLaunchArgs.ts";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
-import * as HqAgentConnections from "../../hq/HqAgentConnections.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import {
   MCP_APP_EXTENSION_ID,
@@ -1382,8 +1382,8 @@ const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
 
 export function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
-  /** Attached for every role: HQ itself limits each agent to its role's tools. */
-  readonly hqConnection?: HqAgentConnections.HqMcpConnection | undefined;
+  /** Attached for every role: each server itself limits the agent to its role's tools. */
+  readonly agentServers?: ReadonlyArray<AgentMcpServers.AgentMcpServer>;
   readonly modelSelection?: { readonly model: string };
   readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly disabledMcpServers?: ReadonlyArray<string>;
@@ -1411,28 +1411,29 @@ export function codexThreadRuntimeParams(input: {
             : {}),
           http_headers: { Authorization: mcpSession.authorizationHeader },
         };
-  const hq = input.hqConnection;
+  const agentServers = input.agentServers ?? [];
   const mcpServers: Record<string, Schema.Json> | undefined =
-    input.disabledMcpServers === undefined && t3Server === undefined && hq === undefined
+    input.disabledMcpServers === undefined && t3Server === undefined && agentServers.length === 0
       ? undefined
       : {
           ...Object.fromEntries(
             (input.disabledMcpServers ?? []).map((name) => [name, { enabled: false }]),
           ),
           ...(t3Server === undefined ? {} : { "t3-code": t3Server }),
-          ...(hq === undefined
-            ? {}
-            : {
-                [HqAgentConnections.HQ_MCP_SERVER_NAME]: {
-                  url: hq.endpoint,
-                  http_headers: { Authorization: hq.authorizationHeader },
-                  // Claude pre-approves the whole HQ wildcard, and this is its Codex equal:
-                  // what the agent may do in HQ is HQ's decision for its role, not Codex's
-                  // approval prompt. Under `approval_policy: never` an unapproved MCP tool is
-                  // denied outright, which left a Codex reviewer unable to record its review.
-                  default_tools_approval_mode: "approve",
-                },
-              }),
+          ...Object.fromEntries(
+            agentServers.map((server) => [
+              server.name,
+              {
+                url: server.url,
+                http_headers: { Authorization: server.authorizationHeader },
+                // Claude pre-approves each agent server's wildcard, and this is its Codex equal:
+                // what the agent may do there is the server's decision for its role, not Codex's
+                // approval prompt. Under `approval_policy: never` an unapproved MCP tool is
+                // denied outright, which left a Codex reviewer unable to record its review.
+                default_tools_approval_mode: "approve",
+              },
+            ]),
+          ),
         };
   return {
     ...(input.runtimePolicy?.cwd == null ? {} : { cwd: input.runtimePolicy.cwd }),
@@ -1830,11 +1831,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.succeed(undefined) : mcpSessions.read(threadId);
-  const hqConnections = yield* Effect.serviceOption(HqAgentConnections.HqAgentConnections);
-  const readHqConnection = (threadId: ThreadId | null) =>
-    threadId === null || Option.isNone(hqConnections)
-      ? Effect.succeed(undefined)
-      : hqConnections.value.connection(threadId);
+  const readAgentServers = yield* AgentMcpServers.makeReader;
   const { clientFactory, crypto, fileSystem, idAllocator, serverConfig } = adapterOptions;
   const continuationRequests = adapterOptions.continuationRequests;
 
@@ -6790,13 +6787,13 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               Effect.andThen(
                 Effect.all([
                   mcpSessions.read(threadInput.threadId),
-                  readHqConnection(threadInput.threadId),
+                  readAgentServers(threadInput.threadId),
                 ]),
               ),
-              Effect.flatMap(([mcpSession, hqConnection]) =>
+              Effect.flatMap(([mcpSession, agentServers]) =>
                 threadRuntimeParams({
                   mcpSession,
-                  hqConnection,
+                  agentServers,
                   modelSelection: threadInput.modelSelection,
                   runtimePolicy: threadInput.runtimePolicy,
                 }).pipe(
@@ -6848,7 +6845,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   mcpSession: yield* readMcpSession(
                     threadInput.threadId ?? threadInput.providerThread.appThreadId,
                   ),
-                  hqConnection: yield* readHqConnection(
+                  agentServers: yield* readAgentServers(
                     threadInput.threadId ?? threadInput.providerThread.appThreadId,
                   ),
                   ...(threadInput.modelSelection === undefined
@@ -7593,7 +7590,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                   excludeTurns: true,
                   ...(yield* threadRuntimeParams({
                     mcpSession: yield* readMcpSession(threadInput.providerThread.appThreadId),
-                    hqConnection: yield* readHqConnection(threadInput.providerThread.appThreadId),
+                    agentServers: yield* readAgentServers(threadInput.providerThread.appThreadId),
                     modelSelection: input.modelSelection,
                     runtimePolicy: input.runtimePolicy,
                   })),
@@ -7646,7 +7643,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                       : { lastTurnId: boundary.lastTurnId }),
                     ...(yield* threadRuntimeParams({
                       mcpSession: yield* mcpSessions.read(threadInput.targetThreadId),
-                      hqConnection: yield* readHqConnection(threadInput.targetThreadId),
+                      agentServers: yield* readAgentServers(threadInput.targetThreadId),
                       ...(threadInput.modelSelection === undefined
                         ? {}
                         : { modelSelection: threadInput.modelSelection }),

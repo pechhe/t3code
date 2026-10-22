@@ -60,7 +60,6 @@ import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { MANAGED_BROWSER_TOOL_NAMES } from "../../mcp/toolkits/managedBrowser/toolNames.ts";
-import * as HqAgentConnections from "../../hq/HqAgentConnections.ts";
 import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
 import * as CodexAdapterV2 from "./CodexAdapterV2.ts";
 import { makeReplayServerConfig, withCodexReplayChildMetadata } from "./CodexAdapterV2.testkit.ts";
@@ -1497,7 +1496,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           transcript,
           () => Effect.void,
           (method, params) => Effect.sync(() => void requests.push({ method, params })),
-        ).pipe(Effect.provideService(HqAgentConnections.HqAgentConnections, hq.connections));
+        ).pipe(Effect.provide(HqTestkit.agentMcpServersFor(hq.connections)));
         yield* harness.runtime.startTurn(
           makeCodexTestTurnInput({
             threadId,

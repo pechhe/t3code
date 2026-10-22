@@ -17,6 +17,7 @@ interface JsonRpcEnvelope {
 }
 
 interface Connection {
+  readonly server: AcpMcpOverAcpServer;
   readonly mutex: Semaphore.Semaphore;
   sessionId: string | null;
   protocolVersion: string | null;
@@ -55,9 +56,15 @@ function errorMessage(error: unknown): string {
     : "The MCP server returned an error.";
 }
 
-export interface AcpMcpOverAcpBridgeOptions {
+/** One HTTP MCP endpoint the agent reaches by `serverId`: `t3-code` or an agent server. */
+export interface AcpMcpOverAcpServer {
+  readonly serverId: string;
   readonly endpoint: string;
   readonly authorization: string;
+}
+
+export interface AcpMcpOverAcpBridgeOptions {
+  readonly servers: ReadonlyArray<AcpMcpOverAcpServer>;
   readonly allocateConnectionId: Effect.Effect<string>;
   readonly fetchImplementation?: (url: string, init?: RequestInit) => Promise<Response>;
 }
@@ -104,13 +111,13 @@ export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(fun
         }
         const response = yield* Effect.tryPromise({
           try: (signal) =>
-            fetchImplementation(options.endpoint, {
+            fetchImplementation(connection.server.endpoint, {
               method: "POST",
               signal,
               headers: {
                 "content-type": "application/json",
                 accept: "application/json, text/event-stream",
-                authorization: options.authorization,
+                authorization: connection.server.authorization,
                 ...(connection.sessionId === null
                   ? {}
                   : { "mcp-session-id": connection.sessionId }),
@@ -128,7 +135,9 @@ export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(fun
             () => response.body?.cancel().catch(() => undefined) ?? Promise.resolve(),
           );
           return yield* Effect.fail(
-            new AcpMcpOverAcpError(`T3 Code MCP endpoint responded with HTTP ${response.status}.`),
+            new AcpMcpOverAcpError(
+              `T3 Code's ${connection.server.serverId} MCP endpoint responded with HTTP ${response.status}.`,
+            ),
           );
         }
         const payloads = [...(yield* Stream.runCollect(responsePayloads(response, bridgeError)))];
@@ -148,11 +157,11 @@ export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(fun
     if (sessionId !== null) {
       const response = yield* Effect.tryPromise({
         try: (signal) =>
-          fetchImplementation(options.endpoint, {
+          fetchImplementation(connection.server.endpoint, {
             method: "DELETE",
             signal,
             headers: {
-              authorization: options.authorization,
+              authorization: connection.server.authorization,
               "mcp-session-id": sessionId,
               ...(connection.protocolVersion === null
                 ? {}
@@ -164,7 +173,7 @@ export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(fun
       if (!response.ok && response.status !== 404) {
         return yield* Effect.fail(
           new AcpMcpOverAcpError(
-            `T3 Code MCP endpoint rejected disconnect with HTTP ${response.status}.`,
+            `T3 Code's ${connection.server.serverId} MCP endpoint rejected disconnect with HTTP ${response.status}.`,
           ),
         );
       }
@@ -177,7 +186,8 @@ export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(fun
 
   return {
     connect: Effect.fn("mcpOverAcpBridge.connect")(function* (request) {
-      if (request.serverId !== "t3-code") {
+      const server = options.servers.find((candidate) => candidate.serverId === request.serverId);
+      if (server === undefined) {
         return yield* Effect.fail(
           new AcpMcpOverAcpError(`Unknown ACP MCP server "${request.serverId}".`),
         );
@@ -187,6 +197,7 @@ export const makeAcpMcpOverAcpBridge = Effect.fn("AcpMcpOverAcpBridge.make")(fun
       }
       const connectionId = yield* options.allocateConnectionId;
       connections.set(connectionId, {
+        server,
         mutex: yield* Semaphore.make(1),
         sessionId: null,
         protocolVersion: null,

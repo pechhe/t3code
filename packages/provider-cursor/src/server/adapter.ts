@@ -44,6 +44,7 @@ import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import { CursorTransportFailure } from "./transportFailure.ts";
@@ -212,18 +213,33 @@ export function cursorRuntimeAgentPolicy(
 
 export function cursorMcpServers(
   session: McpProviderSession.McpProviderSessionConfig | undefined,
+  agentServers: ReadonlyArray<AgentMcpServers.AgentMcpServer> = [],
 ): Record<string, McpServerConfig> | undefined {
-  if (session === undefined) {
+  if (session === undefined && agentServers.length === 0) {
     return undefined;
   }
   return {
-    "t3-code": {
-      type: "http",
-      url: session.endpoint,
-      headers: {
-        Authorization: session.authorizationHeader,
-      },
-    },
+    ...(session === undefined
+      ? {}
+      : {
+          "t3-code": {
+            type: "http",
+            url: session.endpoint,
+            headers: {
+              Authorization: session.authorizationHeader,
+            },
+          },
+        }),
+    ...Object.fromEntries(
+      agentServers.map((server) => [
+        server.name,
+        {
+          type: "http" as const,
+          url: server.url,
+          headers: { Authorization: server.authorizationHeader },
+        },
+      ]),
+    ),
   };
 }
 
@@ -314,10 +330,11 @@ export function makeCursorAgentOptions(input: {
   readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
   readonly threadId: ThreadId;
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
+  readonly agentServers?: ReadonlyArray<AgentMcpServers.AgentMcpServer>;
   readonly platform: NodeJS.Platform;
 }): AgentOptions {
   const policy = cursorRuntimeAgentPolicy(input.runtimePolicy, input.platform);
-  const mcpServers = cursorMcpServers(input.mcpSession);
+  const mcpServers = cursorMcpServers(input.mcpSession, input.agentServers);
   return {
     model: cursorSdkModelSelection(input.modelSelection),
     name: `T3 Code ${input.threadId}`,
@@ -898,6 +915,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
   const platform = yield* HostProcess.Platform;
   const host = yield* ProviderHost.ProviderHost;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const readAgentServers = yield* AgentMcpServers.makeReader;
   const adapterOptions = options;
   const apiKey = adapterOptions.environment.CURSOR_API_KEY?.trim() || undefined;
 
@@ -2143,6 +2161,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
             platform,
             threadId: openInput.threadId,
             mcpSession: yield* mcpSessions.read(openInput.threadId),
+            agentServers: yield* readAgentServers(openInput.threadId),
           });
           if (
             platform === "win32" &&
@@ -2205,7 +2224,7 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               resolveAttachmentPath: host.resolveAttachmentPath,
             }),
             runOrdinal: turnInput.runOrdinal,
-            hasT3Mcp: mcpServers !== undefined,
+            hasT3Mcp: mcpServers?.["t3-code"] !== undefined,
           });
           const images = yield* Effect.forEach(
             turnInput.message.attachments.filter(isProviderNativeImageAttachment),
@@ -2276,7 +2295,10 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
               modelSelection: turnInput.modelSelection,
               runtimePolicy: turnInput.runtimePolicy,
             });
-            const mcpServers = cursorMcpServers(yield* mcpSessions.read(turnInput.threadId));
+            const mcpServers = cursorMcpServers(
+              yield* mcpSessions.read(turnInput.threadId),
+              yield* readAgentServers(turnInput.threadId),
+            );
             const message = yield* resolveUserMessage(turnInput, mcpServers);
             const pendingUpdates: Array<InteractionUpdate> = [];
             let context: ActiveCursorTurn | null = null;

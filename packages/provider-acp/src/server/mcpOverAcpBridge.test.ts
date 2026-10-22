@@ -13,8 +13,13 @@ describe("AcpMcpOverAcpBridge", () => {
         readonly body: unknown;
       }> = [];
       const bridge = yield* makeAcpMcpOverAcpBridge({
-        endpoint: "http://127.0.0.1:1/mcp",
-        authorization: "Bearer bridge-test",
+        servers: [
+          {
+            serverId: "t3-code",
+            endpoint: "http://127.0.0.1:1/mcp",
+            authorization: "Bearer bridge-test",
+          },
+        ],
         allocateConnectionId: Effect.succeed("connection-1"),
         fetchImplementation: async (_url, init) => {
           const method = init?.method ?? "GET";
@@ -65,12 +70,54 @@ describe("AcpMcpOverAcpBridge", () => {
     }),
   );
 
+  it.effect("sends each server's requests to its own endpoint with its own credential", () =>
+    Effect.gen(function* () {
+      const requests: Array<{ readonly url: string; readonly authorization: string | null }> = [];
+      let nextConnection = 0;
+      const bridge = yield* makeAcpMcpOverAcpBridge({
+        servers: [
+          {
+            serverId: "t3-code",
+            endpoint: "http://127.0.0.1:1/mcp",
+            authorization: "Bearer t3-credential",
+          },
+          {
+            serverId: "yardsmith-hq",
+            endpoint: "http://127.0.0.1:1/mcp/yardsmith-hq",
+            authorization: "Bearer weave-credential",
+          },
+        ],
+        allocateConnectionId: Effect.sync(() => `connection-${++nextConnection}`),
+        fetchImplementation: async (url, init) => {
+          requests.push({ url, authorization: new Headers(init?.headers).get("authorization") });
+          const request = JSON.parse(String(init?.body)) as { readonly id: unknown };
+          return new Response(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {} }), {
+            headers: { "content-type": "application/json" },
+          });
+        },
+      });
+      const weave = yield* bridge.connect({ serverId: "yardsmith-hq" });
+      const t3 = yield* bridge.connect({ serverId: "t3-code" });
+      yield* bridge.message({ connectionId: weave.connectionId, method: "tools/list" });
+      yield* bridge.message({ connectionId: t3.connectionId, method: "tools/list" });
+      expect(requests).toEqual([
+        { url: "http://127.0.0.1:1/mcp/yardsmith-hq", authorization: "Bearer weave-credential" },
+        { url: "http://127.0.0.1:1/mcp", authorization: "Bearer t3-credential" },
+      ]);
+    }),
+  );
+
   it.effect("aborts an in-flight HTTP request when the ACP call is interrupted", () =>
     Effect.gen(function* () {
       const started = Promise.withResolvers<AbortSignal>();
       const bridge = yield* makeAcpMcpOverAcpBridge({
-        endpoint: "http://127.0.0.1:1/mcp",
-        authorization: "Bearer bridge-test",
+        servers: [
+          {
+            serverId: "t3-code",
+            endpoint: "http://127.0.0.1:1/mcp",
+            authorization: "Bearer bridge-test",
+          },
+        ],
         allocateConnectionId: Effect.succeed("connection-1"),
         fetchImplementation: (_url, init) => {
           if (!init?.signal) throw new Error("Missing cancellation signal");
@@ -91,8 +138,13 @@ describe("AcpMcpOverAcpBridge", () => {
   it.effect("rejects unknown servers, connections, and oversized messages", () =>
     Effect.gen(function* () {
       const bridge = yield* makeAcpMcpOverAcpBridge({
-        endpoint: "http://127.0.0.1:1/mcp",
-        authorization: "Bearer bridge-test",
+        servers: [
+          {
+            serverId: "t3-code",
+            endpoint: "http://127.0.0.1:1/mcp",
+            authorization: "Bearer bridge-test",
+          },
+        ],
         allocateConnectionId: Effect.succeed("connection-1"),
         fetchImplementation: () => Promise.resolve(new Response(null, { status: 202 })),
       });

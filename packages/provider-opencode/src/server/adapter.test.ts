@@ -36,6 +36,7 @@ import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import type * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as OpenCodeRuntime from "./OpenCodeRuntime.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 
 import {
@@ -1684,6 +1685,94 @@ describe("OpenCodeAdapterV2", () => {
       );
       const interrupted = yield* runtime.readThreadSnapshot({ providerThread });
       assert.equal(interrupted.providerTurns.at(-1)?.status, "interrupted");
+    }).pipe(
+      Effect.provide(Layer.merge(IdAllocator.layer, McpProviderSessions.layer)),
+      Effect.scoped,
+    ),
+  );
+
+  it.effect("adds the thread's agent servers and lets their tools run without asking", () =>
+    Effect.gen(function* () {
+      const added: Array<unknown> = [];
+      const created: Array<{ readonly permission?: ReturnType<typeof openCodePermissionRules> }> =
+        [];
+      const nativeEvents = asyncEventStream();
+      const client = {
+        event: {
+          subscribe: async (_input: unknown, options: { signal?: AbortSignal }) => {
+            options.signal?.addEventListener("abort", () => nativeEvents.close(), { once: true });
+            return { stream: nativeEvents.stream };
+          },
+        },
+        session: {
+          create: async (input: (typeof created)[number]) => {
+            created.push(input);
+            return {
+              data: { id: "native-opencode-agent-servers", time: { created: 1, updated: 1 } },
+            };
+          },
+        },
+        mcp: {
+          add: async (input: unknown) => {
+            added.push(input);
+            return { data: true };
+          },
+        },
+      };
+      const weave = {
+        name: "yardsmith-hq",
+        url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+        authorizationHeader: "Bearer thread-weave-credential",
+      };
+      const adapter = yield* makeOpenCodeAdapterV2({
+        instanceId: ProviderInstanceId.make("opencode-agent-servers-test"),
+        settings: OPEN_CODE_TEST_SETTINGS,
+        environment: {},
+      }).pipe(
+        Effect.provide(NodeServices.layer),
+        Effect.provideService(OpenCodeRuntime.OpenCodeRuntime, {
+          connectToOpenCodeServer: () =>
+            Effect.succeed({ url: "http://test.invalid", external: false, exitCode: null }),
+          createOpenCodeSdkClient: () => client,
+        } as unknown as OpenCodeRuntime.OpenCodeRuntime["Service"]),
+        Effect.provideService(ProviderHost.ProviderHost, {
+          paths: { cwd: "/workspace" },
+          resolveAttachmentPath: () => null,
+        } as unknown as ProviderHost.ProviderHost["Service"]),
+        Effect.provideService(
+          AgentMcpServers.AgentMcpServers,
+          AgentMcpServers.AgentMcpServers.of({ read: () => Effect.succeed([weave]) }),
+        ),
+      );
+      const threadId = ThreadId.make("thread-opencode-agent-servers");
+      const modelSelection = {
+        instanceId: ProviderInstanceId.make("opencode-agent-servers-test"),
+        model: "anthropic/claude-sonnet",
+        options: [],
+      };
+      const policy = runtimePolicy("approval-required", { cwd: "/workspace" });
+      const runtime = yield* adapter.openSession({
+        threadId,
+        providerSessionId: ProviderSessionId.make("session-opencode-agent-servers"),
+        modelSelection,
+        runtimePolicy: policy,
+      });
+      yield* runtime.ensureThread({ threadId, modelSelection, runtimePolicy: policy });
+      assert.deepEqual(added, [
+        {
+          name: "yardsmith-hq",
+          config: {
+            type: "remote",
+            url: weave.url,
+            headers: { Authorization: weave.authorizationHeader },
+            oauth: false,
+          },
+        },
+      ]);
+      const rules = created[0]?.permission ?? [];
+      assert.equal(permissionAction(rules, "bash"), "ask");
+      assert.equal(rules.at(-1)?.permission, "yardsmith-hq_*");
+      assert.equal(rules.at(-1)?.action, "allow");
     }).pipe(
       Effect.provide(Layer.merge(IdAllocator.layer, McpProviderSessions.layer)),
       Effect.scoped,

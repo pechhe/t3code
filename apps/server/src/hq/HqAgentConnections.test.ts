@@ -1,6 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { AgentTaskBinding, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -12,6 +13,7 @@ import { claudeMcpQueryOverrides } from "../orchestration-v2/Adapters/ClaudeAdap
 import { codexThreadRuntimeParams } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
 import { hqAgentRole } from "./HqAgentConnections.ts";
 import {
+  agentMcpServersFor,
   delegation,
   hourMs,
   hqEndpoint,
@@ -244,41 +246,53 @@ it.effect("the delegation is kept only in the server secret store", () =>
   }),
 );
 
-it.effect("Claude and Codex get a yardsmith-hq server that carries no HQ credential", () =>
-  Effect.gen(function* () {
-    const { connections, call, assertNoSecretsIn } = yield* makeHarness;
-    yield* call(reviewerThread);
-    const hqConnection = yield* connections.connection(reviewerThread);
-    // A managed reviewer is a leaf: no t3-code, but HQ's role-limited tools.
-    const claude = claudeMcpQueryOverrides({
-      mcpSession: undefined,
-      hqConnection,
-      readOnlySandbox: true,
-      managedAgent: true,
-    });
-    const codex = codexThreadRuntimeParams({
-      mcpSession: undefined,
-      hqConnection,
-      runtimePolicy: {
+it.effect(
+  "every adapter's shared server list carries the thread's yardsmith-hq, no HQ credential",
+  () =>
+    Effect.gen(function* () {
+      const { connections, call, assertNoSecretsIn } = yield* makeHarness;
+      yield* call(reviewerThread);
+      const readAgentServers = (threadId: ThreadId) =>
+        AgentMcpServers.AgentMcpServers.use((servers) => servers.read(threadId)).pipe(
+          Effect.provide(agentMcpServersFor(connections)),
+        );
+      const agentServers = yield* readAgentServers(reviewerThread);
+      assert.deepStrictEqual(
+        agentServers.map(({ name, url }) => ({ name, url })),
+        [{ name: "yardsmith-hq", url: hqEndpoint }],
+      );
+      // A thread HQ never prepared, such as a raw delegated child, gets no server.
+      assert.deepStrictEqual(yield* readAgentServers(ThreadId.make("thread-raw-child")), []);
+      // A managed reviewer is a leaf: no t3-code, but HQ's role-limited tools.
+      const claude = claudeMcpQueryOverrides({
+        mcpSession: undefined,
+        agentServers,
+        readOnlySandbox: true,
         managedAgent: true,
-        runtimeMode: "approval-required",
-        interactionMode: "default",
-        cwd: "/workspace",
-      },
-    });
-    assert.deepStrictEqual(Object.keys(claude.mcpServers ?? {}), ["yardsmith-hq"]);
-    assert.include(claude.allowedTools ?? [], "mcp__yardsmith-hq__*");
-    const codexServers = codex.config.mcp_servers as Record<
-      string,
-      { url: string; default_tools_approval_mode?: string }
-    >;
-    assert.deepStrictEqual(Object.keys(codexServers), ["yardsmith-hq"]);
-    assert.strictEqual(codexServers["yardsmith-hq"]!.url, hqEndpoint);
-    // Codex denies an unapproved MCP tool under `approval_policy: never`, so its HQ server
-    // must pre-approve like Claude's wildcard or a reviewer cannot record its review.
-    assert.strictEqual(codexServers["yardsmith-hq"]!.default_tools_approval_mode, "approve");
-    assertNoSecretsIn(claude, codex);
-  }),
+      });
+      const codex = codexThreadRuntimeParams({
+        mcpSession: undefined,
+        agentServers,
+        runtimePolicy: {
+          managedAgent: true,
+          runtimeMode: "approval-required",
+          interactionMode: "default",
+          cwd: "/workspace",
+        },
+      });
+      assert.deepStrictEqual(Object.keys(claude.mcpServers ?? {}), ["yardsmith-hq"]);
+      assert.include(claude.allowedTools ?? [], "mcp__yardsmith-hq__*");
+      const codexServers = codex.config.mcp_servers as Record<
+        string,
+        { url: string; default_tools_approval_mode?: string }
+      >;
+      assert.deepStrictEqual(Object.keys(codexServers), ["yardsmith-hq"]);
+      assert.strictEqual(codexServers["yardsmith-hq"]!.url, hqEndpoint);
+      // Codex denies an unapproved MCP tool under `approval_policy: never`, so its HQ server
+      // must pre-approve like Claude's wildcard or a reviewer cannot record its review.
+      assert.strictEqual(codexServers["yardsmith-hq"]!.default_tools_approval_mode, "approve");
+      assertNoSecretsIn(agentServers, claude, codex);
+    }),
 );
 
 it.effect("one connection serves every thread, and disconnecting stops them all", () =>

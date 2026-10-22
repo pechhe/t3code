@@ -2,8 +2,10 @@ import { tokenizeCliArgs } from "@t3tools/shared/cliArgs";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 
+import type { AgentMcpServer } from "@t3tools/provider-core/server/AgentMcpServers";
 import type { McpProviderSessionConfig } from "@t3tools/provider-core/server/mcpSession";
 import {
+  T3_MCP_AGENT_SERVERS_ENV,
   PI_T3_MCP_EXTENSION_FILENAME,
   PI_T3_MCP_EXTENSION_SOURCE,
   T3_MCP_BEARER_ENV,
@@ -244,6 +246,7 @@ export function buildPiRpcLaunch(input: {
   readonly launchArgs: ReadonlyArray<string>;
   readonly environment: NodeJS.ProcessEnv;
   readonly mcpSession: McpProviderSessionConfig | undefined;
+  readonly agentServers?: ReadonlyArray<AgentMcpServer>;
   readonly extensionPath: string | undefined;
   readonly sessionPath?: string | undefined;
   readonly ephemeral?: boolean;
@@ -290,6 +293,8 @@ export function buildPiRpcLaunch(input: {
   delete environment[T3_MCP_URL_ENV];
   delete environment[T3_MCP_BEARER_ENV];
   delete environment[T3_PI_MCP_EXTENSION_PATH_ENV];
+  delete environment[T3_MCP_AGENT_SERVERS_ENV];
+  const agentServers = hasT3Extension ? (input.agentServers ?? []) : [];
 
   return {
     args,
@@ -311,6 +316,9 @@ export function buildPiRpcLaunch(input: {
               input.mcpSession.authorizationHeader,
             ),
           }
+        : {}),
+      ...(agentServers.length > 0
+        ? { [T3_MCP_AGENT_SERVERS_ENV]: JSON.stringify(agentServers) }
         : {}),
     },
     hasT3Mcp,

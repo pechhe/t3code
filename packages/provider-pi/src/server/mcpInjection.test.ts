@@ -2,6 +2,7 @@ import { assert, describe, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
 import {
+  T3_MCP_AGENT_SERVERS_ENV,
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
   T3_PI_RUNTIME_MODE_ENV,
@@ -85,6 +86,35 @@ describe("pi T3 MCP injection", () => {
       permissionOnly.env[T3_PI_MCP_EXTENSION_PATH_ENV],
       "/tmp/cache/pi-t3-mcp-extension.ts",
     );
+  });
+
+  it("hands the thread's agent servers to the bridge and never an inherited list", () => {
+    const weave = {
+      name: "yardsmith-hq",
+      url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+      authorizationHeader: "Bearer thread-weave-credential",
+    };
+    const launch = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { [T3_MCP_AGENT_SERVERS_ENV]: '[{"name":"stale"}]' },
+      mcpSession: undefined,
+      agentServers: [weave],
+      extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts",
+    });
+    assert.deepEqual(JSON.parse(launch.env[T3_MCP_AGENT_SERVERS_ENV]!), [weave]);
+
+    for (const input of [
+      { agentServers: [], extensionPath: "/tmp/cache/pi-t3-mcp-extension.ts" },
+      { agentServers: [weave], extensionPath: undefined },
+    ]) {
+      const without = buildPiRpcLaunch({
+        launchArgs: [],
+        environment: { [T3_MCP_AGENT_SERVERS_ENV]: '[{"name":"stale"}]' },
+        mcpSession: undefined,
+        ...input,
+      });
+      assert.isUndefined(without.env[T3_MCP_AGENT_SERVERS_ENV]);
+    }
   });
 
   it("forces tools and user extensions off for unattended text generation", () => {

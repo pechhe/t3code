@@ -69,8 +69,13 @@ import type * as EffectAcpSchema from "effect-acp/compat";
 
 import { formatReadToolLabel, formatSearchToolLabel } from "@t3tools/shared/toolActivity";
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
-import { makeAcpMcpOverAcpBridge, type AcpMcpOverAcpBridge } from "./mcpOverAcpBridge.ts";
+import {
+  makeAcpMcpOverAcpBridge,
+  type AcpMcpOverAcpBridge,
+  type AcpMcpOverAcpServer,
+} from "./mcpOverAcpBridge.ts";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
 import {
@@ -608,43 +613,64 @@ interface AcpMcpContext {
   readonly servers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly acpServers: ReadonlyArray<EffectAcpSchema.McpServer>;
   readonly processEnvironment?: NodeJS.ProcessEnv;
-  readonly endpoint?: string;
-  readonly authorization?: string;
+  readonly bridgeServers: ReadonlyArray<AcpMcpOverAcpServer>;
 }
 
-function acpMcpContext(
+export function acpMcpContext(
   session: McpProviderSession.McpProviderSessionConfig | undefined,
   self: SelfInvocation,
+  agentServers: ReadonlyArray<AgentMcpServers.AgentMcpServer> = [],
 ): AcpMcpContext {
-  if (session === undefined) {
-    return { servers: [], acpServers: [] };
-  }
+  const bridgeServers: ReadonlyArray<AcpMcpOverAcpServer> = [
+    ...(session === undefined
+      ? []
+      : [
+          {
+            serverId: "t3-code",
+            endpoint: session.endpoint,
+            authorization: session.authorizationHeader,
+          },
+        ]),
+    ...agentServers
+      .filter((server) => server.name !== "t3-code")
+      .map((server) => ({
+        serverId: server.name,
+        endpoint: server.url,
+        authorization: server.authorizationHeader,
+      })),
+  ];
   // Agents that advertise optional http support still routinely fail to wire
   // injected http servers through to their backend (codex-acp 1.2.0 and pi-acp
-  // both drop them), so every ACP session gets the `t3 acp-mcp-bridge` stdio
-  // server, which forwards JSON-RPC to T3's authenticated MCP endpoint.
+  // both drop them), so every ACP session gets a `t3 acp-mcp-bridge` stdio
+  // server per T3 server, which forwards JSON-RPC to its authenticated endpoint.
   return {
-    servers: [
-      {
-        name: "t3-code",
-        command: self.command,
-        args: [...selfInvocationArgs(self, ["acp-mcp-bridge"])],
-        env: [
-          { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-          { name: "T3_ACP_MCP_ENDPOINT", value: session.endpoint },
-          { name: "T3_ACP_MCP_AUTHORIZATION", value: session.authorizationHeader },
-        ],
-      },
-    ],
-    acpServers: [{ type: "acp", name: "t3-code", serverId: "t3-code" }],
-    endpoint: session.endpoint,
-    authorization: session.authorizationHeader,
-    processEnvironment: {
-      T3_ACP_MCP_ENDPOINT: session.endpoint,
-      T3_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
-      T3_ACP_MCP_NODE: self.command,
-      ...(self.entrypoint === undefined ? {} : { T3_ACP_MCP_ENTRYPOINT: self.entrypoint }),
-    },
+    servers: bridgeServers.map((server) => ({
+      name: server.serverId,
+      command: self.command,
+      args: [...selfInvocationArgs(self, ["acp-mcp-bridge"])],
+      env: [
+        { name: "ELECTRON_RUN_AS_NODE", value: "1" },
+        { name: "T3_ACP_MCP_ENDPOINT", value: server.endpoint },
+        { name: "T3_ACP_MCP_AUTHORIZATION", value: server.authorization },
+      ],
+    })),
+    acpServers: bridgeServers.map((server) => ({
+      type: "acp",
+      name: server.serverId,
+      serverId: server.serverId,
+    })),
+    bridgeServers,
+    ...(session === undefined
+      ? {}
+      : {
+          // The terminal fallback (`acp-mcp-call`) reaches T3's own tools only.
+          processEnvironment: {
+            T3_ACP_MCP_ENDPOINT: session.endpoint,
+            T3_ACP_MCP_AUTHORIZATION: session.authorizationHeader,
+            T3_ACP_MCP_NODE: self.command,
+            ...(self.entrypoint === undefined ? {} : { T3_ACP_MCP_ENTRYPOINT: self.entrypoint }),
+          },
+        }),
   };
 }
 
@@ -1378,11 +1404,14 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const host = yield* ProviderHost.ProviderHost;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const readAgentServers = yield* AgentMcpServers.makeReader;
   const { flavor, selfInvocation: self } = options;
   const readMcpContext = (threadId: ThreadId | null) =>
     threadId === null
       ? Effect.succeed(acpMcpContext(undefined, self))
-      : mcpSessions.read(threadId).pipe(Effect.map((session) => acpMcpContext(session, self)));
+      : Effect.all([mcpSessions.read(threadId), readAgentServers(threadId)]).pipe(
+          Effect.map(([session, agentServers]) => acpMcpContext(session, self, agentServers)),
+        );
   const driver = flavor.driver;
   const continuationRequests = options.continuationRequests;
   const postSettleContinuationEnabled =
@@ -6358,12 +6387,11 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           mcpContext: AcpMcpContext,
           scope: Scope.Scope,
         ) {
-          if (mcpContext.endpoint === undefined || mcpContext.authorization === undefined) {
+          if (mcpContext.bridgeServers.length === 0) {
             return undefined;
           }
           const mcpBridge = yield* makeAcpMcpOverAcpBridge({
-            endpoint: mcpContext.endpoint,
-            authorization: mcpContext.authorization,
+            servers: mcpContext.bridgeServers,
             allocateConnectionId: crypto.randomUUIDv4().pipe(Effect.orDie),
           });
           yield* Scope.addFinalizer(scope, mcpBridge.dispose);

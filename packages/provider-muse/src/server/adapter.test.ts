@@ -1,3 +1,4 @@
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as FileSystem from "effect/FileSystem";
 import { assert, describe, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -427,6 +428,39 @@ describe("MuseAdapterV2", () => {
           },
         });
       }
+    }).pipe(Effect.scoped, Effect.provide(testLayer)),
+  );
+
+  it.effect("connects the thread's agent servers beside T3's own", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakeMuse();
+      fake.host.initializeResult.grantedCapabilities.push("sessionMcp");
+      yield* makeHarness(fake, INSTANCE_ID).pipe(
+        Effect.provideService(
+          AgentMcpServers.AgentMcpServers,
+          AgentMcpServers.AgentMcpServers.of({
+            read: () =>
+              Effect.succeed([
+                {
+                  name: "yardsmith-hq",
+                  url: "http://127.0.0.1:43210/mcp/yardsmith-hq",
+                  authorizationHeader: "Bearer thread-weave-credential",
+                },
+              ]),
+          }),
+        ),
+      );
+      const call = yield* fake.takeCall("session/start");
+      assert.deepStrictEqual(call.params.config, {
+        mcpServers: {
+          "yardsmith-hq": {
+            transport: "streamableHttp",
+            mode: "optional",
+            url: "http://127.0.0.1:43210/mcp/yardsmith-hq",
+            headers: { Authorization: "Bearer thread-weave-credential" },
+          },
+        },
+      });
     }).pipe(Effect.scoped, Effect.provide(testLayer)),
   );
 

@@ -1247,6 +1247,36 @@ describe("CursorAdapterV2", () => {
     assert.notInclude(logged, "secret-cursor-mcp-token");
   });
 
+  it("attaches the thread's agent servers with or without a T3 session", () => {
+    const weave = {
+      name: "yardsmith-hq",
+      url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+      authorizationHeader: "Bearer thread-weave-credential",
+    };
+    const server = {
+      type: "http" as const,
+      url: weave.url,
+      headers: { Authorization: weave.authorizationHeader },
+    };
+    assert.deepEqual(cursorMcpServers(undefined, [weave]), { "yardsmith-hq": server });
+    assert.deepInclude(
+      cursorMcpServers(
+        {
+          environmentId: EnvironmentId.make("environment-cursor-mcp"),
+          threadId: ThreadId.make("thread-cursor-mcp"),
+          providerSessionId: "mcp-session-cursor",
+          providerInstanceId: ProviderInstanceId.make("cursor"),
+          endpoint: "http://127.0.0.1:43123/mcp",
+          authorizationHeader: "Bearer secret-cursor-mcp-token",
+          browserToolsAvailable: true,
+        },
+        [weave],
+      ),
+      { "yardsmith-hq": server },
+    );
+    assert.isUndefined(cursorMcpServers(undefined, []));
+  });
+
   it("recognizes direct and SDK-wrapped abort failures as cancellation", () => {
     assert.isTrue(CursorAgentSdk.isCursorCancellationError({ name: "AbortError" }));
     assert.isTrue(

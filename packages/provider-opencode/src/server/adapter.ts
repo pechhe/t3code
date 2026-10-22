@@ -58,6 +58,7 @@ import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import { mcpToolPresentation } from "@t3tools/provider-core/server/mcpToolPresentation";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import {
@@ -610,6 +611,8 @@ const OPENCODE_RESTRICTED_PERMISSIONS = [
  */
 export function openCodePermissionRules(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
+  /** Each agent server decides what this agent may do there, so its tools never ask. */
+  agentServerNames: ReadonlyArray<string> = [],
 ): PermissionRuleset {
   const sandboxPolicy = recordValue(runtimePolicy, "sandboxPolicy");
   const sandboxType = recordString(sandboxPolicy, "type");
@@ -697,6 +700,10 @@ export function openCodePermissionRules(
     }
   }
 
+  for (const name of agentServerNames) {
+    rules.push({ permission: `${name}_*`, pattern: "*", action: "allow" });
+  }
+
   return rules;
 }
 
@@ -720,8 +727,9 @@ function permissionRuleEquals(
 export function openCodeChildPermissionRules(
   runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy,
   nativeChildRules: PermissionRuleset,
+  agentServerNames: ReadonlyArray<string> = [],
 ): PermissionRuleset {
-  const parentRules = openCodePermissionRules(runtimePolicy);
+  const parentRules = openCodePermissionRules(runtimePolicy, agentServerNames);
   const inheritedRules = parentRules.filter(
     (rule) => rule.permission === "external_directory" || rule.action === "deny",
   );
@@ -938,6 +946,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
   const host = yield* ProviderHost.ProviderHost;
   const videoFileSystem = yield* FileSystem.FileSystem;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const readAgentServers = yield* AgentMcpServers.makeReader;
   const messageIdClock = yield* Ref.make({ epochMillis: -1, counter: 0 });
 
   return ProviderAdapter.ProviderAdapterV2.of({
@@ -979,6 +988,22 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             }),
           );
         }
+        // An external server may not reach T3's endpoints either.
+        const agentServers = connection.external ? [] : yield* readAgentServers(input.threadId);
+        for (const server of agentServers) {
+          yield* OpenCodeRuntime.runOpenCodeSdk("mcp.add", () =>
+            client.mcp.add({
+              name: server.name,
+              config: {
+                type: "remote",
+                url: server.url,
+                headers: { Authorization: server.authorizationHeader },
+                oauth: false,
+              },
+            }),
+          );
+        }
+        const agentServerNames = agentServers.map((server) => server.name);
 
         const now = yield* DateTime.now;
         let sessionEntity: OrchestrationV2ProviderSession = {
@@ -1401,6 +1426,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
             const childPermission = openCodeChildPermissionRules(
               turn.runtimePolicy,
               nativeChildSession.permission ?? [],
+              agentServerNames,
             );
             yield* sdkCall(
               "session.update",
@@ -3040,10 +3066,15 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
               // session.create leaves it unset (SessionPrompt.ensureTitle).
               const response = yield* sdkCall(
                 "session.create",
-                { permission: openCodePermissionRules(threadInput.runtimePolicy) },
+                {
+                  permission: openCodePermissionRules(threadInput.runtimePolicy, agentServerNames),
+                },
                 () =>
                   client.session.create({
-                    permission: openCodePermissionRules(threadInput.runtimePolicy),
+                    permission: openCodePermissionRules(
+                      threadInput.runtimePolicy,
+                      agentServerNames,
+                    ),
                   }),
               );
               const nativeSession = unwrapData("session.create", response);
@@ -3628,7 +3659,7 @@ export const makeOpenCodeAdapterV2 = Effect.fn("makeOpenCodeAdapterV2")(function
                 yield* sdkCall("session.update", { sessionID: fork.id }, () =>
                   client.session.update({
                     sessionID: fork.id,
-                    permission: openCodePermissionRules(input.runtimePolicy),
+                    permission: openCodePermissionRules(input.runtimePolicy, agentServerNames),
                   }),
                 );
                 retainedThread = {

@@ -292,3 +292,9 @@ export const makeHqHarnessAt = Effect.fnUntraced(function* (secretsDirectory?: s
 });
 
 export const makeHqHarness = makeHqHarnessAt();
+
+/** The shared agent-server list the adapters read, backed by a harness's connections. */
+export const agentMcpServersFor = (connections: HqAgentConnections.HqAgentConnections["Service"]) =>
+  HqAgentConnections.agentMcpServersLayer.pipe(
+    Layer.provide(Layer.succeed(HqAgentConnections.HqAgentConnections, connections)),
+  );

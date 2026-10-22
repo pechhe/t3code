@@ -9,6 +9,7 @@
  * holds a token that can expire.
  */
 import type { OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { currentHqOrigin } from "@t3tools/shared/hqOrigins";
 import * as Clock from "effect/Clock";
@@ -56,7 +57,7 @@ export const hqAgentRole = (
 ): string | undefined =>
   thread.agentTask?.role ?? (thread.lineage.parentThreadId === null ? "lead" : undefined);
 
-/** What an adapter injects as the `yardsmith-hq` MCP server. It carries no HQ credential. */
+/** The thread's `yardsmith-hq` MCP server. It carries no HQ credential. */
 export interface HqMcpConnection {
   readonly endpoint: string;
   readonly authorizationHeader: string;
@@ -839,3 +840,27 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(HqAgentConnections, make);
+
+/** Every adapter attaches the thread's Weave server through the shared agent-server list. */
+export const agentMcpServersLayer = Layer.effect(
+  AgentMcpServers.AgentMcpServers,
+  Effect.gen(function* () {
+    const connections = yield* HqAgentConnections;
+    return AgentMcpServers.AgentMcpServers.of({
+      read: (threadId) =>
+        connections.connection(threadId).pipe(
+          Effect.map((connection) =>
+            connection === undefined
+              ? []
+              : [
+                  {
+                    name: HQ_MCP_SERVER_NAME,
+                    url: connection.endpoint,
+                    authorizationHeader: connection.authorizationHeader,
+                  },
+                ],
+          ),
+        ),
+    });
+  }),
+);

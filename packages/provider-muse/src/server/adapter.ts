@@ -40,6 +40,7 @@ import * as Stream from "effect/Stream";
 
 import * as ProviderHost from "@t3tools/provider-core/server/ProviderHost";
 import * as McpProviderSession from "@t3tools/provider-core/server/mcpSession";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import { museModelCapabilities, resolveMuseReasoningEffort } from "./modelCatalog.ts";
@@ -273,6 +274,7 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
   const providerHost = yield* ProviderHost.ProviderHost;
   const fileSystem = yield* FileSystem.FileSystem;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
+  const readAgentServers = yield* AgentMcpServers.makeReader;
   const agentScope = yield* AgentScope;
 
   const protocolError = (detail: string, payload?: unknown) =>
@@ -1800,24 +1802,43 @@ export const makeMuseAdapterV2 = Effect.fn("makeMuseAdapterV2")(function* (
         return yield* Effect.gen(function* () {
           nativeSessionId = requestedId ?? host.connection.mintCommandId();
           const mcpSession = yield* mcpSessions.read(args.threadId);
-          if (mcpSession && !host.initializeResult.grantedCapabilities.includes("sessionMcp"))
+          const servers = [
+            ...(mcpSession
+              ? [
+                  {
+                    name: "t3-code",
+                    url: mcpSession.endpoint,
+                    authorizationHeader: mcpSession.authorizationHeader,
+                  },
+                ]
+              : []),
+            ...(yield* readAgentServers(args.threadId)),
+          ];
+          if (
+            servers.length > 0 &&
+            !host.initializeResult.grantedCapabilities.includes("sessionMcp")
+          )
             return yield* protocolError(
               "Update Muse Code to a version that supports session MCP servers",
             );
-          const config = mcpSession
-            ? {
-                mcpServers: {
-                  // Muse defaults to "required", which fails the whole run when T3's
-                  // tools cannot be reached. The agent should still work without them.
-                  "t3-code": {
-                    transport: "streamableHttp",
-                    mode: "optional",
-                    url: mcpSession.endpoint,
-                    headers: { Authorization: mcpSession.authorizationHeader },
-                  },
-                },
-              }
-            : undefined;
+          const config =
+            servers.length > 0
+              ? {
+                  mcpServers: Object.fromEntries(
+                    servers.map((server) => [
+                      server.name,
+                      {
+                        // Muse defaults to "required", which fails the whole run when a
+                        // server cannot be reached. The agent should still work without it.
+                        transport: "streamableHttp",
+                        mode: "optional",
+                        url: server.url,
+                        headers: { Authorization: server.authorizationHeader },
+                      },
+                    ]),
+                  ),
+                }
+              : undefined;
           const startModel = yield* resolveModel(args.modelSelection);
           const permissionProfile = musePermissionProfile(args.runtimePolicy.runtimeMode);
           const result = yield* request(

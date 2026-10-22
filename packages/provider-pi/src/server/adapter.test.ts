@@ -37,6 +37,7 @@ import * as ProviderContinuationRequests from "@t3tools/provider-core/server/Pro
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
+import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import { handoffBudget } from "@t3tools/provider-core/server/handoffBudget";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { toolOutputImages, compactDynamicToolOutput } from "@t3tools/shared/toolOutput";
@@ -1491,6 +1492,26 @@ describe("PiAdapterV2", () => {
       assert.equal(spawn.env.T3_MCP_URL, "http://127.0.0.1:43123/mcp");
       assert.equal(spawn.env.T3_MCP_BEARER_TOKEN, "secret-pi-token");
       assert.equal(spawn.env.T3_PI_RUNTIME_MODE, "full-access");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("hands the thread's agent servers to the bridge", () =>
+    Effect.gen(function* () {
+      const weave = {
+        name: "yardsmith-hq",
+        url: "http://127.0.0.1:43123/mcp/yardsmith-hq",
+        authorizationHeader: "Bearer thread-weave-credential",
+      };
+      const fake = yield* makeFakePi;
+      yield* openRuntime(fake).pipe(
+        Effect.provideService(
+          AgentMcpServers.AgentMcpServers,
+          AgentMcpServers.AgentMcpServers.of({
+            read: (threadId) => Effect.succeed(threadId === THREAD_ID ? [weave] : []),
+          }),
+        ),
+      );
+      assert.deepEqual(JSON.parse(fake.lastSpawn().env.T3_MCP_AGENT_SERVERS!), [weave]);
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
