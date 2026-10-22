@@ -29,6 +29,20 @@ const SCHEDULING_TOOLS = new Set([
   "run_scheduled_task_now",
 ]);
 
+/**
+ * Workspace moves and project discovery an ordinary thread is told to use: the
+ * orchestration instructions name `t3_worktree_handoff` and `create_threads`,
+ * and a No project chat is told to move itself with `t3_thread_move_to_project`
+ * after reading `t3_project_list`. They stay reachable from every profile that
+ * includes `control`.
+ */
+const CONTROL_EXTRA_TOOLS = new Set([
+  "create_threads",
+  "t3_project_list",
+  "t3_thread_move_to_project",
+  "t3_thread_suggest_project",
+]);
+
 /** Thread tools the orchestrator itself offers; the rest of the thread family is workspace administration. */
 const CORE_THREAD_TOOLS = new Set([
   "t3_thread_list",
@@ -62,6 +76,7 @@ export const toolFamily = (name: string): ToolFamily => {
   if (name.startsWith("preview_") || name.startsWith("t3_preview_")) return "preview";
   if (name.startsWith("device_")) return "device";
   if (name.startsWith("t3_queue_")) return "queue";
+  if (CONTROL_EXTRA_TOOLS.has(name)) return "control";
   if (name.startsWith("t3_worktree_")) return "worktree";
   if (name.startsWith("t3_project_") || name === "t3_hq_connection") return "project";
   if (PULL_REQUEST_TOOLS.has(name)) return "workspace";
@@ -72,12 +87,11 @@ export const toolFamily = (name: string): ToolFamily => {
   if (name.startsWith("t3_environment_") || name === "t3_fleet_summary") return "workspace";
   if (name === "t3_terminal_read") return "workspace";
   if (name.startsWith("t3_thread_") && !CORE_THREAD_TOOLS.has(name)) return "workspace";
-  if (name === "create_threads" || name === "agent_task_outcome" || name === "agent_session_attach")
-    return "workspace";
+  if (name === "agent_task_outcome" || name === "agent_session_attach") return "workspace";
   return "control";
 };
 
-const CONTROL: ReadonlySet<ToolFamily> = new Set(["control", "scheduling"]);
+const CONTROL: ReadonlySet<ToolFamily> = new Set(["control", "scheduling", "worktree"]);
 const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
   "control",
   "workspace",

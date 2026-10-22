@@ -1146,28 +1146,37 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
+/**
+ * Services every session endpoint's toolkits need. Kept out of the toolkit layers
+ * so an endpoint composes them once and a test can supply mocks instead.
+ */
+const layerSessionToolkitServices = Layer.mergeAll(
+  layerOrchestratorMcpService,
+  ThreadMetadataMcpService.layer,
+  ThreadDirectory.layer,
+  WorkspaceProvider.layer,
+  WorktreeMcpService.layer.pipe(Layer.provide(WorkspaceProvider.layer)),
+  HtmlRender.layer,
+);
+
 const layerSessionOrchestrator = (families: ReadonlySet<ToolFamily>) =>
-  sessionToolkitRegistration(OrchestratorToolkit, OrchestratorHandlers.handlers, families).pipe(
-    Layer.provide(layerOrchestratorMcpService),
-    Layer.provide(ThreadMetadataMcpService.layer),
-    Layer.provide(ThreadDirectory.layer),
-  );
+  sessionToolkitRegistration(OrchestratorToolkit, OrchestratorHandlers.handlers, families);
 
 const layerSessionThread = (families: ReadonlySet<ToolFamily>) =>
-  sessionToolkitRegistration(ThreadToolkit, ThreadHandlers.handlers, families).pipe(
-    Layer.provide(ThreadDirectory.layer),
-  );
+  sessionToolkitRegistration(ThreadToolkit, ThreadHandlers.handlers, families);
 
 const layerSessionProject = (families: ReadonlySet<ToolFamily>) =>
-  sessionToolkitRegistration(ProjectToolkit, ProjectHandlers.handlers, families).pipe(
-    Layer.provide(WorkspaceProvider.layer),
-  );
+  sessionToolkitRegistration(ProjectToolkit, ProjectHandlers.handlers, families);
+
+/** An endpoint gets a toolkit's tools when the families match; an unmatched toolkit registers nothing. */
+const layerSessionWorktree = (families: ReadonlySet<ToolFamily>) =>
+  sessionToolkitRegistration(WorktreeToolkit, WorktreeHandlers.handlers, families);
 
 const layerSessionHtml = () =>
   Layer.mergeAll(
     toolkitRegistration(HtmlRenderToolkit, HtmlHandlers.layerRender),
     imageToolRegistration(registerHtmlPreview(), HtmlHandlers.layerPreview),
-  ).pipe(Layer.provide(HtmlRender.layer));
+  );
 
 const layerSessionPreview = (families: ReadonlySet<ToolFamily>) =>
   families.has("preview")
@@ -1183,11 +1192,13 @@ const layerSessionDevice = (families: ReadonlySet<ToolFamily>) =>
     ? Layer.mergeAll(layerDeviceStandardToolkitRegistration, layerDeviceScreenshotRegistration)
     : Layer.empty;
 
-const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
+/** The toolkits one endpoint serves, filtered by family. Exported for the endpoint test's registry. */
+export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
   Layer.mergeAll(
     layerSessionOrchestrator(families),
     layerSessionThread(families),
     layerSessionProject(families),
+    layerSessionWorktree(families),
     layerSessionHtml(),
     layerSessionPreview(families),
     layerSessionDevice(families),
@@ -1200,7 +1211,6 @@ const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
       ? toolkitRegistration(TerminalToolkit, TerminalHandlers.layer)
       : Layer.empty,
     families.has("workspace") ? layerPullRequestsToolkit : Layer.empty,
-    families.has("worktree") ? layerWorktreeToolkitRegistration : Layer.empty,
     families.has("experiments")
       ? toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(
           Layer.provide(layerOrchestratorMcpService),
@@ -1214,6 +1224,7 @@ const layerSessionEndpoint = (
 ) =>
   Layer.fresh(
     layerSessionToolkits(endpoint.families).pipe(
+      Layer.provide(layerSessionToolkitServices),
       Layer.provideMerge(
         McpServer.layerHttp({
           name: "T3 Code",

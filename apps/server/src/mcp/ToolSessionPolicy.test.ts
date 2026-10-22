@@ -4,16 +4,24 @@ import {
   sessionEndpointKey,
   type SessionToolProfile,
 } from "@t3tools/contracts";
+import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { expect, it } from "@effect/vitest";
 import { Tool } from "effect/ai";
 
 import { claudeMcpQueryOverrides } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { codexThreadRuntimeParams } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
+import {
+  NO_PROJECT_NOTE,
+  unreplacedWorkspaceNote,
+} from "../orchestration-v2/ProviderTurnStartService.ts";
 import { buildPiRpcLaunch } from "../../../../packages/provider-pi/src/server/mcpInjection.ts";
 import { OrchestratorToolkit } from "./toolkits/orchestrator/tools.ts";
 import { PreviewToolkit } from "./toolkits/preview/tools.ts";
 import { DeviceToolkit } from "./toolkits/device/tools.ts";
 import { ExperimentsToolkit } from "./toolkits/experiments/tools.ts";
+import { HtmlToolkit } from "./toolkits/html/tools.ts";
+import { ProjectToolkit } from "./toolkits/project/tools.ts";
+import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 
@@ -22,12 +30,15 @@ const tools = [
   ...Object.values(PreviewToolkit.tools),
   ...Object.values(DeviceToolkit.tools),
   ...Object.values(ExperimentsToolkit.tools),
+  ...Object.values(HtmlToolkit.tools),
+  ...Object.values(ProjectToolkit.tools),
+  ...Object.values(PullRequestsToolkit.tools),
   ...Object.values(ThreadToolkit.tools),
   ...Object.values(WorktreeToolkit.tools),
 ];
 
 const names = (session: SessionToolProfile | undefined) =>
-  new Set(
+  new Set<string>(
     tools.filter((tool) => isToolListedForSession(tool.name, session)).map((tool) => tool.name),
   );
 
@@ -47,8 +58,29 @@ const session = (
   agentRole?: SessionToolProfile["agentRole"],
 ) => ({ toolProfile, agentRole }) satisfies SessionToolProfile;
 
+// Ordinary threads spend this on every turn. The ceiling exists to catch the
+// full ~190k catalogue coming back, not to forbid a tool the thread's own
+// instructions name: the handoff family is part of the control plane and the
+// html tools are counted here.
 it("keeps an ordinary thread's listing under the payload budget", () => {
-  expect(payloadChars(undefined), "ordinary payload chars").toBeLessThan(40_000);
+  expect(payloadChars(undefined), "ordinary payload chars").toBeLessThan(55_000);
+});
+
+it("lists every tool an ordinary thread's own instructions name", () => {
+  // Derived, so an instruction that names a tool the control endpoint does not
+  // serve fails here rather than in a thread whose agent has no way to comply.
+  const instructionText = [
+    T3_CODE_ORCHESTRATION_INSTRUCTIONS,
+    NO_PROJECT_NOTE,
+    unreplacedWorkspaceNote("/tmp/checkout"),
+  ].join("\n");
+  // Bare names too: the SlipJay workspace notes name tools without backticks.
+  const named = tools
+    .map((tool) => tool.name)
+    .filter((name) => new RegExp(`\\b${name}\\b`).test(instructionText));
+
+  expect(named).toContain("t3_worktree_handoff");
+  expect(named.filter((name) => !isToolListedForSession(name, undefined))).toEqual([]);
 });
 
 it("lists the preview family only for Phi profiles, and device only for a UI verifier", () => {
@@ -57,7 +89,11 @@ it("lists the preview family only for Phi profiles, and device only for a UI ver
   expect(ordinary.has("preview_open")).toBe(false);
   expect(ordinary.has("device_open")).toBe(false);
   expect(ordinary.has("t3_experiments_list")).toBe(false);
-  expect(ordinary.has("t3_worktree_status")).toBe(false);
+  expect(ordinary.has("t3_worktree_status")).toBe(true);
+  expect(ordinary.has("html_render")).toBe(true);
+  expect(ordinary.has("t3_thread_move_to_project")).toBe(true);
+  expect(ordinary.has("create_threads")).toBe(true);
+  expect(ordinary.has("link_pull_request")).toBe(false);
 
   const browser = names(session("phi", "browser"));
   expect(browser.has("preview_interact")).toBe(true);
