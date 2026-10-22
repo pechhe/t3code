@@ -1209,6 +1209,29 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "lets a landed publication blocker retry while an older unlanded attempt holds",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          const landed = await landIntegration(f, BUILD_TAG, "2026-02-01T00:00:00Z");
+          await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), {
+            tag: BUILD_TAG,
+            sha: landed.upstream,
+            attempt: `${BUILD_TAG}@1`,
+            phase: "landed",
+            blocked: { kind: "publication", summary: "release archive missing" },
+            dispatches: 1,
+          });
+          expect((await run(f, ["attempt", BUILD_TAG, "retry"])).code).toBe(0);
+          expect(await attemptOf(f, BUILD_TAG)).toMatchObject({ phase: "retry" });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "keeps an owner decision through a delayed duplicate claim; only its holder or retry resumes it",
       async () => {
         await withFixture(async (f) => {
@@ -1318,6 +1341,58 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           await run(f, []);
           expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "superseded" });
           expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"])).code).toBe(0);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses a retry of a newer tag while an older attempt holds, and lets the holder's retry release it",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+
+          for (const hold of [[], ["blocked", "owner-decision", "keep the fork worker?"]]) {
+            if (hold.length > 0) await run(f, ["attempt", OLD_TAG, ...hold]);
+            const jump = await run(f, ["attempt", NEW_TAG, "retry"]);
+            expect(jump.code).toBe(3);
+            expect(jump.stderr).toContain(OLD_TAG);
+            expect(await exists(stateFile(f, "attempts", `${NEW_TAG}.json`))).toBe(false);
+          }
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "blocked",
+            claimedBy: "threadA",
+          });
+
+          expect((await run(f, ["attempt", OLD_TAG, "retry"])).code).toBe(0);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "retry" });
+          await run(f, []);
+          expect((await run(f, ["attempt", NEW_TAG, "retry"])).code).toBe(0);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "keeps a non-owner block with its holder through a claim, and an owner decision through a take-over",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, ["attempt", OLD_TAG, "claim", "threadA"]);
+          const stalled = await run(f, ["attempt", OLD_TAG, "claim", "threadB"]);
+          expect(stalled.code).toBe(3);
+          expect(stalled.stderr).toContain("claimed by threadA");
+          await run(f, ["attempt", OLD_TAG, "blocked", "evidence", "no release notes"]);
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadB"])).code).toBe(3);
+          await run(f, ["attempt", OLD_TAG, "blocked", "owner-decision", "keep the fork worker?"]);
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadB", "--take-over"])).code).toBe(
+            3,
+          );
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ claimedBy: "threadA" });
         });
       },
       TIMEOUT,

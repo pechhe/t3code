@@ -387,19 +387,55 @@ clear_unavailable() {
   attempt_set "$1" 'del(.unavailable) | if .phase == "unpublished" then .phase = "new" else . end'
 }
 
-# A claimed update holds newer tags back, as does an owner decision. A claim on a tag
-# whose release is not published holds nothing: its build cannot run, so the
-# claim is stale and a complete newer release supersedes it.
-holds_back() {
+# The one hold rule: what an unlanded attempt holds, whatever asks. "decision" is an
+# owner decision (nothing takes it over, only its holder's thread or retry); "claim"
+# is a claim on a published release (a claim on an unpublished release is stale: its
+# build cannot run, so a complete newer release supersedes it); "blocked" is any other
+# block, which stays its holder's but yields to --take-over. Newer tags are held back
+# by "decision" and "claim"; a claim on the same tag is refused by all three.
+hold_of() {
   local file="$1" rc=0
   case "$(json_get "$file" .phase)" in
     claimed)
       release_gap "$(json_get "$file" .tag)" >/dev/null || rc=$?
-      [ "$rc" -ne 1 ]
+      [ "$rc" -ne 1 ] && echo claim
       ;;
-    blocked) [ "$(json_get "$file" .blocked.kind)" = owner-decision ] ;;
-    *) return 1 ;;
+    blocked)
+      if [ "$(json_get "$file" .blocked.kind)" = owner-decision ]; then echo decision; else echo blocked; fi
+      ;;
   esac
+  return 0
+}
+
+holds_back() {
+  case "$(hold_of "$1")" in decision | claim) return 0 ;; *) return 1 ;; esac
+}
+
+# claim_hold <file> <thread> [--take-over]: the hold on this attempt that a claim by
+# <thread> must respect, on stdout.
+claim_hold() {
+  local file="$1" thread="$2" takeover="${3:-}" holder hold
+  holder="$(json_get "$file" .claimedBy)"
+  [ -n "$holder" ] && [ "$holder" != "$thread" ] || return 0
+  hold="$(hold_of "$file")"
+  case "$hold" in
+    decision) echo decision ;;
+    claim | blocked) [ "$takeover" = --take-over ] || echo "$hold" ;;
+  esac
+}
+
+# The first other unlanded attempt that holds_back this tag's update, as its file path.
+# Landed (ancestor of the integration branch) attempts hold nothing.
+other_holder() {
+  local file="$1" other
+  for other in "$STATE"/attempts/*.json; do
+    [ -f "$other" ] && [ "$other" != "$file" ] || continue
+    git -C "$REPO" merge-base --is-ancestor "$(json_get "$other" .sha)" "origin/$BRANCH" 2>/dev/null && continue
+    if holds_back "$other"; then
+      echo "$other"
+      return 0
+    fi
+  done
 }
 
 # dispatch <tag> <update|build>: asks the agent to merge the tag, or to build it.
@@ -584,11 +620,12 @@ request_build() {
 }
 
 attempt_command() {
-  local tag="${1:?tag}" action="${2:?action}" file
+  local tag="${1:?tag}" action="${2:?action}" file created=
   file="$(attempt_file "$tag")"
   acquire attempts.lock wait
   trap 'release attempts.lock' EXIT
   if [ ! -f "$file" ]; then
+    created=1
     ensure_clone
     git -C "$REPO" fetch --quiet upstream tag "$tag" --no-tags
     attempt_new "$tag" "$(git -C "$REPO" rev-parse "$tag^{commit}")" new
@@ -612,16 +649,16 @@ attempt_command() {
       # A blocked attempt stays its holder's: a duplicate dispatch delivered before
       # the block must not clear it. Henry answers an owner decision in the holding
       # thread, so only that thread or an explicit `retry` resumes one.
-      if [ -n "$holder" ] && [ "$holder" != "$thread" ]; then
-        if [ "$phase" = blocked ] && [ "$(json_get "$file" .blocked.kind)" = owner-decision ]; then
+      case "$(claim_hold "$file" "$thread" "${4:-}")" in
+        decision)
           echo "attempt $(json_get "$file" .attempt) waits for Henry's decision in $holder: $(json_get "$file" .blocked.summary); his answer there resumes it, or run fork-nightly.sh attempt $tag retry" >&2
           exit 3
-        fi
-        if { [ "$phase" = claimed ] || [ "$phase" = blocked ]; } && [ "${4:-}" != --take-over ]; then
+          ;;
+        claim | blocked)
           echo "attempt $(json_get "$file" .attempt) is $phase by $holder; resume it there, or pass --take-over once that thread is confirmed stopped" >&2
           exit 3
-        fi
-      fi
+          ;;
+      esac
       # The rule update_attempts dispatches by, applied to a claim that arrives
       # late or by hand: one unlanded update at a time, a newer tag never passes an
       # owner decision, and a superseded tag stays superseded. A landed attempt's
@@ -634,14 +671,11 @@ attempt_command() {
           exit 3
         fi
         local other
-        for other in "$STATE"/attempts/*.json; do
-          [ -f "$other" ] && [ "$other" != "$file" ] || continue
-          git -C "$REPO" merge-base --is-ancestor "$(json_get "$other" .sha)" "origin/$BRANCH" 2>/dev/null && continue
-          if holds_back "$other"; then
-            echo "attempt $(json_get "$other" .attempt) ($(json_get "$other" .phase) by $(json_get "$other" .claimedBy)) holds every other update back; resume it there, or run fork-nightly.sh attempt $(json_get "$other" .tag) retry" >&2
-            exit 3
-          fi
-        done
+        other="$(other_holder "$file")"
+        if [ -n "$other" ]; then
+          echo "attempt $(json_get "$other" .attempt) ($(json_get "$other" .phase) by $(json_get "$other" .claimedBy)) holds every other update back; resume it there, or run fork-nightly.sh attempt $(json_get "$other" .tag) retry" >&2
+          exit 3
+        fi
       fi
       attempt_set "$tag" --arg t "$thread" '.phase = "claimed" | .claimedBy = $t | del(.blocked) | del(.quietNotified)'
       ;;
@@ -659,7 +693,20 @@ attempt_command() {
       attempt_set "$tag" --arg k "$kind" --arg s "${4:?summary}" \
         '.phase = "blocked" | .blocked = {kind: $k, summary: $s, resumeBy: (if $k == "owner-decision" then "Henry answers in the claiming thread; the agent there resumes this attempt" else "the claiming agent fixes the cause, or fork-nightly.sh attempt <tag> retry" end)}'
       ;;
-    retry) attempt_set "$tag" '.phase = "retry" | .dispatches = 0 | del(.blocked) | del(.claimedBy) | del(.quietNotified)' ;;
+    retry)
+      # Retry releases this attempt's own hold; it must not jump another tag's.
+      ensure_clone
+      git -C "$REPO" fetch --quiet origin || true
+      local holder_file
+      holder_file="$(other_holder "$file")"
+      if [ -n "$holder_file" ] && ! git -C "$REPO" merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
+        echo "attempt $(json_get "$holder_file" .attempt) ($(json_get "$holder_file" .phase) by $(json_get "$holder_file" .claimedBy)) holds every other update back; retry that one first: fork-nightly.sh attempt $(json_get "$holder_file" .tag) retry" >&2
+        # A refused retry must not leave the attempt it just recorded for dispatch.
+        [ -z "$created" ] || rm -f "$file"
+        exit 3
+      fi
+      attempt_set "$tag" '.phase = "retry" | .dispatches = 0 | del(.blocked) | del(.claimedBy) | del(.quietNotified)'
+      ;;
     *)
       echo "unknown attempt action $action" >&2
       exit 2
