@@ -645,9 +645,9 @@ export function BuildHomeButton(props: {
                 ? "Reading Build from HQ…"
                 : "Couldn't read Build from T3."
               : state.status === "not_connected"
-                ? "T3 is not connected to YardSmith HQ. Create a delegation in HQ Settings → Connections → T3 agents, then ask any thread to connect T3 to HQ with it."
+                ? "T3 is not connected to YardSmith HQ. Connect it in Settings → Integrations → YardSmith HQ → Connect to HQ."
                 : state.status === "invalid_token"
-                  ? "HQ refused T3's delegation: it expired or was revoked. Create a new one in HQ Settings → Connections → T3 agents, then ask any thread to reconnect T3 to HQ with it."
+                  ? "HQ refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Integrations → YardSmith HQ → Connect to HQ."
                   : "HQ could not be reached, and Build has not been read yet."}
           </p>
         )}
