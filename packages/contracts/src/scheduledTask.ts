@@ -254,7 +254,10 @@ export const ScheduledTask = Schema.Struct({
   projectId: ProjectId,
   threadId: Schema.NullOr(ThreadId),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
-  modelSelection: ModelSelection,
+  modelSelection: ModelSelection.annotate({
+    description:
+      "The model this task last resolved. Only a fallback: agentRole's policy picks the model at each run.",
+  }),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,
   createdBy: OrchestrationV2Actor,
@@ -298,7 +301,8 @@ export const ScheduledTaskUpsertInput = Schema.Struct({
   threadId: Schema.optional(Schema.NullOr(ThreadId)),
   workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy,
   modelSelection: Schema.optional(ModelSelection).annotate({
-    description: "Required unless agentRole is set; a role's policy picks the model on save.",
+    description:
+      "Fallback only, for a machine whose policy cannot resolve agentRole. Never the task's model choice.",
   }),
   runtimeMode: RuntimeMode,
   interactionMode: ProviderInteractionMode,

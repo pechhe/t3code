@@ -1,5 +1,6 @@
 import { isWebhookDedupeTemplate } from "@t3tools/contracts";
 import type {
+  AgentRole,
   ModelSelection,
   ServerConfig,
   ProjectId,
@@ -64,6 +65,8 @@ export type ScheduleDraft = {
   /** The filter rows the form opened with. */
   readonly savedFilters: ReadonlyArray<WebhookFilterDraft>;
 };
+
+const DEFAULT_SCHEDULED_TASK_ROLE: AgentRole = "implementation-worker";
 
 export const DEFAULT_SCHEDULE: ScheduleDraft = {
   mode: "fixed_time",
@@ -188,7 +191,11 @@ export type ScheduledTaskDraft = {
   readonly title: string;
   readonly prompt: string;
   readonly projectId: ProjectId | null;
+  /** The role whose policy picks the model at each run. */
+  readonly agentRole: AgentRole;
+  /** Only a fallback for a machine whose policy cannot resolve `agentRole`; nothing picks it. */
   readonly modelSelection: ModelSelection | null;
+  /** Whether a saved task kept its own fallback model rather than the project default. */
   readonly modelSelectionIsExplicit: boolean;
   readonly schedule: ScheduleDraft;
   readonly workspace: Workspace;
@@ -204,6 +211,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.title,
     draft.prompt,
     draft.projectId,
+    draft.agentRole,
     draft.modelSelection?.instanceId,
     draft.modelSelection?.model,
     [...(draft.modelSelection?.options ?? [])]
@@ -243,6 +251,7 @@ export function createDraft(
     title: "",
     prompt: "",
     projectId,
+    agentRole: DEFAULT_SCHEDULED_TASK_ROLE,
     modelSelection,
     modelSelectionIsExplicit: false,
     schedule: DEFAULT_SCHEDULE,
@@ -261,6 +270,7 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
     title: task.title,
     prompt: task.prompt,
     projectId: task.projectId,
+    agentRole: task.agentRole ?? DEFAULT_SCHEDULED_TASK_ROLE,
     modelSelection: task.modelSelection,
     modelSelectionIsExplicit: true,
     schedule: scheduleDraftForTask(task),

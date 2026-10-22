@@ -4,7 +4,15 @@ import * as Schema from "effect/Schema";
 import {
   OrchestratorMcpDelegateTaskInput,
   OrchestratorMcpDelegateTaskResult,
+  OrchestratorMcpScheduleTaskInput,
+  OrchestratorMcpScheduledTask,
+  OrchestratorMcpUpdateScheduledTaskInput,
 } from "./orchestratorMcp.ts";
+
+const decodeScheduleTaskInput = Schema.decodeSync(OrchestratorMcpScheduleTaskInput);
+const decodeScheduleTaskInputLoose = Schema.decodeUnknownSync(OrchestratorMcpScheduleTaskInput);
+const decodeScheduledTask = Schema.decodeSync(OrchestratorMcpScheduledTask);
+const decodeUpdateScheduledTaskInput = Schema.decodeSync(OrchestratorMcpUpdateScheduledTaskInput);
 
 const decodeDelegateTaskInput = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskInput);
 const decodeDelegateTaskResult = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskResult);
@@ -65,5 +73,63 @@ describe("orchestrator MCP contracts", () => {
         pendingApproval: { ...pendingApproval, kind: "user_input" },
       }),
     ).toThrow();
+  });
+});
+
+describe("scheduled task MCP contracts", () => {
+  const schedule = { type: "interval" as const, everyMs: 3_600_000 };
+
+  it("names a subagent role instead of a model", () => {
+    const created = decodeScheduleTaskInput({
+      prompt: "Check for issues.",
+      schedule,
+      agentRole: "chore-worker",
+    });
+    expect(created.agentRole).toBe("chore-worker");
+    // Omitted leaves the choice to the server, which names its default role.
+    expect(decodeScheduleTaskInput({ prompt: "Check.", schedule }).agentRole).toBeUndefined();
+    expect(() =>
+      decodeScheduleTaskInputLoose({
+        prompt: "Check.",
+        schedule,
+        agentRole: "not-a-role",
+      }),
+    ).toThrow();
+  });
+
+  it("moves an existing task to another role and reports it back", () => {
+    const update = decodeUpdateScheduledTaskInput({
+      scheduledTaskId: "scheduled-task:1",
+      agentRole: "spec-reviewer",
+    });
+    expect(update.agentRole).toBe("spec-reviewer");
+    const summary = decodeScheduledTask({
+      scheduledTaskId: "scheduled-task:1",
+      title: "Review",
+      prompt: "Review the Spec.",
+      enabled: true,
+      projectId: "project:1",
+      boundThreadId: null,
+      agentRole: "spec-reviewer",
+      schedule,
+      nextRunAt: null,
+      lastRunStatus: "never",
+    });
+    expect(summary.agentRole).toBe("spec-reviewer");
+    // A legacy task saved before roles still decodes.
+    expect(
+      decodeScheduledTask({
+        scheduledTaskId: "scheduled-task:2",
+        title: "Legacy",
+        prompt: "Old task.",
+        enabled: true,
+        projectId: "project:1",
+        boundThreadId: null,
+        agentRole: null,
+        schedule,
+        nextRunAt: null,
+        lastRunStatus: "never",
+      }).agentRole,
+    ).toBeNull();
   });
 });

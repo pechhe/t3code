@@ -166,22 +166,20 @@ describe("planGroupSave", () => {
     expect(skipped.skipped).toEqual([{ environmentId: box, projectKey: macOnly.key }]);
   });
 
-  it("lets a role pick the model, and keeps a fixed model on added machines", () => {
+  it("names a role on every machine so one policy edit reaches every task", () => {
     const existing = [{ environmentId: mac, task: task({ id: "keep" }) }];
-    const withRole = planGroupSave({ draft: draft(), groupId: "g", existing, projects: [t3peach] });
-    expect(withRole.upserts[0]?.input.modelSelection).toBeUndefined();
-    expect(withRole.upserts[0]?.input.agentRole).toBe("chore-worker");
-
-    const fixed = planGroupSave({
-      draft: draft({ agentRole: null, machines: [mac, box] }),
+    const plan = planGroupSave({
+      draft: draft({ machines: [mac, box] }),
       groupId: "g",
       existing,
       projects: [t3peach],
     });
-    expect(fixed.upserts.map((entry) => entry.input.modelSelection?.model)).toEqual([
-      "gpt-5",
-      "gpt-5",
+    expect(plan.upserts.map((entry) => entry.input.agentRole)).toEqual([
+      "chore-worker",
+      "chore-worker",
     ]);
+    // The role picks the model, so the save never pins one.
+    expect(plan.upserts.every((entry) => entry.input.modelSelection === undefined)).toBe(true);
   });
 
   it("keeps an agent's thread binding until the editor lets it go", () => {

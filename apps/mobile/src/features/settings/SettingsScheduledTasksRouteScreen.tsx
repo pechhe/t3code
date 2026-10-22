@@ -1,6 +1,8 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useAtomValue } from "@effect/atom-react";
 import {
+  AGENT_ROLE_TITLE_LABEL,
+  AgentRole,
   AuthOrchestrationOperateScope,
   resolveProjectProviderInstanceEnabled,
 } from "@t3tools/contracts";
@@ -53,7 +55,6 @@ import { ThemedSwitch } from "../../components/ui/ThemedSwitch";
 import { webhookAddress } from "@t3tools/client-runtime/webhook-address";
 import { tryCopyTextWithHaptic } from "../../lib/copyTextWithHaptic";
 import { usePreparedConnection } from "../../state/session";
-import { buildModelOptions } from "../../lib/modelOptions";
 import { NativeStackScreenOptions } from "../../native/StackHeader";
 import { useProjects, useEnvironmentServerConfig } from "../../state/entities";
 import { useEnvironmentQuery } from "../../state/query";
@@ -88,7 +89,6 @@ import {
 type ScheduledTaskRoutes = {
   SettingsScheduledTaskNew: undefined;
   SettingsScheduledTaskEdit: undefined;
-  SettingsScheduledTaskModel: undefined;
   SettingsScheduledTaskBranch: undefined;
 };
 
@@ -659,7 +659,6 @@ function TaskForm({
   );
   const projects = useProjects().filter((project) => project.environmentId === environmentId);
   const config = useEnvironmentServerConfig(environmentId);
-  const modelOptions = buildModelOptions(config, null, undefined, draft.projectId);
   const canOperate = useAtomValue(
     serverEnvironment.upsertScheduledTask.permissionAtom(environmentId),
   );
@@ -727,13 +726,12 @@ function TaskForm({
       !draft.title.trim() ||
       !draft.prompt.trim() ||
       !draft.projectId ||
-      !draft.modelSelection ||
       !schedule ||
       (draft.workspace === "existing_worktree" && !draft.checkoutPath.trim())
     ) {
       Dialog.alert(
         "Incomplete task",
-        "Add a name, prompt, project, model, valid schedule, and checkout path if needed.",
+        "Add a name, prompt, project, valid schedule, and checkout path if needed.",
       );
       return;
     }
@@ -746,7 +744,10 @@ function TaskForm({
       title: draft.title.trim(),
       prompt: draft.prompt.trim(),
       projectId: draft.projectId,
-      modelSelection: draft.modelSelection,
+      // The role picks the model at each run; the saved selection is only this
+      // machine's fallback when its policy cannot resolve the role.
+      modelSelection: draft.modelSelection ?? undefined,
+      agentRole: draft.agentRole,
       schedule,
       enabled: draft.enabled,
       threadId: draft.task?.threadId ?? null,
@@ -868,20 +869,28 @@ function TaskForm({
               });
             }}
           />
-          <PickerRow
-            label="Model"
+          {/* A bound run posts into its thread, so the thread's model wins over the role. */}
+          <SelectRow
+            label="Subagent role"
             borderTop
             value={
-              modelOptions.find(
-                (option) =>
-                  option.selection.instanceId === draft.modelSelection?.instanceId &&
-                  option.selection.model === draft.modelSelection?.model,
-              )?.label ??
-              draft.modelSelection?.model ??
-              (modelOptions.length ? "Choose model" : "No models available")
+              draft.task?.threadId != null
+                ? "This thread's model"
+                : AGENT_ROLE_TITLE_LABEL[draft.agentRole]
             }
-            onPress={() => navigation.navigate("SettingsScheduledTaskModel")}
-            disabled={saving || dictationPending || environmentUnavailable}
+            actions={
+              saving || dictationPending || environmentUnavailable || draft.task?.threadId != null
+                ? []
+                : AgentRole.literals.map((role) => ({
+                    id: role,
+                    title: AGENT_ROLE_TITLE_LABEL[role],
+                    state: role === draft.agentRole ? "on" : undefined,
+                  }))
+            }
+            onSelect={(id) => {
+              const role = AgentRole.literals.find((candidate) => candidate === id);
+              if (role) setDraft({ ...draft, agentRole: role });
+            }}
           />
         </SettingsSection>
 

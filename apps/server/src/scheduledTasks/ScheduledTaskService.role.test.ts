@@ -30,6 +30,10 @@ const policyModel: ModelSelection = {
   instanceId: ProviderInstanceId.make("claudeAgent"),
   model: "claude-haiku-5-5",
 };
+const implementerModel: ModelSelection = {
+  instanceId: ProviderInstanceId.make("claudeAgent"),
+  model: "claude-sonnet-5-5",
+};
 
 const baseInput: ScheduledTaskUpsertInput = {
   title: "Triage",
@@ -122,5 +126,75 @@ it.effect("without a role policy the task runs on its saved model", () =>
       yield* service.runNow({ id: task.id });
       assert.deepEqual(yield* Ref.get(launched), [savedModel]);
     }).pipe(Effect.provide(serviceLayer(launched, null)));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("a new task names the implementation-worker role when its caller names none", () =>
+  Effect.gen(function* () {
+    const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const { task } = yield* service.upsert(baseInput);
+      assert.equal(task.agentRole, "implementation-worker");
+      assert.deepEqual(yield* Ref.get(launched), []);
+    }).pipe(Effect.provide(serviceLayer(launched, policyLayer)));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+const twoRolePolicyLayer = Layer.mergeAll(
+  Layer.mock(ManagedAgent.ManagedAgentService)({
+    snapshot: () =>
+      Effect.succeed({
+        manifest: {
+          roles: {
+            "chore-worker": { taskClasses: ["non-ui"] },
+            "implementation-worker": { taskClasses: ["non-ui"] },
+          },
+        },
+      } as unknown as AgentPolicySnapshot),
+    roles: () =>
+      Effect.succeed({
+        roles: [
+          { role: "chore-worker", selection: policyModel },
+          { role: "implementation-worker", selection: implementerModel },
+        ],
+      } as never),
+  }),
+  Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+);
+
+it.effect("editing a task's role moves its next run to that role's model", () =>
+  Effect.gen(function* () {
+    const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      const { task } = yield* service.upsert({ ...baseInput, agentRole: "chore-worker" });
+      yield* service.runNow({ id: task.id });
+      assert.deepEqual(yield* Ref.get(launched), [policyModel]);
+
+      // One edit to the task, not to any model, moves every later run.
+      const { task: moved } = yield* service.upsert({
+        ...baseInput,
+        id: task.id,
+        agentRole: "implementation-worker",
+      });
+      assert.equal(moved.agentRole, "implementation-worker");
+      yield* service.runNow({ id: task.id });
+      assert.deepEqual(yield* Ref.get(launched), [policyModel, implementerModel]);
+    }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
+  }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
+);
+
+it.effect("a caller that names only a model gets the default role, which picks the next run", () =>
+  Effect.gen(function* () {
+    const launched = yield* Ref.make<ReadonlyArray<ModelSelection>>([]);
+    yield* Effect.gen(function* () {
+      const service = yield* ScheduledTaskService.ScheduledTaskService;
+      // baseInput still carries savedModel, as an older client or an MCP caller would.
+      const { task } = yield* service.upsert(baseInput);
+      assert.equal(task.agentRole, "implementation-worker");
+      yield* service.runNow({ id: task.id });
+      assert.deepEqual(yield* Ref.get(launched), [implementerModel]);
+    }).pipe(Effect.provide(serviceLayer(launched, twoRolePolicyLayer)));
   }).pipe(Effect.provide(SqlitePersistence.layerMemory)),
 );

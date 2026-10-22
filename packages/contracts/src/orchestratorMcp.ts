@@ -1,4 +1,4 @@
-import { AgentTaskRequest, AgentTaskBinding, AgentTaskHandoff } from "./agentPolicy.ts";
+import { AgentRole, AgentTaskRequest, AgentTaskBinding, AgentTaskHandoff } from "./agentPolicy.ts";
 import { ExperimentOutcomeInput } from "./experiments.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -735,6 +735,10 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
         "True (default) posts each run into this thread; false creates a fresh top-level thread per run.",
     }),
   ),
+  agentRole: Schema.optional(AgentRole).annotate({
+    description:
+      "Subagent role whose policy picks the model at each run, such as 'implementation-worker' or 'chore-worker'. Name a role rather than a model so changing that role's model in Settings changes every task that uses it. Defaults to 'implementation-worker'.",
+  }),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
 export type OrchestratorMcpScheduleTaskInput = typeof OrchestratorMcpScheduleTaskInput.Type;
@@ -746,6 +750,10 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   enabled: Schema.Boolean,
   projectId: ProjectId,
   boundThreadId: Schema.NullOr(ThreadId),
+  agentRole: Schema.NullOr(AgentRole).annotate({
+    description:
+      "Subagent role this task runs as; its policy picks the model. Null only for a legacy task saved before roles.",
+  }),
   schedule: ScheduledTaskSchedule,
   nextRunAt: Schema.NullOr(IsoDateTime),
   lastRunStatus: ScheduledTaskRunStatus,
@@ -786,6 +794,10 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   schedule: Schema.optional(OrchestratorMcpSchedule),
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
+  agentRole: Schema.optional(AgentRole).annotate({
+    description:
+      "Move the task to another subagent role. Omit to keep the role it has. A bound task follows its thread's model, so this only changes the model once the task starts its own threads.",
+  }),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
   typeof OrchestratorMcpUpdateScheduledTaskInput.Type;

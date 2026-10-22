@@ -119,7 +119,7 @@ interface EditorDraft extends ScheduleDraft, WebhookDraft {
   /** Null until edited: the task's own projects, read once the project list has loaded. */
   readonly projectKeys: ReadonlyArray<string> | null;
   readonly workspace: WorkspaceChoice;
-  readonly agentRole: AgentRole | null;
+  readonly agentRole: AgentRole;
   readonly keepThread: boolean;
 }
 
@@ -139,7 +139,7 @@ const effortOf = (selection: ModelSelection) => {
   return typeof effort === "string" ? effort : null;
 };
 
-/** A task's fixed model as the model picker names it. */
+/** The model a run used, as the model picker names it. */
 function FixedModelLabel(props: {
   readonly environmentId: EnvironmentId | null;
   readonly selection: ModelSelection;
@@ -345,7 +345,7 @@ function draftOf(
         : [defaultMachine],
     projectKeys: group ? null : [],
     workspace: lead ? workspaceChoiceOf(lead.workspaceStrategy) : "fresh",
-    agentRole: lead ? (lead.agentRole ?? null) : DEFAULT_ROLE,
+    agentRole: lead?.agentRole ?? DEFAULT_ROLE,
     keepThread: lead?.threadId != null,
   };
 }
@@ -427,9 +427,7 @@ function TaskDetail(props: {
   });
   // A bound run follows its thread's current model, so a role only picks one for fresh threads.
   const roleSummary =
-    !bound && draft.agentRole !== null && policy.data
-      ? roleModelSummary(policy.data.snapshot.manifest, draft.agentRole)
-      : null;
+    !bound && policy.data ? roleModelSummary(policy.data.snapshot.manifest, draft.agentRole) : null;
 
   const scheduleToSave = (): ScheduledTaskUpsertSchedule | null => {
     if (!isWebhook) return timedScheduleOf(draft);
@@ -757,22 +755,15 @@ function TaskDetail(props: {
         </Select>
         <span className="text-muted-foreground">as</span>
         <Select
-          value={draft.agentRole ?? "fixed"}
-          onValueChange={(value) =>
-            value && update({ agentRole: value === "fixed" ? null : (value as AgentRole) })
-          }
+          value={draft.agentRole}
+          onValueChange={(value) => value && update({ agentRole: value as AgentRole })}
         >
           <SelectTrigger size="xs" variant="ghost" aria-label="Subagent role" disabled={bound}>
             <SelectValue>
-              {draft.agentRole !== null ? (
-                <AgentRoleChip role={draft.agentRole} />
-              ) : group ? (
-                <FixedModelLabel
-                  environmentId={leadEnvironmentId}
-                  selection={group.lead.modelSelection}
-                />
+              {bound ? (
+                <span className="text-muted-foreground">this thread's model</span>
               ) : (
-                "a fixed model"
+                <AgentRoleChip role={draft.agentRole} />
               )}
             </SelectValue>
           </SelectTrigger>
@@ -785,17 +776,6 @@ function TaskDetail(props: {
                 </span>
               </SelectItem>
             ))}
-            {group && group.lead.agentRole == null ? (
-              <SelectItem value="fixed">
-                <span className="flex items-center gap-2">
-                  <span className="text-muted-foreground text-xs">its fixed model</span>
-                  <FixedModelLabel
-                    environmentId={leadEnvironmentId}
-                    selection={group.lead.modelSelection}
-                  />
-                </span>
-              </SelectItem>
-            ) : null}
           </SelectPopup>
         </Select>
         {roleSummary ? (
@@ -808,7 +788,7 @@ function TaskDetail(props: {
               effort={roleSummary.effort}
             />
           </span>
-        ) : !bound && draft.agentRole !== null && policy.error ? (
+        ) : !bound && policy.error ? (
           <span className="text-muted-foreground text-xs">
             No role policy on {machineLabel(policyMachine as EnvironmentId)}
           </span>

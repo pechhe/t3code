@@ -217,7 +217,7 @@ export interface GroupDraftFields {
   readonly machines: ReadonlyArray<EnvironmentId>;
   readonly projectKeys: ReadonlyArray<string>;
   readonly workspace: WorkspaceChoice;
-  readonly agentRole: AgentRole | null;
+  readonly agentRole: AgentRole;
   /** Keeps posting into the thread a task was bound to; false starts a new thread each run. */
   readonly keepThread: boolean;
 }
@@ -233,8 +233,6 @@ export function planGroupSave(input: {
   readonly existing: ReadonlyArray<ScheduledTaskMember>;
   readonly projects: ReadonlyArray<ProjectChoice>;
 }): GroupSavePlan {
-  // A task without a role keeps its fixed model, including on machines added to it.
-  const fixedModel = input.existing[0]?.task.modelSelection;
   const { draft } = input;
   const upserts: Array<GroupSavePlan["upserts"][number]> = [];
   const skipped: Array<GroupSavePlan["skipped"][number]> = [];
@@ -266,10 +264,8 @@ export function planGroupSave(input: {
             draft.workspace,
             previous?.workspaceStrategy ?? null,
           ),
-          // A role picks the model on each machine; without one the saved model stays.
-          ...(draft.agentRole === null
-            ? { modelSelection: previous?.modelSelection ?? fixedModel }
-            : {}),
+          // Every task names a role, so one policy edit reaches every task on every machine.
+          // The stored model is only the fallback for a machine whose policy cannot resolve it.
           agentRole: draft.agentRole,
           runtimeMode: previous?.runtimeMode ?? "full-access",
           interactionMode: previous?.interactionMode ?? "default",

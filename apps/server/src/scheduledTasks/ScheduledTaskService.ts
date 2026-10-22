@@ -73,6 +73,8 @@ import { describeFailedWebhookFilter, findFailedWebhookFilter } from "./webhookF
 import { constantTimeEquals, verifyWebhookSignature } from "./webhookVerification.ts";
 
 export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
+/** The role a new task names when its caller names none. */
+export const DEFAULT_SCHEDULED_TASK_ROLE: AgentRole = "implementation-worker";
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
 const PROMPT_TOO_LONG = "The filled-in prompt is too long.";
 const WEBHOOK_DELIVERY_RETENTION = 50;
@@ -1258,7 +1260,12 @@ export const layer = Layer.effect(
         existingTask.enabled === input.enabled &&
         isSameSchedule(existingTask.schedule, schedule);
       const agentRole =
-        input.agentRole === undefined ? (existingTask?.agentRole ?? null) : input.agentRole;
+        input.agentRole === undefined
+          ? (existingTask?.agentRole ??
+            // A new task names a role rather than a model unless its caller chose one, so
+            // editing that role's policy updates every task that does not override it.
+            (existingTask === null ? DEFAULT_SCHEDULED_TASK_ROLE : null))
+          : input.agentRole;
       // A role picks its model from this machine's policy, so each machine checks it.
       const roleModel =
         agentRole === null
