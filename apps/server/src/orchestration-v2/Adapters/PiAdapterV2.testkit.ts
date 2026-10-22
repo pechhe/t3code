@@ -381,9 +381,13 @@ export function layer<E, R>(input: {
         driver: PI_PROVIDER,
         enabled: true,
         config: { binaryPath: input.binaryPath, launchArgs: input.launchArgs },
-        // An empty HOME leaves Pi no settings directory, so a replay never writes the compaction
-        // point to the developer's real ~/.pi or sends the requests that write would need.
-        environment: input.environment ?? [{ name: "HOME", value: "", sensitive: false }],
+        // Empty HOME and PI_CODING_AGENT_DIR (which outranks HOME) leave Pi no settings directory,
+        // so a replay never writes the compaction point to the developer's real ~/.pi or sends the
+        // requests that write would need.
+        environment: input.environment ?? [
+          { name: "HOME", value: "", sensitive: false },
+          { name: "PI_CODING_AGENT_DIR", value: "", sensitive: false },
+        ],
       },
     },
   }).pipe(
