@@ -127,6 +127,7 @@ export class ManagedAgentService extends Context.Service<
       input: Omit<Authority, "workspacePath"> & {
         readonly request: AgentRolesInput;
         readonly callerModel?: string;
+        readonly caller?: ModelSelection;
         readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<Omit<AgentRolesResult, "environmentId">, ManagedAgentError>;
@@ -137,6 +138,7 @@ export class ManagedAgentService extends Context.Service<
         readonly recordedBinding?: AgentTaskBinding;
         readonly policyHash?: string;
         readonly callerModel?: string;
+        readonly caller?: ModelSelection;
         readonly selection?: Resolver.RequestedModel;
       },
     ) => Effect.Effect<{ binding: AgentTaskBinding; brief: string }, ManagedAgentError>;
@@ -595,6 +597,7 @@ const make = Effect.gen(function* () {
             providers: input.providers,
             ...(input.selection === undefined ? {} : { selection: input.selection }),
             ...(input.callerModel === undefined ? {} : { callerModel: input.callerModel }),
+            ...(input.caller === undefined ? {} : { caller: input.caller }),
             request: {
               ...context.request,
               ...(!isReviewerRole(role)

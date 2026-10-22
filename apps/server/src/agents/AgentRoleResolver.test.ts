@@ -747,6 +747,84 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
     }),
   );
 
+  it.effect("drops an option the caller merely echoes from its own selection", () =>
+    Effect.gen(function* () {
+      const advisor = (extra: Partial<Input> = {}) =>
+        input({ request: request({ role: "advisor" }), ...extra });
+      const roleSelection = yield* resolve(advisor());
+      expect(roleSelection).toEqual({
+        instanceId: claude.instanceId,
+        model: "claude-fable-test",
+        options: [{ id: "effort", value: "medium" }],
+      });
+      // Echoing the caller's own fastMode=false changes nothing: the role does not set
+      // that id, so the stated option is dropped rather than refused.
+      expect(
+        yield* resolve(
+          advisor({
+            caller: { ...roleSelection, options: [{ id: "fastMode", value: false }] },
+            selection: { options: [{ id: "fastMode", value: false }] },
+          }),
+        ),
+      ).toEqual(roleSelection);
+      // Only the caller's own value is inherited; a different one is refused by name.
+      const refused = yield* refusal(
+        advisor({
+          caller: { ...roleSelection, options: [{ id: "fastMode", value: true }] },
+          selection: { options: [{ id: "fastMode", value: false }] },
+        }),
+      );
+      expect(refused.reason).toBe("unsupported-options");
+      expect(refused.detail).toContain("option fastMode=false");
+      expect(refused.detail).toContain("advisor");
+      expect(refused.detail).toContain("claude-fable-test");
+      expect(refused.detail).toContain(claude.instanceId);
+      // Inheritance is for the caller's own account and model only: the same value stated for
+      // another model is a real choice the role cannot honour.
+      const crossModel = yield* refusal(
+        advisor({
+          caller: { ...roleSelection, options: [{ id: "fastMode", value: false }] },
+          selection: { model: "gpt-astra-test", options: [{ id: "fastMode", value: false }] },
+        }),
+      );
+      expect(crossModel.detail).toContain("option fastMode=false");
+      expect(crossModel.detail).toContain("gpt-astra-test");
+      // Every unsupported option is named, not only the first.
+      const several = yield* refusal(
+        advisor({
+          selection: {
+            options: [
+              { id: "fastMode", value: false },
+              { id: "speed", value: "fast" },
+            ],
+          },
+        }),
+      );
+      expect(several.detail).toContain("fastMode=false, speed=fast");
+      // An id the role does set is never inherited, even at the caller's own value.
+      const echoedEffort = yield* refusal(
+        advisor({
+          caller: { ...roleSelection, options: [{ id: "reasoning", value: "high" }] },
+          selection: {
+            model: "gpt-astra-test",
+            options: [{ id: "reasoning", value: "high" }],
+          },
+        }),
+      );
+      expect(echoedEffort.reason).toBe("unsupported-options");
+      expect(echoedEffort.detail).toContain("option reasoning=high");
+      // An explicit empty list leaves the role's own options in place.
+      expect(
+        yield* resolve(
+          advisor({
+            caller: { ...roleSelection, options: [{ id: "fastMode", value: false }] },
+            selection: { options: [] },
+          }),
+        ),
+      ).toEqual(roleSelection);
+    }),
+  );
+
   it.effect(
     "honours an explicit author-model review while preferring another model by default",
     () =>

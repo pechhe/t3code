@@ -381,7 +381,9 @@ export function layer<E, R>(input: {
         driver: PI_PROVIDER,
         enabled: true,
         config: { binaryPath: input.binaryPath, launchArgs: input.launchArgs },
-        ...(input.environment === undefined ? {} : { environment: input.environment }),
+        // An empty HOME leaves Pi no settings directory, so a replay never writes the compaction
+        // point to the developer's real ~/.pi or sends the requests that write would need.
+        environment: input.environment ?? [{ name: "HOME", value: "", sensitive: false }],
       },
     },
   }).pipe(
