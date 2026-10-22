@@ -192,7 +192,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   offPolicyReason: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(500)).annotate({
       description:
-        "Only for a delegation without agentTask where a role policy is configured: why no canonical role fits. Recorded as an uninstrumented deviation.",
+        "Legacy field retained for replaying accepted unmanaged requests. It does not bypass a configured role policy; new delegations under that policy require agentTask.",
     }),
   ),
   task: OrchestratorMcpPrompt.annotate({

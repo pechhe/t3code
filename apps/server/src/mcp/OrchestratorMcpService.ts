@@ -2864,23 +2864,17 @@ const make = Effect.gen(function* () {
           "invalid_request",
           "offPolicyReason applies only to a delegation without agentTask.",
         );
-      // Where a role policy is configured, delegation goes through a canonical role. A
-      // free model choice is an explicit, logged deviation, not the default route.
+      // Managed identity is required by child capabilities, including native Weave access.
       if (input.agentTask === undefined && !isRetryOfAcceptedDelegation) {
         const policyService = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
         // A named but unreadable policy still refuses: an outage must not open free choice.
         const configured =
           Option.isSome(policyService) && (yield* policyService.value.configured());
-        if (configured && input.offPolicyReason === undefined)
+        if (configured)
           return yield* failure(
             "invalid_request",
-            "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). Pass offPolicyReason only when no canonical role fits.",
+            "A role policy is configured: call agent_roles, then delegate_task with agentTask (role, taskClass, workId, attemptId, workspacePath). If no eligible role fits, report the task as blocked.",
           );
-        if (configured)
-          yield* Effect.logInfo("Unmanaged delegation outside the role policy.", {
-            parentThreadId: scope.thread.threadId,
-            offPolicyReason: input.offPolicyReason,
-          });
       }
       const fingerprintText = yield* encodeDelegateTaskFingerprint({
         ...input,

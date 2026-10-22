@@ -2373,6 +2373,7 @@ describe("OrchestratorMcpService provider resolution", () => {
     // repeated command id replays the stored result, so `created` counts real executions.
     const harness = Effect.gen(function* () {
       const created = yield* Ref.make<ReadonlyArray<{ commandId: string; task: unknown }>>([]);
+      const policyConfigured = yield* Ref.make(false);
       const taskFor = (
         commandId: CommandId,
         owner: ThreadId,
@@ -2473,7 +2474,16 @@ describe("OrchestratorMcpService provider resolution", () => {
         Layer.mock(ScheduledTaskService.ScheduledTaskService)({}),
         ServerSettings.layerTest(),
       );
-      return { created, layer: layerOrchestratorService.pipe(Layer.provide(dependencies)) };
+      return {
+        created,
+        policyConfigured,
+        layer: Layer.merge(
+          layerOrchestratorService.pipe(Layer.provide(dependencies)),
+          Layer.mock(ManagedAgent.ManagedAgentService)({
+            configured: () => Ref.get(policyConfigured),
+          }),
+        ),
+      };
     });
 
     const request = {
@@ -2483,34 +2493,41 @@ describe("OrchestratorMcpService provider resolution", () => {
       clientRequestId: "review-131-change-r1",
     } as const;
 
-    it.effect("returns the original task, refuses a changed request, and runs once", () =>
-      Effect.gen(function* () {
-        const { created, layer } = yield* harness;
-        const { connect } = yield* issueScopes;
-        const before = yield* connect(parentThreadId);
-        // The response is lost and the agent reconnects on a fresh credential.
-        const after = yield* connect(parentThreadId);
-        assert.notEqual(before.thread.providerSessionId, after.thread.providerSessionId);
+    it.effect(
+      "replays an accepted raw task after policy configuration and refuses new raw work",
+      () =>
+        Effect.gen(function* () {
+          const { created, policyConfigured, layer } = yield* harness;
+          const { connect } = yield* issueScopes;
+          const before = yield* connect(parentThreadId);
+          // The response is lost and the agent reconnects on a fresh credential.
+          const after = yield* connect(parentThreadId);
+          assert.notEqual(before.thread.providerSessionId, after.thread.providerSessionId);
 
-        yield* Effect.gen(function* () {
-          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-          const first = yield* service.delegateTask(before, request);
-          const retry = yield* service.delegateTask(after, request);
-          assert.equal(retry.taskId, first.taskId);
-          assert.equal((yield* Ref.get(created)).length, 1);
+          yield* Effect.gen(function* () {
+            const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+            const first = yield* service.delegateTask(before, request);
+            yield* Ref.set(policyConfigured, true);
+            const retry = yield* service.delegateTask(after, request);
+            assert.equal(retry.taskId, first.taskId);
+            assert.equal((yield* Ref.get(created)).length, 1);
+            const newRequest = yield* service
+              .delegateTask(after, { ...request, clientRequestId: "another-raw-task" })
+              .pipe(Effect.flip);
+            assert.equal(newRequest.code, "invalid_request");
 
-          for (const changed of [
-            { ...request, task: "Review something else." },
-            { ...request, target: { providerInstanceId: codexInstanceId, model: "gpt-5.4" } },
-            { ...request, title: "Another title" },
-            { ...request, interactionMode: "plan" as const },
-          ]) {
-            const refused = yield* service.delegateTask(after, changed).pipe(Effect.flip);
-            assert.equal(refused.code, "invalid_request");
-          }
-          assert.equal((yield* Ref.get(created)).length, 1);
-        }).pipe(Effect.provide(layer));
-      }),
+            for (const changed of [
+              { ...request, task: "Review something else." },
+              { ...request, target: { providerInstanceId: codexInstanceId, model: "gpt-5.4" } },
+              { ...request, title: "Another title" },
+              { ...request, interactionMode: "plan" as const },
+            ]) {
+              const refused = yield* service.delegateTask(after, changed).pipe(Effect.flip);
+              assert.equal(refused.code, "invalid_request");
+            }
+            assert.equal((yield* Ref.get(created)).length, 1);
+          }).pipe(Effect.provide(layer));
+        }),
     );
 
     it.effect("does not reuse another thread's task for the same textual id", () =>

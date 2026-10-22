@@ -81,10 +81,11 @@ its revision and the role names, or the reason the policy is refused.
   refused at creation, and again when it is started, if one of its arms uses a
   model no list allows. Without a readable policy the check is skipped; dispatch
   still refuses the model.
-- While a readable policy is configured, `delegate_task` delegates by role. A
-  call without `agentTask` is refused unless it gives an `offPolicyReason`,
-  which is logged as a deviation from the policy. Without a policy, unmanaged
-  delegation is unchanged.
+- While a policy is configured, `delegate_task` requires a managed role through
+  `agent_roles` and `agentTask`. A call without `agentTask` is refused, including
+  when it gives an `offPolicyReason` or the configured policy is unreadable.
+  If no eligible role fits, report the task as blocked. Without a configured
+  policy, unmanaged delegation is unchanged.
 - An `isolated` task runs in its own registered workspace of the lead's
   repository, or of any other registered project's repository, on this
   computer, never the lead's checkout or the project's main checkout, and is

@@ -586,24 +586,26 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
       }),
   );
 
-  it.effect("delegates by role where a policy is configured, with an explicit escape", () =>
+  it.effect("requires a managed role where a policy is configured, even with a reason", () =>
     Effect.gen(function* () {
       const h = yield* harness();
       const raw = { task: "Do something", clientRequestId: "raw-1" };
-      expect((yield* h.delegate(raw)).code).toBe("invalid_request");
+      const refusal = yield* h.delegate(raw);
+      expect(refusal.code).toBe("invalid_request");
+      expect(refusal.message).toContain("agent_roles");
+      expect(refusal.message).toContain("agentTask");
       expect(h.dispatched).toHaveLength(0);
-      // A recorded reason lets an unmanaged delegation through to dispatch.
       expect(
         (yield* h.delegate({ ...raw, offPolicyReason: "No canonical role fits a spike." })).code,
-      ).toBe("orchestration_error");
-      expect(h.dispatched).toHaveLength(1);
+      ).toBe("invalid_request");
+      expect(h.dispatched).toHaveLength(0);
       // A named but unreadable policy still refuses; an outage does not open free choice.
       const fs = yield* FileSystem.FileSystem;
       yield* fs.remove(`${h.policyRoot}/roles/policy.json`);
       expect((yield* h.delegate({ ...raw, clientRequestId: "raw-2" })).code).toBe(
         "invalid_request",
       );
-      // The escape is not a way to add free choice to managed work.
+      // Legacy reasons cannot override a managed role either.
       expect(
         (yield* h.delegate({
           ...raw,
