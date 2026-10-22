@@ -6,105 +6,59 @@
   "remote": "origin",
   "spares": 4,
   "generatedPaths": [
-    ".t3/userdata",
-    ".t3/caches",
-    ".t3/test-tmp",
+    "**/.t3/userdata",
+    "**/.t3/caches",
+    "**/.t3/test-tmp",
+    "**/.t3/dev",
+    "**/.t3/*.log",
+    "**/.t3/*.pid",
     "apps/*/dist-electron",
     ".generated",
     "apps/*/.generated",
     ".vite-hooks/_",
     ".pnpm-store"
   ],
-  "evidencePaths": [
-    ".t3/review"
-  ],
+  "evidencePaths": ["**/.t3/*", ".plans"],
   "requiredLandingVerification": [
     {
       "executable": "pnpm",
-      "args": [
-        "exec",
-        "playwright",
-        "install",
-        "chromium-headless-shell"
-      ],
+      "args": ["exec", "playwright", "install", "chromium-headless-shell"],
       "cwd": "apps/web"
     },
     {
       "executable": "node",
-      "args": [
-        "scripts/test-landing.ts"
-      ]
+      "args": ["scripts/test-landing.ts"]
     },
     {
       "executable": "pnpm",
-      "args": [
-        "exec",
-        "vp",
-        "run",
-        "--filter",
-        "t3",
-        "typecheck"
-      ]
+      "args": ["exec", "vp", "run", "--filter", "t3", "typecheck"]
     },
     {
       "executable": "pnpm",
-      "args": [
-        "exec",
-        "vp",
-        "run",
-        "--filter",
-        "@t3tools/web",
-        "typecheck"
-      ]
+      "args": ["exec", "vp", "run", "--filter", "@t3tools/web", "typecheck"]
     },
     {
       "executable": "node",
-      "args": [
-        "scripts/fork-upstream-receipt.ts",
-        "verify",
-        "--landed",
-        "origin/t3peach"
-      ]
+      "args": ["scripts/fork-upstream-receipt.ts", "verify", "--landed", "origin/t3peach"]
     }
   ],
   "audit": {
     "commands": [
       {
         "executable": "pnpm",
-        "args": [
-          "install",
-          "--frozen-lockfile",
-          "--force"
-        ]
+        "args": ["install", "--frozen-lockfile", "--force"]
       },
       {
         "executable": "pnpm",
-        "args": [
-          "exec",
-          "vp",
-          "run",
-          "--filter",
-          "t3",
-          "typecheck"
-        ]
+        "args": ["exec", "vp", "run", "--filter", "t3", "typecheck"]
       },
       {
         "executable": "pnpm",
-        "args": [
-          "exec",
-          "vp",
-          "run",
-          "--filter",
-          "@t3tools/web",
-          "typecheck"
-        ]
+        "args": ["exec", "vp", "run", "--filter", "@t3tools/web", "typecheck"]
       },
       {
         "executable": "pnpm",
-        "args": [
-          "run",
-          "test:audit"
-        ]
+        "args": ["run", "test:audit"]
       }
     ],
     "timeOfDay": "02:00",

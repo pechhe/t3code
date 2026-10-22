@@ -189,12 +189,25 @@ reinstall from the store repaired it. Check the pinned pnpm before dropping the 
 
 When `SLIPJAY_TEST_REPORT_DIR` is set, each Vitest run also writes a JSON report there, and
 `slipjay-test-reports.json` lists them. The audit (`--audit`) defaults the directory to
-`.t3/review/test-reports`, which `slipjay.json` lists in `evidencePaths`. Other runs write nothing
-without it, and a missing report never fails the gate. The budget's outcome is listed there too, as skipped rows the runner keeps in the landing's test
+`.t3/review/test-reports`, which `slipjay.json` preserves as evidence (`evidencePaths`). Other
+runs write nothing without it, and a missing report never fails the gate. The budget's outcome is
+listed there too, as skipped rows the runner keeps in the landing's test
 report when it clips the console output: one row per deferred file (suite `landing-deferred`) and
 one row whose suite name is the budget summary, which says when the mandatory tests alone exceed
 the budget. The summary is also the output's last line.
 `budgets` in `slipjay.json` holds the verification time targets.
+
+### What a workspace may leave behind
+
+SlipJay refuses to retire a landed workspace that still holds a file no history has. `generatedPaths`
+covers a `.t3` home's runtime state, pid files and logs at any depth, and `evidencePaths` covers its
+other subdirectories, which SlipJay copies to `~/.slipjay/state/evidence/` before deleting the
+checkout. Declaring a subdirectory as evidence keeps it whole: `generatedPaths` cannot carve a file
+out of one, so a build preview beside an item's brief stays with it. Preserved evidence counts
+against a 64 MiB cap, and a workspace over it is kept instead of retired, so trim large review
+captures before releasing it. Per-item briefs, ADRs and drafts belong in `.t3/<item>/`, review
+output in `.t3/review/` and spec drafts in `.plans/`; a scratch file outside those pins the
+workspace.
 
 ### Unused code
 
