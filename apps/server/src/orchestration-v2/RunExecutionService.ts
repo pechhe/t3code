@@ -639,6 +639,7 @@ export const layer: Layer.Layer<
         // Only for finalisation after the provider stream is gone: nothing will report these
         // items' results, so settle them with the run.
         readonly interruptTurnItems?: ReadonlyArray<OrchestrationV2TurnItem>;
+        readonly interruptedProviderTurn?: OrchestrationV2ProviderTurn;
         readonly terminal: ProviderTerminalEvent;
         readonly completedAt?: DateTime.Utc;
         readonly failureItemPersisted: boolean;
@@ -798,6 +799,24 @@ export const layer: Layer.Layer<
           events: [
             ...cascadedSubagentEvents,
             ...interruptedTurnItemEvents,
+            ...(input.interruptedProviderTurn === undefined
+              ? []
+              : [
+                  {
+                    id: yield* allocateEventId(),
+                    type: "provider-turn.updated" as const,
+                    threadId: input.run.threadId,
+                    runId: input.run.id,
+                    nodeId: input.rootNode.id,
+                    providerInstanceId: input.run.providerInstanceId,
+                    occurredAt: completedAt,
+                    payload: {
+                      ...input.interruptedProviderTurn,
+                      status: "interrupted" as const,
+                      completedAt,
+                    },
+                  },
+                ]),
             ...(finalizedAttempt === null
               ? []
               : [
@@ -1018,6 +1037,7 @@ export const layer: Layer.Layer<
         const terminalEvent = yield* Ref.make<ProviderTerminalEvent | null>(null);
         const latestTurnItemOrdinal = yield* Ref.make(input.providerTurnOrdinal * 100);
         const latestProviderThread = yield* Ref.make(input.providerThread);
+        const latestRootProviderTurn = yield* Ref.make<OrchestrationV2ProviderTurn | null>(null);
         const routeIdentity: ProviderEventRouteIdentity = {
           threadId: input.run.threadId,
           runId: input.run.id,
@@ -1397,6 +1417,13 @@ export const layer: Layer.Layer<
           Stream.tap(({ event, accepted }) =>
             Effect.gen(function* () {
               if (!accepted) return;
+              if (
+                event.type === "provider_turn.updated" &&
+                event.providerTurn.runAttemptId === input.attempt.id &&
+                event.providerTurn.providerThreadId === input.providerThread.id
+              ) {
+                yield* Ref.set(latestRootProviderTurn, event.providerTurn);
+              }
               let storedEventCount = 0;
               const deliveredEvent = filterAssistantEvent(
                 event,
@@ -1515,6 +1542,31 @@ export const layer: Layer.Layer<
                 });
                 if (yield* Ref.get(rootRunFinalized)) return;
                 const providerThread = yield* Ref.get(latestProviderThread);
+                const routing = yield* Ref.get(eventRouting);
+                // Stop background work too; the failed consumer cannot persist terminal events.
+                // A deliberate detach (workspace handoff) leaves the provider turn to its new owner.
+                const interruptedProviderTurn =
+                  routing.rootProviderTurnId !== null &&
+                  !routing.rootTurnEnded &&
+                  !isDeliberateDetach(cause)
+                    ? yield* input.session
+                        .interruptTurn({
+                          providerThread,
+                          providerTurnId: routing.rootProviderTurnId,
+                          requestRuntimeRestart: true,
+                        })
+                        .pipe(
+                          Effect.as(yield* Ref.get(latestRootProviderTurn)),
+                          Effect.catchCauseIf(
+                            (interruptCause) => !Cause.hasInterruptsOnly(interruptCause),
+                            (interruptCause) =>
+                              Effect.logWarning(
+                                "orchestration V2 failed to interrupt turn after ingestion failure",
+                                { runId: input.run.id, cause: interruptCause },
+                              ).pipe(Effect.as(null)),
+                          ),
+                        )
+                    : null;
                 const latestItemOrdinal = yield* Ref.get(latestTurnItemOrdinal);
                 const openSubagents = yield* Ref.get(openRunOwnedSubagents);
                 const openTurnItems = yield* Ref.get(openBackgroundTurnItems);
@@ -1531,6 +1583,7 @@ export const layer: Layer.Layer<
                   },
                   openRunOwnedSubagents: openSubagents,
                   interruptTurnItems: [...openTurnItems.values()],
+                  ...(interruptedProviderTurn === null ? {} : { interruptedProviderTurn }),
                   completedAt,
                   // A deliberate detach (workspace handoff) ends
                   // the turn on purpose; it is not a failure.

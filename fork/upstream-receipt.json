@@ -3,61 +3,53 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.2-nightly.20261021.3486",
-      "sha": "680152e27b2a961686389ca69a1557cbb2c55f08"
-    },
-    "target": {
       "tag": "v0.1.2-nightly.20261021.3499",
       "sha": "b5a226e49c52ecab4ddc2d678a7012d97e651a6a"
+    },
+    "target": {
+      "tag": "v0.1.2-nightly.20261022.3512",
+      "sha": "3b95e7831b11b17627dff16843bc087bfca397ec"
     }
   },
   "fork": {
-    "base": "9bc4b8f78740f07afebac7f132c115e5ea3b459b"
+    "base": "4ac120cb5ecd55e9742f3783b308c16b40ea5ccc"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "ac7a8881cf33ba7c1a650f76a9f5897d1930475f"
+    "blob": "35850462dc1fad1d6e4cf3cc7b79e6753a14dbe9"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.2-nightly.20261021.3499@1792629938",
-  "reviewedAt": "2026-10-22T01:15:00Z",
+  "attempt": "v0.1.2-nightly.20261022.3512@1792664093",
+  "reviewedAt": "2026-10-22T10:23:24Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:bca97a28-3a8f-499e-bd10-7b770c3e2f56",
-    "model": "claude-opus-5-5"
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:dbd764d8-8b58-404e-8110-3568b9df9bdd",
+    "model": "claude-sonnet-5-5"
   },
   "coverage": {
-    "upstreamCommits": 72,
+    "upstreamCommits": 32,
     "entriesConsidered": [
-      "device-composer",
-      "compact-line",
-      "scheduled-tasks-extensions",
-      "managed-delegation",
-      "account-pools",
-      "linked-environments",
-      "image-annotation",
-      "side-chat",
-      "live-response-streaming",
-      "unattended-threads",
-      "web-client-customisation",
       "slipjay-workspaces",
-      "mobile-fork-screens",
-      "desktop-fork-build"
+      "scheduled-tasks-extensions",
+      "account-pools",
+      "web-client-customisation",
+      "live-response-streaming",
+      "perf-markdown-blocks",
+      "mobile-fork-screens"
     ],
     "areas": [
-      "All 72 incoming commits (680152e2..b5a226e4) by subject and stat; conflicts in ChatView, ChatComposer, TimelineUserMessageRow, TraitsPicker, composerProviderState, mobile ThreadFeed, ClaudeAdapterV2, contracts settings/settings.test/orchestratorMcp and pnpm-lock resolved against both sides and their record entries",
-      "Web: upstream's ChatView/ChatComposer decomposition into hooks (#23042-#23103) against device-composer, compact-line, image-annotation, side-chat, live-response-streaming, unattended-threads, linked-environments and web-client-customisation; fork logic placed in the hook that now owns each concern; composer shortcuts hook adapted to the fork keybinding set",
-      "Automation rows (#22638) against scheduled-tasks-extensions on web and mobile; approvals in full access say why (#22546) and idle compaction modes (#23037) beside compact-line in ClaudeAdapterV2 and settings",
-      "Client/runtime: usage limits skip disabled connections (#22936) against account-pools; sidebar streaming re-render (#22730) and branch toolbar caching (#23103) as perf; t3_thread_read clamps (#22901) against managed-delegation's environmentId input",
-      "Server/providers: scheduled task ordering (#22899), Windows worktree junction removal (#21099, git worktrees on Windows; jj workspaces unaffected), PR draft sync, push refusal messages, Forgejo/GitCafe links, OpenCode todos, Cursor closed-stream write, Pi MCP schemas, Codex update detection, desktop Clerk upstream fix (#23038, removes upstream's own clerkOAuthCancel shim)",
-      "Persistence and contracts: no new migrations; contract changes are additive (idleCompaction instance setting, compactIdleThreads accepting legacy booleans, approval reason) and decode in the shipped-client compatibility test",
-      "Rebased onto t3peach 9bc4b8f787 after a stale-receipt refusal; the intervening landing (fork-nightly quiet-claim notification, T3-74) touches only scripts/fork-nightly.sh and its test, no overlap with this merge"
+      "All 32 incoming commits (b5a226e4..3b95e783) by subject and stat; six conflicts (ProviderTurnStartService and test, RunExecutionService and test, ChatMarkdown, ChatHeader) resolved against both sides and their record entries",
+      "Server: abandoned-turn recovery (#23169) and provider interrupt on ingestion failure against slipjay-workspaces' tolerant runtime-policy resolve and deliberate-detach finalisation (detach skips the new interrupt); run metrics export (#22094), webhook array filters (#23282), Pi fork while running (#23052), source-control HTTPS clone retry (#23170), GitCafe reviewers/labels/line counts as upstream-owned",
+      "Web: RTL text direction (#22777) in ChatMarkdown plugin lists and the thread title against web-client-customisation's split copy-ID title and perf-markdown-blocks/live-response-streaming; list layout pass cap (#23315), sidebar paused videos (#23106), Git refs refresh (#23314) as upstream fixes",
+      "Usage limits ChatGPT Business admin request (#23361) against account-pools",
+      "Mobile Duo/iPad fixes (#22976-#23366) are upstream-owned mobile; Screens dependency unchanged; Node 26.12.1 pin (#23165) outside fork entries",
+      "Persistence and contracts: no new migrations; contract changes additive"
     ],
     "exclusions": [
       {
         "what": "Web, desktop and mobile UI in a running client",
-        "why": "No browser or device pass in this unattended webhook run; covered by typecheck, focused unit and browser tests and the landing gate"
+        "why": "No browser or device pass in this unattended webhook run; covered by typecheck, focused tests and the landing gate"
       },
       {
         "what": "Lint",
@@ -67,91 +59,63 @@
   },
   "dispositions": [
     {
-      "entry": "device-composer",
-      "upstream": "ChatView and ChatComposer split into hooks and ComposerControlsBar (#23042-#23103)",
+      "entry": "slipjay-workspaces",
+      "upstream": "Stop abandoned turns before continuing threads (#23169) and interrupt of the live provider turn when event ingestion fails",
       "decision": "adapt",
       "requirements": [
-        "device composer, Fast switch, pool account chip, reasoning dial and Away key render as before",
-        "annotated images stash and restore with their marks",
-        "terminal cwd follows the selected SlipJay workspace"
+        "a run that ends without a provider terminal by detach or stream failure interrupts its open items",
+        "a deliberate workspace detach settles the run as interrupted, not failed",
+        "a start-time runtime-policy refusal settles the run rather than leaving it starting"
       ],
       "evidence": [
-        "apps/web typecheck clean",
-        "composerProviderState.test.tsx, composerSend.logic.test.ts, ChatView.logic.test.ts, useChatShortcuts.browser.test.tsx pass"
+        "RunExecutionService.test.ts (48) and ProviderTurnStartService.test.ts (38) pass, fork detach cases beside upstream's recovery cases",
+        "apps/server typecheck clean"
       ]
     },
     {
       "entry": "scheduled-tasks-extensions",
-      "upstream": "Compact automation timeline rows (#22638); stable order on toggle (#22899)",
+      "upstream": "Webhook filter [] array wildcard (#23282)",
       "decision": "adopt",
-      "requirements": ["scheduled prompts do not read as the user's"],
+      "requirements": [
+        "webhook-started tasks work"
+      ],
       "evidence": [
-        "MessagesTimeline.browser.test.tsx passes (upstream automation cases)",
-        "ScheduledTaskService.schedule.test.ts passes",
-        "web link points at the fork /scheduled route; mobile typecheck clean"
+        "apps/server src/scheduledTasks tests and shippedClientCompatibility.test.ts pass (85 tests)"
       ]
-    },
-    {
-      "entry": "compact-line",
-      "upstream": "Idle compaction global default with per-instance overrides (#23037)",
-      "decision": "retain",
-      "requirements": ["per-thread compactAt and autoCompactWindow unchanged"],
-      "evidence": [
-        "ClaudeAdapterV2.test.ts passes",
-        "packages/contracts settings.test.ts passes (fork Codex auto-compaction and upstream resolveIdleCompaction cases)"
-      ]
-    },
-    {
-      "entry": "managed-delegation",
-      "upstream": "t3_thread_read clamps oversized page sizes (#22901)",
-      "decision": "adopt",
-      "requirements": ["environmentId read input and linked thread search kept"],
-      "evidence": ["contracts typecheck and orchestratorMcp tests pass; server typecheck clean"]
     },
     {
       "entry": "account-pools",
-      "upstream": "Usage limits skip disabled connections (#22936)",
+      "upstream": "ChatGPT Business usage-limit admin request (#23361)",
       "decision": "adopt",
-      "requirements": ["pool usage card unaffected"],
-      "evidence": ["client-runtime presentation.test.ts passes"]
-    },
-    {
-      "entry": "linked-environments",
-      "upstream": "useComposerSend (#23062) carries the foreign-thread send refusal (#18310)",
-      "decision": "retain",
-      "requirements": ["linked threads attach as readable chips and send"],
-      "evidence": [
-        "web useComposerSend has no threadContextsOutsideEnvironment guard, as ChatView at ec67c3d961 had none; mobile keeps upstream's guard"
-      ]
-    },
-    {
-      "entry": "image-annotation",
-      "upstream": "Composer stash and send moved into useComposerStash and useComposerSend (#23046, #23062)",
-      "decision": "retain",
       "requirements": [
-        "annotated images stash their original and marks",
-        "send waits until restored marks are drawn"
+        "pool switch on limit unaffected"
       ],
       "evidence": [
-        "useComposerStash stashes annotation.original with annotationMarks; useComposerSend.ts guard \"Image notes are still being restored\"; ChatComposer redraws marks on restore (reviewer trace)"
+        "packages/shared usageLimits tests pass (40)"
       ]
     },
     {
-      "entry": "side-chat",
-      "upstream": "ChatView banners and overlays moved out (#23072, #23101)",
-      "decision": "retain",
-      "requirements": ["side chat card above the composer"],
+      "entry": "web-client-customisation",
+      "upstream": "Right-to-left text direction (#22777) on the thread title",
+      "decision": "adapt",
+      "requirements": [
+        "thread ID copy from the title",
+        "thread actions chevron"
+      ],
       "evidence": [
-        "SideChatCard still mounted in ChatView with insertSideChatAnswer (reviewer trace)"
+        "ChatHeader keeps the split copy/actions buttons with dir set on the title h2; apps/web typecheck clean"
       ]
     },
     {
-      "entry": "live-response-streaming",
-      "upstream": "ChatView decomposition (#23062-#23103)",
-      "decision": "retain",
-      "requirements": ["calm streaming in the timeline"],
+      "entry": "perf-markdown-blocks",
+      "upstream": "Markdown text-direction rehype plugin (#22777)",
+      "decision": "adapt",
+      "requirements": [
+        "a message renders as memoised top-level blocks",
+        "calm word fade-in covers the newest two blocks"
+      ],
       "evidence": [
-        "calmStreaming still passed to MessagesTimeline; AssistantMessageText and SideChatCard use calm (reviewer trace)"
+        "rehypeTextDirection added to both fork plugin lists in ChatMarkdown; markdownTextDirection.test.ts passes (3); apps/web typecheck clean"
       ]
     }
   ],
@@ -160,32 +124,27 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "pnpm 12.14.0; lockfile regenerated after taking upstream's side"
+      "note": "lockfile unchanged by install"
     },
     {
-      "command": "vp run --filter @t3tools/contracts typecheck; vp run --filter t3 typecheck; apps/mobile vp run typecheck; vp run --filter @t3tools/web typecheck",
+      "command": "apps/server vp run typecheck; apps/web vp run typecheck",
       "result": "passed",
-      "note": "in the merge clone, 2026-10-22"
+      "note": "no errors in the merge clone workspace"
     },
     {
-      "command": "vp test run contracts settings.test, orchestratorMcp.test",
+      "command": "apps/server vp test run RunExecutionService.test, ProviderTurnStartService.test",
       "result": "passed",
-      "note": "34 tests"
+      "note": "48 and 38 tests"
     },
     {
-      "command": "vp test run ClaudeAdapterV2.test, ScheduledTaskService.schedule.test, client-runtime presentation.test, threadShell.test, ProviderInstanceRegistry.test, shippedClientCompatibility.test",
+      "command": "apps/server vp test run shippedClientCompatibility.test src/scheduledTasks",
       "result": "passed",
-      "note": "257 tests"
+      "note": "85 tests"
     },
     {
-      "command": "apps/web vp test run composerProviderState.test, composerSend.logic.test, ChatView.logic.test, useChatShortcuts.browser.test, MessagesTimeline.browser.test, UsageToggleShortcut.browser.test",
+      "command": "apps/web vp test run markdownTextDirection.test; packages/shared vp test run usageLimits",
       "result": "passed",
-      "note": "89 tests"
-    },
-    {
-      "command": "ticket-reviewer (fresh context), review:t3code:fork-3499:change on a39a80ff",
-      "result": "passed",
-      "note": "0 blocking, 0 should-fix; suspected gaps (foreign-thread guard, missing dispositions) answered by these dispositions"
+      "note": "3 and 40 tests"
     }
   ],
   "result": "reconciled"
