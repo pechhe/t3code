@@ -55,6 +55,15 @@ export function createBuildWorkItemAtoms<R, E>(
       tag: WS_METHODS.buildConnectionRead,
       staleTimeMs: 60_000,
     }),
+    /** Connect to HQ: returns the HQ page to open; the result arrives through `connection`. */
+    signInStart: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:build:hq:sign-in",
+      tag: WS_METHODS.hqSignInStart,
+    }),
+    disconnect: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:build:hq:disconnect",
+      tag: WS_METHODS.hqDisconnect,
+    }),
     link: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:build:work-item:link",
       tag: WS_METHODS.buildWorkItemLink,

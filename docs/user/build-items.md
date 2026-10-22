@@ -8,6 +8,18 @@ the item in HQ.
 
 Without an HQ connection, threads show no Build items and Build links stay ordinary links.
 
+## Connect to HQ
+
+Open **Settings → Integrations → YardSmith HQ** and choose **Connect to HQ**. T3 opens HQ in your
+browser; sign in and approve the consent page, and HQ returns you to T3, which is then connected.
+Each environment connects separately: the one whose Settings you used receives the connection.
+Cancelling leaves any existing connection as it was. **Disconnect** stops new HQ calls from this
+environment; to revoke T3's access in HQ, revoke it there.
+
+HQ sends your browser back to the address you use to reach that environment, so that address must be
+`https`, or `http` on this computer. An environment reached over plain `http` on a network address
+cannot connect this way; open it through its `https` address.
+
 ## Link a thread
 
 Choose **Link Build item** from the thread's menu or the command palette, then paste a Build URL

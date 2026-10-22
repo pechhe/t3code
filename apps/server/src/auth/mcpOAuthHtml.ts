@@ -1,4 +1,4 @@
-const escapeHtml = (value: string) =>
+export const escapeHtml = (value: string) =>
   value.replace(
     /[&<>"']/gu,
     (character) =>
@@ -17,7 +17,7 @@ const STYLES = `
   }
 `;
 
-const shell = (title: string, body: string) => `<!doctype html>
+export const shell = (title: string, body: string) => `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />

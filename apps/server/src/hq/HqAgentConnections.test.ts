@@ -214,6 +214,24 @@ it.effect("renewal and reconnect failures report a reason and leak no credential
   }),
 );
 
+it.effect("the connection read reports a delegation HQ refused, until it is replaced", () =>
+  Effect.gen(function* () {
+    const { connections, hq, call } = yield* makeHarness;
+    yield* call(leadThread);
+    assert.isFalse((yield* connections.read)?.refused);
+    yield* TestClock.adjust(12 * hourMs);
+    hq.state.delegationRevoked = true;
+    yield* call(leadThread);
+    const refused = yield* connections.read;
+    assert.strictEqual(refused?.origin, origin);
+    assert.isTrue(refused?.refused);
+    hq.state.delegationRevoked = false;
+    yield* connections.connect({ origin, delegation });
+    yield* call(leadThread);
+    assert.isFalse((yield* connections.read)?.refused);
+  }),
+);
+
 it.effect("the delegation is kept only in the server secret store", () =>
   Effect.gen(function* () {
     const { connections, stored } = yield* makeHarness;

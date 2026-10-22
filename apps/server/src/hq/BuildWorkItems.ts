@@ -291,7 +291,11 @@ export class BuildWorkItems extends Context.Service<
     ) => Effect.Effect<BuildWorkItemMentionsResult, BuildWorkItemError>;
     /** Whether threads can link Build items at all. */
     readonly connected: Effect.Effect<
-      { readonly connected: boolean; readonly origin: string | null },
+      {
+        readonly connected: boolean;
+        readonly origin: string | null;
+        readonly refused?: boolean;
+      },
       BuildWorkItemError
     >;
     /**
@@ -768,6 +772,7 @@ const make = Effect.gen(function* () {
       Effect.map((connection) => ({
         connected: connection !== null,
         origin: connection?.origin ?? null,
+        refused: connection?.refused ?? false,
       })),
     ),
   });

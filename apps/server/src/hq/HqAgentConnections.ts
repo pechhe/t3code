@@ -106,7 +106,7 @@ export class HqConnectionError extends Schema.TaggedError<HqConnectionError>()(
       case "invalid_origin":
         return "The HQ origin must be an https URL (http only for localhost).";
       case "invalid_delegation":
-        return "That is not an HQ delegation; create one in HQ Settings → Connections → T3 agents.";
+        return "That is not an HQ delegation. Use Connect to HQ in T3's Settings → Integrations instead.";
       case "store_failed":
         return "T3 could not read or save its HQ connection.";
     }
@@ -126,7 +126,7 @@ type HqRefusal =
 const refusalMessages: Record<HqRefusal, string> = {
   not_connected: "T3 is no longer connected to YardSmith HQ.",
   invalid_delegation:
-    "HQ refused T3's delegation: it was revoked or has expired. Create a new one in HQ Settings → Connections → T3 agents and reconnect T3.",
+    "HQ refused T3's delegation: it was revoked or has expired. Choose Connect to HQ in T3's Settings → Integrations to sign in again.",
   agent_revoked:
     "HQ refused this agent (agent_revoked): the person revoked it in HQ Settings → Connections. This thread can no longer act in HQ.",
   agent_role_conflict:
@@ -212,7 +212,7 @@ const containsBuildWrite = (body: Uint8Array): boolean => {
 const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
 
 /** HQ's origin, or null when it is not https (http is allowed only for a local HQ). */
-const normalizeHqOrigin = (input: string): string | null => {
+export const normalizeHqOrigin = (input: string): string | null => {
   try {
     const url = new URL(input);
     const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
@@ -264,7 +264,12 @@ export class HqAgentConnections extends Context.Service<
     readonly connectionChanges: Stream.Stream<void>;
     /** `connection` stands for the stored origin and delegation without revealing either. */
     readonly read: Effect.Effect<
-      { readonly origin: string; readonly connection: string } | null,
+      {
+        readonly origin: string;
+        readonly connection: string;
+        /** HQ has refused this delegation (revoked or expired) and nothing has worked since. */
+        readonly refused?: boolean;
+      } | null,
       HqConnectionError
     >;
     /**
@@ -315,6 +320,8 @@ const make = Effect.gen(function* () {
   const threadByCredentialHash = new Map<string, ThreadId>();
   const tokenLock = yield* KeyedLock.make<ThreadId>();
   const observers = new Map<string, ObserverToken>();
+  /** Connections HQ answered 401 to, by `connectionKey`, until a call under them succeeds. */
+  const refusedConnections = new Set<string>();
   let buildWriteVersion = 0;
   const observerLock = yield* KeyedLock.make<string>();
 
@@ -384,6 +391,9 @@ const make = Effect.gen(function* () {
           harness: "t3",
         });
         const exchanged = status === 200 ? decodeExchange(json) : Option.none();
+        const key = yield* connectionKey(stored);
+        if (Option.isSome(exchanged)) refusedConnections.delete(key);
+        else if (status === 401) refusedConnections.add(key);
         if (Option.isNone(exchanged)) {
           const code = Option.getOrUndefined(decodeHqError(json))?.error;
           return yield* Effect.fail<HqRefusal>(
@@ -428,6 +438,8 @@ const make = Effect.gen(function* () {
           harness: "t3",
         }).pipe(Effect.mapError(() => new HqObserveError({ reason: "unavailable" })));
         const exchanged = status === 200 ? decodeExchange(json) : Option.none();
+        if (Option.isSome(exchanged)) refusedConnections.delete(key);
+        else if (status === 401) refusedConnections.add(key);
         if (Option.isNone(exchanged))
           return yield* new HqObserveError({
             reason: status === 401 || status === 403 ? "refused" : "unavailable",
@@ -549,6 +561,8 @@ const make = Effect.gen(function* () {
         Effect.timeout(HQ_REQUEST_TIMEOUT),
         Effect.mapError(() => new HqDecisionError({ reason: "unavailable" })),
       );
+      if (status === 401) refusedConnections.add(connection);
+      else if (status < 400) refusedConnections.delete(connection);
       return { origin, connection, status, text };
     },
   );
@@ -756,7 +770,11 @@ const make = Effect.gen(function* () {
           onNone: () => Effect.succeed(null),
           onSome: (stored) =>
             connectionKey(stored).pipe(
-              Effect.map((connection) => ({ origin: stored.origin, connection })),
+              Effect.map((connection) => ({
+                origin: stored.origin,
+                connection,
+                refused: refusedConnections.has(connection),
+              })),
             ),
         }),
       ),

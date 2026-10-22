@@ -87,6 +87,8 @@ import * as FleetProjection from "./fleet/FleetProjection.ts";
 import * as FleetPeers from "./peers/FleetPeers.ts";
 import * as McpSessionRegistry from "./mcp/McpSessionRegistry.ts";
 import * as HqAgentConnections from "./hq/HqAgentConnections.ts";
+import * as HqSignIn from "./hq/HqSignIn.ts";
+import * as HqSignInRoute from "./hq/HqSignInRoute.ts";
 import * as RepositoryChipSync from "./hq/RepositoryChipSync.ts";
 import * as HqRepositories from "./hq/HqRepositories.ts";
 import * as HqAgentLifecycleReactor from "./hq/HqAgentLifecycleReactor.ts";
@@ -796,6 +798,7 @@ const layerMakeRoutes = Layer.mergeAll(
     ServerHttp.layerAttachmentUploadRoute,
     DeviceHubProxy.layer,
     HqMcpRoute.layer,
+    HqSignInRoute.layer,
     ServerBrowserStream.routeLayer,
     ServerHttp.layerStaticAndDevRoute,
     Ws.layer,
@@ -1149,7 +1152,10 @@ const layerMakeServer = Layer.unwrap(
       Layer.provide(CloudLink.layer.pipe(Layer.provideMerge(ConnectReachability.layer))),
       Layer.provideMerge(layerRuntimeServices),
       Layer.provideMerge(
-        Layer.mergeAll(McpSessionRegistry.layer, HqAgentConnections.layer).pipe(
+        Layer.mergeAll(
+          McpSessionRegistry.layer,
+          HqSignIn.layer.pipe(Layer.provideMerge(HqAgentConnections.layer)),
+        ).pipe(
           Layer.provide(ServerEnvironment.layer.pipe(Layer.provide(ServerSecretStore.layer))),
           Layer.provide(ServerSecretStore.layer),
         ),

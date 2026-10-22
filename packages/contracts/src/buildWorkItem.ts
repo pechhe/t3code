@@ -164,6 +164,32 @@ export type BuildWorkItemCardInput = typeof BuildWorkItemCardInput.Type;
 export const BuildWorkItemCardResult = Schema.NullOr(BuildWorkItemCard);
 export type BuildWorkItemCardResult = typeof BuildWorkItemCardResult.Type;
 
+/** Where a Connect to HQ sign-in stands. `failed` names why in `reason`; `cancelled` is HQ's consent declined. */
+export const HqSignInState = Schema.Struct({
+  status: Schema.Literals(["pending", "cancelled", "failed"]),
+  reason: Schema.optional(
+    Schema.Literals(["expired", "rejected", "no_access", "unavailable", "invalid_response"]),
+  ),
+});
+export type HqSignInState = typeof HqSignInState.Type;
+
+/**
+ * Starts Connect to HQ. `handbackOrigin` is the origin through which the person's browser reaches
+ * this environment (HQ sends the browser back to it); the server adds its own callback path.
+ */
+export const HqSignInStartInput = Schema.Struct({
+  handbackOrigin: Schema.String,
+  /** Another HQ than the default, such as a local one. */
+  hqOrigin: Schema.optional(Schema.String),
+});
+export type HqSignInStartInput = typeof HqSignInStartInput.Type;
+export const HqSignInStartResult = Schema.Struct({ url: Schema.String });
+export type HqSignInStartResult = typeof HqSignInStartResult.Type;
+
+/** Disconnects T3 from HQ and returns the resulting connection state. */
+export const HqDisconnectInput = Schema.Struct({});
+export type HqDisconnectInput = typeof HqDisconnectInput.Type;
+
 /** Whether T3 is connected to YardSmith HQ, so its threads can link Build items. */
 export const BuildConnectionReadInput = Schema.Struct({});
 export type BuildConnectionReadInput = typeof BuildConnectionReadInput.Type;
@@ -174,6 +200,13 @@ export const BuildConnectionReadResult = Schema.Struct({
    * client still reads an older server, whose chat then shows Build links as ordinary links.
    */
   origin: Schema.optional(Schema.NullOr(Schema.String)),
+  /**
+   * The newest Connect to HQ sign-in this environment started that has not connected; null once
+   * connected or when none is open. Optional for the same reason as `origin`.
+   */
+  signIn: Schema.optional(Schema.NullOr(HqSignInState)),
+  /** HQ refused the stored delegation (revoked or expired), so threads cannot act in HQ until it reconnects. */
+  refused: Schema.optional(Schema.Boolean),
 });
 export type BuildConnectionReadResult = typeof BuildConnectionReadResult.Type;
 
@@ -219,6 +252,8 @@ export class BuildWorkItemError extends Schema.TaggedError<BuildWorkItemError>()
       "unsupported_kind",
       "unavailable",
       "dispatch_failed",
+      "invalid_handback",
+      "invalid_hq_origin",
     ]),
     message: Schema.String,
   },

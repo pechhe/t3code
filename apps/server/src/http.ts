@@ -48,6 +48,7 @@ import {
   failEnvironmentInternal,
 } from "./auth/http.ts";
 import * as ServerEnvironment from "./environment/ServerEnvironment.ts";
+import { SIGN_IN_CALLBACK_PATH } from "./hq/signInPath.ts";
 import { WEBHOOK_ROUTE_PREFIX } from "./scheduledTasks/ScheduledTaskService.ts";
 import {
   browserApiCorsAllowedHeaders,
@@ -389,7 +390,11 @@ export const layerOtlpTracesProxyRoute = HttpRouter.add(
   ),
 );
 
-const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([OTLP_TRACES_PROXY_PATH]);
+const UNTRACED_REQUEST_PATHS: ReadonlySet<string> = new Set([
+  OTLP_TRACES_PROXY_PATH,
+  // HQ's handback carries the sign-in code and state in its query.
+  SIGN_IN_CALLBACK_PATH,
+]);
 
 // TracerDisabledWhen is one predicate for the whole server, and
 // HttpRouter.serve builds its routes privately, so it is provided to the served

@@ -1,7 +1,7 @@
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
-import { OrchestrationDispatchCommandError } from "@t3tools/contracts";
+import { BuildWorkItemError, OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -102,6 +102,7 @@ import {
   type PullRequestRef,
   WS_METHODS,
   WsCoreRpcGroup,
+  WsHqRpcGroup,
   WsPeersRpcGroup,
   WsPullRequestRpcGroup,
   WsRpcGroup,
@@ -133,6 +134,7 @@ import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
 import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
 import * as BuildHome from "./hq/BuildHome.ts";
+import * as HqSignIn from "./hq/HqSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
 import {
@@ -574,6 +576,7 @@ const ServerWsRpcGroup = WsRpcGroup.middleware(RpcInstrumentation);
 const ServerWsCoreRpcGroup = WsCoreRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPullRequestRpcGroup = WsPullRequestRpcGroup.middleware(RpcInstrumentation);
 const ServerWsPeersRpcGroup = WsPeersRpcGroup.middleware(RpcInstrumentation);
+const ServerWsHqRpcGroup = WsHqRpcGroup.middleware(RpcInstrumentation);
 // When a resuming client's cursor is more than this many events behind the
 // current head, skip the per-event catch-up replay and send a fresh shell
 // snapshot instead. Replaying each intervening event costs a shell refetch;
@@ -1334,6 +1337,7 @@ export const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
       const buildHome = yield* BuildHome.BuildHome;
+      const hqSignIn = yield* HqSignIn.HqSignIn;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
       const pullRequests = yield* PullRequestService.PullRequestService;
@@ -2147,7 +2151,10 @@ export const layerWsRpc = (
               Effect.as(commandOutputHub.subscribe(input)),
             ),
           ),
-        [WS_METHODS.buildConnectionRead]: () => buildWorkItems.connected,
+        [WS_METHODS.buildConnectionRead]: () =>
+          Effect.all({ connection: buildWorkItems.connected, signIn: hqSignIn.status }).pipe(
+            Effect.map(({ connection, signIn }) => ({ ...connection, signIn })),
+          ),
         [WS_METHODS.buildWorkItemRead]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(buildWorkItems.view(input.threadId)),
@@ -3216,6 +3223,33 @@ export const layerWsRpc = (
     }),
   );
 
+const layerWsHqRpc = ServerWsHqRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const hqSignIn = yield* HqSignIn.HqSignIn;
+    const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
+    return ServerWsHqRpcGroup.of({
+      [WS_METHODS.hqSignInStart]: (input) =>
+        hqSignIn
+          .begin(input)
+          .pipe(
+            Effect.mapError(
+              (cause) => new BuildWorkItemError({ reason: cause.reason, message: cause.message }),
+            ),
+          ),
+      [WS_METHODS.hqDisconnect]: () =>
+        hqSignIn.disconnect.pipe(
+          Effect.mapError(
+            (cause) => new BuildWorkItemError({ reason: "unavailable", message: cause.message }),
+          ),
+          Effect.andThen(
+            Effect.all({ connection: buildWorkItems.connected, signIn: hqSignIn.status }),
+          ),
+          Effect.map(({ connection, signIn }) => ({ ...connection, signIn })),
+        ),
+    });
+  }),
+);
+
 const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
   Effect.gen(function* () {
     const peers = yield* PeerEnvironments.PeerEnvironments;
@@ -3436,6 +3470,7 @@ export const layer = Layer.unwrap(
               ),
               layerWsPullRequestRpc,
               layerWsPeersRpc,
+              layerWsHqRpc,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees

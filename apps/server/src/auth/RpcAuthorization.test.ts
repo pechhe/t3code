@@ -40,6 +40,11 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.buildHomeAnswer)).toBe(AuthSettingsWriteScope);
   });
 
+  it("keeps connecting and disconnecting HQ, which replace the person's delegation, to settings owners", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.hqSignInStart)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.hqDisconnect)).toBe(AuthSettingsWriteScope);
+  });
+
   it("restricts policy reads and saves to settings owners", () => {
     for (const method of [WS_METHODS.agentPolicyRead, WS_METHODS.agentPolicySave])
       expect(requiredScopeForRpcMethod(method)).toBe(AuthSettingsWriteScope);

@@ -174,7 +174,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
 const HqConnectionTool = Tool.make("t3_hq_connection", {
   ...shared,
   description:
-    'Read, connect or disconnect T3\'s YardSmith HQ connection, which every project in this environment shares. When connected, each Claude or Codex thread gets a `yardsmith-hq` MCP server that acts in HQ as that thread\'s own agent, on behalf of the person who made the delegation. To connect, the person creates a delegation in HQ Settings → Connections → T3 agents; ask for it with request_secret, then pass {action:"connect", origin:"https://<hq origin>", delegation:<secretRef>}. T3 keeps it in its server secret store. Disconnecting stops new HQ calls; to revoke T3\'s access, the person revokes the delegation in HQ.',
+    'Read, connect or disconnect T3\'s YardSmith HQ connection, which every project in this environment shares. When connected, each Claude or Codex thread gets a `yardsmith-hq` MCP server that acts in HQ as that thread\'s own agent, on behalf of the person who made the delegation. The person normally connects with Settings → Integrations → YardSmith HQ → Connect to HQ, which signs in to HQ in their browser. Only if that is unavailable, the person creates a delegation in HQ Settings → Connections → T3 agents; ask for it with request_secret, then pass {action:"connect", origin:"https://<hq origin>", delegation:<secretRef>}. T3 keeps it in its server secret store. Disconnecting stops new HQ calls; to revoke T3\'s access, the person revokes the delegation in HQ.',
   parameters: Schema.Struct({
     action: Schema.Literals(["read", "connect", "disconnect"]),
     origin: Schema.optional(TrimmedNonEmptyString),

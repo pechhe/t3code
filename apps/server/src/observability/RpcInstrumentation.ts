@@ -96,6 +96,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.serverReportHostPowerState]: "server",
   [WS_METHODS.serverGetBackgroundPolicy]: "server",
   [WS_METHODS.buildConnectionRead]: "build",
+  [WS_METHODS.hqSignInStart]: "build",
+  [WS_METHODS.hqDisconnect]: "build",
   [WS_METHODS.buildWorkItemRead]: "build",
   [WS_METHODS.buildWorkItemCard]: "build",
   [WS_METHODS.buildWorkItemMentions]: "build",

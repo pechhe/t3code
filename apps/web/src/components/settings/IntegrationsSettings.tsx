@@ -71,6 +71,7 @@ import {
 } from "~/components/device/DeviceSetup";
 import { isElectron } from "../../env";
 
+import { HqConnectionSettings } from "./HqConnectionSettings";
 import { Badge } from "../ui/badge";
 import {
   Menu,
@@ -1700,6 +1701,7 @@ export function IntegrationsSettingsPanel() {
         <BrowserSearchEngineSetting />
         <PullRequestLinksOpenInAppSetting />
       </SettingsSection>
+      <HqConnectionSettings />
       <DeviceIntegrationSettings />
     </SettingsPageContainer>
   );

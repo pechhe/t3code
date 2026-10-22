@@ -205,6 +205,9 @@ import {
 } from "./buildHome.ts";
 import {
   BuildConnectionReadInput,
+  HqDisconnectInput,
+  HqSignInStartInput,
+  HqSignInStartResult,
   BuildConnectionReadResult,
   BuildWorkItemError,
   BuildWorkItemLinkInput,
@@ -602,6 +605,8 @@ export const WS_METHODS = {
   serverRefreshUsageRates: "server.refreshUsageRates",
 
   buildConnectionRead: "build.connection.read",
+  hqSignInStart: "hq.signIn.start",
+  hqDisconnect: "hq.disconnect",
   buildWorkItemRead: "build.workItem.read",
   buildWorkItemCard: "build.workItem.card",
   buildWorkItemMentions: "build.workItem.mentions",
@@ -2027,6 +2032,18 @@ const WsBuildConnectionReadRpc = Rpc.make(WS_METHODS.buildConnectionRead, {
   error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
 });
 
+const WsHqSignInStartRpc = Rpc.make(WS_METHODS.hqSignInStart, {
+  payload: HqSignInStartInput,
+  success: HqSignInStartResult,
+  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+});
+
+const WsHqDisconnectRpc = Rpc.make(WS_METHODS.hqDisconnect, {
+  payload: HqDisconnectInput,
+  success: BuildConnectionReadResult,
+  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+});
+
 const WsBuildWorkItemReadRpc = Rpc.make(WS_METHODS.buildWorkItemRead, {
   payload: BuildWorkItemReadInput,
   success: BuildWorkItemReadResult,
@@ -2426,5 +2443,13 @@ export const WsPeersRpcGroup = RpcGroup.make(WsPeersListRpc, WsPeersUpdateRpc).m
   RpcScopeAuthorization,
 );
 
+// The core group is at the size where the type checker starts degrading inferred layer
+// requirements to `any`, so new RPCs get their own group and handler layer.
+export const WsHqRpcGroup = RpcGroup.make(WsHqSignInStartRpc, WsHqDisconnectRpc).middleware(
+  RpcScopeAuthorization,
+);
+
 /** Every RPC the WebSocket serves. */
-export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup).merge(WsPeersRpcGroup);
+export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup)
+  .merge(WsPeersRpcGroup)
+  .merge(WsHqRpcGroup);

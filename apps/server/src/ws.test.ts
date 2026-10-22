@@ -70,6 +70,7 @@ import * as ResourceTelemetry from "./resourceTelemetry/ResourceTelemetry.ts";
 import * as ReviewService from "./review/ReviewService.ts";
 import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
 import * as BuildHome from "./hq/BuildHome.ts";
+import * as HqSignIn from "./hq/HqSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ExperimentService from "./experiments/ExperimentService.ts";
@@ -368,6 +369,7 @@ const layerUnusedConfigRpcServices = Layer.mergeAll(
   Layer.mock(ReviewService.ReviewService)({}),
   Layer.mock(BuildWorkItems.BuildWorkItems)({}),
   Layer.mock(BuildHome.BuildHome)({}),
+  Layer.mock(HqSignIn.HqSignIn)({}),
   Layer.mock(ReleaseApprovals.ReleaseApprovals)({}),
   Layer.mock(AgentPolicySettings.AgentPolicySettingsService)({}),
   Layer.mock(ExperimentService.ExperimentService)({}),
