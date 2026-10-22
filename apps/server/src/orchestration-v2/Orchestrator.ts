@@ -3297,12 +3297,16 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const instanceId = thread.modelSelection.instanceId;
       // A legacy instance id is its driver's name.
       const driver = settings.providerInstances[instanceId]?.driver ?? instanceId;
-      // Only Claude and Codex compact natively, so no other provider has a point to move.
+      // Only Claude and Codex take their point per thread. Pi compacts natively too, but its
+      // point comes from its own settings, per model, so a thread cannot override it.
       if (driver !== "claudeAgent" && driver !== "codex") {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,
-          cause: `Provider ${driver} does not compact natively, so a thread cannot set where it compacts.`,
+          cause:
+            driver === "pi"
+              ? "Pi compacts where its own settings say, per model, so a thread cannot set its own point."
+              : `Provider ${driver} does not compact natively, so a thread cannot set where it compacts.`,
         });
       }
       const { providerTurns } = yield* projectionStore

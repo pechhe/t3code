@@ -75,6 +75,13 @@ import {
   materializePiT3McpExtension,
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
+import {
+  piAgentDirectory,
+  piCompactionReserve,
+  piCompactionThreshold,
+  syncPiCompactionPoint,
+  type PiCompactionSettings,
+} from "./compaction.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./mcpExtensionSource.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
@@ -485,22 +492,24 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         threadId: input.threadId,
         env: launch.env,
       });
-      const connection: PiRpcConnection = yield* makePiRpcConnection({
-        command: scopedLaunch.command,
-        args: scopedLaunch.args,
-        cwd,
-        env: launch.env,
-      }).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-        Effect.mapError(
-          (cause) =>
-            new ProviderAdapter.ProviderAdapterOpenSessionError({
-              driver: PI_PROVIDER,
-              providerSessionId: input.providerSessionId,
-              cause,
-            }),
-        ),
-      );
+      const spawnConnection = () =>
+        makePiRpcConnection({
+          command: scopedLaunch.command,
+          args: scopedLaunch.args,
+          cwd,
+          env: launch.env,
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.mapError(
+            (cause) =>
+              new ProviderAdapter.ProviderAdapterOpenSessionError({
+                driver: PI_PROVIDER,
+                providerSessionId: input.providerSessionId,
+                cause,
+              }),
+          ),
+        );
+      let connection: PiRpcConnection = yield* spawnConnection();
       const now = yield* DateTime.now;
       let sessionEntity: OrchestrationV2ProviderSession = {
         id: input.providerSessionId,
@@ -565,6 +574,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       let baselineModel: { provider: string; modelId: string } | null = null;
       let baselineThinking: string | null = null;
       let contextWindow: number | null = null;
+      // Where the running Pi process compacts: Pi's settings as this process loaded them.
+      let compactionSettings: PiCompactionSettings | null = null;
+      let autoCompactThreshold: number | null = null;
       const modelContextWindows = new Map<string, number>();
       let modelsDiscovered = false;
       // Prompt responses carry no id. Keep their session-wide send order and
@@ -645,6 +657,85 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         return null;
       };
 
+      // Pi reads its compaction point only when its settings load, so T3 writes the point
+      // before the session's first turn and restarts the process it just opened when the value
+      // changed, then reports the point that process loaded.
+      const instanceCompactAt = (() => {
+        const configured = Number(options.settings.autoCompactWindow ?? "");
+        return configured > 0 ? Math.floor(configured) : null;
+      })();
+      const currentModelKey = () =>
+        appliedModel ??
+        (baselineModel === null ? null : `${baselineModel.provider}/${baselineModel.modelId}`);
+      const rememberAutoCompactThreshold = () => {
+        const modelKey = currentModelKey();
+        autoCompactThreshold =
+          compactionSettings === null || modelKey === null
+            ? null
+            : piCompactionThreshold(
+                contextWindow,
+                piCompactionReserve(compactionSettings, modelKey),
+                compactionSettings.enabled,
+              );
+      };
+      const prepareCompactionPoint = Effect.fnUntraced(function* () {
+        const agentDir = piAgentDirectory(options.environment);
+        if (agentDir === null) return;
+        const explicit =
+          input.modelSelection.model === PI_INHERIT_MODEL_SLUG
+            ? null
+            : parsePiModelSlug(input.modelSelection.model);
+        const stateData = yield* request({ type: "get_state" }).pipe(
+          Effect.orElseSucceed(() => undefined),
+        );
+        const stateModel = recordField(stateData, "model");
+        let provider = recordString(stateModel, "provider");
+        let modelId = recordString(stateModel, "id");
+        let window = nonNegativeInteger(stateModel, "contextWindow");
+        if (explicit !== null) {
+          provider = explicit.provider;
+          modelId = explicit.modelId;
+          const modelsData = yield* request({ type: "get_available_models" }).pipe(
+            Effect.orElseSucceed(() => undefined),
+          );
+          const models = recordField(modelsData, "models");
+          if (Array.isArray(models)) {
+            for (const model of models) {
+              if (
+                recordString(model, "provider") === provider &&
+                recordString(model, "id") === modelId
+              ) {
+                window = nonNegativeInteger(model, "contextWindow") ?? window;
+              }
+            }
+          }
+        }
+        if (provider === undefined || modelId === undefined) return;
+        const result = yield* syncPiCompactionPoint({
+          agentDir,
+          modelKey: `${provider}/${modelId}`,
+          contextWindow: window ?? null,
+          compactAt: input.runtimePolicy.modelCompactAt ?? instanceCompactAt,
+        }).pipe(
+          Effect.provideService(FileSystem.FileSystem, fileSystem),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Pi compaction point could not be written", {
+              providerSessionId: input.providerSessionId,
+              modelKey: `${provider}/${modelId}`,
+              cause,
+            }).pipe(Effect.as(undefined)),
+          ),
+        );
+        if (result === undefined) return;
+        compactionSettings = result.settings;
+        if (!result.wrote) return;
+        // The running process still holds the settings it loaded, so start it again on the file
+        // T3 just wrote, before any turn has run in it.
+        yield* connection.terminate;
+        connection = yield* spawnConnection();
+      });
+      yield* prepareCompactionPoint();
+
       const lifecycleRequest = (record: PiRpcRecord) =>
         request(record, PI_SESSION_TIMEOUT_MS).pipe(
           // A local timeout does not cancel Pi's lifecycle hook. Retire the
@@ -682,6 +773,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         return {
           usedTokens,
           maxTokens,
+          ...(autoCompactThreshold === null ? {} : { autoCompactThreshold }),
           ...(inputTokens === undefined ? {} : { inputTokens }),
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
           ...(outputTokens === undefined ? {} : { outputTokens }),
@@ -725,6 +817,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               tokenUsage: {
                 usedTokens,
                 maxTokens: contextWindow,
+                ...(autoCompactThreshold === null ? {} : { autoCompactThreshold }),
                 ...(inputTokens === undefined ? {} : { inputTokens }),
                 ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
                 ...(outputTokens === undefined ? {} : { outputTokens }),
@@ -2222,6 +2315,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         if (baselineThinking === null && appliedThinking === null) {
           baselineThinking = recordString(stateData, "thinkingLevel") ?? null;
         }
+        rememberAutoCompactThreshold();
         // switch_session accepts a file path, not Pi's display session UUID.
         const nativeId = recordString(stateData, "sessionFile");
         if (nativeId === undefined) {
@@ -2332,6 +2426,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           yield* request({ type: "set_thinking_level", level: thinking });
           appliedThinking = thinking;
         }
+        rememberAutoCompactThreshold();
       });
 
       const resolvePromptPayload = Effect.fnUntraced(function* (

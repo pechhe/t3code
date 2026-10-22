@@ -215,6 +215,9 @@ export const compactAtBounds = (
     const max = maxTokens - CLAUDE_COMPACT_RESERVE;
     return max < min ? null : { min, max };
   }
+  // Pi compacts where its own settings say, per model, and takes no point per thread, so its
+  // line only reports the point it was started with.
+  if (driver === "pi") return null;
   // Below the settings' floor Codex would compact after nearly every turn.
   const min = MIN_AUTO_COMPACT_WINDOW;
   const max = maxTokens - Math.min(20_000, Math.floor(maxTokens / 10));

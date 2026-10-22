@@ -638,4 +638,8 @@ describe("compactAtBounds", () => {
     expect(compactAtBounds("codex", 100_000)).toBeNull();
     expect(compactAtBounds("claudeAgent", 90_000)).toBeNull();
   });
+
+  it("gives Pi a read-only line, since its point comes from its own settings per model", () => {
+    expect(compactAtBounds("pi", 200_000)).toBeNull();
+  });
 });

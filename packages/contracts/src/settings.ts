@@ -646,7 +646,7 @@ export const ModelCompactAt = Schema.Record(
   Schema.Int.check(Schema.isGreaterThan(0)),
 );
 
-const AUTO_COMPACT_WINDOW_PATTERN = /^(?:|[1-9]\d{5}|1000000)$/;
+export const AUTO_COMPACT_WINDOW_PATTERN = /^(?:|[1-9]\d{5}|1000000)$/;
 
 export const CodexSettings = makeProviderSettingsSchema(
   {

@@ -119,21 +119,23 @@ export const layerFromProjectStore: Layer.Layer<
               }),
             ),
           ));
+        // The point set for this thread's model in the server settings.
+        const modelCompactAt = yield* Effect.serviceOption(
+          ServerSettings.ServerSettingsService,
+        ).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.succeed(null),
+              onSome: (service) =>
+                service.getSettings.pipe(
+                  Effect.map((value) => value.modelCompactAt[input.modelSelection.model] ?? null),
+                  Effect.orElseSucceed(() => null),
+                ),
+            }),
+          ),
+        );
         // The thread's own point, else the one set for its model in the server settings.
-        const compactAt =
-          input.thread.compactAt ??
-          (yield* Effect.serviceOption(ServerSettings.ServerSettingsService).pipe(
-            Effect.flatMap(
-              Option.match({
-                onNone: () => Effect.succeed(null),
-                onSome: (service) =>
-                  service.getSettings.pipe(
-                    Effect.map((value) => value.modelCompactAt[input.modelSelection.model] ?? null),
-                    Effect.orElseSucceed(() => null),
-                  ),
-              }),
-            ),
-          ));
+        const compactAt = input.thread.compactAt ?? modelCompactAt;
         if (input.thread.agentTask !== undefined) {
           const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
           if (Option.isNone(managed) || instance === undefined)
@@ -226,6 +228,7 @@ export const layerFromProjectStore: Layer.Layer<
             cwd,
             managedAgent: true,
             ...(compactAt == null ? {} : { compactAt }),
+            ...(modelCompactAt == null ? {} : { modelCompactAt }),
             ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
             approvalPolicy: "never",
             sandboxPolicy:
@@ -247,6 +250,7 @@ export const layerFromProjectStore: Layer.Layer<
           interactionMode: input.thread.interactionMode,
           cwd,
           ...(compactAt == null ? {} : { compactAt }),
+          ...(modelCompactAt == null ? {} : { modelCompactAt }),
         });
       }),
     });

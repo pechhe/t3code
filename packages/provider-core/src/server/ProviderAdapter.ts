@@ -62,6 +62,12 @@ export const ProviderAdapterV2RuntimePolicy = Schema.Struct({
    * it; every other adapter ignores it.
    */
   compactAt: Schema.optional(Schema.NullOr(Schema.Number)),
+  /**
+   * The point set for this thread's model in the server settings, before any thread override.
+   * Read by adapters that can only compact per model, such as Pi, whose provider hands the point
+   * to its own settings rather than accepting one per session.
+   */
+  modelCompactAt: Schema.optional(Schema.NullOr(Schema.Number)),
 });
 export type ProviderAdapterV2RuntimePolicy = typeof ProviderAdapterV2RuntimePolicy.Type;
 

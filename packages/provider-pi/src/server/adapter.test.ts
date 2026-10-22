@@ -411,7 +411,13 @@ const makeAdapter = Effect.fnUntraced(function* (
       displayName: undefined,
       enabled: true,
       environment: [],
-      config: { enabled: true, binaryPath: "pi", launchArgs, customModels: [] },
+      config: {
+        enabled: true,
+        binaryPath: "pi",
+        launchArgs,
+        customModels: [],
+        autoCompactWindow: "",
+      },
     }).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.provideService(HostProcess.Environment, {}),
@@ -423,7 +429,13 @@ const makeAdapter = Effect.fnUntraced(function* (
   }
   return yield* makePiAdapterV2({
     instanceId: PI_INSTANCE_ID,
-    settings: { enabled: true, binaryPath: "pi", launchArgs, customModels: [] },
+    settings: {
+      enabled: true,
+      binaryPath: "pi",
+      launchArgs,
+      customModels: [],
+      autoCompactWindow: "",
+    },
     environment: {},
   }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
 });

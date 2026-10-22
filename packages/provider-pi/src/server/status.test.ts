@@ -102,6 +102,7 @@ const settings = {
   binaryPath: "pi",
   launchArgs: "",
   customModels: [],
+  autoCompactWindow: "",
 } as const;
 
 describe("PiProvider", () => {

@@ -67,7 +67,7 @@ it.effect("names the model and the disabled extensions when Pi cannot load it", 
   Effect.gen(function* () {
     const pi = yield* makeFakePi("", "Model not found: demo/demo-model");
     const textGeneration = yield* makePiTextGeneration(
-      { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [] },
+      { enabled: true, binaryPath: "pi", launchArgs: "", customModels: [], autoCompactWindow: "" },
       {},
     ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
 

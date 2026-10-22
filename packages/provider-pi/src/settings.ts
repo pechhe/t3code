@@ -3,6 +3,7 @@
  * browser-safe schema code.
  */
 import {
+  AUTO_COMPACT_WINDOW_PATTERN,
   CustomModelSetting,
   makeBinaryPathSetting,
   makeProviderSettingsSchema,
@@ -36,9 +37,21 @@ export const PiSettings = makeProviderSettingsSchema(
       Schema.withDecodingDefault(Effect.succeed([])),
       Schema.annotateKey({ providerSettingsForm: { hidden: true } }),
     ),
+    autoCompactWindow: TrimmedString.check(Schema.isPattern(AUTO_COMPACT_WINDOW_PATTERN)).pipe(
+      Schema.withDecodingDefault(Effect.succeed("")),
+      Schema.annotateKey({
+        title: "Auto-compact after",
+        description:
+          "Compact after 100,000 to 1,000,000 tokens. Pi has no setting for this over its RPC, so T3 writes it into Pi's own settings, turns Pi's automatic compaction on, and restarts a session it is opening so the point applies from its first turn. A session already running picks it up the next time it starts.",
+        providerSettingsForm: {
+          placeholder: "e.g. 300000",
+          clearWhenEmpty: "omit",
+        },
+      }),
+    ),
   },
   {
-    order: ["binaryPath", "launchArgs"],
+    order: ["binaryPath", "autoCompactWindow", "launchArgs"],
   },
 );
 export type PiSettings = typeof PiSettings.Type;
