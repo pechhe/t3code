@@ -3,47 +3,46 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.2-nightly.20261022.3512",
-      "sha": "3b95e7831b11b17627dff16843bc087bfca397ec"
-    },
-    "target": {
       "tag": "v0.1.2-nightly.20261022.3526",
       "sha": "f054d1b8018721bd997d99cbb918a7b17bf098a4"
+    },
+    "target": {
+      "tag": "v0.1.2-nightly.20261022.3541",
+      "sha": "044f07257c9684ae4543bd1e1ebf9c394e9e3830"
     }
   },
   "fork": {
-    "base": "d52b75db7805abad788f0a8f15b2cc5490953813"
+    "base": "53878a5b3c55acd5f27acd2dc01709e11aaacc05"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "248f4a63033fe33a61d05f3d70da6ddf0c485132"
+    "blob": "47e1903c8f0b4a429c98ecc7fa4bbefe6a25bf28"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.2-nightly.20261022.3526@1792674910",
-  "reviewedAt": "2026-10-22T13:54:52Z",
+  "attempt": "v0.1.2-nightly.20261022.3541@1792700154",
+  "reviewedAt": "2026-10-22T21:38:56Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:aa68b53f-4c33-4660-abe5-dd27507799e3",
-    "model": "claude-sonnet-5-5"
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:ace81a92-aa84-461e-8a32-0eb0566f8574",
+    "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 10,
+    "upstreamCommits": 8,
     "entriesConsidered": [
-      "agent-process-ledger",
-      "compact-line",
+      "web-client-customisation",
       "mobile-fork-screens",
-      "live-response-streaming",
-      "snapshot-overlay",
-      "device-composer",
-      "build-items-hq"
+      "nightly-app-icon",
+      "account-pools",
+      "desktop-fork-build",
+      "subagent-return-chip"
     ],
     "areas": [
-      "All 10 incoming commits (3b95e783..f054d1b8) by subject and stat; thirteen conflicts (mobile Stack, ThreadFeed, ThreadGitControls, ThreadRouteScreen, useThreadHeaderOptions; ClaudeAdapterV2 and its query-runner test; serverSettings and test; ChatView, TimelineUserMessageRow, useTimelineFollow; pnpm-lock) resolved against both sides and their record entries",
-      "Server: Claude CLI watcher on server death (#23389) against agent-process-ledger; idle compaction older-client repair (#23454) against compact-line's instance fold; SSH runtime pruning (#23113) as upstream-owned",
-      "Web: ChatView/ThreadTimeline stream split (#23117, #23124) against live-response-streaming, snapshot-overlay and the fork's timeline follow; folded agent message rows (#23135) against the fork's send arrival and continuation rows",
-      "Mobile: draft/thread navigation unification (#23467), folded agent rows, Dynamic Island fix (#23327) against mobile-fork-screens' Build item header, Jujutsu review gating and automation bubble",
-      "Persistence and contracts: no new migrations; settings contract change additive; typecheck tooling change (#23023) and CI setup (#23582) outside fork entries"
+      "All 8 incoming commits (f054d1b8..044f0725) by subject and stat; the merge applied onto the fork base eff034e066 with no conflicts, so every file both sides changed was read in the merged tree: Sidebar.tsx, LegacySidebar.tsx, Sidebar.logic.test.ts and AppSidebarLayout.tsx (the reveal query selectors against the fork's raised-card row and machine icon), apps/mobile/app.config.ts (version against the nightly Android colours), __root.tsx (upstream's removal of the provider update launch notification beside the fork's SnapShot, screen recording and project theme mounts) and knip.jsonc (upstream's fixture entries beside the fork's test-landing entry)",
+      "Web: sidebar reveal after history navigation and command palette (#23519), toast content using the full accordion width (#23777), provider update toasts no longer popping on launch (#23233, with ProviderUpdateLaunchNotification.tsx/.environments.ts/ProviderUpdatePrimaryNotification.tsx/ProviderUpdateEnvironmentRows.tsx/providerUpdateDismissal.ts removed and the logic file trimmed; the fork-visible pill and update-everything call paths import only surviving exports), subagent bar container-query layout (#23502), tool images beyond the preview limit marked in the work log (#23595)",
+      "Server and shared: inherited Codex totals in the usage scan (#23729, scan cache v9 with a v8 re-parse only for entries holding malformed records), asynchronous Windows startup-environment probe (#21720); no migrations in this tag",
+      "Mobile and build: app version 2.1.0 only; new upstream replay fixture scripts/fixtures/issue-16534, wired into knip with upstream's own entry",
+      "t3peach advanced by three fork commits while this merge was being reconciled (f1c10c7e3 session tool listings, 447ea920 managed-role enforcement, 8f97cd2b selection highlight); none touches a file this tag changed, so the merge was rebased onto 8f97cd2b with no conflict against them and their record entries (session-tool-listings, managed-delegation) are unaffected by this update"
     ],
     "exclusions": [
       {
@@ -51,96 +50,128 @@
         "why": "No browser or device pass in this unattended webhook run; covered by typecheck, focused tests and the landing gate"
       },
       {
-        "what": "Browser tests (MessagesTimeline.browser.test.tsx)",
+        "what": "Browser tests (MessagesTimeline.browser.test.tsx) and the rest of the gate's test selection",
         "why": "Run by the landing gate, not locally"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "agent-process-ledger",
-      "upstream": "A Claude agent stops when the server that started it dies (#23389)",
-      "decision": "adapt",
+      "entry": "web-client-customisation",
+      "upstream": "#23519 sidebar follows the active thread after history navigation (routeReveal through AppSidebarLayout, Sidebar and LegacySidebar)",
+      "decision": "adopt",
       "requirements": [
-        "a Claude CLI and its commands stop when its server dies or is killed",
-        "other providers' groups stay recorded and reaped by ProcessGroupLedger"
+        "the selected sidebar row stays the fork's raised card and every row keeps its machine icon",
+        "a reveal only scrolls the open thread's row into view"
       ],
       "evidence": [
-        "ClaudeAdapterV2 uses upstream's spawnClaudeProcessGroup untracked; ClaudeAgentSdkQueryRunner.test.ts and serverSettings.test.ts pass (54)",
-        "apps/server typecheck clean"
+        "merged apps/web/src/components/Sidebar.tsx keeps `machineByEnvironmentId` through to `SidebarThreadRow`, whose rows still set `aria-current`, the selector the reveal queries; the legacy reveal queries `[data-thread-item] [data-active=\"true\"]`, which LegacySidebar still renders",
+        "apps/web/src/components/AppSidebarLayout.tsx passes one `routeReveal` to both sidebars; the fork had not edited that file since 3526",
+        "vp test run apps/web/src/components/Sidebar.logic.test.ts (68 tests over both web files) passed"
       ]
     },
     {
-      "entry": "compact-line",
-      "upstream": "Older clients connect again after idle compaction modes (#23454)",
-      "decision": "retain",
-      "requirements": [
-        "per-instance modelCompactAt folds into the server setting on load",
-        "shipped clients decode compactIdleThreads as a boolean"
-      ],
+      "entry": "nightly-app-icon",
+      "upstream": "chore(mobile): bump app version to 2.1.0 (apps/mobile/app.config.ts)",
+      "decision": "adopt",
+      "requirements": ["the nightly Android background #1F2125 and notification colour #F39B6A stay in PREVIEW_ASSETS"],
       "evidence": [
-        "serverSettings.test.ts keeps the instance fold and adds upstream's idle compaction cases; packages/contracts and shared typecheck clean"
+        "merged apps/mobile/app.config.ts keeps the fork's PREVIEW_ASSETS colours beside `version: repoEnv.T3CODE_MOBILE_VERSION ?? \"2.1.0\"`"
       ]
     },
     {
       "entry": "mobile-fork-screens",
-      "upstream": "Unified draft and thread navigation (#23467) and folded agent message rows (#23135)",
-      "decision": "adapt",
-      "requirements": [
-        "Build item header opens the linked item",
-        "Jujutsu checkouts keep review and diff enabled",
-        "automation bubble keeps its border"
-      ],
+      "upstream": "the same mobile version bump; nothing else in apps/mobile",
+      "decision": "adopt",
+      "requirements": ["the fork's Build item header, workflow badge, release approval card and settings entries are untouched"],
+      "evidence": ["git diff --name-only f054d1b8 044f0725 lists apps/mobile/app.config.ts alone under apps/mobile"]
+    },
+    {
+      "entry": "account-pools",
+      "upstream": "#23729 count initial Codex requests with inherited totals (codexUsage, usageScanCache v9)",
+      "decision": "adopt",
+      "requirements": ["pool routing and the usage card keep reading the same usage sources"],
       "evidence": [
-        "ThreadRouteScreen passes titleContent through ThreadHeader inside ThreadScreenBinding; ThreadGitControls ORs canReview with hasThread; apps/mobile typecheck clean"
+        "apps/server/src/provider/Drivers/codexUsage.test.ts, apps/server/src/usage/usageScanCache.test.ts and usageTranscriptReader.test.ts passed",
+        "UsageService suite passes (39 tests) under a real TMPDIR; the two failures under the default macOS TMPDIR are the /var -> /private/var symlink in the test's own path comparison, present without this tag"
       ]
     },
     {
-      "entry": "live-response-streaming",
-      "upstream": "ChatView no longer re-renders on streamed text (#23117, #23124)",
-      "decision": "retain",
-      "requirements": [
-        "eased anchor and live-edge follow",
-        "calm streaming props reach the timeline"
-      ],
+      "entry": "desktop-fork-build",
+      "upstream": "#21720 probe the Windows startup environment asynchronously (packages/shared/shell.ts)",
+      "decision": "adopt",
+      "requirements": ["the login shell's T3CODE_AGENT_POLICY_ROOT and the build's absent update feed are unchanged"],
       "evidence": [
-        "ChatView passes the fork's timeline props to ThreadTimeline; useTimelineFollow keeps the fork's follow without upstream's tool-activity release; MessagesTimeline.logic and timelineScrollAnchoring tests pass (161 with ChatView.logic); apps/web typecheck clean"
+        "packages/shared/src/shell.test.ts passed (69 tests over three files, 2 skipped)",
+        "the change is the Windows probe inside shell.ts; the fork's build environment is set by scripts/fork-nightly.sh, which it does not touch"
       ]
     },
     {
-      "entry": "snapshot-overlay",
-      "upstream": "ChatView split into ThreadTimeline",
-      "decision": "retain",
-      "requirements": [
-        "overlay presentation shows only the composer and what sits above it",
-        "sent message arrives from the composer"
-      ],
+      "entry": "subagent-return-chip",
+      "upstream": "#23502 subagent bar keeps model and status readable in narrow chat columns (ProviderSubagentBar container queries)",
+      "decision": "adopt",
+      "requirements": ["each subagent still shows once, as its start card updating in place, with return chips in the timeline"],
       "evidence": [
-        "overlay dock, presentation flag and playSendArrival kept in ChatView and TimelineUserMessageRow; apps/web typecheck clean"
+        "merged ProviderSubagentBar.tsx only changes layout classes and adds one screen-reader label; V2LifecycleRow.tsx, MessagesTimeline.tsx and the return-chip components are untouched by this tag"
+      ]
+    },
+    {
+      "entry": null,
+      "upstream": "#23233 provider updates no longer pop toasts on launch (ProviderUpdateLaunchNotification removal)",
+      "decision": "adopt",
+      "requirements": ["the sidebar provider update pill and the update-everything action keep working"],
+      "evidence": [
+        "every surviving import of ProviderUpdateLaunchNotification.logic (SidebarProviderUpdatePill, useUpdateEverything, ProviderSettingsPanel, ProviderUpdatesAction, its own test) resolves to an export the trimmed file still has; grep finds no reference to the removed components",
+        "apps/web/src/components/ProviderUpdateLaunchNotification.logic.test.ts passed"
+      ]
+    },
+    {
+      "entry": null,
+      "upstream": "#23595 mark tool images beyond the preview limit; #23777 toast content uses the full accordion width",
+      "decision": "adopt",
+      "requirements": ["image previews in the work log stay per-item and the toast variant look is unchanged"],
+      "evidence": [
+        "packages/client-runtime/src/work-log/itemDetail.test.ts passed",
+        "the fork had not changed either file since 3526; merged trees take upstream's versions with no fork-side edit lost"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "vp run typecheck (apps/server, apps/web, apps/mobile, packages/contracts, shared, client-runtime, provider-core)",
+      "command": "vp i",
       "result": "passed",
-      "note": "no errors"
+      "note": "lockfile unchanged by this tag; 25 packages linked into the workspace"
     },
     {
-      "command": "vp test run src/serverSettings.test.ts src/orchestration-v2/Adapters/ClaudeAgentSdkQueryRunner.test.ts (apps/server)",
+      "command": "vp test run apps/web/src/components/Sidebar.logic.test.ts apps/web/src/components/ProviderUpdateLaunchNotification.logic.test.ts",
       "result": "passed",
-      "note": "54 passed"
+      "note": "68 tests, 2 files"
     },
     {
-      "command": "vp test run MessagesTimeline.logic.test.ts timelineScrollAnchoring.test.tsx ChatView.logic.test.ts (apps/web)",
+      "command": "vp test run packages/client-runtime/src/work-log/itemDetail.test.ts packages/shared/src/shell.test.ts apps/server/src/provider/Drivers/codexUsage.test.ts",
       "result": "passed",
-      "note": "161 passed"
+      "note": "69 passed, 2 skipped"
     },
     {
-      "command": "MessagesTimeline.browser.test.tsx",
-      "result": "not-run",
-      "note": "browser tests run in the landing gate"
+      "command": "vp test run apps/server/src/usage/UsageService.test.ts apps/server/src/usage/usageScanCache.test.ts apps/server/src/usage/usageTranscriptReader.test.ts apps/server/src/os-jank.test.ts",
+      "result": "passed",
+      "note": "two UsageService failures under the default macOS TMPDIR compare /var with /private/var in their own path assertions ('discovers Pi history in its default home', 'retains Codex reconciliation and partial coverage'); TMPDIR set to a real directory, the whole UsageService suite passes (39 tests), so the failures are the machine's symlinked TMPDIR, not this tag"
+    },
+    {
+      "command": "node scripts/test-landing.ts --plan",
+      "result": "passed",
+      "note": "the gate lists and selects its tests against the merged config"
+    },
+    {
+      "command": "pnpm exec vp run --filter @t3tools/web typecheck",
+      "result": "passed",
+      "note": "exit 0"
+    },
+    {
+      "command": "node scripts/fork-upstream-receipt.ts verify --rev <candidate> --landed <t3peach@origin>",
+      "result": "passed",
+      "note": "receipt, record blob and policy hash agree at the candidate's last commit"
     }
   ],
   "result": "reconciled"
