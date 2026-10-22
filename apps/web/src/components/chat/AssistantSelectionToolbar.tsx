@@ -14,6 +14,7 @@ import {
 } from "~/lib/assistantTextSelection";
 import {
   isSelectionRectVisible,
+  markSelectionCoveredChips,
   observeSelectionActions,
   resolveSelectionActionPlacement,
 } from "~/lib/selectionActions";
@@ -168,11 +169,15 @@ export function AssistantSelectionToolbar({
       event.stopPropagation();
       firstAction.focus({ preventScroll: true });
     };
+    const coverChips = () => markSelectionCoveredChips(viewport, window.getSelection());
     document.addEventListener("keydown", focusActions, true);
     document.addEventListener("selectionchange", actions.selectionChanged);
+    document.addEventListener("selectionchange", coverChips);
     return () => {
       document.removeEventListener("keydown", focusActions, true);
       document.removeEventListener("selectionchange", actions.selectionChanged);
+      document.removeEventListener("selectionchange", coverChips);
+      markSelectionCoveredChips(viewport, null);
       actions.dispose();
       actionsRef.current = null;
     };

@@ -28,6 +28,36 @@ export function resolveSelectionActionPosition(options: {
 
 type SelectionRect = { left: number; top: number; right: number; bottom: number };
 
+const SELECTED_CHIP_ATTRIBUTE = "data-selection-covered";
+// Context chips, and markdown file links, whose tooltip anchor renders the chip
+// without the slot attribute.
+const CHIP_SELECTOR = '[data-slot="context-chip"], .chat-markdown-file-link';
+
+/**
+ * A chip's own surface paints over the selection highlight, so a selection that
+ * crosses one reads as broken pieces. Mark the chips the selection covers so
+ * they paint in the highlight colour instead, keeping the highlight one run.
+ */
+export function markSelectionCoveredChips(
+  viewport: HTMLElement,
+  selection: Selection | null,
+): void {
+  for (const chip of viewport.querySelectorAll<HTMLElement>(`[${SELECTED_CHIP_ATTRIBUTE}]`)) {
+    chip.removeAttribute(SELECTED_CHIP_ATTRIBUTE);
+  }
+  if (selection === null || selection.isCollapsed || selection.rangeCount !== 1) return;
+  const range = selection.getRangeAt(0);
+  if (!viewport.contains(range.commonAncestorContainer)) return;
+  const container =
+    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? (range.commonAncestorContainer as Element)
+      : range.commonAncestorContainer.parentElement;
+  if (container === null) return;
+  for (const chip of container.querySelectorAll<HTMLElement>(CHIP_SELECTOR)) {
+    if (range.intersectsNode(chip)) chip.setAttribute(SELECTED_CHIP_ATTRIBUTE, "");
+  }
+}
+
 export const SELECTION_ACTION_EDGE_PX = 8;
 export const SELECTION_ACTION_GAP_PX = 6;
 
