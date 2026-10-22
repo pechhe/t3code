@@ -1,6 +1,13 @@
 import * as PhiBrowser from "../preview/PhiBrowser.ts";
 import * as Option from "effect/Option";
-import { ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  type AgentRole,
+  type AgentToolProfile,
+  ProviderInstanceId,
+  SESSION_TOOL_ENDPOINTS,
+  sessionEndpointKey,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -24,6 +31,8 @@ export interface McpCredentialRequest {
    * token is honored (#7083). Defaults to full access.
    */
   readonly browserToolsAvailable?: boolean;
+  readonly toolProfile?: AgentToolProfile;
+  readonly agentRole?: AgentRole;
   readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly phiBrowserSkillDirectory?: string;
   /**
@@ -130,6 +139,12 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
   const origin = mcpEndpointOrigin(httpServer.address);
   const endpoint = `${origin}/mcp`;
   const managedBrowserEndpoint = `${origin}${MANAGED_BROWSER_MCP_PATH}`;
+  const sessionEndpoints = Object.fromEntries(
+    Object.entries(SESSION_TOOL_ENDPOINTS).map(([key, endpoint]) => [
+      key,
+      `${origin}${endpoint.path}`,
+    ]),
+  ) as Record<keyof typeof SESSION_TOOL_ENDPOINTS, string>;
 
   const hashToken = (token: string) =>
     crypto
@@ -165,6 +180,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const tokenHash = yield* hashToken(rawToken);
       const managedBrowser = request.managedBrowser === true;
       const browserToolsAvailable = managedBrowser || (request.browserToolsAvailable ?? true);
+      const endpointKey = managedBrowser
+        ? undefined
+        : request.toolProfile === undefined && request.agentRole === undefined
+          ? "control"
+          : sessionEndpointKey({ toolProfile: request.toolProfile, agentRole: request.agentRole });
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
         // A retry after a reconnect or server restart arrives on a fresh credential, so request
@@ -187,6 +207,9 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
               ],
         ),
         issuedAt,
+        ...(request.toolProfile === undefined ? {} : { toolProfile: request.toolProfile }),
+        ...(request.agentRole === undefined ? {} : { agentRole: request.agentRole }),
+        ...(endpointKey === undefined ? {} : { endpointKey }),
         ...(managedBrowser
           ? { managedBrowser: true as const, browserBackends: MANAGED_BROWSER_BACKENDS }
           : request.browserBackends === undefined
@@ -207,7 +230,11 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           threadId: scope.thread.threadId,
           providerSessionId,
           providerInstanceId: scope.thread.providerInstanceId,
-          endpoint: managedBrowser ? managedBrowserEndpoint : endpoint,
+          endpoint: managedBrowser
+            ? managedBrowserEndpoint
+            : endpointKey === undefined
+              ? endpoint
+              : sessionEndpoints[endpointKey],
           authorizationHeader: `Bearer ${rawToken}`,
           browserToolsAvailable: scope.capabilities.has("preview"),
           ...(managedBrowser ? { managedBrowser: true } : {}),
@@ -252,6 +279,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
     },
   );
 
+  // oxlint-disable-next-line t3code/prefer-effect-fn -- closes over request state - a predicate closes over the gen.
   const revokeWhere = (predicate: (record: CredentialRecord) => boolean) =>
     Effect.gen(function* () {
       const sessions = yield* SynchronizedRef.modify(state, ({ records }) => {

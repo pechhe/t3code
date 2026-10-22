@@ -44,7 +44,7 @@ it.effect("stores only a token hash, resolves the bearer token, and revokes by t
       providerInstanceId: ProviderInstanceId.make("codex"),
       capabilities: new Set(["preview"]),
     });
-    expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp");
+    expect(issued.config.endpoint).toBe("http://127.0.0.1:43123/mcp/control");
     const token = issued.config.authorizationHeader.replace(/^Bearer\s+/, "");
     expect(token.length).toBeGreaterThan(20);
 
@@ -108,11 +108,11 @@ it.effect("always grants pull-requests and gates browser and device access indep
 it.effect("builds MCP endpoints from the bound server host", () =>
   Effect.gen(function* () {
     const cases = [
-      ["100.64.0.40", "http://100.64.0.40:43123/mcp"],
-      ["0.0.0.0", "http://127.0.0.1:43123/mcp"],
-      ["::", "http://127.0.0.1:43123/mcp"],
-      ["::1", "http://[::1]:43123/mcp"],
-      ["127.0.0.1", "http://127.0.0.1:43123/mcp"],
+      ["100.64.0.40", "http://100.64.0.40:43123/mcp/control"],
+      ["0.0.0.0", "http://127.0.0.1:43123/mcp/control"],
+      ["::", "http://127.0.0.1:43123/mcp/control"],
+      ["::1", "http://[::1]:43123/mcp/control"],
+      ["127.0.0.1", "http://127.0.0.1:43123/mcp/control"],
     ] as const;
 
     for (const [hostname, expectedEndpoint] of cases) {

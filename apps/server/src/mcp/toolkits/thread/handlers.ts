@@ -1,6 +1,5 @@
 import {
   CommandId,
-  type EnvironmentId,
   MessageId,
   type ProjectId,
   type RuntimeRequestId,
@@ -115,7 +114,7 @@ const writesThread = <P extends { readonly threadId?: ThreadId | undefined }, A,
   handle: (params: P) => Effect.Effect<A, E, R>,
 ) => McpToolAccess.writesThreads((params: P) => [params.threadId], handle);
 
-export const layer = McpToolAccess.toLayer(ThreadToolkit, {
+export const handlers = {
   run_scheduled_task_now: McpToolAccess.writesEnvironment((input) =>
     Effect.gen(function* () {
       const scheduler = yield* ScheduledTasks.ScheduledTaskService;
@@ -463,4 +462,6 @@ export const layer = McpToolAccess.toLayer(ThreadToolkit, {
       return { sequence: result.sequence };
     }),
   ),
-});
+} satisfies McpToolAccess.Handlers<typeof ThreadToolkit.tools>;
+
+export const layer = McpToolAccess.toLayer(ThreadToolkit, handlers);

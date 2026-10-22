@@ -341,12 +341,19 @@ export const layerWithOptions = (
               browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
               phiBrowserSkillDirectory: undefined,
               managedBrowser: false,
+              toolProfile: undefined,
+              agentRole: undefined,
             };
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
             const thread = yield* projectionStore.getThread(threadId);
-            // A Phi-pinned managed task reaches only its own narrow browser endpoint.
-            const managedBrowser = usesPhi(thread.agentTask?.toolProfile);
+            // A ui-worker drives Phi beside its writing, so it keeps the narrow
+            // browser endpoint. The browser and ui-verifier roles use the general
+            // endpoint whose listing includes the preview family.
+            const managedBrowser =
+              thread.agentTask?.role === "ui-worker" && usesPhi(thread.agentTask?.toolProfile);
+            const toolProfile = thread.agentTask?.toolProfile;
+            const agentRole = thread.agentTask?.role;
             const entries = Object.values(settings.projectSettingsOverrides);
             const browserOverridden = entries.some(
               (entry) => entry.enableAgentBrowserAccess !== undefined,
@@ -365,6 +372,8 @@ export const layerWithOptions = (
                   browserBackends: settings.agentBrowserBackends,
                   phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
                   managedBrowser,
+                  toolProfile,
+                  agentRole,
                 };
             }
             const effective = resolveProjectSettings(settings, thread.projectId).settings;
@@ -374,6 +383,8 @@ export const layerWithOptions = (
               phiBrowserSkillDirectory: settings.phiBrowserSkillDirectory,
               device: effective.enableAgentDeviceAccess,
               managedBrowser,
+              toolProfile,
+              agentRole,
             };
           }).pipe(
             Effect.catch((cause) =>
@@ -387,6 +398,8 @@ export const layerWithOptions = (
                   browserBackends: DEFAULT_AGENT_BROWSER_BACKENDS,
                   phiBrowserSkillDirectory: undefined,
                   managedBrowser: false,
+                  toolProfile: undefined,
+                  agentRole: undefined,
                 }),
               ),
             ),
@@ -506,8 +519,13 @@ export const layerWithOptions = (
                 const accessSettings = yield* agentAccessSettings(threadId);
                 const { browser: browserToolsAvailable, device: deviceToolsAvailable } =
                   accessSettings;
-                const { browserBackends, phiBrowserSkillDirectory, managedBrowser } =
-                  accessSettings;
+                const {
+                  browserBackends,
+                  phiBrowserSkillDirectory,
+                  managedBrowser,
+                  toolProfile,
+                  agentRole,
+                } = accessSettings;
                 // A managed browser task whose project no longer allows Phi gets no credential.
                 if (
                   managedBrowser &&
@@ -552,7 +570,9 @@ export const layerWithOptions = (
                     resolved.capabilities.has("preview") ===
                       (managedBrowser || browserToolsAvailable) &&
                     resolved.capabilities.has("device") ===
-                      (!managedBrowser && deviceToolsAvailable)
+                      (!managedBrowser && deviceToolsAvailable) &&
+                    resolved.toolProfile === toolProfile &&
+                    resolved.agentRole === agentRole
                   ) {
                     // Backend defaults and skill configuration apply to the
                     // next session. Rotating this live session would revoke its
@@ -567,6 +587,8 @@ export const layerWithOptions = (
                   providerInstanceId,
                   browserToolsAvailable,
                   capabilities,
+                  ...(toolProfile === undefined ? {} : { toolProfile }),
+                  ...(agentRole === undefined ? {} : { agentRole }),
                   ...(managedBrowser ? { managedBrowser: true } : {}),
                   ...(browserBackends === undefined ? {} : { browserBackends }),
                   ...(phiBrowserSkillDirectory === undefined ? {} : { phiBrowserSkillDirectory }),

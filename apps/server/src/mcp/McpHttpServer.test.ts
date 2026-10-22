@@ -347,7 +347,10 @@ it.effect("refuses preview tools to a client outside a thread before they run", 
       client: { sessionId: "session-1", label: "Claude Code", access: "read-only" as const },
     };
     const click = yield* server
-      .callTool({ name: "preview_click", arguments: { locator: "text=Send" } })
+      .callTool({
+        name: "preview_interact",
+        arguments: { action: "click", locator: "text=Send" },
+      })
       .pipe(
         Effect.provideService(McpInvocationContext.McpInvocationContext, readOnly),
         Effect.provideService(McpSchema.McpServerClient, client),

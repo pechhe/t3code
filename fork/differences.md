@@ -606,3 +606,15 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Retire when:** upstream stops duplicating the subagent card for its notification.
 - **Decision:** `retain` (#4329, 2026-10-20; extended by #4360, 2026-10-21).
 - **Owner:** Spec #4329, Spec #4360.
+
+### session-tool-listings
+
+- **Kind:** durable extension
+- **Why:** Every harness pays for every declared MCP tool on every turn. A single full catalogue cost about 190k characters of tool schemas; an orchestrator thread needs its control plane, and only Phi roles need the browser family.
+- **Requirements:** `tools/list` is decided per thread before any harness starts, from the thread's `AgentToolProfile` and role; ordinary threads list the control plane only (no preview, device, experiments, queue or worktree families); `phi` and `implementation-phi` list the preview family (browser, ui-verifier and ui-worker); `ui-verifier` also lists device; source/implementation/research profiles list worktree and project basics, and `web-research` lists experiments; the project browser setting remains permission to call, not permission to list. Codex, Claude and pi all read the same credential endpoint and therefore the same list. The pi bridge keeps `deferred` exposure as an optimisation but no longer eagerly loads the catalogue for OpenAI-compatible gateways. Preview interaction is one `preview_interact` action tool, `update_scheduled_task` advertises only the shared schedule shape, experiments stay research-only, and pi collapses `anyOf: [X, null]` in declared parameter schemas.
+- **Integration points:** `SESSION_TOOL_ENDPOINTS` and `sessionEndpointKey` in `packages/contracts/src/mcpToolPolicy.ts`; `McpSessionRegistry.issue` selects the credential endpoint from `agentAccessSettings`'s `toolProfile`/`agentRole`; `McpHttpServer` builds one fresh MCP server per session endpoint and filters each toolkit's tools and handlers by family; `ProviderSessionManager.prepareMcpSession`; the Codex, Claude and pi MCP config builders; pi `reconcileDiscovery`; preview tools/handlers and `MANAGED_BROWSER_TOOL_NAMES`.
+- **Proof:** `apps/server/src/mcp/ToolSessionPolicy.test.ts` (payload budget, per-role families, all three harness configs use the same endpoint), preview tools tests, managed-browser tool list tests, `McpSessionRegistry.test.ts`, `McpHttpServer.test.ts`.
+- **Upstream:** none known; upstream registers every MCP toolkit on one endpoint. Propose the family table upstream if it adopts session-scoped listings.
+- **Retire when:** upstream scopes MCP tools per session or per role with the same coverage.
+- **Constraints:** external OAuth MCP clients keep the legacy full `/mcp` catalogue. A new tool must be assigned a family by this table; a mixed toolkit must be filtered by its handlers, not just its name. The `queue` family is reachable from workspace and research profiles, not the ordinary control plane. The ordinary control plane deliberately omits the attachment, terminal, pull-request and project-admin families, which stay on the workspace profile; `html_render` and `html_preview` travel together in control.
+- **Owner:** no open item.

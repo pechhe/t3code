@@ -173,7 +173,7 @@ describe("Pi MCP tool exposure", () => {
     assert.equal(bridge.requests.at(-1)?.method, "tools/call");
   });
 
-  it("restores gateway declarations after model switches and older tree loadouts without excluded tools", async () => {
+  it("does not eagerly declare the catalogue for a completions gateway", async () => {
     const bridge = await loadMcpBridge({
       modern: true,
       toolSearchAvailable: true,
@@ -185,19 +185,11 @@ describe("Pi MCP tool exposure", () => {
     await bridge.handlers.get("model_select")!(event, gatewayContext);
     bridge.restoreActiveTools(["read", "mcp__t3-code__task_status"]);
     await bridge.handlers.get("session_tree")!(event, gatewayContext);
-    assert.deepEqual(bridge.getActiveTools(), [
-      "read",
-      "mcp__t3-code__task_status",
-      "tool_search",
-      "mcp__t3-code__orchestrator_capabilities",
-      "mcp__t3-code__preview_snapshot",
-    ]);
-    await bridge.handlers.get("model_select")!(event, discoveryContext);
+    assert.deepEqual(bridge.getActiveTools(), ["read", "mcp__t3-code__task_status", "tool_search"]);
     assert.equal(
       bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot")?.exposure,
       "deferred",
     );
-    assert.include(bridge.getActiveTools(), "mcp__t3-code__preview_snapshot");
   });
 
   it.each(["legacy Pi", "disabled tool search"])(

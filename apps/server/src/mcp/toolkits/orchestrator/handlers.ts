@@ -1,6 +1,7 @@
-import { type EnvironmentId, OrchestratorMcpFailure } from "@t3tools/contracts";
+import { OrchestratorMcpFailure, OrchestratorMcpSchedule } from "@t3tools/contracts";
 import { OrchestratorToolkit } from "./tools.ts";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import { readCaller } from "../../threadAccess.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
@@ -9,7 +10,9 @@ import * as OrchestratorMcpService from "../../OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 
-const handlers = {
+const decodeScheduledTaskSchedule = Schema.decodeUnknownEffect(OrchestratorMcpSchedule);
+
+export const handlers = {
   agent_task_outcome: McpToolAccess.writes((input) =>
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
@@ -85,7 +88,19 @@ const handlers = {
       Effect.gen(function* () {
         const scope = yield* McpInvocationContext.McpInvocationContext;
         const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-        return yield* service.scheduleTask(scope, input);
+        const { schedule, ...rest } = input;
+        return yield* service.scheduleTask(scope, {
+          ...rest,
+          schedule: yield* decodeScheduledTaskSchedule(schedule).pipe(
+            Effect.mapError(
+              () =>
+                new OrchestratorMcpFailure({
+                  code: "invalid_request",
+                  message: "schedule must use the shape schedule_task accepts.",
+                }),
+            ),
+          ),
+        });
       }),
   ),
   list_scheduled_tasks: McpToolAccess.reads((input) =>
@@ -99,7 +114,23 @@ const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.updateScheduledTask(scope, input);
+      const { schedule, ...rest } = input;
+      return yield* service.updateScheduledTask(scope, {
+        ...rest,
+        ...(schedule === undefined
+          ? {}
+          : {
+              schedule: yield* decodeScheduledTaskSchedule(schedule).pipe(
+                Effect.mapError(
+                  () =>
+                    new OrchestratorMcpFailure({
+                      code: "invalid_request",
+                      message: "schedule must use the shape schedule_task accepts.",
+                    }),
+                ),
+              ),
+            }),
+      });
     }),
   ),
   delete_scheduled_task: McpToolAccess.writes((input) =>

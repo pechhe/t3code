@@ -1,29 +1,21 @@
 import {
   OrchestratorMcpFailure,
   ToolActivityIcon,
-  PreviewAutomationClickInput,
   PreviewAutomationDialogInput,
-  PreviewAutomationDragInput,
   PreviewAutomationError,
   PreviewAutomationEvaluateInput,
-  PreviewAutomationHoverInput,
   PreviewAutomationNavigateInput,
   PreviewAutomationOpenInput,
-  PreviewAutomationPressInput,
   PreviewAutomationRecordingArtifact,
   PreviewAutomationRecordingStatus,
   PreviewAutomationResizeInput,
   PreviewAutomationResizeResult,
-  PreviewAutomationScrollInput,
-  PreviewAutomationSelectInput,
-  PreviewAutomationSelectResult,
   PreviewAutomationSetColorSchemeInput,
   PreviewAutomationSetColorSchemeResult,
   PreviewAutomationSnapshot,
   PreviewAutomationStatus,
   PreviewAutomationSnapshotInput,
   PreviewAutomationTabTargetInput,
-  PreviewAutomationTypeInput,
   PreviewAutomationUploadInput,
   PreviewAutomationWaitForInput,
 } from "@t3tools/contracts";
@@ -162,62 +154,92 @@ export const PreviewSnapshotTool = safeBrowserTool(
   }).annotate(Tool.Title, "Inspect browser page"),
 );
 
-const PreviewClickTool = browserTool(
-  Tool.make("preview_click", {
+const PreviewInteractTool = browserTool(
+  Tool.make("preview_interact", {
     description:
-      "Click exactly one target in the tab selected by tabId, or this agent session's current tab when omitted. Prefer a Playwright locator; selector accepts legacy CSS; x and y must be supplied together. Set button=right for a context menu or clickCount=2 for a double-click; server browser tabs only.",
-    parameters: PreviewAutomationClickInput,
-    success: PreviewActionResult,
-    failure: PreviewToolFailure,
-    dependencies,
-  }).annotate(Tool.Title, "Click preview page"),
-);
-
-const PreviewTypeTool = browserTool(
-  Tool.make("preview_type", {
-    description:
-      "Insert literal text into one input in the tab selected by tabId, or this agent session's current tab when omitted. Prefer a Playwright locator; set clear=true to replace existing text.",
-    parameters: PreviewAutomationTypeInput,
-    success: PreviewActionResult,
-    failure: PreviewToolFailure,
-    dependencies,
-  }).annotate(Tool.Title, "Type into preview page"),
-);
-
-const PreviewHoverTool = safeBrowserTool(
-  Tool.make("preview_hover", {
-    description:
-      "Move the mouse over exactly one target in the tab selected by tabId, or this agent session's current tab when omitted, to reveal hover menus and tooltips. Server browser tabs only.",
-    parameters: PreviewAutomationHoverInput,
-    success: PreviewActionResult,
-    failure: PreviewToolFailure,
-    dependencies,
-  }).annotate(Tool.Title, "Hover preview page"),
-);
-
-const PreviewSelectTool = browserTool(
-  Tool.make("preview_select", {
-    description:
-      "Choose options in one native <select> in the tab selected by tabId, or this agent session's current tab when omitted, by option value or visible label. Custom dropdowns are not <select>; click them open and click the option instead. Server browser tabs only.",
-    parameters: PreviewAutomationSelectInput,
+      "Run one interaction in the tab selected by tabId, or this agent session's current tab. action chooses it: click (one target, button/clickCount), type (text, clear), press (key, modifiers), hover, select (values), drag (source and target), or scroll (deltaX/deltaY). Target with locator, selector, or x/y for click and hover; locator or selector for the rest. Server browser tabs only.",
+    parameters: Schema.Struct({
+      ...PreviewAutomationTabTargetInput.fields,
+      action: Schema.Literals([
+        "click",
+        "type",
+        "press",
+        "hover",
+        "select",
+        "drag",
+        "scroll",
+      ]).annotate({
+        description: "The interaction to perform.",
+      }),
+      locator: Schema.optional(Schema.String).annotate({
+        description: "Playwright selector, for example aria-ref=<ref> or role=button[name='Send'].",
+      }),
+      selector: Schema.optional(Schema.String).annotate({
+        description: "Legacy CSS selector. Prefer locator.",
+      }),
+      x: Schema.optional(Schema.Finite).annotate({
+        description: "Viewport X coordinate for click or hover. Must be paired with y.",
+      }),
+      y: Schema.optional(Schema.Finite).annotate({
+        description: "Viewport Y coordinate for click or hover. Must be paired with x.",
+      }),
+      timeoutMs: Schema.optional(
+        Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
+          description: "Maximum wait in milliseconds. Defaults to 15000; maximum 60000.",
+        }),
+      ),
+      button: Schema.optional(
+        Schema.Literals(["left", "right", "middle"]).annotate({
+          description:
+            "Mouse button for action=click. Defaults to left; right opens the page context menu.",
+        }),
+      ),
+      clickCount: Schema.optional(
+        Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 3 })).annotate({
+          description: "1 for a click, 2 for a double-click, 3 for a triple-click. Defaults to 1.",
+        }),
+      ),
+      text: Schema.optional(Schema.String).annotate({
+        description: "Literal text to insert for action=type.",
+      }),
+      clear: Schema.optional(Schema.Boolean).annotate({
+        description: "Clear the input before typing. Defaults to false.",
+      }),
+      values: Schema.optional(Schema.Array(Schema.String)).annotate({
+        description: "Option values or labels for action=select. An empty list clears it.",
+      }),
+      source: Schema.optional(Schema.String).annotate({
+        description: "Locator of the element to drag for action=drag.",
+      }),
+      target: Schema.optional(Schema.String).annotate({
+        description: "Locator to drop onto for action=drag.",
+      }),
+      key: Schema.optional(Schema.String).annotate({
+        description: "Key name for action=press, such as Enter, Escape, Tab, or a character.",
+      }),
+      modifiers: Schema.optional(
+        Schema.Array(Schema.Literals(["Alt", "Control", "Meta", "Shift"])).annotate({
+          description: "Modifier keys held while pressing for action=press.",
+        }),
+      ),
+      deltaX: Schema.optional(Schema.Finite).annotate({
+        description: "Horizontal scroll delta for action=scroll. Positive scrolls right.",
+      }),
+      deltaY: Schema.optional(Schema.Finite).annotate({
+        description: "Vertical scroll delta for action=scroll. Positive scrolls down.",
+      }),
+    }),
     success: Schema.Struct({
-      ...PreviewAutomationSelectResult.fields,
       ...presentationFields,
+      selected: Schema.optional(
+        Schema.Array(Schema.String).annotate({
+          description: "The values now selected for action=select.",
+        }),
+      ),
     }),
     failure: PreviewToolFailure,
     dependencies,
-  }).annotate(Tool.Title, "Select preview option"),
-);
-
-const PreviewDragTool = browserTool(
-  Tool.make("preview_drag", {
-    description:
-      "Drag one element onto another in the tab selected by tabId, or this agent session's current tab when omitted. Server browser tabs only.",
-    parameters: PreviewAutomationDragInput,
-    success: PreviewActionResult,
-    failure: PreviewToolFailure,
-    dependencies,
-  }).annotate(Tool.Title, "Drag in preview page"),
+  }).annotate(Tool.Title, "Interact with preview page"),
 );
 
 const PreviewUploadTool = browserTool(
@@ -229,28 +251,6 @@ const PreviewUploadTool = browserTool(
     failure: PreviewToolFailure,
     dependencies,
   }).annotate(Tool.Title, "Upload files to preview page"),
-);
-
-const PreviewPressTool = browserTool(
-  Tool.make("preview_press", {
-    description:
-      "Press one keyboard key in the tab selected by tabId, or this agent session's current tab when omitted. Examples: {key:'Enter'}, {key:'Escape'}, or {key:'a',modifiers:['Meta']}.",
-    parameters: PreviewAutomationPressInput,
-    success: PreviewActionResult,
-    failure: PreviewToolFailure,
-    dependencies,
-  }).annotate(Tool.Title, "Press key in preview page"),
-);
-
-const PreviewScrollTool = safeBrowserTool(
-  Tool.make("preview_scroll", {
-    description:
-      "Scroll the tab selected by tabId, or this agent session's current tab when omitted. Positive deltaY scrolls down and positive deltaX scrolls right; a locator/selector targets a container.",
-    parameters: PreviewAutomationScrollInput,
-    success: PreviewActionResult,
-    failure: PreviewToolFailure,
-    dependencies,
-  }).annotate(Tool.Title, "Scroll preview page"),
 );
 
 /**
@@ -345,14 +345,8 @@ export const PreviewToolkit = Toolkit.make(
   PreviewResizeTool,
   PreviewSetAppearanceTool,
   PreviewSnapshotTool,
-  PreviewClickTool,
-  PreviewTypeTool,
-  PreviewHoverTool,
-  PreviewSelectTool,
-  PreviewDragTool,
+  PreviewInteractTool,
   PreviewUploadTool,
-  PreviewPressTool,
-  PreviewScrollTool,
   PreviewEvaluateTool,
   PreviewWaitForTool,
   PreviewRecordingStartTool,
@@ -368,14 +362,8 @@ export const PreviewStandardToolkit = Toolkit.make(
   PreviewNavigateTool,
   PreviewResizeTool,
   PreviewSetAppearanceTool,
-  PreviewClickTool,
-  PreviewTypeTool,
-  PreviewHoverTool,
-  PreviewSelectTool,
-  PreviewDragTool,
+  PreviewInteractTool,
   PreviewUploadTool,
-  PreviewPressTool,
-  PreviewScrollTool,
   PreviewEvaluateTool,
   PreviewWaitForTool,
   PreviewRecordingStartTool,

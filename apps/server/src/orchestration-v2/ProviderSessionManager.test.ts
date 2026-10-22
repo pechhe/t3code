@@ -266,7 +266,7 @@ function makeThreadCreatedEvent(input: {
       ...(input.managedBrowser
         ? {
             agentTask: {
-              role: "browser" as const,
+              role: "ui-worker" as const,
               taskClass: "ui" as const,
               workId: "browser-work",
               attemptId: "1",
@@ -277,7 +277,7 @@ function makeThreadCreatedEvent(input: {
               policyRevision: "test",
               briefHash: "c".repeat(64),
               sourceAccess: "read-only" as const,
-              toolProfile: "phi" as const,
+              toolProfile: "implementation-phi" as const,
               requested: modelSelection,
               assigned: null,
               effective: modelSelection,
@@ -1633,7 +1633,7 @@ it.effect(
         assert.isDefined(captured);
         assert.equal(captured?.threadId, threadId);
         assert.equal(captured?.providerInstanceId, modelSelection.instanceId);
-        assert.equal(captured?.endpoint, "http://127.0.0.1:43123/mcp");
+        assert.equal(captured?.endpoint, "http://127.0.0.1:43123/mcp/control");
         const token = captured?.authorizationHeader.replace(/^Bearer\s+/, "");
         assert.isDefined(token);
         const resolved = yield* registry.resolve(token!);

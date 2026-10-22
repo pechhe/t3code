@@ -20,7 +20,11 @@ import {
   OrchestratorMcpFailure,
   PreviewAutomationError,
   type RunId,
+  SESSION_TOOL_ENDPOINTS,
+  type SessionEndpointKey,
+  type ToolFamily,
   ThreadId,
+  toolFamily,
 } from "@t3tools/contracts";
 
 import packageJson from "../../package.json" with { type: "json" };
@@ -165,10 +169,15 @@ const normalizeMcpHttpResponse = (
 const looksLikeProviderToken = (token: string) => token.length > 0 && !token.includes(".");
 
 /**
- * `/mcp` serves every credential except a managed browser task's, and `/mcp/browser` serves only
- * that one, so a task's token cannot reach the general toolkits and no other token can reach it.
+ * `/mcp` serves only external client credentials, each thread session endpoint serves only the
+ * credential whose role matches its path, and `/mcp/browser` serves only a managed browser task's.
+ * A credential cannot reach another endpoint's toolkits.
  */
-const makeMcpAuthMiddleware = (endpoint: "general" | "managed-browser") =>
+// oxlint-disable-next-line t3code/prefer-effect-fn -- closes over request state - returns the per-request middleware.
+const makeMcpAuthMiddleware = (
+  endpoint: "general" | "managed-browser" | "session",
+  sessionEndpoint?: SessionEndpointKey,
+) =>
   Effect.gen(function* () {
     const registry = yield* McpSessionRegistry.McpSessionRegistry;
     const clients = yield* Effect.serviceOption(McpClientAuthenticator);
@@ -184,11 +193,18 @@ const makeMcpAuthMiddleware = (endpoint: "general" | "managed-browser") =>
         (Option.isSome(clients) && token.length > 0
           ? yield* clients.value.authenticate(request)
           : undefined);
-      if (
+      const onRightEndpoint =
         invocation !== undefined &&
-        (invocation.managedBrowser === true) !== (endpoint === "managed-browser")
-      ) {
-        yield* Effect.logWarning("rejected MCP request on the wrong endpoint", { endpoint });
+        (endpoint === "managed-browser"
+          ? invocation.managedBrowser === true
+          : endpoint === "general"
+            ? invocation.managedBrowser !== true && invocation.endpointKey === undefined
+            : invocation.managedBrowser !== true && invocation.endpointKey === sessionEndpoint);
+      if (invocation !== undefined && !onRightEndpoint) {
+        yield* Effect.logWarning("rejected MCP request on the wrong endpoint", {
+          endpoint,
+          sessionEndpoint,
+        });
         return unauthorized({ request, presentedToken: true, offerOAuth: false });
       }
       if (!invocation) {
@@ -218,6 +234,11 @@ const layerMcpAuthMiddleware = HttpRouter.middleware<{
 const layerManagedBrowserAuthMiddleware = HttpRouter.middleware<{
   provides: McpInvocationContext.McpInvocationContext;
 }>()(makeMcpAuthMiddleware("managed-browser")).layer;
+
+const layerSessionAuthMiddleware = (key: SessionEndpointKey) =>
+  HttpRouter.middleware<{
+    provides: McpInvocationContext.McpInvocationContext;
+  }>()(makeMcpAuthMiddleware("session", key)).layer;
 
 /**
  * Claude Code moves an MCP result above its output limit to a file and hands
@@ -1010,6 +1031,31 @@ export const toolkitRegistration = <Tools extends Record<string, Tool.Any>, EX, 
   return registered.pipe(Layer.provide(McpToolAccess.HandlersLayer.layer(handlers)));
 };
 
+/**
+ * Registers one session endpoint's share of a toolkit: only the tools whose
+ * family the endpoint lists, with only their handlers. The full toolkit stays
+ * available to the legacy endpoint and to tests.
+ */
+const sessionToolkitRegistration = <Tools extends Record<string, Tool.Any>>(
+  toolkit: Toolkit.Toolkit<Tools>,
+  handlers: McpToolAccess.Handlers<Tools>,
+  families: ReadonlySet<ToolFamily>,
+) => {
+  const entries = Object.entries(toolkit.tools).filter(([name]) => families.has(toolFamily(name)));
+  if (entries.length === 0) return Layer.empty;
+  const filtered = Toolkit.make(
+    ...entries.map(([, tool]) => tool),
+  ) as unknown as Toolkit.Toolkit<Tools>;
+  const selectedHandlers = Object.fromEntries(
+    entries.map(([name]) => [name, (handlers as Record<string, unknown>)[name]]),
+  ) as McpToolAccess.Handlers<Tools>;
+  const layer = McpToolAccess.toLayer(
+    filtered,
+    selectedHandlers,
+  ) as unknown as McpToolAccess.HandlersLayer<Tools, never, never>;
+  return toolkitRegistration(filtered, layer);
+};
+
 const imageToolRegistration = <Tools extends Record<string, Tool.Any>, A, E, R, EX, RX>(
   register: Effect.Effect<A, E, R>,
   handlers: McpToolAccess.HandlersLayer<Tools, EX, RX>,
@@ -1100,6 +1146,90 @@ export const layerDeviceToolkit = Layer.mergeAll(
   layerDeviceScreenshotRegistration,
 );
 
+const layerSessionOrchestrator = (families: ReadonlySet<ToolFamily>) =>
+  sessionToolkitRegistration(OrchestratorToolkit, OrchestratorHandlers.handlers, families).pipe(
+    Layer.provide(layerOrchestratorMcpService),
+    Layer.provide(ThreadMetadataMcpService.layer),
+    Layer.provide(ThreadDirectory.layer),
+  );
+
+const layerSessionThread = (families: ReadonlySet<ToolFamily>) =>
+  sessionToolkitRegistration(ThreadToolkit, ThreadHandlers.handlers, families).pipe(
+    Layer.provide(ThreadDirectory.layer),
+  );
+
+const layerSessionProject = (families: ReadonlySet<ToolFamily>) =>
+  sessionToolkitRegistration(ProjectToolkit, ProjectHandlers.handlers, families).pipe(
+    Layer.provide(WorkspaceProvider.layer),
+  );
+
+const layerSessionHtml = () =>
+  Layer.mergeAll(
+    toolkitRegistration(HtmlRenderToolkit, HtmlHandlers.layerRender),
+    imageToolRegistration(registerHtmlPreview(), HtmlHandlers.layerPreview),
+  ).pipe(Layer.provide(HtmlRender.layer));
+
+const layerSessionPreview = (families: ReadonlySet<ToolFamily>) =>
+  families.has("preview")
+    ? Layer.mergeAll(
+        layerPreviewStandardToolkitRegistration,
+        layerPreviewSnapshotRegistration,
+        layerPreviewControlsRegistration,
+      )
+    : Layer.empty;
+
+const layerSessionDevice = (families: ReadonlySet<ToolFamily>) =>
+  families.has("device")
+    ? Layer.mergeAll(layerDeviceStandardToolkitRegistration, layerDeviceScreenshotRegistration)
+    : Layer.empty;
+
+const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
+  Layer.mergeAll(
+    layerSessionOrchestrator(families),
+    layerSessionThread(families),
+    layerSessionProject(families),
+    layerSessionHtml(),
+    layerSessionPreview(families),
+    layerSessionDevice(families),
+    families.has("workspace") ? layerAttachmentToolkit : Layer.empty,
+    families.has("workspace") ? layerEnvironmentToolkit : Layer.empty,
+    families.has("workspace")
+      ? toolkitRegistration(FleetToolkit, FleetHandlers.layer)
+      : Layer.empty,
+    families.has("workspace")
+      ? toolkitRegistration(TerminalToolkit, TerminalHandlers.layer)
+      : Layer.empty,
+    families.has("workspace") ? layerPullRequestsToolkit : Layer.empty,
+    families.has("worktree") ? layerWorktreeToolkitRegistration : Layer.empty,
+    families.has("experiments")
+      ? toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(
+          Layer.provide(layerOrchestratorMcpService),
+        )
+      : Layer.empty,
+  );
+
+const layerSessionEndpoint = (
+  key: SessionEndpointKey,
+  endpoint: { readonly path: string; readonly families: ReadonlySet<ToolFamily> },
+) =>
+  Layer.fresh(
+    layerSessionToolkits(endpoint.families).pipe(
+      Layer.provideMerge(
+        McpServer.layerHttp({
+          name: "T3 Code",
+          version: packageJson.version,
+          path: endpoint.path as HttpRouter.PathInput,
+          protocols: [McpProtocol.v2025_06_18],
+          allowSessionTermination: true,
+        }).pipe(Layer.provide(layerSessionAuthMiddleware(key))),
+      ),
+    ),
+  );
+
+const sessionEndpointLayers = Object.entries(SESSION_TOOL_ENDPOINTS).map(([key, endpoint]) =>
+  layerSessionEndpoint(key as SessionEndpointKey, endpoint),
+);
+
 export const layerMcpTransport = McpServer.layerHttp({
   name: "T3 Code",
   version: packageJson.version,
@@ -1130,7 +1260,7 @@ export const layerManagedBrowserToolkit = Layer.fresh(
   ),
 );
 
-export const layer = Layer.mergeAll(
+const legacyLayer = Layer.mergeAll(
   layerManagedBrowserToolkit,
   layerPreviewToolkit,
   layerOrchestratorToolkit,
@@ -1149,3 +1279,5 @@ export const layer = Layer.mergeAll(
   layerDeviceToolkit,
   layerHtmlToolkit,
 ).pipe(Layer.provideMerge(layerMcpTransport));
+
+export const layer = Layer.mergeAll(legacyLayer, ...sessionEndpointLayers);
