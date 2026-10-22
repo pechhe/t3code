@@ -260,6 +260,7 @@ const makeTestRelay = Effect.fnUntraced(function* (
     }),
     Effect.provideService(ProjectService.ProjectService, {
       recordHqSync: unused,
+      recordHqUnregistered: unused,
       create: unused,
       bootstrap: unused,
       update: unused,

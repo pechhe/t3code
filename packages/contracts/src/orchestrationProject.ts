@@ -16,6 +16,7 @@ export const OrchestrationProjectShell = Schema.Struct({
   autoPull: Schema.optional(Schema.Boolean),
   hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   hqSyncLocalOnly: Schema.optional(Schema.Boolean),
+  hqUnregisteredKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
   scripts: Schema.Array(ProjectScript),

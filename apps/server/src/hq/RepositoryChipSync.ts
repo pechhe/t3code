@@ -55,24 +55,40 @@ const make = Effect.gen(function* () {
     const repositories = new Map(
       (yield* hq.listRepositories()).map((repository) => [repository.key, repository]),
     );
-    for (const row of yield* store.list()) {
+    for (const listed of yield* store.list()) {
       yield* Effect.gen(function* () {
-        if (row.hqSyncLocalOnly) return;
-        const shell = yield* projects.getShell(row.projectId);
+        const shell = yield* projects.getShell(listed.projectId);
         if (shell._tag === "None") return;
         const key = hqRepositoryKeyOf(shell.value);
-        if (key === null) return;
+        const matched =
+          key === null
+            ? undefined
+            : (repositories.get(key) ??
+              [...repositories.values()].find((record) => record.aliases.includes(key)));
+        // Only a person registers a repository, so a key HQ does not list is never pushed (it would
+        // only be refused); a hand link to one is recorded so settings can say why it is not synced.
+        const unregistered =
+          !listed.hqSyncLocalOnly && !matched && listed.hqRepositoryKey
+            ? listed.hqRepositoryKey
+            : null;
+        let row = listed;
+        if ((listed.hqUnregisteredKey ?? null) !== unregistered) {
+          yield* projects.recordHqUnregistered({
+            commandId: CommandId.make(`hq-repository-unregistered:${yield* crypto.randomUUIDv4()}`),
+            expected: listed,
+            key: unregistered,
+          });
+          const updated = yield* store.get(listed.projectId);
+          if (updated._tag === "None") return;
+          row = updated.value;
+        }
+        if (row.hqSyncLocalOnly || key === null || !matched) return;
         const local = effectiveValue(row);
         const hash = (value: ReturnType<typeof effectiveValue>) =>
           crypto
             .digest("SHA-256", new TextEncoder().encode(JSON.stringify({ key, ...value })))
             .pipe(Effect.map((bytes) => Buffer.from(bytes).toString("hex")));
         const localHash = yield* hash(local);
-        const matched =
-          repositories.get(key) ??
-          [...repositories.values()].find((record) => record.aliases.includes(key));
-        // Only a person registers a repository, so a key HQ does not list is left alone: pushing it would only be refused.
-        if (!matched) return;
         let repository = matched;
         let projectIcon: ProjectIconOverride | undefined;
         // A project with no baseline adopts an HQ record someone has already edited; with no such
@@ -118,7 +134,7 @@ const make = Effect.gen(function* () {
       }).pipe(
         Effect.catch(() =>
           Effect.logWarning("Could not sync a project's HQ repository chip", {
-            projectId: row.projectId,
+            projectId: listed.projectId,
           }),
         ),
       );
@@ -144,6 +160,7 @@ const make = Effect.gen(function* () {
             (event.type === "project.created" ||
               (event.type === "project.meta-updated" &&
                 event.payload.hqSyncedRevision === undefined &&
+                event.payload.hqUnregisteredKey === undefined &&
                 (event.payload.projectIcon !== undefined ||
                   event.payload.hqRepositoryKey !== undefined ||
                   event.payload.hqSyncLocalOnly !== undefined ||

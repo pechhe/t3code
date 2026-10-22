@@ -61,6 +61,7 @@ export const ApplicationProjectMetaUpdatedPayload = Schema.Struct({
   hqSyncLocalOnly: Schema.optional(Schema.Boolean),
   hqSyncedRevision: Schema.optional(Schema.NullOr(Schema.Number)),
   hqSyncedValueHash: Schema.optional(Schema.NullOr(Schema.String)),
+  hqUnregisteredKey: Schema.optional(Schema.NullOr(Schema.String)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(StoredProjectIcon)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),

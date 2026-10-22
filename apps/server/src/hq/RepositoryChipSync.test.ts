@@ -1,6 +1,11 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
-import { EventId, ProjectId, type ApplicationProjectEvent } from "@t3tools/contracts";
+import {
+  type CommandId,
+  EventId,
+  ProjectId,
+  type ApplicationProjectEvent,
+} from "@t3tools/contracts";
 import { deriveProjectIdentity } from "@t3tools/shared/projectIdentity";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -10,7 +15,7 @@ import * as DateTime from "effect/DateTime";
 import * as Stream from "effect/Stream";
 
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
-import { planProjectCommand } from "../orchestration-v2/ProjectCommands.ts";
+import { planProjectCommand, type ProjectCommand } from "../orchestration-v2/ProjectCommands.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as OrchestrationEventStore from "../persistence/OrchestrationEventStore.ts";
@@ -76,6 +81,29 @@ const harness = Effect.gen(function* () {
       type: "project.meta-updated",
       payload: { projectId, updatedAt: now, ...payload },
     });
+  const record = (
+    commandId: CommandId,
+    expected: ProjectStore.ProjectRow,
+    fields: Partial<Extract<ProjectCommand, { type: "project.meta.update" }>>,
+  ) =>
+    Effect.gen(function* () {
+      const row = Option.getOrThrow(yield* store.get(projectId));
+      const event = Result.getOrThrow(
+        planProjectCommand({
+          command: {
+            type: "project.meta.update",
+            commandId,
+            projectId,
+            expectedSyncState: expected,
+            ...fields,
+          },
+          state: { project: row, workspaceOwner: undefined },
+          eventId: base.eventId,
+          now: DateTime.makeUnsafe(now),
+        }),
+      );
+      yield* store.apply({ ...event, sequence: ++sequence });
+    }).pipe(Effect.orDie);
   const sync = yield* RepositoryChipSync.RepositoryChipSync.pipe(
     Effect.provide(
       RepositoryChipSync.layer.pipe(
@@ -131,28 +159,13 @@ const harness = Effect.gen(function* () {
                   Effect.orDie,
                 ),
               recordHqSync: (input) =>
-                Effect.gen(function* () {
-                  const row = Option.getOrThrow(yield* store.get(projectId));
-                  const event = Result.getOrThrow(
-                    planProjectCommand({
-                      command: {
-                        type: "project.meta.update",
-                        commandId: input.commandId,
-                        projectId,
-                        expectedSyncState: input.expected,
-                        hqSyncedRevision: input.revision,
-                        hqSyncedValueHash: input.valueHash,
-                        ...(input.projectIcon === undefined
-                          ? {}
-                          : { projectIcon: input.projectIcon }),
-                      },
-                      state: { project: row, workspaceOwner: undefined },
-                      eventId: base.eventId,
-                      now: DateTime.makeUnsafe(now),
-                    }),
-                  );
-                  yield* store.apply({ ...event, sequence: ++sequence });
-                }).pipe(Effect.orDie),
+                record(input.commandId, input.expected, {
+                  hqSyncedRevision: input.revision,
+                  hqSyncedValueHash: input.valueHash,
+                  ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
+                }),
+              recordHqUnregistered: (input) =>
+                record(input.commandId, input.expected, { hqUnregisteredKey: input.key }),
             }),
           ),
         ),
@@ -173,6 +186,9 @@ const harness = Effect.gen(function* () {
     },
     disconnect: () => {
       connected = false;
+    },
+    reconnect: () => {
+      connected = true;
     },
     fail: () => {
       failed = true;
@@ -350,9 +366,36 @@ it.layer(testLayer)("RepositoryChipSync", (it) => {
       yield* h.edit({ hqRepositoryKey: "pechhe/manual" });
       yield* h.sync;
       assert.isEmpty(h.pushes, "HQ lists no pechhe/manual, so there is nothing to sync");
+      assert.equal((yield* h.row).hqUnregisteredKey, "pechhe/manual");
+      h.disconnect();
+      yield* h.sync;
+      assert.equal(
+        (yield* h.row).hqUnregisteredKey,
+        "pechhe/manual",
+        "kept while HQ is unreachable",
+      );
+      h.reconnect();
       h.hqHas({ ...h.registered, key: "pechhe/manual" });
       yield* h.sync;
       assert.equal(h.pushes[0]?.key, "pechhe/manual");
+      assert.isNull((yield* h.row).hqUnregisteredKey);
+    }),
+  );
+  it.effect("clears the unregistered mark when the link is cleared or kept local", () =>
+    Effect.gen(function* () {
+      const h = yield* harness;
+      yield* h.edit({ hqRepositoryKey: "pechhe/manual" });
+      yield* h.sync;
+      assert.equal((yield* h.row).hqUnregisteredKey, "pechhe/manual");
+      yield* h.edit({ hqSyncLocalOnly: true });
+      yield* h.sync;
+      assert.isNull((yield* h.row).hqUnregisteredKey);
+      yield* h.edit({ hqSyncLocalOnly: false });
+      yield* h.sync;
+      assert.equal((yield* h.row).hqUnregisteredKey, "pechhe/manual");
+      yield* h.edit({ hqRepositoryKey: null });
+      yield* h.sync;
+      assert.isNull((yield* h.row).hqUnregisteredKey);
     }),
   );
   it.effect("offline and disconnected HQ never fail project work", () =>

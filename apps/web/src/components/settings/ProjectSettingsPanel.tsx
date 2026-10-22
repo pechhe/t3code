@@ -515,7 +515,9 @@ function ProjectDetail({
             title="Repository (HQ)"
             description={
               representative.hqRepositoryKey
-                ? "Linked by hand. Clear to match automatically."
+                ? representative.hqUnregisteredKey === representative.hqRepositoryKey
+                  ? "Not synced: HQ has not registered this repository. Register it in HQ and it syncs on the next check."
+                  : "Linked by hand. Clear to match automatically."
                 : `Automatically matched: ${hqRepositoryKeyOf(representative) ?? "No repository detected"}`
             }
             control={

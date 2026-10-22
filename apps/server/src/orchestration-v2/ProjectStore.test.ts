@@ -57,6 +57,7 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
             hqSyncLocalOnly: true,
             hqSyncedRevision: 17,
             hqSyncedValueHash: "baseline-hash",
+            hqUnregisteredKey: "pechhe/yardsmith",
           },
         });
         const synced = Option.getOrThrow(yield* projects.get(projectId));
@@ -67,6 +68,7 @@ it.layer(ProjectStore.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemor
         const shell = Option.getOrThrow(yield* projects.getShell(projectId));
         assert.equal(shell.hqRepositoryKey, "pechhe/yardsmith");
         assert.isTrue(shell.hqSyncLocalOnly);
+        assert.equal(shell.hqUnregisteredKey, "pechhe/yardsmith");
         assert.isFalse("hqSyncedRevision" in shell);
         const rows = yield* sql<{ readonly defaultModelSelection: string | null }>`
           SELECT default_model_selection_json AS "defaultModelSelection"

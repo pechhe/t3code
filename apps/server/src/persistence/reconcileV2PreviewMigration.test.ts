@@ -65,6 +65,7 @@ describe("V2 preview upgrade", () => {
         [83, "UnboundScheduledTaskDefaultWorkspace"],
         [84, "WorkspaceAllocationIntents"],
         [85, "BuildDecisionNotes"],
+        [86, "ProjectHqUnregisteredKey"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -173,6 +174,7 @@ describe("V2 preview upgrade", () => {
         [83, "UnboundScheduledTaskDefaultWorkspace"],
         [84, "WorkspaceAllocationIntents"],
         [85, "BuildDecisionNotes"],
+        [86, "ProjectHqUnregisteredKey"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

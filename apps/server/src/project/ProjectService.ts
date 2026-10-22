@@ -129,6 +129,11 @@ export class ProjectService extends Context.Service<
       readonly valueHash: string;
       readonly projectIcon?: ProjectIconOverride;
     }) => Effect.Effect<void, ProjectServiceError>;
+    readonly recordHqUnregistered: (input: {
+      readonly commandId: CommandId;
+      readonly expected: ProjectStore.ProjectRow;
+      readonly key: string | null;
+    }) => Effect.Effect<void, ProjectServiceError>;
     readonly delete: (input: ProjectDeleteInput) => Effect.Effect<Project, ProjectServiceError>;
     readonly getById: (
       projectId: ProjectId,
@@ -175,6 +180,7 @@ export const make = Effect.gen(function* () {
     autoPull: row.autoPull,
     hqRepositoryKey: row.hqRepositoryKey ?? null,
     hqSyncLocalOnly: row.hqSyncLocalOnly ?? false,
+    hqUnregisteredKey: row.hqUnregisteredKey ?? null,
     projectIcon: row.projectIcon,
     scripts: row.scripts,
     createdAt: row.createdAt,
@@ -584,6 +590,15 @@ export const make = Effect.gen(function* () {
         hqSyncedRevision: input.revision,
         hqSyncedValueHash: input.valueHash,
         ...(input.projectIcon === undefined ? {} : { projectIcon: input.projectIcon }),
+      });
+    }),
+    recordHqUnregistered: Effect.fn("ProjectService.recordHqUnregistered")(function* (input) {
+      yield* commit({
+        type: "project.meta.update",
+        commandId: input.commandId,
+        projectId: input.expected.projectId,
+        expectedSyncState: input.expected,
+        hqUnregisteredKey: input.key,
       });
     }),
     create,

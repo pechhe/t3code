@@ -38,6 +38,7 @@ export interface ProjectMetaUpdateCommand {
   readonly hqSyncLocalOnly?: boolean;
   readonly hqSyncedRevision?: number | null;
   readonly hqSyncedValueHash?: string | null;
+  readonly hqUnregisteredKey?: string | null;
   readonly expectedSyncState?: ProjectRow;
   readonly faviconPath?: string | null;
   readonly projectIcon?: ProjectIconOverride | null;
@@ -233,6 +234,9 @@ export function planProjectCommand(input: {
           ...(command.hqSyncedValueHash === undefined
             ? {}
             : { hqSyncedValueHash: command.hqSyncedValueHash }),
+          ...(command.hqUnregisteredKey === undefined
+            ? {}
+            : { hqUnregisteredKey: command.hqUnregisteredKey }),
           ...(command.faviconPath === undefined ? {} : { faviconPath: command.faviconPath }),
           ...(command.projectIcon === undefined ? {} : { projectIcon: command.projectIcon }),
           ...(command.scripts === undefined ? {} : { scripts: command.scripts }),

@@ -171,6 +171,8 @@ export const Project = Schema.Struct({
   autoPull: Schema.optional(Schema.Boolean),
   hqRepositoryKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   hqSyncLocalOnly: Schema.optional(Schema.Boolean),
+  // The hand-linked key HQ's last sync found unregistered; only a person registers one in HQ.
+  hqUnregisteredKey: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   scripts: Schema.Array(ProjectScript),
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
