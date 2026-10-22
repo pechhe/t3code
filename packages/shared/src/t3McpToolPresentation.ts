@@ -379,7 +379,7 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
   t3_project_delete: tool(["Delete", "Deleting", "Deleted", "a project"], "project-delete"),
   t3_project_clone: tool(["Clone", "Cloning", "Cloned", "a repository"], "project-clone"),
   t3_hq_connection: tool(
-    ["Configure", "Configuring", "Configured", "the HQ connection"],
+    ["Configure", "Configuring", "Configured", "the Weave connection"],
     "project-update",
   ),
   t3_attachment_prepare_upload: tool(

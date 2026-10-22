@@ -1,5 +1,5 @@
 /**
- * Agents act in YardSmith HQ as themselves (pechhe/yardsmith#2478). The environment keeps one HQ
+ * Agents act in Weave, formerly YardSmith HQ, as themselves (pechhe/yardsmith#2478). The environment keeps one HQ
  * connection, the person's HQ delegation, in the server secret store, and every project uses it.
  * Each thread's agent reaches HQ through T3's own `/mcp/yardsmith-hq` endpoint, authenticated by
  * a credential bound to that thread; T3 exchanges the delegation for the agent's HQ token, renews it, and presents it to
@@ -10,6 +10,7 @@
  */
 import type { OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
+import { currentHqOrigin } from "@t3tools/shared/hqOrigins";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -104,11 +105,11 @@ export class HqConnectionError extends Schema.TaggedError<HqConnectionError>()(
   override get message(): string {
     switch (this.reason) {
       case "invalid_origin":
-        return "The HQ origin must be an https URL (http only for localhost).";
+        return "The Weave origin must be an https URL (http only for localhost).";
       case "invalid_delegation":
-        return "That is not an HQ delegation. Use Connect to HQ in T3's Settings → Integrations instead.";
+        return "That is not a Weave delegation. Use Connect to Weave in T3's Settings → Integrations instead.";
       case "store_failed":
-        return "T3 could not read or save its HQ connection.";
+        return "T3 could not read or save its Weave connection.";
     }
   }
 }
@@ -124,16 +125,16 @@ type HqRefusal =
   | "unavailable";
 
 const refusalMessages: Record<HqRefusal, string> = {
-  not_connected: "T3 is no longer connected to YardSmith HQ.",
+  not_connected: "T3 is no longer connected to Weave.",
   invalid_delegation:
-    "HQ refused T3's delegation: it was revoked or has expired. Choose Connect to HQ in T3's Settings → Integrations to sign in again.",
+    "Weave refused T3's delegation: it was revoked or has expired. Choose Connect to Weave in T3's Settings → Integrations to sign in again.",
   agent_revoked:
-    "HQ refused this agent (agent_revoked): the person revoked it in HQ Settings → Connections. This thread can no longer act in HQ.",
+    "Weave refused this agent (agent_revoked): the person revoked it in Weave Settings → Connections. This thread can no longer act in Weave.",
   agent_role_conflict:
-    "HQ refused this agent (agent_role_conflict): this thread already acts in HQ under another role, and a thread keeps the role it first had.",
-  agent_invalid: "HQ refused this agent's identity.",
-  unauthorized: "HQ refused this agent's token.",
-  unavailable: "YardSmith HQ is unreachable. Try again shortly.",
+    "Weave refused this agent (agent_role_conflict): this thread already acts in Weave under another role, and a thread keeps the role it first had.",
+  agent_invalid: "Weave refused this agent's identity.",
+  unauthorized: "Weave refused this agent's token.",
+  unavailable: "Weave is unreachable. Try again shortly.",
 };
 
 const StoredConnection = Schema.fromJsonString(
@@ -331,12 +332,19 @@ const make = Effect.gen(function* () {
       .pipe(Effect.map(bytesToHex), Effect.orDie);
   const storeFailed = () => new HqConnectionError({ reason: "store_failed" });
 
-  const readStored = store
-    .get(STORE_NAME)
-    .pipe(
-      Effect.map(Option.flatMap((bytes) => decodeStored(new TextDecoder().decode(bytes)))),
-      Effect.mapError(storeFailed),
-    );
+  const readStoredState = store.get(STORE_NAME).pipe(
+    Effect.map(Option.flatMap((bytes) => decodeStored(new TextDecoder().decode(bytes)))),
+    Effect.map(
+      Option.map((stored) => ({
+        // Weave answers on one address now, so a connection stored at an older one is used, and
+        // reported, at the current one: its exchange, decisions and links all go there.
+        connection: { ...stored, origin: currentHqOrigin(stored.origin) },
+        superseded: stored.origin !== currentHqOrigin(stored.origin),
+      })),
+    ),
+    Effect.mapError(storeFailed),
+  );
+  const readStored = readStoredState.pipe(Effect.map(Option.map((state) => state.connection)));
 
   const dropToken = (threadId: ThreadId) => {
     const connection = threads.get(threadId);
@@ -470,7 +478,7 @@ const make = Effect.gen(function* () {
         if (status !== 200) return yield* Effect.fail("unavailable" as const);
       }).pipe(
         Effect.catch((reason) =>
-          Effect.logWarning("Could not end T3's YardSmith HQ observer", { reason }),
+          Effect.logWarning("Could not end T3's Weave observer", { reason }),
         ),
       ),
     );
@@ -547,7 +555,7 @@ const make = Effect.gen(function* () {
       );
       if (Option.isNone(stored)) return yield* new HqDecisionError({ reason: "not_connected" });
       const { origin, delegation } = stored.value;
-      if (input.origin !== undefined && input.origin !== origin)
+      if (input.origin !== undefined && currentHqOrigin(input.origin) !== origin)
         return yield* new HqDecisionError({ reason: "other_origin" });
       const connection = yield* connectionKey(stored.value);
       // Never pass an HTTP client error on: it carries the request, and so the delegation.
@@ -655,7 +663,7 @@ const make = Effect.gen(function* () {
           }),
         ),
         Effect.catch((refusal: HqRefusal) =>
-          Effect.logWarning("YardSmith HQ refused a thread's agent", {
+          Effect.logWarning("Weave refused a thread's agent", {
             threadId,
             reason: refusal,
           }).pipe(Effect.as(refusalResponse(request.body, refusal))),
@@ -688,7 +696,7 @@ const make = Effect.gen(function* () {
           if (status !== 200) return yield* Effect.fail<HqRefusal>("unavailable");
         }).pipe(
           Effect.catch((reason: HqRefusal) =>
-            Effect.logWarning("Could not end a thread's YardSmith HQ agent", {
+            Effect.logWarning("Could not end a thread's Weave agent", {
               threadId: agent.threadId,
               reason,
             }),
@@ -737,8 +745,10 @@ const make = Effect.gen(function* () {
   return HqAgentConnections.of({
     connectionChanges: Stream.fromPubSub(connectionChanges),
     connect: Effect.fn("HqAgentConnections.connect")(function* (input) {
-      const origin = normalizeHqOrigin(input.origin);
-      if (origin === null) return yield* new HqConnectionError({ reason: "invalid_origin" });
+      const address = normalizeHqOrigin(input.origin);
+      if (address === null) return yield* new HqConnectionError({ reason: "invalid_origin" });
+      // Stored at the address Weave answers on, so an older one never comes back.
+      const origin = currentHqOrigin(address);
       const delegation = input.delegation.trim();
       if (!DELEGATION_PATTERN.test(delegation))
         return yield* new HqConnectionError({ reason: "invalid_delegation" });
@@ -764,16 +774,18 @@ const make = Effect.gen(function* () {
       for (const connection of threads.values()) connection.token = undefined;
       if (Option.isSome(previous)) yield* releaseObserver(previous.value);
     }).pipe(Effect.withSpan("HqAgentConnections.disconnect")),
-    read: readStored.pipe(
+    read: readStoredState.pipe(
       Effect.flatMap(
         Option.match({
           onNone: () => Effect.succeed(null),
-          onSome: (stored) =>
+          onSome: ({ connection: stored, superseded }) =>
             connectionKey(stored).pipe(
               Effect.map((connection) => ({
                 origin: stored.origin,
                 connection,
-                refused: refusedConnections.has(connection),
+                // Weave refuses a delegation made for an address it no longer answers on, so it is
+                // reported refused from the store itself and survives a restart until replaced.
+                refused: superseded || refusedConnections.has(connection),
               })),
             ),
         }),

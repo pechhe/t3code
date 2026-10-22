@@ -25,8 +25,8 @@ function HqConnectionRow({
 }) {
   const connection = useEnvironmentQuery(buildWorkItems.connection({ environmentId, input: {} }));
   const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  const start = useAtomCommand(buildWorkItems.signInStart, { label: "Connect to HQ" });
-  const disconnect = useAtomCommand(buildWorkItems.disconnect, { label: "Disconnect from HQ" });
+  const start = useAtomCommand(buildWorkItems.signInStart, { label: "Connect to Weave" });
+  const disconnect = useAtomCommand(buildWorkItems.disconnect, { label: "Disconnect from Weave" });
   const view = describeHqConnection(connection.data);
   const { refresh } = connection;
 
@@ -54,8 +54,8 @@ function HqConnectionRow({
       reserved?.close();
       toastManager.add({
         type: "error",
-        title: "Could not open the HQ sign-in page",
-        description: "Allow pop-ups for T3, then choose Connect to HQ again.",
+        title: "Could not open the Weave sign-in page",
+        description: "Allow pop-ups for T3, then choose Connect to Weave again.",
       });
     }
     refresh();
@@ -63,7 +63,7 @@ function HqConnectionRow({
 
   return (
     <SettingsRow
-      title={showLabel ? `Connect to HQ · ${label}` : "Connect to HQ"}
+      title={showLabel ? `Connect to Weave · ${label}` : "Connect to Weave"}
       description={view.description}
       control={
         <div className="flex gap-2">
@@ -73,7 +73,7 @@ function HqConnectionRow({
             disabled={httpBaseUrl === null}
             onClick={() => void connect()}
           >
-            {view.waiting ? "Open HQ again" : view.connected ? "Reconnect" : "Connect to HQ"}
+            {view.waiting ? "Open Weave again" : view.connected ? "Reconnect" : "Connect to Weave"}
           </Button>
           {view.connected ? (
             <Button
@@ -92,11 +92,11 @@ function HqConnectionRow({
   );
 }
 
-/** HQ is connected per environment: the one that starts the sign-in receives the result. */
+/** Weave is connected per environment: the one that starts the sign-in receives the result. */
 export function HqConnectionSettings() {
   const { environments } = useEnvironments();
   return (
-    <SettingsSection id="hq" title="YardSmith HQ">
+    <SettingsSection id="hq" title="Weave">
       {environments.map((environment) => (
         <HqConnectionRow
           key={environment.environmentId}

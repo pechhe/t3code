@@ -88,13 +88,13 @@ export const BuildHome = Schema.Struct({
 export type BuildHome = typeof BuildHome.Type;
 
 /**
- * `not_connected`: T3 is not connected to HQ. `invalid_token`: HQ refused T3's delegation (expired
- * or revoked).
- * `unavailable`: HQ could not be reached; `home` then holds the last Home read, if any.
+ * `not_connected`: T3 is not connected to Weave. `invalid_token`: Weave refused T3's delegation
+ * (expired or revoked).
+ * `unavailable`: Weave could not be reached; `home` then holds the last Home read, if any.
  */
 export const BuildHomeState = Schema.Struct({
   status: Schema.Literals(["not_connected", "invalid_token", "unavailable", "ready"]),
-  /** The HQ T3 is connected to; null when it is not. */
+  /** The Weave T3 is connected to; null when it is not. */
   origin: Schema.NullOr(Schema.String),
   /** HQ's Build Home, for "Open Build in Weave". */
   buildUrl: Schema.NullOr(Schema.String),

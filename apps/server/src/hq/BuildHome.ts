@@ -18,6 +18,7 @@ import {
 } from "@t3tools/contracts";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import { buildItemUrl } from "@t3tools/shared/buildLinks";
+import { sameHqAddress } from "@t3tools/shared/hqOrigins";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -155,12 +156,12 @@ const refusalMessages: Record<string, string> = {
   hold_unavailable: "This hold is no longer available.",
   hold_not_person: "This hold does not need a person to answer it.",
   answer_required: "Add an answer to this hold.",
-  hq_access_denied: "HQ no longer lets this account use Build.",
+  hq_access_denied: "Weave no longer lets this account use Build.",
 };
 
 const hqErrorMessage = (code: string | undefined) =>
   (code === undefined ? undefined : refusalMessages[code]) ??
-  (code === undefined ? "HQ refused that." : `HQ refused that (${code}).`);
+  (code === undefined ? "Weave refused that." : `Weave refused that (${code}).`);
 
 export class BuildHome extends Context.Service<
   BuildHome,
@@ -265,7 +266,7 @@ export const sendBackMessageText = (input: { readonly specLabel: string; readonl
 const notConnected = new BuildHomeError({
   reason: "not_connected",
   message:
-    "T3 is not connected to YardSmith HQ. Connect it in Settings → Integrations → YardSmith HQ → Connect to HQ.",
+    "T3 is not connected to Weave. Connect it in Settings → Integrations → Weave → Connect to Weave.",
 });
 
 const make = Effect.gen(function* () {
@@ -657,7 +658,8 @@ const make = Effect.gen(function* () {
       `delivery:${row.findingId}`,
       Effect.gen(function* () {
         const connected = yield* hq.read.pipe(Effect.orElseSucceed(() => null));
-        if (connected?.origin !== row.hqOrigin) return false;
+        // A finding recorded at an address Weave has moved on from is this Weave's to settle.
+        if (connected === null || !sameHqAddress(row.hqOrigin, connected.origin)) return false;
         let state = row.state;
         let detail = row.detail;
         if (state === "pending") {
@@ -753,7 +755,7 @@ const make = Effect.gen(function* () {
         return yield* Effect.fail(
           new BuildHomeError({
             reason: "launch_failed",
-            message: "HQ could not read undelivered notes.",
+            message: "Weave could not read undelivered notes.",
           }),
         );
       const notes = "notes" in decoded.value ? decoded.value.notes : decoded.value;
@@ -879,14 +881,14 @@ const make = Effect.gen(function* () {
         })),
       );
     if (Option.isNone(response))
-      return yield* refused("HQ could not be reached. Try again shortly.");
+      return yield* refused("Weave could not be reached. Try again shortly.");
     const { status, outcome } = response.value;
     if (status === 401) {
       yield* forget;
       return {
         outcome: "refused" as const,
         message:
-          "HQ refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Integrations → YardSmith HQ → Connect to HQ.",
+          "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Integrations → Weave → Connect to Weave.",
         state: stateOf(origin, "invalid_token", null, null),
       };
     }
@@ -933,7 +935,7 @@ const make = Effect.gen(function* () {
     if (!supported.answer)
       return {
         outcome: "refused",
-        message: "This HQ does not support answering holds from T3 yet.",
+        message: "This Weave does not support answering holds from T3 yet.",
         state,
       };
     const response = yield* post({

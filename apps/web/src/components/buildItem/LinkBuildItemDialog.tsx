@@ -2,7 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { Atom } from "effect/reactivity";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { buildWorkItems } from "~/state/buildWorkItems";
@@ -56,7 +56,7 @@ function LinkBuildItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
-  const submit = useCallback(async () => {
+  const submit = async () => {
     const trimmed = reference.trim();
     if (trimmed.length === 0) {
       setError("Paste a Build URL or enter a ref such as YS-12 or #1000123.");
@@ -76,7 +76,7 @@ function LinkBuildItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
       return;
     }
     onClose();
-  }, [link, onClose, reference, threadRef]);
+  };
 
   return (
     <Dialog open onOpenChange={(next) => (pending || next ? undefined : onClose())}>
@@ -84,8 +84,8 @@ function LinkBuildItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
         <DialogHeader>
           <DialogTitle>Link Build item</DialogTitle>
           <DialogDescription>
-            Show the Build Spec or Ticket this thread works on, from YardSmith HQ. Linking replaces
-            any item already linked.
+            Show the Build Spec or Ticket this thread works on, from Weave. Linking replaces any
+            item already linked.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>

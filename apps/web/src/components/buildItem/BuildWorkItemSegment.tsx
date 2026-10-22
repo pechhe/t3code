@@ -57,7 +57,7 @@ export function BuildWorkItemSegment(props: {
             href={link.url}
             target="_blank"
             rel="noreferrer"
-            aria-label={`Open ${shown.title} in HQ`}
+            aria-label={`Open ${shown.title} in Weave`}
             className="inline-flex min-w-0 items-center gap-1.5 rounded-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           />
         }

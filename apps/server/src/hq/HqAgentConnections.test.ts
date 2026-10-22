@@ -298,6 +298,45 @@ it.effect("one connection serves every thread, and disconnecting stops them all"
   }),
 );
 
+it.effect(
+  "a connection stored at Weave's old address is used at the current one and asks for a reconnect",
+  () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const directory = yield* fileSystem.makeTempDirectoryScoped();
+      const store = yield* Effect.service(ServerSecretStore.ServerSecretStore).pipe(
+        Effect.provide(ServerSecretStore.layerAtDirectory(directory)),
+      );
+      yield* store.set(
+        "hq-connection",
+        new TextEncoder().encode(
+          JSON.stringify({ origin: "https://hq.yardsmith.co.uk", delegation }),
+        ),
+      );
+
+      // Weave refuses a delegation made for the address it moved from, so the connection names the
+      // current address and asks for a reconnect instead of reporting one that cannot work.
+      const { connections } = yield* makeHqHarnessAt(directory);
+      const moved = yield* connections.read;
+      assert.strictEqual(moved?.origin, "https://weave.yardsmith.co.uk");
+      assert.isTrue(moved?.refused);
+
+      // Derived from the store, so a restart between landing and reconnecting still asks.
+      const { connections: restarted } = yield* makeHqHarnessAt(directory);
+      assert.strictEqual((yield* restarted.read)?.origin, "https://weave.yardsmith.co.uk");
+      assert.isTrue((yield* restarted.read)?.refused);
+
+      // Reconnecting replaces the delegation, and nothing is refused afterwards.
+      yield* restarted.connect({
+        origin: "https://weave.yardsmith.co.uk",
+        delegation: otherDelegation,
+      });
+      const reconnected = yield* restarted.read;
+      assert.strictEqual(reconnected?.origin, "https://weave.yardsmith.co.uk");
+      assert.isFalse(reconnected?.refused);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+);
+
 it.effect("a project's stored connection becomes the environment's, stored once", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;

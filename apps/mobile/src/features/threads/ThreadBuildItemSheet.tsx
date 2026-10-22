@@ -344,7 +344,7 @@ export function ThreadBuildItemSheet({ route }: StaticScreenProps<BuildItemTarge
       )}
       <View className="mt-6">
         <Button
-          label="Open in HQ"
+          label="Open in Weave"
           icon="safari"
           fullWidth
           onPress={() => void Linking.openURL(target.url).catch(() => undefined)}

@@ -8,10 +8,10 @@ and stay selected as you move between categories or search for a setting.
 **Settings → Projects** holds a project's own settings, such as its name, icon, checkouts and
 actions. It opens on the project you were working in; pick another in the sentence at the top.
 
-When connected to YardSmith HQ, a project's colour and icon sync with its repository in HQ.
-Repositories match automatically from the Git remote. HQ lists only repositories a person has
-registered in HQ under **Settings → Repositories**; a project whose repository is not registered there
-does not sync. Set **Repository (HQ)** to a registered `owner/name` key to link a project by hand; clear it to restore automatic matching. Enable **Local only**
+When connected to Weave, a project's colour and icon sync with its repository in Weave.
+Repositories match automatically from the Git remote. Weave lists only repositories a person has
+registered in Weave under **Settings → Repositories**; a project whose repository is not registered there
+does not sync. Set **Repository (Weave)** to a registered `owner/name` key to link a project by hand; clear it to restore automatic matching. Enable **Local only**
 to keep a project's appearance independent. Changes sync when you edit them and every five
 minutes; an offline connection retries when it is available again.
 

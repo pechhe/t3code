@@ -122,7 +122,7 @@ describe("OrchestratorMcpService", () => {
           .pipe(Effect.flip);
       }).pipe(Effect.provide(layerOrchestratorService.pipe(Layer.provide(dependencies))));
       assert.equal(result.code, "invalid_request");
-      assert.include(result.message, "not connected to YardSmith HQ");
+      assert.include(result.message, "not connected to Weave");
     }),
   );
 

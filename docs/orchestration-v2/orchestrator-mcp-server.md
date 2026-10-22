@@ -471,7 +471,7 @@ status and does not cancel work.
 
 Both take `target: {kind: "thread", threadId}` or
 `target: {kind: "build_item", number, until: "unblocked" | "closed"}`.
-Build targets use T3's HQ connection and are refused without one.
+Build targets use T3's Weave connection and are refused without one.
 `unblocked` means all waits and holds are clear; `closed` means Landed, Accepted
 or Dropped. An unblocked watch also wakes on Dropped. `BuildWatchReactor` polls
 on its own one-minute cadence through the shared Build summary cache, including

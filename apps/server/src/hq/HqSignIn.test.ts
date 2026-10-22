@@ -129,6 +129,14 @@ describe("Connect to HQ sign-in", () => {
     }),
   );
 
+  it.effect("signs in to Weave's current address unless another Weave is named", () =>
+    Effect.gen(function* () {
+      const { signIn } = yield* makeHarness;
+      const { url } = yield* signIn.begin({ handbackOrigin });
+      assert.strictEqual(new URL(url).origin, "https://weave.yardsmith.co.uk");
+    }),
+  );
+
   it.effect("refuses a forged or unknown state without touching an open sign-in", () =>
     Effect.gen(function* () {
       const { signIn, connected, startAndConsent } = yield* makeHarness;

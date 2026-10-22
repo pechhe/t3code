@@ -6,6 +6,7 @@
  * is logged, and the callback answers with a redirect so the code and state leave the address bar.
  */
 import type { HqSignInState } from "@t3tools/contracts";
+import { DEFAULT_HQ_ORIGIN } from "@t3tools/shared/hqOrigins";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -18,8 +19,6 @@ import { HttpClient, HttpClientRequest } from "effect/http";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 import { SIGN_IN_CALLBACK_PATH } from "./signInPath.ts";
 
-export const DEFAULT_HQ_ORIGIN = "https://hq.yardsmith.co.uk";
-
 /** HQ keeps a request for ten minutes and at most ten per person. */
 const REQUEST_LIFETIME_MS = 10 * 60 * 1_000;
 const MAX_OPEN_REQUESTS = 10;
@@ -30,8 +29,8 @@ export class HqSignInError extends Schema.TaggedError<HqSignInError>()("HqSignIn
 }) {
   override get message(): string {
     return this.reason === "invalid_handback"
-      ? "HQ can hand the sign-in back only to an https address, or an http one on this computer. Open T3 from such an address to connect."
-      : "The HQ origin must be an https URL (http only for localhost).";
+      ? "Weave can hand the sign-in back only to an https address, or an http one on this computer. Open T3 from such an address to connect."
+      : "The Weave origin must be an https URL (http only for localhost).";
   }
 }
 

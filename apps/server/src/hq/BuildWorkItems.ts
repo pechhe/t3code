@@ -20,6 +20,7 @@ import {
   type BuildWorkItemView,
 } from "@t3tools/contracts";
 import { buildItemUrl, parseBuildReference } from "@t3tools/shared/buildLinks";
+import { sameHqAddress } from "@t3tools/shared/hqOrigins";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -346,7 +347,7 @@ const make = Effect.gen(function* () {
     );
 
   const readConnection = hq.read.pipe(
-    Effect.mapError(() => error("unavailable", "T3 could not read its HQ connection.")),
+    Effect.mapError(() => error("unavailable", "T3 could not read its Weave connection.")),
   );
 
   /** Item and waits together: a blocker's change does not move the item's own revision. */
@@ -426,8 +427,9 @@ const make = Effect.gen(function* () {
       if (connection === null) return null;
       const workItem = shell.workItem ?? null;
       if (workItem === null) return null;
-      // Never resolved against another HQ: the same number there is a different item.
-      if (connection.origin !== workItem.origin)
+      // Never resolved against another HQ: the same number there is a different item. A link made
+      // at an address Weave has moved on from is this Weave's.
+      if (!sameHqAddress(workItem.origin, connection.origin))
         return {
           itemId: workItem.itemId,
           number: workItem.number,
@@ -515,14 +517,18 @@ const make = Effect.gen(function* () {
     function* (reference) {
       const connection = yield* readConnection;
       if (connection === null)
-        return yield* error("not_connected", "T3 is not connected to YardSmith HQ.");
+        return yield* error("not_connected", "T3 is not connected to Weave.");
       const parsed = parseBuildReference(reference);
       if (parsed === null)
         return yield* error(
           "invalid_reference",
           "Give a Build URL such as https://hq.example/build/1000123, a ref such as YS-12, #1000123 or 1000123.",
         );
-      if (parsed.kind === "number" && parsed.origin !== null && parsed.origin !== connection.origin)
+      if (
+        parsed.kind === "number" &&
+        parsed.origin !== null &&
+        !sameHqAddress(parsed.origin, connection.origin)
+      )
         return yield* error(
           "other_hq",
           `That link is on ${parsed.origin}, but T3 uses ${connection.origin}.`,
@@ -539,17 +545,17 @@ const make = Effect.gen(function* () {
               ? error(
                   "not_found",
                   parsed.kind === "ref"
-                    ? `Build has no item ${named} you can see (or this HQ doesn't know friendly refs yet).`
+                    ? `Build has no item ${named} you can see (or this Weave doesn't know friendly refs yet).`
                     : `Build has no item ${named} you can see.`,
                 )
               : cause.reason === "not_connected"
-                ? error("not_connected", "T3 is not connected to YardSmith HQ.")
-                : error("unavailable", "YardSmith HQ could not be reached. Try again shortly."),
+                ? error("not_connected", "T3 is not connected to Weave.")
+                : error("unavailable", "Weave could not be reached. Try again shortly."),
           ),
         );
       const item = decodeBuildRead(read.value);
       if (Option.isNone(item))
-        return yield* error("unavailable", "YardSmith HQ returned an item T3 could not read.");
+        return yield* error("unavailable", "Weave returned an item T3 could not read.");
       if (item.value.kind !== "spec" && item.value.kind !== "ticket")
         return yield* error(
           "unsupported_kind",
@@ -696,7 +702,10 @@ const make = Effect.gen(function* () {
       const connection = yield* readConnection;
       if (connection === null) return null;
       // The link's item is on another HQ: never read it, or its number, on this one.
-      if (shell.workItem?.itemId === input.itemId && shell.workItem.origin !== connection.origin)
+      if (
+        shell.workItem?.itemId === input.itemId &&
+        !sameHqAddress(shell.workItem.origin, connection.origin)
+      )
         return yield* error(
           "unavailable",
           `This link is on ${shell.workItem.origin}, but T3 uses ${connection.origin}.`,
@@ -757,7 +766,7 @@ const make = Effect.gen(function* () {
         }),
       );
       if (cached.card === null)
-        return yield* error("unavailable", "YardSmith HQ could not be reached. Try again shortly.");
+        return yield* error("unavailable", "Weave could not be reached. Try again shortly.");
       return { ...cached.card, unavailable: cached.unavailable };
     },
   );

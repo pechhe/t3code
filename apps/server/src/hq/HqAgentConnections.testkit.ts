@@ -2,6 +2,7 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert } from "@effect/vitest";
 import { EnvironmentId, ProjectId, ThreadId } from "@t3tools/contracts";
+import { DEFAULT_HQ_ORIGIN } from "@t3tools/shared/hqOrigins";
 import * as Clock from "effect/Clock";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -11,7 +12,7 @@ import * as NetAddress from "effect/net/NetAddress";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientError, HttpClientResponse, HttpServer } from "effect/http";
-import { inspect } from "node:util";
+import * as NodeUtil from "node:util";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
@@ -31,6 +32,8 @@ const stringifyJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const delegations = new Map([
   [origin, delegation],
   [otherOrigin, otherDelegation],
+  // Weave's own address, where the default points: a connection there is the same service.
+  [DEFAULT_HQ_ORIGIN, delegation],
 ]);
 
 /**
@@ -232,7 +235,9 @@ export const makeHqHarnessAt = Effect.fnUntraced(function* (secretsDirectory?: s
       ),
     ),
   );
-  const logger = Logger.make(({ message }) => void logs.push(inspect(message, { depth: 10 })));
+  const logger = Logger.make(
+    ({ message }) => void logs.push(NodeUtil.inspect(message, { depth: 10 })),
+  );
   const logLayer = Logger.layer([logger], { mergeWithExisting: false });
   const withLogs = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
     effect.pipe(Effect.provide(logLayer));
@@ -275,9 +280,10 @@ export const makeHqHarnessAt = Effect.fnUntraced(function* (secretsDirectory?: s
 
   /** No HQ credential may reach anything outside T3's own requests to HQ. */
   const assertNoSecretsIn = (...surfaces: ReadonlyArray<unknown>) => {
-    const text = [...surfaces.map((surface) => inspect(surface, { depth: 20 })), ...logs].join(
-      "\n",
-    );
+    const text = [
+      ...surfaces.map((surface) => NodeUtil.inspect(surface, { depth: 20 })),
+      ...logs,
+    ].join("\n");
     for (const secret of [...delegations.values(), ...hq.tokens.keys()])
       assert.notInclude(text, secret);
   };

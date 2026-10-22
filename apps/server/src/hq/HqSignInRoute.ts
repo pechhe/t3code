@@ -15,11 +15,11 @@ const PAGE_HEADERS = {
 };
 
 const RESULTS = {
-  connected: ["T3 is connected to HQ", "You can close this page and return to T3."],
-  cancelled: ["Connection cancelled", "T3 was not connected to HQ. You can close this page."],
+  connected: ["T3 is connected to Weave", "You can close this page and return to T3."],
+  cancelled: ["Connection cancelled", "T3 was not connected to Weave. You can close this page."],
   failed: [
-    "T3 could not connect to HQ",
-    "Close this page, then choose Connect to HQ in T3's Settings to try again.",
+    "T3 could not connect to Weave",
+    "Close this page, then choose Connect to Weave in T3's Settings to try again.",
   ],
 } as const;
 

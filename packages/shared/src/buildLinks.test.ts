@@ -10,6 +10,7 @@ import {
   parseBuildReference,
   rehypeBuildMentions,
 } from "./buildLinks.ts";
+import { DEFAULT_HQ_ORIGIN } from "./hqOrigins.ts";
 import {
   CHAT_MARKDOWN_REMARK_PLUGINS,
   createChatMarkdownRehypePlugins,
@@ -42,6 +43,14 @@ describe("findBuildMentions", () => {
         ].join("\n\n"),
       ),
     ).toEqual([]);
+  });
+  it("keeps a Build link written at an address Weave has moved from", () => {
+    expect(
+      findBuildMentions(
+        "[the Spec](https://hq.yardsmith.co.uk/build/specs/1000124)",
+        DEFAULT_HQ_ORIGIN,
+      ).map(({ number }) => number),
+    ).toEqual([1_000_124]);
   });
 });
 

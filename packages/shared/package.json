@@ -15,6 +15,10 @@
       "types": "./src/buildLinks.ts",
       "import": "./src/buildLinks.ts"
     },
+    "./hqOrigins": {
+      "types": "./src/hqOrigins.ts",
+      "import": "./src/hqOrigins.ts"
+    },
     "./githubMarkdownLinks": {
       "types": "./src/githubMarkdownLinks.ts",
       "import": "./src/githubMarkdownLinks.ts"

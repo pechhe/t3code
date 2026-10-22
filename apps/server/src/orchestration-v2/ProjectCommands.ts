@@ -184,7 +184,7 @@ export function planProjectCommand(input: {
         command.expectedSyncState !== undefined &&
         JSON.stringify(command.expectedSyncState) !== JSON.stringify(project)
       ) {
-        return invariant("Project changed during HQ sync.");
+        return invariant("Project changed during Weave sync.");
       }
       if (
         command.projectIcon?.kind === "monogram" &&

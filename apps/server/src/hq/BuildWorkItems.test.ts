@@ -10,6 +10,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as TestClock from "effect/testing/TestClock";
 
+import { DEFAULT_HQ_ORIGIN } from "@t3tools/shared/hqOrigins";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import * as BuildWorkItems from "./BuildWorkItems.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
@@ -385,6 +386,24 @@ it.effect("a failed re-read keeps the last label", () =>
     const kept = yield* service.view(threadId);
     assert.isTrue(kept?.unavailable);
     assert.strictEqual(kept?.item?.ref, "YS-12");
+  }),
+);
+
+it.effect("reads a link recorded at an address Weave has moved from at its current address", () =>
+  Effect.gen(function* () {
+    const { service, add, thread, connections } = yield* makeHarness;
+    const spec = item(1_000_078, "spec", "Moved address", "in_progress");
+    add(spec);
+    yield* connections.connect({ origin: DEFAULT_HQ_ORIGIN, delegation });
+    // A link T3 stored while Weave answered on its old address is still this Weave's item.
+    thread.workItem = {
+      itemId: spec.id,
+      number: spec.number,
+      origin: "https://hq.yardsmith.co.uk",
+    };
+    const view = yield* service.view(threadId);
+    assert.isFalse(view?.unavailable);
+    assert.strictEqual(view?.item?.title, "Moved address");
   }),
 );
 

@@ -333,7 +333,7 @@ function QuestionView({
         />
       ) : (
         <p className="m-0 text-xs text-muted-foreground">
-          Answering from T3 needs a newer HQ. Open it in Weave to answer.
+          Answering from T3 needs a newer Weave. Open the Spec in Weave to answer.
         </p>
       )}
     </div>
@@ -473,8 +473,8 @@ function Inbox(props: {
   };
 
   const notices = [
-    props.unavailable ? "HQ could not be reached; this is Build as last read." : null,
-    home.capabilities.notes ? null : "Notes sent from Weave reach T3 once HQ is updated.",
+    props.unavailable ? "Weave could not be reached; this is Build as last read." : null,
+    home.capabilities.notes ? null : "Notes sent from Weave reach T3 once Weave is updated.",
   ].filter((notice) => notice !== null);
 
   return (
@@ -642,13 +642,13 @@ export function BuildHomeButton(props: {
           <p className="m-0 w-80 p-3 text-xs text-muted-foreground">
             {state === null
               ? query.error === null
-                ? "Reading Build from HQ…"
+                ? "Reading Build from Weave…"
                 : "Couldn't read Build from T3."
               : state.status === "not_connected"
-                ? "T3 is not connected to YardSmith HQ. Connect it in Settings → Integrations → YardSmith HQ → Connect to HQ."
+                ? "T3 is not connected to Weave. Connect it in Settings → Integrations → Weave → Connect to Weave."
                 : state.status === "invalid_token"
-                  ? "HQ refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Integrations → YardSmith HQ → Connect to HQ."
-                  : "HQ could not be reached, and Build has not been read yet."}
+                  ? "Weave refused T3's delegation: it expired or was revoked. Reconnect it in Settings → Integrations → Weave → Connect to Weave."
+                  : "Weave could not be reached, and Build has not been read yet."}
           </p>
         )}
       </PopoverPopup>

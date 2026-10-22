@@ -35,7 +35,7 @@ export function useThreadBuildMenu(thread: EnvironmentThreadShell) {
                 title: `Build ${buildItemLabel({ number: workItem.number, ref })}`,
                 image: "link",
                 subactions: [
-                  { id: "build-open", title: "Open in HQ", image: "safari" },
+                  { id: "build-open", title: "Open in Weave", image: "safari" },
                   { id: "build-link", title: "Change…", image: "pencil" },
                   {
                     id: "build-unlink",

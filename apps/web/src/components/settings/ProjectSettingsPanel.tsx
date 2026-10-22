@@ -512,11 +512,11 @@ function ProjectDetail({
             }
           />
           <SettingsRow
-            title="Repository (HQ)"
+            title="Repository (Weave)"
             description={
               representative.hqRepositoryKey
                 ? representative.hqUnregisteredKey === representative.hqRepositoryKey
-                  ? "Not synced: HQ has not registered this repository. Register it in HQ and it syncs on the next check."
+                  ? "Not synced: Weave has not registered this repository. Register it in Weave and it syncs on the next check."
                   : "Linked by hand. Clear to match automatically."
                 : `Automatically matched: ${hqRepositoryKeyOf(representative) ?? "No repository detected"}`
             }
@@ -525,14 +525,17 @@ function ProjectDetail({
                 key={representative.hqRepositoryKey ?? "automatic"}
                 size="sm"
                 className="w-full sm:w-64"
-                aria-label="Repository (HQ)"
+                aria-label="Repository (Weave)"
                 disabled={!canEditGroup}
                 defaultValue={representative.hqRepositoryKey ?? ""}
                 placeholder={hqRepositoryKeyOf(representative) ?? "owner/name"}
                 onBlur={(event) => {
                   const key = event.currentTarget.value.trim() || null;
                   if (key !== (representative.hqRepositoryKey ?? null))
-                    void updateAllMembers({ hqRepositoryKey: key }, "Could not link HQ repository");
+                    void updateAllMembers(
+                      { hqRepositoryKey: key },
+                      "Could not link Weave repository",
+                    );
                 }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") event.currentTarget.blur();
@@ -542,14 +545,14 @@ function ProjectDetail({
           />
           <SettingsRow
             title="Local only"
-            description="Keep this project's colour and icon on this environment. Do not send or receive repository chips from HQ."
+            description="Keep this project's colour and icon on this environment. Do not send or receive repository chips from Weave."
             control={
               <Switch
                 aria-label="Local only"
                 disabled={!canEditGroup}
                 checked={representative.hqSyncLocalOnly ?? false}
                 onCheckedChange={(enabled) =>
-                  void updateAllMembers({ hqSyncLocalOnly: enabled }, "Could not change HQ sync")
+                  void updateAllMembers({ hqSyncLocalOnly: enabled }, "Could not change Weave sync")
                 }
               />
             }

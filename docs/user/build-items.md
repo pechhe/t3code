@@ -1,22 +1,22 @@
 # Build items
 
-When T3 Code is connected to YardSmith HQ, a thread in any project can show the Build Spec or Ticket it works on.
+When T3 Code is connected to Weave, a thread in any project can show the Build Spec or Ticket it works on.
 The item's title and status sit in the thread header, between the workflow and the thread's
 title. Hover it to see a card with the item's current state from Build: a Spec's Tickets and
 progress, holds, what blocks a Ticket, and the thread leading or working on it. Click it to open
-the item in HQ.
+the item in Weave.
 
-Without an HQ connection, threads show no Build items and Build links stay ordinary links.
+Without a Weave connection, threads show no Build items and Build links stay ordinary links.
 
-## Connect to HQ
+## Connect to Weave
 
-Open **Settings → Integrations → YardSmith HQ** and choose **Connect to HQ**. T3 opens HQ in your
-browser; sign in and approve the consent page, and HQ returns you to T3, which is then connected.
+Open **Settings → Integrations → Weave** and choose **Connect to Weave**. T3 opens Weave in your
+browser; sign in and approve the consent page, and Weave returns you to T3, which is then connected.
 Each environment connects separately: the one whose Settings you used receives the connection.
-Cancelling leaves any existing connection as it was. **Disconnect** stops new HQ calls from this
-environment; to revoke T3's access in HQ, revoke it there.
+Cancelling leaves any existing connection as it was. **Disconnect** stops new Weave calls from this
+environment; to revoke T3's access in Weave, revoke it there.
 
-HQ sends your browser back to the address you use to reach that environment, so that address must be
+Weave sends your browser back to the address you use to reach that environment, so that address must be
 `https`, or `http` on this computer. An environment reached over plain `http` on a network address
 cannot connect this way; open it through its `https` address.
 

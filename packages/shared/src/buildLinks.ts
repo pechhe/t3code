@@ -7,6 +7,8 @@ import remarkGfm from "remark-gfm";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 
+import { sameHqAddress } from "./hqOrigins.ts";
+
 /**
  * `#<number>` in prose. Build numbers start at 1,000,000, so GitHub references such as `#78` never
  * match; an escaped `\#`, an HTML entity or a path fragment is not a mention.
@@ -57,11 +59,17 @@ export function parseBuildReference(reference: string): BuildReference | null {
 
 export const buildItemUrl = (origin: string, number: number) => `${origin}/build/${number}`;
 
-/** The item a link names, only when it is a Build URL on `origin`: another HQ's link stays a link. */
+/**
+ * The item a link names, only when it is a Build URL on `origin`: another HQ's link stays a link.
+ * A link written at an address Weave has moved on from belongs to the Weave at `origin`.
+ */
 export function buildItemNumberFromUrl(href: string, origin: string): number | null {
-  if (!href.startsWith(origin)) return null;
+  // Cheaper than parsing every ordinary link in a message; a Build URL always has this path.
+  if (!href.includes("/build/")) return null;
   const parsed = parseBuildReference(href);
-  return parsed?.kind === "number" && parsed.origin === origin ? parsed.number : null;
+  return parsed?.kind === "number" && parsed.origin !== null && sameHqAddress(parsed.origin, origin)
+    ? parsed.number
+    : null;
 }
 
 type MarkdownNode = {
@@ -95,9 +103,9 @@ const SKIPPED_NODES = new Set([
   "definition",
 ]);
 
-/** The Build mentions in markdown, outside code, against T3's HQ `origin`. */
+/** The Build mentions in markdown, outside code, against T3's Weave `origin`. */
 export function findBuildMentions(markdown: string, origin: string): BuildMention[] {
-  if (!markdown.includes("#") && !markdown.includes(`${origin}/build/`)) return [];
+  if (!markdown.includes("#") && !markdown.includes("/build/")) return [];
   const mentions: BuildMention[] = [];
   const visit = (node: MarkdownNode) => {
     if (SKIPPED_NODES.has(node.type)) return;

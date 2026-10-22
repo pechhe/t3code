@@ -4234,9 +4234,9 @@ const make = Effect.gen(function* () {
             if (!connection.connected)
               return yield* failure(
                 "invalid_request",
-                "T3 is not connected to YardSmith HQ, so it cannot watch Build items.",
+                "T3 is not connected to Weave, so it cannot watch Build items.",
               );
-            // A mistyped number would otherwise wait forever; an unreachable HQ is retried by the sweep.
+            // A mistyped number would otherwise wait forever; an unreachable Weave is retried by the sweep.
             const found = yield* buildWorkItems
               .mentions({ threadId: watcher.id, numbers: [target.number] })
               .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
@@ -4245,7 +4245,7 @@ const make = Effect.gen(function* () {
             if (view === undefined && found.unavailable !== true)
               return yield* failure(
                 "invalid_request",
-                `Build ${label} is not a Spec or Ticket T3's HQ can see.`,
+                `Build ${label} is not a Spec or Ticket T3's Weave can see.`,
               );
             title = view?.item?.title.trim() || `Build #${target.number}`;
           }

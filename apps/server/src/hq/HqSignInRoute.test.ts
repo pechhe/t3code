@@ -62,7 +62,7 @@ it.effect("shows the result page without completing anything", () =>
       handler(new Request("http://t3.test/oauth/hq/callback?result=connected")),
     );
     assert.strictEqual(response.status, 200);
-    assert.include(yield* Effect.promise(() => response.text()), "T3 is connected to HQ");
+    assert.include(yield* Effect.promise(() => response.text()), "T3 is connected to Weave");
     assert.deepStrictEqual(completed, []);
     yield* Effect.promise(dispose);
   }),
