@@ -19,15 +19,28 @@ const fixture = Effect.gen(function* () {
   yield* fs.writeFileString(`${root}/roles/policy.json`, encode(manifest));
   for (const role of Object.values(manifest.roles))
     yield* fs.writeFileString(`${root}/${role.brief}`, `Brief: ${role.brief}\n`);
-  const catalog = ["codex", "claudeAgent"].map((driver) =>
-    provider(
-      driver,
-      `${driver}-test`,
-      Object.values(manifest.models)
-        .filter((binding) => binding.driverKind === driver)
-        .map((binding) => binding.model),
+  const catalog = [
+    ...["codex", "claudeAgent"].map((driver) =>
+      provider(
+        driver,
+        `${driver}-test`,
+        Object.values(manifest.models)
+          .filter((binding) => binding.driverKind === driver)
+          .map((binding) => binding.model),
+      ),
     ),
-  );
+    {
+      ...provider("pi", "pi-test", []),
+      models: [
+        {
+          slug: "deepseek-v4",
+          name: "DeepSeek V4.1 Flash",
+          isCustom: false,
+          capabilities: { optionDescriptors: [] },
+        },
+      ],
+    },
+  ];
   const layer = Settings.layer.pipe(
     Layer.provide(
       Layer.mock(Providers.ProviderRegistry)({ getProviders: Effect.succeed(catalog) }),
@@ -91,6 +104,34 @@ it.layer(NodeServices.layer)("policy settings", (it) => {
         "sol",
         "sonnet",
       ]);
+    }),
+  );
+  it.effect("saves a model from any installed provider, with or without an effort setting", () =>
+    Effect.gen(function* () {
+      const f = yield* fixture;
+      const saved = yield* f.run(
+        Effect.gen(function* () {
+          const settings = yield* Settings.AgentPolicySettingsService;
+          const first = yield* settings.read();
+          const manifest = yield* Schema.decodeUnknownEffect(AgentPolicyManifest)({
+            ...f.manifest,
+            models: {
+              ...f.manifest.models,
+              deepseek: { driverKind: "pi", model: "deepseek-v4" },
+            },
+            lists: {
+              ...f.manifest.lists,
+              workhorse: [...f.manifest.lists["workhorse"]!, { model: "deepseek" }],
+            },
+          });
+          return yield* settings.save({ expectedHash: first.snapshot.hash, manifest });
+        }),
+      );
+      expect(saved.snapshot.manifest.models["deepseek"]).toEqual({
+        driverKind: "pi",
+        model: "deepseek-v4",
+      });
+      expect(saved.snapshot.manifest.lists["workhorse"]?.at(-1)).toEqual({ model: "deepseek" });
     }),
   );
   it.effect("refuses stale saves, unsupported models and unsupported effort without writing", () =>

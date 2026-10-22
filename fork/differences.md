@@ -76,12 +76,12 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Delegation uses validated, versioned role/model policy instead of ad-hoc model choice.
-- **Requirements:** immutable policy snapshots validated before use; managed role resolution (role-first, caller may choose a model within a role; fresh reviewer may use author's model; different provider preferred for subagents); roles include scout (read-only exploration), researcher (read-only web) and browser/UI roles; refusals state a reason; policy models can carry fixed options; policy edited from Settings with a resolution preview; installed agent-config revision shown; `T3CODE_AGENT_POLICY_ROOT` reaches the server from the login shell.
+- **Requirements:** immutable policy snapshots validated before use; managed role resolution (role-first, caller may choose a model within a role; fresh reviewer may use author's model; different provider preferred for subagents); roles include scout (read-only exploration), researcher (read-only web) and browser/UI roles; refusals state a reason; any installed provider's model may serve a role, recording effort only when the model offers one; policy models can carry fixed options; policy edited from Settings with a resolution preview; installed agent-config revision shown; `T3CODE_AGENT_POLICY_ROOT` reaches the server from the login shell.
 - **Integration points:** `AgentPolicyService/Store/SettingsService`, `AgentRoleResolver`, `AgentConfigCheckout`; `agentPolicy*` contracts; migration 064; `validate-agent-policy.ts`; scheduled-task roles (migration 069).
 - **Proof:** apps/server/src/agents/AgentPolicyService.test.ts, AgentRoleResolver.test.ts, AgentPolicySettingsService.test.ts; ScheduledTaskService.role.test.ts; the landing gate runs them when a change reaches them.
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent covering the requirements.
-- **Decision:** `retain` (seed, 2026-10-19): fork-only, in landing gate.
+- **Decision:** `retain` (seed, 2026-10-19): fork-only, in landing gate. Earlier (2026-10-22): any installed provider's models may serve a role, not only Codex and Claude, with effort recorded only where the model offers one; read-only source access stays natively enforced only on Codex and Claude, and the Settings editor and operations doc say so.
 - **Owner:** pechhe/t3code#2, #4, #5, #7, #9, #12, #19, #25 (closed); #146 open (cross-project pinned scout has no source-reading tools).
 
 ### managed-delegation

@@ -152,7 +152,10 @@ describe("AgentPolicyManifest", () => {
     const researcher = (edit: object) =>
       decodeManifestExit({
         ...manifest,
-        lists: { ...decodeManifest(legacy).lists, researcher: [{ model: "haiku", effort: "high" }] },
+        lists: {
+          ...decodeManifest(legacy).lists,
+          researcher: [{ model: "haiku", effort: "high" }],
+        },
         roles: {
           ...manifest.roles,
           researcher: {
@@ -195,6 +198,57 @@ describe("AgentPolicyManifest", () => {
       "Failure",
     );
     expect(withRole("advisor", { toolProfile: "implementation-phi" })).toBe("Failure");
+  });
+
+  it("accepts any provider's model and requires effort only where the model has one", () => {
+    const manifest = decodeManifest(legacy);
+    const withPi = {
+      ...manifest,
+      models: {
+        ...manifest.models,
+        deepseek: { driverKind: "pi", model: "deepseek-v4" },
+      },
+      lists: {
+        ...manifest.lists,
+        advisor: [...(manifest.lists.advisor ?? []), { model: "deepseek" }],
+      },
+    };
+    expect(decodeManifestExit(withPi)._tag).toBe("Success");
+    // A model that offers effort still needs the list entry to choose one.
+    expect(
+      decodeManifestExit({
+        ...manifest,
+        lists: {
+          ...manifest.lists,
+          advisor: (manifest.lists.advisor ?? []).map((entry, index) =>
+            index === 0 ? { model: entry.model } : entry,
+          ),
+        },
+      })._tag,
+    ).toBe("Failure");
+    // The large-task choice follows the same rule.
+    expect(
+      decodeManifestExit({
+        ...manifest,
+        roles: {
+          ...manifest.roles,
+          advisor: {
+            ...manifest.roles.advisor,
+            large: { model: "haiku" },
+          },
+        },
+      })._tag,
+    ).toBe("Failure");
+    // A stale effort on a model that lost its effort setting is refused too.
+    expect(
+      decodeManifestExit({
+        ...withPi,
+        lists: {
+          ...withPi.lists,
+          advisor: [...(manifest.lists.advisor ?? []), { model: "deepseek", effort: "high" }],
+        },
+      })._tag,
+    ).toBe("Failure");
   });
 
   it("reads a stored version 1 snapshot with its reviewer brief for both reviewers", () => {

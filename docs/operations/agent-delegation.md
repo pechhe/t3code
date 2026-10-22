@@ -26,8 +26,9 @@ no trial.
 
 On web and desktop, **Settings → Delegation** edits the configured source
 policy. Settings permission is required; agents have no MCP tool to edit it.
-Each role has an ordered list of models with an effort for each; roles that
-share a list show together and can be split. A role may also start large
+Each role has an ordered list of models, and records an effort for each model that
+has an effort setting. Any installed provider's models can be listed, not only Codex
+and Claude. A role may also start large
 (`demanding`) tasks with a different model, and start with a different model
 when a named model asks. Reviewers can prefer a provider other than the author's.
 Briefs remain read-only.
@@ -61,7 +62,11 @@ its revision and the role names, or the reason the policy is refused.
 - Claude reader roles use a restricted native tool list with no shell or T3
   tools. Claude writers require the destination owner's trusted-writer opt-in
   and a Full access child within the caller's permission ceiling. Codex writers
-  keep their workspace sandbox with network access disabled.
+  keep their workspace sandbox with network access disabled. No other provider
+  enforces a managed task's read-only or sandbox policy: a role whose model is
+  served by Pi, OpenCode, Cursor, Grok, Muse or Antigravity runs with that
+  account's own permissions, so give such a model a writer role unless you
+  accept that a reader could change source.
 - The `phi` tool profile gives a reader its own browser endpoint serving only
   Phi's operations on the task's own tabs; `implementation-phi` gives a writer
   the same, and only `ui-worker` may hold it, to check what it built. Either
@@ -133,8 +138,10 @@ its revision and the role names, or the reason the policy is refused.
   scopes it compares. A trial created
   before scopes existed admits only reviews that declare none, so the two kinds
   of review are never pooled.
-- Reviews always use fresh independent context and enforced read-only source
-  access. Keep `authorModel` truthful: among accounts with allowance the default
+- Reviews always use fresh independent context. Their read-only source access is
+  enforced natively on Codex and Claude; a reviewer on another provider runs under
+  that account's own permissions, so keep `preferOtherAuthorProvider` in mind when
+  the list can choose one. Keep `authorModel` truthful: among accounts with allowance the default
   never picks the author's model first, and `preferOtherAuthorProvider` moves other providers ahead, but an
   explicit `target.model` may select the author's model when the reviewer list,
   task classification, tools, source binding and caller permissions allow it.

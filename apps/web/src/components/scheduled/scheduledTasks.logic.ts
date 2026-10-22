@@ -146,7 +146,7 @@ export function roleModelSummary(
   if (first === undefined) return null;
   const binding = manifest.models[first.model];
   if (binding === undefined) return null;
-  return { driverKind: binding.driverKind, model: binding.model, effort: first.effort };
+  return { driverKind: binding.driverKind, model: binding.model, effort: first.effort ?? null };
 }
 
 export type WorkspaceChoice = "fresh" | "checkout";

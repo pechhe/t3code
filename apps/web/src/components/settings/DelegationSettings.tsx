@@ -21,10 +21,11 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collaps
 import { PreviewCard, PreviewCardPopup, PreviewCardTrigger } from "../ui/preview-card";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   addEntry,
   catalogModels,
-  effortFor,
+  effortForModel,
   ensureModel,
   listModel,
   modelLabel,
@@ -274,6 +275,11 @@ function PolicyEditor({
       {groups.map((group) => (
         <FallbackAlert key={group.list} group={group} manifest={draft} providers={data.providers} />
       ))}
+      <p className="px-3 text-xs text-muted-foreground sm:px-4">
+        Any installed model can serve a job. Only Codex and Claude enforce a reader&apos;s read-only
+        source access, so another provider&apos;s model runs with its account&apos;s own
+        permissions.
+      </p>
       <SettingsSection
         id="delegation"
         title="Jobs"
@@ -456,7 +462,7 @@ function JobRow({
     ...new Map(
       group.roles.flatMap((role) => {
         const large = rolePolicy(manifest, role).large;
-        return large ? [[`${large.model}:${large.effort}`, large] as const] : [];
+        return large ? [[`${large.model}:${large.effort ?? ""}`, large] as const] : [];
       }),
     ).values(),
   ];
@@ -471,7 +477,13 @@ function JobRow({
       : null;
   const add = (model: CatalogModel) => {
     const [next, alias] = ensureModel(manifest, model);
-    onChange(addEntry(next, group.list, { model: alias, effort: effortFor(model.efforts) }));
+    const effort = effortForModel(model);
+    onChange(
+      addEntry(next, group.list, {
+        model: alias,
+        ...(effort === undefined ? {} : { effort }),
+      }),
+    );
   };
   const chip = (alias: string, effort?: string) => {
     const binding = manifest.models[alias];
@@ -518,7 +530,7 @@ function JobRow({
               ))}
               {largeChoices.map((large) => (
                 <span
-                  key={`${large.model}:${large.effort}`}
+                  key={`${large.model}:${large.effort ?? ""}`}
                   className="ms-2 flex min-w-0 items-center gap-1 text-xs text-muted-foreground"
                 >
                   large
@@ -553,7 +565,7 @@ function JobRow({
                             group.list,
                             entry.model,
                             model,
-                            effortFor(model.efforts, entry.effort),
+                            effortForModel(model, entry.effort),
                           ),
                         )
                       }
@@ -568,19 +580,25 @@ function JobRow({
                       }
                     />
                     {offersFast(binding, providers) ? (
-                      <label
-                        className="flex shrink-0 items-center gap-1.5 text-xs"
-                        title="Runs this model on the fast service tier in every job that lists it"
-                      >
-                        <Switch
-                          checked={runsFast(binding)}
-                          disabled={disabled}
-                          onCheckedChange={(fast) =>
-                            onChange(setModelFast(manifest, entry.model, fast))
+                      <Tooltip>
+                        <TooltipTrigger
+                          render={
+                            <label className="flex shrink-0 cursor-default items-center gap-1.5 text-xs" />
                           }
-                        />
-                        Fast
-                      </label>
+                        >
+                          <Switch
+                            checked={runsFast(binding)}
+                            disabled={disabled}
+                            onCheckedChange={(fast) =>
+                              onChange(setModelFast(manifest, entry.model, fast))
+                            }
+                          />
+                          Fast
+                        </TooltipTrigger>
+                        <TooltipPopup>
+                          Runs this model on the fast service tier in every job that lists it
+                        </TooltipPopup>
+                      </Tooltip>
                     ) : null}
                     <span className="min-w-0 flex-1 truncate text-xs text-warning">{reason}</span>
                     <Button
@@ -750,9 +768,12 @@ function ExceptionLine({
           disabled={disabled}
           onPick={(model) =>
             onChange((m, r) => {
-              const effort = effortFor(model.efforts, large.effort);
+              const effort = effortForModel(model, large.effort);
               const [next, alias] = listModel(m, policy.list, model, effort);
-              return setLarge(next, r, { model: alias, effort });
+              return setLarge(next, r, {
+                model: alias,
+                ...(effort === undefined ? {} : { effort }),
+              });
             })
           }
         />
@@ -790,7 +811,7 @@ function ExceptionLine({
           disabled={disabled}
           onPick={(model) =>
             onChange((m, r) => {
-              const [next, alias] = listModel(m, policy.list, model, effortFor(model.efforts));
+              const [next, alias] = listModel(m, policy.list, model, effortForModel(model));
               return setCaller(next, r, kind, alias);
             })
           }

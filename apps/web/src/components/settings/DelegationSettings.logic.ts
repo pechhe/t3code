@@ -138,6 +138,20 @@ export function effortFor(choices: ReadonlyArray<string>, current?: string): str
   return choices.includes("medium") ? "medium" : (choices[0] ?? current ?? "medium");
 }
 
+/** The effort to record for a freshly chosen model, or none when the model has no effort setting. */
+export function effortForModel(model: CatalogModel, current?: string): string | undefined {
+  return model.efforts.length === 0 ? undefined : effortFor(model.efforts, current);
+}
+
+/** The provider option ids that carry a model's reasoning effort, under the names adapters use. */
+const EFFORT_OPTION_IDS = new Set([
+  "effort",
+  "reasoningEffort",
+  "reasoning",
+  "thinking",
+  "variant",
+]);
+
 export interface CatalogModel {
   readonly key: string;
   readonly label: string;
@@ -145,24 +159,26 @@ export interface CatalogModel {
   readonly efforts: ReadonlyArray<string>;
 }
 
-/** Models an installed Codex or Claude account offers with a selectable effort. */
+/** Every model an installed account offers, with its effort settings when it has any. */
 export function catalogModels(providers: ReadonlyArray<ServerProvider>): CatalogModel[] {
   const models = new Map<string, CatalogModel>();
   for (const provider of providers) {
     if (provider.poolMembers !== undefined) continue;
-    if (provider.driver !== "codex" && provider.driver !== "claudeAgent") continue;
     for (const model of provider.models) {
       const option = model.capabilities?.optionDescriptors?.find(
-        (candidate) => candidate.type === "select",
+        (candidate) => candidate.type === "select" && EFFORT_OPTION_IDS.has(candidate.id),
       );
-      if (option?.type !== "select") continue;
       const key = `${provider.driver}:${model.slug}`;
       if (models.has(key)) continue;
       models.set(key, {
         key,
         label: model.name,
-        binding: { driverKind: provider.driver, model: model.slug, effortOption: option.id },
-        efforts: option.options.map((choice) => choice.id),
+        binding: {
+          driverKind: provider.driver,
+          model: model.slug,
+          ...(option?.type === "select" ? { effortOption: option.id } : {}),
+        },
+        efforts: option?.type === "select" ? option.options.map((choice) => choice.id) : [],
       });
     }
   }
@@ -288,11 +304,14 @@ export function listModel(
   manifest: Manifest,
   list: string,
   model: CatalogModel,
-  effort: string,
+  effort: string | undefined,
 ): [Manifest, string] {
   const [next, alias] = ensureModel(manifest, model);
   if ((next.lists[list] ?? []).some((entry) => entry.model === alias)) return [next, alias];
-  return [addEntry(next, list, { model: alias, effort }), alias];
+  return [
+    addEntry(next, list, { model: alias, ...(effort === undefined ? {} : { effort }) }),
+    alias,
+  ];
 }
 
 /** Swaps one listed model for another in place, carrying the exceptions that named it. */
@@ -301,7 +320,7 @@ export function replaceEntry(
   list: string,
   from: string,
   model: CatalogModel,
-  effort: string,
+  effort: string | undefined,
 ): Manifest {
   const [withModel, alias] = ensureModel(manifest, model);
   const entries = withModel.lists[list] ?? [];
@@ -309,7 +328,9 @@ export function replaceEntry(
   let next = withList(
     withModel,
     list,
-    entries.map((entry) => (entry.model === from ? { model: alias, effort } : entry)),
+    entries.map((entry) =>
+      entry.model === from ? { model: alias, ...(effort === undefined ? {} : { effort }) } : entry,
+    ),
   );
   for (const role of AgentRole.literals) {
     if (next.roles[role]?.list !== list) continue;

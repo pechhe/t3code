@@ -171,7 +171,9 @@ whether the review covers the whole landing or Spec (`complete`) or only part
 (`partial`). A follow-up review of material changes since an earlier one sets
 `priorReview` to that review's work ID and source revision, with the same source
 as its `baseRevision`. Use `ticket-reviewer` for a change and `spec-reviewer`
-for a Spec; both are read-only with fresh context.
+for a Spec; both run read-only with fresh context. Codex and Claude enforce that
+read-only access natively; another provider's reviewer runs under its account's
+own permissions.
 
 Keep the same work and attempt IDs when retrying a submission, including after a
 disconnect or server restart. Use a new attempt ID for new execution of that work,

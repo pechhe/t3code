@@ -1,5 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import {
+  ProviderDriverKind,
   type AgentPolicySnapshot,
   ProviderInstanceId,
   type ServerProvider,
@@ -140,6 +141,109 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       expect((yield* chore([codex])).options).toEqual([{ id: "reasoning", value: "medium" }]);
     }),
   );
+  it.effect("runs any provider's model, passing effort only when the model has one", () =>
+    Effect.gen(function* () {
+      const original = snapshot();
+      const [effortless, effortful] = ["deepseek-v4", "kimi-k2"];
+      const pi: ServerProvider = {
+        ...provider("pi", "pi-test", []),
+        models: [
+          {
+            slug: effortless,
+            name: "DeepSeek V4.1 Flash",
+            isCustom: false,
+            capabilities: { optionDescriptors: [] },
+          },
+          {
+            slug: effortful,
+            name: "Kimi K2",
+            isCustom: false,
+            capabilities: {
+              optionDescriptors: [
+                {
+                  id: "thinking",
+                  label: "Thinking",
+                  type: "select" as const,
+                  options: [
+                    { id: "low", label: "Low" },
+                    { id: "medium", label: "Medium" },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+      };
+      const policy: AgentPolicySnapshot = {
+        ...original,
+        manifest: {
+          ...original.manifest,
+          models: {
+            ...original.manifest.models,
+            deepseek: { driverKind: ProviderDriverKind.make("pi"), model: effortless },
+            kimi: {
+              driverKind: ProviderDriverKind.make("pi"),
+              model: effortful,
+              effortOption: "thinking",
+            },
+          },
+          lists: {
+            ...original.manifest.lists,
+            workhorse: [{ model: "deepseek" }, { model: "kimi", effort: "medium" }],
+          },
+        },
+      };
+      const base = input({ snapshot: policy, providers: [pi] });
+      expect(yield* resolve(base)).toEqual({
+        instanceId: pi.instanceId,
+        model: effortless,
+      });
+      const kimiOnly = { ...pi, models: pi.models.filter((model) => model.slug === effortful) };
+      expect(yield* resolve({ ...base, providers: [kimiOnly] })).toEqual({
+        instanceId: pi.instanceId,
+        model: effortful,
+        options: [{ id: "thinking", value: "medium" }],
+      });
+      // An effort the model does not offer is still refused.
+      const tooHigh = {
+        ...policy,
+        manifest: {
+          ...policy.manifest,
+          lists: {
+            ...policy.manifest.lists,
+            workhorse: [{ model: "deepseek" }, { model: "kimi", effort: "high" }],
+          },
+        },
+      };
+      expect((yield* refusal({ ...base, snapshot: tooHigh, providers: [kimiOnly] })).reason).toBe(
+        "no-eligible-model",
+      );
+      // A caller cannot attach an effort to a model that has none.
+      expect(
+        (yield* refusal({
+          ...base,
+          selection: {
+            instanceId: pi.instanceId,
+            model: effortless,
+            options: [{ id: "thinking", value: "low" }],
+          },
+        })).reason,
+      ).toBe("unsupported-options");
+      // A read-only role may now run on a provider that does not enforce it natively.
+      expect(
+        (yield* resolve({
+          ...base,
+          request: request({
+            role: "ticket-reviewer",
+            sourceRevision: "reviewed-commit",
+            review: changeReview,
+            readOnly: true,
+          }),
+        })).model,
+      ).toBe(effortless);
+    }),
+  );
+
   it.effect("selects a workhorse with explicit medium and deliberate high effort", () =>
     Effect.gen(function* () {
       expect(yield* resolve(input())).toEqual({

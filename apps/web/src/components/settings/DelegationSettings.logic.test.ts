@@ -4,6 +4,7 @@ import { AgentPolicyManifest, ServerProvider } from "@t3tools/contracts";
 import {
   catalogModels,
   effortFor,
+  effortForModel,
   ensureModel,
   isUiOnly,
   listModel,
@@ -258,5 +259,52 @@ describe("delegation settings", () => {
     expect(effortFor(["low", "high"], "xhigh")).toBe("low");
     // With no installed account the choices are unknown, so the current effort stands.
     expect(effortFor([], "xhigh")).toBe("xhigh");
+  });
+
+  it("lists every installed provider's models and records effort only where there is one", () => {
+    const pi = decodeProvider({
+      ...provider(),
+      driver: "pi",
+      instanceId: "pi",
+      models: [
+        {
+          slug: "deepseek-v4",
+          name: "DeepSeek V4.1 Flash",
+          isCustom: false,
+          capabilities: { optionDescriptors: [] },
+        },
+        {
+          slug: "kimi-k2",
+          name: "Kimi K2",
+          isCustom: false,
+          capabilities: {
+            optionDescriptors: [
+              {
+                id: "thinking",
+                label: "Thinking",
+                type: "select",
+                options: [
+                  { id: "low", label: "Low" },
+                  { id: "medium", label: "Medium" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
+    const [deepseek, kimi] = catalogModels([pi]);
+    expect(deepseek).toMatchObject({
+      label: "DeepSeek V4.1 Flash",
+      binding: { driverKind: "pi", model: "deepseek-v4" },
+      efforts: [],
+    });
+    expect(deepseek!.binding.effortOption).toBeUndefined();
+    expect(effortForModel(deepseek!)).toBeUndefined();
+    expect(kimi).toMatchObject({
+      binding: { driverKind: "pi", model: "kimi-k2", effortOption: "thinking" },
+      efforts: ["low", "medium"],
+    });
+    expect(effortForModel(kimi!)).toBe("medium");
   });
 });

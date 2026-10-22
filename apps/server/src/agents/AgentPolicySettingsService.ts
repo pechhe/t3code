@@ -83,8 +83,6 @@ const make = Effect.gen(function* () {
     const catalog = yield* providers.getProviders;
     const current = yield* load();
     for (const [alias, binding] of Object.entries(manifest.models)) {
-      if (binding.driverKind !== "codex" && binding.driverKind !== "claudeAgent")
-        return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
       const matching = catalog
         .filter(
           (provider) =>
@@ -101,9 +99,12 @@ const make = Effect.gen(function* () {
           previous.effortOption !== binding.effortOption)
       )
         return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
+      // A model without an effort setting runs as its account configures it.
+      if (binding.effortOption === undefined) continue;
+      const option = binding.effortOption;
       const options = matching
         .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
-        .filter((option) => option.id === binding.effortOption);
+        .filter((candidate) => candidate.id === option);
       const efforts = [
         ...Object.values(manifest.lists).flat(),
         ...Object.values(manifest.roles).flatMap((role) => (role.large ? [role.large] : [])),
@@ -112,13 +113,15 @@ const make = Effect.gen(function* () {
         .map((entry) => entry.effort);
       if (
         matching.length > 0 &&
-        efforts.some(
-          (value) =>
-            !options.some(
-              (option) =>
-                option.type === "select" && option.options.some((choice) => choice.id === value),
-            ),
-        )
+        (efforts.includes(undefined) ||
+          efforts.some(
+            (value) =>
+              !options.some(
+                (candidate) =>
+                  candidate.type === "select" &&
+                  candidate.options.some((choice) => choice.id === value),
+              ),
+          ))
       )
         return yield* new AgentPolicySettingsError({ reason: "unsupported-model" });
     }

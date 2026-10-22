@@ -102,13 +102,17 @@ export const readOnlyToolProfile = (profile: AgentToolProfile): AgentToolProfile
 const ModelBinding = Schema.Struct({
   driverKind: ProviderDriverKind,
   model: TrimmedNonEmptyString,
-  effortOption: TrimmedNonEmptyString,
+  /** The select option carrying effort; absent for a model that has no effort setting. */
+  effortOption: Schema.optional(TrimmedNonEmptyString),
   /** Select options every task on this model carries beside effort, e.g. `serviceTier: "fast"`. */
   options: Schema.optional(Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString)),
 });
 
-/** A model a role may use and the effort it runs at. */
-export const AgentListEntry = Schema.Struct({ model: Alias, effort: TrimmedNonEmptyString });
+/** A model a role may use and, when the model has one, the effort it runs at. */
+export const AgentListEntry = Schema.Struct({
+  model: Alias,
+  effort: Schema.optional(TrimmedNonEmptyString),
+});
 export type AgentListEntry = typeof AgentListEntry.Type;
 const RolePolicy = Schema.Struct({
   /** The ordered model list this role uses; roles naming the same list share it. */
@@ -155,10 +159,15 @@ const Manifest = Schema.Struct({
 /** Structural authority is fixed; model identities and order belong to the versioned policy. */
 function validManifest(manifest: typeof Manifest.Type): boolean {
   const { lists, models, roles } = manifest;
+  // A model's effort is present exactly when the model exposes one, so a list cannot drop
+  // it, or keep a stale value after the model loses its effort setting.
+  const hasEffort = (entry: { readonly model: string; readonly effort?: string | undefined }) =>
+    (models[entry.model]?.effortOption !== undefined) === (entry.effort !== undefined);
   for (const list of Object.values(lists)) {
     const aliases = list.map((entry) => entry.model);
     if (new Set(aliases).size !== aliases.length) return false;
     if (aliases.some((alias) => models[alias] === undefined)) return false;
+    if (!list.every(hasEffort)) return false;
   }
   for (const [name, role] of Object.entries(roles)) {
     if (role === undefined) continue;
@@ -172,6 +181,7 @@ function validManifest(manifest: typeof Manifest.Type): boolean {
     const list = lists[role.list]?.map((entry) => entry.model);
     if (list === undefined || role.brief !== `roles/${name}.md`) return false;
     if (role.large !== undefined && !list.includes(role.large.model)) return false;
+    if (role.large !== undefined && !hasEffort(role.large)) return false;
     for (const [caller, first] of Object.entries(role.callers ?? {}))
       if (models[caller] === undefined || !list.includes(first)) return false;
     if (role.preferOtherAuthorProvider !== undefined && !isReviewerRole(name as AgentRole))
@@ -377,6 +387,10 @@ export const AgentExecutionBoundary = Schema.Literals([
   "trusted-host-access",
 ]);
 export type AgentExecutionBoundary = typeof AgentExecutionBoundary.Type;
+/**
+ * The boundary a managed task is admitted with. Codex and Claude enforce it natively; any
+ * other provider runs under its account's own permissions, whatever boundary is recorded.
+ */
 
 /** A coherent work identity survives new launch attempts and transport retries. */
 const agentTaskRequestFields = {

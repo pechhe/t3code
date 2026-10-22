@@ -202,12 +202,9 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     const alias = entry.model;
     const binding = snapshot.manifest.models[alias]!;
     const effort = large?.model === alias ? large.effort : entry.effort;
-    // Managed enforcement is implemented only in these adapters. Custom model aliases
-    // must still resolve to the advertised literal model; no inherited-model fallback.
-    if (binding.driverKind !== "codex" && binding.driverKind !== "claudeAgent") {
-      record(alias, binding.model, "unsupported-provider");
-      continue;
-    }
+    // Every installed provider may serve a role. Only Codex and Claude enforce a managed
+    // task's read-only source access natively, so a role on another provider runs with the
+    // account's own permissions; the policy editor says so where a model is chosen.
     if (
       request.taskClass !== "non-ui" &&
       (binding.driverKind === "codex" || /^(gpt-|o[134]-)/i.test(binding.model))
@@ -251,16 +248,18 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         continue;
       }
       const model = provider.models.find((candidate) => candidate.slug === binding.model);
-      const option = model?.capabilities?.optionDescriptors?.find(
-        (candidate) => candidate.id === binding.effortOption,
-      );
       if (model === undefined) {
         skip("model-unavailable");
         continue;
       }
-      if (option?.type !== "select" || !option.options.some((choice) => choice.id === effort)) {
-        skip("unsupported-effort");
-        continue;
+      if (binding.effortOption !== undefined) {
+        const option = model.capabilities?.optionDescriptors?.find(
+          (candidate) => candidate.id === binding.effortOption,
+        );
+        if (option?.type !== "select" || !option.options.some((choice) => choice.id === effort)) {
+          skip("unsupported-effort");
+          continue;
+        }
       }
       // A model that does not offer a policy option (say fast, on an account without it)
       // still runs; it just starts without that option.
@@ -273,16 +272,19 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
         ),
       );
       skip("eligible");
+      const options = [
+        ...(binding.effortOption === undefined || effort === undefined
+          ? []
+          : [{ id: binding.effortOption, value: effort }]),
+        ...extras.map(([id, value]) => ({ id, value })),
+      ];
       eligible.push({
         alias,
         provider,
         selection: {
           instanceId: provider.instanceId,
           model: binding.model,
-          options: [
-            { id: binding.effortOption, value: effort },
-            ...extras.map(([id, value]) => ({ id, value })),
-          ],
+          ...(options.length === 0 ? {} : { options }),
         },
       });
     }

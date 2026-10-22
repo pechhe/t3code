@@ -5,7 +5,7 @@ import type {
   ProviderInstanceId,
   ServerProvider,
 } from "@t3tools/contracts";
-import { useMemo, type ReactElement } from "react";
+import type { ReactElement } from "react";
 
 import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -26,20 +26,16 @@ function useInstanceEntries(environmentId: EnvironmentId) {
   const settings = useEnvironmentSettings(environmentId);
   const providers: ReadonlyArray<ServerProvider> =
     useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
-  const entries = useMemo(
-    () =>
-      sortProviderInstanceEntries(
-        applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
-      ),
-    [providers, settings],
+  const entries = sortProviderInstanceEntries(
+    applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
   );
   return { settings, providers, entries };
 }
 
 /**
  * Chooses a delegation model with the composer's own model picker. Policy models name a
- * provider kind rather than an account, so any account of that kind stands for it, and
- * models a subagent cannot run (no effort setting, or another provider) are disabled.
+ * provider kind rather than an account, so any account of that kind stands for it. Every
+ * installed model can be picked; one with an effort setting also gets the effort picker.
  */
 export function PolicyModelPicker(props: {
   environmentId: EnvironmentId;
@@ -59,10 +55,7 @@ export function PolicyModelPicker(props: {
     entries[0];
   const instanceId = active?.instanceId ?? ("" as ProviderInstanceId);
   const model = props.binding?.model ?? "";
-  const options = useMemo(
-    () => getCustomModelOptionsByInstance(settings, providers, instanceId, model),
-    [settings, providers, instanceId, model],
-  );
+  const options = getCustomModelOptionsByInstance(settings, providers, instanceId, model);
   const catalogModel = (pickedInstance: ProviderInstanceId, slug: string) => {
     const driver = entries.find((entry) => entry.instanceId === pickedInstance)?.driverKind;
     return props.catalog.find(
@@ -83,8 +76,7 @@ export function PolicyModelPicker(props: {
       {...(props.binding ? {} : { triggerLabel: "Choose model" })}
       getModelDisabledReason={(pickedInstance, slug) => {
         const picked = catalogModel(pickedInstance, slug);
-        if (picked === undefined)
-          return "Subagents run Codex and Claude models with an effort setting";
+        if (picked === undefined) return "Not listed by an installed account";
         return props.pickDisabledReason?.(picked) ?? null;
       }}
       onInstanceModelChange={(pickedInstance, slug) => {
@@ -99,7 +91,7 @@ export function PolicyModelPicker(props: {
 export function PolicyEffortPicker(props: {
   environmentId: EnvironmentId;
   binding: Binding | undefined;
-  effort: string;
+  effort: string | undefined;
   disabled?: boolean;
   onChange: (effort: string) => void;
 }) {
@@ -112,17 +104,19 @@ export function PolicyEffortPicker(props: {
   if (binding === undefined || entry === undefined) {
     return <span className="text-muted-foreground text-xs">{props.effort}</span>;
   }
+  const effortOption = binding.effortOption;
+  if (effortOption === undefined) return null;
   return (
     <TraitsPicker
       provider={entry.driverKind}
       models={entry.models}
       model={binding.model}
-      modelOptions={[{ id: binding.effortOption, value: props.effort }]}
+      modelOptions={[{ id: effortOption, value: props.effort ?? "" }]}
       allowPromptInjectedEffort={false}
       planModeEnabled={settings.planModeEnabled}
       disabled={props.disabled ?? false}
       onModelOptionsChange={(options) => {
-        const value = options?.find((option) => option.id === binding.effortOption)?.value;
+        const value = options?.find((option) => option.id === effortOption)?.value;
         if (typeof value === "string" && value !== props.effort) props.onChange(value);
       }}
     />
