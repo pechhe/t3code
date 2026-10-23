@@ -7,7 +7,9 @@ import { act, render, stubGlobal } from "../../../test/render";
 const state = vi.hoisted(() => ({
   projects: [] as never[],
   navigate: vi.fn(async (): Promise<void> => undefined),
-  openScratchProject: vi.fn(async () => null),
+  openScratchProject: vi.fn(async (_environmentId: EnvironmentId, _failureTitle?: string) => null),
+  // Where the composer's machine switch was left, which only a non-local link follows.
+  newThreadEnvironmentId: null as EnvironmentId | null,
 }));
 
 // One connected primary environment that can read pull requests. Its project list and
@@ -47,7 +49,8 @@ vi.mock(import("../../state/entities"), async (original) => ({
 vi.mock(import("../../hooks/useScratchProject"), async (original) => ({
   ...(await original()),
   useScratchProject: (() => ({
-    scratchEnvironmentId: () => "local",
+    scratchEnvironmentId: (current: EnvironmentId | null) => current ?? ("local" as EnvironmentId),
+    newThreadEnvironmentId: () => state.newThreadEnvironmentId,
     openScratchProject: state.openScratchProject,
   })) as never,
 }));
@@ -58,6 +61,7 @@ import { DesktopWebLinkCoordinator } from "./DesktopWebLinkCoordinator";
 
 const discoverySettled = allReachableShellsLiveAtom as Atom.Writable<boolean>;
 const environmentId = EnvironmentId.make("local");
+const remoteEnvironmentId = EnvironmentId.make("remote");
 const projectId = ProjectId.make("effect");
 const project = {
   id: projectId,
@@ -90,6 +94,7 @@ const pullRequestView = {
 function setup() {
   vi.clearAllMocks();
   state.projects = [];
+  state.newThreadEnvironmentId = null;
   appAtomRegistry.set(discoverySettled, false);
 }
 
@@ -137,4 +142,30 @@ it("holds a launch PR link until project discovery settles, then opens the PR vi
   });
   expect(state.navigate).toHaveBeenCalledExactlyOnceWith(pullRequestView);
   expect(state.openScratchProject).not.toHaveBeenCalled();
+});
+
+// A local path belongs to the machine running the app, so its fallback thread runs there
+// however the composer's machine switch was left.
+it("opens a file link's fallback thread on the primary environment", async () => {
+  setup();
+  state.newThreadEnvironmentId = remoteEnvironmentId;
+  await using _coordinator = await mount("file:///tmp/notes/plan.md");
+  await vi.waitFor(() =>
+    expect(state.openScratchProject).toHaveBeenCalledExactlyOnceWith(
+      environmentId,
+      "Could not open the link",
+    ),
+  );
+});
+
+it("keeps the remembered machine for a link that is not local", async () => {
+  setup();
+  state.newThreadEnvironmentId = remoteEnvironmentId;
+  await using _coordinator = await mount("https://example.com/notes");
+  await vi.waitFor(() =>
+    expect(state.openScratchProject).toHaveBeenCalledExactlyOnceWith(
+      remoteEnvironmentId,
+      "Could not open the link",
+    ),
+  );
 });

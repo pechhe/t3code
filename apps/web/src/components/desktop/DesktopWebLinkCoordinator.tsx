@@ -95,9 +95,16 @@ export function DesktopWebLinkCoordinator() {
       stackedThreadToast({ type: "error", title: "Could not open the link", description }),
     );
 
-  const startThread = async (url: string): Promise<ScopedThreadRef | null> => {
+  const startThread = async (
+    url: string,
+    isLocalPath: boolean,
+  ): Promise<ScopedThreadRef | null> => {
+    // A local path lives on the machine running the app, so its fallback thread runs
+    // there; only a remote target follows the composer's remembered machine.
     const environmentId = scratchEnvironmentId(
-      newThreadEnvironmentId() ?? primaryEnvironment?.environmentId ?? null,
+      isLocalPath
+        ? (primaryEnvironment?.environmentId ?? null)
+        : (newThreadEnvironmentId() ?? primaryEnvironment?.environmentId ?? null),
     );
     if (environmentId === null) {
       reportFailure(url);
@@ -128,7 +135,7 @@ export function DesktopWebLinkCoordinator() {
       threadShowingBrowser(
         routeParams,
         isFile ? (primaryEnvironment?.environmentId ?? null) : null,
-      ) ?? (await startThread(url));
+      ) ?? (await startThread(url, isFile));
     if (threadRef === null) return;
     const result = isFile
       ? httpBaseUrl === null
