@@ -642,33 +642,41 @@ describe("handoff delivery", () => {
   );
 });
 
-it.effect("retains delivered material and distinguishes an omitted manual handoff note", () =>
+it.effect("delivers a summary-only handoff whole or fails, never without its summary", () =>
   Effect.gen(function* () {
-    const manual = { ...handoff, history: undefined, summaryText: "A short restart instruction" };
-    // Removing the optional history field keeps the legacy/manual note delivery path.
-    const { history: _history, ...note } = manual;
+    // A compaction another account wrote leaves no replayed items: the summary is the
+    // conversation, so a delivery that cannot carry it must not happen at all.
+    const { history: _history, ...note } = {
+      ...handoff,
+      history: undefined,
+      summaryText: "The user is fixing the login redirect.",
+    };
     let saved: OrchestrationV2ContextHandoff | undefined;
+    let persisted = 0;
     const input = {
       providerThread,
       alreadyDeliveredItemIds: new Set<string>(),
       persist: (value: OrchestrationV2ContextHandoff) =>
         Effect.sync(() => {
           saved = value;
+          persisted += 1;
         }),
     };
     const included = yield* deliverContextHandoffs({ ...input, handoffs: [note], budget: 16_000 });
     yield* included.delivered;
     assert.isTrue(saved?.delivery?.summaryIncluded);
     assert.include(saved?.delivery?.contextText ?? "", note.summaryText);
+    assert.notInclude(saved?.delivery?.contextText ?? "", "Recover history");
+
+    const persistedBeforeFailure = persisted;
     const oversized = { ...note, summaryText: "x".repeat(30_000) };
     const omitted = yield* deliverContextHandoffs({
       ...input,
       handoffs: [oversized],
       budget: 4_000,
-    });
-    yield* omitted.delivered;
-    assert.isFalse(saved?.delivery?.summaryIncluded);
-    assert.notInclude(saved?.delivery?.contextText ?? "", oversized.summaryText);
-    assert.include(saved?.delivery?.contextText ?? "", "Recover history");
+    }).pipe(Effect.result);
+    assert.equal(omitted._tag, "Failure");
+    // The failed delivery persisted nothing, so the next turn starts from the handoff again.
+    assert.equal(persisted, persistedBeforeFailure);
   }),
 );

@@ -44,7 +44,9 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
         (handoff) =>
           `Context handoff (${handoff.strategy === "fork_delta_summary" ? "merge_back / fork_delta_summary" : handoff.strategy}):\n${
             handoff.history?.coverage ??
-            `From thread ${handoff.threadId}, runs ${handoff.coveredRunOrdinals.from}-${handoff.coveredRunOrdinals.to}. Recover history with t3_thread_read, view=activity; paginate with afterPosition, and use itemId/textOffset for long items.`
+            // A handoff with no replayed items carries its own summary of everything before it
+            // (a compaction another account wrote), so there is nothing earlier to read back.
+            `Thread ${handoff.threadId}, runs ${handoff.coveredRunOrdinals.from}-${handoff.coveredRunOrdinals.to}. The summary below replaces all earlier history; nothing before it is available.`
           }`,
       )
       .join("\n");
@@ -68,6 +70,16 @@ export const deliverContextHandoffs = Effect.fn("orchestrationV2.deliverContextH
       oldContext && historyCost([], `${coverage}\n${oldContext}`) + 512 <= budget
         ? `${coverage}\n${oldContext}`
         : coverage;
+    // A summary-only handoff (a compaction another account wrote) is the whole conversation, so
+    // delivering the marker without it would silently drop everything the thread knew.
+    if (
+      oldContext !== "" &&
+      fullCoverage === coverage &&
+      pending.some((handoff) => handoff.history === undefined)
+    ) {
+      if (input.deferInline) return { context: "", delivered: Effect.void, unsent: Effect.void };
+      return yield* new ContextHandoffBudgetError();
+    }
     const selected = selectHistory({
       messages,
       coverage: fullCoverage,

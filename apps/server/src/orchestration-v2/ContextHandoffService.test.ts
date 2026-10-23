@@ -162,3 +162,31 @@ it.layer(layerTest)("ContextHandoffService legacy import", (it) => {
     }),
   );
 });
+
+it.layer(layerTest)("ContextHandoffService compaction summary", (it) => {
+  it.effect("carries the other account's summary as the whole next conversation", () =>
+    Effect.gen(function* () {
+      const service = yield* ContextHandoffService.ContextHandoffServiceV2;
+      const handoff = yield* service.prepareCompactionSummary({
+        threadId: ThreadId.make("thread:compacted"),
+        targetRunId: RunId.make("run:compact"),
+        fromProviderThreadIds: [ProviderThreadId.make("provider-thread:compacted")],
+        toProviderThreadId: ProviderThreadId.make("provider-thread:compacted"),
+        fromProviderInstanceId: ProviderInstanceId.make("claude"),
+        toProviderInstanceId: ProviderInstanceId.make("claude"),
+        coveredRunOrdinals: { from: 1, to: 7 },
+        summaryText: "The user is fixing the login redirect.",
+        createdAt: DateTime.makeUnsafe("2026-01-02T00:00:00.000Z"),
+      });
+
+      assert.equal(handoff.strategy, "full_thread_summary");
+      assert.equal(handoff.status, "ready");
+      assert.equal(handoff.summaryText, "The user is fixing the login redirect.");
+      // No replayed items: the summary is the conversation, so delivery uses it whole.
+      assert.isUndefined(handoff.history);
+      assert.isUndefined(handoff.delivery);
+      assert.isNull(handoff.transferId);
+      assert.deepStrictEqual(handoff.coveredRunOrdinals, { from: 1, to: 7 });
+    }),
+  );
+});

@@ -463,3 +463,42 @@ export function buildThreadTitlePrompt(input: ThreadTitlePromptInput) {
 
   return { prompt, outputSchema };
 }
+
+const COMPACTION_SUMMARY_INSTRUCTIONS = `You summarise a long coding conversation so another model can continue it without the original messages.
+
+Write the summary in the conversation's own working language. Keep it dense and concrete, and cover:
+- What the user asked for, including constraints and corrections they made.
+- Every decision taken, and why, including options rejected.
+- The files, commands and external systems touched, by name and path.
+- The state of the work now: what is done, what is in progress, what is broken.
+- What remains, in the order it should be done, and anything that would trip up a fresh reader.
+
+Rules:
+- Write instructions to the assistant that continues the work, not a report about the conversation.
+- Never invent work, files or results that the conversation does not show.
+- Keep tool detail only where it changes what the next turn should do; drop routine output.
+- Do not answer the user, ask questions, or add commentary of your own.
+- Do not repeat these instructions or mention summarising.
+- Stay under 1,200 words.`;
+
+export interface CompactionSummaryPromptInput {
+  readonly threadTitle?: string | undefined;
+  /** The rendered conversation, oldest first, from the compaction transcript. */
+  readonly transcript: string;
+}
+
+export function buildCompactionSummaryPrompt(input: CompactionSummaryPromptInput) {
+  const title = input.threadTitle?.trim();
+  const prompt = [
+    COMPACTION_SUMMARY_INSTRUCTIONS,
+    ...(title ? ["", `Thread title: ${title}`] : []),
+    "",
+    "Conversation (oldest first; a marker names anything dropped as too large):",
+    input.transcript,
+  ].join("\n");
+
+  return {
+    prompt,
+    outputSchema: Schema.Struct({ summary: Schema.String }),
+  };
+}

@@ -41,7 +41,14 @@ const serverTest = (...names: ReadonlyArray<string>) =>
   names.map((name) => `apps/server/src/${name}`);
 // Tests that spawn `apps/server/src/bin.ts`, or a fixture that imports server and package source.
 // The spawned program's imports are invisible to the importing test's graph.
-const SOURCE_SPAWNERS = [...serverTest("outboundHttp.test.ts", "processRunner.test.ts")];
+const SOURCE_SPAWNERS = [
+  ...serverTest(
+    "outboundHttp.test.ts",
+    "processRunner.test.ts",
+    // Spawns apps/server/src/bin.ts to drive the managed runtime's CLI.
+    "provider/CodexManagedRuntime.test.ts",
+  ),
+];
 const FIXTURE_DIRECTORY_READERS = serverTest(
   "provider/ProviderInstanceRegistry.test.ts",
   "provider/ClaudeCapabilitiesProbe.test.ts",

@@ -43,6 +43,7 @@ import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
 import * as EventSink from "./EventSink.ts";
@@ -209,6 +210,9 @@ function startWithMissingWorktree(
         }),
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({}),
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          getInstance: () => Effect.succeed(undefined),
+        }),
       ),
     ),
   );
@@ -313,6 +317,19 @@ function makeLocalCommandHarness(input: {
   readonly interruptRunBeforeOpenFailure?: boolean;
   readonly writeFailure?: unknown;
   readonly failReadsAfterRunning?: boolean;
+  /** The conversation already has a native session, which a compaction can replace. */
+  readonly nativeSession?: boolean;
+  /** The thread's session is replaced by another turn while the summariser writes. */
+  readonly sessionMovedDuringSummary?: boolean;
+  readonly backgroundTasks?: number;
+  /** Another account that can summarise this thread's compaction. */
+  readonly summariser?: {
+    readonly instanceId: ProviderInstanceId;
+    readonly model: string;
+    readonly summary?: string;
+    readonly failure?: unknown;
+    readonly contextWindowTokens?: number;
+  };
   readonly previousTurn?: {
     readonly runStatus: "failed" | "completed";
     readonly turnStatus: "running" | "completed" | "interrupted";
@@ -363,9 +380,25 @@ function makeLocalCommandHarness(input: {
     providerSessionId,
     appThreadId: threadId,
     ownerNodeId: null,
-    nativeThreadRef: null,
+    nativeThreadRef:
+      input.nativeSession === true
+        ? {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            nativeId: "existing-session",
+            strength: "strong",
+          }
+        : null,
     nativeConversationHeadRef: null,
-    status: "not_loaded",
+    ...(input.backgroundTasks === undefined
+      ? {}
+      : {
+          pendingBackgroundTasks: Array.from({ length: input.backgroundTasks }, (_, index) => ({
+            kind: "command" as const,
+            taskId: `background-${index}`,
+            description: `Background ${index}`,
+          })),
+        }),
+    status: input.nativeSession === true ? ("idle" as const) : ("not_loaded" as const),
     firstRunOrdinal: 2,
     lastRunOrdinal: 2,
     handoffIds: [],
@@ -734,7 +767,25 @@ function makeLocalCommandHarness(input: {
   );
   const createWorktree = vi.fn(() => Effect.succeed({} as never));
   const getThreadRecords = vi.fn<ProjectionStore.ProjectionStoreV2Shape["getThreadRecords"]>(() =>
-    Effect.succeed(projection),
+    Effect.succeed(
+      input.sessionMovedDuringSummary === true
+        ? {
+            ...projection,
+            providerThreads: projection.providerThreads.map((candidate) =>
+              candidate.id === providerThreadId
+                ? {
+                    ...candidate,
+                    nativeThreadRef: {
+                      driver: candidate.driver,
+                      nativeId: "another-session",
+                      strength: "strong" as const,
+                    },
+                  }
+                : candidate,
+            ),
+          }
+        : projection,
+    ),
   );
   const getTurnStartContext = vi.fn(() =>
     Effect.succeed({
@@ -750,9 +801,12 @@ function makeLocalCommandHarness(input: {
     Layer.provide(VideoFrames.layerLive),
     Layer.provide(
       Layer.mergeAll(
-        Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
-          prepareProviderHandoff: () => Effect.die("history read must fail first"),
-        }),
+        // A cross-account compaction writes a real handoff; the other scenarios never do.
+        input.summariser === undefined
+          ? Layer.mock(ContextHandoffService.ContextHandoffServiceV2)({
+              prepareProviderHandoff: () => Effect.die("history read must fail first"),
+            })
+          : ContextHandoffService.layer.pipe(Layer.provide(IdAllocator.layer)),
         Layer.mock(EventSink.EventSinkV2)({ writeIfRunCurrent }),
         IdAllocator.layer,
         Layer.succeed(HostProcess.Environment, input.processEnvironment ?? process.env),
@@ -810,6 +864,36 @@ function makeLocalCommandHarness(input: {
         Layer.mock(RunExecutionService.RunExecutionServiceV2)({ startRootRun }),
         Layer.mock(RuntimePolicy.RuntimePolicyV2)({
           resolve: resolveRuntimePolicy,
+        }),
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          getInstance: (requested) =>
+            Effect.succeed(
+              input.summariser === undefined || requested !== input.summariser.instanceId
+                ? undefined
+                : ({
+                    instanceId: input.summariser.instanceId,
+                    snapshot: {
+                      getSnapshot: Effect.succeed({
+                        models: [
+                          {
+                            slug: input.summariser.model,
+                            ...(input.summariser.contextWindowTokens === undefined
+                              ? {}
+                              : { contextWindowTokens: input.summariser.contextWindowTokens }),
+                          },
+                        ],
+                      }),
+                    },
+                    textGeneration: {
+                      generateCompactionSummary: () =>
+                        input.summariser?.failure === undefined
+                          ? Effect.succeed({
+                              summary: input.summariser?.summary ?? "Summarised conversation.",
+                            })
+                          : Effect.fail(input.summariser.failure),
+                    },
+                  } as never),
+            ),
         }),
       ),
     ),
@@ -1453,7 +1537,11 @@ effectIt.effect("says a delegated task's removed workspace is not replaced", () 
 
 const CLAUDE_INSTANCE = "claudeAgent";
 const claudeCompactSettings = (
-  config: { compactModel?: string; compactOnlyWhenCold?: boolean },
+  config: {
+    compactModel?: string;
+    compactModelInstanceId?: string;
+    compactOnlyWhenCold?: boolean;
+  },
   expiresAtIso?: string,
 ) => ({
   settings: {
@@ -1609,6 +1697,185 @@ describe("Claude compaction model", () => {
       yield* harness.start;
 
       expect(harness.startRootRun.mock.calls[0]?.[0].compaction).toBeUndefined();
+    }),
+  );
+});
+
+describe("Claude compaction on another account", () => {
+  const SUMMARISER_INSTANCE = ProviderInstanceId.make("pi-personal");
+  const otherAccountSettings = (
+    config: {
+      compactModel?: string;
+      compactModelInstanceId?: string;
+      compactOnlyWhenCold?: boolean;
+    },
+    expiresAtIso?: string,
+  ) => claudeCompactSettings(config, expiresAtIso);
+
+  effectIt.effect("the other account summarises and the conversation opens a fresh session", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Fix the login redirect"],
+        nativeSession: true,
+        claude: otherAccountSettings(
+          {
+            compactModel: "deepseek-v4.1-flash",
+            compactModelInstanceId: SUMMARISER_INSTANCE,
+          },
+          CACHE_EXPIRED,
+        ),
+        summariser: {
+          instanceId: SUMMARISER_INSTANCE,
+          model: "deepseek-v4.1-flash",
+          summary: "The user is fixing the login redirect.",
+        },
+      });
+
+      yield* harness.start;
+
+      // The thread's own provider never sees this compaction: T3 wrote the summary.
+      expect(harness.open).not.toHaveBeenCalled();
+      expect(harness.startRootRun).not.toHaveBeenCalled();
+      expect(harness.projection().runs.at(-1)?.status).toBe("completed");
+      expect(harness.projection().turnItems).toMatchObject([
+        {
+          type: "compaction",
+          status: "completed",
+          model: "deepseek-v4.1-flash",
+          summary: "The user is fixing the login redirect.",
+          beforeTokenCount: 150_000,
+        },
+      ]);
+      // The summary is the next session's whole conversation, and the old session is dropped.
+      const [handoff] = harness.projection().contextHandoffs;
+      expect(handoff).toMatchObject({
+        strategy: "full_thread_summary",
+        summaryText: "The user is fixing the login redirect.",
+      });
+      const thread = harness
+        .projection()
+        .providerThreads.find((candidate) => candidate.nativeThreadRef === null);
+      expect(thread).toMatchObject({ nativeThreadRef: null, contextUsage: null });
+      expect(thread?.handoffIds).toEqual([handoff?.id]);
+    }),
+  );
+
+  effectIt.effect("fails the compaction, keeping the conversation's session, when it errors", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Fix the login redirect"],
+        nativeSession: true,
+        claude: otherAccountSettings(
+          {
+            compactModel: "deepseek-v4.1-flash",
+            compactModelInstanceId: SUMMARISER_INSTANCE,
+          },
+          CACHE_EXPIRED,
+        ),
+        summariser: {
+          instanceId: SUMMARISER_INSTANCE,
+          model: "deepseek-v4.1-flash",
+          failure: new Error("the summariser is offline"),
+        },
+      });
+
+      yield* harness.start;
+
+      expect(harness.startRootRun).not.toHaveBeenCalled();
+      expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+      expect(harness.projection().turnItems).toMatchObject([
+        { type: "error", title: "Compacting context with deepseek-v4.1-flash failed" },
+      ]);
+      expect(harness.projection().contextHandoffs).toEqual([]);
+      expect(harness.projection().providerThreads[0]?.nativeThreadRef).not.toBeNull();
+    }),
+  );
+
+  effectIt.effect(
+    "refuses when another turn replaced the session while the summary was written",
+    () =>
+      Effect.gen(function* () {
+        yield* setClaudeClock;
+        const harness = makeLocalCommandHarness({
+          text: "/compact",
+          previousMessages: ["Fix the login redirect"],
+          nativeSession: true,
+          sessionMovedDuringSummary: true,
+          claude: otherAccountSettings(
+            {
+              compactModel: "deepseek-v4.1-flash",
+              compactModelInstanceId: SUMMARISER_INSTANCE,
+            },
+            CACHE_EXPIRED,
+          ),
+          summariser: { instanceId: SUMMARISER_INSTANCE, model: "deepseek-v4.1-flash" },
+        });
+
+        yield* harness.start;
+
+        expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+        expect(harness.projection().turnItems).toMatchObject([
+          { type: "error", failure: { class: "validation_error" } },
+        ]);
+        expect(harness.projection().contextHandoffs).toEqual([]);
+      }),
+  );
+
+  effectIt.effect("refuses while the thread's own work is still running", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Fix the login redirect"],
+        nativeSession: true,
+        backgroundTasks: 1,
+        claude: otherAccountSettings(
+          {
+            compactModel: "deepseek-v4.1-flash",
+            compactModelInstanceId: SUMMARISER_INSTANCE,
+          },
+          CACHE_EXPIRED,
+        ),
+        summariser: { instanceId: SUMMARISER_INSTANCE, model: "deepseek-v4.1-flash" },
+      });
+
+      yield* harness.start;
+
+      expect(harness.projection().runs.at(-1)?.status).toBe("failed");
+      expect(harness.projection().turnItems).toMatchObject([
+        { type: "error", failure: { class: "validation_error" } },
+      ]);
+      expect(harness.projection().providerThreads[0]?.nativeThreadRef).not.toBeNull();
+    }),
+  );
+
+  effectIt.effect("the conversation's own account still compacts in place while warm", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Fix the login redirect"],
+        nativeSession: true,
+        failReadsAfterRunning: true,
+        claude: otherAccountSettings(
+          {
+            compactModel: "deepseek-v4.1-flash",
+            compactModelInstanceId: SUMMARISER_INSTANCE,
+          },
+          CACHE_WARM,
+        ),
+        summariser: { instanceId: SUMMARISER_INSTANCE, model: "deepseek-v4.1-flash" },
+      });
+
+      yield* harness.start;
+
+      expect(harness.startRootRun).toHaveBeenCalledTimes(1);
+      expect(harness.startRootRun.mock.calls[0]?.[0].compaction).toBeUndefined();
+      expect(harness.projection().contextHandoffs).toEqual([]);
     }),
   );
 });

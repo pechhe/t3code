@@ -447,6 +447,7 @@ describe("pool shared settings", () => {
       "autoCompactWindow",
       "idleCompaction",
       "compactModel",
+      "compactModelInstanceId",
       "compactOnlyWhenCold",
     ]);
     expect(sharedProviderSettingKeys(ProviderDriverKind.make("codex"))).toEqual([]);
@@ -633,6 +634,7 @@ describe("pool shared settings", () => {
           config: {
             idleCompaction: "beforeCacheExpires",
             compactModel: "claude-sonnet-5-5",
+            compactModelInstanceId: "claude_own",
             compactOnlyWhenCold: false,
           },
         },
@@ -650,11 +652,13 @@ describe("pool shared settings", () => {
     expect(resolveIdleCompaction(settings, instanceId("claude_new"))).toBe("beforeCacheExpires");
     expect(resolveClaudeCompactionSetting(settings, instanceId("claude_new"))).toEqual({
       model: "claude-sonnet-5-5",
+      instanceId: instanceId("claude_own"),
       onlyWhenCold: false,
     });
     expect(resolveIdleCompaction(settings, instanceId("claude_own"))).toBe("onReturn");
     expect(resolveClaudeCompactionSetting(settings, instanceId("claude_own"))).toEqual({
       model: "claude-opus-4-6",
+      instanceId: instanceId("claude_own"),
       onlyWhenCold: true,
     });
   });

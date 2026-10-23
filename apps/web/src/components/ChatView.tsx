@@ -2633,13 +2633,20 @@ export default function ChatView(props: ChatViewProps) {
     activeThread !== undefined
       ? resolveCompactionModelDisplayName({
           setting: resolveClaudeCompactionSetting(settings, selectedProviderEntry.instanceId),
+          conversationInstanceId: selectedProviderEntry.instanceId,
           conversationModel:
             resolveSelectableModel(
               selectedProviderEntry.driverKind,
               activeThread.modelSelection.model,
               selectedProviderEntry.models,
             ) ?? activeThread.modelSelection.model,
-          models: selectedProviderEntry.models,
+          models:
+            providerInstanceEntries.find(
+              (entry) =>
+                entry.instanceId ===
+                resolveClaudeCompactionSetting(settings, selectedProviderEntry.instanceId)
+                  .instanceId,
+            )?.models ?? selectedProviderEntry.models,
           usages: (serverProjection?.providerTurns ?? []).flatMap((turn) =>
             turn.tokenUsage !== undefined && turn.providerThreadId === activeProviderThread?.id
               ? [turn.tokenUsage]

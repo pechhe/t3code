@@ -21,6 +21,7 @@ import { investigationUnsupported } from "@t3tools/provider-core/server/textGene
 import {
   buildBranchNamePrompt,
   buildCommitMessagePrompt,
+  buildCompactionSummaryPrompt,
   buildPrContentPrompt,
   buildThreadTitlePrompt,
 } from "@t3tools/provider-core/server/textGenerationPrompts";
@@ -342,11 +343,25 @@ export const makeMuseTextGeneration = Effect.fn("makeMuseTextGeneration")(functi
   });
   const generateReviewGuide: ProviderTextGeneration["generateReviewGuide"] = () =>
     Effect.fail(investigationUnsupported("generateReviewGuide", "Muse Code"));
+  const generateCompactionSummary: ProviderTextGeneration["generateCompactionSummary"] = Effect.fn(
+    "MuseTextGeneration.generateCompactionSummary",
+  )(function* (input) {
+    const generated = yield* runMuseJson({
+      operation: "generateCompactionSummary",
+      ...buildCompactionSummaryPrompt({
+        transcript: input.transcript,
+        threadTitle: input.threadTitle,
+      }),
+      modelSelection: input.modelSelection,
+    });
+    return { summary: generated.summary.trim() };
+  });
   return {
     generateCommitMessage,
     generatePrContent,
     generateBranchName,
     generateThreadTitle,
     generateReviewGuide,
+    generateCompactionSummary,
   } satisfies ProviderTextGeneration;
 });

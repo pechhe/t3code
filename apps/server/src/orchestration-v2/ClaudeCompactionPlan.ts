@@ -1,7 +1,10 @@
-import type { ModelSelection, OrchestrationV2ProviderTurnTokenUsage } from "@t3tools/contracts";
-import type { ProviderAdapterV2TurnInput } from "@t3tools/provider-core/server/ProviderAdapter";
+import type {
+  ModelSelection,
+  OrchestrationV2ProviderTurnTokenUsage,
+  ProviderInstanceId,
+} from "@t3tools/contracts";
 import {
-  chooseClaudeCompactionModel,
+  chooseCompactionModel,
   conversationPromptCacheExpiresAt,
 } from "@t3tools/shared/claudeCompaction";
 import {
@@ -17,19 +20,38 @@ import {
 } from "../provider/ClaudeModelCatalog.ts";
 
 /**
- * How a Claude `/compact` turn is summarised, or undefined when the conversation's own model does
- * it as always. The chosen model is selected with the conversation's reasoning options where it
- * accepts them and its own defaults where it does not.
+ * How a Claude `/compact` turn is summarised:
+ * - `conversation`: the conversation's own model compacts in place, as always.
+ * - `provider`: the chosen model runs on this same account, so the provider compacts with it.
+ * - `summary`: the chosen model runs on another account, so T3 writes the summary from the
+ *   thread's transcript and hands it to a fresh session of this account.
+ * - `windowTooSmall`: the chosen model was passed over because its window is smaller than the
+ *   thread, which only matters when the provider has to read the whole thread itself.
  */
+export type ClaudeCompactionPlan =
+  | { readonly kind: "conversation" }
+  | { readonly kind: "windowTooSmall" }
+  | { readonly kind: "provider"; readonly modelSelection: ModelSelection }
+  | { readonly kind: "summary"; readonly modelSelection: ModelSelection };
+
 export function planClaudeCompaction(input: {
-  readonly setting: { readonly model: string; readonly onlyWhenCold: boolean };
+  readonly setting: {
+    readonly model: string;
+    readonly instanceId: ProviderInstanceId;
+    readonly onlyWhenCold: boolean;
+  };
+  /** The account the conversation runs on, which compacts its own session. */
+  readonly runInstanceId: ProviderInstanceId;
   /** The conversation's selection, which the run and the thread keep. */
   readonly modelSelection: ModelSelection;
   readonly usages: ReadonlyArray<OrchestrationV2ProviderTurnTokenUsage>;
   readonly nowMs: number;
-}): ProviderAdapterV2TurnInput["compaction"] {
+}): ClaudeCompactionPlan {
   const catalog = BUNDLED_CLAUDE_MODEL_CATALOG;
-  const chosenModel = resolveClaudeModelSlug(catalog, input.setting.model.trim());
+  const sameAccount = input.setting.instanceId === input.runInstanceId;
+  const chosenModel = sameAccount
+    ? resolveClaudeModelSlug(catalog, input.setting.model.trim())
+    : input.setting.model.trim();
   const latest = input.usages.reduce<OrchestrationV2ProviderTurnTokenUsage | undefined>(
     (current, usage) =>
       current === undefined || Date.parse(usage.updatedAt) > Date.parse(current.updatedAt)
@@ -37,20 +59,8 @@ export function planClaudeCompaction(input: {
         : current,
     undefined,
   );
-  const options = buildExplicitProviderOptionSelectionsFromDescriptors(
-    getProviderOptionDescriptors({
-      caps: getClaudeCatalogModelCapabilities(catalog, chosenModel),
-      selections: input.modelSelection.options,
-    }),
-    input.modelSelection.options,
-  );
-  const chosenSelection: ModelSelection = {
-    instanceId: input.modelSelection.instanceId,
-    model: chosenModel,
-    ...(options === undefined ? {} : { options }),
-  };
-  const choice = chooseClaudeCompactionModel({
-    setting: input.setting,
+  const choice = chooseCompactionModel({
+    setting: { model: chosenModel, onlyWhenCold: input.setting.onlyWhenCold },
     conversationModel: resolveClaudeModelSlug(catalog, input.modelSelection.model),
     usedTokens: latest?.usedTokens ?? 0,
     promptCacheExpiresAt: conversationPromptCacheExpiresAt(input.usages),
@@ -61,7 +71,33 @@ export function planClaudeCompaction(input: {
       instanceId: input.modelSelection.instanceId,
       model: chosenModel,
     }),
+    sameAccount,
   });
-  if (choice.model !== null) return { modelSelection: chosenSelection };
-  return choice.windowTooSmall ? { windowTooSmall: true } : undefined;
+  if (choice.model === null) {
+    return choice.windowTooSmall ? { kind: "windowTooSmall" } : { kind: "conversation" };
+  }
+  if (choice.crossAccount) {
+    return {
+      kind: "summary",
+      modelSelection: {
+        instanceId: input.setting.instanceId,
+        model: choice.model,
+      },
+    };
+  }
+  const options = buildExplicitProviderOptionSelectionsFromDescriptors(
+    getProviderOptionDescriptors({
+      caps: getClaudeCatalogModelCapabilities(catalog, choice.model),
+      selections: input.modelSelection.options,
+    }),
+    input.modelSelection.options,
+  );
+  return {
+    kind: "provider",
+    modelSelection: {
+      instanceId: input.modelSelection.instanceId,
+      model: choice.model,
+      ...(options === undefined ? {} : { options }),
+    },
+  };
 }

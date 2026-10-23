@@ -168,7 +168,12 @@ describe("resolveCompactionModelDisplayName", () => {
     contextWindowTokens: 200_000,
   };
   const input = {
-    setting: { model: "claude-haiku-4-5", onlyWhenCold: true },
+    setting: {
+      model: "claude-haiku-4-5",
+      instanceId: ProviderInstanceId.make("claude"),
+      onlyWhenCold: true,
+    },
+    conversationInstanceId: ProviderInstanceId.make("claude"),
     conversationModel: "claude-sonnet-5-5",
     models: [haiku],
     usages: [
@@ -194,5 +199,20 @@ describe("resolveCompactionModelDisplayName", () => {
 
   it("names nothing when the chosen model's window is smaller than the thread", () => {
     expect(resolveCompactionModelDisplayName({ ...input, usedTokens: 300_000 })).toBe(null);
+  });
+
+  it("names another account's model whatever the thread's size", () => {
+    expect(
+      resolveCompactionModelDisplayName({
+        ...input,
+        setting: {
+          model: "deepseek-v4.1-flash",
+          instanceId: ProviderInstanceId.make("pi"),
+          onlyWhenCold: true,
+        },
+        models: [{ ...haiku, slug: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" }],
+        usedTokens: 900_000,
+      }),
+    ).toBe("DeepSeek V4.1 Flash");
   });
 });

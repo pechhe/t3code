@@ -37,6 +37,7 @@ import * as Orchestrator from "../Orchestrator.ts";
 import * as ProjectionStore from "../ProjectionStore.ts";
 import * as ProjectStore from "../ProjectStore.ts";
 import * as ProviderAdapterRegistry from "../ProviderAdapterRegistry.ts";
+import * as ProviderInstanceRegistry from "../../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAuthService from "../../provider/ProviderAuthService.ts";
 import * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import * as ProviderContinuationService from "../ProviderContinuationService.ts";
@@ -531,6 +532,12 @@ export function layerWithRegistry<Error>(
     layerStores,
   ).pipe(
     Layer.provide(ProviderTurnStartServiceTestkit.layer),
+    // Replays never compact across accounts, so no instance is resolvable.
+    Layer.provide(
+      Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+        getInstance: () => Effect.succeed(undefined),
+      }),
+    ),
     Layer.provide(layerServerConfig),
     Layer.provide(NodeServices.layer),
   );

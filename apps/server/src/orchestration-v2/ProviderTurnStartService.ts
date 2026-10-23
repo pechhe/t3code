@@ -5,6 +5,7 @@ import {
   CommandId,
   latestProviderTurnForAttempt,
   resolveClaudeCompactionSetting,
+  type OrchestrationV2ContextHandoff,
   type OrchestrationV2DomainEvent,
   type OrchestrationV2ExecutionNode,
   type OrchestrationV2ProviderThread,
@@ -36,11 +37,18 @@ import * as ServerConfig from "../config.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { makeIsManagedWorktreePath } from "../worktreesDirectory.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
 import { planClaudeCompaction } from "./ClaudeCompactionPlan.ts";
+import {
+  clampCompactionSummary,
+  COMPACTION_SUMMARY_MAX_BYTES,
+  DEFAULT_COMPACTION_WINDOW_TOKENS,
+  renderCompactionTranscript,
+} from "./CompactionTranscript.ts";
 import {
   DEFAULT_HANDOFF_TOKEN_CAP,
   handoffTokenCapConfig,
@@ -245,6 +253,7 @@ export const layer: Layer.Layer<
   | GitWorkflowService.GitWorkflowService
   | ProjectService.ProjectService
   | ProviderAuthService.ProviderAuthService
+  | ProviderInstanceRegistry.ProviderInstanceRegistry
   | ProjectionStore.ProjectionStoreV2
   | ProviderSessionManager.ProviderSessionManagerV2
   | RunExecutionService.RunExecutionServiceV2
@@ -263,6 +272,7 @@ export const layer: Layer.Layer<
     const gitWorkflow = yield* GitWorkflowService.GitWorkflowService;
     const projects = yield* ProjectService.ProjectService;
     const providerAuth = yield* ProviderAuthService.ProviderAuthService;
+    const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
     const providerSessions = yield* ProviderSessionManager.ProviderSessionManagerV2;
     const runExecution = yield* RunExecutionService.RunExecutionServiceV2;
@@ -483,8 +493,21 @@ export const layer: Layer.Layer<
             | Pick<
                 Extract<OrchestrationV2TurnItem, { type: "command_execution" }>,
                 "type" | "title" | "input" | "output" | "exitCode"
+              >
+            | Pick<
+                Extract<OrchestrationV2TurnItem, { type: "compaction" }>,
+                | "type"
+                | "driver"
+                | "title"
+                | "summary"
+                | "model"
+                | "beforeTokenCount"
+                | "afterTokenCount"
+                | "windowTooSmall"
               >;
           readonly providerThreadUpdate?: OrchestrationV2ProviderThread;
+          /** A handoff this run leaves behind, written with the run's own events. */
+          readonly handoff?: OrchestrationV2ContextHandoff;
         }) {
           const { now, status } = input;
           const started = input.startedAt === undefined ? {} : { startedAt: input.startedAt };
@@ -512,6 +535,9 @@ export const layer: Layer.Layer<
           };
           const eventPayloads = [
             { type: "turn-item.updated", payload: item },
+            ...(input.handoff === undefined
+              ? []
+              : [{ type: "context-handoff.updated" as const, payload: input.handoff }]),
             { type: "run.updated", payload: { ...run, status, ...started, completedAt: now } },
             {
               type: "run-attempt.updated",
@@ -779,6 +805,214 @@ export const layer: Layer.Layer<
       }
       const resolvedRuntimePolicy = policyResult.success;
       if (!(yield* isCurrentAttemptInStatus("starting"))) return;
+      // The server cannot tell a typed /compact from compact-on-send or idle compaction, so all
+      // of them follow the instance's "Compact with" setting.
+      const compactionUsages = projection.providerTurns.flatMap((turn) =>
+        turn.providerThreadId === providerThread.id && turn.tokenUsage !== undefined
+          ? [turn.tokenUsage]
+          : [],
+      );
+      const compactionPlan =
+        providerThread.driver === "claudeAgent" &&
+        message.attachments.length === 0 &&
+        message.text.trim().toLowerCase() === "/compact"
+          ? planClaudeCompaction({
+              setting: resolveClaudeCompactionSetting(
+                yield* serverSettings.getSettings.pipe(
+                  Effect.orElseSucceed(() => ({ providerInstances: {} })),
+                ),
+                run.providerInstanceId,
+              ),
+              runInstanceId: run.providerInstanceId,
+              modelSelection: run.modelSelection,
+              usages: compactionUsages,
+              nowMs: DateTime.toEpochMillis(yield* DateTime.now),
+            })
+          : ({ kind: "conversation" } as const);
+      if (compactionPlan.kind === "summary") {
+        const summariser = compactionPlan.modelSelection;
+        const modelName = summariser.model;
+        const busy =
+          (providerThread.pendingBackgroundTasks ?? []).length > 0 ||
+          projection.subagents.some(
+            (subagent) =>
+              subagent.providerThreadId === providerThread.id && subagent.status === "running",
+          );
+        const settledAt = yield* DateTime.now;
+        if (busy) {
+          yield* settleRunBeforeStart({
+            signal: "compaction-session-busy",
+            status: "failed",
+            now: settledAt,
+            startedAt: settledAt,
+            providerInstanceId: run.providerInstanceId,
+            itemProviderThreadId: providerThread.id,
+            item: {
+              type: "error",
+              title: `Cannot compact with ${modelName} while this thread's work is running`,
+              failure: makeProviderFailure({
+                class: "validation_error",
+                message: `Stop this thread's background work, then compact again. A compaction on ${modelName} replaces the conversation's session, which the running work is using.`,
+              }),
+            },
+          });
+          return;
+        }
+        const summaryResult = yield* Effect.result(
+          Effect.gen(function* () {
+            const summariserInstance = yield* providerInstances.getInstance(summariser.instanceId);
+            if (summariserInstance === undefined) {
+              return yield* Effect.fail(
+                new ProviderTurnStartError({
+                  runId,
+                  cause: `The account chosen to compact this thread is no longer available.`,
+                }),
+              );
+            }
+            const summariserSnapshot = yield* summariserInstance.snapshot.getSnapshot.pipe(
+              Effect.orElseSucceed(() => undefined),
+            );
+            const windowTokens =
+              summariserSnapshot?.models.find((model) => model.slug === summariser.model)
+                ?.contextWindowTokens ?? DEFAULT_COMPACTION_WINDOW_TOKENS;
+            const transcript = renderCompactionTranscript({
+              items: projection.turnItems.filter((item) => item.runId !== run.id),
+              windowTokens,
+            });
+            const threadTitle = projection.thread.title?.trim() ?? "";
+            const generated = yield* summariserInstance.textGeneration.generateCompactionSummary({
+              cwd: resolvedRuntimePolicy.cwd ?? "",
+              transcript: transcript.text,
+              ...(threadTitle === "" ? {} : { threadTitle }),
+              modelSelection: summariser,
+            });
+            const summary = clampCompactionSummary(generated.summary, COMPACTION_SUMMARY_MAX_BYTES);
+            if (summary === "") {
+              return yield* Effect.fail(
+                new ProviderTurnStartError({
+                  runId,
+                  cause: `${modelName} returned no summary.`,
+                }),
+              );
+            }
+            return summary;
+          }),
+        );
+        if (summaryResult._tag === "Failure") {
+          if (input.willRetry === true) return yield* summaryResult.failure;
+          const detail =
+            knownProviderFailureMessage(summaryResult.failure) ??
+            (isProviderTurnStartError(summaryResult.failure)
+              ? String(summaryResult.failure.cause)
+              : "The summary could not be written.");
+          yield* settleRunBeforeStart({
+            signal: "compaction-summary-failed",
+            status: "failed",
+            now: settledAt,
+            startedAt: settledAt,
+            providerInstanceId: run.providerInstanceId,
+            itemProviderThreadId: providerThread.id,
+            item: {
+              type: "error",
+              title: `Compacting context with ${modelName} failed`,
+              failure: makeProviderFailure({ class: "provider_error", message: detail }),
+            },
+          });
+          return;
+        }
+        const summary = summaryResult.success;
+        // Dropping the session is decided on state read before a minutes-long model call, so
+        // re-read it: a turn that started meanwhile owns work this write must not strand.
+        const reread = yield* projectionStore
+          .getThreadRecords(projection.thread.id, ["providerThreads", "subagents"])
+          .pipe(Effect.orElseSucceed(() => undefined));
+        const currentThread =
+          reread?.providerThreads.find((candidate) => candidate.id === providerThread.id) ??
+          undefined;
+        const threadMoved =
+          currentThread === undefined ||
+          currentThread.nativeThreadRef?.nativeId !== providerThread.nativeThreadRef?.nativeId;
+        const threadBusy =
+          !threadMoved &&
+          ((currentThread.pendingBackgroundTasks ?? []).length > 0 ||
+            reread?.subagents.some(
+              (subagent) =>
+                subagent.providerThreadId === providerThread.id && subagent.status === "running",
+            ) === true);
+        if (threadMoved || threadBusy) {
+          yield* settleRunBeforeStart({
+            signal: threadMoved ? "compaction-session-moved" : "compaction-session-busy",
+            status: "failed",
+            now: settledAt,
+            startedAt: settledAt,
+            providerInstanceId: run.providerInstanceId,
+            itemProviderThreadId: providerThread.id,
+            item: {
+              type: "error",
+              title: `Cannot compact with ${modelName} while this thread's work is running`,
+              failure: makeProviderFailure({
+                class: "validation_error",
+                message: threadMoved
+                  ? `This conversation's session changed while ${modelName} wrote the summary. Compact again.`
+                  : `Stop this thread's background work, then compact again. A compaction on ${modelName} replaces the conversation's session, which the running work is using.`,
+              }),
+            },
+          });
+          return;
+        }
+        // The provider's own session still holds every token the summary replaces, so the next
+        // turn opens a fresh one and this handoff is the whole conversation it starts from.
+        const handoff = yield* contextHandoffService.prepareCompactionSummary({
+          threadId: projection.thread.id,
+          targetRunId: run.id,
+          fromProviderThreadIds: [providerThread.id],
+          toProviderThreadId: providerThread.id,
+          fromProviderInstanceId: providerThread.providerInstanceId,
+          toProviderInstanceId: run.providerInstanceId,
+          coveredRunOrdinals: {
+            from: projection.runs.at(0)?.ordinal ?? run.ordinal,
+            to: run.ordinal,
+          },
+          summaryText: summary,
+          createdAt: settledAt,
+        });
+        yield* settleRunBeforeStart({
+          signal: "compaction-on-another-account",
+          status: "completed",
+          now: settledAt,
+          startedAt: settledAt,
+          providerInstanceId: run.providerInstanceId,
+          itemProviderThreadId: providerThread.id,
+          item: {
+            type: "compaction",
+            driver: providerThread.driver,
+            title: `Context compacted with ${modelName}`,
+            summary,
+            model: modelName,
+            ...(compactionUsages.length === 0
+              ? {}
+              : {
+                  beforeTokenCount: compactionUsages.reduce(
+                    (latest, usage) =>
+                      Date.parse(usage.updatedAt) > Date.parse(latest.updatedAt) ? usage : latest,
+                    compactionUsages[0]!,
+                  ).usedTokens,
+                }),
+            afterTokenCount: Math.ceil(Buffer.byteLength(summary) / 4),
+          },
+          handoff,
+          providerThreadUpdate: {
+            ...currentThread,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            contextUsage: null,
+            status: "not_loaded",
+            handoffIds: [...currentThread.handoffIds, handoff.id],
+            updatedAt: settledAt,
+          },
+        });
+        return;
+      }
       const existingSessionProjection = projection.providerSessions.find(
         (candidate) => candidate.id === providerSessionId,
       );
@@ -1586,28 +1820,12 @@ export const layer: Layer.Layer<
           ? session
           : makeDeliverySession(session, startWithHandoffs);
       const videoFrames = yield* videoFramesService.framesForMessage(message.attachments);
-      // The server cannot tell a typed /compact from compact-on-send or idle compaction, so all
-      // of them follow the instance's "Compact with" setting.
       const compaction =
-        providerThread.driver === "claudeAgent" &&
-        message.attachments.length === 0 &&
-        message.text.trim().toLowerCase() === "/compact"
-          ? planClaudeCompaction({
-              setting: resolveClaudeCompactionSetting(
-                yield* serverSettings.getSettings.pipe(
-                  Effect.orElseSucceed(() => ({ providerInstances: {} })),
-                ),
-                run.providerInstanceId,
-              ),
-              modelSelection: run.modelSelection,
-              usages: projection.providerTurns.flatMap((turn) =>
-                turn.providerThreadId === providerThread.id && turn.tokenUsage !== undefined
-                  ? [turn.tokenUsage]
-                  : [],
-              ),
-              nowMs: DateTime.toEpochMillis(yield* DateTime.now),
-            })
-          : undefined;
+        compactionPlan.kind === "provider"
+          ? { modelSelection: compactionPlan.modelSelection }
+          : compactionPlan.kind === "windowTooSmall"
+            ? { windowTooSmall: true }
+            : undefined;
       return runExecution.startRootRun({
         commandId: CommandId.make(`command:effect:provider-turn.start:${run.id}`),
         appThread: projection.thread,

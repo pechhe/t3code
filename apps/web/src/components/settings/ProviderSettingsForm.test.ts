@@ -39,6 +39,26 @@ describe("ProviderSettingsForm helpers", () => {
     expect(next).toEqual({ forkOwned: 1 });
   });
 
+  it("offers the compact model picker only where the environment's accounts are known", () => {
+    const claude = providerClients.get(ProviderDriverKind.make("claudeAgent"));
+    expect(claude).toBeDefined();
+    const environmentId = "environment-1" as never;
+
+    const withoutAccounts = deriveProviderSettingsFields(claude!);
+    const withAccounts = deriveProviderSettingsFields(claude!, {}, environmentId);
+
+    expect(withoutAccounts.some((field) => field.key === "compactModel")).toBe(false);
+    expect(withoutAccounts.some((field) => field.key === "compactModelInstanceId")).toBe(false);
+    expect(withAccounts.find((field) => field.key === "compactModel")).toMatchObject({
+      control: "model",
+      label: "Compact with",
+      modelChoice: {
+        instanceKey: "compactModelInstanceId",
+        emptyLabel: "Same as the conversation",
+      },
+    });
+  });
+
   it("stores false boolean fields when true is the default", () => {
     const next = nextProviderConfigWithFieldValue(
       undefined,

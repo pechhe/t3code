@@ -57,20 +57,25 @@ export function conversationPromptCacheExpiresAt(
 export interface ClaudeCompactionModelChoice {
   /** The setting's model when it summarises; null leaves the conversation's model to. */
   readonly model: string | null;
+  /** Another account writes the summary and T3 hands it to the conversation. */
+  readonly crossAccount: boolean;
   /** The setting's model was passed over because its window is smaller than the thread. */
   readonly windowTooSmall: boolean;
 }
 
 /**
- * Which model summarises a Claude compaction: the instance's "Compact with" model, or the
- * conversation's own (null). The server decides with this at turn start and the web client labels
- * the Compact chip with it, so the chip's promise and the turn cannot disagree.
+ * Which model summarises a compaction: the instance's "Compact with" model, or the conversation's
+ * own (null). The server decides with this at turn start and the web client labels the Compact
+ * chip with it, so the chip's promise and the turn cannot disagree.
  *
  * The conversation's model compacts while its prompt cache is warm (a read at a tenth of its input
- * price) unless the setting applies always, and whenever the cache expiry is unknown. The chosen
- * model needs a context window at least the thread's size.
+ * price) unless the setting applies always, and whenever the cache expiry is unknown.
+ *
+ * On the conversation's own account the chosen model needs a context window at least the thread's
+ * size, because the provider summarises the thread in place. On another account T3 writes the
+ * summary from a transcript trimmed to that model's window, so the thread's size is no guard.
  */
-export function chooseClaudeCompactionModel(input: {
+export function chooseCompactionModel(input: {
   readonly setting: { readonly model: string; readonly onlyWhenCold: boolean };
   readonly conversationModel: string;
   readonly usedTokens: number;
@@ -78,10 +83,14 @@ export function chooseClaudeCompactionModel(input: {
   readonly nowMs: number;
   /** The chosen model's context window; undefined when the catalog does not know it. */
   readonly chosenWindowTokens: number | undefined;
+  /** The chosen model runs on the conversation's own account. */
+  readonly sameAccount: boolean;
 }): ClaudeCompactionModelChoice {
-  const keep = { model: null, windowTooSmall: false } as const;
+  const keep = { model: null, crossAccount: false, windowTooSmall: false } as const;
   const chosen = input.setting.model.trim();
-  if (chosen === "" || chosen === input.conversationModel) return keep;
+  if (chosen === "") return keep;
+  // The same model slug on another account is still another account's work: it summarises there.
+  if (chosen === input.conversationModel && input.sameAccount) return keep;
   if (input.setting.onlyWhenCold) {
     const expiresAtMs =
       input.promptCacheExpiresAt === undefined
@@ -89,7 +98,9 @@ export function chooseClaudeCompactionModel(input: {
         : Date.parse(input.promptCacheExpiresAt);
     if (!Number.isFinite(expiresAtMs) || input.nowMs < expiresAtMs) return keep;
   }
+  if (!input.sameAccount) return { model: chosen, crossAccount: true, windowTooSmall: false };
   if (input.chosenWindowTokens === undefined) return keep;
-  if (input.chosenWindowTokens < input.usedTokens) return { model: null, windowTooSmall: true };
-  return { model: chosen, windowTooSmall: false };
+  if (input.chosenWindowTokens < input.usedTokens)
+    return { model: null, crossAccount: false, windowTooSmall: true };
+  return { model: chosen, crossAccount: false, windowTooSmall: false };
 }

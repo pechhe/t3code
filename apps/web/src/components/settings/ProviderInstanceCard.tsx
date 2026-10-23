@@ -53,11 +53,7 @@ import type {
   ProviderClientDefinition,
   ProviderEnvironmentField,
 } from "@t3tools/provider-core/client";
-import {
-  deriveProviderSettingsFields,
-  ProviderSettingsForm,
-  type ProviderSettingsModelOption,
-} from "./ProviderSettingsForm";
+import { deriveProviderSettingsFields, ProviderSettingsForm } from "./ProviderSettingsForm";
 import { ProviderModelsSection } from "./ProviderModelsSection";
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import { ProviderAccentColorPicker } from "./ProviderAccentColorPicker";
@@ -184,25 +180,6 @@ export function deriveProviderModelsForDisplay(input: {
         ],
   );
   return [...serverModels, ...customModels];
-}
-
-/**
- * The models every member offers, matched by slug, for a pool's shared "Compact with"
- * setting: a pooled choice holds only where each member can run it. A member that
- * reports no models says nothing about what it offers, so it is skipped.
- */
-export function sharedModelsOfPoolMembers(
-  memberModels: ReadonlyArray<ReadonlyArray<ServerProviderModel>>,
-): ReadonlyArray<ProviderSettingsModelOption> {
-  const compactingModels = memberModels
-    .map((models) => models.filter((model) => model.contextWindowTokens !== undefined))
-    .filter((models) => models.length > 0);
-  const [first, ...rest] = compactingModels;
-  if (first === undefined) return [];
-  const otherSlugs = rest.map((models) => new Set(models.map((model) => model.slug)));
-  return first
-    .filter((model) => otherSlugs.every((slugs) => slugs.has(model.slug)))
-    .map((model) => ({ slug: model.slug, name: model.name }));
 }
 
 function ProviderAuthEmail(props: { readonly email: string | undefined }) {
@@ -621,8 +598,6 @@ interface ProviderInstanceCardProps {
   readonly projectOverride?: ProjectOverrideControl | undefined;
   /** Display names of a pool's member accounts, in pool order. */
   readonly poolMemberLabels?: ReadonlyArray<string> | undefined;
-  /** Models every member of this pool offers, for its shared "Compact with" setting. */
-  readonly poolCompactModels?: ReadonlyArray<ProviderSettingsModelOption> | undefined;
   /** The pool this account inherits shared settings from, and the values it runs with. */
   readonly memberPool?:
     | {
@@ -641,7 +616,6 @@ interface ProviderInstanceCardProps {
 
 const EMPTY_ACP_PROJECTS: NonNullable<ProviderInstanceCardProps["acpProjects"]> = [];
 const NO_CUSTOM_MODELS: ReadonlyArray<CustomModelDefinition> = [];
-const NO_SHARED_MODEL_OPTIONS: ReadonlyArray<ProviderSettingsModelOption> = [];
 
 /**
  * Unknown drivers (`driverOption === undefined`) get a read-only
@@ -683,7 +657,6 @@ export function ProviderInstanceCard({
   acpProjects = EMPTY_ACP_PROJECTS,
   projectOverride,
   poolMemberLabels,
-  poolCompactModels,
   memberPool,
 }: ProviderInstanceCardProps) {
   const enabled = projectOverride?.effectiveEnabled ?? resolveProviderInstanceEnabled(instance);
@@ -1155,14 +1128,10 @@ export function ProviderInstanceCard({
       value={memberPool === undefined ? instance.config : memberPool.effectiveConfig}
       idPrefix={`provider-instance-${instanceId}`}
       variant="settings"
-      // Compaction guards on the chosen model's window, which only catalog models report.
-      models={
-        instance.pool === undefined
-          ? modelsForDisplay.filter((model) => model.contextWindowTokens !== undefined)
-          : (poolCompactModels ?? NO_SHARED_MODEL_OPTIONS)
-      }
       onlyKeys={instance.pool === undefined ? undefined : poolSharedSettingKeys}
       poolShare={poolMemberShare}
+      {...(environmentId === undefined ? {} : { environmentId })}
+      instanceId={instanceId}
       onChange={updateConfig}
     />
   ) : (

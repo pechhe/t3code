@@ -1,37 +1,18 @@
-import { useAtomValue } from "@effect/atom-react";
 import type {
   AgentPolicyManifest,
   EnvironmentId,
   ProviderInstanceId,
   ProviderOptionSelection,
-  ServerProvider,
 } from "@t3tools/contracts";
 import type { ReactElement } from "react";
 
-import { useEnvironmentSettings } from "../../hooks/useSettings";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
-import {
-  applyProviderInstanceSettings,
-  deriveProviderInstanceEntries,
-  sortProviderInstanceEntries,
-} from "../../providerInstances";
-import { EMPTY_SERVER_PROVIDERS, serverEnvironment } from "../../state/server";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import type { CatalogModel } from "./DelegationSettings.logic";
+import { useInstanceEntries } from "./useInstanceEntries";
 
 type Binding = AgentPolicyManifest["models"][string];
-
-/** The environment's provider instances in the order and with the settings the composer uses. */
-function useInstanceEntries(environmentId: EnvironmentId) {
-  const settings = useEnvironmentSettings(environmentId);
-  const providers: ReadonlyArray<ServerProvider> =
-    useAtomValue(serverEnvironment.providersValueAtom(environmentId)) ?? EMPTY_SERVER_PROVIDERS;
-  const entries = sortProviderInstanceEntries(
-    applyProviderInstanceSettings(deriveProviderInstanceEntries(providers), settings, null),
-  );
-  return { settings, providers, entries };
-}
 
 /**
  * Chooses a delegation model with the composer's own model picker. Policy models name a

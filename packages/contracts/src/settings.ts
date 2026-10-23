@@ -570,7 +570,13 @@ export const makeBinaryPathSetting = (fallback: string) =>
     Schema.withDecodingDefault(Effect.succeed(fallback)),
   );
 
-export type ProviderSettingsFormControl = "text" | "password" | "textarea" | "switch" | "select";
+export type ProviderSettingsFormControl =
+  | "text"
+  | "password"
+  | "textarea"
+  | "switch"
+  | "select"
+  | "model";
 
 export interface ProviderSettingsFormOption {
   readonly value: string;
@@ -585,10 +591,10 @@ export interface ProviderSettingsFormAnnotation {
 
   readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
   /**
-   * A select over the instance's own models, led by an empty choice with this label. The form
-   * hides the field where it has no model list to offer.
+   * A model choice over every account, led by an empty choice with this label. `instanceKey` is
+   * the sibling field that stores the chosen account, so a pick across accounts round-trips.
    */
-  readonly modelOptions?: { readonly emptyLabel: string } | undefined;
+  readonly modelOptions?: { readonly emptyLabel: string; readonly instanceKey: string } | undefined;
   /** A member of an account pool inherits this field's pool value when it stores none. */
   readonly sharedInPool?: boolean | undefined;
 }
@@ -817,14 +823,21 @@ export const ClaudeSettings = makeProviderSettingsSchema(
       Schema.annotateKey({
         title: "Compact with",
         description:
-          "The model that summarises a conversation when T3 Code compacts it. The conversation keeps its own model.",
+          "The model that summarises a conversation when T3 Code compacts it. The conversation keeps its own model; a model on another account is written by that account and handed to this one.",
         providerSettingsForm: {
-          control: "select",
-          modelOptions: { emptyLabel: "Same as the conversation" },
+          control: "model",
+          modelOptions: {
+            emptyLabel: "Same as the conversation",
+            instanceKey: "compactModelInstanceId",
+          },
           clearWhenEmpty: "omit",
           sharedInPool: true,
         },
       }),
+    ),
+    /** The account `compactModel` runs on; absent means this Claude instance. */
+    compactModelInstanceId: Schema.optional(ProviderInstanceId).pipe(
+      Schema.annotateKey({ providerSettingsForm: { hidden: true, sharedInPool: true } }),
     ),
     compactOnlyWhenCold: Schema.Boolean.pipe(
       Schema.withDecodingDefault(Effect.succeed(true)),
@@ -1670,18 +1683,26 @@ export const resolveIdleCompaction = (
   return override === "default" ? globalIdleCompaction(settings) : override;
 };
 
-/** The instance's "Compact with" model and whether it applies only once the prompt cache expired. */
+/**
+ * The instance's "Compact with" model, the account that runs it, and whether it applies only once
+ * the prompt cache expired. `instanceId` is the account named by the setting, or this instance.
+ */
 export const resolveClaudeCompactionSetting = (
   settings: Pick<ServerSettings, "providerInstances">,
   instanceId: ProviderInstanceId,
-): { readonly model: string; readonly onlyWhenCold: boolean } => {
+): {
+  readonly model: string;
+  readonly instanceId: ProviderInstanceId;
+  readonly onlyWhenCold: boolean;
+} => {
   const instance = resolveProviderInstanceConfig(settings.providerInstances, instanceId);
   return decodeClaudeSettings(instance?.config ?? {}).pipe(
     Option.map((config) => ({
       model: config.compactModel,
+      instanceId: config.compactModelInstanceId ?? instanceId,
       onlyWhenCold: config.compactOnlyWhenCold,
     })),
-    Option.getOrElse(() => ({ model: "", onlyWhenCold: true })),
+    Option.getOrElse(() => ({ model: "", instanceId, onlyWhenCold: true })),
   );
 };
 

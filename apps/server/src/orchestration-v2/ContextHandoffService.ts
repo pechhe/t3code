@@ -80,6 +80,21 @@ export interface ContextHandoffServiceV2Shape {
     readonly items: ReadonlyArray<OrchestrationV2TurnItem>;
     readonly createdAt: DateTime.Utc;
   }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
+  /**
+   * The handoff a compaction leaves for the conversation's next turn: a summary another account
+   * wrote, with no replayed history, delivered inline when the conversation opens a new session.
+   */
+  readonly prepareCompactionSummary: (input: {
+    readonly threadId: ThreadId;
+    readonly targetRunId: RunId;
+    readonly fromProviderThreadIds: ReadonlyArray<ProviderThreadId>;
+    readonly toProviderThreadId: ProviderThreadId;
+    readonly fromProviderInstanceId: ProviderInstanceId;
+    readonly toProviderInstanceId: ProviderInstanceId;
+    readonly coveredRunOrdinals: OrchestrationV2ContextHandoff["coveredRunOrdinals"];
+    readonly summaryText: string;
+    readonly createdAt: DateTime.Utc;
+  }) => Effect.Effect<OrchestrationV2ContextHandoff, ContextHandoffServiceV2Error>;
 }
 
 export class ContextHandoffServiceV2 extends Context.Service<
@@ -436,10 +451,62 @@ const makeContextHandoffService = Effect.fn("orchestrationV2.ContextHandoffServi
       } satisfies OrchestrationV2ContextHandoff;
     });
 
+    const prepareCompactionSummary = Effect.fn(
+      "orchestrationV2.contextHandoff.prepareCompactionSummary",
+    )(function* (input: {
+      readonly threadId: ThreadId;
+      readonly targetRunId: RunId;
+      readonly fromProviderThreadIds: ReadonlyArray<ProviderThreadId>;
+      readonly toProviderThreadId: ProviderThreadId;
+      readonly fromProviderInstanceId: ProviderInstanceId;
+      readonly toProviderInstanceId: ProviderInstanceId;
+      readonly coveredRunOrdinals: OrchestrationV2ContextHandoff["coveredRunOrdinals"];
+      readonly summaryText: string;
+      readonly createdAt: DateTime.Utc;
+    }) {
+      const handoffId = yield* idAllocator.allocate
+        .contextHandoff({
+          threadId: input.threadId,
+          fromProviderInstanceId: input.fromProviderInstanceId,
+          toProviderInstanceId: input.toProviderInstanceId,
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new ContextHandoffPrepareError({
+                threadId: input.threadId,
+                targetRunId: input.targetRunId,
+                fromProviderThreadIds: Array.from(input.fromProviderThreadIds),
+                toProviderThreadId: input.toProviderThreadId,
+                cause,
+              }),
+          ),
+        );
+      return {
+        id: handoffId,
+        transferId: null,
+        threadId: input.threadId,
+        targetRunId: input.targetRunId,
+        fromProviderThreadIds: Array.from(input.fromProviderThreadIds),
+        toProviderThreadId: input.toProviderThreadId,
+        coveredRunOrdinals: input.coveredRunOrdinals,
+        // The summary already stands for all of the covered history, so the delivery path uses it
+        // whole (`history` is absent) instead of selecting items against a budget.
+        strategy: "full_thread_summary",
+        status: "ready",
+        summaryMessageId: null,
+        summaryText: input.summaryText,
+        createdByProviderInstanceId: null,
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt,
+      } satisfies OrchestrationV2ContextHandoff;
+    });
+
     return ContextHandoffServiceV2.of({
       prepareLegacyImport,
       prepareForkDelta,
       prepareProviderHandoff,
+      prepareCompactionSummary,
     });
   },
 );

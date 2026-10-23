@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
+import type { EnvironmentId, ProviderInstanceId } from "@t3tools/contracts";
 import {
   isSecretSetting,
   type ProviderSettingsFormAnnotation,
@@ -17,6 +18,7 @@ import { Input } from "../ui/input";
 import { SecretInput } from "./SecretInput";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { ProviderSettingsModelPicker } from "./ProviderSettingsModelPicker";
 import { Textarea } from "../ui/textarea";
 import type { ProviderClientDefinition } from "@t3tools/provider-core/client";
 
@@ -25,12 +27,10 @@ export type SettingsFormDefinition = Pick<ProviderClientDefinition, "settingsSch
 };
 import { SettingsRow } from "./settingsLayout";
 
-/** Stands for "no model chosen", which the config stores as an omitted value. */
-const EMPTY_MODEL_OPTION = "__none__";
-
-export interface ProviderSettingsModelOption {
-  readonly slug: string;
-  readonly name: string;
+/** A "Compact with" choice: the model that summarises, and the account it runs on. */
+export interface ProviderSettingsModelChoice {
+  readonly model: string;
+  readonly instanceId: string;
 }
 
 export interface ProviderSettingsFieldModel {
@@ -45,6 +45,9 @@ export interface ProviderSettingsFieldModel {
   readonly defaultBooleanValue?: boolean | undefined;
 
   readonly options?: ReadonlyArray<ProviderSettingsFormOption> | undefined;
+
+  /** Set on a `model` field: where the picker writes the chosen account. */
+  readonly modelChoice?: { readonly instanceKey: string; readonly emptyLabel: string } | undefined;
 }
 
 function titleizeFieldKey(key: string): string {
@@ -93,7 +96,7 @@ function readFieldBooleanDefault(
 export function deriveProviderSettingsFields(
   definition: SettingsFormDefinition,
   value?: unknown,
-  models?: ReadonlyArray<ProviderSettingsModelOption>,
+  environmentId?: EnvironmentId,
 ): ReadonlyArray<ProviderSettingsFieldModel> {
   const isLocalAcp =
     definition.driverKind === "acpRegistry" &&
@@ -116,8 +119,8 @@ export function deriveProviderSettingsFields(
       const fieldSchema = definition.settingsSchema.fields[key]!;
       const formAnnotation = readProviderSettingsFormAnnotation(fieldSchema);
       if (formAnnotation.hidden) return [];
-      // A model picker needs the instance's models, which only the instance card has.
-      if (formAnnotation.modelOptions !== undefined && models === undefined) return [];
+      // A model picker needs the environment's accounts, which only the settings editor has.
+      if (formAnnotation.control === "model" && environmentId === undefined) return [];
       if (isLocalAcp && key !== "source" && key !== "commandPath") return [];
 
       const annotatedTitle = readFieldAnnotationString(fieldSchema, "title");
@@ -148,14 +151,14 @@ export function deriveProviderSettingsFields(
           ...(formAnnotation.control === "select" && formAnnotation.options
             ? { options: formAnnotation.options }
             : {}),
-          ...(formAnnotation.control === "select" &&
+          ...(formAnnotation.control === "model" &&
           formAnnotation.modelOptions !== undefined &&
-          models !== undefined
+          environmentId !== undefined
             ? {
-                options: [
-                  { value: EMPTY_MODEL_OPTION, label: formAnnotation.modelOptions.emptyLabel },
-                  ...models.map((model) => ({ value: model.slug, label: model.name })),
-                ],
+                modelChoice: {
+                  instanceKey: formAnnotation.modelOptions.instanceKey,
+                  emptyLabel: formAnnotation.modelOptions.emptyLabel,
+                },
               }
             : {}),
         } satisfies ProviderSettingsFieldModel,
@@ -342,11 +345,13 @@ interface ProviderSettingsFormProps {
   readonly value: unknown;
   readonly idPrefix: string;
   readonly variant: "card" | "dialog" | "settings";
-  /** The instance's models, for fields that pick one. Those fields stay hidden without it. */
-  readonly models?: ReadonlyArray<ProviderSettingsModelOption> | undefined;
   /** Shows only these fields: a pool card shows just the settings the pool shares. */
   readonly onlyKeys?: ReadonlyArray<string> | undefined;
   readonly poolShare?: ProviderSettingsPoolShare | undefined;
+  /** Where a model field's picker reads the environment's accounts. Hidden without it. */
+  readonly environmentId?: EnvironmentId | undefined;
+  /** The account this card configures, which a model field starts on. */
+  readonly instanceId?: ProviderInstanceId | undefined;
   readonly onChange: (nextConfig: Record<string, unknown> | undefined) => void;
 }
 
@@ -413,7 +418,12 @@ interface ProviderSettingsFieldRowProps {
   readonly value: unknown;
   readonly idPrefix: string;
   readonly variant: ProviderSettingsFormProps["variant"];
+  readonly environmentId?: EnvironmentId | undefined;
+  readonly instanceId?: ProviderInstanceId | undefined;
+  /** The config a model choice writes into, which is a member's own stored settings. */
+  readonly configBase: unknown;
   readonly onChange: (field: ProviderSettingsFieldModel, value: string | boolean) => void;
+  readonly onConfigChange: (nextConfig: Record<string, unknown> | undefined) => void;
   readonly onSelect: (field: ProviderSettingsFieldModel, optionValue: string) => void;
   readonly poolField?: ProviderSettingsPoolField | undefined;
 }
@@ -423,7 +433,11 @@ function ProviderSettingsFieldRow({
   value,
   idPrefix,
   variant,
+  environmentId,
+  instanceId,
+  configBase,
   onChange,
+  onConfigChange,
   onSelect,
   poolField,
 }: ProviderSettingsFieldRowProps) {
@@ -448,6 +462,21 @@ function ProviderSettingsFieldRow({
           onCheckedChange={(checked) => onChange(field, Boolean(checked))}
           aria-label={field.label}
           aria-describedby={descriptionId}
+        />
+      ) : field.control === "model" &&
+        field.modelChoice !== undefined &&
+        environmentId !== undefined &&
+        instanceId !== undefined ? (
+        <ProviderSettingsModelPicker
+          environmentId={environmentId}
+          instanceId={instanceId}
+          value={value}
+          base={configBase ?? {}}
+          modelKey={field.key}
+          instanceKey={field.modelChoice.instanceKey}
+          emptyLabel={field.modelChoice.emptyLabel}
+          storeEmptyChoice={poolField !== undefined}
+          onChange={onConfigChange}
         />
       ) : field.control === "select" ? (
         <ProviderSettingsSelect
@@ -634,12 +663,13 @@ export function ProviderSettingsForm({
   value,
   idPrefix,
   variant,
-  models,
   onlyKeys,
   poolShare,
+  environmentId,
+  instanceId,
   onChange,
 }: ProviderSettingsFormProps) {
-  const fields = deriveProviderSettingsFields(definition, value, models).filter(
+  const fields = deriveProviderSettingsFields(definition, value, environmentId).filter(
     (field) => onlyKeys === undefined || onlyKeys.includes(field.key),
   );
   const isLocalAcp =
@@ -663,11 +693,9 @@ export function ProviderSettingsForm({
   };
 
   const writeOption = (field: ProviderSettingsFieldModel, optionValue: string) => {
-    // The model picker's empty choice means no model, which the config stores as "".
-    const stored = optionValue === EMPTY_MODEL_OPTION ? "" : optionValue;
     // Outside a pool, the first option is the clearing value the schema defaults to.
     const clears = !sharedKeys.has(field.key) && optionValue === (field.options?.[0]?.value ?? "");
-    writeField(field, clears ? "" : stored);
+    writeField(field, clears ? "" : optionValue);
   };
 
   const dropStoredValue = (key: string) => {
@@ -698,7 +726,11 @@ export function ProviderSettingsForm({
           value={value}
           idPrefix={idPrefix}
           variant={variant}
+          environmentId={environmentId}
+          instanceId={instanceId}
+          configBase={writeBase}
           onChange={writeField}
+          onConfigChange={onChange}
           onSelect={writeOption}
           poolField={poolFieldStatus(field.key)}
         />

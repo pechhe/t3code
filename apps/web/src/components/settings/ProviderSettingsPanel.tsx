@@ -101,14 +101,13 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
-import { ProviderInstanceCard, sharedModelsOfPoolMembers } from "./ProviderInstanceCard";
+import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { providerClients } from "./providerDriverMeta";
-import type { ProviderSettingsModelOption } from "./ProviderSettingsForm";
 import { searchableSetting } from "./settingsSearch";
 import {
   backgroundActivityOverrideSettings,
@@ -1004,17 +1003,6 @@ export function EnvironmentProviderSettings({
               row.instanceId,
             )?.config,
           };
-    const poolMembers = row.explicitInstance?.pool;
-    const poolCompactModels =
-      !sharesPoolSettings || poolMembers === undefined
-        ? undefined
-        : sharedModelsOfPoolMembers(
-            poolMembers.map(
-              (memberId) =>
-                serverProviders.find((candidate) => candidate.instanceId === memberId)?.models ??
-                [],
-            ),
-          );
     return (
       <ProviderInstanceRow
         key={row.instanceId}
@@ -1029,7 +1017,6 @@ export function EnvironmentProviderSettings({
           (memberId) =>
             settings.providerInstances?.[memberId]?.displayName?.trim() || String(memberId),
         )}
-        poolCompactModels={poolCompactModels}
         memberPool={memberPool}
         mode={mode}
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
@@ -1320,7 +1307,6 @@ function ProviderInstanceRow({
   isDefault,
   isDirty,
   poolMemberLabels,
-  poolCompactModels,
   memberPool,
   mode,
   selected,
@@ -1345,8 +1331,6 @@ function ProviderInstanceRow({
   readonly isDirty: boolean;
   /** A new array only for pooled instances, which are rare. */
   readonly poolMemberLabels: ReadonlyArray<string> | undefined;
-  /** The models every member of this pool offers, for its shared "Compact with" field. */
-  readonly poolCompactModels: ReadonlyArray<ProviderSettingsModelOption> | undefined;
   /** The pool this member inherits shared settings from, with its effective config. */
   readonly memberPool:
     | {
@@ -1417,7 +1401,6 @@ function ProviderInstanceRow({
       instanceId={instanceId}
       instance={instance}
       poolMemberLabels={poolMemberLabels}
-      poolCompactModels={poolCompactModels}
       memberPool={memberPool}
       driverOption={driverOption}
       liveProvider={liveProvider}

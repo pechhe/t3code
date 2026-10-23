@@ -363,6 +363,7 @@ function createTextGeneration(
         title: "Update workflow",
       }),
     generateReviewGuide: () => Effect.succeed({ stops: [] }),
+    generateCompactionSummary: () => Effect.succeed({ summary: "Compacted conversation." }),
     ...overrides,
   };
 
@@ -412,6 +413,7 @@ function createTextGeneration(
         ),
       ),
     generateReviewGuide: (input) => implementation.generateReviewGuide(input),
+    generateCompactionSummary: (input) => implementation.generateCompactionSummary(input),
   };
 }
 

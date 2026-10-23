@@ -53,8 +53,12 @@ vi.mock(import("../../state/server"), async (original) => {
       { ...actual.serverEnvironment[key as keyof typeof commandLabels], label },
     ]),
   );
+  const keybindings = Atom.make({}).pipe(Atom.keepAlive);
   return {
     ...actual,
+    // The model picker's popover reads keybindings; the live atom would dial this test's
+    // fake remote environment.
+    primaryServerKeybindingsAtom: keybindings as never,
     providersIgnoringCheckedAtAtom: (() => providers) as never,
     serverEnvironment: {
       ...actual.serverEnvironment,
@@ -340,7 +344,7 @@ describe("EnvironmentProviderSettings routing", () => {
 });
 
 describe("pooled provider settings", () => {
-  it("edits only a pool's shared settings, against the models every member offers", async () => {
+  it("edits only a pool's shared settings", async () => {
     await setup();
     const pool = {
       driver: claudeDriver,
@@ -384,25 +388,15 @@ describe("pooled provider settings", () => {
     expect(page.getByText("CLAUDE_CONFIG_DIR path").query()).toBeNull();
     expect(page.getByText("Variables").query()).toBeNull();
 
-    await userEvent.click(page.getByRole("combobox", { name: "Compact with" }));
-    await expect.element(page.getByRole("option", { name: "claude-sonnet" })).toBeVisible();
-    expect(
-      page
-        .getByRole("option")
-        .elements()
-        .map((option) => option.textContent),
-    ).toEqual(["Same as the conversation", "claude-sonnet"]);
-    await userEvent.click(page.getByRole("option", { name: "claude-sonnet" }));
+    // The shared choice is the composer's picker, which reaches every account's models.
+    await expect
+      .element(page.getByRole("button", { name: "Compact with" }))
+      .toHaveTextContent("Same as the conversation");
     await userEvent.click(
       page.getByRole("switch", { name: "Only when the prompt cache has expired" }),
     );
 
     expect(state.mutateProviderInstance.mock.calls.map(([input]) => input)).toEqual([
-      {
-        operation: "upsert",
-        instanceId: poolId,
-        instance: { ...pool, config: { ...pool.config, compactModel: "claude-sonnet" } },
-      },
       {
         operation: "upsert",
         instanceId: poolId,
@@ -457,7 +451,7 @@ describe("pooled provider settings", () => {
       .element(page.getByRole("textbox", { name: "Binary path" }))
       .toHaveValue("/opt/claude");
     await expect
-      .element(page.getByRole("combobox", { name: "Compact with" }))
+      .element(page.getByRole("button", { name: "Compact with" }))
       .toHaveTextContent("claude-sonnet");
     // Neither side sets idle compaction: it shows the driver default, still governed by the pool.
     await expect
@@ -503,8 +497,7 @@ describe("pooled provider settings", () => {
     await userEvent.click(
       page.getByRole("switch", { name: "Only when the prompt cache has expired" }),
     );
-    await userEvent.click(page.getByRole("combobox", { name: "Compact with" }));
-    await userEvent.click(page.getByRole("option", { name: "Same as the conversation" }));
+    await userEvent.click(page.getByRole("button", { name: "Reset Compact with to default" }));
     await userEvent.click(page.getByRole("combobox", { name: "Compact idle threads" }));
     await userEvent.click(page.getByRole("option", { name: "Use default" }));
     const launchArgs = page.getByRole("textbox", { name: "Launch arguments" });

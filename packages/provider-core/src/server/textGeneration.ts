@@ -70,6 +70,18 @@ export interface ThreadTitleGenerationResult {
   needsRefinement?: boolean | undefined;
 }
 
+export interface CompactionSummaryGenerationInput {
+  cwd: string;
+  /** The conversation's rendered history, oldest first, trimmed to the summariser's window. */
+  transcript: string;
+  threadTitle?: string | undefined;
+  modelSelection: ModelSelection;
+}
+
+export interface CompactionSummaryGenerationResult {
+  summary: string;
+}
+
 export interface ReviewGuideStackLayer {
   readonly number: number;
   readonly title: string | null;
@@ -115,4 +127,9 @@ export interface ProviderTextGeneration {
   readonly generateReviewGuide: (
     input: ReviewGuideGenerationInput,
   ) => Effect.Effect<ReviewGuideGenerationResult, TextGenerationError>;
+
+  /** Summarises a conversation so the thread can continue after its context is dropped. */
+  readonly generateCompactionSummary: (
+    input: CompactionSummaryGenerationInput,
+  ) => Effect.Effect<CompactionSummaryGenerationResult, TextGenerationError>;
 }
