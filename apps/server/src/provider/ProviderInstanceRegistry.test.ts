@@ -9,9 +9,11 @@ import {
   EnvironmentId,
   type ClaudeSettings,
   type CodexSettings,
+  DEFAULT_SERVER_SETTINGS,
   ProviderDriverKind,
   type ProviderInstanceConfigMap,
   ProviderInstanceId,
+  type ServerSettings as ServerSettingsShape,
 } from "@t3tools/contracts";
 import * as ProviderLatestVersions from "@t3tools/provider-core/server/ProviderLatestVersions";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
@@ -34,6 +36,7 @@ import * as ModelManifest from "./ModelManifest.ts";
 import * as ResetCreditCoordinator from "./resetCreditCoordinator.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import { makeProviderInstanceRegistry } from "./ProviderInstanceRegistry.ts";
+import { deriveProviderInstanceConfigMap } from "./ProviderInstanceRegistryHydration.ts";
 import * as ProviderOrchestrationAdapterInfrastructure from "./ProviderOrchestrationAdapterInfrastructure.ts";
 import * as ProviderHostLive from "./ProviderHostLive.ts";
 
@@ -683,4 +686,70 @@ describe("ProviderInstanceRegistry — multi-instance codex slice", () => {
         expect(ghost.unavailableReason).toMatch(/ghostDriver/);
       }).pipe(Effect.provide(layerTest)),
   );
+
+  describe("account pools", () => {
+    const claude = ProviderDriverKind.make("claudeAgent");
+    const poolId = ProviderInstanceId.make("claude_pool");
+    const inheritingId = ProviderInstanceId.make("claude_inheriting");
+    const ownId = ProviderInstanceId.make("claude_own");
+
+    // A member that stores a field keeps it; an empty settings field is omitted, so an
+    // inheriting member simply has no key.
+    const settingsWithPoolWindow = (autoCompactWindow: string): ServerSettingsShape => ({
+      ...DEFAULT_SERVER_SETTINGS,
+      providerInstances: {
+        [poolId]: {
+          driver: claude,
+          pool: [inheritingId, ownId],
+          config: { autoCompactWindow },
+        },
+        [inheritingId]: { driver: claude, config: { binaryPath: "claude" } },
+        [ownId]: { driver: claude, config: { binaryPath: "claude", autoCompactWindow: "400000" } },
+      },
+    });
+
+    it.live("rebuilds only the members whose effective settings the pool changed", () =>
+      Effect.gen(function* () {
+        const { registry, mutator } = yield* makeProviderInstanceRegistry<ClaudeDriverEnv>({
+          drivers: [ClaudeDriver],
+          configMap: deriveProviderInstanceConfigMap(settingsWithPoolWindow("300000")),
+        });
+        const inheriting = yield* registry.getInstance(inheritingId);
+        const own = yield* registry.getInstance(ownId);
+        expect(inheriting).toBeDefined();
+        expect(own).toBeDefined();
+
+        yield* mutator.reconcile(deriveProviderInstanceConfigMap(settingsWithPoolWindow("500000")));
+
+        expect(yield* registry.getInstance(inheritingId)).not.toBe(inheriting);
+        expect(yield* registry.getInstance(ownId)).toBe(own);
+        const unavailable = (yield* registry.listUnavailable).map(
+          (provider) => provider.instanceId,
+        );
+        expect(unavailable).not.toContain(inheritingId);
+        expect(unavailable).not.toContain(ownId);
+      }).pipe(Effect.provide(layerTest)),
+    );
+
+    it.live("keeps a member available on an invalid pool value, at the field's default", () =>
+      Effect.gen(function* () {
+        const { registry, mutator } = yield* makeProviderInstanceRegistry<ClaudeDriverEnv>({
+          drivers: [ClaudeDriver],
+          configMap: deriveProviderInstanceConfigMap(settingsWithPoolWindow("300000")),
+        });
+
+        const invalidMap = deriveProviderInstanceConfigMap(settingsWithPoolWindow("5000"));
+        expect(invalidMap[inheritingId]?.config).toEqual({ binaryPath: "claude" });
+        yield* mutator.reconcile(invalidMap);
+
+        expect(yield* registry.getInstance(inheritingId)).toBeDefined();
+        expect(yield* registry.getInstance(ownId)).toBeDefined();
+        const unavailable = (yield* registry.listUnavailable).map(
+          (provider) => provider.instanceId,
+        );
+        expect(unavailable).not.toContain(inheritingId);
+        expect(unavailable).not.toContain(ownId);
+      }).pipe(Effect.provide(layerTest)),
+    );
+  });
 });

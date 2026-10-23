@@ -302,6 +302,8 @@ function makeLocalCommandHarness(input: {
   readonly claude?: {
     readonly settings?: Parameters<typeof ServerSettings.layerTest>[0];
     readonly usages: ReadonlyArray<OrchestrationV2ProviderTurnTokenUsage>;
+    /** The Claude instance the thread is routed to; defaults to the built-in default instance. */
+    readonly instanceId?: string;
   };
   readonly logoutFailure?: string;
   readonly openFailure?: unknown;
@@ -329,7 +331,9 @@ function makeLocalCommandHarness(input: {
   const providerSessionId = ProviderSessionId.make("new-provider-session");
   const oldProviderThreadId = ProviderThreadId.make("existing-native-provider-thread");
   const oldInstanceId = ProviderInstanceId.make("antigravity-personal");
-  const newInstanceId = ProviderInstanceId.make(input.claude ? "claudeAgent" : "codex-personal");
+  const newInstanceId = ProviderInstanceId.make(
+    input.claude ? (input.claude.instanceId ?? "claudeAgent") : "codex-personal",
+  );
   const checkpointScopeId = CheckpointScopeId.make("scope-native-account-command");
   const messageId = MessageId.make("message-native-account-command");
   const run: OrchestrationV2ThreadProjection["runs"][number] = {
@@ -1521,6 +1525,39 @@ describe("Claude compaction model", () => {
       expect(harness.events.some((event) => event.type === "thread.model-selection-updated")).toBe(
         false,
       );
+    }),
+  );
+
+  effectIt.effect("uses a pool's compaction settings for a member that stores none", () =>
+    Effect.gen(function* () {
+      yield* setClaudeClock;
+      const harness = makeLocalCommandHarness({
+        text: "/compact",
+        previousMessages: ["Hello"],
+        failReadsAfterRunning: true,
+        claude: {
+          instanceId: "claude_work",
+          usages: claudeCompactSettings({}, CACHE_WARM).usages,
+          settings: {
+            providerInstances: {
+              claude_pool: {
+                driver: "claudeAgent",
+                pool: ["claude_work"],
+                // The pool shares both the model and the cold-only switch.
+                config: { compactModel: "claude-haiku-4-5", compactOnlyWhenCold: false },
+              },
+              claude_work: { driver: "claudeAgent", config: {} },
+            },
+          } as never,
+        },
+      });
+
+      yield* harness.start;
+
+      const started = harness.startRootRun.mock.calls[0]?.[0];
+      expect(started?.run.providerInstanceId).toBe("claude_work");
+      expect(started?.run.modelSelection.model).toBe("claude-sonnet-5-5");
+      expect(started?.compaction?.modelSelection?.model).toBe("claude-haiku-4-5");
     }),
   );
 

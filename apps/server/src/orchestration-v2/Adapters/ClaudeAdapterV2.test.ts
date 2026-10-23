@@ -31,6 +31,7 @@ import {
   CheckpointId,
   CLAUDE_COMPACT_RESERVE,
   ClaudeSettings,
+  DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   MessageId,
   type ModelSelection,
@@ -87,6 +88,7 @@ import { WorktreeToolkit } from "../../mcp/toolkits/worktree/tools.ts";
 import { ThreadToolkit } from "../../mcp/toolkits/thread/tools.ts";
 import { OrchestratorToolkit } from "../../mcp/toolkits/orchestrator/tools.ts";
 import { ClaudeExecutableFileCheck } from "../../provider/Drivers/ClaudeExecutable.ts";
+import { deriveProviderInstanceConfigMap } from "../../provider/ProviderInstanceRegistryHydration.ts";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
@@ -121,6 +123,7 @@ beforeEach(() => {
 });
 
 const DEFAULT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({});
+const decodeClaudeSettings = Schema.decodeUnknownEffect(ClaudeSettings);
 const AUTO_COMPACT_CLAUDE_SETTINGS = Schema.decodeSync(ClaudeSettings)({
   autoCompactWindow: "300000",
 });
@@ -1278,19 +1281,20 @@ describe("ClaudeAdapterV2 approval cancellation", () => {
   );
 });
 
-const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(function* (
-  binaryPath: string,
-  environment: ProviderInstanceEnvironment = [],
-) {
+const captureInstanceSession = Effect.fn("captureInstanceSession")(function* (input: {
+  readonly config?: Partial<ClaudeSettings>;
+  readonly environment?: ProviderInstanceEnvironment;
+}) {
   const executablePaths: Array<string | undefined> = [];
   const taskToolEnvironment: Array<string | undefined> = [];
+  const openedOptions: Array<ClaudeSdk.Options> = [];
   const adapter = yield* ClaudeAdapterV2.createClaudeAdapterV2(
     {
       instanceId: ClaudeAdapterV2.CLAUDE_DEFAULT_INSTANCE_ID,
       displayName: undefined,
-      environment,
+      environment: input.environment ?? [],
       enabled: true,
-      config: { ...DEFAULT_CLAUDE_SETTINGS, binaryPath },
+      config: { ...DEFAULT_CLAUDE_SETTINGS, ...input.config },
     },
     {},
   ).pipe(
@@ -1301,10 +1305,11 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
     ),
     Effect.provideService(ClaudeAdapterV2.ClaudeAgentSdkQueryRunner, {
       allocateSessionId: Effect.succeed("native-thread-claude-binary-path"),
-      open: (input) =>
+      open: (openInput) =>
         Effect.sync(() => {
-          executablePaths.push(input.options.pathToClaudeCodeExecutable);
-          taskToolEnvironment.push(input.options.env?.CLAUDE_CODE_ENABLE_TODO_TOOLS);
+          executablePaths.push(openInput.options.pathToClaudeCodeExecutable);
+          taskToolEnvironment.push(openInput.options.env?.CLAUDE_CODE_ENABLE_TODO_TOOLS);
+          openedOptions.push(openInput.options);
           return {
             messages: Stream.never,
             offer: () => Effect.void,
@@ -1344,7 +1349,7 @@ const captureSdkExecutablePaths = Effect.fn("captureSdkExecutablePaths")(functio
       attachments: [],
     }),
   );
-  return { executablePaths, taskToolEnvironment };
+  return { executablePaths, taskToolEnvironment, openedOptions };
 });
 
 describe("ClaudeAdapterV2 executable path", () => {
@@ -1353,13 +1358,53 @@ describe("ClaudeAdapterV2 executable path", () => {
       Effect.gen(function* () {
         const npmDir = "C:\\Users\\dev\\AppData\\Roaming\\npm";
         const packageExe = `${npmDir}\\node_modules\\@anthropic-ai\\claude-code\\bin\\claude.exe`;
-        const { executablePaths } = yield* captureSdkExecutablePaths("claude").pipe(
+        const { executablePaths } = yield* captureInstanceSession({
+          config: { binaryPath: "claude" },
+        }).pipe(
           Effect.provideService(HostProcess.Platform, "win32"),
           Effect.provideService(SpawnExecutableResolution, () => `${npmDir}\\claude.cmd`),
           Effect.provideService(ClaudeExecutableFileCheck, (filePath) => filePath === packageExe),
         );
 
         assert.deepEqual(executablePaths, [packageExe]);
+      }),
+    ).pipe(
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+});
+
+describe("ClaudeAdapterV2 pooled instance settings", () => {
+  it.effect("opens a member's session with the settings its account pool shares", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const claude = ProviderDriverKind.make("claudeAgent");
+        const poolId = ProviderInstanceId.make("claude_pool");
+        const memberId = ProviderInstanceId.make("claude_work");
+        const configMap = deriveProviderInstanceConfigMap({
+          ...DEFAULT_SERVER_SETTINGS,
+          providerInstances: {
+            [poolId]: {
+              driver: claude,
+              pool: [memberId],
+              config: { autoCompactWindow: "300000", launchArgs: "--permission-mode plan" },
+            },
+            [memberId]: { driver: claude, config: { binaryPath: "claude" } },
+          },
+        });
+        // What the registry hands the driver for the member.
+        const memberConfig = yield* decodeClaudeSettings(configMap[memberId]?.config ?? {});
+
+        const { openedOptions } = yield* captureInstanceSession({ config: memberConfig });
+
+        const opened = openedOptions[0]!;
+        assert.equal(
+          (opened.settings as { autoCompactWindow?: number }).autoCompactWindow,
+          300_000,
+        );
+        assert.equal(opened.permissionMode, "plan");
       }),
     ).pipe(
       Effect.provide(

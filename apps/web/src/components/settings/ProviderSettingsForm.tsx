@@ -283,17 +283,25 @@ function readProviderConfigBoolean(config: unknown, key: string, defaultValue = 
   return typeof value === "boolean" ? value : defaultValue;
 }
 
+/**
+ * The config with `field` set to `value`. `storeExplicit` keeps a value the schema
+ * already defaults to, because a pool member must not turn its own choice back into
+ * the pool's by dropping the key: a member stores every shared choice, and only
+ * "Use pool's value" removes one.
+ */
 export function nextProviderConfigWithFieldValue(
   config: unknown,
   field: ProviderSettingsFieldModel,
   value: string | boolean,
+  options?: { readonly storeExplicit?: boolean | undefined },
 ): Record<string, unknown> | undefined {
   const base: Record<string, unknown> =
     config !== null && typeof config === "object" ? { ...(config as Record<string, unknown>) } : {};
+  const omitsEmptyValue = field.clearWhenEmpty === "omit" && options?.storeExplicit !== true;
 
   if (typeof value === "boolean") {
     const emptyBooleanValue = field.defaultBooleanValue ?? false;
-    if (field.clearWhenEmpty === "omit" && value === emptyBooleanValue) {
+    if (omitsEmptyValue && value === emptyBooleanValue) {
       delete base[field.key];
     } else {
       base[field.key] = value;
@@ -302,12 +310,31 @@ export function nextProviderConfigWithFieldValue(
   }
 
   const trimmed = value.trim();
-  if (field.clearWhenEmpty === "omit" && trimmed.length === 0) {
+  if (omitsEmptyValue && trimmed.length === 0) {
     delete base[field.key];
   } else {
     base[field.key] = value;
   }
   return Object.keys(base).length > 0 ? base : undefined;
+}
+
+function configRecord(config: unknown): Record<string, unknown> {
+  return config !== null && typeof config === "object"
+    ? { ...(config as Record<string, unknown>) }
+    : {};
+}
+
+/** Fields a pool shares with its members, and the member config those fields write to. */
+interface ProviderSettingsPoolShare {
+  /** Display name of the pool, for "From <pool>" and "Overridden" statuses. */
+  readonly poolName: string;
+  /** From `sharedProviderSettingKeys`: the fields a member stores or inherits. */
+  readonly sharedKeys: ReadonlyArray<string>;
+  /**
+   * The member's own stored config. `value` shows what it runs with, which includes
+   * inherited pool values, so writes must start here or they would store them.
+   */
+  readonly storedConfig: unknown;
 }
 
 interface ProviderSettingsFormProps {
@@ -317,6 +344,9 @@ interface ProviderSettingsFormProps {
   readonly variant: "card" | "dialog" | "settings";
   /** The instance's models, for fields that pick one. Those fields stay hidden without it. */
   readonly models?: ReadonlyArray<ProviderSettingsModelOption> | undefined;
+  /** Shows only these fields: a pool card shows just the settings the pool shares. */
+  readonly onlyKeys?: ReadonlyArray<string> | undefined;
+  readonly poolShare?: ProviderSettingsPoolShare | undefined;
   readonly onChange: (nextConfig: Record<string, unknown> | undefined) => void;
 }
 
@@ -326,14 +356,14 @@ function ProviderSettingsSelect({
   inputId,
   size,
   className,
-  onChange,
+  onSelect,
 }: {
   readonly field: ProviderSettingsFieldModel;
   readonly value: unknown;
   readonly inputId: string;
   readonly size: "sm" | "xs";
   readonly className?: string | undefined;
-  readonly onChange: ProviderSettingsFormProps["onChange"];
+  readonly onSelect: (optionValue: string) => void;
 }) {
   const options = field.options ?? [];
   const fallback = options[0]?.value ?? "";
@@ -344,7 +374,7 @@ function ProviderSettingsSelect({
       value={current}
       onValueChange={(next) => {
         if (typeof next !== "string") return;
-        onChange(nextProviderConfigWithFieldValue(value, field, next === fallback ? "" : next));
+        onSelect(next);
       }}
     >
       <SelectTrigger id={inputId} size={size} className={className} aria-label={field.label}>
@@ -371,12 +401,21 @@ function FieldFrame(props: {
   return <div className="grid gap-1.5">{props.children}</div>;
 }
 
+/** The pool status a shared field shows on a member, and the action that drops its override. */
+interface ProviderSettingsPoolField {
+  readonly poolName: string;
+  readonly overridden: boolean;
+  readonly onUsePoolValue: () => void;
+}
+
 interface ProviderSettingsFieldRowProps {
   readonly field: ProviderSettingsFieldModel;
   readonly value: unknown;
   readonly idPrefix: string;
   readonly variant: ProviderSettingsFormProps["variant"];
-  readonly onChange: ProviderSettingsFormProps["onChange"];
+  readonly onChange: (field: ProviderSettingsFieldModel, value: string | boolean) => void;
+  readonly onSelect: (field: ProviderSettingsFieldModel, optionValue: string) => void;
+  readonly poolField?: ProviderSettingsPoolField | undefined;
 }
 
 function ProviderSettingsFieldRow({
@@ -385,6 +424,8 @@ function ProviderSettingsFieldRow({
   idPrefix,
   variant,
   onChange,
+  onSelect,
+  poolField,
 }: ProviderSettingsFieldRowProps) {
   const inputId = `${idPrefix}-${field.key}`;
   const descriptionClassName =
@@ -404,9 +445,7 @@ function ProviderSettingsFieldRow({
       field.control === "switch" ? (
         <Switch
           checked={readProviderConfigBoolean(value, field.key, field.defaultBooleanValue)}
-          onCheckedChange={(checked) =>
-            onChange(nextProviderConfigWithFieldValue(value, field, Boolean(checked)))
-          }
+          onCheckedChange={(checked) => onChange(field, Boolean(checked))}
           aria-label={field.label}
           aria-describedby={descriptionId}
         />
@@ -417,7 +456,7 @@ function ProviderSettingsFieldRow({
           inputId={inputId}
           size="sm"
           className="w-full max-w-full @min-[32rem]/settings-row:w-56"
-          onChange={onChange}
+          onSelect={(optionValue) => onSelect(field, optionValue)}
         />
       ) : field.control === "textarea" ? (
         <Textarea
@@ -425,9 +464,7 @@ function ProviderSettingsFieldRow({
           aria-describedby={descriptionId}
           className="w-full max-w-full @min-[32rem]/settings-row:w-[min(24rem,50cqw)]"
           value={readProviderConfigString(value, field.key)}
-          onChange={(event) =>
-            onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
-          }
+          onChange={(event) => onChange(field, event.target.value)}
           placeholder={field.placeholder}
           spellCheck={false}
         />
@@ -440,14 +477,14 @@ function ProviderSettingsFieldRow({
             className="min-w-0 flex-1"
             configured={secretConfigured}
             value=""
-            onCommit={(next) => onChange(nextProviderConfigWithFieldValue(value, field, next))}
+            onCommit={(next) => onChange(field, next)}
           />
           {secretConfigured ? (
             <Button
               type="button"
               size="icon-sm"
               variant="ghost-destructive"
-              onClick={() => onChange(nextProviderConfigWithFieldValue(value, field, ""))}
+              onClick={() => onChange(field, "")}
               aria-label={`Clear ${field.label}`}
             >
               <XIcon className="size-3.5" />
@@ -465,7 +502,7 @@ function ProviderSettingsFieldRow({
           value={readProviderConfigString(value, field.key)}
           placeholder={field.placeholder}
           onCommit={(next) => {
-            onChange(nextProviderConfigWithFieldValue(value, field, next));
+            onChange(field, next);
           }}
           spellCheck={false}
         />
@@ -479,6 +516,7 @@ function ProviderSettingsFieldRow({
         description={
           field.description ? <span id={descriptionId}>{field.description}</span> : undefined
         }
+        status={poolField === undefined ? undefined : <PoolFieldStatus {...poolField} />}
         control={control}
       />
     );
@@ -494,9 +532,7 @@ function ProviderSettingsFieldRow({
           </div>
           <Switch
             checked={readProviderConfigBoolean(value, field.key, field.defaultBooleanValue)}
-            onCheckedChange={(checked) =>
-              onChange(nextProviderConfigWithFieldValue(value, field, Boolean(checked)))
-            }
+            onCheckedChange={(checked) => onChange(field, Boolean(checked))}
             aria-label={field.label}
           />
         </div>
@@ -515,7 +551,7 @@ function ProviderSettingsFieldRow({
             inputId={inputId}
             size="sm"
             className={cn("w-full", variant === "card" && "mt-1.5")}
-            onChange={onChange}
+            onSelect={(optionValue) => onSelect(field, optionValue)}
           />
           {description}
         </label>
@@ -532,9 +568,7 @@ function ProviderSettingsFieldRow({
             id={inputId}
             className={cn(variant === "card" && "mt-1.5")}
             value={readProviderConfigString(value, field.key)}
-            onChange={(event) =>
-              onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
-            }
+            onChange={(event) => onChange(field, event.target.value)}
             placeholder={field.placeholder}
             spellCheck={false}
           />
@@ -559,7 +593,7 @@ function ProviderSettingsFieldRow({
             type={field.secret ? undefined : type}
             autoComplete={!field.secret && field.control === "password" ? "off" : undefined}
             value={readProviderConfigString(value, field.key)}
-            onCommit={(next) => onChange(nextProviderConfigWithFieldValue(value, field, next))}
+            onCommit={(next) => onChange(field, next)}
             placeholder={field.placeholder}
             spellCheck={false}
           />
@@ -569,9 +603,7 @@ function ProviderSettingsFieldRow({
             type={field.secret ? undefined : type}
             autoComplete={!field.secret && field.control === "password" ? "off" : undefined}
             value={readProviderConfigString(value, field.key)}
-            onChange={(event) =>
-              onChange(nextProviderConfigWithFieldValue(value, field, event.target.value))
-            }
+            onChange={(event) => onChange(field, event.target.value)}
             placeholder={field.placeholder}
             spellCheck={false}
           />
@@ -582,18 +614,76 @@ function ProviderSettingsFieldRow({
   );
 }
 
+function PoolFieldStatus({ poolName, overridden, onUsePoolValue }: ProviderSettingsPoolField) {
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <span className={overridden ? "text-warning" : undefined}>
+        {overridden ? "Overridden" : `From ${poolName}`}
+      </span>
+      {overridden ? (
+        <Button type="button" size="xs" variant="ghost-muted" onClick={onUsePoolValue}>
+          Use pool's value
+        </Button>
+      ) : null}
+    </span>
+  );
+}
+
 export function ProviderSettingsForm({
   definition,
   value,
   idPrefix,
   variant,
   models,
+  onlyKeys,
+  poolShare,
   onChange,
 }: ProviderSettingsFormProps) {
-  const fields = deriveProviderSettingsFields(definition, value, models);
+  const fields = deriveProviderSettingsFields(definition, value, models).filter(
+    (field) => onlyKeys === undefined || onlyKeys.includes(field.key),
+  );
   const isLocalAcp =
     definition.driverKind === "acpRegistry" &&
     readProviderConfigString(value, "source") === "local";
+  // Every write replaces the stored config, so a member's inherited values would
+  // otherwise be stored as its own overrides.
+  const writeBase = poolShare === undefined ? value : poolShare.storedConfig;
+  const sharedKeys = new Set(poolShare?.sharedKeys ?? []);
+  const storedConfig = configRecord(writeBase);
+
+  const writeField = (field: ProviderSettingsFieldModel, nextValue: string | boolean) => {
+    onChange(
+      nextProviderConfigWithFieldValue(
+        writeBase,
+        field,
+        nextValue,
+        sharedKeys.has(field.key) ? { storeExplicit: true } : undefined,
+      ),
+    );
+  };
+
+  const writeOption = (field: ProviderSettingsFieldModel, optionValue: string) => {
+    // The model picker's empty choice means no model, which the config stores as "".
+    const stored = optionValue === EMPTY_MODEL_OPTION ? "" : optionValue;
+    // Outside a pool, the first option is the clearing value the schema defaults to.
+    const clears = !sharedKeys.has(field.key) && optionValue === (field.options?.[0]?.value ?? "");
+    writeField(field, clears ? "" : stored);
+  };
+
+  const dropStoredValue = (key: string) => {
+    const withoutField = configRecord(writeBase);
+    delete withoutField[key];
+    onChange(Object.keys(withoutField).length > 0 ? withoutField : undefined);
+  };
+
+  const poolFieldStatus = (key: string): ProviderSettingsPoolField | undefined => {
+    if (poolShare === undefined || !sharedKeys.has(key)) return undefined;
+    return {
+      poolName: poolShare.poolName,
+      overridden: Object.hasOwn(storedConfig, key),
+      onUsePoolValue: () => dropStoredValue(key),
+    };
+  };
 
   if (fields.length === 0) {
     return null;
@@ -608,7 +698,9 @@ export function ProviderSettingsForm({
           value={value}
           idPrefix={idPrefix}
           variant={variant}
-          onChange={onChange}
+          onChange={writeField}
+          onSelect={writeOption}
+          poolField={poolFieldStatus(field.key)}
         />
       ))}
       {isLocalAcp ? <ProviderCommandArguments value={value} onChange={onChange} /> : null}

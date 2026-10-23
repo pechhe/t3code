@@ -87,7 +87,8 @@ export const ProviderInstanceConfig = Schema.Struct({
   /**
    * Makes this entry an account pool over other instances of `driver`. No
    * driver runs for a pool: each new thread or turn that selects it is routed
-   * to one member, and `config` is ignored.
+   * to one member. Its `config` holds the settings its members share, for the
+   * fields a driver marks `sharedInPool`.
    */
   pool: Schema.optionalKey(Schema.Array(ProviderInstanceId)),
   /**

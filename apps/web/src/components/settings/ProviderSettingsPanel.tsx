@@ -23,9 +23,12 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ServerProvider,
+  poolForMember,
   resolveEnvironmentMachineKind,
   resolveProjectProviderInstanceEnabled,
+  resolveProviderInstanceConfig,
   resolveProviderInstanceEnabled,
+  sharedProviderSettingKeys,
 } from "@t3tools/contracts";
 import { DEFAULT_UNIFIED_SETTINGS, type UnifiedSettings } from "@t3tools/contracts/settings";
 import {
@@ -98,13 +101,14 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
-import { ProviderInstanceCard } from "./ProviderInstanceCard";
+import { ProviderInstanceCard, sharedModelsOfPoolMembers } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
 import { readCodexSetupMode } from "./CodexSetupSection.logic";
 import { providerClients } from "./providerDriverMeta";
+import type { ProviderSettingsModelOption } from "./ProviderSettingsForm";
 import { searchableSetting } from "./settingsSearch";
 import {
   backgroundActivityOverrideSettings,
@@ -982,6 +986,35 @@ export function EnvironmentProviderSettings({
   const renderProviderInstance = (row: InstanceRow, mode: "list" | "editor") => {
     const showProjectOverride =
       representativeProjectId !== undefined && supportsProjectProviderOverrides;
+    // A pool shares the settings its driver marks shared; neither card decides that here.
+    const sharesPoolSettings = sharedProviderSettingKeys(row.driver).length > 0;
+    const rowPool =
+      row.explicitInstance === undefined
+        ? undefined
+        : poolForMember(settings.providerInstances, row.instanceId);
+    const memberPool =
+      !sharesPoolSettings || rowPool === undefined
+        ? undefined
+        : {
+            poolName:
+              settings.providerInstances[rowPool.poolId]?.displayName?.trim() ||
+              String(rowPool.poolId),
+            effectiveConfig: resolveProviderInstanceConfig(
+              settings.providerInstances,
+              row.instanceId,
+            )?.config,
+          };
+    const poolMembers = row.explicitInstance?.pool;
+    const poolCompactModels =
+      !sharesPoolSettings || poolMembers === undefined
+        ? undefined
+        : sharedModelsOfPoolMembers(
+            poolMembers.map(
+              (memberId) =>
+                serverProviders.find((candidate) => candidate.instanceId === memberId)?.models ??
+                [],
+            ),
+          );
     return (
       <ProviderInstanceRow
         key={row.instanceId}
@@ -996,6 +1029,8 @@ export function EnvironmentProviderSettings({
           (memberId) =>
             settings.providerInstances?.[memberId]?.displayName?.trim() || String(memberId),
         )}
+        poolCompactModels={poolCompactModels}
+        memberPool={memberPool}
         mode={mode}
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         readOnly={readOnly}
@@ -1285,6 +1320,8 @@ function ProviderInstanceRow({
   isDefault,
   isDirty,
   poolMemberLabels,
+  poolCompactModels,
+  memberPool,
   mode,
   selected,
   readOnly,
@@ -1308,6 +1345,15 @@ function ProviderInstanceRow({
   readonly isDirty: boolean;
   /** A new array only for pooled instances, which are rare. */
   readonly poolMemberLabels: ReadonlyArray<string> | undefined;
+  /** The models every member of this pool offers, for its shared "Compact with" field. */
+  readonly poolCompactModels: ReadonlyArray<ProviderSettingsModelOption> | undefined;
+  /** The pool this member inherits shared settings from, with its effective config. */
+  readonly memberPool:
+    | {
+        readonly poolName: string;
+        readonly effectiveConfig: unknown;
+      }
+    | undefined;
   readonly mode: "list" | "editor";
   readonly selected: boolean;
   readonly readOnly: boolean;
@@ -1371,6 +1417,8 @@ function ProviderInstanceRow({
       instanceId={instanceId}
       instance={instance}
       poolMemberLabels={poolMemberLabels}
+      poolCompactModels={poolCompactModels}
+      memberPool={memberPool}
       driverOption={driverOption}
       liveProvider={liveProvider}
       mode={mode}

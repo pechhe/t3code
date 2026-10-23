@@ -589,6 +589,8 @@ export interface ProviderSettingsFormAnnotation {
    * hides the field where it has no model list to offer.
    */
   readonly modelOptions?: { readonly emptyLabel: string } | undefined;
+  /** A member of an account pool inherits this field's pool value when it stores none. */
+  readonly sharedInPool?: boolean | undefined;
 }
 
 export function secretSettingsFields(schema: {
@@ -779,6 +781,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         providerSettingsForm: {
           placeholder: "e.g. --chrome",
           clearWhenEmpty: "omit",
+          sharedInPool: true,
         },
       }),
     ),
@@ -791,6 +794,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         providerSettingsForm: {
           placeholder: "e.g. 300000",
           clearWhenEmpty: "omit",
+          sharedInPool: true,
         },
       }),
     ),
@@ -804,6 +808,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
           control: "select",
           options: INSTANCE_IDLE_COMPACTION_MODES,
           clearWhenEmpty: "omit",
+          sharedInPool: true,
         },
       }),
     ),
@@ -817,6 +822,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
           control: "select",
           modelOptions: { emptyLabel: "Same as the conversation" },
           clearWhenEmpty: "omit",
+          sharedInPool: true,
         },
       }),
     ),
@@ -826,7 +832,7 @@ export const ClaudeSettings = makeProviderSettingsSchema(
         title: "Only when the prompt cache has expired",
         description:
           "While a conversation's prompt cache is warm, its own model compacts it at a tenth of the input price. Off uses the model above every time.",
-        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit" },
+        providerSettingsForm: { control: "switch", clearWhenEmpty: "omit", sharedInPool: true },
       }),
     ),
   },
@@ -1519,6 +1525,103 @@ export const resolveProjectProviderInstanceEnabled = (
 
 const decodeClaudeSettings = Schema.decodeUnknownOption(ClaudeSettings);
 
+type SharedSettingDecoder = (value: unknown) => Option.Option<unknown>;
+
+interface PoolSharedSettings {
+  readonly keys: ReadonlyArray<string>;
+  readonly decode: ReadonlyMap<string, SharedSettingDecoder>;
+}
+
+/** Fields a driver's form marks `sharedInPool`, with a decoder that validates a pool value alone. */
+const poolSharedSettings = (schema: {
+  readonly fields: Readonly<Record<string, Schema.Top>>;
+}): PoolSharedSettings => {
+  const decode = new Map<string, SharedSettingDecoder>(
+    Object.entries(schema.fields).flatMap(([field, fieldSchema]) =>
+      isPoolSharedSetting(fieldSchema) ? [[field, fieldDecoder(fieldSchema)] as const] : [],
+    ),
+  );
+  return { keys: [...decode.keys()], decode };
+};
+
+const isPoolSharedSetting = (schema: Schema.Top): boolean =>
+  (Schema.resolveAnnotationsKey(schema) ?? Schema.resolveAnnotations(schema))?.providerSettingsForm
+    ?.sharedInPool === true;
+
+/**
+ * Struct fields are typed as `Constraint`, which erases their decoding services.
+ * These fields need none, so the cast is the decoder view that says so.
+ */
+const fieldDecoder = (fieldSchema: Schema.Constraint): SharedSettingDecoder =>
+  Schema.decodeUnknownOption(fieldSchema as Schema.ConstraintDecoder<unknown>);
+
+const POOL_SHARED_SETTINGS: Readonly<Partial<Record<ProviderDriverKind, PoolSharedSettings>>> = {
+  [ProviderDriverKind.make("claudeAgent")]: poolSharedSettings(ClaudeSettings),
+};
+
+const poolSharedSettingsFor = (driver: ProviderDriverKind): PoolSharedSettings | undefined =>
+  Object.hasOwn(POOL_SHARED_SETTINGS, driver) ? POOL_SHARED_SETTINGS[driver] : undefined;
+
+/** The settings a pool shares with its members, for the fields `driver` marks `sharedInPool`. */
+export const sharedProviderSettingKeys = (driver: ProviderDriverKind): ReadonlyArray<string> =>
+  poolSharedSettingsFor(driver)?.keys ?? [];
+
+const asConfigRecord = (config: unknown): Readonly<Record<string, unknown>> | undefined =>
+  config !== null && typeof config === "object" && !Array.isArray(config)
+    ? (config as Readonly<Record<string, unknown>>)
+    : undefined;
+
+/**
+ * The pool that owns `instanceId`: the first entry in settings order that lists
+ * it as a member and runs the same driver. A pool is never a member.
+ */
+export const poolForMember = (
+  providerInstances: Readonly<Record<ProviderInstanceId, ProviderInstanceConfig>>,
+  instanceId: ProviderInstanceId,
+): { readonly poolId: ProviderInstanceId; readonly pool: ProviderInstanceConfig } | undefined => {
+  const instance = Object.hasOwn(providerInstances, instanceId)
+    ? providerInstances[instanceId]
+    : undefined;
+  if (instance === undefined || instance.pool !== undefined) return undefined;
+  for (const [poolId, candidate] of Object.entries(providerInstances)) {
+    if (candidate.pool === undefined || candidate.driver !== instance.driver) continue;
+    if (candidate.pool.includes(instanceId)) {
+      return { poolId: ProviderInstanceId.make(poolId), pool: candidate };
+    }
+  }
+  return undefined;
+};
+
+/**
+ * The config an instance runs with: its own stored settings, and the pool value
+ * of each shared field it does not set itself. A pool value that does not decode
+ * on its own is dropped, leaving the member's own settings and default intact.
+ */
+export const resolveProviderInstanceConfig = (
+  providerInstances: Readonly<Record<ProviderInstanceId, ProviderInstanceConfig>>,
+  instanceId: ProviderInstanceId,
+): ProviderInstanceConfig | undefined => {
+  const instance = Object.hasOwn(providerInstances, instanceId)
+    ? providerInstances[instanceId]
+    : undefined;
+  if (instance === undefined) return undefined;
+  const sharedSettings = poolSharedSettingsFor(instance.driver);
+  const poolConfig = asConfigRecord(poolForMember(providerInstances, instanceId)?.pool.config);
+  if (sharedSettings === undefined || poolConfig === undefined) return instance;
+  const inherited: Record<string, unknown> = {};
+  for (const field of sharedSettings.keys) {
+    if (!Object.hasOwn(poolConfig, field)) continue;
+    const decoded = sharedSettings.decode.get(field)?.(poolConfig[field]);
+    if (decoded === undefined || Option.isNone(decoded)) continue;
+    inherited[field] = decoded.value;
+  }
+  if (Object.keys(inherited).length === 0) return instance;
+  return {
+    ...instance,
+    config: { ...inherited, ...asConfigRecord(instance.config) },
+  };
+};
+
 type IdleCompactionSettings = Pick<ServerSettings, "compactIdleThreads" | "idleCompaction">;
 
 /** The environment-wide idle compaction mode, from whichever field the settings carry. */
@@ -1556,9 +1659,7 @@ export const resolveIdleCompaction = (
   settings: Pick<ServerSettings, "providerInstances" | "compactIdleThreads" | "idleCompaction">,
   instanceId: ProviderInstanceId,
 ): IdleCompactionMode => {
-  const instance = Object.hasOwn(settings.providerInstances, instanceId)
-    ? settings.providerInstances[instanceId]
-    : undefined;
+  const instance = resolveProviderInstanceConfig(settings.providerInstances, instanceId);
   const override = decodeClaudeSettings(instance?.config ?? {}).pipe(
     Option.map((config) => config.idleCompaction),
     Option.getOrElse(() => "default" as const),
@@ -1571,9 +1672,7 @@ export const resolveClaudeCompactionSetting = (
   settings: Pick<ServerSettings, "providerInstances">,
   instanceId: ProviderInstanceId,
 ): { readonly model: string; readonly onlyWhenCold: boolean } => {
-  const instance = Object.hasOwn(settings.providerInstances, instanceId)
-    ? settings.providerInstances[instanceId]
-    : undefined;
+  const instance = resolveProviderInstanceConfig(settings.providerInstances, instanceId);
   return decodeClaudeSettings(instance?.config ?? {}).pipe(
     Option.map((config) => ({
       model: config.compactModel,

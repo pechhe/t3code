@@ -11,12 +11,16 @@ import {
   DEFAULT_SERVER_SETTINGS,
   globalIdleCompaction,
   idleCompactionPatch,
+  poolForMember,
   requiredScopesForProjectMutation,
+  resolveClaudeCompactionSetting,
   resolveIdleCompaction,
   resolveProjectProviderInstanceEnabled,
+  resolveProviderInstanceConfig,
   resolveProviderInstanceEnabled,
   ServerSettings,
   ServerSettingsPatch,
+  sharedProviderSettingKeys,
   withIdleCompaction,
 } from "./settings.ts";
 
@@ -419,5 +423,239 @@ describe("server model preferences", () => {
     const input = { favorites: [], providerModelPreferences: {} };
     expect(encodeServerSettings(decodeServerSettings(input))).toMatchObject(input);
     expect(decodeServerSettingsPatch(input)).toEqual(input);
+  });
+});
+
+describe("pool shared settings", () => {
+  const instanceId = ProviderInstanceId.make;
+  const decodeInstances = (providerInstances: Record<string, unknown>) =>
+    decodeServerSettings({ providerInstances }).providerInstances;
+  const effectiveConfig = (instances: ReturnType<typeof decodeInstances>, id: string) =>
+    decodeClaudeSettings(resolveProviderInstanceConfig(instances, instanceId(id))?.config ?? {});
+
+  const poolConfig = {
+    launchArgs: "--chrome",
+    autoCompactWindow: "300000",
+    idleCompaction: "beforeCacheExpires",
+    compactModel: "claude-sonnet-5-5",
+    compactOnlyWhenCold: false,
+  } as const;
+
+  it("shares exactly the fields the driver's schema marks, and none for other drivers", () => {
+    expect(sharedProviderSettingKeys(ProviderDriverKind.make("claudeAgent"))).toEqual([
+      "launchArgs",
+      "autoCompactWindow",
+      "idleCompaction",
+      "compactModel",
+      "compactOnlyWhenCold",
+    ]);
+    expect(sharedProviderSettingKeys(ProviderDriverKind.make("codex"))).toEqual([]);
+  });
+
+  it("gives a member every shared field its pool sets", () => {
+    const instances = decodeInstances({
+      claude_pool: { driver: "claudeAgent", pool: ["claude_a"], config: poolConfig },
+      claude_a: { driver: "claudeAgent" },
+    });
+    const config = effectiveConfig(instances, "claude_a");
+    expect(config.launchArgs).toBe("--chrome");
+    expect(config.autoCompactWindow).toBe("300000");
+    expect(config.idleCompaction).toBe("beforeCacheExpires");
+    expect(config.compactModel).toBe("claude-sonnet-5-5");
+    expect(config.compactOnlyWhenCold).toBe(false);
+  });
+
+  it("keeps a member's own value, including empty and default ones", () => {
+    const instances = decodeInstances({
+      claude_pool: { driver: "claudeAgent", pool: ["claude_a"], config: poolConfig },
+      claude_a: {
+        driver: "claudeAgent",
+        config: {
+          launchArgs: "",
+          autoCompactWindow: "",
+          idleCompaction: "default",
+          compactModel: "claude-opus-4-6",
+          compactOnlyWhenCold: true,
+        },
+      },
+    });
+    const config = effectiveConfig(instances, "claude_a");
+    expect(config.launchArgs).toBe("");
+    expect(config.autoCompactWindow).toBe("");
+    expect(config.idleCompaction).toBe("default");
+    expect(config.compactModel).toBe("claude-opus-4-6");
+    expect(config.compactOnlyWhenCold).toBe(true);
+  });
+
+  it("takes the pool's value again once a member stops storing its own", () => {
+    const withOwn = decodeInstances({
+      claude_pool: {
+        driver: "claudeAgent",
+        pool: ["claude_a"],
+        config: { compactModel: "claude-sonnet-5-5" },
+      },
+      claude_a: { driver: "claudeAgent", config: { compactModel: "claude-opus-4-6" } },
+    });
+    expect(effectiveConfig(withOwn, "claude_a").compactModel).toBe("claude-opus-4-6");
+
+    const withoutOwn = decodeInstances({
+      claude_pool: {
+        driver: "claudeAgent",
+        pool: ["claude_a"],
+        config: { compactModel: "claude-sonnet-5-5" },
+      },
+      claude_a: { driver: "claudeAgent", config: { launchArgs: "" } },
+    });
+    expect(effectiveConfig(withoutOwn, "claude_a").compactModel).toBe("claude-sonnet-5-5");
+  });
+
+  it("never shares an account's paths, models or enabled flag", () => {
+    const instances = decodeInstances({
+      claude_pool: {
+        driver: "claudeAgent",
+        pool: ["claude_a"],
+        config: {
+          binaryPath: "/pool/claude",
+          homePath: "/pool/home",
+          customModels: ["pool-model"],
+          enabled: false,
+          autoCompactWindow: "300000",
+        },
+      },
+      claude_a: { driver: "claudeAgent", config: { launchArgs: "--member" } },
+    });
+    expect(resolveProviderInstanceConfig(instances, instanceId("claude_a"))?.config).toEqual({
+      autoCompactWindow: "300000",
+      launchArgs: "--member",
+    });
+  });
+
+  it("leaves an instance no pool owns alone, by reference", () => {
+    const instances = decodeInstances({
+      claude_alone: { driver: "claudeAgent", config: { launchArgs: "--mine" } },
+      codex_pool: { driver: "codex", pool: ["claude_alone"], config: { launchArgs: "--codex" } },
+    });
+    const id = instanceId("claude_alone");
+    expect(poolForMember(instances, id)).toBeUndefined();
+    expect(resolveProviderInstanceConfig(instances, id)).toBe(instances[id]);
+  });
+
+  it("keeps a pool's own entry unchanged and never makes it a member", () => {
+    const instances = decodeInstances({
+      claude_pool: { driver: "claudeAgent", pool: ["claude_a"], config: poolConfig },
+      claude_a: { driver: "claudeAgent" },
+    });
+    const id = instanceId("claude_pool");
+    expect(poolForMember(instances, id)).toBeUndefined();
+    expect(resolveProviderInstanceConfig(instances, id)).toBe(instances[id]);
+  });
+
+  it("returns nothing for an instance id that is not stored", () => {
+    expect(
+      resolveProviderInstanceConfig(decodeInstances({}), instanceId("claude_a")),
+    ).toBeUndefined();
+  });
+
+  it("uses the first matching pool in settings order and skips other drivers", () => {
+    const instances = decodeInstances({
+      codex_pool: { driver: "codex", pool: ["claude_a"], config: { launchArgs: "--codex" } },
+      claude_first: {
+        driver: "claudeAgent",
+        pool: ["claude_a"],
+        config: { launchArgs: "--first" },
+      },
+      claude_second: {
+        driver: "claudeAgent",
+        pool: ["claude_a"],
+        config: { launchArgs: "--second" },
+      },
+      claude_a: { driver: "claudeAgent" },
+    });
+    expect(poolForMember(instances, instanceId("claude_a"))?.poolId).toBe(
+      instanceId("claude_first"),
+    );
+    expect(effectiveConfig(instances, "claude_a").launchArgs).toBe("--first");
+  });
+
+  it("drops a pool value its own field rejects and keeps the rest", () => {
+    const instances = decodeInstances({
+      claude_pool: {
+        driver: "claudeAgent",
+        pool: ["claude_a"],
+        config: { autoCompactWindow: "5000", compactModel: "claude-sonnet-5-5" },
+      },
+      claude_a: { driver: "claudeAgent" },
+    });
+    expect(resolveProviderInstanceConfig(instances, instanceId("claude_a"))?.config).toEqual({
+      compactModel: "claude-sonnet-5-5",
+    });
+    expect(effectiveConfig(instances, "claude_a").autoCompactWindow).toBe("");
+  });
+
+  it("ignores a pool config that is not an object", () => {
+    const instances = decodeInstances({
+      claude_pool: { driver: "claudeAgent", pool: ["claude_a"], config: "not-a-config" },
+      claude_a: { driver: "claudeAgent", config: { launchArgs: "--mine" } },
+    });
+    const id = instanceId("claude_a");
+    expect(resolveProviderInstanceConfig(instances, id)).toBe(instances[id]);
+  });
+
+  it("leaves a pool with no config leaving each member's stored settings as they are", () => {
+    const stored = {
+      autoCompactWindow: "300000",
+      idleCompaction: "beforeCacheExpires",
+      compactModel: "claude-sonnet-5-5",
+    };
+    const instances = decodeInstances({
+      claude_pool: { driver: "claudeAgent", pool: ["claude_a", "claude_b", "claude_c"] },
+      claude_a: { driver: "claudeAgent", config: stored },
+      claude_b: { driver: "claudeAgent", config: stored },
+      claude_c: { driver: "claudeAgent", config: stored },
+    });
+    for (const member of ["claude_a", "claude_b", "claude_c"]) {
+      const id = instanceId(member);
+      expect(resolveProviderInstanceConfig(instances, id)).toBe(instances[id]);
+      const config = effectiveConfig(instances, member);
+      expect(config.autoCompactWindow).toBe("300000");
+      expect(config.idleCompaction).toBe("beforeCacheExpires");
+      expect(config.compactModel).toBe("claude-sonnet-5-5");
+    }
+  });
+
+  it("resolves idle compaction and the compaction model through the pool", () => {
+    const settings = decodeServerSettings({
+      idleCompaction: "off",
+      providerInstances: {
+        claude_pool: {
+          driver: "claudeAgent",
+          pool: ["claude_new", "claude_own"],
+          config: {
+            idleCompaction: "beforeCacheExpires",
+            compactModel: "claude-sonnet-5-5",
+            compactOnlyWhenCold: false,
+          },
+        },
+        claude_new: { driver: "claudeAgent" },
+        claude_own: {
+          driver: "claudeAgent",
+          config: {
+            idleCompaction: "onReturn",
+            compactModel: "claude-opus-4-6",
+            compactOnlyWhenCold: true,
+          },
+        },
+      },
+    });
+    expect(resolveIdleCompaction(settings, instanceId("claude_new"))).toBe("beforeCacheExpires");
+    expect(resolveClaudeCompactionSetting(settings, instanceId("claude_new"))).toEqual({
+      model: "claude-sonnet-5-5",
+      onlyWhenCold: false,
+    });
+    expect(resolveIdleCompaction(settings, instanceId("claude_own"))).toBe("onReturn");
+    expect(resolveClaudeCompactionSetting(settings, instanceId("claude_own"))).toEqual({
+      model: "claude-opus-4-6",
+      onlyWhenCold: true,
+    });
   });
 });

@@ -80,6 +80,13 @@ Open the pool in **Settings → Providers** to change how it works:
   account's real limit.
 - **When an account hits its limit:** switch at once, wait for the reset, or
   follow **Settings → General → Switch pooled account on limit**.
+- **Shared settings:** **Auto-compact after**, **Compact idle threads**,
+  **Compact with**, **Only when the prompt cache has expired** and **Launch
+  arguments** are set once on the pool and every account in it uses them.
+  An account's own card shows each one as **From <pool>**; change a value there
+  and it reads **Overridden** until you choose **Use pool's value**. Binary path,
+  config directory and environment stay per account. Values an account already
+  stores keep winning until you clear them.
 
 On the composer, the lamp beside the model slider shows the account the next
 message uses. In a thread that has already run, click it to move the thread to the

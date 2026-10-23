@@ -5,6 +5,7 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   type ServerProvider,
+  type ServerProviderModel,
   type UnifiedSettings,
 } from "@t3tools/contracts";
 import { AsyncResult, type Atom } from "effect/reactivity";
@@ -161,6 +162,7 @@ import { EnvironmentProviderSettings } from "./ProviderSettingsPanel";
 const environmentId = EnvironmentId.make("remote-device");
 const codexId = ProviderInstanceId.make("codex");
 const customId = ProviderInstanceId.make("codex_work");
+const codexPoolId = ProviderInstanceId.make("codex_pool");
 
 function provider(): ServerProvider {
   return {
@@ -186,6 +188,37 @@ function provider(): ServerProvider {
     },
   };
 }
+
+const claudeDriver = ProviderDriverKind.make("claudeAgent");
+const poolId = ProviderInstanceId.make("claude_pool");
+const poolMemberId = ProviderInstanceId.make("claude_work");
+const otherPoolMemberId = ProviderInstanceId.make("claude_home");
+
+function claudeModel(slug: string, contextWindowTokens?: number): ServerProviderModel {
+  return {
+    slug,
+    name: slug,
+    isCustom: false,
+    capabilities: null,
+    ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+  };
+}
+
+function claudeProvider(
+  instanceId: ProviderInstanceId,
+  models: ReadonlyArray<ServerProviderModel>,
+): ServerProvider {
+  return { ...provider(), instanceId, driver: claudeDriver, models };
+}
+
+/** Every setting a pool shares, set away from its default so omitting one is visible. */
+const poolConfig = {
+  launchArgs: "--chrome",
+  autoCompactWindow: "300000",
+  idleCompaction: "beforeCacheExpires",
+  compactModel: "claude-sonnet",
+  compactOnlyWhenCold: false,
+};
 
 const setProviders = (providers: ReadonlyArray<ServerProvider>) =>
   act(async () => appAtomRegistry.set(state.providers, providers));
@@ -303,5 +336,232 @@ describe("EnvironmentProviderSettings routing", () => {
       environmentId,
       input: { instanceId, elicitationId: action.elicitationId },
     });
+  });
+});
+
+describe("pooled provider settings", () => {
+  it("edits only a pool's shared settings, against the models every member offers", async () => {
+    await setup();
+    const pool = {
+      driver: claudeDriver,
+      displayName: "Claude (pooled)",
+      pool: [poolMemberId, otherPoolMemberId],
+      config: { ...poolConfig, compactModel: "" },
+    };
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [poolId]: pool,
+        [poolMemberId]: { driver: claudeDriver, displayName: "Work" },
+        [otherPoolMemberId]: { driver: claudeDriver, displayName: "Home" },
+      },
+    };
+    await setProviders([
+      claudeProvider(poolMemberId, [
+        claudeModel("claude-sonnet", 200_000),
+        claudeModel("claude-opus", 200_000),
+        claudeModel("claude-small"),
+      ]),
+      claudeProvider(otherPoolMemberId, [
+        claudeModel("claude-sonnet", 200_000),
+        claudeModel("claude-haiku", 200_000),
+      ]),
+    ]);
+    await using _screen = await render(panel({ targetInstanceId: poolId }));
+
+    await expect.element(page.getByText("How the pool picks")).toBeVisible();
+    for (const label of [
+      "Launch arguments",
+      "Auto-compact after",
+      "Compact idle threads",
+      "Compact with",
+      "Only when the prompt cache has expired",
+    ]) {
+      await expect.element(page.getByText(label, { exact: true })).toBeVisible();
+    }
+    // An account's own paths, models and environment are never shared.
+    expect(page.getByText("Binary path").query()).toBeNull();
+    expect(page.getByText("CLAUDE_CONFIG_DIR path").query()).toBeNull();
+    expect(page.getByText("Variables").query()).toBeNull();
+
+    await userEvent.click(page.getByRole("combobox", { name: "Compact with" }));
+    await expect.element(page.getByRole("option", { name: "claude-sonnet" })).toBeVisible();
+    expect(
+      page
+        .getByRole("option")
+        .elements()
+        .map((option) => option.textContent),
+    ).toEqual(["Same as the conversation", "claude-sonnet"]);
+    await userEvent.click(page.getByRole("option", { name: "claude-sonnet" }));
+    await userEvent.click(
+      page.getByRole("switch", { name: "Only when the prompt cache has expired" }),
+    );
+
+    expect(state.mutateProviderInstance.mock.calls.map(([input]) => input)).toEqual([
+      {
+        operation: "upsert",
+        instanceId: poolId,
+        instance: { ...pool, config: { ...pool.config, compactModel: "claude-sonnet" } },
+      },
+      {
+        operation: "upsert",
+        instanceId: poolId,
+        // The pool card keeps today's omit behaviour: switching to the default drops the key.
+        instance: {
+          ...pool,
+          config: {
+            launchArgs: "--chrome",
+            autoCompactWindow: "300000",
+            idleCompaction: "beforeCacheExpires",
+            compactModel: "",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("shows a member what it runs with, and returns one field to the pool", async () => {
+    await setup();
+    const pool = {
+      driver: claudeDriver,
+      displayName: "Claude (pooled)",
+      pool: [poolMemberId],
+      // Idle compaction is left out, so neither side holds a value for it.
+      config: {
+        launchArgs: poolConfig.launchArgs,
+        autoCompactWindow: poolConfig.autoCompactWindow,
+        compactModel: poolConfig.compactModel,
+        compactOnlyWhenCold: poolConfig.compactOnlyWhenCold,
+      },
+    };
+    const member = {
+      driver: claudeDriver,
+      displayName: "Work",
+      config: { autoCompactWindow: "400000", binaryPath: "/opt/claude" },
+    };
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: { [poolId]: pool, [poolMemberId]: member },
+    };
+    await setProviders([claudeProvider(poolMemberId, [claudeModel("claude-sonnet", 200_000)])]);
+    await using _screen = await render(panel({ targetInstanceId: poolMemberId }));
+
+    // Its own value, and its own paths, beside the pool's values for the rest.
+    await expect
+      .element(page.getByRole("textbox", { name: "Auto-compact after" }))
+      .toHaveValue("400000");
+    await expect
+      .element(page.getByRole("textbox", { name: "Launch arguments" }))
+      .toHaveValue("--chrome");
+    await expect
+      .element(page.getByRole("textbox", { name: "Binary path" }))
+      .toHaveValue("/opt/claude");
+    await expect
+      .element(page.getByRole("combobox", { name: "Compact with" }))
+      .toHaveTextContent("claude-sonnet");
+    // Neither side sets idle compaction: it shows the driver default, still governed by the pool.
+    await expect
+      .element(page.getByRole("combobox", { name: "Compact idle threads" }))
+      .toHaveTextContent("Use default");
+    // compactOnlyWhenCold is off for the pool, so the switch is off too.
+    await expect
+      .element(page.getByRole("switch", { name: "Only when the prompt cache has expired" }))
+      .not.toBeChecked();
+
+    expect(page.getByText("Overridden").query()).not.toBeNull();
+    expect(page.getByText("From Claude (pooled)").elements()).toHaveLength(4);
+
+    await userEvent.click(page.getByRole("button", { name: "Use pool's value" }));
+
+    expect(state.mutateProviderInstance.mock.calls.map(([input]) => input)).toEqual([
+      {
+        operation: "upsert",
+        instanceId: poolMemberId,
+        // Only the key it stored, leaving its own paths and the other shared fields alone.
+        instance: { ...member, config: { binaryPath: "/opt/claude" } },
+      },
+    ]);
+  });
+
+  it("stores a member's choice even when it matches the driver's default", async () => {
+    await setup();
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [poolId]: {
+          driver: claudeDriver,
+          displayName: "Claude (pooled)",
+          pool: [poolMemberId],
+          config: poolConfig,
+        },
+        [poolMemberId]: { driver: claudeDriver, displayName: "Work" },
+      },
+    };
+    await setProviders([claudeProvider(poolMemberId, [claudeModel("claude-sonnet", 200_000)])]);
+    await using _screen = await render(panel({ targetInstanceId: poolMemberId }));
+
+    await userEvent.click(
+      page.getByRole("switch", { name: "Only when the prompt cache has expired" }),
+    );
+    await userEvent.click(page.getByRole("combobox", { name: "Compact with" }));
+    await userEvent.click(page.getByRole("option", { name: "Same as the conversation" }));
+    await userEvent.click(page.getByRole("combobox", { name: "Compact idle threads" }));
+    await userEvent.click(page.getByRole("option", { name: "Use default" }));
+    const launchArgs = page.getByRole("textbox", { name: "Launch arguments" });
+    await userEvent.clear(launchArgs);
+    await userEvent.keyboard("{Enter}");
+    const autoCompactWindow = page.getByRole("textbox", { name: "Auto-compact after" });
+    await userEvent.clear(autoCompactWindow);
+    await userEvent.keyboard("{Enter}");
+
+    expect(
+      state.mutateProviderInstance.mock.calls.map(
+        ([input]) => (input as { instance: { config: unknown } }).instance.config,
+      ),
+    ).toEqual([
+      { compactOnlyWhenCold: true },
+      { compactModel: "" },
+      { idleCompaction: "default" },
+      { launchArgs: "" },
+      { autoCompactWindow: "" },
+    ]);
+  });
+
+  it("leaves a pool of a driver with nothing to share, and an unpooled account, as they were", async () => {
+    await setup();
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [customId]: { driver: ProviderDriverKind.make("codex"), displayName: "Work" },
+        [codexPoolId]: {
+          driver: ProviderDriverKind.make("codex"),
+          displayName: "Codex (pooled)",
+          pool: [customId],
+        },
+      },
+    };
+    await setProviders([provider()]);
+    await using _screen = await render(panel({ targetInstanceId: codexPoolId }));
+
+    await expect.element(page.getByText("How the pool picks")).toBeVisible();
+    expect(page.getByText("Launch arguments").query()).toBeNull();
+    expect(page.getByText("Binary path").query()).toBeNull();
+  });
+
+  it("leaves a Claude account in no pool without pool labels", async () => {
+    await setup();
+    state.settings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providerInstances: {
+        [poolMemberId]: { driver: claudeDriver, displayName: "Work" },
+      },
+    };
+    await setProviders([claudeProvider(poolMemberId, [claudeModel("claude-sonnet", 200_000)])]);
+    await using _screen = await render(panel({ targetInstanceId: poolMemberId }));
+
+    await expect.element(page.getByRole("textbox", { name: "Binary path" })).toBeVisible();
+    expect(page.getByText("Overridden").query()).toBeNull();
+    expect(page.getByText("Use pool's value").query()).toBeNull();
+    expect(page.getByText(/^From /).query()).toBeNull();
   });
 });

@@ -55,3 +55,44 @@ describe("ProviderSettingsForm helpers", () => {
     expect(next).toEqual({ experimental: false });
   });
 });
+
+describe("ProviderSettingsForm explicit values", () => {
+  const launchArgsField = {
+    key: "launchArgs",
+    control: "text",
+    label: "Launch arguments",
+    clearWhenEmpty: "omit",
+  } as const;
+  const compactOnlyWhenColdField = {
+    key: "compactOnlyWhenCold",
+    control: "switch",
+    label: "Only when the prompt cache has expired",
+    clearWhenEmpty: "omit",
+    defaultBooleanValue: true,
+  } as const;
+
+  it("stores an empty value where a pooled field would otherwise be omitted", () => {
+    expect(
+      nextProviderConfigWithFieldValue({ launchArgs: "--chrome" }, launchArgsField, "", {
+        storeExplicit: true,
+      }),
+    ).toEqual({ launchArgs: "" });
+  });
+
+  it("stores a switch at its default where a pooled field would otherwise be omitted", () => {
+    expect(
+      nextProviderConfigWithFieldValue(undefined, compactOnlyWhenColdField, true, {
+        storeExplicit: true,
+      }),
+    ).toEqual({ compactOnlyWhenCold: true });
+  });
+
+  it("still omits both without storeExplicit", () => {
+    expect(
+      nextProviderConfigWithFieldValue({ launchArgs: "--chrome" }, launchArgsField, ""),
+    ).toEqual(undefined);
+    expect(nextProviderConfigWithFieldValue(undefined, compactOnlyWhenColdField, true)).toEqual(
+      undefined,
+    );
+  });
+});
