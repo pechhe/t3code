@@ -1,4 +1,4 @@
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
@@ -47,7 +47,7 @@ import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(
-    Layer.mock(BuildWorkItems.BuildWorkItems)({
+    Layer.mock(ForgeWorkItems.ForgeWorkItems)({
       connected: Effect.succeed({ connected: false, origin: null }),
     }),
   ),

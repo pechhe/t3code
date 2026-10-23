@@ -45,7 +45,7 @@ it.effect("a lead and its spec-reviewer reach HQ as two different agents", () =>
   }),
 );
 
-it.effect("forwarded Build writes expire display caches, excluding reads and heartbeats", () =>
+it.effect("forwarded Forge writes expire display caches, excluding reads and heartbeats", () =>
   Effect.gen(function* () {
     const { connections, hq } = yield* makeHarness;
     const agent = yield* connections.connection(leadThread);
@@ -114,7 +114,7 @@ it.effect("forwarded Build writes expire display caches, excluding reads and hea
   }),
 );
 
-it.effect("an interrupted Build write still expires display caches", () =>
+it.effect("an interrupted Forge write still expires display caches", () =>
   Effect.gen(function* () {
     const { connections, hq } = yield* makeHarness;
     const agent = yield* connections.connection(leadThread);

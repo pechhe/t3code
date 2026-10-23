@@ -1,4 +1,4 @@
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import * as ExternalAgentWork from "../agents/ExternalAgentWorkService.ts";
@@ -22,7 +22,7 @@ import {
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadProjection,
   type ServerProvider,
-  BuildWorkItemError,
+  ForgeWorkItemError,
 } from "@t3tools/contracts";
 import { checkpointWorkspace } from "@t3tools/provider-testing/replayWorkspace";
 import * as DateTime from "effect/DateTime";
@@ -69,9 +69,9 @@ import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAda
 
 const decodeTarget = Schema.decodeUnknownEffect(OrchestratorMcpTarget);
 
-const orchestratorServiceWith = (build: Partial<BuildWorkItems.BuildWorkItems["Service"]>) =>
+const orchestratorServiceWith = (build: Partial<ForgeWorkItems.ForgeWorkItems["Service"]>) =>
   OrchestratorMcpService.layer.pipe(
-    Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)(build)),
+    Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)(build)),
     Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
     Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
     Layer.provide(WorkspaceProvider.layerGitWorktree),
@@ -318,11 +318,11 @@ describe("OrchestratorMcpService", () => {
           Effect.provide(
             orchestratorServiceWith({
               resolve: () =>
-                Effect.fail(new BuildWorkItemError({ reason: "unavailable", message: "HQ down" })),
+                Effect.fail(new ForgeWorkItemError({ reason: "unavailable", message: "HQ down" })),
               mentions: () =>
                 hqDown
                   ? Effect.fail(
-                      new BuildWorkItemError({ reason: "unavailable", message: "HQ down" }),
+                      new ForgeWorkItemError({ reason: "unavailable", message: "HQ down" }),
                     )
                   : Effect.succeed({
                       items: [

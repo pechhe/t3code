@@ -40,7 +40,7 @@ function getProjectSortTimestamp(
         Number.NEGATIVE_INFINITY);
 }
 
-export function buildHomeProjectScopes(input: {
+export function forgeHomeProjectScopes(input: {
   readonly projects: ReadonlyArray<EnvironmentProject>;
   readonly environmentId: EnvironmentId | null;
   readonly projectGroupingMode: SidebarProjectGroupingMode;

@@ -53,8 +53,8 @@ import * as ResourceCleanupService from "./ResourceCleanupService.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as RuntimeRequestService from "./RuntimeRequestService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
-import * as BuildHome from "../hq/BuildHome.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
+import * as ForgeHome from "../hq/ForgeHome.ts";
 import * as ThreadProjectMoveService from "./ThreadProjectMoveService.ts";
 import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadLifecycleService from "./ThreadLifecycleService.ts";
@@ -420,8 +420,8 @@ export const layerProduction = Layer.mergeAll(
   RunSetupRecorder.storeLayer,
   layerSecretRequestsProvided,
   ReleaseApprovals.layer.pipe(Layer.provide(layerThreadManagementProvided)),
-  BuildWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
-  BuildHome.layer.pipe(
+  ForgeWorkItems.layer.pipe(Layer.provide(layerThreadManagementProvided)),
+  ForgeHome.layer.pipe(
     Layer.provide(
       Layer.mergeAll(
         layerThreadManagementProvided,

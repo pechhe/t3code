@@ -205,7 +205,7 @@ export default function FileBrowserPanel({
         ? { x: pointer.x, y: pointer.y }
         : { x: anchorRect.left, y: anchorRect.bottom };
       const fileTarget = { environmentId, filePath: relativePath, workspaceRoot: cwd };
-      const fileMenuItems = fileContextMenu.buildItems(fileTarget);
+      const fileMenuItems = fileContextMenu.forgeItems(fileTarget);
       void settlePromise(async () => {
         const clicked = await api.contextMenu.show(
           [

@@ -32,7 +32,7 @@ it.effect("repairs only the implicit main default of unbound scheduled tasks", (
     yield* insert("other-base", null, { ...implicitDefault, baseRef: "develop" });
     yield* insert("local-base", null, { type: "worktree", baseRef: "main" });
     yield* insert("branch", null, { ...implicitDefault, branch: "nightly" });
-    yield* insert("build-item", null, { ...implicitDefault, buildItem: 42 });
+    yield* insert("build-item", null, { ...implicitDefault, forgeItem: 42 });
     yield* insert("checkout", null, { type: "root" });
     yield* insert("by-person", null, implicitDefault, "user");
     yield* runMigrations();
@@ -44,7 +44,7 @@ it.effect("repairs only the implicit main default of unbound scheduled tasks", (
       [
         ["bound", implicitDefault],
         ["branch", { ...implicitDefault, branch: "nightly" }],
-        ["build-item", { ...implicitDefault, buildItem: 42 }],
+        ["build-item", { ...implicitDefault, forgeItem: 42 }],
         ["by-person", implicitDefault],
         ["checkout", { type: "root" }],
         ["implicit", { type: "root", rootIsDefault: true }],

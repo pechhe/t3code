@@ -1,7 +1,7 @@
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
 import { expect, it } from "@effect/vitest";
 import {
-  BuildWorkItemError,
+  ForgeWorkItemError,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -26,7 +26,7 @@ import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { liveThreadShell } from "../../McpToolAccess.testkit.ts";
-import * as BuildWorkItems from "../../../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../../../hq/ForgeWorkItems.ts";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../../orchestration-v2/ThreadManagementService.ts";
 import * as ServerConfig from "../../../config.ts";
@@ -85,7 +85,7 @@ const clientLaunchHarness = (input: {
       capabilities: new Set(["orchestration" as const]),
     }),
     Layer.mock(ThreadManagement.ThreadManagementService)({}),
-    Layer.mock(BuildWorkItems.BuildWorkItems)({
+    Layer.mock(ForgeWorkItems.ForgeWorkItems)({
       resolve: (reference) =>
         reference === "YS-12"
           ? Effect.succeed({
@@ -94,7 +94,7 @@ const clientLaunchHarness = (input: {
               origin: "https://hq.example",
             })
           : Effect.fail(
-              new BuildWorkItemError({
+              new ForgeWorkItemError({
                 reason: "not_found",
                 message: `Build has no item ${reference} you can see.`,
               }),
@@ -503,7 +503,7 @@ it.effect(
         launched: Array<ThreadLaunch.ThreadLaunchInput>,
         params: {
           readonly workspaceStrategy?: { readonly type: "root" };
-          readonly buildItem?: number | string;
+          readonly forgeItem?: number | string;
         } = {},
       ) =>
         Effect.gen(function* () {
@@ -521,7 +521,7 @@ it.effect(
             ),
           );
           return yield* toolkit
-            .handle("t3_thread_launch", { title: "Filters", projectId, buildItem: 3368, ...params })
+            .handle("t3_thread_launch", { title: "Filters", projectId, forgeItem: 3368, ...params })
             .pipe(
               Stream.unwrap,
               Stream.runCollect,
@@ -532,18 +532,18 @@ it.effect(
       const launched: Array<ThreadLaunch.ThreadLaunchInput> = [];
       expect((yield* launchFor(slipjayRoot, launched)).at(-1)?.result).not.toHaveProperty("code");
       expect(launched.map((launch) => [launch.workspaceStrategy, launch.rootIsDefault])).toEqual([
-        [{ type: "worktree", baseRef: "HEAD", buildItem: 3368 }, false],
+        [{ type: "worktree", baseRef: "HEAD", forgeItem: 3368 }, false],
       ]);
 
       // A friendly ref is resolved first: SlipJay's attach-issue gets the canonical number.
       const byRef: Array<ThreadLaunch.ThreadLaunchInput> = [];
-      yield* launchFor(slipjayRoot, byRef, { buildItem: "YS-12" });
+      yield* launchFor(slipjayRoot, byRef, { forgeItem: "YS-12" });
       expect(byRef.map((launch) => launch.workspaceStrategy)).toEqual([
-        { type: "worktree", baseRef: "HEAD", buildItem: 3368 },
+        { type: "worktree", baseRef: "HEAD", forgeItem: 3368 },
       ]);
       const unknownRef: Array<ThreadLaunch.ThreadLaunchInput> = [];
       expect(
-        (yield* launchFor(slipjayRoot, unknownRef, { buildItem: "YS-99" })).at(-1)?.result,
+        (yield* launchFor(slipjayRoot, unknownRef, { forgeItem: "YS-99" })).at(-1)?.result,
       ).toMatchObject({ code: "invalid_request" });
       expect(unknownRef).toEqual([]);
 
@@ -564,9 +564,9 @@ it.effect("reports the launch service's Build item refusal as an invalid request
       launched,
       launch: (launch) =>
         Effect.fail(
-          new ThreadLaunch.ThreadLaunchBuildItemError({
+          new ThreadLaunch.ThreadLaunchForgeItemError({
             projectId: launch.projectId,
-            buildItem: 3368,
+            forgeItem: 3368,
           }),
         ),
     });
@@ -579,7 +579,7 @@ it.effect("reports the launch service's Build item refusal as an invalid request
       ),
     );
     const result = yield* toolkit
-      .handle("t3_thread_launch", { title: "Filters", projectId, buildItem: 3368 })
+      .handle("t3_thread_launch", { title: "Filters", projectId, forgeItem: 3368 })
       .pipe(
         Stream.unwrap,
         Stream.runCollect,
@@ -588,7 +588,7 @@ it.effect("reports the launch service's Build item refusal as an invalid request
     expect(result.at(-1)?.result).toMatchObject({
       code: "invalid_request",
       message:
-        "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json.",
+        "forgeItem picks the item's SlipJay workspace: use it in a project with slipjay.json.",
     });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

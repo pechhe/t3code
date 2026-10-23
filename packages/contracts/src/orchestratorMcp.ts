@@ -38,7 +38,7 @@ import {
   ScheduledTaskSchedule,
   ScheduledTaskUpsertSchedule,
 } from "./scheduledTask.ts";
-import { BuildItemReferenceInput } from "./buildWorkItem.ts";
+import { ForgeItemReferenceInput } from "./forgeWorkItem.ts";
 import { PeerEnvironmentStatus } from "./peers.ts";
 import {
   ReleaseApprovalAnswer,
@@ -639,7 +639,7 @@ export const OrchestratorMcpThreadWatchInput = Schema.Struct({
     Schema.Struct({
       kind: Schema.Literal("build_item"),
       /** The item's number, or a ref such as `YS-12`; the watch keeps the canonical number. */
-      number: BuildItemReferenceInput,
+      number: ForgeItemReferenceInput,
       until: Schema.Literals(["unblocked", "closed"]),
     }),
   ]),

@@ -20,7 +20,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -56,7 +56,7 @@ import * as McpInvocationContext from "./McpInvocationContext.ts";
 const layerOrchestratorToolkit = McpHttpServer.layerOrchestratorToolkit.pipe(
   Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
   Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
-  Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
+  Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
   Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
   Layer.provide(SqlitePersistence.layerMemory),
 );

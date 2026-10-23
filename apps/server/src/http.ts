@@ -500,7 +500,7 @@ export const layerAttachmentUploadRoute = HttpRouter.add(
   }),
 );
 
-const decodeBuildManifest = Schema.decodeUnknownEffect(
+const decodeForgeManifest = Schema.decodeUnknownEffect(
   Schema.fromJsonString(
     Schema.Record(
       Schema.String,
@@ -521,7 +521,7 @@ const loadImmutableBuildAssets = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   return yield* fileSystem.readFileString(path.join(staticDir, ".vite", "manifest.json")).pipe(
-    Effect.flatMap(decodeBuildManifest),
+    Effect.flatMap(decodeForgeManifest),
     Effect.map(
       (manifest) =>
         new Set(

@@ -46,7 +46,7 @@ import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
-import { openLinkBuildItemDialog } from "../components/buildItem/LinkBuildItemDialog";
+import { openLinkForgeItemDialog } from "../components/forgeItem/LinkForgeItemDialog";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -63,9 +63,9 @@ export function useThreadActionMenu(input: {
   readonly projectCwd: string | null;
   readonly onStartRename: () => void;
   /** Offered only where the caller knows the project is connected to YardSmith HQ. */
-  readonly canLinkBuildItem?: boolean;
+  readonly canLinkForgeItem?: boolean;
 }) {
-  const { threadRef, projectCwd, onStartRename, canLinkBuildItem = false } = input;
+  const { threadRef, projectCwd, onStartRename, canLinkForgeItem = false } = input;
   const router = useRouter();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -144,7 +144,7 @@ export function useThreadActionMenu(input: {
         isRunning: !threadRuntimeCanArchive(thread.runtime),
         supports,
         snoozePresets,
-        canLinkBuildItem,
+        canLinkForgeItem,
       });
       const clicked = await settlePromise(() => api.contextMenu.show(items, position));
       if (clicked._tag === "Failure" || clicked.value === null) return;
@@ -248,7 +248,7 @@ export function useThreadActionMenu(input: {
           markThreadUnread(threadRef);
           return;
         case "link-build-item":
-          openLinkBuildItemDialog(threadRef);
+          openLinkForgeItemDialog(threadRef);
           return;
         case "copy-path": {
           const workspacePath = thread.worktreePath ?? projectCwd;

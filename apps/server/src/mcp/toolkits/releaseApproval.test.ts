@@ -15,7 +15,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { McpSchema, McpServer } from "effect/ai";
 
-import * as BuildWorkItems from "../../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../../hq/ForgeWorkItems.ts";
 import * as ProviderAdapterRegistry from "../../orchestration-v2/ProviderAdapterRegistry.ts";
 import * as ThreadLaunchService from "../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../../orchestration-v2/ThreadManagementService.ts";
@@ -125,7 +125,7 @@ const withTool = <A, E>(
     Effect.provide(
       McpHttpServer.layerOrchestratorToolkit.pipe(
         Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
-        Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
+        Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
         Layer.provide(Layer.mock(GitVcsDriver.GitVcsDriver)({})),
         Layer.provide(NodeServices.layer),
         Layer.provide(SqlitePersistence.layerMemory),

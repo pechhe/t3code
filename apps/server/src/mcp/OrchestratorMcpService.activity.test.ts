@@ -1,6 +1,6 @@
 import * as Experiments from "../experiments/ExperimentService.ts";
 import * as ReleaseApprovals from "../releases/ReleaseApprovals.ts";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import {
   EnvironmentId,
   NodeId,
@@ -35,7 +35,7 @@ import { liveThreadShell } from "./McpToolAccess.testkit.ts";
 
 const layerOrchestratorService = OrchestratorMcpService.layer.pipe(
   Layer.provide(
-    Layer.mock(BuildWorkItems.BuildWorkItems)({
+    Layer.mock(ForgeWorkItems.ForgeWorkItems)({
       connected: Effect.succeed({ connected: false, origin: null }),
     }),
   ),

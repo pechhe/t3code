@@ -29,7 +29,7 @@ import { HomeHeader } from "./HomeHeader";
 import { useHomeListOptions } from "./home-list-options";
 import { useAtomValueWhileVisible, useHomeRouteVisible } from "./home-route-visibility";
 import { useHomeThreadRouteSelection, useHomeThreadSelection } from "./home-thread-navigation";
-import { buildHomeProjectScopes } from "./homeThreadList";
+import { forgeHomeProjectScopes } from "./homeThreadList";
 import { usePendingTaskListActions } from "./usePendingTaskListActions";
 import { useThreadListActions } from "./useThreadListActions";
 import { getConnectionAwareBrandHeaderOptions } from "./WorkspaceConnectionTitle";
@@ -141,7 +141,7 @@ export function HomeRouteScreen() {
   }, [projectScopeKey, resolvedProjectKey, setSelectedProjectKey]);
   const projectFilterOptions = useMemo(
     () =>
-      buildHomeProjectScopes({
+      forgeHomeProjectScopes({
         projects,
         environmentId: selectedEnvironmentId,
         projectGroupingMode: listOptions.projectGroupingMode,

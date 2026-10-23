@@ -1,7 +1,7 @@
 import type { SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ProviderRuntimeTurnStatus, TurnTokenUsage } from "@t3tools/contracts";
 
-import type { HqBuildUsageTokens } from "../hq/HqBuildUsage.ts";
+import type { HqForgeUsageTokens } from "../hq/HqForgeUsage.ts";
 import type { TurnRequestUsage } from "./TurnUsageRecords.ts";
 
 function finiteNonNegativeInteger(value: unknown): number | undefined {
@@ -148,7 +148,7 @@ function claudeRequestUsageTokens(usage: {
   readonly cache_creation_input_tokens?: number | null;
   readonly cache_read_input_tokens?: number | null;
   readonly output_tokens: number;
-}): HqBuildUsageTokens | null {
+}): HqForgeUsageTokens | null {
   const input = finiteNonNegativeInteger(usage.input_tokens);
   const output = finiteNonNegativeInteger(usage.output_tokens);
   if (input === undefined || output === undefined) return null;

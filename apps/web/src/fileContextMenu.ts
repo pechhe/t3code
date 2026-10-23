@@ -153,7 +153,7 @@ export function useFileContextMenu(environmentId: EnvironmentId | null) {
   };
 
   return {
-    buildItems: (target: FileContextMenuTarget) =>
+    forgeItems: (target: FileContextMenuTarget) =>
       buildFileContextMenuItems({
         hasAbsolutePath: resolveFileContextMenuAbsolutePath(target) !== null,
         capabilities,

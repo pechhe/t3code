@@ -1,7 +1,7 @@
 import { McpAttachmentInput } from "../attachment/input.ts";
 import {
   NonNegativeInt,
-  BuildItemReferenceInput,
+  ForgeItemReferenceInput,
   ModelSelection,
   TrimmedNonEmptyString,
   ThreadId,
@@ -27,7 +27,7 @@ import * as ThreadLaunchService from "../../../orchestration-v2/ThreadLaunchServ
 import * as Crypto from "effect/Crypto";
 import * as Schema from "effect/Schema";
 import { Tool, Toolkit } from "effect/ai";
-import * as BuildWorkItems from "../../../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../../../hq/ForgeWorkItems.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
@@ -110,7 +110,7 @@ const ProjectCloneTool = Tool.make("t3_project_clone", {
 const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   ...shared,
   description:
-    "Create a top-level thread with an explicit workspace before its agent starts. Use delegate_task for child subagents. workspaceStrategy: worktree (baseRef, branch), existing_worktree (worktreePath, branch), or root; omit it for the project default. Pass buildItem to bind a known Build item instead. Omit projectId/modelSelection/modes to inherit. scratch launches without a project. Put the task in message and retain threadId. Set watch=true to be woken when it finishes. Each call is a new launch with no retry key.",
+    "Create a top-level thread with an explicit workspace before its agent starts. Use delegate_task for child subagents. workspaceStrategy: worktree (baseRef, branch), existing_worktree (worktreePath, branch), or root; omit it for the project default. Pass forgeItem to bind a known Build item instead. Omit projectId/modelSelection/modes to inherit. scratch launches without a project. Put the task in message and retain threadId. Set watch=true to be woken when it finishes. Each call is a new launch with no retry key.",
   parameters: Schema.Struct({
     projectId: Schema.optional(ProjectId),
     scratch: Schema.optional(
@@ -129,8 +129,8 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
           "Where the thread runs, chosen before its agent starts: worktree (baseRef, branch) creates a checkout, or in a SlipJay repository allocates a workspace from the integration branch (branch names it; baseRef and startFromOrigin are ignored); existing_worktree binds worktreePath; root uses the project checkout. Omitted means the project's default, not the caller's worktree. For a PR stack use the parent branch as baseRef and startFromOrigin:false. Uncommitted changes are not copied.",
       }),
     ),
-    buildItem: Schema.optional(
-      BuildItemReferenceInput.annotate({
+    forgeItem: Schema.optional(
+      ForgeItemReferenceInput.annotate({
         description:
           "The Build item this thread works on, in a repository with slipjay.json: its number or a friendly ref such as YS-12 (also #<number> or a Build URL). T3 binds the thread to that item's SlipJay workspace before the agent starts, creating one attached to the item when it has none. Not with workspaceStrategy.",
       }),
@@ -159,7 +159,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   dependencies: [
     ...shared.dependencies,
     ThreadLaunchService.ThreadLaunchService,
-    BuildWorkItems.BuildWorkItems,
+    ForgeWorkItems.ForgeWorkItems,
     ManagedProjectFolders.ManagedProjectFolders,
     WorkspaceProvider.WorkspaceProvider,
     Path.Path,

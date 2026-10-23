@@ -3,7 +3,7 @@ import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools
 import type { Thread } from "../types";
 import { makeThreadFixture } from "../test-fixtures";
 import {
-  buildThreadActionItems,
+  forgeThreadActionItems,
   buildLinkedThreadActionItems,
   filterPinnedBrowseEntries,
   filterCommandPaletteGroups,
@@ -111,9 +111,9 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
   });
 }
 
-describe("buildThreadActionItems", () => {
+describe("forgeThreadActionItems", () => {
   it("ranks thread title matches ahead of contextual project-name matches", () => {
-    const threadItems = buildThreadActionItems({
+    const threadItems = forgeThreadActionItems({
       threads: [
         makeThread({
           id: ThreadId.make("thread-context-match"),
@@ -170,7 +170,7 @@ describe("buildThreadActionItems", () => {
         updatedAt: "2026-03-25T00:00:00.000Z",
       }),
     ];
-    const items = buildThreadActionItems({
+    const items = forgeThreadActionItems({
       threads,
       projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
       sortOrder: "created_at",
@@ -278,7 +278,7 @@ describe("buildThreadActionItems", () => {
       title: "Fix thread-alpha-1234 flakes",
       updatedAt: "2026-03-04T00:00:00.000Z",
     });
-    const items = buildThreadActionItems({
+    const items = forgeThreadActionItems({
       threads: [idThread, titleThread],
       projectTitleById: new Map([[PROJECT_ID, "T3 Code"]]),
       sortOrder: "updated_at",
@@ -328,7 +328,7 @@ it.each([
   "pingdotgg/t3code#10839",
   "https://github.com/pingdotgg/t3code/pull/10839",
 ])("finds linked threads from PR query %s", (query) => {
-  const items = buildThreadActionItems({
+  const items = forgeThreadActionItems({
     threads: [
       makeThread({
         title: "Implementation",

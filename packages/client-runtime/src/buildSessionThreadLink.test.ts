@@ -1,9 +1,9 @@
-import type { BuildWorkItemSession } from "@t3tools/contracts";
+import type { ForgeWorkItemSession } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { buildSessionThreadLink } from "./buildSessionThreadLink.ts";
 
-const session = (sessionRef: string, harness = "t3"): BuildWorkItemSession => ({
+const session = (sessionRef: string, harness = "t3"): ForgeWorkItemSession => ({
   harness,
   sessionRef,
   activity: "active",

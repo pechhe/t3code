@@ -93,10 +93,10 @@ import {
 import { threadRouteIsHydrating } from "./thread-route-hydration";
 import { useThreadPromptLink } from "../prompt-links/useThreadPromptLink";
 import { ThreadHeader } from "./ThreadHeader";
-import { presentBuildWorkItem } from "@t3tools/client-runtime/state/build-work-items";
-import { useThreadBuildWorkItem } from "../../state/build-work-items";
-import { buildWorkItemSubtitle } from "./build-work-item-subtitle";
-import { ThreadBuildHeaderTitle } from "./ThreadBuildHeaderTitle";
+import { presentForgeWorkItem } from "@t3tools/client-runtime/state/forge-work-items";
+import { useThreadForgeWorkItem } from "../../state/forge-work-items";
+import { forgeWorkItemSubtitle } from "./build-work-item-subtitle";
+import { ThreadForgeHeaderTitle } from "./ThreadForgeHeaderTitle";
 import {
   useAndroidWorkspaceBack,
   useWorkspaceBackNavigation,
@@ -438,9 +438,9 @@ function ThreadRouteContent(
     : null;
 
   const usesNativeHeaderGlass = NATIVE_LIQUID_GLASS_SUPPORTED;
-  const buildWorkItem = useThreadBuildWorkItem(selectedThread);
-  const headerSubtitle = buildWorkItem
-    ? buildWorkItemSubtitle(presentBuildWorkItem(buildWorkItem))
+  const forgeWorkItem = useThreadForgeWorkItem(selectedThread);
+  const headerSubtitle = forgeWorkItem
+    ? forgeWorkItemSubtitle(presentForgeWorkItem(forgeWorkItem))
     : [
         selectedThreadProject?.title ?? null,
         selectedEnvironmentConnection?.environmentLabel ?? null,
@@ -911,17 +911,17 @@ function ThreadRouteContent(
               title={selectedThread.title}
               subtitle={headerSubtitle}
               titleContent={
-                buildWorkItem ? (
-                  <ThreadBuildHeaderTitle
+                forgeWorkItem ? (
+                  <ThreadForgeHeaderTitle
                     title={selectedThread.title}
                     subtitle={headerSubtitle}
                     onOpenItem={() =>
-                      navigation.navigate("ThreadBuildItem", {
+                      navigation.navigate("ThreadForgeItem", {
                         environmentId: selectedThread.environmentId,
                         threadId: selectedThread.id,
-                        itemId: buildWorkItem.itemId,
-                        number: buildWorkItem.number,
-                        url: buildWorkItem.url,
+                        itemId: forgeWorkItem.itemId,
+                        number: forgeWorkItem.number,
+                        url: forgeWorkItem.url,
                       })
                     }
                   />

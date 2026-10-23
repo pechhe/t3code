@@ -16,6 +16,6 @@ export default Effect.gen(function* () {
       AND json_extract(workspace_strategy_json, '$.baseRef') = 'main'
       AND json_extract(workspace_strategy_json, '$.startFromOrigin') = 1
       AND json_type(workspace_strategy_json, '$.branch') IS NULL
-      AND json_type(workspace_strategy_json, '$.buildItem') IS NULL
+      AND json_type(workspace_strategy_json, '$.forgeItem') IS NULL
   `;
 });

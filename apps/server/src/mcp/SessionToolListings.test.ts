@@ -36,7 +36,7 @@ import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as WorkspaceProvider from "../project/WorkspaceProvider.ts";
 import * as HtmlRender from "../htmlRender/HtmlRender.ts";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as OrchestratorMcpService from "./OrchestratorMcpService.ts";
 import * as ThreadMetadataMcpService from "./ThreadMetadataMcpService.ts";
 import * as WorktreeMcpService from "./WorktreeMcpService.ts";
@@ -58,7 +58,7 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(ProjectService.ProjectService)({}),
   Layer.mock(WorktreeMcpService.WorktreeMcpService)({}),
   Layer.mock(HtmlRender.HtmlRender)({}),
-  Layer.mock(BuildWorkItems.BuildWorkItems)({}),
+  Layer.mock(ForgeWorkItems.ForgeWorkItems)({}),
   Layer.mock(RunSetupRecorder.RunSetupStore)({}),
   Layer.mock(ServerSecretStore.ServerSecretStore)({}),
   Layer.mock(ServerEnvironment.ServerEnvironment)({}),

@@ -10,13 +10,13 @@
  */
 import type { ThreadId, TurnTokenUsage } from "@t3tools/contracts";
 
-import type * as HqBuildUsage from "../hq/HqBuildUsage.ts";
+import type * as HqForgeUsage from "../hq/HqForgeUsage.ts";
 
 /** One provider request's own share of a turn, as the provider billed it. */
 export interface TurnRequestUsage {
   /** Identifies the request; null when the provider gave nothing to key it by. */
   readonly usageRef: string | null;
-  readonly tokens: HqBuildUsage.HqBuildUsageTokens;
+  readonly tokens: HqForgeUsage.HqForgeUsageTokens;
   /** Epoch milliseconds. */
   readonly startedAt: number;
   /** Epoch milliseconds. */
@@ -60,7 +60,7 @@ export const addTurnRequestUsage = (buffer: TurnUsageBuffer, request: TurnReques
 };
 
 /** A turn's input counts cached tokens; its record keeps them separate. */
-const turnTokens = (usage: TurnTokenUsage | undefined): HqBuildUsage.HqBuildUsageTokens | null => {
+const turnTokens = (usage: TurnTokenUsage | undefined): HqForgeUsage.HqForgeUsageTokens | null => {
   if (usage === undefined) return null;
   const input = usage.inputTokens;
   const output = usage.outputTokens;
@@ -79,7 +79,7 @@ const turnTokens = (usage: TurnTokenUsage | undefined): HqBuildUsage.HqBuildUsag
   };
 };
 
-const billedInput = (tokens: HqBuildUsage.HqBuildUsageTokens): number =>
+const billedInput = (tokens: HqForgeUsage.HqForgeUsageTokens): number =>
   tokens.input + tokens.cacheRead + (tokens.cacheWrite ?? 0);
 
 /**
@@ -91,7 +91,7 @@ export const settleTurnUsage = (
   buffer: TurnUsageBuffer,
   turnUsage: TurnTokenUsage | undefined,
   identity: TurnUsageIdentity,
-): ReadonlyArray<HqBuildUsage.HqBuildUsageInput> => {
+): ReadonlyArray<HqForgeUsage.HqForgeUsageInput> => {
   const tokens = turnTokens(turnUsage);
   const requests = buffer.requests;
   const everyRequestIdentified = requests.length > 0 && requests.every((r) => r.usageRef !== null);

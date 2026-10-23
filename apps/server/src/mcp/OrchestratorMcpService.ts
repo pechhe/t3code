@@ -1,5 +1,5 @@
 import { defaultChildMode } from "../agents/delegationRuntime.ts";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as ExternalWork from "../agents/ExternalAgentWorkService.ts";
 import { assertExternalWorkOwner, canReadExternalWork } from "./threadAccess.ts";
 import * as Hex from "effect/encoding/Hex";
@@ -110,7 +110,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import { parseBuildReference } from "@t3tools/shared/buildLinks";
+import { parseForgeReference } from "@t3tools/shared/forgeLinks";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
@@ -1219,7 +1219,7 @@ function timelineItem(input: {
 }
 
 const make = Effect.gen(function* () {
-  const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
+  const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
   const experiments = yield* Experiments.ExperimentService;
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
@@ -4170,20 +4170,20 @@ const make = Effect.gen(function* () {
         // A watch keeps the canonical number, however the agent named the item.
         const named = input.target;
         const resolveNumber = (reference: string) =>
-          buildWorkItems.resolve(reference).pipe(
+          forgeWorkItems.resolve(reference).pipe(
             Effect.map((item) => item.number),
             Effect.mapError((error) => failure("invalid_request", error.message)),
           );
         // Stopping a watch never needs HQ for a number, and a ref is matched against the
         // watched items' cached refs first.
         const unwatchNumber = Effect.fnUntraced(function* (reference: string) {
-          const parsed = parseBuildReference(reference);
+          const parsed = parseForgeReference(reference);
           if (parsed?.kind === "number") return parsed.number;
           const watched = (watcher.threadWatches ?? []).flatMap((watch) =>
             watch.target.kind === "build_item" ? [watch.target.number] : [],
           );
           if (parsed?.kind === "ref" && watched.length > 0) {
-            const found = yield* buildWorkItems
+            const found = yield* forgeWorkItems
               .mentions({ threadId: watcher.id, numbers: watched })
               .pipe(Effect.option);
             const match = Option.getOrUndefined(found)?.items.find(
@@ -4228,7 +4228,7 @@ const make = Effect.gen(function* () {
               );
             }
           } else {
-            const connection = yield* buildWorkItems.connected.pipe(
+            const connection = yield* forgeWorkItems.connected.pipe(
               Effect.mapError((error) => failure("invalid_request", error.message)),
             );
             if (!connection.connected)
@@ -4237,7 +4237,7 @@ const make = Effect.gen(function* () {
                 "T3 is not connected to Weave, so it cannot watch Build items.",
               );
             // A mistyped number would otherwise wait forever; an unreachable Weave is retried by the sweep.
-            const found = yield* buildWorkItems
+            const found = yield* forgeWorkItems
               .mentions({ threadId: watcher.id, numbers: [target.number] })
               .pipe(Effect.mapError((error) => failure("invalid_request", error.message)));
             const view = found.items.find((candidate) => candidate.number === target.number);
@@ -4320,7 +4320,7 @@ export const layer: Layer.Layer<
   OrchestratorMcpService,
   never,
   | Crypto.Crypto
-  | BuildWorkItems.BuildWorkItems
+  | ForgeWorkItems.ForgeWorkItems
   | Experiments.ExperimentService
   | ThreadManagementService.ThreadManagementService
   | ThreadLaunchService.ThreadLaunchService

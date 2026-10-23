@@ -94,7 +94,7 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
-import * as HqBuildUsage from "../../hq/HqBuildUsage.ts";
+import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -5427,9 +5427,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
   it.effect("records each Claude message's own usage once, not one row per snapshot", () =>
     Effect.gen(function* () {
       // What Weave's Build record would receive, kept where the test can read it.
-      const recorded: Array<HqBuildUsage.HqBuildUsageInput> = [];
+      const recorded: Array<HqForgeUsage.HqForgeUsageInput> = [];
       const harness = yield* makeWakeHarness.pipe(
-        Effect.provideService(HqBuildUsage.HqBuildUsage, {
+        Effect.provideService(HqForgeUsage.HqForgeUsage, {
           record: (input) => Effect.sync(() => void recorded.push(input)),
         }),
       );

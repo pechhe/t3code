@@ -5,14 +5,14 @@ import type { MouseEvent } from "react";
 
 import { useThreadRelationshipShells } from "~/state/entities";
 import { InlineButton } from "../ui/button";
-import { BuildMentionChip } from "../buildItem/BuildMentionChip";
+import { ForgeMentionChip } from "../forgeItem/ForgeMentionChip";
 import { ComposerBanner } from "./ComposerBanner";
 import { threadRelationshipStatusLabel } from "./ThreadRelationshipIcon";
 
 const KIND_LABELS: Record<PendingBackgroundWorkItem["group"], string> = {
   thread: "Thread",
   pull_request: "PR",
-  build_item: "Build",
+  build_item: "Forge",
   subagent: "Agent",
   command: "Command",
   monitor: "Monitor",
@@ -58,7 +58,7 @@ export function BackgroundWorkItemLabel({
   }
   if (watching?.kind === "build_item" && handlers.threadRef !== null) {
     return (
-      <BuildMentionChip
+      <ForgeMentionChip
         threadRef={handlers.threadRef}
         number={watching.number}
         copy={`#${watching.number}`}

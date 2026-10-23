@@ -88,8 +88,8 @@ export interface ThreadActionMenuState {
     readonly titleRegeneration: boolean;
   };
   readonly snoozePresets: ReadonlyArray<SnoozePreset>;
-  /** The thread's project is connected to YardSmith HQ, so it can link a Build item. */
-  readonly canLinkBuildItem?: boolean;
+  /** The thread's project is connected to YardSmith HQ, so it can link a Forge item. */
+  readonly canLinkForgeItem?: boolean;
 }
 
 /** Local navigation, read markers, and copying remain available to read-only clients. */
@@ -165,8 +165,8 @@ export function buildThreadActionMenuItems(
       : []),
     { id: "mark-read", label: "Mark read", icon: "mail-open" },
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
-    ...(state.canLinkBuildItem
-      ? [{ id: "link-build-item" as const, label: "Link Build item", icon: "link" }]
+    ...(state.canLinkForgeItem
+      ? [{ id: "link-build-item" as const, label: "Link Forge item", icon: "link" }]
       : []),
     ...(state.projectFilter
       ? [

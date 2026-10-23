@@ -43,8 +43,8 @@ import { useSavedRemoteConnections } from "../../state/use-remote-environment-re
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { useThreadJumpShortcuts } from "../keyboard/threadKeyboardShortcuts";
 import { useHomeListOptions } from "../home/home-list-options";
-import { buildHomeListFilterMenu } from "../home/home-list-filter-menu";
-import { buildHomeProjectScopes } from "../home/homeThreadList";
+import { forgeHomeListFilterMenu } from "../home/home-list-filter-menu";
+import { forgeHomeProjectScopes } from "../home/homeThreadList";
 import { SwipeableScrollGateProvider, useSwipeableScrollGate } from "../home/thread-swipe-actions";
 import { usePendingTaskListActions } from "../home/usePendingTaskListActions";
 import { useThreadListActions } from "../home/useThreadListActions";
@@ -209,7 +209,7 @@ function ThreadNavigationSidebarPane(
   }, [projectScopeKey, resolvedProjectKey, setSelectedProjectKey]);
   const projectScopes = useMemo(
     () =>
-      buildHomeProjectScopes({
+      forgeHomeProjectScopes({
         projects,
         environmentId: options.selectedEnvironmentId,
         projectGroupingMode: options.projectGroupingMode,
@@ -718,7 +718,7 @@ function ThreadNavigationSidebarPane(
   const filterIcon = filterCustomized
     ? "line.3.horizontal.decrease.circle.fill"
     : "line.3.horizontal.decrease.circle";
-  const filterMenu = buildHomeListFilterMenu({
+  const filterMenu = forgeHomeListFilterMenu({
     environments,
     projects: projectFilterOptions,
     selectedEnvironmentId: options.selectedEnvironmentId,

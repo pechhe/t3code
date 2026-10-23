@@ -319,7 +319,7 @@ it("tells the turn why a removed workspace could not be replaced or take its Bui
       [],
       [],
       current,
-    )?.buildItem,
+    )?.forgeItem,
     42,
   );
 

@@ -1,7 +1,7 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
 import {
-  BuildWorkItemError,
+  ForgeWorkItemError,
   EnvironmentId,
   ProviderInstanceId,
   ThreadId,
@@ -9,7 +9,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import type * as McpInvocationContext from "./McpInvocationContext.ts";
@@ -31,7 +31,7 @@ const scope: McpInvocationContext.McpInvocationScope = {
 
 function layerService(
   getThreadShell: ThreadManagement.ThreadManagementService["Service"]["getThreadShell"],
-  build: Partial<BuildWorkItems.BuildWorkItems["Service"]> = {},
+  build: Partial<ForgeWorkItems.ForgeWorkItems["Service"]> = {},
 ) {
   return ThreadMetadataMcp.layer.pipe(
     Layer.provide(
@@ -43,7 +43,7 @@ function layerService(
             Effect.succeed({ thread: { projectId: "project" } } as never),
         } satisfies Partial<ThreadManagement.ThreadManagementService["Service"]>),
         NodeCrypto.layer,
-      ).pipe(Layer.merge(Layer.mock(BuildWorkItems.BuildWorkItems)(build))),
+      ).pipe(Layer.merge(Layer.mock(ForgeWorkItems.ForgeWorkItems)(build))),
     ),
   );
 }
@@ -64,7 +64,7 @@ it.effect("link_work_item hands a friendly ref to Build as written, and reports 
               Effect.sync(() => references.push(reference)).pipe(
                 Effect.flatMap(() =>
                   Effect.fail(
-                    new BuildWorkItemError({ reason: "not_found", message: "no such item" }),
+                    new ForgeWorkItemError({ reason: "not_found", message: "no such item" }),
                   ),
                 ),
               ),
@@ -102,7 +102,7 @@ it.effect("set_workflow keeps the stance the user chose unless the agent sets it
                     ),
                 } satisfies Partial<ThreadManagement.ThreadManagementService["Service"]>),
                 NodeCrypto.layer,
-              ).pipe(Layer.merge(Layer.mock(BuildWorkItems.BuildWorkItems)({}))),
+              ).pipe(Layer.merge(Layer.mock(ForgeWorkItems.ForgeWorkItems)({}))),
             ),
           ),
         ),

@@ -29,7 +29,7 @@ import {
   settleTurnUsage,
   type TurnUsageBuffer,
 } from "../../provider/TurnUsageRecords.ts";
-import * as HqBuildUsage from "../../hq/HqBuildUsage.ts";
+import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
 import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
@@ -1894,7 +1894,7 @@ export interface CodexAdapterV2Options {
 export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   adapterOptions: CodexAdapterV2Options,
 ) {
-  const buildUsage = yield* HqBuildUsage.HqBuildUsage;
+  const buildUsage = yield* HqForgeUsage.HqForgeUsage;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.succeed(undefined) : mcpSessions.read(threadId);

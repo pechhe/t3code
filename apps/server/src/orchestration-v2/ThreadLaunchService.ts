@@ -76,7 +76,7 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
-      readonly buildItem?: number | undefined;
+      readonly forgeItem?: number | undefined;
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -184,15 +184,15 @@ export class ThreadLaunchBaseRefError extends Schema.TaggedError<ThreadLaunchBas
 }
 
 /** A launch that names a Build item needs the SlipJay workspace that item lives in. */
-export class ThreadLaunchBuildItemError extends Schema.TaggedError<ThreadLaunchBuildItemError>()(
-  "ThreadLaunchBuildItemError",
+export class ThreadLaunchForgeItemError extends Schema.TaggedError<ThreadLaunchForgeItemError>()(
+  "ThreadLaunchForgeItemError",
   {
     projectId: ProjectId,
-    buildItem: Schema.Number,
+    forgeItem: Schema.Number,
   },
 ) {
   override get message(): string {
-    return "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json.";
+    return "forgeItem picks the item's SlipJay workspace: use it in a project with slipjay.json.";
   }
 }
 
@@ -204,7 +204,7 @@ export class ThreadLaunchService extends Context.Service<
     ) => Effect.Effect<
       ThreadLaunchResult,
       | ThreadLaunchError
-      | ThreadLaunchBuildItemError
+      | ThreadLaunchForgeItemError
       | ThreadManagement.ThreadManagementProviderInstanceDisabledError
     >;
     /**
@@ -265,8 +265,8 @@ function describeCause(error: unknown): string {
 
 const MAX_REPLACEMENT_DETAIL_CHARS = 1500;
 
-const attachFailureDetail = (buildItem: number, failure: string): string =>
-  `Build item #${buildItem} is still this thread's, but SlipJay could not attach it to this checkout: ${failure.slice(0, MAX_REPLACEMENT_DETAIL_CHARS)}`;
+const attachFailureDetail = (forgeItem: number, failure: string): string =>
+  `Build item #${forgeItem} is still this thread's, but SlipJay could not attach it to this checkout: ${failure.slice(0, MAX_REPLACEMENT_DETAIL_CHARS)}`;
 
 // Only SlipJay's receipt says whether it created the checkout; a missing one is never called new.
 const replacementOutcome = (created: boolean | null): OrchestrationV2ReplacedWorkspaceOutcome =>
@@ -379,7 +379,7 @@ const make = Effect.gen(function* () {
    * The Build item a thread works under: its HQ link, or else the item its workspace was
    * attached to, which needs no HQ connection.
    */
-  const threadBuildItem = Effect.fn("ThreadLaunchService.threadBuildItem")(function* (
+  const threadForgeItem = Effect.fn("ThreadLaunchService.threadForgeItem")(function* (
     threadId: ThreadId,
   ) {
     const { thread } = yield* threads.getThreadRecords(threadId, []);
@@ -510,11 +510,11 @@ const make = Effect.gen(function* () {
         // A thread launched for a Build item works in that item's workspace. A thread that
         // already belongs to one, such as one replacing a workspace SlipJay removed, gets a
         // new checkout carrying the item, since the item's workspace may be another thread's.
-        const buildItem = input.workspaceStrategy.buildItem;
-        const owned = buildItem === undefined ? yield* threadBuildItem(threadId) : undefined;
+        const forgeItem = input.workspaceStrategy.forgeItem;
+        const owned = forgeItem === undefined ? yield* threadForgeItem(threadId) : undefined;
         const issue =
-          buildItem !== undefined
-            ? { number: buildItem, mode: "resume" as const }
+          forgeItem !== undefined
+            ? { number: forgeItem, mode: "resume" as const }
             : owned !== undefined
               ? { number: owned, mode: "attach" as const }
               : undefined;
@@ -1086,13 +1086,27 @@ const make = Effect.gen(function* () {
 
   const launch: ThreadLaunchService["Service"]["launch"] = Effect.fn("ThreadLaunchService.launch")(
     function* (request) {
+      // A launch naming the item by its older key (`forgeItem`) reads as `forgeItem` from here on,
+      // so a saved client or an agent's older instructions keep binding the item's workspace.
+      const normalised: ThreadLaunchInput =
+        request.workspaceStrategy.type === "worktree" &&
+        request.workspaceStrategy.forgeItem === undefined &&
+        request.workspaceStrategy.forgeItem !== undefined
+          ? {
+              ...request,
+              workspaceStrategy: {
+                ...request.workspaceStrategy,
+                forgeItem: request.workspaceStrategy.forgeItem,
+              },
+            }
+          : request;
       // Scratch has no Git repository. Normalize before folder allocation so
       // durable preparation and retries use the thread's own Scratch folder.
       const input: ThreadLaunchInput =
-        request.workspaceStrategy.type === "worktree" &&
-        (yield* managedFolders.isScratchProject(request.projectId))
-          ? { ...request, workspaceStrategy: { type: "root" } }
-          : request;
+        normalised.workspaceStrategy.type === "worktree" &&
+        (yield* managedFolders.isScratchProject(normalised.projectId))
+          ? { ...normalised, workspaceStrategy: { type: "root" } }
+          : normalised;
       yield* ProjectCloneTracker.rejectCommandsDuringClone(cloneTracker, {
         type: "thread.create",
         projectId: input.projectId,
@@ -1110,12 +1124,12 @@ const make = Effect.gen(function* () {
       // It reads the request: the Scratch normalization above would drop the Build item silently.
       if (
         request.workspaceStrategy.type === "worktree" &&
-        request.workspaceStrategy.buildItem !== undefined &&
+        request.workspaceStrategy.forgeItem !== undefined &&
         (yield* workspaces.resolve(project.workspaceRoot)) !== "slipjay"
       ) {
-        return yield* new ThreadLaunchBuildItemError({
+        return yield* new ThreadLaunchForgeItemError({
           projectId: input.projectId,
-          buildItem: request.workspaceStrategy.buildItem,
+          forgeItem: request.workspaceStrategy.forgeItem,
         });
       }
       if (input.reuseExistingThread === true && input.threadId === undefined) {
@@ -1558,7 +1572,7 @@ const make = Effect.gen(function* () {
       if (released === null) return unchanged;
       const relative = path.relative(released.worktreePath, input.cwd);
       if (relative.startsWith("..") || path.isAbsolute(relative)) return unchanged;
-      const buildItem = yield* threadBuildItem(threadId);
+      const forgeItem = yield* threadForgeItem(threadId);
       const {
         workspacePath: worktreePath,
         created,
@@ -1569,7 +1583,7 @@ const make = Effect.gen(function* () {
         projectRoot: released.project.workspaceRoot,
         task: released.thread.title,
         owner: { kind: "terminal", ref: threadId },
-        ...(buildItem === undefined ? {} : { issue: { number: buildItem, mode: "attach" } }),
+        ...(forgeItem === undefined ? {} : { issue: { number: forgeItem, mode: "attach" } }),
       });
       // Compare-and-set: a turn or terminal recovering the thread at the same time keeps its own.
       const bound = yield* threads
@@ -1582,12 +1596,12 @@ const make = Effect.gen(function* () {
           expectedWorktreePath: released.worktreePath,
           workspaceReplaced: {
             outcome: replacementOutcome(created),
-            ...(attachFailure === undefined || buildItem === undefined
+            ...(attachFailure === undefined || forgeItem === undefined
               ? {}
-              : { detail: attachFailureDetail(buildItem, attachFailure) }),
+              : { detail: attachFailureDetail(forgeItem, attachFailure) }),
           },
           // The thread stays under its Build item even when it could not be attached.
-          ...((issue ?? buildItem) === undefined ? {} : { workspaceIssue: issue ?? buildItem }),
+          ...((issue ?? forgeItem) === undefined ? {} : { workspaceIssue: issue ?? forgeItem }),
         })
         .pipe(
           Effect.tap(() => workspaces.settled(attemptId)),

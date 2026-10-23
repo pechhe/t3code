@@ -235,9 +235,9 @@
       "types": "./src/state/providerInstanceDisplay.ts",
       "default": "./src/state/providerInstanceDisplay.ts"
     },
-    "./state/build-work-items": {
-      "types": "./src/state/buildWorkItems.ts",
-      "default": "./src/state/buildWorkItems.ts"
+    "./state/forge-work-items": {
+      "types": "./src/state/forgeWorkItems.ts",
+      "default": "./src/state/forgeWorkItems.ts"
     },
     "./state/pull-requests": {
       "types": "./src/state/pullRequests.ts",

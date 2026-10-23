@@ -52,7 +52,7 @@ import { useThreadPr } from "../../state/use-thread-pr";
 import { useSwipeRowDormant } from "../home/swipe-row-activation";
 import { ThreadSwipeable } from "../home/thread-swipe-actions";
 import { buildThreadTitleRegenerationMenuItems } from "./thread-title-regeneration-menu";
-import { useThreadBuildMenu } from "./useThreadBuildMenu";
+import { useThreadForgeMenu } from "./useThreadForgeMenu";
 import {
   THREAD_LIST_V2_SETTLED_PAGE_COUNT,
   resolveThreadListV2SnoozeGateExpiryMs,
@@ -792,7 +792,7 @@ export const ThreadListV2Row = memo(function ThreadListV2Row(props: {
         : [],
     [props.autoSettleOptOutSupported, thread.autoSettleDisabledAt],
   );
-  const { items: buildMenuItems, handle: handleBuildMenu } = useThreadBuildMenu(thread);
+  const { items: buildMenuItems, handle: handleBuildMenu } = useThreadForgeMenu(thread);
   const titleMenuItems = useMemo<MenuAction[]>(
     () => [
       { id: "rename", title: "Rename", image: "square.and.pencil" },

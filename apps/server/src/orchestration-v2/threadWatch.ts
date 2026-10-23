@@ -5,7 +5,7 @@ import type {
   OrchestrationV2Run,
   OrchestrationV2RuntimeRequest,
   OrchestrationV2WatchTarget,
-  BuildWorkItemSummary,
+  ForgeWorkItemSummary,
   OrchestrationV2TurnItem,
   ThreadId,
 } from "@t3tools/contracts";
@@ -237,7 +237,7 @@ export function watchTargetsEqual(
 
 export function decideBuildWatch(
   target: Extract<OrchestrationV2WatchTarget, { readonly kind: "build_item" }>,
-  item: BuildWorkItemSummary,
+  item: ForgeWorkItemSummary,
 ): "unblocked" | "closed" | "dropped" | undefined {
   if (item.status === "dropped") return "dropped";
   if (target.until === "closed") {

@@ -1,4 +1,4 @@
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -229,7 +229,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
-              Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
+              Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
               Layer.provide(transportDependencies),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
@@ -426,7 +426,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
-              Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
+              Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
               Layer.provide(transport),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),
@@ -451,7 +451,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         }).pipe(
           Effect.provide(
             Mcp.layer.pipe(
-              Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
+              Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
               Layer.provide(transport),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),

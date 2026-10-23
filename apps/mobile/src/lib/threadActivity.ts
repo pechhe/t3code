@@ -1950,7 +1950,7 @@ export function buildPendingUserInputAnswers(
   return answers;
 }
 
-interface ThreadFeedBuild {
+interface ThreadFeedForge {
   readonly rows: ReadonlyArray<OrchestrationV2ProjectedTurnItem>;
   readonly attempts: ReadonlyArray<OrchestrationV2RunAttempt> | undefined;
   readonly nodes: ReadonlyArray<OrchestrationV2ExecutionNode> | undefined;
@@ -1970,7 +1970,7 @@ interface ThreadFeedBuild {
  * cache, so two threads rendering at once never evict each other.
  */
 export interface ThreadFeedCache {
-  feedBuild: ThreadFeedBuild | null;
+  feedBuild: ThreadFeedForge | null;
   presentation: ThreadFeedPresentationBuild | null;
 }
 

@@ -82,7 +82,7 @@ import {
 import { useThreadListV2ShelfPreferences } from "../threads/use-thread-list-v2-shelf-preferences";
 import type { HomeListFilterMenuEnvironment } from "./home-list-filter-menu";
 import {
-  buildHomeProjectScopes,
+  forgeHomeProjectScopes,
   findHomeProjectScope,
   type HomeProjectSortOrder,
 } from "./homeThreadList";
@@ -388,7 +388,7 @@ export function HomeScreen(props: HomeScreenProps) {
     onScrollBeginDrag: handleScrollBeginDrag,
   });
 
-  const projectScopes = buildHomeProjectScopes({
+  const projectScopes = forgeHomeProjectScopes({
     projects: props.projects,
     environmentId: props.selectedEnvironmentId,
     projectGroupingMode: props.projectGroupingMode,

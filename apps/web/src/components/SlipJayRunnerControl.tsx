@@ -348,7 +348,7 @@ function useThreadLanding(
 }
 
 /**
- * The thread's landing as the tag: a ticket whose stub carries the Spec, linked to Build,
+ * The thread's landing as the tag: a ticket whose stub carries the Spec, linked to Forge,
  * and whose body opens the popover. A failed landing offers its log and a fix in place.
  */
 function ThreadLandingTag({
@@ -678,8 +678,8 @@ function RunnerLane({
 }
 
 /**
- * One operation as a ticket. A landing leads with the Spec it delivers, linked to Build:
- * the one SlipJay recorded, else the submitting thread's Build link. Its title opens the
+ * One operation as a ticket. A landing leads with the Spec it delivers, linked to Forge:
+ * the one SlipJay recorded, else the submitting thread's Forge link. Its title opens the
  * submitting thread; without a Spec it shows the thread's title.
  */
 function RunnerOperationRow({

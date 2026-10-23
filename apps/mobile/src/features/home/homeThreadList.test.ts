@@ -5,7 +5,7 @@ import type {
 import { EnvironmentId, ProjectId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildHomeProjectScopes, findHomeProjectScope } from "./homeThreadList";
+import { forgeHomeProjectScopes, findHomeProjectScope } from "./homeThreadList";
 import { makeThreadShellFixture } from "../../test-fixtures";
 import { buildThreadListV2Items } from "../threads/threadListV2";
 
@@ -77,7 +77,7 @@ describe("home project scopes", () => {
         title: project.id,
       }),
     );
-    const scopes = buildHomeProjectScopes({
+    const scopes = forgeHomeProjectScopes({
       projects,
       environmentId: null,
       projectGroupingMode: "separate",
@@ -97,7 +97,7 @@ describe("home project scopes", () => {
         .map((thread) => thread.id)
         .sort(),
     );
-    const remoteScopes = buildHomeProjectScopes({
+    const remoteScopes = forgeHomeProjectScopes({
       projects,
       environmentId: remoteEnvironmentId,
       projectGroupingMode: "separate",
@@ -153,7 +153,7 @@ describe("home project scopes", () => {
       }),
     ];
 
-    const scopes = buildHomeProjectScopes({
+    const scopes = forgeHomeProjectScopes({
       projects,
       environmentId: null,
       projectGroupingMode: "repository",
@@ -186,7 +186,7 @@ describe("home project scopes", () => {
     );
 
     expect(
-      buildHomeProjectScopes({
+      forgeHomeProjectScopes({
         projects,
         environmentId: null,
         projectGroupingMode: "repository",
@@ -208,7 +208,7 @@ describe("home project scopes", () => {
       title: "Target",
       workspaceRoot: "/workspaces/target",
     });
-    const scopes = buildHomeProjectScopes({
+    const scopes = forgeHomeProjectScopes({
       projects: [collidingProject, targetProject],
       environmentId: null,
       projectGroupingMode: "separate",

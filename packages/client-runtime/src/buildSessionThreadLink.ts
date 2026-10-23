@@ -1,8 +1,8 @@
-import type { BuildWorkItemSession } from "@t3tools/contracts";
+import type { ForgeWorkItemSession } from "@t3tools/contracts";
 import { parseThreadLink } from "@t3tools/shared/threadLinks";
 
 /** Build's T3 session references name an environment and thread, separated by one slash. */
-export function buildSessionThreadLink(session: BuildWorkItemSession | null) {
+export function buildSessionThreadLink(session: ForgeWorkItemSession | null) {
   if (session?.harness !== "t3") return null;
   const parts = session.sessionRef.split("/");
   const [environmentId, threadId] = parts;

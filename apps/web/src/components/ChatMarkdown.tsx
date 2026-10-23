@@ -91,10 +91,10 @@ import { parseComposerContextHref } from "@t3tools/shared/composerContextReferen
 import { parseThreadLink, parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
-import { buildItemNumberFromUrl } from "@t3tools/shared/buildLinks";
-import { useThreadBuildOrigin } from "~/state/buildWorkItems";
-import { BuildMentionChip } from "./buildItem/BuildMentionChip";
-import { rehypeBuildMentions } from "@t3tools/shared/buildLinks";
+import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
+import { useThreadForgeOrigin } from "~/state/forgeWorkItems";
+import { ForgeMentionChip } from "./forgeItem/ForgeMentionChip";
+import { rehypeForgeMentions } from "@t3tools/shared/forgeLinks";
 import { mathKind } from "@t3tools/shared/markdownMath";
 import remarkMath from "remark-math";
 import {
@@ -640,7 +640,7 @@ function useChatMarkdownState({
     reportFailure: false,
   });
   const pullRequestLinking = usePullRequestLinking(threadRef?.environmentId);
-  const buildOrigin = useThreadBuildOrigin(threadRef);
+  const buildOrigin = useThreadForgeOrigin(threadRef);
   const environmentId = threadRef?.environmentId ?? explicitEnvironmentId ?? null;
   const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
   const canOperatePreview = useEnvironmentScope(environmentId, AuthPreviewOperateScope);
@@ -1208,16 +1208,16 @@ const CHAT_MARKDOWN_COMPONENTS = {
         <span>{label}</span>
       );
     }
-    // A Build item on T3's HQ is a live chip. Until Build answers, or when it doesn't
+    // A Forge item on T3's HQ is a live chip. Until Forge answers, or when it doesn't
     // know the number, a `#<number>` stays text and a written link stays an ordinary link.
     const buildNumber =
       href && buildOrigin !== null && threadRef && buildFallback !== true
-        ? buildItemNumberFromUrl(href, buildOrigin)
+        ? forgeItemNumberFromUrl(href, buildOrigin)
         : null;
     if (buildNumber !== null && threadRef) {
       const reference = (props as Record<string, unknown>)["data-build-mention"] === "reference";
       return (
-        <BuildMentionChip
+        <ForgeMentionChip
           threadRef={threadRef}
           number={buildNumber}
           copy={reference ? `#${buildNumber}` : (href ?? "")}
@@ -1798,7 +1798,7 @@ function ChatMarkdown({
     const mentions: NonNullable<ReactMarkdownOptions["rehypePlugins"]> =
       buildOrigin === null
         ? EMPTY_REHYPE_PLUGINS
-        : [[rehypeBuildMentions, { origin: buildOrigin }]];
+        : [[rehypeForgeMentions, { origin: buildOrigin }]];
     const base = parseRawHtml
       ? // Heading ids are added after sanitizing, which would prefix them a second time.
         [...createChatMarkdownRehypePlugins(mentions), rehypeHeadingIds, rehypeTextDirection]

@@ -19,7 +19,7 @@ import * as PullRequestSyncReactor from "./orchestration-v2/PullRequestSyncReact
 import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchReactor.ts";
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
 import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
-import * as BuildWatchReactor from "./orchestration-v2/BuildWatchReactor.ts";
+import * as ForgeWatchReactor from "./orchestration-v2/ForgeWatchReactor.ts";
 import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
 // Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
 // @effect-diagnostics nodeBuiltinImport:off
@@ -92,10 +92,10 @@ import * as HqSignInRoute from "./hq/HqSignInRoute.ts";
 import * as RepositoryChipSync from "./hq/RepositoryChipSync.ts";
 import * as HqRepositories from "./hq/HqRepositories.ts";
 import * as HqAgentLifecycleReactor from "./hq/HqAgentLifecycleReactor.ts";
-import * as HqBuildRecordingReactor from "./hq/HqBuildRecordingReactor.ts";
-import * as BuildSpecOfThread from "./hq/BuildSpecOfThread.ts";
-import * as HqBuildRecords from "./hq/HqBuildRecords.ts";
-import * as HqBuildUsage from "./hq/HqBuildUsage.ts";
+import * as HqForgeRecordingReactor from "./hq/HqForgeRecordingReactor.ts";
+import * as ForgeSpecOfThread from "./hq/ForgeSpecOfThread.ts";
+import * as HqForgeRecords from "./hq/HqForgeRecords.ts";
+import * as HqForgeUsage from "./hq/HqForgeUsage.ts";
 import * as HqMcpRoute from "./hq/HqMcpRoute.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
@@ -548,10 +548,10 @@ const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(ProviderEventIngestor.layerAnalytics),
   // Adapters hand each settled turn's token usage to the Build record queue (Spec #4395).
   Layer.provide(
-    HqBuildUsage.layer.pipe(
-      Layer.provide(HqBuildRecords.layer),
+    HqForgeUsage.layer.pipe(
+      Layer.provide(HqForgeRecords.layer),
       // The queue resolves a row's Spec when it sends, with the resolver usage queues with.
-      Layer.provide(BuildSpecOfThread.layer),
+      Layer.provide(ForgeSpecOfThread.layer),
       Layer.provide(ProjectionStoreV2.layer),
       Layer.provide(ProjectStore.layer),
     ),
@@ -679,9 +679,9 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ).pipe(Layer.provide(UnattendedReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
-      yield* (yield* BuildWatchReactor.BuildWatchReactor).start();
+      yield* (yield* ForgeWatchReactor.ForgeWatchReactor).start();
     }),
-  ).pipe(Layer.provide(BuildWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  ).pipe(Layer.provide(ForgeWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* ThreadWatchReactor.ThreadWatchReactor).start();
@@ -692,16 +692,16 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   // because that reactor asks it for a finished run's records before queueing the thread's end.
   Layer.effectDiscard(
     Effect.gen(function* () {
-      yield* (yield* HqBuildRecords.HqBuildRecords).start();
-      yield* (yield* HqBuildRecordingReactor.HqBuildRecordingReactor).start();
+      yield* (yield* HqForgeRecords.HqForgeRecords).start();
+      yield* (yield* HqForgeRecordingReactor.HqForgeRecordingReactor).start();
       yield* (yield* HqAgentLifecycleReactor.HqAgentLifecycleReactor).start();
     }),
   ).pipe(
     Layer.provide(HqAgentLifecycleReactor.layer),
-    Layer.provide(HqBuildRecordingReactor.layer),
-    Layer.provideMerge(HqBuildRecords.layer),
+    Layer.provide(HqForgeRecordingReactor.layer),
+    Layer.provideMerge(HqForgeRecords.layer),
     // The queue resolves a row's Spec when it sends, with the resolver the reactors queue with.
-    Layer.provide(BuildSpecOfThread.layer),
+    Layer.provide(ForgeSpecOfThread.layer),
     Layer.provide(ProjectionStoreV2.layer),
     Layer.provide(ProjectStore.layer),
   ),

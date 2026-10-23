@@ -1,4 +1,4 @@
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import { assert, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -132,7 +132,7 @@ const dependencies = (input: {
   });
   const serviceLayer = OrchestratorMcpService.layer.pipe(
     Layer.provide(
-      Layer.mock(BuildWorkItems.BuildWorkItems)({
+      Layer.mock(ForgeWorkItems.ForgeWorkItems)({
         connected: Effect.succeed({ connected: false, origin: null }),
       }),
     ),

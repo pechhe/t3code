@@ -1,6 +1,6 @@
-import type { BuildWorkItemPresentation } from "@t3tools/client-runtime/state/build-work-items";
+import type { ForgeWorkItemPresentation } from "@t3tools/client-runtime/state/forge-work-items";
 
-const STATUS_MARKS: Record<BuildWorkItemPresentation["tone"], string> = {
+const STATUS_MARKS: Record<ForgeWorkItemPresentation["tone"], string> = {
   "not-started": "○",
   "in-progress": "●",
   landed: "●",
@@ -13,7 +13,7 @@ const STATUS_MARKS: Record<BuildWorkItemPresentation["tone"], string> = {
  * The linked item as the native header's plain-text subtitle: glyph, title, a status mark and
  * the Held and Blocked overlays, then the status in words, since text cannot carry the colour.
  */
-export function buildWorkItemSubtitle(item: BuildWorkItemPresentation): string {
+export function forgeWorkItemSubtitle(item: ForgeWorkItemPresentation): string {
   return [
     `${item.glyph} ${item.numberHint === undefined ? "" : `${item.label} `}${item.title} ${STATUS_MARKS[item.tone]}`,
     item.statusLabel,
@@ -26,7 +26,7 @@ export function buildWorkItemSubtitle(item: BuildWorkItemPresentation): string {
 }
 
 /** A Build item mentioned in a message, inline in its text: glyph, title and status in words. */
-export const buildMentionLabel = (item: BuildWorkItemPresentation): string =>
+export const forgeMentionLabel = (item: ForgeWorkItemPresentation): string =>
   [
     `${item.glyph} ${item.numberHint === undefined ? "" : `${item.label} `}${item.title}`,
     item.statusLabel,

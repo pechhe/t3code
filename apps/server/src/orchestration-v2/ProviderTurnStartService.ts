@@ -146,12 +146,12 @@ export const replacedWorkspaceNote = (
 export const unreplacedWorkspaceNote = (
   checkout: string,
   detail?: string,
-  buildItem?: number,
+  forgeItem?: number,
 ): string =>
   `SlipJay removed this thread's previous workspace while it was idle; it held no unlanded work. T3 could not allocate a fresh one${detail === undefined ? "" : ` (${detail})`}, so this turn runs in the project's own checkout: ${checkout}. Before changing any files, allocate a workspace (\`slipjay start --integration --json "<task>"\`) and move this thread into it with t3_worktree_handoff.${
-    buildItem === undefined
+    forgeItem === undefined
       ? ""
-      : ` This thread works under Build item #${buildItem}: attach it to that workspace with \`slipjay attach-issue ${buildItem}\`.`
+      : ` This thread works under Build item #${forgeItem}: attach it to that workspace with \`slipjay attach-issue ${forgeItem}\`.`
   }`;
 
 /**
@@ -173,7 +173,7 @@ export const replacedWorkspace = (
   readonly outcome: OrchestrationV2ReplacedWorkspaceOutcome;
   readonly detail?: string;
   /** The Build item a thread left on the project checkout still works under. */
-  readonly buildItem?: number;
+  readonly forgeItem?: number;
 } | null => {
   const replacedAt = thread.workspaceReplacedAt;
   if (replacedAt == null) return null;
@@ -192,14 +192,14 @@ export const replacedWorkspace = (
   // A thread replaced before outcomes were recorded was a fresh allocation; "unavailable" has
   // no workspace to describe.
   const outcome = recorded === undefined || recorded === "unavailable" ? "fresh" : recorded;
-  const buildItem = thread.worktreePath === null ? thread.workspaceIssue : undefined;
+  const forgeItem = thread.worktreePath === null ? thread.workspaceIssue : undefined;
   return toldEarlier
     ? null
     : {
         worktreePath: thread.worktreePath,
         outcome,
         ...(detail === undefined ? {} : { detail }),
-        ...(buildItem == null ? {} : { buildItem }),
+        ...(forgeItem == null ? {} : { forgeItem }),
       };
 };
 
@@ -1754,7 +1754,7 @@ export const layer: Layer.Layer<
                 ? unreplacedWorkspaceNote(
                     resolvedRuntimePolicy.cwd ?? "",
                     replaced.detail,
-                    replaced.buildItem,
+                    replaced.forgeItem,
                   )
                 : replacedWorkspaceNote(replaced.worktreePath, replaced.outcome, replaced.detail),
             scheduled ? SCHEDULED_TASK_NOTE : "",

@@ -106,7 +106,7 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import {
-  buildHomeProjectScopes,
+  forgeHomeProjectScopes,
   sortHomeProjectScopes,
   type HomeProjectScope,
 } from "../home/homeThreadList";
@@ -272,7 +272,7 @@ export function NewTaskFlowProvider(
     useLegacyPlanModeState();
 
   const projectScopes = sortHomeProjectScopes({
-    scopes: buildHomeProjectScopes({
+    scopes: forgeHomeProjectScopes({
       projects,
       environmentId: null,
       projectGroupingMode: groupingSettings.sidebarProjectGroupingMode,

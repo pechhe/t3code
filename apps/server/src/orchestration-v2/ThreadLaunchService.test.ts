@@ -512,9 +512,9 @@ it.effect("runs a scheduled root task on a SlipJay project's root without a work
   }).pipe(Effect.provide(Layer.mergeAll(harness.layer, layerScheduledTasks)));
 });
 
-const buildItemStrategy = { type: "worktree", baseRef: "HEAD", buildItem: 42 } as const;
+const forgeItemStrategy = { type: "worktree", baseRef: "HEAD", forgeItem: 42 } as const;
 
-function scheduledBuildItemHarness(options: { readonly slipjay: boolean }) {
+function scheduledForgeItemHarness(options: { readonly slipjay: boolean }) {
   const harness = makeHarness(options);
   const layerScheduledTasks = ScheduledTasks.layer.pipe(
     Layer.provide(
@@ -537,7 +537,7 @@ function scheduledBuildItemHarness(options: { readonly slipjay: boolean }) {
       schedule: { type: "interval", everyMs: 60_000 },
       projectId,
       threadId: null,
-      workspaceStrategy: buildItemStrategy,
+      workspaceStrategy: forgeItemStrategy,
       modelSelection,
       runtimeMode: "full-access",
       interactionMode: "default",
@@ -559,11 +559,11 @@ it.effect("refuses a Build item launch outside a SlipJay project before creating
           command: "command:launch:build-item-plain",
           thread: "thread:launch:build-item-plain",
           message: "Work on the item",
-          workspace: buildItemStrategy,
+          workspace: forgeItemStrategy,
         }),
       )
       .pipe(Effect.flip);
-    assert.equal(error._tag, "ThreadLaunchBuildItemError");
+    assert.equal(error._tag, "ThreadLaunchForgeItemError");
     assert.isNull(yield* threads.getThreadShell(ThreadId.make("thread:launch:build-item-plain")));
     assert.isEmpty(harness.createWorktree.mock.calls);
     assert.isEmpty(harness.allocateWorkspace.mock.calls);
@@ -600,11 +600,11 @@ it.effect(
           launchInput({
             command: "command:launch:build-item-scratch",
             thread: "thread:launch:build-item-scratch",
-            workspace: buildItemStrategy,
+            workspace: forgeItemStrategy,
           }),
         )
         .pipe(Effect.flip);
-      assert.equal(error._tag, "ThreadLaunchBuildItemError");
+      assert.equal(error._tag, "ThreadLaunchForgeItemError");
 
       // Saving keeps the Build item, so a run is refused too.
       const { task } = yield* tasks.upsert({
@@ -615,14 +615,14 @@ it.effect(
         schedule: { type: "interval", everyMs: 60_000 },
         projectId,
         threadId: null,
-        workspaceStrategy: buildItemStrategy,
+        workspaceStrategy: forgeItemStrategy,
         modelSelection,
         runtimeMode: "full-access",
         interactionMode: "default",
         createdBy: "user",
         creationSource: "web",
       });
-      assert.deepEqual(task.workspaceStrategy, buildItemStrategy);
+      assert.deepEqual(task.workspaceStrategy, forgeItemStrategy);
       const result = yield* tasks.runNow({ id: task.id });
       assert.equal(result.task.lastRunStatus, "failed");
       assert.isEmpty(yield* threads.listProjectThreads({ projectId, includeSubagents: false }));
@@ -658,7 +658,7 @@ it.effect("releases attachments claimed for a launch the Build item check refuse
       ...launchInput({
         command: "intake-build-item",
         thread: "intake-build-item-thread",
-        workspace: buildItemStrategy,
+        workspace: forgeItemStrategy,
       }),
       initialMessage: {
         messageId: MessageId.make("intake-build-item-first"),
@@ -666,7 +666,7 @@ it.effect("releases attachments claimed for a launch the Build item check refuse
         attachments: [attachment],
       },
     }).pipe(Effect.flip);
-    assert.equal(error._tag, "ThreadLaunchBuildItemError");
+    assert.equal(error._tag, "ThreadLaunchForgeItemError");
     // Only the upload remains: the durable copy made for the launch is gone.
     assert.deepEqual(yield* fs.readDirectory(config.attachmentsDir), [
       pendingPath.slice(config.attachmentsDir.length + 1),
@@ -677,7 +677,7 @@ it.effect("releases attachments claimed for a launch the Build item check refuse
 it.effect(
   "refuses a scheduled Build item run outside a SlipJay project with the same error",
   () => {
-    const scheduled = scheduledBuildItemHarness({ slipjay: false });
+    const scheduled = scheduledForgeItemHarness({ slipjay: false });
     return Effect.gen(function* () {
       const tasks = yield* ScheduledTasks.ScheduledTaskService;
       const threads = yield* ThreadManagement.ThreadManagementService;
@@ -686,7 +686,7 @@ it.effect(
       assert.equal(result.task.lastRunStatus, "failed");
       assert.include(
         result.task.lastRunError,
-        "buildItem picks the item's SlipJay workspace: use it in a project with slipjay.json.",
+        "forgeItem picks the item's SlipJay workspace: use it in a project with slipjay.json.",
       );
       assert.isNull(result.threadId);
       assert.isEmpty(yield* threads.listProjectThreads({ projectId, includeSubagents: false }));
@@ -697,7 +697,7 @@ it.effect(
 );
 
 it.effect("runs a scheduled Build item task in that item's SlipJay workspace", () => {
-  const scheduled = scheduledBuildItemHarness({ slipjay: true });
+  const scheduled = scheduledForgeItemHarness({ slipjay: true });
   return Effect.gen(function* () {
     const tasks = yield* ScheduledTasks.ScheduledTaskService;
     const task = yield* scheduled.upsert;
@@ -1837,7 +1837,7 @@ it.effect.each([false, true])(
     }),
 );
 
-const buildItem = { itemId: "build-item:42", number: 42, origin: "https://hq.example" };
+const forgeItem = { itemId: "build-item:42", number: 42, origin: "https://hq.example" };
 
 /**
  * A SlipJay thread working on Build item 42 whose first run ended, so it is idle: linked to
@@ -1848,14 +1848,14 @@ const idleSlipJayThread = (thread: string, via: "link" | "launch" = "link") =>
     const threads = yield* ThreadManagement.ThreadManagementService;
     const first = yield* launchSlipJayRun(
       thread,
-      via === "launch" ? { type: "worktree", baseRef: "HEAD", buildItem: 42 } : undefined,
+      via === "launch" ? { type: "worktree", baseRef: "HEAD", forgeItem: 42 } : undefined,
     );
     if (via === "link")
       yield* threads.dispatch({
         type: "thread.metadata.update",
         commandId: CommandId.make(`command:${thread}:work-item`),
         threadId: first.threadId,
-        workItem: buildItem,
+        workItem: forgeItem,
       });
     yield* threads.dispatch({
       type: "run.interrupt",
@@ -2262,7 +2262,7 @@ it.effect("keeps a Build item launched without a message through its workspace's
         launchInput({
           command: "command:launch:build-item-no-message",
           thread: "thread:launch:build-item-no-message",
-          workspace: { type: "worktree", baseRef: "HEAD", buildItem: 42 },
+          workspace: { type: "worktree", baseRef: "HEAD", forgeItem: 42 },
         }),
       );
       yield* waitForThreadProjection(threads, launched.threadId, () =>
@@ -2590,7 +2590,7 @@ it.effect("binds a thread launched for a Build item to that item's workspace", (
       const run = yield* launchSlipJayRun("thread:launch:build-item", {
         type: "worktree",
         baseRef: "HEAD",
-        buildItem: 42,
+        forgeItem: 42,
       });
       // Bound before the provider turn starts, so the agent never runs elsewhere.
       assert.equal(

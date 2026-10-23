@@ -60,14 +60,14 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   // Linking hands another environment read access to every thread here.
   [WS_METHODS.peersUpdate]: AuthAccessWriteScope,
 
-  [WS_METHODS.buildWorkItemLink]: AuthOrchestrationOperateScope,
+  [WS_METHODS.forgeWorkItemLink]: AuthOrchestrationOperateScope,
   // Deciding acts as the person in HQ through T3's stored delegation, so it takes owner scope. Only a
   // person can supply that delegation: t3_hq_connection takes a one-use request_secret reference.
   // Connecting or disconnecting replaces the delegation those decisions act through.
   [WS_METHODS.hqSignInStart]: AuthSettingsWriteScope,
   [WS_METHODS.hqDisconnect]: AuthSettingsWriteScope,
-  [WS_METHODS.buildHomeDecide]: AuthSettingsWriteScope,
-  [WS_METHODS.buildHomeAnswer]: AuthSettingsWriteScope,
+  [WS_METHODS.forgeHomeDecide]: AuthSettingsWriteScope,
+  [WS_METHODS.forgeHomeAnswer]: AuthSettingsWriteScope,
   [WS_METHODS.scheduledTasksUpsert]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksSetEnabled]: AuthOrchestrationOperateScope,
   [WS_METHODS.scheduledTasksDelete]: AuthOrchestrationOperateScope,

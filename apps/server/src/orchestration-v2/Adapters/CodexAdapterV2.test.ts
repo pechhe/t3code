@@ -54,7 +54,7 @@ import packageJson from "../../../package.json" with { type: "json" };
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
 import * as ProviderEventLoggers from "@t3tools/provider-core/server/ProviderEventLoggers";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
-import * as HqBuildUsage from "../../hq/HqBuildUsage.ts";
+import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
 import * as EffectWorker from "../EffectWorker.ts";
 import * as Orchestrator from "../Orchestrator.ts";
 import * as ProviderReplayHarness from "../testkit/ProviderReplayHarness.ts";
@@ -1911,9 +1911,9 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ],
         });
         // What Weave's Build record would receive, kept where the test can read it.
-        const recorded: Array<HqBuildUsage.HqBuildUsageInput> = [];
+        const recorded: Array<HqForgeUsage.HqForgeUsageInput> = [];
         const harness = yield* makeCodexReplayHarness(transcript).pipe(
-          Effect.provideService(HqBuildUsage.HqBuildUsage, {
+          Effect.provideService(HqForgeUsage.HqForgeUsage, {
             record: (input) => Effect.sync(() => void recorded.push(input)),
           }),
         );

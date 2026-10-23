@@ -13,7 +13,7 @@ import * as ServerSettings from "../../../serverSettings.ts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveRuntimeMode } from "../../OrchestratorMcpService.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
-import * as BuildWorkItems from "../../../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../../../hq/ForgeWorkItems.ts";
 import * as HqAgentConnections from "../../../hq/HqAgentConnections.ts";
 import * as SecretRequests from "../../../secrets/SecretRequests.ts";
 import { newCommandId, readCaller, resolveProjectId, unavailable } from "../../threadAccess.ts";
@@ -77,15 +77,15 @@ export const handlers = {
           Effect.mapError(unavailable),
           Effect.map(Option.getOrUndefined),
         );
-        if (input.buildItem !== undefined && input.workspaceStrategy !== undefined)
+        if (input.forgeItem !== undefined && input.workspaceStrategy !== undefined)
           return yield* new OrchestratorMcpFailure({
             code: "invalid_request",
-            message: "buildItem picks the item's SlipJay workspace: omit workspaceStrategy.",
+            message: "forgeItem picks the item's SlipJay workspace: omit workspaceStrategy.",
           });
         // SlipJay's attach-issue always receives the canonical number, so a ref is resolved first.
-        const buildItem =
-          typeof input.buildItem === "string"
-            ? (yield* (yield* BuildWorkItems.BuildWorkItems).resolve(input.buildItem).pipe(
+        const forgeItem =
+          typeof input.forgeItem === "string"
+            ? (yield* (yield* ForgeWorkItems.ForgeWorkItems).resolve(input.forgeItem).pipe(
                 Effect.mapError(
                   (error) =>
                     new OrchestratorMcpFailure({
@@ -94,7 +94,7 @@ export const handlers = {
                     }),
                 ),
               )).number
-            : input.buildItem;
+            : input.forgeItem;
         if (input.workspaceStrategy?.type === "existing_worktree") {
           const project = yield* readProject;
           if (project === undefined)
@@ -185,10 +185,10 @@ export const handlers = {
           runtimeMode: startedRuntimeMode,
           interactionMode,
           workspaceStrategy:
-            buildItem === undefined
+            forgeItem === undefined
               ? (input.workspaceStrategy ?? { type: "root" })
-              : { type: "worktree", baseRef: "HEAD", buildItem },
-          rootIsDefault: input.workspaceStrategy === undefined && buildItem === undefined,
+              : { type: "worktree", baseRef: "HEAD", forgeItem },
+          rootIsDefault: input.workspaceStrategy === undefined && forgeItem === undefined,
           ...(input.watch === true && caller !== undefined ? { watchedBy: caller.id } : {}),
           ...(input.message === undefined && attachments.length === 0
             ? {}
@@ -212,7 +212,7 @@ export const handlers = {
             }
             if (
               error._tag === "ThreadManagementProviderInstanceDisabledError" ||
-              error._tag === "ThreadLaunchBuildItemError"
+              error._tag === "ThreadLaunchForgeItemError"
             ) {
               return new OrchestratorMcpFailure({
                 code: "invalid_request",

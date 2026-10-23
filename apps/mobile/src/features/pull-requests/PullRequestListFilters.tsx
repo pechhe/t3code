@@ -6,7 +6,7 @@ import { ListFilterMenu } from "../workspace/ListFilterMenu";
 import { usePublishPullRequestFilterMenu } from "./PullRequestFilterMenuContext";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useMobileProjectGroupingSettings } from "../../state/project-grouping";
-import { buildHomeProjectScopes, sortHomeProjectScopes } from "../home/homeThreadList";
+import { forgeHomeProjectScopes, sortHomeProjectScopes } from "../home/homeThreadList";
 import { DEFAULT_PR_LIST_CONTROLS, type PullRequestListControls } from "./pullRequestList";
 
 const STATES = { open: "Open", closed: "Closed", merged: "Merged", all: "All states" } as const;
@@ -49,7 +49,7 @@ function useProjectsInSidebarOrder<Project extends { id: string; environmentId: 
   const scopes = useMemo(
     () =>
       sortHomeProjectScopes({
-        scopes: buildHomeProjectScopes({
+        scopes: forgeHomeProjectScopes({
           projects: allProjects,
           environmentId: null,
           projectGroupingMode: sidebarProjectGroupingMode,

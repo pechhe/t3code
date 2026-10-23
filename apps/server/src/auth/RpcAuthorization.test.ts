@@ -36,8 +36,8 @@ describe("RPC authorization scopes", () => {
   });
 
   it("keeps Build decisions, which act as the person in HQ, to settings owners", () => {
-    expect(requiredScopeForRpcMethod(WS_METHODS.buildHomeDecide)).toBe(AuthSettingsWriteScope);
-    expect(requiredScopeForRpcMethod(WS_METHODS.buildHomeAnswer)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.forgeHomeDecide)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.forgeHomeAnswer)).toBe(AuthSettingsWriteScope);
   });
 
   it("keeps connecting and disconnecting HQ, which replace the person's delegation, to settings owners", () => {
@@ -70,10 +70,10 @@ describe("RPC authorization scopes", () => {
     expect(requiredScopeForRpcMethod(WS_METHODS.buildConnectionRead)).toBe(
       AuthOrchestrationReadScope,
     );
-    expect(requiredScopeForRpcMethod(WS_METHODS.buildWorkItemRead)).toBe(
+    expect(requiredScopeForRpcMethod(WS_METHODS.forgeWorkItemRead)).toBe(
       AuthOrchestrationReadScope,
     );
-    expect(requiredScopeForRpcMethod(WS_METHODS.buildWorkItemLink)).toBe(
+    expect(requiredScopeForRpcMethod(WS_METHODS.forgeWorkItemLink)).toBe(
       AuthOrchestrationOperateScope,
     );
   });

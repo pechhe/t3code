@@ -60,7 +60,7 @@ const makeFakeHq = () => {
   }> = [];
   /** `toolCallsHang` holds every `tools/call` open after HQ receives it, as a slow HQ would. */
   const state = { unreachable: false, delegationRevoked: false, toolCallsHang: false };
-  /** Answers a `tools/call` with HQ's structured outcome; tests replace it with Build data. */
+  /** Answers a `tools/call` with HQ's structured outcome; tests replace it with Forge data. */
   const tools: {
     call: (name: string, args: Record<string, unknown>) => Record<string, unknown>;
   } = { call: () => ({ status: "succeeded", value: null }) };

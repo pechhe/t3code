@@ -24,7 +24,7 @@ import { TriangleAlertIcon } from "lucide-react";
 import { useProjectSuggestionBannerItem } from "./chat/ProjectSuggestionBanner";
 import { useSelectedWorkspace } from "../hooks/useSelectedWorkspace";
 import { SlipJayRunnerControl } from "./SlipJayRunnerControl";
-import { BuildHomeButton } from "./buildItem/BuildHomeButton";
+import { ForgeHomeButton } from "./forgeItem/ForgeHomeButton";
 import { DeviceEnvironmentSwitch } from "./chat/device/DeviceEnvironmentSwitch";
 import {
   SNAP_SHOT_DOCK_CLASS_NAME,
@@ -196,7 +196,7 @@ import {
 } from "../previewMiniPlayerStore";
 import { threadPullRequestPanelTarget } from "./pullRequest/pullRequestDetail.logic";
 import { LinkPullRequestDialogHost } from "./pullRequest/LinkPullRequestDialog";
-import { LinkBuildItemDialogHost } from "./buildItem/LinkBuildItemDialog";
+import { LinkForgeItemDialogHost } from "./forgeItem/LinkForgeItemDialog";
 import { useDeviceState } from "~/state/device";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import { isEditableFocused } from "../lib/editableFocus";
@@ -3468,7 +3468,7 @@ export default function ChatView(props: ChatViewProps) {
               actions={
                 isServerThread ? (
                   <>
-                    <BuildHomeButton
+                    <ForgeHomeButton
                       environmentId={activeThread.environmentId}
                       threadId={activeThread.id}
                       onOpenThread={onOpenRelatedThreadStable}
@@ -4121,7 +4121,7 @@ export default function ChatView(props: ChatViewProps) {
 
       <RevertConfirmHost threadKey={routeThreadKey} onConfirm={onConfirmRevertStable} />
       <LinkPullRequestDialogHost />
-      <LinkBuildItemDialogHost />
+      <LinkForgeItemDialogHost />
       <ThreadVisitWatermark threadRef={routeThreadRef} />
       <ExpandedImageDialogHost threadKey={routeThreadKey} />
     </div>

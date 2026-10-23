@@ -14,7 +14,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { threadNotFound } from "./OrchestratorMcpService.ts";
@@ -163,7 +163,7 @@ function resultFromThread(input: {
 const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const threadManagement = yield* ThreadManagementService.ThreadManagementService;
-  const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
+  const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
 
   const update = Effect.fn("ThreadMetadataMcpService.update")(function* (
     scope: McpInvocationScope,
@@ -211,7 +211,7 @@ const make = Effect.gen(function* () {
     });
     const dispatched =
       input.action === "link_work_item" || input.action === "unlink_work_item"
-        ? yield* buildWorkItems
+        ? yield* forgeWorkItems
             .link({
               threadId,
               reference: input.action === "link_work_item" ? input.workItem! : null,
@@ -279,5 +279,5 @@ const make = Effect.gen(function* () {
 export const layer: Layer.Layer<
   ThreadMetadataMcpService,
   never,
-  Crypto.Crypto | ThreadManagementService.ThreadManagementService | BuildWorkItems.BuildWorkItems
+  Crypto.Crypto | ThreadManagementService.ThreadManagementService | ForgeWorkItems.ForgeWorkItems
 > = Layer.effect(ThreadMetadataMcpService, make);

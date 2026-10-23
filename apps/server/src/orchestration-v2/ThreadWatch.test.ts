@@ -25,10 +25,10 @@ import * as DateTime from "effect/DateTime";
 import * as TestClock from "effect/testing/TestClock";
 import * as Fiber from "effect/Fiber";
 import * as Schema from "effect/Schema";
-import { OrchestrationV2ThreadWatch, type BuildWorkItemSummary } from "@t3tools/contracts";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import { OrchestrationV2ThreadWatch, type ForgeWorkItemSummary } from "@t3tools/contracts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as HqAgentConnections from "../hq/HqAgentConnections.ts";
-import * as BuildWatchReactor from "./BuildWatchReactor.ts";
+import * as ForgeWatchReactor from "./ForgeWatchReactor.ts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Stream from "effect/Stream";
@@ -486,9 +486,9 @@ it("refuses a watch from a subagent, which its parent owns", () => {
 
 const UNREACHABLE_BUILD_NUMBER = 1000099;
 
-const makeBuildHarness = Effect.gen(function* () {
+const makeForgeHarness = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
-  const state: { item: BuildWorkItemSummary; reads: number; waits: number; resolutions: number } = {
+  const state: { item: ForgeWorkItemSummary; reads: number; waits: number; resolutions: number } = {
     item: {
       kind: "ticket",
       title: "Publish the candidate",
@@ -531,15 +531,15 @@ const makeBuildHarness = Effect.gen(function* () {
         };
       }),
   });
-  const build = yield* Effect.service(BuildWorkItems.BuildWorkItems).pipe(
-    Effect.provide(BuildWorkItems.layer.pipe(Layer.provide(hq))),
+  const build = yield* Effect.service(ForgeWorkItems.ForgeWorkItems).pipe(
+    Effect.provide(ForgeWorkItems.layer.pipe(Layer.provide(hq))),
   );
   const restart = () =>
-    Effect.service(BuildWatchReactor.BuildWatchReactor).pipe(
+    Effect.service(ForgeWatchReactor.ForgeWatchReactor).pipe(
       Effect.provide(
-        BuildWatchReactor.layer.pipe(
+        ForgeWatchReactor.layer.pipe(
           Layer.provide(ProjectionStore.layer),
-          Layer.provide(Layer.succeed(BuildWorkItems.BuildWorkItems, build)),
+          Layer.provide(Layer.succeed(ForgeWorkItems.ForgeWorkItems, build)),
         ),
       ),
     );
@@ -1074,7 +1074,7 @@ it.layer(layerTest)("thread watches", (it) => {
     "wakes Build unblocked watchers only after waits and holds clear, once, sharing HQ reads",
     () =>
       Effect.gen(function* () {
-        const h = yield* makeBuildHarness;
+        const h = yield* makeForgeHarness;
         const first = yield* createThread("build-first");
         const second = yield* createThread("build-second");
         yield* h.start(first, "unblocked");
@@ -1126,7 +1126,7 @@ it.layer(layerTest)("thread watches", (it) => {
     () =>
       Effect.gen(function* () {
         for (const status of ["landed", "accepted", "dropped"] as const) {
-          const h = yield* makeBuildHarness;
+          const h = yield* makeForgeHarness;
           const watcher = yield* createThread(`build-closed-${status}`);
           yield* h.start(watcher, "closed");
           // A ready item with no blockers is still open.
@@ -1150,7 +1150,7 @@ it.layer(layerTest)("thread watches", (it) => {
 
   it.effect("a restarted unblocked watch wakes on Dropped even with waits and holds", () =>
     Effect.gen(function* () {
-      const h = yield* makeBuildHarness;
+      const h = yield* makeForgeHarness;
       const watcher = yield* createThread("build-dropped");
       yield* h.start(watcher, "unblocked");
       yield* h.reactor.sweep;
@@ -1170,7 +1170,7 @@ it.layer(layerTest)("thread watches", (it) => {
 
   it.effect("settling or unwatching a Build watcher prevents a wake", () =>
     Effect.gen(function* () {
-      const h = yield* makeBuildHarness;
+      const h = yield* makeForgeHarness;
       const engine = yield* Orchestrator.OrchestratorV2;
       for (const action of ["settle", "unwatch"] as const) {
         const watcher = yield* createThread(`build-ended-${action}`);
@@ -1199,7 +1199,7 @@ it.layer(layerTest)("thread watches", (it) => {
 
   it.effect("unwatch cancels a Build wake queued behind the watcher's active run", () =>
     Effect.gen(function* () {
-      const h = yield* makeBuildHarness;
+      const h = yield* makeForgeHarness;
       const watcher = yield* createThread("build-queued");
       const engine = yield* Orchestrator.OrchestratorV2;
       yield* seedBusyThread(watcher);
@@ -1224,7 +1224,7 @@ it.layer(layerTest)("thread watches", (it) => {
   );
   it.effect("one unreachable Build item does not hold back another watch on the same thread", () =>
     Effect.gen(function* () {
-      const h = yield* makeBuildHarness;
+      const h = yield* makeForgeHarness;
       const watcher = yield* createThread("build-partial");
       yield* h.start(watcher, "unblocked");
       yield* h.start(watcher, "unblocked", UNREACHABLE_BUILD_NUMBER);
@@ -1238,7 +1238,7 @@ it.layer(layerTest)("thread watches", (it) => {
     "the Build reactor's own polling wakes on the backed-off cadence without thread events",
     () =>
       Effect.gen(function* () {
-        const h = yield* makeBuildHarness;
+        const h = yield* makeForgeHarness;
         const watcher = yield* createThread("build-periodic");
         const engine = yield* Orchestrator.OrchestratorV2;
         yield* h.start(watcher, "unblocked");

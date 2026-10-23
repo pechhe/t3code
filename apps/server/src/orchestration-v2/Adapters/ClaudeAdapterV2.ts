@@ -36,7 +36,7 @@ import {
   settleTurnUsage,
   type TurnUsageBuffer,
 } from "../../provider/TurnUsageRecords.ts";
-import * as HqBuildUsage from "../../hq/HqBuildUsage.ts";
+import * as HqForgeUsage from "../../hq/HqForgeUsage.ts";
 import { readClaudeSubagentMessages } from "../../claudeHistoryWorker.ts";
 import { resolveSelfInvocation } from "@t3tools/shared/nodeRuntime";
 import {
@@ -4165,7 +4165,7 @@ export interface ClaudeAdapterV2Options {
 export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
   adapterOptions: ClaudeAdapterV2Options,
 ) {
-  const buildUsage = yield* HqBuildUsage.HqBuildUsage;
+  const buildUsage = yield* HqForgeUsage.HqForgeUsage;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readAgentServers = yield* AgentMcpServers.makeReader;
   const serverSettings = yield* Effect.serviceOption(ServerSettings.ServerSettingsService);

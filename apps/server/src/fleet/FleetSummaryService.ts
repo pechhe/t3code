@@ -18,7 +18,7 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as Environment from "../environment/ServerEnvironment.ts";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import {
@@ -80,7 +80,7 @@ const make = Effect.gen(function* () {
   const environment = yield* Environment.ServerEnvironment;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const projects = yield* ProjectStore.ProjectStoreV2;
-  const build = yield* BuildWorkItems.BuildWorkItems;
+  const build = yield* ForgeWorkItems.ForgeWorkItems;
   const settings = yield* Settings.ServerSettingsService;
   const fleetProjection = yield* FleetProjection.FleetProjection;
   const landings = yield* SlipJayLandings.SlipJayLandings;
@@ -210,7 +210,7 @@ const make = Effect.gen(function* () {
             workflow: thread.workflow ?? null,
             parentThreadId: thread.lineage.parentThreadId,
             relationshipToParent: thread.lineage.relationshipToParent,
-            buildItem:
+            forgeItem:
               thread.workItem == null
                 ? null
                 : {

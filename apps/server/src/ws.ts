@@ -1,7 +1,7 @@
 import * as ExperimentService from "./experiments/ExperimentService.ts";
 import * as AgentPolicySettings from "./agents/AgentPolicySettingsService.ts";
 import * as ManagedAgent from "./agents/ManagedAgentService.ts";
-import { BuildWorkItemError, OrchestrationDispatchCommandError } from "@t3tools/contracts";
+import { ForgeWorkItemError, OrchestrationDispatchCommandError } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
@@ -133,8 +133,8 @@ import * as ThreadMessageIntake from "./orchestration-v2/ThreadMessageIntake.ts"
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as PeerEnvironments from "./peers/PeerEnvironments.ts";
 import * as ScheduledTasks from "./scheduledTasks/ScheduledTaskService.ts";
-import * as BuildWorkItems from "./hq/BuildWorkItems.ts";
-import * as BuildHome from "./hq/BuildHome.ts";
+import * as ForgeWorkItems from "./hq/ForgeWorkItems.ts";
+import * as ForgeHome from "./hq/ForgeHome.ts";
 import * as HqSignIn from "./hq/HqSignIn.ts";
 import * as ReleaseApprovals from "./releases/ReleaseApprovals.ts";
 import * as SecretRequests from "./secrets/SecretRequests.ts";
@@ -1358,8 +1358,8 @@ export const layerWsRpc = (
       const commandOutputHub = yield* CommandOutputHub.CommandOutputHub;
       const providerSessionManager = yield* ProviderSessionManager.ProviderSessionManagerV2;
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
-      const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
-      const buildHome = yield* BuildHome.BuildHome;
+      const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
+      const forgeHome = yield* ForgeHome.ForgeHome;
       const hqSignIn = yield* HqSignIn.HqSignIn;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const releaseApprovals = yield* ReleaseApprovals.ReleaseApprovals;
@@ -2156,7 +2156,7 @@ export const layerWsRpc = (
                         message: "Failed to launch thread",
                         cause,
                       }),
-                    ThreadLaunchBuildItemError: (cause) =>
+                    ThreadLaunchForgeItemError: (cause) =>
                       new OrchestrationV2ThreadLaunchError({
                         commandId: input.commandId,
                         projectId: input.projectId,
@@ -2191,29 +2191,29 @@ export const layerWsRpc = (
             ),
           ),
         [WS_METHODS.buildConnectionRead]: () =>
-          Effect.all({ connection: buildWorkItems.connected, signIn: hqSignIn.status }).pipe(
+          Effect.all({ connection: forgeWorkItems.connected, signIn: hqSignIn.status }).pipe(
             Effect.map(({ connection, signIn }) => ({ ...connection, signIn })),
           ),
-        [WS_METHODS.buildWorkItemRead]: (input) =>
+        [WS_METHODS.forgeWorkItemRead]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
-            Effect.andThen(buildWorkItems.view(input.threadId)),
+            Effect.andThen(forgeWorkItems.view(input.threadId)),
           ),
-        [WS_METHODS.buildWorkItemCard]: (input) =>
+        [WS_METHODS.forgeWorkItemCard]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
-            Effect.andThen(buildWorkItems.card(input)),
+            Effect.andThen(forgeWorkItems.card(input)),
           ),
-        [WS_METHODS.buildWorkItemMentions]: (input) =>
+        [WS_METHODS.forgeWorkItemMentions]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
-            Effect.andThen(buildWorkItems.mentions(input)),
+            Effect.andThen(forgeWorkItems.mentions(input)),
           ),
-        [WS_METHODS.buildWorkItemLink]: (input) =>
+        [WS_METHODS.forgeWorkItemLink]: (input) =>
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
-            Effect.andThen(buildWorkItems.link(input)),
+            Effect.andThen(forgeWorkItems.link(input)),
             Effect.map(({ workItem }) => ({ workItem })),
           ),
-        [WS_METHODS.buildHomeRead]: () => buildHome.read,
-        [WS_METHODS.buildHomeDecide]: (input) => buildHome.decide(input),
-        [WS_METHODS.buildHomeAnswer]: (input) => buildHome.answer(input),
+        [WS_METHODS.forgeHomeRead]: () => forgeHome.read,
+        [WS_METHODS.forgeHomeDecide]: (input) => forgeHome.decide(input),
+        [WS_METHODS.forgeHomeAnswer]: (input) => forgeHome.answer(input),
         [WS_METHODS.scheduledTasksList]: (_input) =>
           scheduledTasks.list().pipe(Effect.map(withVisibleWebhookUrls)),
         [WS_METHODS.scheduledTasksSubscribe]: (_input) =>
@@ -3265,23 +3265,23 @@ export const layerWsRpc = (
 const layerWsHqRpc = ServerWsHqRpcGroup.toLayer(
   Effect.gen(function* () {
     const hqSignIn = yield* HqSignIn.HqSignIn;
-    const buildWorkItems = yield* BuildWorkItems.BuildWorkItems;
+    const forgeWorkItems = yield* ForgeWorkItems.ForgeWorkItems;
     return ServerWsHqRpcGroup.of({
       [WS_METHODS.hqSignInStart]: (input) =>
         hqSignIn
           .begin(input)
           .pipe(
             Effect.mapError(
-              (cause) => new BuildWorkItemError({ reason: cause.reason, message: cause.message }),
+              (cause) => new ForgeWorkItemError({ reason: cause.reason, message: cause.message }),
             ),
           ),
       [WS_METHODS.hqDisconnect]: () =>
         hqSignIn.disconnect.pipe(
           Effect.mapError(
-            (cause) => new BuildWorkItemError({ reason: "unavailable", message: cause.message }),
+            (cause) => new ForgeWorkItemError({ reason: "unavailable", message: cause.message }),
           ),
           Effect.andThen(
-            Effect.all({ connection: buildWorkItems.connected, signIn: hqSignIn.status }),
+            Effect.all({ connection: forgeWorkItems.connected, signIn: hqSignIn.status }),
           ),
           Effect.map(({ connection, signIn }) => ({ ...connection, signIn })),
         ),

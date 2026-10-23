@@ -36,7 +36,7 @@ it("keeps the marks autolink plugins put on links through the sanitizer", () => 
           .children ?? [])
           if (child.type === "link")
             child.data = {
-              hProperties: { dataBuildMention: "reference", dataPullRequestAutolink: "reference" },
+              hProperties: { dataForgeMention: "reference", dataPullRequestAutolink: "reference" },
             };
     };
   const processor = unified()
@@ -50,7 +50,7 @@ it("keeps the marks autolink plugins put on links through the sanitizer", () => 
     children: [
       {
         tagName: "a",
-        properties: { dataBuildMention: "reference", dataPullRequestAutolink: "reference" },
+        properties: { dataForgeMention: "reference", dataPullRequestAutolink: "reference" },
       },
     ],
   });

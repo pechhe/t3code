@@ -33,8 +33,8 @@ import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { ProjectChip } from "../ProjectChip";
 import { ThreadWorkflowMenu } from "./ThreadWorkflowMenu";
-import { BuildWorkItemSegment } from "../buildItem/BuildWorkItemSegment";
-import { useBuildConnected, useThreadBuildWorkItem } from "../../state/buildWorkItems";
+import { ForgeWorkItemSegment } from "../forgeItem/ForgeWorkItemSegment";
+import { useForgeConnected, useThreadForgeWorkItem } from "../../state/forgeWorkItems";
 import {
   WorkspaceBreadcrumb,
   WorkspaceBreadcrumbItem,
@@ -107,8 +107,8 @@ export const ChatHeader = memo(function ChatHeader({
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
     reportFailure: false,
   });
-  const buildWorkItem = useThreadBuildWorkItem(isServerThread ? activeThreadRef : null).data;
-  const buildConnected = useBuildConnected(isServerThread ? activeThreadEnvironmentId : null);
+  const forgeWorkItem = useThreadForgeWorkItem(isServerThread ? activeThreadRef : null).data;
+  const buildConnected = useForgeConnected(isServerThread ? activeThreadEnvironmentId : null);
   const [renaming, setRenaming] = useState<{
     threadId: ThreadId;
     environmentId: EnvironmentId;
@@ -205,7 +205,7 @@ export const ChatHeader = memo(function ChatHeader({
     threadRef: isServerThread ? activeThreadRef : null,
     projectCwd: activeProjectCwd,
     onStartRename: startRename,
-    canLinkBuildItem: buildConnected,
+    canLinkForgeItem: buildConnected,
   });
   const titleGroupRef = useRef<HTMLDivElement | null>(null);
   const titleClickTimerRef = useRef<number | null>(null);
@@ -339,12 +339,12 @@ export const ChatHeader = memo(function ChatHeader({
             </WorkspaceBreadcrumbSeparator>
           </>
         ) : null}
-        {buildWorkItem ? (
+        {forgeWorkItem ? (
           <>
             <WorkspaceBreadcrumbItem className="shrink">
-              <BuildWorkItemSegment
+              <ForgeWorkItemSegment
                 threadRef={activeThreadRef}
-                link={buildWorkItem}
+                link={forgeWorkItem}
                 canEdit={canOperateThread}
               />
             </WorkspaceBreadcrumbItem>

@@ -20,7 +20,7 @@ import {
 import { useThreadSearch } from "../state/queries";
 import { primaryServerProvidersAtom } from "../state/server";
 import { buildThreadRouteParams } from "../threadRoutes";
-import { buildThreadActionItems, ITEM_ICON_CLASS } from "./CommandPalette.logic";
+import { forgeThreadActionItems, ITEM_ICON_CLASS } from "./CommandPalette.logic";
 import { useEnvironmentLookups, useProjectLookups } from "./CommandPaletteLookups";
 import { ThreadCommandSubtitle } from "./ThreadCommandSubtitle";
 import {
@@ -81,7 +81,7 @@ export function useCommandPaletteThreadItems(input: {
   const { threadSearch, contentMatchByKey } = useThreadSearchWithContentMatches(threadSearchQuery);
   const { projectByKey, projectTitleById } = useProjectLookups();
 
-  const threadItems = buildThreadActionItems({
+  const threadItems = forgeThreadActionItems({
     threads,
     ...(activeThreadId ? { activeThreadId } : {}),
     projectTitleById,

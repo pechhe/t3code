@@ -183,7 +183,7 @@ const migrationEntries = [
   [86, "ProjectHqUnregisteredKey", Migration0086],
   [87, "ScheduledTaskRoleBackfill", Migration0087],
   [88, "ShellStopRequestIndex", Migration0088],
-  [89, "HqBuildRecords", Migration0089],
+  [89, "HqForgeRecords", Migration0089],
 ] as const;
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

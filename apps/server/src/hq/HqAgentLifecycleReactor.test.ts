@@ -12,8 +12,8 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 import * as HqAgentLifecycleReactor from "./HqAgentLifecycleReactor.ts";
-import * as HqBuildRecords from "./HqBuildRecords.ts";
-import * as HqBuildRecordingReactor from "./HqBuildRecordingReactor.ts";
+import * as HqForgeRecords from "./HqForgeRecords.ts";
+import * as HqForgeRecordingReactor from "./HqForgeRecordingReactor.ts";
 
 const projectId = ProjectId.make("project-hq");
 const lead = ThreadId.make("thread-lead");
@@ -49,7 +49,7 @@ const withReactor = <A, E>(
               Layer.mock(HqAgentConnections.HqAgentConnections)({
                 forget: (agent) => Effect.sync(() => void calls.push({ kind: "forget", agent })),
               }),
-              Layer.mock(HqBuildRecords.HqBuildRecords)({
+              Layer.mock(HqForgeRecords.HqForgeRecords)({
                 enqueue: (record) =>
                   Effect.sync(
                     () =>
@@ -60,7 +60,7 @@ const withReactor = <A, E>(
                   ),
                 forgetThread: () => Effect.void,
               }),
-              Layer.mock(HqBuildRecordingReactor.HqBuildRecordingReactor)({
+              Layer.mock(HqForgeRecordingReactor.HqForgeRecordingReactor)({
                 recordCompletion: (threadId) =>
                   Effect.sync(() => void calls.push({ kind: "records", agent: threadId })),
               }),
@@ -91,7 +91,7 @@ it.effect("a delegated task that completes, fails or is cancelled queues its age
         yield* reactor.handle(
           runUpdated(reviewer, { status, delegatedTaskId: "node-task" as never }),
         );
-      // Queued rather than ended: the queue sends it once the thread's Build records have gone.
+      // Queued rather than ended: the queue sends it once the thread's Forge records have gone.
       assert.deepStrictEqual(
         calls.map((call) => call.kind),
         ["records", "end", "records", "end", "records", "end"],

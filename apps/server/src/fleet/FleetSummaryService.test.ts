@@ -18,7 +18,7 @@ import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Environment from "../environment/ServerEnvironment.ts";
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as PeerEnvironments from "../peers/PeerEnvironments.ts";
@@ -156,7 +156,7 @@ const harness = Effect.gen(function* () {
                   },
                 ]),
             }),
-            Layer.mock(BuildWorkItems.BuildWorkItems)({
+            Layer.mock(ForgeWorkItems.ForgeWorkItems)({
               view: () =>
                 Effect.succeed({
                   itemId: "item",
@@ -432,7 +432,7 @@ it.effect(
       const first = yield* service.summary({}, { localOnly: true });
       const source = first.environments[0]!;
       expect(source.threads.find((row) => row.threadId === due)).toMatchObject({
-        buildItem: {
+        forgeItem: {
           number: 153,
           status: "ready",
           waitsAndHoldsClear: true,

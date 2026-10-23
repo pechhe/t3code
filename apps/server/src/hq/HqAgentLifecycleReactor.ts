@@ -10,24 +10,24 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
-import * as HqBuildRecords from "./HqBuildRecords.ts";
-import * as HqBuildRecordingReactor from "./HqBuildRecordingReactor.ts";
+import * as HqForgeRecords from "./HqForgeRecords.ts";
+import * as HqForgeRecordingReactor from "./HqForgeRecordingReactor.ts";
 
 /**
  * Ends a thread's HQ agent when its work is over: a delegated task that completed, failed or was
  * cancelled. A deleted thread's agent is dropped. An interrupted run is left alone, since a
  * restart continues it. T3 only ever ends agents; revoking one is the person's call in HQ.
  *
- * The end is queued rather than sent: ending replaces the agent's identity, so every Build record
+ * The end is queued rather than sent: ending replaces the agent's identity, so every Forge record
  * the thread still owes Weave has to reach it first (Spec #4395). A thread with nothing queued
  * ahead of its end is ended on the queue's next pass, as it was before the queue existed. The
  * records its finished run owes are queued here, in the same fiber, rather than from another
  * reactor, so they are always ahead of the end.
  *
- * Archiving a thread keeps its agent. HQ lets only the agent that opened a Build bind or session
+ * Archiving a thread keeps its agent. HQ lets only the agent that opened a Forge bind or session
  * end it, and an ended agent is replaced by one with a new id, so ending it on archive would leave
  * an open session that nothing can end once the thread is unarchived. Whether the thread still
- * links a Build item at that point says nothing about whether its agent owns a session.
+ * links a Forge item at that point says nothing about whether its agent owns a session.
  */
 export class HqAgentLifecycleReactor extends Context.Service<
   HqAgentLifecycleReactor,
@@ -41,15 +41,15 @@ const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const connections = yield* HqAgentConnections.HqAgentConnections;
-  const records = yield* HqBuildRecords.HqBuildRecords;
-  const recording = yield* HqBuildRecordingReactor.HqBuildRecordingReactor;
+  const records = yield* HqForgeRecords.HqForgeRecords;
+  const recording = yield* HqForgeRecordingReactor.HqForgeRecordingReactor;
 
   /** Acts on the thread's agent; a thread with no HQ role never had one. */
   const withAgentOf = (
     threadId: ThreadId,
     act: (
       agent: Omit<HqAgentConnections.HqAgent, "model">,
-    ) => Effect.Effect<void, HqBuildRecords.HqBuildRecordError>,
+    ) => Effect.Effect<void, HqForgeRecords.HqForgeRecordError>,
   ) =>
     projections.getThread(threadId).pipe(
       Effect.flatMap((thread) => {

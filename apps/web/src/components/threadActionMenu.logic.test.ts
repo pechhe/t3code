@@ -90,12 +90,12 @@ describe("buildThreadActionMenuItems", () => {
     expect(copy?.children?.map((item) => item.id)).toEqual(["copy-path", "copy-branch"]);
   });
 
-  it("offers Link Build item only for a project connected to HQ, and only to operators", () => {
+  it("offers Link Forge item only for a project connected to HQ, and only to operators", () => {
     expect(ids(baseState)).not.toContain("link-build-item");
-    expect(ids({ ...baseState, canLinkBuildItem: true })).toContain("link-build-item");
+    expect(ids({ ...baseState, canLinkForgeItem: true })).toContain("link-build-item");
     const readOnly = buildThreadActionMenuItems({
       ...baseState,
-      canLinkBuildItem: true,
+      canLinkForgeItem: true,
       canOperate: false,
     }).find((item) => item.id === "link-build-item");
     expect(readOnly?.disabled).toBe(true);

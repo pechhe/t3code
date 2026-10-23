@@ -34,7 +34,7 @@ const ThreadFields = {
   workflow: Schema.NullOr(OrchestrationV2ThreadWorkflow),
   parentThreadId: Schema.NullOr(ThreadId),
   relationshipToParent: Schema.NullOr(Schema.Literals(["fork", "subagent"])),
-  buildItem: Schema.NullOr(
+  forgeItem: Schema.NullOr(
     Schema.Struct({
       number: Schema.Number,
       /** The friendly ref such as `YS-12` when Build has told T3 one; absent from older servers. */

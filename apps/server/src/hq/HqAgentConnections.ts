@@ -85,7 +85,7 @@ export class HqObserveError extends Schema.TaggedError<HqObserveError>()("HqObse
   code: Schema.optional(Schema.String),
 }) {}
 
-/** Why a person's Build decision could not be posted. HQ's own refusals come back as responses. */
+/** Why a person's Forge decision could not be posted. HQ's own refusals come back as responses. */
 export class HqDecisionError extends Schema.TaggedError<HqDecisionError>()("HqDecisionError", {
   /** `other_origin`: T3 is now connected to another HQ than the one the caller named. */
   reason: Schema.Literals(["not_connected", "other_origin", "unavailable"]),
@@ -252,7 +252,7 @@ const toolCallsOf = (body: Uint8Array): ReadonlyArray<{ readonly name: string }>
   );
 };
 /**
- * HQ's Build tools that only read, and the heartbeat, which only renews a session and comes
+ * HQ's Forge tools that only read, and the heartbeat, which only renews a session and comes
  * often. Any other `hq_build_*` call may change what a card shows, so a tool HQ adds later
  * expires the display caches until it is listed here.
  */
@@ -282,24 +282,24 @@ const BUILD_TOOLS_KEEPING_CARDS = new Set([
   "hq_build_usage",
   "hq_build_waits",
 ]);
-const isBuildWrite = (tool: string) =>
+const isForgeWrite = (tool: string) =>
   tool.startsWith("hq_build_") && !BUILD_TOOLS_KEEPING_CARDS.has(tool);
 
-const containsBuildWrite = (body: Uint8Array): boolean =>
-  toolCallsOf(body).some((call) => isBuildWrite(call.name));
+const containsForgeWrite = (body: Uint8Array): boolean =>
+  toolCallsOf(body).some((call) => isForgeWrite(call.name));
 
 /**
  * The run `hq_build_run` answered with. Weave nests the run it recorded at `run`; a flattened answer
  * is accepted too, so a run of either shape is still recorded.
  */
-const HqBuildRun = Schema.Struct({
+const HqForgeRun = Schema.Struct({
   run: Schema.optional(Schema.NullOr(Schema.Struct({ id: Schema.String }))),
   runId: Schema.optional(Schema.String),
   id: Schema.optional(Schema.String),
   spec: Schema.optional(Schema.NullOr(Schema.Struct({ id: Schema.String }))),
   specId: Schema.optional(Schema.NullOr(Schema.String)),
 });
-const decodeBuildRun = Schema.decodeUnknownOption(HqBuildRun);
+const decodeForgeRun = Schema.decodeUnknownOption(HqForgeRun);
 
 const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
 
@@ -377,9 +377,9 @@ export class HqAgentConnections extends Context.Service<
       HqObserveError
     >;
     /**
-     * Posts one of the person's own Build decisions, or the reads that refresh their cards, to HQ's
+     * Posts one of the person's own Forge decisions, or the reads that refresh their cards, to HQ's
      * `/api/build/decisions` as the person, with the stored delegation (pechhe/yardsmith Spec
-     * #4367). Only the server's Build Home calls this; no thread's MCP route can, so no agent decides
+     * #4367). Only the server's Forge Home calls this; no thread's MCP route can, so no agent decides
      * as the person through T3. `origin`, when given, refuses to post to any other HQ.
      */
     readonly decide: (input: {
@@ -406,27 +406,27 @@ export class HqAgentConnections extends Context.Service<
      * The reviewer runs reported so far, without forgetting them: a run is only forgotten once it is
      * on record, so a reader and a drain of the queue cannot each miss the one the other took.
      */
-    readonly reportedRuns: Effect.Effect<ReadonlyArray<HqBuildRunReport>>;
+    readonly reportedRuns: Effect.Effect<ReadonlyArray<HqForgeRunReport>>;
     /** Forgets the runs the caller has recorded, never one reported since it read them. */
-    readonly forgetReportedRuns: (recorded: ReadonlyArray<HqBuildRunReport>) => Effect.Effect<void>;
+    readonly forgetReportedRuns: (recorded: ReadonlyArray<HqForgeRunReport>) => Effect.Effect<void>;
     /**
      * Stamps the T3 run a report was made in onto it, so a write that has to be tried again later
      * names that run rather than the one its thread has moved on to.
      */
     readonly stampReportedRun: (stamped: HqReportedRunStamp) => Effect.Effect<void>;
     /**
-     * Fires when a reviewer's run is reported, so the Build record queue records it before the
+     * Fires when a reviewer's run is reported, so the Forge record queue records it before the
      * reviewer's thread finishes: a restart, or its agent's end, may come first otherwise.
      */
     readonly reportedRunChanges: Stream.Stream<void>;
     /**
      * Sets what T3 does with a reported run before its agent is given the answer that names it. The
-     * Build record queue installs its write here, so a run is on record before a restart, or the
+     * Forge record queue installs its write here, so a run is on record before a restart, or the
      * reviewer's own end, can lose it. A write that cannot happen leaves the run reported, for the
      * queue's next drain; until a hook is installed, the runs wait for that drain.
      */
     readonly setRunReportedHook: (hook: HqRunReportedHandler) => Effect.Effect<void>;
-    /** Changes after proxied Build writes so display caches expire without another HQ call. */
+    /** Changes after proxied Forge writes so display caches expire without another HQ call. */
     readonly buildWriteVersion: Effect.Effect<number>;
     /** Ends the thread's HQ agent (never revokes it); its next HQ call starts a new agent. */
     readonly end: (agent: Omit<HqAgent, "model">) => Effect.Effect<void>;
@@ -446,8 +446,8 @@ const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
   const connectionChanges = yield* PubSub.sliding<void>(1);
   const reportedRunChanges = yield* PubSub.sliding<void>(1);
-  /** Reviewer runs reported since the Build record queue last collected them. */
-  const reportedRuns = yield* Ref.make<ReadonlyArray<HqBuildRunReport>>([]);
+  /** Reviewer runs reported since the Forge record queue last collected them. */
+  const reportedRuns = yield* Ref.make<ReadonlyArray<HqForgeRunReport>>([]);
   /** What records a reported run before its agent is answered; nothing until the queue installs it. */
   const runReported = yield* Ref.make<HqRunReportedHandler>(() => Effect.void);
   const crypto = yield* Crypto.Crypto;
@@ -810,7 +810,7 @@ const make = Effect.gen(function* () {
         // caches once forwarding ends however it ends, without interpreting the response.
         Effect.ensuring(
           Effect.sync(() => {
-            if (containsBuildWrite(request.body)) buildWriteVersion += 1;
+            if (containsForgeWrite(request.body)) buildWriteVersion += 1;
           }),
         ),
       );
@@ -924,7 +924,7 @@ const make = Effect.gen(function* () {
   /**
    * Reports a reviewer's own run from the answer Weave gave its `hq_build_run` call, so it can be
    * recorded before the reviewer's agent ends. The run id reaches T3 nowhere else, and an agent that
-   * has ended cannot be asked for it again. A lead's Build runs are not reported: only a reviewer's
+   * has ended cannot be asked for it again. A lead's Forge runs are not reported: only a reviewer's
    * call is its own review.
    */
   const reportReviewRun = Effect.fnUntraced(function* (
@@ -940,12 +940,12 @@ const make = Effect.gen(function* () {
     const run = decodeJson(new TextDecoder().decode(response.body)).pipe(
       Option.flatMap(decodeToolCall),
       Option.filter((answer) => answer.result.structuredContent.status === "succeeded"),
-      Option.flatMap((answer) => decodeBuildRun(answer.result.structuredContent.value)),
+      Option.flatMap((answer) => decodeForgeRun(answer.result.structuredContent.value)),
     );
     if (Option.isNone(run)) return;
     const runId = run.value.run?.id ?? run.value.runId ?? run.value.id;
     if (runId === undefined) return;
-    const report: HqBuildRunReport = {
+    const report: HqForgeRunReport = {
       threadId,
       runId,
       specId: run.value.spec?.id ?? run.value.specId ?? null,
@@ -1172,16 +1172,16 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(HqAgentConnections, make);
 
-/** A reviewer's own Build run, as Weave answered its `hq_build_run` call. */
-export interface HqBuildRunReport {
+/** A reviewer's own Forge run, as Weave answered its `hq_build_run` call. */
+export interface HqForgeRunReport {
   readonly threadId: ThreadId;
   readonly runId: string;
   readonly specId: string | null;
-  /** The T3 run it was reported in, once the Build record queue has read that run. */
+  /** The T3 run it was reported in, once the Forge record queue has read that run. */
   readonly t3RunId?: string;
 }
 
-/** The T3 run a reported run was made in, as the Build record queue read it. */
+/** The T3 run a reported run was made in, as the Forge record queue read it. */
 export interface HqReportedRunStamp {
   readonly threadId: ThreadId;
   readonly runId: string;
@@ -1189,7 +1189,7 @@ export interface HqReportedRunStamp {
 }
 
 /** What T3 does with a reported run before the reviewer is given the answer naming it. */
-export type HqRunReportedHandler = (report: HqBuildRunReport) => Effect.Effect<void>;
+export type HqRunReportedHandler = (report: HqForgeRunReport) => Effect.Effect<void>;
 
 /** Every adapter attaches the thread's Weave server through the shared agent-server list. */
 export const agentMcpServersLayer = Layer.effect(

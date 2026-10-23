@@ -196,29 +196,29 @@ import {
   OrchestrationSearchThreadsResult,
 } from "./threadSearch.ts";
 import {
-  BuildHomeDecideInput,
-  BuildHomeDecideResult,
-  BuildHomeError,
-  BuildHomeAnswerInput,
-  BuildHomeReadInput,
-  BuildHomeState,
-} from "./buildHome.ts";
+  ForgeHomeDecideInput,
+  ForgeHomeDecideResult,
+  ForgeHomeError,
+  ForgeHomeAnswerInput,
+  ForgeHomeReadInput,
+  ForgeHomeState,
+} from "./forgeHome.ts";
 import {
   BuildConnectionReadInput,
   HqDisconnectInput,
   HqSignInStartInput,
   HqSignInStartResult,
   BuildConnectionReadResult,
-  BuildWorkItemError,
-  BuildWorkItemLinkInput,
-  BuildWorkItemLinkResult,
-  BuildWorkItemReadInput,
-  BuildWorkItemCardInput,
-  BuildWorkItemCardResult,
-  BuildWorkItemMentionsInput,
-  BuildWorkItemMentionsResult,
-  BuildWorkItemReadResult,
-} from "./buildWorkItem.ts";
+  ForgeWorkItemError,
+  ForgeWorkItemLinkInput,
+  ForgeWorkItemLinkResult,
+  ForgeWorkItemReadInput,
+  ForgeWorkItemCardInput,
+  ForgeWorkItemCardResult,
+  ForgeWorkItemMentionsInput,
+  ForgeWorkItemMentionsResult,
+  ForgeWorkItemReadResult,
+} from "./forgeWorkItem.ts";
 import {
   ProviderUploadFeedbackError,
   ProviderUploadFeedbackInput,
@@ -607,13 +607,13 @@ export const WS_METHODS = {
   buildConnectionRead: "build.connection.read",
   hqSignInStart: "hq.signIn.start",
   hqDisconnect: "hq.disconnect",
-  buildWorkItemRead: "build.workItem.read",
-  buildWorkItemCard: "build.workItem.card",
-  buildWorkItemMentions: "build.workItem.mentions",
-  buildWorkItemLink: "build.workItem.link",
-  buildHomeRead: "build.home.read",
-  buildHomeDecide: "build.home.decide",
-  buildHomeAnswer: "build.home.answer",
+  forgeWorkItemRead: "build.workItem.read",
+  forgeWorkItemCard: "build.workItem.card",
+  forgeWorkItemMentions: "build.workItem.mentions",
+  forgeWorkItemLink: "build.workItem.link",
+  forgeHomeRead: "build.home.read",
+  forgeHomeDecide: "build.home.decide",
+  forgeHomeAnswer: "build.home.answer",
 
   scheduledTasksList: "scheduledTasks.list",
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
@@ -2026,64 +2026,64 @@ const WsSubscribeServerLifecycleRpc = Rpc.make(WS_METHODS.subscribeServerLifecyc
   stream: true,
 });
 
-const WsBuildConnectionReadRpc = Rpc.make(WS_METHODS.buildConnectionRead, {
+const WsForgeConnectionReadRpc = Rpc.make(WS_METHODS.buildConnectionRead, {
   payload: BuildConnectionReadInput,
   success: BuildConnectionReadResult,
-  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
 const WsHqSignInStartRpc = Rpc.make(WS_METHODS.hqSignInStart, {
   payload: HqSignInStartInput,
   success: HqSignInStartResult,
-  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
 const WsHqDisconnectRpc = Rpc.make(WS_METHODS.hqDisconnect, {
   payload: HqDisconnectInput,
   success: BuildConnectionReadResult,
-  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
-const WsBuildWorkItemReadRpc = Rpc.make(WS_METHODS.buildWorkItemRead, {
-  payload: BuildWorkItemReadInput,
-  success: BuildWorkItemReadResult,
-  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+const WsForgeWorkItemReadRpc = Rpc.make(WS_METHODS.forgeWorkItemRead, {
+  payload: ForgeWorkItemReadInput,
+  success: ForgeWorkItemReadResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
-const WsBuildWorkItemCardRpc = Rpc.make(WS_METHODS.buildWorkItemCard, {
-  payload: BuildWorkItemCardInput,
-  success: BuildWorkItemCardResult,
-  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+const WsForgeWorkItemCardRpc = Rpc.make(WS_METHODS.forgeWorkItemCard, {
+  payload: ForgeWorkItemCardInput,
+  success: ForgeWorkItemCardResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
-const WsBuildWorkItemMentionsRpc = Rpc.make(WS_METHODS.buildWorkItemMentions, {
-  payload: BuildWorkItemMentionsInput,
-  success: BuildWorkItemMentionsResult,
-  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+const WsForgeWorkItemMentionsRpc = Rpc.make(WS_METHODS.forgeWorkItemMentions, {
+  payload: ForgeWorkItemMentionsInput,
+  success: ForgeWorkItemMentionsResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
-const WsBuildWorkItemLinkRpc = Rpc.make(WS_METHODS.buildWorkItemLink, {
-  payload: BuildWorkItemLinkInput,
-  success: BuildWorkItemLinkResult,
-  error: Schema.Union([BuildWorkItemError, EnvironmentAuthorizationError]),
+const WsForgeWorkItemLinkRpc = Rpc.make(WS_METHODS.forgeWorkItemLink, {
+  payload: ForgeWorkItemLinkInput,
+  success: ForgeWorkItemLinkResult,
+  error: Schema.Union([ForgeWorkItemError, EnvironmentAuthorizationError]),
 });
 
-const WsBuildHomeReadRpc = Rpc.make(WS_METHODS.buildHomeRead, {
-  payload: BuildHomeReadInput,
-  success: BuildHomeState,
+const WsForgeHomeReadRpc = Rpc.make(WS_METHODS.forgeHomeRead, {
+  payload: ForgeHomeReadInput,
+  success: ForgeHomeState,
   error: EnvironmentAuthorizationError,
 });
 
-const WsBuildHomeDecideRpc = Rpc.make(WS_METHODS.buildHomeDecide, {
-  payload: BuildHomeDecideInput,
-  success: BuildHomeDecideResult,
-  error: Schema.Union([BuildHomeError, EnvironmentAuthorizationError]),
+const WsForgeHomeDecideRpc = Rpc.make(WS_METHODS.forgeHomeDecide, {
+  payload: ForgeHomeDecideInput,
+  success: ForgeHomeDecideResult,
+  error: Schema.Union([ForgeHomeError, EnvironmentAuthorizationError]),
 });
 
-const WsBuildHomeAnswerRpc = Rpc.make(WS_METHODS.buildHomeAnswer, {
-  payload: BuildHomeAnswerInput,
-  success: BuildHomeDecideResult,
-  error: Schema.Union([BuildHomeError, EnvironmentAuthorizationError]),
+const WsForgeHomeAnswerRpc = Rpc.make(WS_METHODS.forgeHomeAnswer, {
+  payload: ForgeHomeAnswerInput,
+  success: ForgeHomeDecideResult,
+  error: Schema.Union([ForgeHomeError, EnvironmentAuthorizationError]),
 });
 
 const WsScheduledTasksListRpc = Rpc.make(WS_METHODS.scheduledTasksList, {
@@ -2299,14 +2299,14 @@ export const WsCoreRpcGroup = RpcGroup.make(
   WsServerGetUsageSummaryRpc,
   WsServerRefreshUsageRatesRpc,
   WsServerSignalProcessRpc,
-  WsBuildConnectionReadRpc,
-  WsBuildWorkItemReadRpc,
-  WsBuildWorkItemCardRpc,
-  WsBuildWorkItemMentionsRpc,
-  WsBuildWorkItemLinkRpc,
-  WsBuildHomeReadRpc,
-  WsBuildHomeDecideRpc,
-  WsBuildHomeAnswerRpc,
+  WsForgeConnectionReadRpc,
+  WsForgeWorkItemReadRpc,
+  WsForgeWorkItemCardRpc,
+  WsForgeWorkItemMentionsRpc,
+  WsForgeWorkItemLinkRpc,
+  WsForgeHomeReadRpc,
+  WsForgeHomeDecideRpc,
+  WsForgeHomeAnswerRpc,
   WsScheduledTasksListRpc,
   WsScheduledTasksSubscribeRpc,
   WsScheduledTasksUpsertRpc,

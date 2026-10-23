@@ -46,7 +46,7 @@ import {
 import { renderAssistantCitationsAsText } from "@t3tools/shared/assistantCitations";
 import { encodeComposerContextFragment } from "@t3tools/shared/composerContextClipboard";
 import { parseThreadLink, resolveThreadLinkRef } from "@t3tools/shared/threadLinks";
-import { buildItemNumberFromUrl } from "@t3tools/shared/buildLinks";
+import { forgeItemNumberFromUrl } from "@t3tools/shared/forgeLinks";
 import { PROMPT_LINK_MAX_PROMPT_LENGTH } from "@t3tools/shared/promptLinks";
 import {
   parseComposerContextHref,
@@ -244,7 +244,7 @@ import {
   WORKSPACE_BASENAME_LOOKUP_LIMIT,
 } from "@t3tools/client-runtime/workspace-basename-lookup";
 import { useLiveThreadLinkLabels, useQuietThreadShell } from "../../state/entities";
-import { useLiveBuildMentions, useThreadBuildOrigin } from "./useBuildMentions";
+import { useLiveForgeMentions, useThreadForgeOrigin } from "./useForgeMentions";
 import { useThreadSelection } from "../../state/use-thread-selection";
 import { useEnvironmentQuery } from "../../state/query";
 import { serverEnvironment } from "../../state/server";
@@ -849,7 +849,7 @@ const AssistantMarkdownContent = memo(function AssistantMarkdownContent(props: {
   readonly renderImage: MarkdownImageRenderer;
   readonly skills?: ReadonlyArray<SelectableMarkdownSkill> | undefined;
 }) {
-  const liveMarkdown = useLiveBuildMentions(
+  const liveMarkdown = useLiveForgeMentions(
     useLiveThreadLinkLabels(props.markdown, props.environmentId),
     props.environmentId,
     props.threadId,
@@ -1821,7 +1821,7 @@ function UserMessageContent(props: UserMessageContentProps) {
   const [selected, setSelected] = useState<{ contextId: string; label: string } | null>(null);
   const navigation = useNavigation();
   const { selectedThread } = useThreadSelection();
-  const liveText = useLiveBuildMentions(
+  const liveText = useLiveForgeMentions(
     useLiveThreadLinkLabels(props.text, props.environmentId),
     props.environmentId,
     props.threadId,
@@ -2204,7 +2204,7 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   const iconSubtleColor = theme["--color-icon-subtle"];
   const screenColor = theme["--color-screen"];
   const userBubbleColor = theme["--color-user-bubble"];
-  const buildOrigin = useThreadBuildOrigin(props.environmentId, props.threadId);
+  const buildOrigin = useThreadForgeOrigin(props.environmentId, props.threadId);
   const openSkillInstructions = (path: string) => {
     void Haptics.selectionAsync();
     navigation.navigate("ThreadFile", {
@@ -2230,10 +2230,10 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
     markdownLinkRequest.current?.abort();
     const request = new AbortController();
     markdownLinkRequest.current = request;
-    const buildNumber = buildOrigin === null ? null : buildItemNumberFromUrl(href, buildOrigin);
+    const buildNumber = buildOrigin === null ? null : forgeItemNumberFromUrl(href, buildOrigin);
     if (buildNumber !== null) {
       void Haptics.selectionAsync();
-      navigation.navigate("ThreadBuildItem", {
+      navigation.navigate("ThreadForgeItem", {
         environmentId: props.environmentId,
         threadId: props.threadId,
         number: buildNumber,

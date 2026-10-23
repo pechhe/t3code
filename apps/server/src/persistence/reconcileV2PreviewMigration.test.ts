@@ -68,7 +68,7 @@ describe("V2 preview upgrade", () => {
         [86, "ProjectHqUnregisteredKey"],
         [87, "ScheduledTaskRoleBackfill"],
         [88, "ShellStopRequestIndex"],
-        [89, "HqBuildRecords"],
+        [89, "HqForgeRecords"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -180,7 +180,7 @@ describe("V2 preview upgrade", () => {
         [86, "ProjectHqUnregisteredKey"],
         [87, "ScheduledTaskRoleBackfill"],
         [88, "ShellStopRequestIndex"],
-        [89, "HqBuildRecords"],
+        [89, "HqForgeRecords"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

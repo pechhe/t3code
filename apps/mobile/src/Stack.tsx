@@ -64,7 +64,7 @@ import { GitOverviewSheet } from "./features/threads/git/GitOverviewSheet";
 import { ThreadPullRequestsSheet } from "./features/threads/ThreadPullRequestsSheet";
 import { ThreadAgentsSheet } from "./features/threads/ThreadAgentsSheet";
 import { ThreadBackgroundWorkSheet } from "./features/threads/ThreadBackgroundWorkSheet";
-import { ThreadBuildItemSheet } from "./features/threads/ThreadBuildItemSheet";
+import { ThreadForgeItemSheet } from "./features/threads/ThreadForgeItemSheet";
 import { ThreadQueueSheet } from "./features/threads/ThreadQueueControl";
 import { ThreadRouteScreen } from "./features/threads/ThreadRouteScreen";
 import { McpAppFullscreenScreen } from "./features/threads/McpAppFullscreenScreen";
@@ -470,7 +470,7 @@ const WORKSPACE_OVERLAY_ROUTES = new Set([
   "SettingsSheet",
   "ThreadAgents",
   "ThreadBackgroundWork",
-  "ThreadBuildItem",
+  "ThreadForgeItem",
   "ThreadPullRequests",
   "ThreadQueue",
   "ThreadReviewComment",
@@ -882,8 +882,8 @@ const RootStackConfig = createWorkspaceStackNavigator({
         sheetGrabberVisible: true,
       },
     }),
-    ThreadBuildItem: createNativeStackScreen({
-      screen: ThreadBuildItemSheet,
+    ThreadForgeItem: createNativeStackScreen({
+      screen: ThreadForgeItemSheet,
       options: {
         ...HORIZONTAL_FORM_SHEET_OPTIONS,
         headerShown: false,

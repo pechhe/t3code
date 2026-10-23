@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { ensureLocalApi } from "../../localApi";
 import { useEnvironmentHttpBaseUrl, useEnvironments } from "../../state/environments";
 import { useEnvironmentQuery } from "../../state/query";
-import { buildWorkItems } from "../../state/buildWorkItems";
+import { forgeWorkItems } from "../../state/forgeWorkItems";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { toastManager } from "../ui/toast";
 import { Button } from "../ui/button";
@@ -23,10 +23,10 @@ function HqConnectionRow({
   readonly label: string;
   readonly showLabel: boolean;
 }) {
-  const connection = useEnvironmentQuery(buildWorkItems.connection({ environmentId, input: {} }));
+  const connection = useEnvironmentQuery(forgeWorkItems.connection({ environmentId, input: {} }));
   const httpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  const start = useAtomCommand(buildWorkItems.signInStart, { label: "Connect to Weave" });
-  const disconnect = useAtomCommand(buildWorkItems.disconnect, { label: "Disconnect from Weave" });
+  const start = useAtomCommand(forgeWorkItems.signInStart, { label: "Connect to Weave" });
+  const disconnect = useAtomCommand(forgeWorkItems.disconnect, { label: "Disconnect from Weave" });
   const view = describeHqConnection(connection.data);
   const { refresh } = connection;
 

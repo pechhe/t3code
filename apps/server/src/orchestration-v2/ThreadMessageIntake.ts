@@ -265,7 +265,7 @@ export const launchThread = Effect.fn("ThreadMessageIntake.launchThread")(functi
       Effect.tapError((error) => {
         if (
           error._tag === "ThreadManagementProviderInstanceDisabledError" ||
-          error._tag === "ThreadLaunchBuildItemError"
+          error._tag === "ThreadLaunchForgeItemError"
         ) {
           return AttachmentClaims.releaseClaimedAttachments(claimed.claimedPaths);
         }

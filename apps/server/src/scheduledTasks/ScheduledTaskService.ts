@@ -1255,7 +1255,7 @@ export const layer = Layer.effect(
       const workspaceStrategy: ScheduledTask["workspaceStrategy"] = keepsDefaultRoot
         ? existingTask.workspaceStrategy
         : input.workspaceStrategy.type === "worktree" &&
-            input.workspaceStrategy.buildItem === undefined &&
+            input.workspaceStrategy.forgeItem === undefined &&
             (yield* managedFolders.isScratchProject(input.projectId))
           ? { type: "root" }
           : input.workspaceStrategy;

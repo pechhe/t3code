@@ -11,9 +11,9 @@
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"
     },
-    "./buildLinks": {
-      "types": "./src/buildLinks.ts",
-      "import": "./src/buildLinks.ts"
+    "./forgeLinks": {
+      "types": "./src/forgeLinks.ts",
+      "import": "./src/forgeLinks.ts"
     },
     "./hqOrigins": {
       "types": "./src/hqOrigins.ts",

@@ -440,7 +440,7 @@ export const OrchestrationV2ThreadWorkflow = Schema.Struct({
 export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;
 
 /**
- * The YardSmith HQ Build Spec or Ticket a thread works on. T3 stores only the
+ * The YardSmith HQ Forge Spec or Ticket a thread works on. T3 stores only the
  * reference; the item itself is always read from the HQ it was resolved against.
  */
 export const OrchestrationV2ThreadWorkItem = Schema.Struct({
@@ -452,10 +452,10 @@ export type OrchestrationV2ThreadWorkItem = typeof OrchestrationV2ThreadWorkItem
 
 /**
  * How T3 answered SlipJay removing the thread's workspace, for the next turn to report: a
- * checkout SlipJay created (`fresh`), one it resumed because the Build item already had it
+ * checkout SlipJay created (`fresh`), one it resumed because the Forge item already had it
  * (`resumed`), one whose origin SlipJay did not report (`unconfirmed`), or none because
  * allocation failed (`unavailable`). `detail` is what went wrong, such as the
- * allocation failure or the Build item that could not be attached to a fresh checkout.
+ * allocation failure or the Forge item that could not be attached to a fresh checkout.
  */
 export const OrchestrationV2WorkspaceReplacement = Schema.Struct({
   outcome: Schema.Literals(["fresh", "resumed", "unconfirmed", "unavailable"]),
@@ -638,7 +638,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   workspaceReplacedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   workspaceReplacement: Schema.optional(Schema.NullOr(OrchestrationV2WorkspaceReplacement)),
   /**
-   * The Build item the thread's SlipJay workspace belongs to. A replacement stays under it, even
+   * The Forge item the thread's SlipJay workspace belongs to. A replacement stays under it, even
    * when its checkout could not be attached to the item or none could be allocated.
    */
   workspaceIssue: Schema.optional(Schema.NullOr(PositiveInt)),
@@ -794,7 +794,12 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     baseRef: TrimmedNonEmptyString,
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
-    /** In a SlipJay project, the Build item whose workspace the thread resumes or creates. */
+    /**
+     * In a SlipJay project, the Forge item whose workspace the thread resumes or creates.
+     * `buildItem` answers beside it while consumers switch (YS-185); remove it when the
+     * compatibility names go.
+     */
+    forgeItem: Schema.optional(PositiveInt),
     buildItem: Schema.optional(PositiveInt),
   }),
 ]);
@@ -3140,11 +3145,11 @@ export const OrchestrationV2Command = Schema.Union([
     keepSideChat: Schema.optional(Schema.Literal(true)),
     /** Set (object) or clear (null) the governing workflow; absent leaves it unchanged. */
     workflow: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkflow)),
-    /** Link (object) or unlink (null) the thread's Build item; absent leaves it unchanged. */
+    /** Link (object) or unlink (null) the thread's Forge item; absent leaves it unchanged. */
     workItem: Schema.optional(Schema.NullOr(OrchestrationV2ThreadWorkItem)),
     /** Records that the new worktreePath replaces a SlipJay workspace SlipJay removed. */
     workspaceReplaced: Schema.optional(OrchestrationV2WorkspaceReplacement),
-    /** The Build item the new worktreePath belongs to; a new worktreePath without one clears it. */
+    /** The Forge item the new worktreePath belongs to; a new worktreePath without one clears it. */
     workspaceIssue: Schema.optional(PositiveInt),
     /** Record a suggested project, or dismiss the recorded one; absent leaves it unchanged. */
     projectSuggestion: Schema.optional(

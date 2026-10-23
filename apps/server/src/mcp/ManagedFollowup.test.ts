@@ -1,4 +1,4 @@
-import * as BuildWorkItems from "../hq/BuildWorkItems.ts";
+import * as ForgeWorkItems from "../hq/ForgeWorkItems.ts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
@@ -341,7 +341,7 @@ it.effect(
         Effect.provide(
           Layer.merge(
             Mcp.layer.pipe(
-              Layer.provide(Layer.mock(BuildWorkItems.BuildWorkItems)({})),
+              Layer.provide(Layer.mock(ForgeWorkItems.ForgeWorkItems)({})),
               Layer.provide(dependencies),
               Layer.provide(WorkspaceProvider.layerGitWorktree),
             ),

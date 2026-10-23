@@ -52,7 +52,7 @@ layer("055_OrchestrationV2", (it) => {
         [86, "ProjectHqUnregisteredKey"],
         [87, "ScheduledTaskRoleBackfill"],
         [88, "ShellStopRequestIndex"],
-        [89, "HqBuildRecords"],
+        [89, "HqForgeRecords"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
 
@@ -107,7 +107,7 @@ layer("055_OrchestrationV2", (it) => {
         { migration_id: 86, name: "ProjectHqUnregisteredKey" },
         { migration_id: 87, name: "ScheduledTaskRoleBackfill" },
         { migration_id: 88, name: "ShellStopRequestIndex" },
-        { migration_id: 89, name: "HqBuildRecords" },
+        { migration_id: 89, name: "HqForgeRecords" },
       ]);
 
       const tables = yield* sql<{ readonly name: string }>`

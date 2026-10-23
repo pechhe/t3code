@@ -216,8 +216,8 @@ import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { Checkbox } from "./ui/checkbox";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
-import { openLinkBuildItemDialog } from "./buildItem/LinkBuildItemDialog";
-import { useBuildConnected } from "../state/buildWorkItems";
+import { openLinkForgeItemDialog } from "./forgeItem/LinkForgeItemDialog";
+import { useForgeConnected } from "../state/forgeWorkItems";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
 import { searchSettings, SETTINGS_SECTION_LABELS } from "./settings/settingsSearch";
@@ -540,7 +540,7 @@ function OpenCommandPaletteDialog(props: {
         ? scopeThreadRef(activeThread.environmentId, activeThread.id)
         : null;
   const openPanelPullRequestUrl = useOpenPanelPullRequestUrl(referenceThreadRef);
-  const activeThreadBuildConnected = useBuildConnected(activeThread?.environmentId ?? null);
+  const activeThreadForgeConnected = useForgeConnected(activeThread?.environmentId ?? null);
   const activeThreadServerConfig = useServerConfigs().get(
     activeThread?.environmentId ?? ("" as EnvironmentId),
   );
@@ -1341,16 +1341,16 @@ function OpenCommandPaletteDialog(props: {
     }
   }
 
-  if (activeThread !== null && activeThreadBuildConnected) {
+  if (activeThread !== null && activeThreadForgeConnected) {
     const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
     actionItems.push({
       kind: "action",
       value: "action:link-build-item",
       searchTerms: ["link", "build", "spec", "ticket", "hq", "yardsmith", "weave"],
-      title: activeThread.workItem ? "Change linked Build item" : "Link Build item",
+      title: activeThread.workItem ? "Change linked Forge item" : "Link Forge item",
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
-        openLinkBuildItemDialog(threadRef);
+        openLinkForgeItemDialog(threadRef);
       },
     });
   }

@@ -2,7 +2,7 @@
  * Where Weave, formerly YardSmith HQ, answers. It moved from `hq.yardsmith.co.uk` to
  * `weave.yardsmith.co.uk` on 2026-10-22 (pechhe/yardsmith YS-287): the old address only redirects,
  * and Weave's issuer and resource are the new one, so a delegation made for the old address is
- * refused. One module owns this so the connection store, the sign-in service and Build links agree.
+ * refused. One module owns this so the connection store, the sign-in service and Forge links agree.
  */
 export const DEFAULT_HQ_ORIGIN = "https://weave.yardsmith.co.uk";
 
