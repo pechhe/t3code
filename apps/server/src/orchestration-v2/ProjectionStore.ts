@@ -443,6 +443,10 @@ export interface ProjectionStoreV2Shape {
   readonly getShellSnapshot: (
     options?: ShellSnapshotOptions,
   ) => Effect.Effect<OrchestrationV2ThreadShellSnapshot, ProjectionStoreV2Error>;
+  readonly listActiveSubagentThreadIds: () => Effect.Effect<
+    ReadonlyArray<ThreadId>,
+    ProjectionStoreV2Error
+  >;
   /**
    * Callers that combine the shell with other reads run this inside their own
    * transaction and the returned decode after it commits, so the shared
@@ -6733,6 +6737,20 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         .withTransaction(readShellSnapshotRows(options))
         .pipe(Effect.mapError(shellSnapshotReadError), Effect.flatMap(decodeShellSnapshot));
 
+    const listActiveSubagentThreadIds = Effect.fn("ProjectionStore.listActiveSubagentThreadIds")(
+      function* () {
+        const rows = yield* sql<{ readonly thread_id: string }>`
+        SELECT thread_id
+        FROM orchestration_v2_projection_threads
+        WHERE deleted_at IS NULL
+          AND json_extract(payload_json, '$.archivedAt') IS NULL
+          AND json_extract(payload_json, '$.lineage.relationshipToParent') = 'subagent'
+      `;
+        return rows.map((row) => ThreadId.make(row.thread_id));
+      },
+      Effect.mapError(shellSnapshotReadError),
+    );
+
     const getThreadShell: ProjectionStoreV2Shape["getThreadShell"] = (threadId) =>
       getShellSnapshot({ threadIds: [threadId] }).pipe(
         Effect.map((snapshot) => [...snapshot.threads, ...snapshot.archivedThreads][0] ?? null),
@@ -6749,6 +6767,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
     return {
       apply,
       getShellSnapshot: readOnReader(getShellSnapshot),
+      listActiveSubagentThreadIds: readOnReader(listActiveSubagentThreadIds),
       readShellSnapshot: readOnReader(readShellSnapshot),
       getThreadShell: readOnReader(getThreadShell),
       getThread: readOnReader(getThread),
@@ -6862,6 +6881,19 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
           archivedThreads: visible.filter((thread) => thread.archivedAt !== null),
         };
       }),
+      listActiveSubagentThreadIds: Effect.fn("ProjectionStore.listActiveSubagentThreadIds")(
+        function* () {
+          const existing = (yield* Ref.get(replayState)).projections;
+          return [...existing.values()]
+            .filter(
+              ({ thread }) =>
+                thread.deletedAt === null &&
+                thread.archivedAt === null &&
+                thread.lineage.relationshipToParent === "subagent",
+            )
+            .map(({ thread }) => thread.id);
+        },
+      ),
       readShellSnapshot: (options) =>
         service.getShellSnapshot(options).pipe(Effect.map(Effect.succeed)),
       getThreadShell: Effect.fn("ProjectionStore.getThreadShell")(function* (threadId) {

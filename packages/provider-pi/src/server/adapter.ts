@@ -497,23 +497,40 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         threadId: input.threadId,
         env: launch.env,
       });
+      // Finalizers run in reverse order: reap detached work after terminating Pi.
+      const scopeUnit = scopedLaunch.unit;
+      const stopScope =
+        scopeUnit === undefined ? Effect.void : yield* Effect.cached(agentScope.stop(scopeUnit));
+      yield* Effect.addFinalizer(() => stopScope);
+      // T3 spawns Pi again for a compaction point, so each connection gets its own watch.
+      let exitWatch: Fiber.Fiber<void> | null = null;
       const spawnConnection = () =>
-        makePiRpcConnection({
-          command: scopedLaunch.command,
-          args: scopedLaunch.args,
-          cwd,
-          env: launch.env,
-        }).pipe(
-          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-          Effect.mapError(
-            (cause) =>
-              new ProviderAdapter.ProviderAdapterOpenSessionError({
-                driver: PI_PROVIDER,
-                providerSessionId: input.providerSessionId,
-                cause,
-              }),
-          ),
-        );
+        Effect.gen(function* () {
+          const spawned = yield* makePiRpcConnection({
+            command: scopedLaunch.command,
+            args: scopedLaunch.args,
+            cwd,
+            env: launch.env,
+          }).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterOpenSessionError({
+                  driver: PI_PROVIDER,
+                  providerSessionId: input.providerSessionId,
+                  cause,
+                }),
+            ),
+          );
+          // Detached children can keep stdout open after Pi exits.
+          if (scopeUnit !== undefined) {
+            exitWatch = yield* spawned.exited.pipe(
+              Effect.matchEffect({ onFailure: () => stopScope, onSuccess: () => stopScope }),
+              Effect.forkIn(scope),
+            );
+          }
+          return spawned;
+        });
       let connection: PiRpcConnection = yield* spawnConnection();
       const now = yield* DateTime.now;
       let sessionEntity: OrchestrationV2ProviderSession = {
@@ -736,6 +753,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         if (!result.wrote) return;
         // The running process still holds the settings it loaded, so start it again on the file
         // T3 just wrote, before any turn has run in it.
+        // Stopping the shared scope when T3 itself restarts Pi for the compaction point would kill
+        // or disable the replacement process, so this restart drops its exit watch first.
+        if (exitWatch !== null) yield* Fiber.interrupt(exitWatch);
         yield* connection.terminate;
         connection = yield* spawnConnection();
       });
