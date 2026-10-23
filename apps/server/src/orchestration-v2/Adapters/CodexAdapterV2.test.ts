@@ -398,6 +398,7 @@ describe("CodexAdapterV2 process spawning", () => {
     // The user's own servers stay off; only the pinned t3-code endpoint is on.
     assert.deepEqual(servers["external-shell"], { enabled: false });
     assert.equal(servers["t3-code"]?.url, "http://127.0.0.1:43123/mcp/browser");
+    assert.equal(servers["t3-code"]?.default_tools_approval_mode, "approve");
     assert.deepEqual(servers["t3-code"]?.enabled_tools, [...MANAGED_BROWSER_TOOL_NAMES]);
     assert.notProperty(servers["t3-code"] ?? {}, "enabled");
   });
@@ -434,6 +435,9 @@ describe("CodexAdapterV2 process spawning", () => {
           "mcp_servers.t3-code": {
             url: "http://127.0.0.1:43123/mcp",
             tool_timeout_sec: 3_900,
+            // Claude pre-approves its wildcard, so Codex pre-approves the same server instead
+            // of asking for each T3 tool (or denying it under `approval_policy: never`).
+            default_tools_approval_mode: "approve",
             http_headers: {
               Authorization: "Bearer secret-codex-token",
             },
@@ -6988,6 +6992,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
             "mcp_servers.t3-code": {
               url: "http://127.0.0.1:43123/mcp",
               tool_timeout_sec: 3_900,
+              default_tools_approval_mode: "approve",
               http_headers: { Authorization: "Bearer secret-codex-token" },
             },
           },

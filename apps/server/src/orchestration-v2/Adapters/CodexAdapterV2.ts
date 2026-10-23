@@ -1467,6 +1467,11 @@ export function codexThreadRuntimeParams(input: {
       : {
           url: mcpSession.endpoint,
           tool_timeout_sec: CODEX_T3_MCP_TOOL_TIMEOUT_SEC,
+          // Claude pre-approves the `mcp__t3-code__*` wildcard, and this is its Codex
+          // equal: T3's own tools are the app's authority, not Codex's to approve. Without
+          // it Codex asks for every call in a guarded workspace's full access (where the
+          // command guard makes it ask) and denies them outright under `never`.
+          default_tools_approval_mode: "approve",
           ...(mcpSession.managedBrowser === true
             ? { enabled_tools: [...MANAGED_BROWSER_TOOL_NAMES] }
             : {}),
