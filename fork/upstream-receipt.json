@@ -3,136 +3,217 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.2-nightly.20261022.3526",
-      "sha": "f054d1b8018721bd997d99cbb918a7b17bf098a4"
-    },
-    "target": {
       "tag": "v0.1.2-nightly.20261022.3541",
       "sha": "044f07257c9684ae4543bd1e1ebf9c394e9e3830"
+    },
+    "target": {
+      "tag": "v0.1.3-nightly.20261023.3553",
+      "sha": "51273020db3245f4ec29514a419d29b5dcb012dc"
     }
   },
   "fork": {
-    "base": "53878a5b3c55acd5f27acd2dc01709e11aaacc05"
+    "base": "3297251a7da6eb4dc281fca7e674f02043792a1e"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "47e1903c8f0b4a429c98ecc7fa4bbefe6a25bf28"
+    "blob": "2b16fa8c7e1d6ffbc22e88b1207f7786447d234f"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.2-nightly.20261022.3541@1792700154",
-  "reviewedAt": "2026-10-22T21:38:56Z",
+  "attempt": "v0.1.3-nightly.20261023.3553@1792721813",
+  "reviewedAt": "2026-10-23T02:32:49Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:ace81a92-aa84-461e-8a32-0eb0566f8574",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:9eb4dcaf-0a2e-4dec-a9c8-f0a401711eae",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 8,
+    "upstreamCommits": 20,
     "entriesConsidered": [
+      "ws-rpc-group-split",
+      "perf-persistence-reads",
+      "subagent-return-chip",
+      "managed-delegation",
+      "account-pools",
+      "thread-watches",
+      "scheduled-tasks-extensions",
+      "run-interrupt-cause",
       "web-client-customisation",
+      "desktop-fork-build",
       "mobile-fork-screens",
       "nightly-app-icon",
-      "account-pools",
-      "desktop-fork-build",
-      "subagent-return-chip"
+      "t3-agent-cli",
+      "dev-state-tooling",
+      "fork-guidance",
+      "phi-browser-backend",
+      "linked-environments"
     ],
     "areas": [
-      "All 8 incoming commits (f054d1b8..044f0725) by subject and stat; the merge applied onto the fork base eff034e066 with no conflicts, so every file both sides changed was read in the merged tree: Sidebar.tsx, LegacySidebar.tsx, Sidebar.logic.test.ts and AppSidebarLayout.tsx (the reveal query selectors against the fork's raised-card row and machine icon), apps/mobile/app.config.ts (version against the nightly Android colours), __root.tsx (upstream's removal of the provider update launch notification beside the fork's SnapShot, screen recording and project theme mounts) and knip.jsonc (upstream's fixture entries beside the fork's test-landing entry)",
-      "Web: sidebar reveal after history navigation and command palette (#23519), toast content using the full accordion width (#23777), provider update toasts no longer popping on launch (#23233, with ProviderUpdateLaunchNotification.tsx/.environments.ts/ProviderUpdatePrimaryNotification.tsx/ProviderUpdateEnvironmentRows.tsx/providerUpdateDismissal.ts removed and the logic file trimmed; the fork-visible pill and update-everything call paths import only surviving exports), subagent bar container-query layout (#23502), tool images beyond the preview limit marked in the work log (#23595)",
-      "Server and shared: inherited Codex totals in the usage scan (#23729, scan cache v9 with a v8 re-parse only for entries holding malformed records), asynchronous Windows startup-environment probe (#21720); no migrations in this tag",
-      "Mobile and build: app version 2.1.0 only; new upstream replay fixture scripts/fixtures/issue-16534, wired into knip with upstream's own entry",
-      "t3peach advanced by three fork commits while this merge was being reconciled (f1c10c7e3 session tool listings, 447ea920 managed-role enforcement, 8f97cd2b selection highlight); none touches a file this tag changed, so the merge was rebased onto 8f97cd2b with no conflict against them and their record entries (session-tool-listings, managed-delegation) are unaffected by this update"
+      "All 20 incoming commits (044f0725..51273020) by subject and stat, then every file both sides changed (36) read in the merged tree: ws.ts, the persistence Migrations list and its preview-upgrade test, ProjectionStore.ts/.test.ts, OrchestrationEventStore.ts, Orchestrator.ts, CodexAdapterV2.ts, server.ts, cli/config.ts, contracts server.ts/settings.ts, symbols SettingsPanels.tsx/settingsSearch.ts/ProviderInstanceCard.tsx/LegacySidebar.tsx, chat ComposerFooterControls.tsx/ThreadActivityBanners.tsx, vite.config.ts, the oxlint plugin index, AGENTS.md, apps/*/package.json, pnpm-lock.yaml and docs/operations/development.md",
+      "Web and settings: thread title instructions (#21882, a new `threadTitleInstructions` server setting with a decoding default, its settings section and search entry), telemetry export settings showing the running endpoint's source (#23713: `OtlpEndpointSource`, optional `otlp*Source`/`otlp*Variable` on ServerObservability, cli/config.ts resolution), PR check counts staying in sync (#23548: optional `observedAt` on PullRequestChecks), tool icon detail in light mode (#23896), and the em-dash copy sweep (#23799) with its new `t3code/no-em-dash-copy` lint rule",
+      "Server: batched shell item counts and the stop-request index (#23751, renumbered to fork migration 088), managed Codex token renewal in the server (#21786/#21787: `CodexManagedTokenBroker`, `CodexManagedTokenProtocol`, the `t3 __managed-chatgpt-token` auth.command fast path), Codex parents resumed after a direct native child finishes (#23840), PR watches woken when no checks report (#23863, additive `checksAwaitedSince`), Forgejo merge delete-branch setting (#23471), GitCafe authored lists and merge progress (#23887), GitCafe PR URLs in the MCP link/unlink/watch tools (#23899), and subagent transcript updates kept off the shell stream (#23783)",
+      "Type system: upstream's single-group split for the WebSocket handler layer (#23813) against the fork's contracts-level feature groups",
+      "Mobile and build: Clerk Expo SDK bump (#23047) with its patch rename, folded and unfolded Duo store screenshots (#23849), and the 0.1.2 version bump (#release prepare)",
+      "Docs: the GitCafe mirror and dev-setup refresh (#23808) beside the fork's dev-state lines",
+      "t3peach did not move while this merge was reconciled (t3peach@origin and the merge's first parent are both 3297251a), so no rebase was needed"
     ],
     "exclusions": [
       {
         "what": "Web, desktop and mobile UI in a running client",
-        "why": "No browser or device pass in this unattended webhook run; covered by typecheck, focused tests and the landing gate"
+        "why": "No browser or device pass in this unattended webhook run; covered by the typechecks, focused tests and the landing gate"
       },
       {
-        "what": "Browser tests (MessagesTimeline.browser.test.tsx) and the rest of the gate's test selection",
+        "what": "Browser tests (TelemetryExportSettings.browser.test.tsx and the gate's own selection)",
         "why": "Run by the landing gate, not locally"
+      },
+      {
+        "what": "Lint (`t3code/no-em-dash-copy` over changed files)",
+        "why": "Not in the landing gate or the audit; the sweep is upstream's and no fork-owned copy file was changed by it (the fork's remaining em dashes in source files this tag did not touch are its own state, not this merge's)"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "web-client-customisation",
-      "upstream": "#23519 sidebar follows the active thread after history navigation (routeReveal through AppSidebarLayout, Sidebar and LegacySidebar)",
-      "decision": "adopt",
+      "entry": "ws-rpc-group-split",
+      "upstream": "#23813 preserve typed requirements as the RPC group grows (SplitWsRpcGroup/OtherWsRpcGroup and toHandlers in apps/server/src/ws.ts, after #22364's earlier attempt)",
+      "decision": "retain",
       "requirements": [
-        "the selected sidebar row stays the fork's raised card and every row keeps its machine icon",
-        "a reveal only scrolls the open thread's row into view"
+        "every WebSocket RPC is served through the feature group that owns it, each registering its own handler layer",
+        "WsRpcGroup stays the merge of those groups so RpcServer.make(ServerWsRpcGroup, ...) serves every method",
+        "the layer's requirement, error and output types stay typed"
       ],
       "evidence": [
-        "merged apps/web/src/components/Sidebar.tsx keeps `machineByEnvironmentId` through to `SidebarThreadRow`, whose rows still set `aria-current`, the selector the reveal queries; the legacy reveal queries `[data-thread-item] [data-active=\"true\"]`, which LegacySidebar still renders",
-        "apps/web/src/components/AppSidebarLayout.tsx passes one `routeReveal` to both sidebars; the fork had not edited that file since 3526",
-        "vp test run apps/web/src/components/Sidebar.logic.test.ts (68 tests over both web files) passed"
+        "merged ws.ts keeps ServerWsCoreRpcGroup/ServerWsPeersRpcGroup/ServerWsHqRpcGroup/ServerWsPullRequestRpcGroup and their toLayer calls; upstream's split types and its Context.merge/toHandlers tail are gone, and the RpcGroup import it added is removed",
+        "packages/contracts/src/rpc.ts (auto-merged) still exports the four groups and composes WsRpcGroup from them; upstream's prefix list would not cover the fork-only peers and hq groups",
+        "vp run --filter t3 typecheck and vp run --filter @t3tools/web typecheck both exit 0, so requirements stay typed past the instantiation limit"
       ]
     },
     {
-      "entry": "nightly-app-icon",
-      "upstream": "chore(mobile): bump app version to 2.1.0 (apps/mobile/app.config.ts)",
+      "entry": "perf-persistence-reads",
+      "upstream": "#23751 speed up shell snapshots on large databases (selectShellItemCounts batching, removal of the per-thread item_count and runless_item_count subqueries, ShellStopRequestIndex)",
       "decision": "adopt",
-      "requirements": ["the nightly Android background #1F2125 and notification colour #F39B6A stay in PREVIEW_ASSETS"],
+      "requirements": [
+        "each live shell batch reads its threads in one shell-snapshot read filtered by threadIds, not one getThreadShell per thread",
+        "the shell snapshot's item counts stay correct through rolled-back runs, including fork sources",
+        "released migration numbers never move, so upstream's migration takes a free fork number"
+      ],
       "evidence": [
-        "merged apps/mobile/app.config.ts keeps the fork's PREVIEW_ASSETS colours beside `version: repoEnv.T3CODE_MOBILE_VERSION ?? \"2.1.0\"`"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "the same mobile version bump; nothing else in apps/mobile",
-      "decision": "adopt",
-      "requirements": ["the fork's Build item header, workflow badge, release approval card and settings entries are untouched"],
-      "evidence": ["git diff --name-only f054d1b8 044f0725 lists apps/mobile/app.config.ts alone under apps/mobile"]
-    },
-    {
-      "entry": "account-pools",
-      "upstream": "#23729 count initial Codex requests with inherited totals (codexUsage, usageScanCache v9)",
-      "decision": "adopt",
-      "requirements": ["pool routing and the usage card keep reading the same usage sources"],
-      "evidence": [
-        "apps/server/src/provider/Drivers/codexUsage.test.ts, apps/server/src/usage/usageScanCache.test.ts and usageTranscriptReader.test.ts passed",
-        "UsageService suite passes (39 tests) under a real TMPDIR; the two failures under the default macOS TMPDIR are the /var -> /private/var symlink in the test's own path comparison, present without this tag"
-      ]
-    },
-    {
-      "entry": "desktop-fork-build",
-      "upstream": "#21720 probe the Windows startup environment asynchronously (packages/shared/shell.ts)",
-      "decision": "adopt",
-      "requirements": ["the login shell's T3CODE_AGENT_POLICY_ROOT and the build's absent update feed are unchanged"],
-      "evidence": [
-        "packages/shared/src/shell.test.ts passed (69 tests over three files, 2 skipped)",
-        "the change is the Windows probe inside shell.ts; the fork's build environment is set by scripts/fork-nightly.sh, which it does not touch"
+        "merged ProjectionStore.ts: getThreadShell still delegates to getShellSnapshot({ threadIds: [threadId] }) (the fork side of the conflict), and readShellSnapshotRows now calls upstream's selectShellItemCounts and shellItemCountMap, so the fork's batching carries upstream's batched counts",
+        "upstream's ShellStopRequestIndex is fork migration 088 with Migration0088 registered after 087, and reconcileV2PreviewMigration.test.ts expects [88, \"ShellStopRequestIndex\"] in both of its upgrade paths",
+        "apps/server/src/orchestration-v2/ProjectionStore.test.ts (including upstream's EXPLAIN QUERY PLAN check that both stop-request lookups use orchestration_v2_projection_turn_items_stop_request_idx) and apps/server/src/persistence/reconcileV2PreviewMigration.test.ts: 46 tests passed",
+        "vp i reports the merged lockfile up to date, so this tag's dependency pinning needed no regeneration"
       ]
     },
     {
       "entry": "subagent-return-chip",
-      "upstream": "#23502 subagent bar keeps model and status readable in narrow chat columns (ProviderSubagentBar container queries)",
+      "upstream": "#23783 keep subagent transcript updates off the shell stream (shouldPublishShellApplicationEvent; filter on the replay and the live tail)",
       "decision": "adopt",
-      "requirements": ["each subagent still shows once, as its start card updating in place, with return chips in the timeline"],
+      "requirements": [
+        "each subagent still shows once, as its start card updating in place, with returns as chips in the parent's timeline",
+        "a focused child thread still receives its transcript"
+      ],
       "evidence": [
-        "merged ProviderSubagentBar.tsx only changes layout classes and adds one screen-reader label; V2LifecycleRow.tsx, MessagesTimeline.tsx and the return-chip components are untouched by this tag"
+        "merged ShellStream.ts/LiveStreamBudget.ts/OrchestrationEventStore.ts take upstream's filter unchanged; the fork had not edited those hunks",
+        "cards and chips are derived from the parent thread's own events (V2LifecycleRow.tsx, MessagesTimeline.tsx) and a child's transcript arrives on its own thread subscription, which the filter does not touch",
+        "apps/web/src/components/chat/MessagesTimeline.logic.test.ts and V2LifecycleRow.logic.test.ts passed (with shippedClientCompatibility.test.ts and serverSettings.test.ts: 166 tests)"
+      ]
+    },
+    {
+      "entry": "managed-delegation",
+      "upstream": "#23840 resume Codex parents after native children finish (a backgroundWorkNotification naming the childThreadId for a root parent whose turn ended)",
+      "decision": "adopt",
+      "requirements": [
+        "managed delegation keeps its enforced scope, follow-up and completion hold",
+        "a subagent notification reaching the parent still shows once, as the fork's return chip"
+      ],
+      "evidence": [
+        "merged CodexAdapterV2.ts contains only upstream's addition against the fork base; the fork's managed paths are in ManagedAgentService/OrchestratorMcpService, which this tag does not touch",
+        "the notification carries childThreadId, which SubagentReturnChip and onJumpToSubagentCard already resolve (MessagesTimeline.tsx, V2LifecycleRow.tsx)",
+        "apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts passed (92 tests, including upstream's resume cases)"
+      ]
+    },
+    {
+      "entry": "account-pools",
+      "upstream": "#21786/#21787 managed Codex token renewal moves into the server (CodexManagedTokenBroker, CodexManagedTokenProtocol, t3 __managed-chatgpt-token fast path in bin.ts)",
+      "decision": "adapt",
+      "requirements": [
+        "pool routing still decides whose allowance a turn spends and reads the same usage sources",
+        "the server stays the only place a managed Codex token is minted"
+      ],
+      "evidence": [
+        "the new files and the bin.ts/server.ts wiring are upstream's, merged without a fork-side edit; pool routing lives in ProviderInstanceRegistry/ProviderSwitchService/UsageLimitRecoveryWorker, none of which this tag changes",
+        "apps/server/src/provider/CodexManagedRuntime.test.ts and CodexChatGptAuth.test.ts passed (58 tests); packages/shared/src/providerPools.test.ts passed"
+      ]
+    },
+    {
+      "entry": "thread-watches",
+      "upstream": "#23863 wake PR watches when no checks report (checksAwaitedSince on ThreadPullRequestWatch, carried into a restarted watch)",
+      "decision": "adopt",
+      "requirements": [
+        "thread and Build item watches keep their own reactor beside upstream's PR watches",
+        "an additive optional field keeps shipped clients decoding the watch"
+      ],
+      "evidence": [
+        "checksAwaitedSince is Schema.optional(Schema.NullOr(IsoDateTime)), and Orchestrator.ts only copies it into a restarted watch when present",
+        "apps/server/src/orchestration-v2/pullRequestWatch.test.ts and runtimeLayer.test.ts (gate-selected) plus ThreadWatch.test.ts passed; the fork's ThreadWatchReactor is untouched"
+      ]
+    },
+    {
+      "entry": "scheduled-tasks-extensions",
+      "upstream": "#23799 em-dash copy in ScheduledTasksSettings.tsx (deleted in the fork)",
+      "decision": "retain",
+      "requirements": [
+        "scheduled tasks live on the fork's Scheduled page (components/scheduled/ScheduledTasksPage) rather than the settings panel"
+      ],
+      "evidence": [
+        "the file is deleted in the fork's base (commit 348117c8cf moved the list and editor onto the Scheduled page), so upstream's modify was resolved as a delete and no copy is shown from it"
       ]
     },
     {
       "entry": null,
-      "upstream": "#23233 provider updates no longer pop toasts on launch (ProviderUpdateLaunchNotification removal)",
+      "upstream": "#21882 thread title instructions; #23713 telemetry export source; #23548 PR check counts; #23896 tool icon detail in light mode; #23899 GitCafe PR URLs in the MCP tools; #23471 Forgejo delete-branch; #23887 GitCafe lists; #23047 Clerk SDKs; #23849 Duo screenshots; version bump to 0.1.2; #23808 docs",
       "decision": "adopt",
-      "requirements": ["the sidebar provider update pill and the update-everything action keep working"],
+      "requirements": [
+        "contract payload changes stay additive so shipped clients decode them",
+        "the fork's settings sections, PR surfaces and mobile screens keep their own content"
+      ],
       "evidence": [
-        "every surviving import of ProviderUpdateLaunchNotification.logic (SidebarProviderUpdatePill, useUpdateEverything, ProviderSettingsPanel, ProviderUpdatesAction, its own test) resolves to an export the trimmed file still has; grep finds no reference to the removed components",
-        "apps/web/src/components/ProviderUpdateLaunchNotification.logic.test.ts passed"
+        "every contract change is additive and optional or defaulted: otlp*Source/otlp*Variable (Schema.optional), observedAt (Schema.optional), checksAwaitedSince (Schema.optional), and threadTitleInstructions with Schema.withDecodingDefault on ServerSettings",
+        "apps/server/src/shippedClientCompatibility.test.ts and packages/contracts/src/server.test.ts passed; the settings/Panels and settingsSearch merges are additive beside the fork's own sections",
+        "apps/server/src/orchestration-v2/pullRequestWatch.test.ts, packages/contracts/src/threadPullRequest.test.ts and packages/contracts/src/rpc.test.ts passed; the remaining changes are upstream's own adapters and docs with no fork file in them"
       ]
     },
     {
-      "entry": null,
-      "upstream": "#23595 mark tool images beyond the preview limit; #23777 toast content uses the full accordion width",
+      "entry": "web-client-customisation",
+      "upstream": "#23799 the em-dash sweep's copy edits in LegacySidebar.tsx, ComposerFooterControls.tsx and ThreadActivityBanners.tsx",
       "decision": "adopt",
-      "requirements": ["image previews in the work log stay per-item and the toast variant look is unchanged"],
+      "requirements": [
+        "the fork's raised sidebar card, machine icons and background-work strip keep their layout"
+      ],
       "evidence": [
-        "packages/client-runtime/src/work-log/itemDetail.test.ts passed",
-        "the fork had not changed either file since 3526; merged trees take upstream's versions with no fork-side edit lost"
+        "the merged diffs against the fork base are one copy string each ('{label}: {root}', the two mode tooltips, 'Branch changed from'); no fork layout or component was removed"
+      ]
+    },
+    {
+      "entry": "desktop-fork-build",
+      "upstream": "version bump to 0.1.2 (apps/desktop/package.json, apps/server/package.json) and #23713's DesktopObservability change",
+      "decision": "adopt",
+      "requirements": [
+        "the Nightly build keeps its own packaging and absent update feed"
+      ],
+      "evidence": [
+        "the merged package.json diffs are the version field alone; the fork's build environment is set by scripts/fork-nightly.sh, which this tag does not touch"
+      ]
+    },
+    {
+      "entry": "run-interrupt-cause",
+      "upstream": "#23751's ShellStopRequestIndex (partial index on run_interrupt_request turn items)",
+      "decision": "adopt",
+      "requirements": [
+        "the run's cause still comes from its own interrupt items in RunExecutionService/Orchestrator"
+      ],
+      "evidence": [
+        "the index serves the shell snapshot's latest-run stop-request lookups; the fork's cause read is elsewhere and untouched, and ProjectionStore.test.ts asserts the index is used"
       ]
     }
   ],
@@ -141,37 +222,52 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile unchanged by this tag; 25 packages linked into the workspace"
+      "note": "lockfile up to date after the merge (27 packages added, 2 removed); no regeneration needed"
     },
     {
-      "command": "vp test run apps/web/src/components/Sidebar.logic.test.ts apps/web/src/components/ProviderUpdateLaunchNotification.logic.test.ts",
+      "command": "vp test run apps/server/src/persistence/reconcileV2PreviewMigration.test.ts apps/server/src/orchestration-v2/ProjectionStore.test.ts",
       "result": "passed",
-      "note": "68 tests, 2 files"
+      "note": "46 tests, 2 files, including upstream's stop-request index EXPLAIN check against the merged shell query"
     },
     {
-      "command": "vp test run packages/client-runtime/src/work-log/itemDetail.test.ts packages/shared/src/shell.test.ts apps/server/src/provider/Drivers/codexUsage.test.ts",
+      "command": "vp test run apps/server/src/ws.test.ts apps/server/src/persistence/Migrations.test.ts apps/server/src/orchestration-v2/pullRequestWatch.test.ts",
       "result": "passed",
-      "note": "69 passed, 2 skipped"
+      "note": "30 tests, 3 files"
     },
     {
-      "command": "vp test run apps/server/src/usage/UsageService.test.ts apps/server/src/usage/usageScanCache.test.ts apps/server/src/usage/usageTranscriptReader.test.ts apps/server/src/os-jank.test.ts",
+      "command": "vp test run apps/server/src/shippedClientCompatibility.test.ts apps/web/src/components/chat/MessagesTimeline.logic.test.ts apps/web/src/components/chat/V2LifecycleRow.logic.test.ts apps/server/src/serverSettings.test.ts",
       "result": "passed",
-      "note": "two UsageService failures under the default macOS TMPDIR compare /var with /private/var in their own path assertions ('discovers Pi history in its default home', 'retains Codex reconciliation and partial coverage'); TMPDIR set to a real directory, the whole UsageService suite passes (39 tests), so the failures are the machine's symlinked TMPDIR, not this tag"
+      "note": "166 tests, 4 files"
+    },
+    {
+      "command": "vp test run apps/server/src/provider/CodexManagedRuntime.test.ts apps/server/src/provider/CodexChatGptAuth.test.ts",
+      "result": "passed",
+      "note": "58 tests, 2 files"
+    },
+    {
+      "command": "vp test run apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.test.ts",
+      "result": "passed",
+      "note": "92 tests"
+    },
+    {
+      "command": "vp test run apps/server/src/orchestration-v2/ThreadWatch.test.ts packages/shared/src/providerPools.test.ts packages/contracts/src/rpc.test.ts",
+      "result": "passed",
+      "note": "57 tests, 3 files"
+    },
+    {
+      "command": "vp run --filter t3 typecheck",
+      "result": "passed",
+      "note": "exit 0; only Effect lint suggestions"
+    },
+    {
+      "command": "vp run --filter @t3tools/web typecheck",
+      "result": "passed",
+      "note": "exit 0; only Effect lint suggestions"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
       "note": "the gate lists and selects its tests against the merged config"
-    },
-    {
-      "command": "pnpm exec vp run --filter @t3tools/web typecheck",
-      "result": "passed",
-      "note": "exit 0"
-    },
-    {
-      "command": "node scripts/fork-upstream-receipt.ts verify --rev <candidate> --landed <t3peach@origin>",
-      "result": "passed",
-      "note": "receipt, record blob and policy hash agree at the candidate's last commit"
     }
   ],
   "result": "reconciled"
