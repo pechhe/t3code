@@ -12,7 +12,7 @@ const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 const SCRIPT =
   process.env.FORK_NIGHTLY_SCRIPT_UNDER_TEST ??
   NodePath.join(import.meta.dirname, "fork-nightly.sh");
-const APP = "T3 Code (Nightly).app";
+const APP = "T3 Peach (Nightly).app";
 const INSTALL_JOB = "com.pechhe.t3code-install-on-quit";
 const WEBHOOK = "https://hooks.invalid/rebase";
 const OLD_TAG = "v0.1.1-nightly.20990101.1";
@@ -661,6 +661,158 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           expect(await exists(stateFile(f, "previous"))).toBe(false);
           expect(await readText(stateFile(f, "active-mac.json"))).toBe(activeBefore);
           expect(await nightlyLog(f)).toContain("is not the selected target newer-src");
+        });
+      },
+      TIMEOUT,
+    );
+
+    describe("rename migration", () => {
+      const LEGACY_APP = "T3 Code (Nightly).app";
+
+      it(
+        "renames pre-rename staged and previous copies and replaces the legacy install",
+        async () => {
+          await withFixture(async (f) => {
+            const legacyInstalled = NodePath.join(f.apps, LEGACY_APP);
+            await makeApp(legacyInstalled, "old");
+            await makeApp(stateFile(f, "staged", LEGACY_APP), "new");
+            await makeApp(stateFile(f, "previous", LEGACY_APP), "older");
+            await writeJson(stateFile(f, "staged/receipt.json"), {
+              source: "new-src",
+              version: "1.0.1",
+            });
+            await writeJson(stateFile(f, "previous/receipt.json"), { source: "older-src" });
+            await writeJson(stateFile(f, "selected.json"), { source: "new-src" });
+
+            const result = await run(f, ["install"]);
+            expect(result.code).toBe(0);
+            // finish_install removes the staged build it just installed.
+            expect(await exists(stateFile(f, "staged"))).toBe(false);
+            expect(await build(stateFile(f, "previous", APP))).toBe("older");
+            expect(await exists(stateFile(f, "staged", LEGACY_APP))).toBe(false);
+            expect(await exists(stateFile(f, "previous", LEGACY_APP))).toBe(false);
+            expect(await exists(legacyInstalled)).toBe(false);
+            expect(await build(f.installed)).toBe("new");
+            expect(await nightlyLog(f)).toContain("renamed the staged");
+            expect(await nightlyLog(f)).toContain("renamed the previous");
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "keeps the legacy install until the renamed build is installed and the legacy app is not running",
+        async () => {
+          await withFixture(async (f) => {
+            const legacyInstalled = NodePath.join(f.apps, LEGACY_APP);
+            await makeApp(legacyInstalled, "old");
+            await installOld(f);
+            await stageBuild(f);
+            await NodeFSP.writeFile(NodePath.join(f.root, "running"), "");
+
+            await run(f, ["install"]);
+            expect(await build(legacyInstalled)).toBe("old");
+            expect(await exists(stateFile(f, "legacy"))).toBe(false);
+            expect(await nightlyLog(f)).toContain("a legacy " + LEGACY_APP + " is running");
+
+            await NodeFSP.rm(NodePath.join(f.root, "running"));
+            await run(f, ["install"]);
+            expect(await build(stateFile(f, "legacy", LEGACY_APP))).toBe("old");
+            expect(await exists(legacyInstalled)).toBe(false);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it(
+        "keeps a pre-rename install that the renamed build has not replaced yet",
+        async () => {
+          await withFixture(async (f) => {
+            const legacyInstalled = NodePath.join(f.apps, LEGACY_APP);
+            await makeApp(legacyInstalled, "old");
+            await stageBuild(f);
+            const result = await run(f, ["install"]);
+            expect(result.code).toBe(0);
+            expect(await build(f.installed)).toBe("new");
+            expect(await exists(legacyInstalled)).toBe(false);
+            expect(await build(stateFile(f, "legacy", LEGACY_APP))).toBe("old");
+          });
+        },
+        TIMEOUT,
+      );
+    });
+
+    it(
+      "removes the pre-rename transient install leftovers when it moves the legacy install aside",
+      async () => {
+        const LEGACY_APP = "T3 Code (Nightly).app";
+        await withFixture(async (f) => {
+          const legacyInstalled = NodePath.join(f.apps, LEGACY_APP);
+          await makeApp(legacyInstalled, "old");
+          await stageBuild(f);
+          await makeApp(NodePath.join(f.apps, `.${LEGACY_APP}.installing`), "half-new");
+          await makeApp(NodePath.join(f.apps, `.${LEGACY_APP}.replaced`), "old2");
+
+          const result = await run(f, ["install"]);
+          expect(result.code).toBe(0);
+          expect(await exists(NodePath.join(f.apps, `.${LEGACY_APP}.installing`))).toBe(false);
+          expect(await exists(NodePath.join(f.apps, `.${LEGACY_APP}.replaced`))).toBe(false);
+          expect(await build(stateFile(f, "legacy", LEGACY_APP))).toBe("old");
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "does not roll a good legacy install back to the previous build on the first post-rename run",
+      async () => {
+        const LEGACY_APP = "T3 Code (Nightly).app";
+        await withFixture(async (f) => {
+          const legacyInstalled = NodePath.join(f.apps, LEGACY_APP);
+          await makeApp(legacyInstalled, "old");
+          await makeApp(stateFile(f, "previous", LEGACY_APP), "older");
+          await writeJson(stateFile(f, "previous/receipt.json"), { source: "older-src" });
+          await writeJson(stateFile(f, "active-mac.json"), { source: "current-src" });
+          await writeJson(stateFile(f, "selected.json"), { source: "current-src" });
+
+          const result = await run(f, ["install"]);
+          expect(result.code).toBe(0);
+          expect(await build(legacyInstalled)).toBe("old");
+          expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({
+            source: "current-src",
+          });
+          // No roll-back install and no missing-app alarm.
+          expect(await exists(stateFile(f, "staged"))).toBe(false);
+          expect(await calls(f, "osascript")).toEqual([]);
+          expect(await nightlyLog(f)).not.toContain("was incomplete");
+          expect(await nightlyLog(f)).not.toContain("no complete recovery copy");
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "restores an interrupted new-name install beside a good legacy install and then installs",
+      async () => {
+        const LEGACY_APP = "T3 Code (Nightly).app";
+        await withFixture(async (f) => {
+          const legacyInstalled = NodePath.join(f.apps, LEGACY_APP);
+          await makeApp(legacyInstalled, "old");
+          // replace_app died between its two renames: the app it moved out is left
+          // in the REPLACED dot dir and no app sits at INSTALLED.
+          await makeApp(NodePath.join(f.apps, `.${APP}.replaced`), "current");
+          await writeJson(stateFile(f, "replaced-receipt.json"), { source: "current-src" });
+          await stageBuild(f);
+
+          const result = await run(f, ["install"]);
+          expect(result.code).toBe(0);
+          // The interrupted new-name build was restored, then the staged build
+          // installed over it.
+          expect(await build(f.installed)).toBe("new");
+          expect(await build(stateFile(f, "previous", APP))).toBe("current");
+          expect(await readJson(stateFile(f, "previous/receipt.json"))).toMatchObject({
+            source: "current-src",
+          });
         });
       },
       TIMEOUT,

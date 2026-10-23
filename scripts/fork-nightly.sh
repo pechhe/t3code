@@ -50,8 +50,12 @@ REPO="${T3FORK_REPO:-$STATE/repo}"
 ORIGIN_URL="${T3FORK_ORIGIN_URL:-$(git -C "$REPO" remote get-url origin 2>/dev/null || echo https://github.com/pechhe/t3code.git)}"
 UPSTREAM_URL="${T3FORK_UPSTREAM_URL:-https://github.com/pingdotgg/t3code.git}"
 RELEASES="${T3FORK_RELEASES_URL:-https://github.com/pingdotgg/t3code/releases/download}"
-APP_NAME="T3 Code (Nightly).app"
+APP_NAME="T3 Peach (Nightly).app"
 INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$APP_NAME"
+# Installs made before the rename; the first build installed under the new name
+# moves one aside so only the renamed app stays in /Applications.
+LEGACY_APP_NAME="T3 Code (Nightly).app"
+LEGACY_INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$LEGACY_APP_NAME"
 IDENTITY="${T3FORK_SIGNING_IDENTITY:-Peach Pi Local Signing}"
 # A private keychain holding only the signing identity, so signing works over ssh,
 # where the login keychain is locked. `setup-signing` creates it once on the Mac.
@@ -152,10 +156,64 @@ acquire() {
 release() { rm -rf "${STATE:?}/$1"; }
 
 # -a: run by an agent inside the app, the app's main process is an ancestor.
-t3_running() {
-  pgrep -af "$(printf '%s' "$INSTALLED/Contents/MacOS/" | sed 's/[][()\.^$*+?{}|]/\\&/g')" >/dev/null
+path_running() {
+  pgrep -af "$(printf '%s' "$1" | sed 's/[][()\.^$*+?{}|]/\\&/g')" >/dev/null && return 0
+  return 1
 }
 
+# The legacy path matters only while the pre-rename install is the one installed.
+t3_running() {
+  path_running "$INSTALLED/Contents/MacOS/" && return 0
+  path_running "$LEGACY_INSTALLED/Contents/MacOS/" && return 0
+  return 1
+}
+
+# Renames whatever carries the pre-rename bundle name to the new one, so recovery,
+# install and rollback lookups fit on the very first run after the rename.
+rename_legacy_copies() {
+  if [ -d "$STATE/staged/$LEGACY_APP_NAME" ] && [ ! -d "$STATE/staged/$APP_NAME" ]; then
+    mv "$STATE/staged/$LEGACY_APP_NAME" "$STATE/staged/$APP_NAME" || {
+      notify "Renaming the staged T3 Code build failed; install waits for the next build"
+      return 1
+    }
+    log "renamed the staged $LEGACY_APP_NAME build to $APP_NAME"
+  fi
+  if [ -d "$STATE/previous/$LEGACY_APP_NAME" ] && [ ! -d "$STATE/previous/$APP_NAME" ]; then
+    mv "$STATE/previous/$LEGACY_APP_NAME" "$STATE/previous/$APP_NAME" || {
+      notify "Renaming the previous T3 Code build failed; the one-step rollback is lost"
+      return 1
+    }
+    log "renamed the previous $LEGACY_APP_NAME build to $APP_NAME"
+  fi
+}
+
+# Moves the pre-rename install aside once the renamed app is installed, so the
+# dock, Finder and permission lists show only T3 Peach.
+migrate_legacy_name() {
+  rename_legacy_copies
+  [ -d "$LEGACY_INSTALLED" ] || return 0
+  if [ ! -d "$INSTALLED" ]; then
+    log "$LEGACY_APP_NAME is still the installed build; the renamed build replaces it at its next install"
+    return 0
+  fi
+  if path_running "$LEGACY_INSTALLED/Contents/MacOS/"; then
+    log "a legacy $LEGACY_APP_NAME is running; moving it aside waits until the app quits"
+    return 0
+  fi
+  if ! app_valid "$LEGACY_INSTALLED"; then
+    log "legacy $LEGACY_APP_NAME is invalid; leaving it in place"
+    return 0
+  fi
+  rm -rf "$APPS_DIR/.${LEGACY_APP_NAME}.installing" "$APPS_DIR/.${LEGACY_APP_NAME}.replaced"
+  rm -rf "$STATE/legacy" && mkdir -p "$STATE/legacy"
+  mv "$LEGACY_INSTALLED" "$STATE/legacy/$LEGACY_APP_NAME" || {
+    notify "Moving the old T3 Code build aside failed; it stays installed beside T3 Peach"
+    return 1
+  }
+  log "moved the legacy $LEGACY_APP_NAME install to $STATE/legacy"
+}
+
+APPS_DIR="$(dirname "$INSTALLED")"
 json_get() { jq -r "$2 // empty" "$1" 2>/dev/null || true; }
 stamp() { jq --arg at "$(date -u +%FT%TZ)" '. + {installedAt: $at}' "$1"; }
 
@@ -164,7 +222,6 @@ stamp() { jq --arg at "$(date -u +%FT%TZ)" '. + {installedAt: $at}' "$1"; }
 app_present() { [ -f "$1/Contents/Info.plist" ] && [ -d "$1/Contents/MacOS" ]; }
 app_valid() { app_present "$1" && codesign --verify --deep --strict "$1" >/dev/null 2>&1; }
 
-APPS_DIR="$(dirname "$INSTALLED")"
 INCOMING="$APPS_DIR/.$APP_NAME.installing"
 REPLACED="$APPS_DIR/.$APP_NAME.replaced"
 # Names the build being installed from when its copy is complete until the
@@ -250,6 +307,11 @@ recover_app() {
     mv "$REPLACED" "$INSTALLED"
     if [ -f "$REPLACED_RECEIPT" ]; then mv "$REPLACED_RECEIPT" "$STATE/active-mac.json"; fi
     notify "Restored the T3 Code build an interrupted install replaced"
+    return 0
+  # A valid pre-rename install is the app, not damage; the restores below must
+  # not roll the renamed build back to the previous one over it.
+  elif app_valid "$LEGACY_INSTALLED"; then
+    return 0
   elif app_valid "$STATE/previous/$APP_NAME" &&
     ditto "$STATE/previous/$APP_NAME" "$INCOMING" && app_valid "$INCOMING"; then
     mv "$INCOMING" "$INSTALLED"
@@ -1089,8 +1151,11 @@ case "${1:-}" in
       exit 0
     }
     trap 'release lock' EXIT
+    rename_legacy_copies || true
     recover_app || true
+    migrate_legacy_name || true
     install_staged || true
+    migrate_legacy_name || true
     hourly
     ;;
   build)
@@ -1099,11 +1164,14 @@ case "${1:-}" in
     exec >>"$STATE/nightly.log" 2>&1
     acquire lock wait
     trap 'release lock' EXIT
+    rename_legacy_copies || true
     recover_app || true
+    migrate_legacy_name || true
     rc=0
     build "$@" || rc=$?
     reset_clone
     install_staged || true
+    migrate_legacy_name || true
     exit "$rc"
     ;;
   install)
@@ -1116,10 +1184,13 @@ case "${1:-}" in
     fi
     acquire lock wait
     trap 'release lock' EXIT
+    rename_legacy_copies || true
     recover_app || true
+    migrate_legacy_name || true
     had_staged="$([ -f "$STATE/staged/receipt.json" ] && echo 1 || true)"
     rc=0
     install_staged || rc=$?
+    migrate_legacy_name || true
     if [ "${2:-}" = --wait-for-quit ]; then
       if [ -n "$had_staged" ] && app_present "$INSTALLED"; then open "$INSTALLED" || true; fi
     fi

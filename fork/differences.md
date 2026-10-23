@@ -494,6 +494,18 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `adopt` (v0.1.2-nightly.20261022.3541, 2026-10-22): upstream's asynchronous Windows startup-environment probe (#21720, `packages/shared/shell.ts`) merged; the login-shell `T3CODE_AGENT_POLICY_ROOT` and the no-update-feed build are macOS-side and unchanged. Earlier: `adopt` (v0.1.1-nightly.20261020.3386, 2026-10-20): upstream's partial-clone remote parsing (#16316) replaces the fork's identity regex; build identity, display media and overlay wiring retained. Earlier: `retain` (seed, 2026-10-19).
 - **Owner:** pechhe/t3code#77, #144 (open).
 
+### fork-name
+
+- **Kind:** deliberate behaviour change
+- **Why:** The app is the fork, and its name says so: it installs and runs as T3 Peach.
+- **Requirements:** the desktop base name is `T3 Peach` wherever the app itself states it (window title, menus, injected client branding, the Linux entry, the loopback authorization pages, the boot splash); the beta name is `T3 Peach (Beta)` and the nightly bundle is built as `T3 Peach (Nightly).app`, so `fork-nightly.sh` renames the bundle it stages and installs, and moves the pre-rename `T3 Code (Nightly).app` install to `~/.t3fork/legacy` once the renamed build first installs; a running legacy install is still awaited by `install --wait-for-quit` during that cycle. Copy prose that merely says "T3 Code" stays as written, so upstream copy merges cleanly; only identity surfaces where the app names itself change. The `t3code` schemes, appId, artifact file names (`T3-Code-*`) and update metadata stay unchanged.
+- **Integration points:** `apps/desktop/src/app/DesktopEnvironment.ts` and `apps/web/src/branding.ts` (`APP_BASE_NAME`), `apps/desktop/package.json` `productName`, `apps/desktop/scripts/electron-launcher.mjs`, `apps/server/src/cloud/cliAuthHtml.ts` stage brands, `apps/web/index.html` boot shell, `scripts/build-desktop-artifact.ts` nightly `productName`, `scripts/fork-nightly.sh` (`APP_NAME`, `rename_legacy_copies` before `recover_app`, `migrate_legacy_name`, dual `t3_running` paths).
+- **Proof:** scripts/build-desktop-artifact.test.ts, apps/desktop/scripts/electron-launcher.test.mjs, scripts/fork-nightly.test.ts.
+- **Upstream:** none; upstream's names are replaced at the identity surfaces only. An upstream change to the branding resolver, `fork-nightly.sh`'s bundle name or the launcher names conflicts here.
+- **Retire when:** never (the fork's name).
+- **Decision:** `retain` (2026-10-23): new, on Henry's request.
+- **Owner:** none.
+
 ### nightly-app-icon
 
 - **Kind:** deliberate behaviour change
