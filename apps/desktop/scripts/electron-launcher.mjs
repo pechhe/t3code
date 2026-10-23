@@ -13,12 +13,12 @@ const repoRoot = NodePath.resolve(desktopDir, "..", "..");
 const devBundleIdSuffix = NodePath.basename(repoRoot)
   .toLowerCase()
   .replaceAll(/[^a-z0-9]+/g, "");
-const APP_DISPLAY_NAME = isDevelopment ? "T3 Peach (Dev)" : "T3 Peach (Beta)";
+const APP_DISPLAY_NAME = "T3 Peach";
 const APP_BUNDLE_ID = isDevelopment
   ? `com.t3tools.t3code.dev.${devBundleIdSuffix || "local"}`
   : "com.t3tools.t3code";
 const APP_PROTOCOL_SCHEMES = isDevelopment ? ["t3code-dev"] : ["t3code"];
-const LAUNCHER_VERSION = 20;
+const LAUNCHER_VERSION = 21;
 const developmentMacIconPngPath = NodePath.join(
   repoRoot,
   "assets",
@@ -354,6 +354,14 @@ function buildMacLauncher(electronBinaryPath) {
   const metadataPath = NodePath.join(runtimeDir, "metadata.json");
 
   NodeFS.mkdirSync(runtimeDir, { recursive: true });
+
+  // A runtime bundle built under a former name would linger beside this one, registered
+  // with LaunchServices, so the app still answered to its old name in Dock and Finder.
+  if (isDevelopment) {
+    for (const legacyAppName of ["T3 Peach (Dev).app", "T3 Code (Dev).app"]) {
+      NodeFS.rmSync(NodePath.join(runtimeDir, legacyAppName), { recursive: true, force: true });
+    }
+  }
 
   const expectedMetadata = {
     launcherVersion: LAUNCHER_VERSION,

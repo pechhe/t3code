@@ -2836,10 +2836,10 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
   return `${trimmed.slice(0, versionSeparator)}/${trimmed.slice(versionSeparator + 1)}`;
 }
 
-export function resolveDesktopProductName(version: string): string {
-  return resolveDesktopUpdateChannel(version) === "nightly"
-    ? "T3 Peach (Nightly)"
-    : (desktopPackageJson.productName ?? "T3 Code");
+// The channel no longer changes the name: the app is T3 Peach and the stage rides inside it.
+// The version stays in the signature because the release CLIs pass it.
+export function resolveDesktopProductName(_version: string): string {
+  return desktopPackageJson.productName ?? "T3 Peach";
 }
 
 export const createBuildConfig = Effect.fn("createBuildConfig")(function* (

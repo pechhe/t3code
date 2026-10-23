@@ -7,7 +7,7 @@
 #
 # launchd runs it hourly (`--install-agent` installs the job). Each run:
 #   1. Repairs an interrupted desktop replacement, then installs the staged
-#      build when T3 Code is not running.
+#      build when T3 Peach is not running.
 #   2. Sends the agent, once per attempt, through the T3 scheduled-task webhook
 #      in $STATE/rebase-webhook-url: a newer upstream tag to merge (`update`),
 #      or a landed integration that no selected build holds yet (`build`). The
@@ -50,12 +50,12 @@ REPO="${T3FORK_REPO:-$STATE/repo}"
 ORIGIN_URL="${T3FORK_ORIGIN_URL:-$(git -C "$REPO" remote get-url origin 2>/dev/null || echo https://github.com/pechhe/t3code.git)}"
 UPSTREAM_URL="${T3FORK_UPSTREAM_URL:-https://github.com/pingdotgg/t3code.git}"
 RELEASES="${T3FORK_RELEASES_URL:-https://github.com/pingdotgg/t3code/releases/download}"
-APP_NAME="T3 Peach (Nightly).app"
+APP_NAME="T3 Peach.app"
 INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$APP_NAME"
-# Installs made before the rename; the first build installed under the new name
-# moves one aside so only the renamed app stays in /Applications.
-LEGACY_APP_NAME="T3 Code (Nightly).app"
-LEGACY_INSTALLED="${T3FORK_APPLICATIONS:-/Applications}/$LEGACY_APP_NAME"
+APPS_DIR="$(dirname "$INSTALLED")"
+# Names earlier builds installed under, newest first. The first install under the
+# current name moves each aside, so /Applications, the Dock and Finder show one app.
+LEGACY_APP_NAMES=("T3 Peach (Nightly).app" "T3 Code (Nightly).app")
 IDENTITY="${T3FORK_SIGNING_IDENTITY:-Peach Pi Local Signing}"
 # A private keychain holding only the signing identity, so signing works over ssh,
 # where the login keychain is locked. `setup-signing` creates it once on the Mac.
@@ -67,7 +67,7 @@ SIGNING_PASS="$STATE/signing.pass"
 VPS="${T3FORK_VPS-slipjay-test}"
 VPS_CLONE="${T3FORK_VPS_CLONE:-~/projects/t3code-fork}"
 LABEL=com.pechhe.t3code-fork-nightly
-# A LaunchAgent that `install --on-quit` starts on demand. When T3 Code is
+# A LaunchAgent that `install --on-quit` starts on demand. When T3 Peach is
 # force-quit, macOS unloads jobs an agent inside it `launchctl submit`ted, but
 # keeps agents in ~/Library/LaunchAgents, which Background Task Management manages.
 INSTALL_JOB="${T3FORK_INSTALL_JOB:-com.pechhe.t3code-install-on-quit}"
@@ -161,59 +161,72 @@ path_running() {
   return 1
 }
 
-# The legacy path matters only while the pre-rename install is the one installed.
+# A pre-rename install matters only while it is the one installed.
 t3_running() {
   path_running "$INSTALLED/Contents/MacOS/" && return 0
-  path_running "$LEGACY_INSTALLED/Contents/MacOS/" && return 0
+  local legacy_app_name
+  for legacy_app_name in "${LEGACY_APP_NAMES[@]}"; do
+    path_running "$APPS_DIR/$legacy_app_name/Contents/MacOS/" && return 0
+  done
   return 1
 }
 
-# Renames whatever carries the pre-rename bundle name to the new one, so recovery,
+# Renames whatever carries a pre-rename bundle name to the current one, so recovery,
 # install and rollback lookups fit on the very first run after the rename.
 rename_legacy_copies() {
-  if [ -d "$STATE/staged/$LEGACY_APP_NAME" ] && [ ! -d "$STATE/staged/$APP_NAME" ]; then
-    mv "$STATE/staged/$LEGACY_APP_NAME" "$STATE/staged/$APP_NAME" || {
-      notify "Renaming the staged T3 Code build failed; install waits for the next build"
-      return 1
-    }
-    log "renamed the staged $LEGACY_APP_NAME build to $APP_NAME"
-  fi
-  if [ -d "$STATE/previous/$LEGACY_APP_NAME" ] && [ ! -d "$STATE/previous/$APP_NAME" ]; then
-    mv "$STATE/previous/$LEGACY_APP_NAME" "$STATE/previous/$APP_NAME" || {
-      notify "Renaming the previous T3 Code build failed; the one-step rollback is lost"
-      return 1
-    }
-    log "renamed the previous $LEGACY_APP_NAME build to $APP_NAME"
-  fi
+  local legacy_app_name
+  for legacy_app_name in "${LEGACY_APP_NAMES[@]}"; do
+    if [ -d "$STATE/staged/$legacy_app_name" ] && [ ! -d "$STATE/staged/$APP_NAME" ]; then
+      mv "$STATE/staged/$legacy_app_name" "$STATE/staged/$APP_NAME" || {
+        notify "Renaming the staged $legacy_app_name build failed; install waits for the next build"
+        return 1
+      }
+      log "renamed the staged $legacy_app_name build to $APP_NAME"
+    fi
+    if [ -d "$STATE/previous/$legacy_app_name" ] && [ ! -d "$STATE/previous/$APP_NAME" ]; then
+      mv "$STATE/previous/$legacy_app_name" "$STATE/previous/$APP_NAME" || {
+        notify "Renaming the previous $legacy_app_name build failed; the one-step rollback is lost"
+        return 1
+      }
+      log "renamed the previous $legacy_app_name build to $APP_NAME"
+    fi
+  done
 }
 
-# Moves the pre-rename install aside once the renamed app is installed, so the
+# Moves pre-rename installs aside once the current build is installed, so the
 # dock, Finder and permission lists show only T3 Peach.
 migrate_legacy_name() {
   rename_legacy_copies
-  [ -d "$LEGACY_INSTALLED" ] || return 0
-  if [ ! -d "$INSTALLED" ]; then
-    log "$LEGACY_APP_NAME is still the installed build; the renamed build replaces it at its next install"
-    return 0
-  fi
-  if path_running "$LEGACY_INSTALLED/Contents/MacOS/"; then
-    log "a legacy $LEGACY_APP_NAME is running; moving it aside waits until the app quits"
-    return 0
-  fi
-  if ! app_valid "$LEGACY_INSTALLED"; then
-    log "legacy $LEGACY_APP_NAME is invalid; leaving it in place"
-    return 0
-  fi
-  rm -rf "$APPS_DIR/.${LEGACY_APP_NAME}.installing" "$APPS_DIR/.${LEGACY_APP_NAME}.replaced"
-  rm -rf "$STATE/legacy" && mkdir -p "$STATE/legacy"
-  mv "$LEGACY_INSTALLED" "$STATE/legacy/$LEGACY_APP_NAME" || {
-    notify "Moving the old T3 Code build aside failed; it stays installed beside T3 Peach"
-    return 1
-  }
-  log "moved the legacy $LEGACY_APP_NAME install to $STATE/legacy"
+  local legacy_app_name legacy_installed archived=
+  for legacy_app_name in "${LEGACY_APP_NAMES[@]}"; do
+    legacy_installed="$APPS_DIR/$legacy_app_name"
+    [ -d "$legacy_installed" ] || continue
+    if [ ! -d "$INSTALLED" ]; then
+      log "$legacy_app_name is still the installed build; the current build replaces it at its next install"
+      continue
+    fi
+    if path_running "$legacy_installed/Contents/MacOS/"; then
+      log "a legacy $legacy_app_name is running; moving it aside waits until the app quits"
+      continue
+    fi
+    if ! app_valid "$legacy_installed"; then
+      log "legacy $legacy_app_name is invalid; leaving it in place"
+      continue
+    fi
+    rm -rf "$APPS_DIR/.${legacy_app_name}.installing" "$APPS_DIR/.${legacy_app_name}.replaced"
+    if [ -z "$archived" ]; then
+      # The archive holds only what this run moves, so it never grows.
+      rm -rf "$STATE/legacy" && mkdir -p "$STATE/legacy"
+      archived=1
+    fi
+    mv "$legacy_installed" "$STATE/legacy/$legacy_app_name" || {
+      notify "Moving the old $legacy_app_name build aside failed; it stays installed beside T3 Peach"
+      return 1
+    }
+    log "moved the legacy $legacy_app_name install to $STATE/legacy"
+  done
 }
 
-APPS_DIR="$(dirname "$INSTALLED")"
 json_get() { jq -r "$2 // empty" "$1" 2>/dev/null || true; }
 stamp() { jq --arg at "$(date -u +%FT%TZ)" '. + {installedAt: $at}' "$1"; }
 
@@ -221,6 +234,13 @@ stamp() { jq --arg at "$(date -u +%FT%TZ)" '. + {installedAt: $at}' "$1"; }
 
 app_present() { [ -f "$1/Contents/Info.plist" ] && [ -d "$1/Contents/MacOS" ]; }
 app_valid() { app_present "$1" && codesign --verify --deep --strict "$1" >/dev/null 2>&1; }
+legacy_app_installed() {
+  local legacy_app_name
+  for legacy_app_name in "${LEGACY_APP_NAMES[@]}"; do
+    app_valid "$APPS_DIR/$legacy_app_name" && return 0
+  done
+  return 1
+}
 
 INCOMING="$APPS_DIR/.$APP_NAME.installing"
 REPLACED="$APPS_DIR/.$APP_NAME.replaced"
@@ -306,11 +326,11 @@ recover_app() {
   if app_present "$REPLACED"; then
     mv "$REPLACED" "$INSTALLED"
     if [ -f "$REPLACED_RECEIPT" ]; then mv "$REPLACED_RECEIPT" "$STATE/active-mac.json"; fi
-    notify "Restored the T3 Code build an interrupted install replaced"
+    notify "Restored the T3 Peach build an interrupted install replaced"
     return 0
   # A valid pre-rename install is the app, not damage; the restores below must
-  # not roll the renamed build back to the previous one over it.
-  elif app_valid "$LEGACY_INSTALLED"; then
+  # not roll the current build back to the previous one over it.
+  elif legacy_app_installed; then
     return 0
   elif app_valid "$STATE/previous/$APP_NAME" &&
     ditto "$STATE/previous/$APP_NAME" "$INCOMING" && app_valid "$INCOMING"; then
@@ -318,11 +338,11 @@ recover_app() {
     if [ -f "$STATE/previous/receipt.json" ]; then
       cp "$STATE/previous/receipt.json" "$STATE/active-mac.json"
     fi
-    notify "T3 Code was incomplete; restored the previous fork build"
+    notify "T3 Peach was incomplete; restored the previous fork build"
   elif [ -d "$STATE/staged/$APP_NAME" ]; then
     : # the staged build installs next
   else
-    notify "T3 Code is missing and no complete recovery copy exists"
+    notify "T3 Peach is missing and no complete recovery copy exists"
     return 1
   fi
 }
@@ -375,7 +395,7 @@ install_staged() {
     return 1
   fi
   if t3_running; then
-    log "staged $version ($source) waits for T3 Code to quit"
+    log "staged $version ($source) waits for T3 Peach to quit"
     return 0
   fi
   if ! replace_app "$staged/$APP_NAME" "$staged/receipt.json"; then
@@ -1066,7 +1086,7 @@ start_install_on_quit() {
   local domain="gui/$(id -u)" plist="$HOME/Library/LaunchAgents/$INSTALL_JOB.plist" env="" name value job
   job="$(launchctl print "$domain/$INSTALL_JOB" 2>/dev/null || true)"
   if grep -qxF $'\tstate = running' <<<"$job" && grep -qxF $'\tpath = '"$plist" <<<"$job"; then
-    echo "$INSTALL_JOB is already waiting for T3 Code to quit"
+    echo "$INSTALL_JOB is already waiting for T3 Peach to quit"
     return 0
   fi
   # A rehearsal's overrides reach the job.
@@ -1095,7 +1115,7 @@ EOF
   launchctl bootout "$domain/$INSTALL_JOB" 2>/dev/null || true
   launchctl bootstrap "$domain" "$plist"
   launchctl kickstart "$domain/$INSTALL_JOB"
-  echo "$INSTALL_JOB waits for T3 Code to quit, then installs the staged build"
+  echo "$INSTALL_JOB waits for T3 Peach to quit, then installs the staged build"
 }
 
 status() {

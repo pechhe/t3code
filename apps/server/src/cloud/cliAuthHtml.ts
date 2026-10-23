@@ -6,17 +6,11 @@ function resolveLoopbackAuthorizationStage(): LoopbackAuthorizationStage {
   return typeof __T3CODE_BUILD_CHANNEL__ === "undefined" ? "dev" : __T3CODE_BUILD_CHANNEL__;
 }
 
-const stageBrands = {
-  dev: "T3 Peach (Dev)",
-  nightly: "T3 Peach (Nightly)",
-  latest: "T3 Peach",
-} as const satisfies Record<LoopbackAuthorizationStage, string>;
+const STAGE_BRAND = "T3 Peach";
 
 export function renderLoopbackAuthorizationCompleteHtml(
   stage: LoopbackAuthorizationStage = resolveLoopbackAuthorizationStage(),
 ): string {
-  const stageBrand = stageBrands[stage];
-
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -141,7 +135,7 @@ export function renderLoopbackAuthorizationCompleteHtml(
     <main>
       <header class="stage stage-${stage}" data-stage="${stage}">
         <div class="stage-content">
-          <p class="brand">${stageBrand}</p>
+          <p class="brand">${STAGE_BRAND}</p>
         </div>
       </header>
       <section class="content">

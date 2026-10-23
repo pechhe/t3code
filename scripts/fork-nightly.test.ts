@@ -12,7 +12,7 @@ const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 const SCRIPT =
   process.env.FORK_NIGHTLY_SCRIPT_UNDER_TEST ??
   NodePath.join(import.meta.dirname, "fork-nightly.sh");
-const APP = "T3 Peach (Nightly).app";
+const APP = "T3 Peach.app";
 const INSTALL_JOB = "com.pechhe.t3code-install-on-quit";
 const WEBHOOK = "https://hooks.invalid/rebase";
 const OLD_TAG = "v0.1.1-nightly.20990101.1";
@@ -667,7 +667,26 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     describe("rename migration", () => {
-      const LEGACY_APP = "T3 Code (Nightly).app";
+      const LEGACY_APP = "T3 Peach (Nightly).app";
+
+      it(
+        "moves an install under the older pre-rename name aside too",
+        async () => {
+          await withFixture(async (f) => {
+            const olderApp = "T3 Code (Nightly).app";
+            const olderInstalled = NodePath.join(f.apps, olderApp);
+            await makeApp(olderInstalled, "old");
+            await stageBuild(f);
+
+            const result = await run(f, ["install"]);
+            expect(result.code).toBe(0);
+            expect(await build(f.installed)).toBe("new");
+            expect(await exists(olderInstalled)).toBe(false);
+            expect(await build(stateFile(f, "legacy", olderApp))).toBe("old");
+          });
+        },
+        TIMEOUT,
+      );
 
       it(
         "renames pre-rename staged and previous copies and replaces the legacy install",
@@ -818,7 +837,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
       TIMEOUT,
     );
 
-    describe("while T3 Code is running", () => {
+    describe("while T3 Peach is running", () => {
       it(
         "install leaves the staged build in place and logs that it waits",
         async () => {
@@ -831,7 +850,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             expect(await build(f.installed)).toBe("old");
             expect(await build(stateFile(f, "staged", APP))).toBe("new");
             expect(await exists(stateFile(f, "previous"))).toBe(false);
-            expect(await nightlyLog(f)).toContain("waits for T3 Code to quit");
+            expect(await nightlyLog(f)).toContain("waits for T3 Peach to quit");
             expect(await calls(f, "open")).toEqual([]);
           });
         },
