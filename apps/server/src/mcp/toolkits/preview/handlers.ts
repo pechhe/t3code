@@ -192,31 +192,35 @@ export const claimPreviewRecording = Effect.fn("PreviewToolkit.claimRecording")(
 });
 
 const handlers = {
-  preview_handoff: McpToolAccess.actsAsCaller((input) => invokeTargeted<object>("handoff", input)),
-  preview_resume: McpToolAccess.actsAsCaller((input) => invokeTargeted<object>("resume", input)),
+  preview_handoff: McpToolAccess.actsAsPreviewCaller((input) =>
+    invokeTargeted<object>("handoff", input),
+  ),
+  preview_resume: McpToolAccess.actsAsPreviewCaller((input) =>
+    invokeTargeted<object>("resume", input),
+  ),
   preview_dialog: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("dialog", input),
   ),
-  preview_status: McpToolAccess.readsAsCaller((input) =>
+  preview_status: McpToolAccess.readsAsPreviewCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("status", input ?? {}),
   ),
-  preview_open: McpToolAccess.actsAsCaller((input) =>
+  preview_open: McpToolAccess.actsAsPreviewCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("open", normalizePreviewOpenInput(input)),
   ),
-  preview_navigate: McpToolAccess.actsAsCaller((input) =>
+  preview_navigate: McpToolAccess.actsAsPreviewCaller((input) =>
     invokeTargeted<PreviewAutomationStatus>("navigate", input, input.timeoutMs),
   ),
-  preview_resize: McpToolAccess.actsAsCaller((input) =>
+  preview_resize: McpToolAccess.actsAsPreviewCaller((input) =>
     invokeTargeted<PreviewAutomationResizeResult>("resize", input, input.timeoutMs),
   ),
   preview_set_appearance: McpToolAccess.actsAsCaller((input) =>
     invokeTargeted<PreviewAutomationSetColorSchemeResult>("setColorScheme", input),
   ),
-  preview_snapshot: McpToolAccess.readsAsCaller((input) => {
+  preview_snapshot: McpToolAccess.readsAsPreviewCaller((input) => {
     const { includeImage: _includeImage, save: _save, ...operationInput } = input ?? {};
     return invokeTargeted<PreviewAutomationSnapshot>("snapshot", operationInput);
   }),
-  preview_interact: McpToolAccess.actsAsCaller(({ action, ...input }) => {
+  preview_interact: McpToolAccess.actsAsPreviewCaller(({ action, ...input }) => {
     switch (action) {
       case "click":
         return invokeTargeted<object>("click", input, input.timeoutMs);
@@ -245,7 +249,7 @@ const handlers = {
       })),
     ),
   ),
-  preview_wait_for: McpToolAccess.readsAsCaller((input) =>
+  preview_wait_for: McpToolAccess.readsAsPreviewCaller((input) =>
     invokeTargeted<object>("waitFor", input, input.timeoutMs),
   ),
   preview_recording_start: McpToolAccess.actsAsCaller((input) =>

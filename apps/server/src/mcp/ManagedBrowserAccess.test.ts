@@ -1,12 +1,25 @@
 import { expect, it } from "@effect/vitest";
-import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
+import {
+  type AgentRole,
+  type AgentToolProfile,
+  EnvironmentId,
+  ProjectId,
+  ProviderInstanceId,
+  ServerSettingsError,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as ServerSettings from "../serverSettings.ts";
-import { assertManagedBrowserCaller } from "./ManagedBrowserAccess.ts";
+import {
+  assertManagedBrowserCaller,
+  assertProjectBrowserAccess,
+  drivesOwnBrowser,
+} from "./ManagedBrowserAccess.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
+import type { Caller } from "./threadAccess.ts";
 import { liveThreadShell } from "./McpToolAccess.testkit.ts";
 
 const threadId = ThreadId.make("thread-managed-browser-access");
@@ -31,6 +44,27 @@ const threads = (toolProfile: "phi" | "source-reader") =>
   Layer.mock(ThreadManagement.ThreadManagementService)({
     getThreadShell: () => Effect.succeed(task(toolProfile)),
   });
+
+/** A caller as the tool declarations build it, from the thread's own task binding. */
+const callerFor = (agentTask?: {
+  readonly role: AgentRole;
+  readonly toolProfile: AgentToolProfile;
+}): Caller =>
+  ({
+    scope: scope(false),
+    caller: {
+      ...liveThreadShell(threadId),
+      ...(agentTask === undefined ? {} : { agentTask }),
+    },
+    limits: { runtimeMode: "full-access", interactionMode: "default" },
+  }) as Caller;
+
+const projectMessage = (effect: Effect.Effect<unknown, { readonly message: string }>) =>
+  effect.pipe(
+    Effect.flip,
+    Effect.map((error) => error.message),
+    Effect.orElseSucceed(() => "allowed"),
+  );
 
 const check = (input: {
   readonly managedBrowser?: boolean;
@@ -81,6 +115,86 @@ it.effect(
         "not a managed browser task",
       );
     }),
+);
+
+it.effect("recognises the roles whose own listing drives a browser", () =>
+  Effect.sync(() => {
+    for (const [role, toolProfile, expected] of [
+      ["browser", "phi", true],
+      ["ui-verifier", "phi", true],
+      ["spec-reviewer", "source-reader", false],
+      ["scout", "source-reader", false],
+      ["implementation-worker", "implementation", false],
+    ] as const) {
+      expect(drivesOwnBrowser(callerFor({ role, toolProfile }))).toBe(expected);
+    }
+    // An ordinary thread, and a client with no thread, drive no browser of their own.
+    expect(drivesOwnBrowser(callerFor())).toBe(false);
+    expect(drivesOwnBrowser({ ...callerFor(), caller: undefined })).toBe(false);
+  }),
+);
+
+it.effect("checks the project's browser access on every call", () =>
+  Effect.gen(function* () {
+    const caller = callerFor({ role: "browser", toolProfile: "phi" });
+    const check = (settings: Parameters<typeof ServerSettings.layerTest>[0] | undefined) =>
+      settings === undefined
+        ? projectMessage(assertProjectBrowserAccess(caller))
+        : projectMessage(
+            assertProjectBrowserAccess(caller).pipe(
+              Effect.provide(ServerSettings.layerTest(settings)),
+            ),
+          );
+
+    // The project's default backend may be integrated; Phi only has to be enabled.
+    expect(
+      yield* check({
+        enableAgentBrowserAccess: true,
+        agentBrowserBackends: { enabled: ["phi"], default: "phi" },
+      }),
+    ).toBe("allowed");
+    expect(
+      yield* check({
+        enableAgentBrowserAccess: true,
+        agentBrowserBackends: { enabled: ["integrated", "phi"], default: "integrated" },
+      }),
+    ).toBe("allowed");
+    expect(yield* check({ enableAgentBrowserAccess: false })).toBe(
+      "Agent browser access was turned off for this project.",
+    );
+    expect(
+      yield* check({ agentBrowserBackends: { enabled: ["integrated"], default: "integrated" } }),
+    ).toBe("Phi browsing was turned off for this project.");
+    expect(
+      yield* check({
+        projectSettingsOverrides: {
+          [ProjectId.make("project:mcp-test")]: { enableAgentBrowserAccess: false },
+        },
+      }),
+    ).toBe("Agent browser access was turned off for this project.");
+    // Without a current answer it refuses rather than acting on a remembered one.
+    expect(yield* check(undefined)).toBe(
+      "Browser access could not be confirmed; managed browsing is paused.",
+    );
+  }),
+);
+
+it.effect("refuses when the project's browser settings cannot be read", () =>
+  Effect.gen(function* () {
+    const caller = callerFor({ role: "browser", toolProfile: "phi" });
+    const message = yield* projectMessage(
+      assertProjectBrowserAccess(caller).pipe(
+        Effect.provide(
+          Layer.mock(ServerSettings.ServerSettingsService)({
+            getSettings: Effect.fail(
+              new ServerSettingsError({ settingsPath: "settings.json", operation: "read-file" }),
+            ),
+          }),
+        ),
+      ),
+    );
+    expect(message).toBe("Browser access could not be confirmed; managed browsing is paused.");
+  }),
 );
 
 it.effect("refuses protected actions once access is revoked but still lets a tab close", () =>

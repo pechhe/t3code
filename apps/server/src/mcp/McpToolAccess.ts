@@ -16,7 +16,13 @@ import {
   type DispatchModeRefusal,
 } from "../orchestration-v2/DispatchModeLimit.ts";
 import * as McpInvocationContext from "./McpInvocationContext.ts";
-import { assertManagedBrowserCaller } from "./ManagedBrowserAccess.ts";
+import {
+  assertManagedBrowserCaller,
+  assertProjectBrowserAccess,
+  drivesOwnBrowser,
+  listsBrowserFamily,
+  PHI_ONLY_BROWSER_BACKENDS,
+} from "./ManagedBrowserAccess.ts";
 import { resolveInteractionMode, resolveRuntimeMode } from "./OrchestratorMcpService.ts";
 import {
   assertFullAccess,
@@ -130,6 +136,86 @@ export const actsAsCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A,
     requireThreadCaller.pipe(
       Effect.flatMap(() => writingCaller),
       Effect.flatMap(() => handle(params)),
+    ),
+  );
+
+/**
+ * The scope one preview action runs in. A browser or ui-verifier child drives Phi as its whole job,
+ * so those operations are not leaf writes for it, and its own tab is Phi's whatever the project's
+ * default backend is; a child whose listing carries no browser stays a leaf. Closing a tab skips
+ * the settings check so cleanup survives revoked access.
+ */
+const previewActionScope = Effect.fn("mcp.previewActionScope")(function* (
+  caller: Caller,
+  options: { readonly checkSettings: boolean },
+) {
+  if (!drivesOwnBrowser(caller)) {
+    yield* refuseManagedChildWrites(caller);
+    return caller.scope;
+  }
+  if (options.checkSettings) yield* assertProjectBrowserAccess(caller);
+  return {
+    ...caller.scope,
+    browserBackends: PHI_ONLY_BROWSER_BACKENDS,
+  } satisfies McpInvocationContext.McpInvocationScope;
+});
+
+const previewCaller = (options: { readonly checkSettings: boolean }) =>
+  refuseReadOnlyClient.pipe(
+    Effect.andThen(loadCaller()),
+    Effect.tap(assertLiveCaller),
+    Effect.flatMap((caller) => previewActionScope(caller, options)),
+  );
+
+/**
+ * A preview read on the caller's own browser. A browser or ui-verifier credential is pinned to Phi
+ * here too, so a read cannot reserve the project's default integrated browser and strand the
+ * child's later action. Reads keep exactly the permissiveness they had: no leaf refusal, no
+ * liveness check and no settings check, so ordinary parents, read-only callers and generic
+ * children read as before. Reads change nothing, and status/list still let a revoked child find
+ * its owned tab to close.
+ */
+export const readsAsPreviewCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare((params: P) =>
+    requireThreadCaller.pipe(
+      Effect.flatMap((scope) =>
+        Effect.provideService(
+          handle(params),
+          McpInvocationContext.McpInvocationContext,
+          listsBrowserFamily(scope)
+            ? { ...scope, browserBackends: PHI_ONLY_BROWSER_BACKENDS }
+            : scope,
+        ),
+      ),
+    ),
+  );
+
+/**
+ * One action on the caller's own browser. Tab ownership is unchanged: the broker keys tabs to the
+ * caller's own session and the backend refuses another session's tab. Only the operations Phi
+ * supports use this declaration; raw page code, uploads, recordings and appearance changes stay
+ * `actsAsCaller`.
+ */
+export const actsAsPreviewCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
+  declare((params: P) =>
+    requireThreadCaller.pipe(
+      Effect.flatMap(() => previewCaller({ checkSettings: true })),
+      Effect.flatMap((scope) =>
+        Effect.provideService(handle(params), McpInvocationContext.McpInvocationContext, scope),
+      ),
+    ),
+  );
+
+/** Closing a tab stays possible after the project's browser access is revoked. */
+export const cleansUpAsPreviewCaller = <P, A, E, R>(
+  handle: (params: P) => Effect.Effect<A, E, R>,
+) =>
+  declare((params: P) =>
+    requireThreadCaller.pipe(
+      Effect.flatMap(() => previewCaller({ checkSettings: false })),
+      Effect.flatMap((scope) =>
+        Effect.provideService(handle(params), McpInvocationContext.McpInvocationContext, scope),
+      ),
     ),
   );
 

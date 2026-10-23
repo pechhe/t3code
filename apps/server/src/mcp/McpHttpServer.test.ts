@@ -4,9 +4,13 @@ import { expect, it } from "@effect/vitest";
 import { NodeHttpServer } from "@effect/platform-node";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
+  type AgentRole,
+  type AgentTaskBinding,
+  type AgentToolProfile,
   EnvironmentId,
   OrchestratorMcpFailure,
   PreviewTabId,
+  ProjectId,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -18,8 +22,15 @@ import * as Stream from "effect/Stream";
 import { McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpBody, HttpClient, HttpClientRequest, HttpRouter } from "effect/http";
 
+import {
+  request as agentTaskRequest,
+  snapshot as agentPolicySnapshot,
+} from "../agents/agentPolicy.testkit.ts";
 import * as ThreadDirectory from "../peers/ThreadDirectory.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as PhiBrowser from "../preview/PhiBrowser.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
 import * as ServerConfig from "../config.ts";
 import * as McpHttpServer from "./McpHttpServer.ts";
@@ -60,13 +71,110 @@ const client = McpSchema.McpServerClient.of({
   },
   getClient: Effect.die("unused"),
 });
-const layerTest = McpHttpServer.layerPreviewToolkit.pipe(
-  Layer.provideMerge(McpServer.McpServer.layer),
-  Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
-  Layer.provideMerge(PreviewAutomationBroker.layer),
-  Layer.provideMerge(ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-http-server-test-" })),
-  Layer.provideMerge(NodeServices.layer),
-);
+const browserAccessSettings = (
+  overrides: Parameters<typeof ServerSettings.layerTest>[0] = {},
+): Layer.Layer<ServerSettings.ServerSettingsService> =>
+  ServerSettings.layerTest({
+    enableAgentBrowserAccess: true,
+    agentBrowserBackends: { enabled: ["phi"], default: "phi" },
+    ...overrides,
+  }).pipe(Layer.orDie);
+
+const layerPreviewFor = (
+  threads: Layer.Layer<ThreadManagement.ThreadManagementService>,
+  options: {
+    readonly settings?: Layer.Layer<ServerSettings.ServerSettingsService>;
+    readonly phi?: Layer.Layer<PhiBrowser.PhiBrowser>;
+  } = {},
+) =>
+  McpHttpServer.layerPreviewToolkit.pipe(
+    Layer.provideMerge(McpServer.McpServer.layer),
+    Layer.provideMerge(threads),
+    Layer.provideMerge(
+      PreviewAutomationBroker.layer.pipe(Layer.provide(options.phi ?? Layer.empty)),
+    ),
+    Layer.provideMerge(options.settings ?? browserAccessSettings()),
+    Layer.provideMerge(
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-mcp-http-server-test-" }),
+    ),
+    Layer.provideMerge(NodeServices.layer),
+  );
+const layerTest = layerPreviewFor(McpToolAccessTestkit.liveThreadsLayer);
+
+interface DelegatedChild {
+  readonly threadId: ThreadId;
+  readonly role: AgentRole;
+  readonly toolProfile: AgentToolProfile;
+}
+
+const browserChild: DelegatedChild = {
+  threadId: ThreadId.make("thread-browser-child"),
+  role: "browser",
+  toolProfile: "phi",
+};
+const verifierChild: DelegatedChild = {
+  threadId: ThreadId.make("thread-ui-verifier-child"),
+  role: "ui-verifier",
+  toolProfile: "phi",
+};
+const readerChild: DelegatedChild = {
+  threadId: ThreadId.make("thread-spec-reviewer-child"),
+  role: "spec-reviewer",
+  toolProfile: "source-reader",
+};
+
+const agentTaskBinding = (child: DelegatedChild): AgentTaskBinding => {
+  const policy = agentPolicySnapshot();
+  const task = agentTaskRequest({ role: child.role, taskClass: "ui" });
+  const selection = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-sol-test" };
+  return {
+    ...task,
+    requestFingerprint: "d".repeat(64),
+    policyHash: policy.hash,
+    policyRevision: policy.sourceRevision,
+    briefHash: policy.briefs[child.role]!.hash,
+    sourceAccess: "read-only",
+    toolProfile: child.toolProfile,
+    requested: selection,
+    assigned: null,
+    effective: selection,
+  };
+};
+
+/** A project that offers Phi but still defaults to the integrated browser. */
+const projectBrowserBackends = {
+  enabled: ["integrated", "phi"],
+  default: "integrated",
+} as const;
+
+const layerChildThreads = (children: ReadonlyArray<DelegatedChild>) =>
+  Layer.mock(ThreadManagement.ThreadManagementService)({
+    getThreadShell: (id) => {
+      const child = children.find((candidate) => candidate.threadId === id);
+      return Effect.succeed(
+        child === undefined
+          ? McpToolAccessTestkit.liveThreadShell(id)
+          : { ...McpToolAccessTestkit.liveThreadShell(id), agentTask: agentTaskBinding(child) },
+      );
+    },
+  });
+
+/** The credential a delegated child's own endpoint issues for its role. */
+const childInvocation = (child: DelegatedChild): McpInvocationContext.McpInvocationScope => ({
+  ...invocation,
+  requestNamespace: `provider:${child.threadId}`,
+  thread: {
+    threadId: child.threadId,
+    providerSessionId: `provider:${child.threadId}`,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+  },
+  capabilities: new Set(["orchestration", "preview"] as const),
+  // The credential's scope carries the project settings it was issued under, so a child's
+  // actions default to the integrated browser unless the declaration pins them to Phi.
+  browserBackends: projectBrowserBackends,
+  toolProfile: child.toolProfile,
+  agentRole: child.role,
+});
 const layerPullRequestsTest = McpHttpServer.layerPullRequestsToolkit.pipe(
   Layer.provideMerge(McpServer.McpServer.layer),
   Layer.provideMerge(McpToolAccessTestkit.liveThreadsLayer),
@@ -132,6 +240,96 @@ const callTool = (name: string, args: Record<string, unknown>) =>
   });
 
 const callSnapshot = (args: Record<string, unknown>) => callTool("preview_snapshot", args);
+
+const textOf = (result: { readonly content: ReadonlyArray<unknown> }) =>
+  result.content
+    .map((part) =>
+      typeof part === "object" && part !== null && "text" in part ? String(part.text) : "",
+    )
+    .join("");
+
+/**
+ * A browser host that answers every action with the status of the tab the request named, so a
+ * test sees which operations actually reached it.
+ */
+const servePreviewActions = (clientId: string) =>
+  Effect.gen(function* () {
+    const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
+    const connected = yield* Deferred.make<void>();
+    const actions: Array<{ operation: string; threadId: string; input: unknown }> = [];
+    const events = yield* broker.connect({ clientId, environmentId });
+    yield* Stream.runForEach(events, (event) => {
+      if (event.type === "connected") return Deferred.succeed(connected, undefined);
+      actions.push({
+        operation: event.request.operation,
+        threadId: event.request.threadId,
+        input: event.request.input,
+      });
+      return broker.respond({
+        clientId,
+        connectionId: event.connectionId,
+        requestId: event.request.requestId,
+        ok: true,
+        result: {
+          available: true,
+          visible: false,
+          tabId: PreviewTabId.make("tab-browser-action"),
+          url: "http://example.test/",
+          title: "Example",
+          loading: false,
+        },
+      });
+    }).pipe(Effect.forkScoped);
+    yield* Deferred.await(connected);
+    return actions;
+  });
+
+const phiActionTabId = PreviewTabId.make("tab-phi-action");
+
+/**
+ * The Phi browser a browser child's own tab lives in. It records the operations and the backend
+ * terms each one ran under, so a test can see that the action really took the Phi route.
+ */
+const layerPhiHost = (calls: Array<{ operation: string; browserBackends: unknown }>) =>
+  Layer.succeed(
+    PhiBrowser.PhiBrowser,
+    PhiBrowser.PhiBrowser.of({
+      availability: () => Effect.succeed("available"),
+      hasTab: (tabId) => Effect.succeed(tabId === phiActionTabId),
+      invoke: (request) =>
+        Effect.sync(() => {
+          calls.push({
+            operation: request.operation,
+            browserBackends: request.scope.browserBackends,
+          });
+          if (request.operation === "snapshot") return snapshotResult;
+          if (request.operation === "waitFor") return { backend: "phi" as const };
+          return {
+            backend: "phi" as const,
+            available: true,
+            visible: false,
+            tabId: phiActionTabId,
+            url: "http://example.test/",
+            title: "Example",
+            loading: false,
+          };
+        }),
+      list: () => Effect.succeed([]),
+      releaseSession: () => Effect.void,
+    }),
+  );
+
+/** Calls one preview tool with a credential of its own, as a session endpoint does. */
+const callPreviewAs = (
+  scope: McpInvocationContext.McpInvocationScope,
+  name: string,
+  args: Record<string, unknown>,
+) =>
+  McpServer.McpServer.pipe(
+    Effect.flatMap((server) => server.callTool({ name, arguments: args })),
+    Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+    Effect.provideService(McpSchema.McpServerClient, client),
+  );
 
 // Real tool definitions with handlers that record what they decoded.
 const layerRecordingTools = (calls: Array<unknown>) => {
@@ -360,6 +558,300 @@ it.effect("refuses preview tools to a client outside a thread before they run", 
       { type: "text", text: expect.stringContaining("needs an agent running inside T3 Code") },
     ]);
   }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect.each([browserChild, verifierChild])(
+  "lets a managed $role child open and navigate its own Phi tab",
+  (child) => {
+    const phiCalls: Array<{ operation: string; browserBackends: unknown }> = [];
+    return Effect.scoped(
+      Effect.gen(function* () {
+        // An integrated host is connected too; if a child's action fell back to it, it would show.
+        const integrated = yield* servePreviewActions(`mcp-${child.role}-integrated`);
+
+        const opened = yield* callPreviewAs(childInvocation(child), "preview_open", {
+          url: "http://example.test/one",
+        });
+        expect(opened.isError).toBe(false);
+        const navigated = yield* callPreviewAs(childInvocation(child), "preview_navigate", {
+          url: "http://example.test/two",
+        });
+        expect(navigated.isError).toBe(false);
+
+        expect(phiCalls).toEqual([
+          { operation: "open", browserBackends: { enabled: ["phi"], default: "phi" } },
+          { operation: "navigate", browserBackends: { enabled: ["phi"], default: "phi" } },
+        ]);
+        expect(integrated).toEqual([]);
+      }),
+    ).pipe(
+      Effect.provide(
+        layerPreviewFor(layerChildThreads([child]), {
+          settings: browserAccessSettings({ agentBrowserBackends: projectBrowserBackends }),
+          phi: layerPhiHost(phiCalls),
+        }),
+      ),
+    );
+  },
+);
+
+it.effect("defaults a browser child to Phi and refuses an explicit integrated backend", () => {
+  const phiCalls: Array<{ operation: string; browserBackends: unknown }> = [];
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const integrated = yield* servePreviewActions("mcp-browser-child-integrated");
+
+      const explicit = yield* callPreviewAs(childInvocation(browserChild), "preview_open", {
+        url: "http://example.test/integrated",
+        backend: "integrated",
+      });
+      expect(explicit.isError).toBe(true);
+      expect(textOf(explicit)).toEqual(
+        expect.stringContaining("integrated is disabled for this agent session."),
+      );
+
+      // The project and its credential both default to the integrated browser, yet the child's
+      // own action still goes to Phi rather than falling back to the host.
+      const plain = yield* callPreviewAs(childInvocation(browserChild), "preview_open", {
+        url: "http://example.test/phi",
+      });
+      expect(plain.isError).toBe(false);
+      expect(phiCalls.map((call) => call.operation)).toEqual(["open"]);
+      expect(integrated).toEqual([]);
+    }),
+  ).pipe(
+    Effect.provide(
+      layerPreviewFor(layerChildThreads([browserChild]), {
+        settings: browserAccessSettings({ agentBrowserBackends: projectBrowserBackends }),
+        phi: layerPhiHost(phiCalls),
+      }),
+    ),
+  );
+});
+
+it.effect("keeps a browser child's read-first session on Phi", () => {
+  const phiCalls: Array<{ operation: string; browserBackends: unknown }> = [];
+  return Effect.scoped(
+    Effect.gen(function* () {
+      // An integrated host is connected too, so a read that reserved it would poison the open.
+      const integrated = yield* servePreviewActions("mcp-browser-child-read-first");
+
+      const status = yield* callPreviewAs(childInvocation(browserChild), "preview_status", {});
+      expect(status.isError).toBe(false);
+      const opened = yield* callPreviewAs(childInvocation(browserChild), "preview_open", {
+        url: "http://example.test/one",
+      });
+      expect(opened.isError).toBe(false);
+      const navigated = yield* callPreviewAs(childInvocation(browserChild), "preview_navigate", {
+        url: "http://example.test/two",
+      });
+      expect(navigated.isError).toBe(false);
+      const snapshot = yield* callPreviewAs(childInvocation(browserChild), "preview_snapshot", {});
+      expect(snapshot.isError).toBe(false);
+      const waited = yield* callPreviewAs(childInvocation(browserChild), "preview_wait_for", {
+        text: "Example",
+      });
+      expect(waited.isError).toBe(false);
+
+      expect(phiCalls.map((call) => call.operation)).toEqual([
+        "status",
+        "open",
+        "navigate",
+        "snapshot",
+        "waitFor",
+      ]);
+      for (const call of phiCalls)
+        expect(call.browserBackends).toEqual({ enabled: ["phi"], default: "phi" });
+      expect(integrated).toEqual([]);
+    }),
+  ).pipe(
+    Effect.provide(
+      layerPreviewFor(layerChildThreads([browserChild]), {
+        settings: browserAccessSettings({ agentBrowserBackends: projectBrowserBackends }),
+        phi: layerPhiHost(phiCalls),
+      }),
+    ),
+  );
+});
+
+it.effect("refuses a browser child's actions once its project's browser access is revoked", () => {
+  const phiCalls: Array<{ operation: string; browserBackends: unknown }> = [];
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const settings = yield* ServerSettings.ServerSettingsService;
+      const opened = yield* callPreviewAs(childInvocation(browserChild), "preview_open", {
+        url: "http://example.test/one",
+      });
+      expect(opened.isError).toBe(false);
+
+      yield* settings.updateSettings({ enableAgentBrowserAccess: false });
+
+      for (const [name, args] of [
+        ["preview_navigate", { url: "http://example.test/two" }],
+        ["preview_resize", { mode: "fill" }],
+        ["preview_interact", { action: "click", locator: "text=Send" }],
+      ] as const) {
+        const refused = yield* callPreviewAs(childInvocation(browserChild), name, args);
+        expect(refused.isError).toBe(true);
+        expect(textOf(refused)).toEqual(
+          expect.stringContaining("Agent browser access was turned off for this project."),
+        );
+      }
+      expect(phiCalls.map((call) => call.operation)).toEqual(["open"]);
+    }),
+  ).pipe(
+    Effect.provide(
+      layerPreviewFor(layerChildThreads([browserChild]), { phi: layerPhiHost(phiCalls) }),
+    ),
+  );
+});
+
+it.effect(
+  "keeps a browser child out of a project that turned browser access off, while an ordinary thread still acts",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const integrated = yield* servePreviewActions("mcp-project-override-host");
+        const refused = yield* callPreviewAs(childInvocation(browserChild), "preview_open", {
+          url: "http://example.test/child",
+        });
+        expect(refused.isError).toBe(true);
+        expect(textOf(refused)).toEqual(
+          expect.stringContaining("Agent browser access was turned off for this project."),
+        );
+        // Ordinary threads keep their own call-time behaviour.
+        const parent = yield* callPreviewAs(invocation, "preview_open", {
+          url: "http://example.test/parent",
+        });
+        expect(parent.isError).toBe(false);
+        expect(integrated.map((action) => action.operation)).toEqual(["open"]);
+      }),
+    ).pipe(
+      Effect.provide(
+        layerPreviewFor(layerChildThreads([browserChild]), {
+          settings: browserAccessSettings({
+            projectSettingsOverrides: {
+              [ProjectId.make("project:mcp-test")]: { enableAgentBrowserAccess: false },
+            },
+          }),
+        }),
+      ),
+    ),
+);
+
+it.effect("refuses a browser child's action when the project does not allow Phi", () => {
+  const phiCalls: Array<{ operation: string; browserBackends: unknown }> = [];
+  return Effect.scoped(
+    Effect.gen(function* () {
+      const integrated = yield* servePreviewActions("mcp-phi-disabled-host");
+      const refused = yield* callPreviewAs(childInvocation(browserChild), "preview_open", {
+        url: "http://example.test/child",
+      });
+      expect(refused.isError).toBe(true);
+      expect(textOf(refused)).toEqual(
+        expect.stringContaining("Phi browsing was turned off for this project."),
+      );
+      expect(integrated).toEqual([]);
+      expect(phiCalls).toEqual([]);
+    }),
+  ).pipe(
+    Effect.provide(
+      layerPreviewFor(layerChildThreads([browserChild]), {
+        settings: browserAccessSettings({
+          agentBrowserBackends: { enabled: ["integrated"], default: "integrated" },
+        }),
+        phi: layerPhiHost(phiCalls),
+      }),
+    ),
+  );
+});
+
+it.effect("keeps preview actions inside the calling credential's own authority", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const actions = yield* servePreviewActions("mcp-preview-authority-client");
+      const call = (scope: McpInvocationContext.McpInvocationScope, name: string, args: object) =>
+        server
+          .callTool({ name, arguments: args })
+          .pipe(
+            Effect.provideService(McpInvocationContext.McpInvocationContext, scope),
+            Effect.provideService(McpSchema.McpServerClient, client),
+          );
+      const leafRefusal = expect.stringContaining("Managed workers are leaf tasks");
+
+      // An ordinary thread keeps acting as before.
+      const parent = yield* call(invocation, "preview_open", { url: "http://example.test/parent" });
+      expect(parent.isError).toBe(false);
+
+      // A managed reader lists no preview endpoint, so the capability on its credential is not enough.
+      const reader = yield* call(childInvocation(readerChild), "preview_open", {
+        url: "http://example.test/reader",
+      });
+      expect(reader.isError).toBe(true);
+      expect(textOf(reader)).toEqual(leafRefusal);
+
+      // Raw page code stays closed to a browser child, as it is on the managed browser endpoint.
+      const evaluated = yield* call(childInvocation(browserChild), "preview_evaluate", {
+        expression: "document.title",
+      });
+      expect(evaluated.isError).toBe(true);
+      expect(textOf(evaluated)).toEqual(leafRefusal);
+
+      // A client with no thread has no thread's browser to drive.
+      const external = yield* call(
+        {
+          ...invocation,
+          thread: undefined,
+          requestNamespace: "client:read-only",
+          client: { sessionId: "read-only", label: "Claude Code", access: "read-only" },
+        },
+        "preview_open",
+        { url: "http://example.test/external" },
+      );
+      expect(external.isError).toBe(true);
+      expect(textOf(external)).toEqual(
+        expect.stringContaining("needs an agent running inside T3 Code"),
+      );
+
+      expect(actions.map((action) => action.operation)).toEqual(["open"]);
+    }),
+  ).pipe(Effect.provide(layerPreviewFor(layerChildThreads([browserChild, readerChild])))),
+);
+
+it.effect("refuses a browser child once its own thread stopped running", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const server = yield* McpServer.McpServer;
+      const actions = yield* servePreviewActions("mcp-ended-browser-child");
+      const opened = yield* server
+        .callTool({ name: "preview_open", arguments: { url: "http://example.test/ended" } })
+        .pipe(
+          Effect.provideService(
+            McpInvocationContext.McpInvocationContext,
+            childInvocation(browserChild),
+          ),
+          Effect.provideService(McpSchema.McpServerClient, client),
+        );
+      expect(opened.isError).toBe(true);
+      expect(textOf(opened)).toEqual(
+        expect.stringContaining("no longer owns an active thread run"),
+      );
+      expect(actions).toEqual([]);
+    }),
+  ).pipe(
+    Effect.provide(
+      layerPreviewFor(
+        Layer.mock(ThreadManagement.ThreadManagementService)({
+          getThreadShell: (id) =>
+            Effect.succeed({
+              ...McpToolAccessTestkit.liveThreadShell(id, { activeRunId: null }),
+              agentTask: agentTaskBinding(browserChild),
+            }),
+        }),
+      ),
+    ),
+  ),
 );
 
 it.effect("decodes null optional arguments the way it decodes omitted ones", () => {

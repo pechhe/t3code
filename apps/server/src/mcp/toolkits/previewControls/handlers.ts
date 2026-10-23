@@ -6,14 +6,16 @@ import { unavailable } from "../../threadAccess.ts";
 import { PreviewControlsToolkit } from "./tools.ts";
 
 export const layer = McpToolAccess.toLayer(PreviewControlsToolkit, {
-  t3_preview_list: McpToolAccess.readsAsCaller((input) =>
+  // List reads both backends, so the Phi pin is inert here; it shares the read declaration so
+  // every preview read a browser child makes follows the same scope policy.
+  t3_preview_list: McpToolAccess.readsAsPreviewCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* requireThreadMcpCapability("preview");
       const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
       return yield* broker.list({ scope, ...input }).pipe(Effect.mapError(unavailable));
     }),
   ),
-  t3_preview_close: McpToolAccess.actsAsCaller((input) =>
+  t3_preview_close: McpToolAccess.cleansUpAsPreviewCaller((input) =>
     Effect.gen(function* () {
       const scope = yield* requireThreadMcpCapability("preview");
       const broker = yield* PreviewAutomationBroker.PreviewAutomationBroker;
