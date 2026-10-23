@@ -467,74 +467,55 @@ it.layer(Resolver.layer)("AgentRoleResolver", (it) => {
       }),
   );
 
-  it.effect(
-    "restricts mixed/UI review to Sonnet and refuses an experimental Codex assignment",
-    () =>
-      Effect.gen(function* () {
+  it.effect("lets a reviewer's listed model take UI and mixed work", () =>
+    Effect.gen(function* () {
+      const reviews = [
+        { role: "ticket-reviewer", review: changeReview },
+        {
+          role: "spec-reviewer",
+          review: {
+            ...changeReview,
+            scope: "spec",
+            specRef: "owner/repo#12",
+            specRevision: "body-3",
+          },
+        },
+      ] as const;
+      for (const { role, review } of reviews) {
         for (const taskClass of ["ui", "mixed"] as const) {
           const base = input({
-            request: request({
-              role: "ticket-reviewer",
-              sourceRevision: "reviewed-commit",
-              review: changeReview,
-              taskClass,
-            }),
+            providers: [codex],
+            request: request({ role, sourceRevision: "reviewed-commit", review, taskClass }),
           });
-          expect((yield* resolve(base)).model).toBe(claudeModel);
-          expect((yield* refusal({ ...base, providers: [codex] })).reason).toBe(
-            "no-eligible-model",
-          );
+          expect((yield* resolve(base)).model).toBe(codexModel);
           expect(
-            (yield* refusal({
+            (yield* resolve({
               ...base,
               selection: {
                 instanceId: codex.instanceId,
                 model: codexModel,
                 options: [{ id: "reasoning", value: "medium" }],
               },
-            })).reason,
-          ).toBe("selection-denied");
+            })).model,
+          ).toBe(codexModel);
         }
-      }),
-  );
-
-  it.effect("enforces actual UI model identity even when policy aliases are misleading", () =>
-    Effect.gen(function* () {
-      const original = snapshot();
-      const policy: AgentPolicySnapshot = {
-        ...original,
-        manifest: {
-          ...original.manifest,
-          models: {
-            ...original.manifest.models,
-            sonnet: { driverKind: codex.driver, model: codexModel, effortOption: "reasoning" },
-          },
-        },
-      };
-      const base = input({
-        snapshot: policy,
-        request: request({
-          role: "ticket-reviewer",
-          sourceRevision: "reviewed-commit",
-          review: changeReview,
-          taskClass: "ui",
-        }),
+      }
+      // UI implementation still follows ui-worker's own list, which lists no Codex model.
+      const uiWork = input({
+        providers: [codex],
+        request: request({ role: "ui-worker", taskClass: "ui" }),
       });
-      expect((yield* refusal(base)).reason).toBe("no-eligible-model");
-      const disguised = provider("claudeAgent", "disguised-openai", [codexModel]);
-      const disguisedPolicy: AgentPolicySnapshot = {
-        ...policy,
-        manifest: {
-          ...policy.manifest,
-          models: {
-            ...policy.manifest.models,
-            sonnet: { driverKind: disguised.driver, model: codexModel, effortOption: "effort" },
-          },
-        },
-      };
+      expect((yield* refusal(uiWork)).reason).toBe("no-eligible-model");
       expect(
-        (yield* refusal({ ...base, snapshot: disguisedPolicy, providers: [disguised] })).reason,
-      ).toBe("no-eligible-model");
+        (yield* refusal({
+          ...uiWork,
+          selection: {
+            instanceId: codex.instanceId,
+            model: codexModel,
+            options: [{ id: "reasoning", value: "medium" }],
+          },
+        })).reason,
+      ).toBe("selection-denied");
     }),
   );
 

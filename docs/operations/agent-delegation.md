@@ -43,7 +43,9 @@ Unavailable accounts remain visible and are skipped. A policy still at version 1
 is read as one list per role and written as version 2 on its first save.
 Version 2 has no per-task-class restrictions: a version 1 restriction survives
 only when it covers every task class the role takes, and otherwise the role
-lists its whole pool for every class. Codex is still never assigned UI work.
+lists its whole pool for every class. UI implementation belongs to `ui-worker`, whose
+list is the choice of UI model; a reviewer, advisor, scout or researcher may use any
+model its role lists, whatever the task class.
 Check each role's list in Settings before relying on an upgraded policy.
 
 ```sh

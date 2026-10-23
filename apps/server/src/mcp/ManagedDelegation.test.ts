@@ -157,7 +157,7 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         const experiments = yield* Experiments.ExperimentService;
         const forbidden = {
           instanceId: codex.instanceId,
-          model: codex.models[0]!.slug,
+          model: "gpt-astra-test",
           options: [{ id: "reasoning", value: "medium" }],
         };
         yield* experiments.create({
@@ -538,7 +538,6 @@ it.layer(services)("managed delegation experiment boundary", (it) => {
         ]);
         for (const [index, invalid] of [
           { target: { model: "gpt-astra-test" } },
-          { agentTask: { ...review, taskClass: "mixed" as const } },
           { agentTask: { ...review, sourceRevision: "wrong-pin" } },
           { agentTask: { ...review, workspacePath: h.foreign } },
           { target: { model: codexModel, options: [{ id: "reasoning", value: "high" }] } },

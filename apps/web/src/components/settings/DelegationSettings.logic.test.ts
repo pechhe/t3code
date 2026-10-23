@@ -6,7 +6,6 @@ import {
   effortFor,
   effortForModel,
   ensureModel,
-  isUiOnly,
   listModel,
   offersFast,
   removeEntry,
@@ -252,20 +251,6 @@ describe("delegation settings", () => {
     );
     // Any one usable account is enough.
     expect(unavailableReason(opus, [limited, provider({ instanceId: "claude-2" })])).toBeNull();
-  });
-
-  it("never offers an OpenAI model to a row that only takes UI work", () => {
-    const policy = manifest();
-    const sol = policy.models.sol;
-    const codex = provider({
-      driver: "codex",
-      instanceId: "codex",
-      models: [{ slug: "gpt-sol", name: "Sol", isCustom: false, capabilities: null }],
-    });
-    expect(isUiOnly(policy, ["ui-worker"])).toBe(true);
-    expect(isUiOnly(policy, ["ui-worker", "advisor"])).toBe(false);
-    expect(unavailableReason(sol, [codex], { uiOnly: true })).toBe("not used for UI work");
-    expect(unavailableReason(sol, [codex])).toBeNull();
   });
 
   it("keeps an effort the new model offers, else falls back to one it does", () => {

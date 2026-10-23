@@ -43,7 +43,6 @@ import {
   setModelFast,
   setPreferOtherAuthorProvider,
   splitGroup,
-  isUiOnly,
   rolePolicy,
   type RolePolicy,
   unavailableReason,
@@ -375,11 +374,10 @@ function FallbackAlert({
   const entries = manifest.lists[group.list] ?? [];
   const first = entries[0];
   if (first === undefined) return null;
-  const uiOnly = isUiOnly(manifest, group.roles);
-  const reason = unavailableReason(manifest.models[first.model], providers, { uiOnly });
+  const reason = unavailableReason(manifest.models[first.model], providers);
   if (reason === null) return null;
   const next = entries.find(
-    (entry) => unavailableReason(manifest.models[entry.model], providers, { uiOnly }) === null,
+    (entry) => unavailableReason(manifest.models[entry.model], providers) === null,
   );
   const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
   return (
@@ -443,11 +441,10 @@ function JobRow({
 }) {
   const entries = manifest.lists[group.list] ?? [];
   const label = (alias: string) => modelLabel(manifest.models[alias], alias, providers);
-  const uiOnly = isUiOnly(manifest, group.roles);
   const reasons = new Map(
     entries.map((entry) => [
       entry.model,
-      unavailableReason(manifest.models[entry.model], providers, { uiOnly }),
+      unavailableReason(manifest.models[entry.model], providers),
     ]),
   );
   const firstAvailable = entries.find((entry) => reasons.get(entry.model) === null);

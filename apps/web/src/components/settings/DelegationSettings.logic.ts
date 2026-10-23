@@ -61,23 +61,15 @@ export function roleGroups(manifest: Manifest): RoleGroup[] {
   return groups;
 }
 
-/** True when no role in the row takes non-UI work, so the server's UI model rule applies. */
-export function isUiOnly(manifest: Manifest, roles: ReadonlyArray<AgentRole>): boolean {
-  return roles.every((role) => !rolePolicy(manifest, role).taskClasses.includes("non-ui"));
-}
-
 /**
- * Why a model cannot take work now, mirroring the server's account checks and its fixed
- * rule that OpenAI models never take UI work; null when it can.
+ * Why a model cannot take work now, mirroring the server's account checks; null when it can.
  */
 export function unavailableReason(
   binding: Binding | undefined,
   providers: ReadonlyArray<ServerProvider>,
-  { uiOnly = false, now = Date.now() }: { uiOnly?: boolean; now?: number } = {},
+  { now = Date.now() }: { now?: number } = {},
 ): string | null {
   if (binding === undefined) return "not configured";
-  if (uiOnly && (binding.driverKind === "codex" || /^(gpt-|o[134]-)/i.test(binding.model)))
-    return "not used for UI work";
   const accounts = providers.filter(
     (provider) => provider.poolMembers === undefined && provider.driver === binding.driverKind,
   );

@@ -211,13 +211,6 @@ const inspect = Effect.fn("AgentRoleResolver.inspect")(function* (input: Resolut
     // Every installed provider may serve a role. Only Codex and Claude enforce a managed
     // task's read-only source access natively, so a role on another provider runs with the
     // account's own permissions; the policy editor says so where a model is chosen.
-    if (
-      request.taskClass !== "non-ui" &&
-      (binding.driverKind === "codex" || /^(gpt-|o[134]-)/i.test(binding.model))
-    ) {
-      record(alias, binding.model, "ui-model-restriction");
-      continue;
-    }
     if (!readOnly && binding.driverKind === "claudeAgent") {
       const refusal = !input.allowTrustedClaudeWriters
         ? "trusted-claude-disabled"
