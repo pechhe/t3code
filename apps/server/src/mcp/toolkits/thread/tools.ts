@@ -161,7 +161,7 @@ const pendingRequest = Schema.Struct({
 const PendingRequestListTool = Tool.make("t3_pending_request_list", {
   ...commandTool,
   description:
-    "List pending user questions in a thread. Omit threadId for this thread. Approval requests are not included.",
+    "List pending user questions in a thread; omit threadId for this thread. Approval requests are not included.",
   parameters: Schema.Struct({ threadId: Schema.optional(ThreadId) }),
   success: Schema.Struct({ requestIds: Schema.Array(RuntimeRequestId) }),
 })
@@ -169,8 +169,7 @@ const PendingRequestListTool = Tool.make("t3_pending_request_list", {
   .annotate(Tool.Destructive, false);
 const PendingRequestReadTool = Tool.make("t3_pending_request_read", {
   ...commandTool,
-  description:
-    "Read a pending user question. Answer with t3_pending_request_respond; existing live or message response handling is used.",
+  description: "Read a pending user question and answer it with t3_pending_request_respond.",
   parameters: Schema.Struct(requestTarget),
   success: pendingRequest,
 })
@@ -178,8 +177,7 @@ const PendingRequestReadTool = Tool.make("t3_pending_request_read", {
   .annotate(Tool.Destructive, false);
 const PendingRequestRespondTool = Tool.make("t3_pending_request_respond", {
   ...commandTool,
-  description:
-    "Answer a pending user-input request using the existing runtime response command. This cannot approve a permission request.",
+  description: "Answer a pending user-input request. This cannot approve a permission request.",
   parameters: Schema.Struct({ ...requestTarget, answers: ProviderUserInputAnswers }),
 })
   .annotate(Tool.Destructive, true)
@@ -251,7 +249,7 @@ const projectMoveDependencies = [
 const ThreadSuggestProjectTool = Tool.make("t3_thread_suggest_project", {
   ...commandTool,
   description:
-    "Suggest moving this No project chat into one of the user's projects (see t3_project_list), when the conversation clearly belongs to that project's work. T3 shows the user one banner with Move and Keep; the chat moves only if they choose Move. Use it only in a No project thread and only when the fit is clear; a thread takes one suggestion, and a dismissed one is final. reason is one short line shown to the user.",
+    "Suggest moving this No project chat into one of the user's projects (see t3_project_list) when the conversation clearly belongs there. T3 shows one banner with Move and Keep, and the chat moves only if they choose Move. Use it only in a No project thread when the fit is clear: a thread takes one suggestion, and a dismissed one is final. reason is one short line shown to the user.",
   parameters: Schema.Struct({ projectId: ProjectId, reason: TrimmedNonEmptyString }),
   dependencies: projectMoveDependencies,
 })
@@ -260,7 +258,7 @@ const ThreadSuggestProjectTool = Tool.make("t3_thread_suggest_project", {
 const ThreadMoveToProjectTool = Tool.make("t3_thread_move_to_project", {
   ...commandTool,
   description:
-    "Move a No project thread into a project in place: it keeps its id and history and continues in the project's workspace (a workspace this thread already holds there, a fresh SlipJay workspace prepared when the next turn starts when the project uses SlipJay, otherwise the project root). Moving this thread ends the current turn, and its next turn starts in the project with the conversation carried over, so nothing needs restating. continuationPrompt is only a one-sentence next step the conversation does not already say; a thread moving itself continues without one, while another thread moving this one must give the next step. If the user chose Keep on an earlier move or suggestion, move only when they ask again. Omit threadId for this thread.",
+    "Move a No project thread into a project in place: it keeps its id and history and continues in the project's workspace (one it already holds, a fresh SlipJay workspace prepared for its next turn, otherwise the project root). Moving this thread ends the turn, and the next starts in the project with the conversation carried over. continuationPrompt is only a one-sentence next step the conversation does not already say: a thread moving itself needs none, another moving this one must give it. If the user chose Keep on an earlier move or suggestion, move only when they ask again. Omit threadId for this thread.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     projectId: ProjectId,
@@ -317,7 +315,7 @@ const ThreadSearchTool = Tool.make("t3_thread_search", {
 const ScheduledTaskRunTool = Tool.make("run_scheduled_task_now", {
   ...commandTool,
   description:
-    "Run a scheduled task now through the existing scheduler. Requires a full-access/default caller. Returns the thread this run dispatched to, or null if dispatch failed. Each call is a new manual run; completion means dispatch/bookkeeping completed, not that the provider turn finished.",
+    "Run a scheduled task now. Requires a full-access/default caller. Returns the thread this run dispatched to, or null if dispatch failed; completion means dispatch and bookkeeping, not that the provider turn finished.",
   parameters: Schema.Struct({ taskId: ScheduledTaskId }),
   success: Schema.Struct({
     taskId: ScheduledTaskId,

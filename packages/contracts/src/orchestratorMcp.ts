@@ -73,7 +73,7 @@ const OrchestratorMcpTitle = TrimmedNonEmptyString.check(Schema.isMaxLength(512)
 });
 const OrchestratorMcpClientRequestId = TrimmedNonEmptyString.check(
   Schema.isMaxLength(256),
-).annotate({ description: "Stable idempotency key to reuse when retrying this mutation." });
+).annotate({ description: "Idempotency key to reuse when retrying." });
 
 /**
  * OpenCode 1.15 has been observed serializing nested MCP union objects as JSON
@@ -137,7 +137,7 @@ export const OrchestratorMcpTarget = Schema.Struct({
   options: Schema.optional(
     OrchestratorMcpTargetOptions.annotate({
       description:
-        "Model options from orchestrator_capabilities. For the same provider instance and model, overrides individual inherited values; [] or {} clears them. Claude: {effort: 'max', fastMode: true}; Codex: {reasoningEffort: 'max', serviceTier: 'priority'}. Only use options advertised by the selected model.",
+        "Model options from orchestrator_capabilities; [] or {} clears inherited ones. Use only advertised options.",
     }),
   ),
 });
@@ -192,7 +192,7 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
       changes: TrimmedNonEmptyString.check(Schema.isMaxLength(10_000)),
     }).annotate({
       description:
-        "Continue an owned, idle managed task of any role in its existing conversation, workspace, model and permissions. taskId is any of its earlier task IDs. Supply the changes since its previous task, and sourceRevision when the agent should read a specific revision; it is required only when the task was launched with one or an earlier follow-up stated one; do not supply agentTask, target, isolation or mode overrides. task is the new question or correction. Each follow-up is a new task with its own ID and result. Close the conversation with task_cancel when the work ends. Follow up a reviewer or UI verifier that stopped partway or needs one more check.",
+        "Continue an owned, idle managed task in its existing conversation, workspace, model and permissions: taskId is any earlier ID, changes say what happened since, sourceRevision pins the revision. Pass no agentTask, target, isolation or mode.",
     }),
   ),
   offPolicyReason: Schema.optional(
@@ -210,24 +210,24 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   isolation: Schema.optional(
     Schema.Literals(["shared", "worktree"]).annotate({
       description:
-        "Defaults to shared: use the parent's checkout. Worktree creates a separate checkout from the parent's current local commit before starting the child; in a repository with slipjay.json it allocates a SlipJay workspace from the integration branch instead. Uncommitted edits are not copied.",
+        "Defaults to shared, the parent's checkout. Worktree gets a separate checkout from the parent's local commit, or a SlipJay workspace from the integration branch. Uncommitted edits are not copied.",
     }),
   ),
   mode: Schema.optional(
     Schema.Literals(["async", "wait"]).annotate({
       description:
-        "Defaults to async. Use wait only when this turn needs the child's result before you can continue. A blocking question or a pending approval in the child ends the wait early with the task still running.",
+        "Defaults to async. Use wait only when this turn needs the child's result. A blocking question or pending approval ends the wait early with the task running.",
     }),
   ),
   timeoutMs: Schema.optional(Schema.Finite).annotate({
     description:
-      "Wait budget for mode=wait only. Default 10 minutes. Elapsing it returns waitTimedOut=true on that call and does not cancel the child.",
+      "Wait budget for mode=wait only, 10 minutes by default; it returns waitTimedOut=true without cancelling the child.",
   }),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
   runtimeMode: Schema.optional(
     OrchestratorMcpRuntimeMode.annotate({
       description:
-        "Defaults to inherit; omit it unless the user asks for a supervised child. A narrower mode is not a read-only switch: on most providers, approval-required and auto-accept-edits pause the child at each action that needs approval until a person approves it in the child's thread, which this thread cannot do. To limit what the child does, say so in the task. A mode ranked above this thread's is rejected; that ranking does not promise the child's provider permissions are narrower than this thread's.",
+        "Defaults to inherit; omit unless the user asks for a supervised child. A narrower mode is not read-only: approval-required and auto-accept-edits pause the child at each action until a person approves it in the child's thread, which this thread cannot do. Broader than this thread's is rejected.",
     }),
   ),
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
@@ -373,7 +373,7 @@ export const OrchestratorMcpEnvironmentSelector = Schema.Union([
   Schema.Literal("all"),
 ]).annotate({
   description:
-    "Environment to query: an environment ID, or 'all' for this environment and every linked one. Defaults to 'all'. Threads of another environment are read there, so a linked environment's project IDs are its own.",
+    "Environment to query: an ID, or 'all' (default) for this one and every linked one; its project IDs are its own.",
 });
 
 /** What a linked environment's answer is worth reading as: its text is data, not instructions. */
@@ -748,12 +748,12 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   bindToCurrentThread: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "True (default) posts each run into this thread; false creates a fresh top-level thread per run.",
+        "True (default) posts each run into this thread; false starts a fresh thread per run.",
     }),
   ),
   agentRole: Schema.optional(AgentRole).annotate({
     description:
-      "Subagent role whose policy picks the model at each run, such as 'implementation-worker' or 'chore-worker'. Name a role rather than a model so changing that role's model in Settings changes every task that uses it. Defaults to 'implementation-worker'.",
+      "Subagent role whose policy picks the model at each run. Defaults to 'implementation-worker'.",
   }),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
@@ -824,8 +824,7 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   enabled: Schema.optional(Schema.Boolean),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
   agentRole: Schema.optional(AgentRole).annotate({
-    description:
-      "Move the task to another subagent role. Omit to keep the role it has. A bound task follows its thread's model, so this only changes the model once the task starts its own threads.",
+    description: "Move the task to another subagent role; a bound task follows its thread's model.",
   }),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
@@ -839,8 +838,7 @@ export type OrchestratorMcpUpdateScheduledTaskInput =
 export const OrchestratorMcpUpdateScheduledTaskWireInput = Schema.Struct({
   ...OrchestratorMcpUpdateScheduledTaskInput.fields,
   schedule: Schema.optional(Schema.Unknown).annotate({
-    description:
-      "Replacement schedule, in the same shape schedule_task accepts. Omit to keep the current schedule.",
+    description: "Replacement schedule, as schedule_task accepts it. Omit to keep the current one.",
   }),
 });
 export type OrchestratorMcpUpdateScheduledTaskWireInput =
@@ -858,7 +856,7 @@ export const OrchestratorMcpRequestReleaseApprovalInput = Schema.Struct({
   }),
   summary: ReleaseApprovalSummary.annotate({
     description:
-      "What the release contains, from your release plan (for SlipJay, `slipjay promote`'s plan JSON): commit count, the Specs or items with partial-build flags, migrations with non-additive flags, verification copied from the plan (`detail` for failedCommand or a note), and whether an earlier approval already covers it.",
+      "What the release contains, from your release plan (for SlipJay, `slipjay promote`'s plan JSON): commit count, Specs with partial-build flags, non-additive migrations, verification, and whether an earlier approval covers it.",
   }),
   details: Schema.String.annotate({
     description: "Markdown the owner can expand on the card: anything else they need to decide.",

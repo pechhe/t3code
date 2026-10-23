@@ -33,19 +33,19 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   startFromOrigin: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Fetch the remote baseRef belongs to and start the worktree branch from its remote-tracking commit instead of the local ref. Defaults to the server's 'new worktrees start from remote' setting.",
+        "Start the branch from baseRef's remote-tracking commit, fetching it first; defaults to the server's remote-start setting.",
     }),
   ),
   runSetupScript: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Run the project's configured setup script in the worktree after handoff. Defaults to true for a new worktree and false for an existing one.",
+        "Run the setup script there; true by default for a new workspace, false for an existing one.",
     }),
   ),
   continuationPrompt: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(120_000)).annotate({
       description:
-        "Message queued as the thread's next turn after the handoff. The handoff detaches the current provider session, so pass the remaining work here to automatically resume inside the worktree; omit it to stop after the handoff and wait for the next message.",
+        "Message queued as the thread's next turn, so the work resumes inside the worktree; omit to stop after the handoff.",
     }),
   ),
 });
@@ -121,8 +121,7 @@ export const WorktreeMcpAttachInput = Schema.Struct({
   ),
   root: Schema.optional(
     Schema.Boolean.annotate({
-      description:
-        "Adopt the project's main checkout, for an ordinary repository worked on in place. Detach leaves it in place.",
+      description: "Adopt the project's main checkout. Detach leaves it in place.",
     }),
   ),
   branch: Schema.optional(
@@ -136,7 +135,7 @@ export const WorktreeMcpAttachInput = Schema.Struct({
   runSetupScript: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Run the project's configured setup script in the workspace. Defaults to true for a new workspace and false for an existing one.",
+        "Run the project's setup script there. Defaults to true for a new workspace, false for an existing one.",
     }),
   ),
 });

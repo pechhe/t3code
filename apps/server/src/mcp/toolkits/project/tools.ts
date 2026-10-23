@@ -51,7 +51,7 @@ const shared = {
 const ProjectListTool = Tool.make("t3_project_list", {
   ...shared,
   description:
-    "List registered projects in this environment. Pages use the current project snapshot and may shift between calls.",
+    "List registered projects in this environment. Pages use the current snapshot and may shift between calls.",
   parameters: Schema.Struct({
     cursor: Schema.optional(NonNegativeInt),
     limit: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))),
@@ -110,13 +110,13 @@ const ProjectCloneTool = Tool.make("t3_project_clone", {
 const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   ...shared,
   description:
-    "Create a top-level thread with an explicit workspace before its agent starts. Use delegate_task for child subagents. workspaceStrategy: worktree (baseRef, branch), existing_worktree (worktreePath, branch), or root; omit it for the project default. Pass forgeItem to bind a known Build item instead. Omit projectId/modelSelection/modes to inherit. scratch launches without a project. Put the task in message and retain threadId. Set watch=true to be woken when it finishes. Each call is a new launch with no retry key.",
+    "Create a top-level thread with an explicit workspace before its agent starts; use delegate_task for child subagents. Bind a Build item with forgeItem; omit projectId, modelSelection and modes to inherit. Put the task in message and retain threadId; watch=true wakes you when it finishes. Each call is a new launch with no retry key.",
   parameters: Schema.Struct({
     projectId: Schema.optional(ProjectId),
     scratch: Schema.optional(
       Schema.Boolean.annotate({
         description:
-          "Launch without a project, in its own folder under the environment's Scratch project. Not with projectId or workspaceStrategy.",
+          "Launch in its own folder under the Scratch project. Not with projectId or workspaceStrategy.",
       }),
     ),
     title: TrimmedNonEmptyString,
@@ -126,26 +126,26 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     workspaceStrategy: Schema.optional(
       OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
         description:
-          "Where the thread runs, chosen before its agent starts: worktree (baseRef, branch) creates a checkout, or in a SlipJay repository allocates a workspace from the integration branch (branch names it; baseRef and startFromOrigin are ignored); existing_worktree binds worktreePath; root uses the project checkout. Omitted means the project's default, not the caller's worktree. For a PR stack use the parent branch as baseRef and startFromOrigin:false. Uncommitted changes are not copied.",
+          "Where the thread runs, chosen before its agent starts: worktree (baseRef, branch), existing_worktree (worktreePath) or root; omitted means the project's default, never the caller's worktree. In a SlipJay repository a worktree strategy allocates a workspace from the integration branch named after branch. Uncommitted changes are not copied.",
       }),
     ),
     forgeItem: Schema.optional(
       ForgeItemReferenceInput.annotate({
         description:
-          "The Build item this thread works on, in a repository with slipjay.json: its number or a friendly ref such as YS-12 (also #<number> or a Build URL). T3 binds the thread to that item's SlipJay workspace before the agent starts, creating one attached to the item when it has none. Not with workspaceStrategy.",
+          "The Build item this thread works on, in a repository with slipjay.json: its number or a ref such as YS-12. T3 binds the thread to its SlipJay workspace, creating one when it has none. Not with workspaceStrategy.",
       }),
     ),
     message: Schema.optional(
       Schema.String.check(Schema.isMaxLength(120000)).annotate({
         description:
-          "First task prompt, delivered after workspace preparation. Omit message and attachments to create an idle thread.",
+          "First task prompt, after workspace preparation; omit it to create an idle thread.",
       }),
     ),
     attachments: Schema.optional(Schema.Array(McpAttachmentInput).check(Schema.isMaxLength(8))),
     watch: Schema.optional(
       Schema.Boolean.annotate({
         description:
-          "Watch the new thread from this one, as watch does, starting before its first message so a quick finish is not missed.",
+          "Watch the new thread from this one, as watch does, starting before its first message.",
       }),
     ),
   }),

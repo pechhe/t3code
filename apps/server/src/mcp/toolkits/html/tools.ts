@@ -21,15 +21,15 @@ const Html = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512_0
 });
 
 const PAGE_RULES =
-  'Write one self-contained document with inline <style> and <script>. Local images written as absolute file paths (src="/abs/shot.png", CSS url(/abs/bg.webp), or a JS string) are inlined automatically; remote http(s) URLs, such as a CDN chart library, load as-is.';
+  "Write one self-contained document with inline <style> and <script>. Absolute local image paths (src or CSS url) are inlined automatically; remote http(s) URLs, such as a CDN chart library, load as-is.";
 
 export const HtmlPreviewTool = Tool.make("html_preview", {
-  description: `Render an HTML page in T3's headless browser and get back a PNG screenshot, contentHeight (the height the page needs at this width), and its console output: log, info, warning, error, and uncaught exceptions, with stack traces pointing into page.html. console.log is a fine way to report your own checks. Use it to check and iterate on a page before html_render. The first preview on a machine can report that T3 is still installing its preview browser; call again a minute later. ${PAGE_RULES} The page gets the theme variables and layout described in html_render.`,
+  description: `Render an HTML page in T3's headless browser and get back a PNG screenshot, contentHeight (the height it needs at this width) and its console output with stack traces. Iterate on a page with it before html_render; a first preview may fail while T3 installs its browser, so call again. Write the page as html_render describes: the same page rules, theme and layout apply.`,
   parameters: Schema.Struct({
     html: Html,
     width: Schema.optional(
       Schema.Int.annotate({
-        description: `Viewport width in CSS pixels, 240-1600. Defaults to ${HTML_RENDER_COLUMN_WIDTH}, the reply column; use about 390 to check phones.`,
+        description: `Viewport width in CSS pixels, 240-1600; ${HTML_RENDER_COLUMN_WIDTH} (the reply column) by default, about 390 for phones.`,
       }),
     ),
     appearance: Schema.optional(
@@ -72,7 +72,7 @@ export const HtmlPreviewTool = Tool.make("html_preview", {
 // Read-only in the MCP sense: it shows a page in the caller's own thread and
 // touches no workspace, so plan mode and read-only sandboxes can use it.
 const HtmlRenderTool = Tool.make(HTML_RENDER_TOOL_NAME, {
-  description: `Show a finished HTML page (chart, table, diagram, collage, mockup) inline in this thread, above your final text reply; call it before writing that reply. Preview with html_preview first. T3 fits the frame to the page's height at each reader's width. ${PAGE_RULES} ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`,
+  description: `Show a finished HTML page (chart, table, diagram, collage, mockup) inline in this thread, above your final reply; preview it with html_preview first. ${PAGE_RULES} ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`,
   parameters: Schema.Struct({
     html: Html,
     title: Schema.String.check(
@@ -80,7 +80,7 @@ const HtmlRenderTool = Tool.make(HTML_RENDER_TOOL_NAME, {
       Schema.isMaxLength(HTML_RENDER_MAX_TITLE_LENGTH),
     ).annotate({ description: "Short name for the page." }),
     height: Schema.Int.annotate({
-      description: `The frame height in CSS pixels, ${HTML_RENDER_MIN_HEIGHT}-${HTML_RENDER_MAX_HEIGHT}. Use html_preview's contentHeight. A lower height makes long content scroll inside the frame on mobile only.`,
+      description: `Frame height in CSS pixels, ${HTML_RENDER_MIN_HEIGHT}-${HTML_RENDER_MAX_HEIGHT}, from html_preview's contentHeight; lower scrolls long content on mobile.`,
     }),
   }),
   success: Schema.Struct({

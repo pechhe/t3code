@@ -31,7 +31,7 @@ const WorktreeToolFailure = Schema.Union([WorktreeMcpFailure, OrchestratorMcpFai
 
 const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
   description:
-    "Needs an agent running inside a T3 thread. Move this agent thread into another workspace: a new one, or with worktreePath an existing checkout of the project's repository (such as a SlipJay workspace allocated with `slipjay start`). Works whether or not the thread is already attached to one; the previous workspace is left as it is. To launch a separate agent bound to a workspace, use t3_thread_launch with workspaceStrategy instead. A new worktree gets the branch (optionally from origin); in a repository with slipjay.json it is instead a SlipJay workspace from the integration branch, named after branch (baseRef, startFromOrigin and path are ignored). Re-points the thread at the checkout, and runs the project's setup script in a new one by default. Changing the workspace detaches the live provider session, so the current turn ends shortly after the handoff is recorded; call this as the last action of the turn. To keep working after the handoff, pass continuationPrompt with a one-sentence next step: it is queued as the thread's next message and starts a new turn inside the workspace with the conversation preserved, so it never needs to restate the work so far. Without it the thread stays idle until the next message. A new worktree is not removed automatically when the thread is deleted.",
+    "Needs an agent running inside a T3 thread. Move this thread into a new workspace, or with worktreePath into an existing checkout (such as a SlipJay workspace from `slipjay start`); the previous one is left as it is. A new worktree gets the branch, or in a repository with slipjay.json is a SlipJay workspace from the integration branch named after branch (baseRef, startFromOrigin and path are ignored), with the project's setup script by default. Changing workspace detaches the live provider session, so the turn ends after the handoff is recorded: call this last. continuationPrompt, one sentence, is queued as the thread's next message, starting a new turn there with the conversation preserved; without it the thread stays idle. A new worktree is not removed when the thread is deleted.",
   parameters: WorktreeMcpHandoffInput,
   success: WorktreeMcpHandoffResult,
   failure: WorktreeToolFailure,
@@ -46,7 +46,7 @@ const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
 
 const WorktreeStatusTool = Tool.make("t3_worktree_status", {
   description:
-    "Needs an agent running inside a T3 thread. Report this agent thread's workspaces: whether its primary workspace is a worktree or SlipJay workspace, its path and branch, the project's main workspace root, the server default for startFromOrigin, and the workspaces attached in other projects. Call this before t3_worktree_handoff or t3_worktree_attach to see where the thread works now.",
+    "Needs an agent running inside a T3 thread. Report this thread's workspaces: whether its primary one is a worktree or SlipJay workspace, its path and branch, the project's main workspace root, the startFromOrigin default, and workspaces attached in other projects. Call it before t3_worktree_handoff or t3_worktree_attach.",
   // No `parameters`: Tool.make defaults to Tool.EmptyParams, which serializes
   // to a top-level `type: "object"` JSON Schema. An explicit empty
   // Schema.Struct({}) serializes to `anyOf: [object, array]`, which is not a
@@ -64,7 +64,7 @@ const WorktreeStatusTool = Tool.make("t3_worktree_status", {
 
 const WorktreeAttachTool = Tool.make("t3_worktree_attach", {
   description:
-    'Needs an agent running inside a T3 thread. Attach a workspace in another registered project to this thread, beside its primary workspace, when authorised work needs that project: work there by path, share it with helpers (workspaceAssignment "lead"), and land from it. A new one is a SlipJay workspace in a repository with slipjay.json, otherwise a git worktree on branch; worktreePath or root adopts an existing checkout instead. The provider session keeps running where it is. A project holds one live attachment per thread; once SlipJay releases it (for example after it lands) the project can take a fresh one. Detach with t3_worktree_detach.',
+    'Needs an agent running inside a T3 thread. Attach a workspace in another registered project to this thread, beside its primary workspace, when authorised work needs that project: work there by path, share it with helpers (workspaceAssignment "lead") and land from it. A new one is a SlipJay workspace in a repository with slipjay.json, otherwise a git worktree; worktreePath or root adopts an existing checkout. One live attachment per project; the provider session keeps running where it is.',
   parameters: WorktreeMcpAttachInput,
   success: WorktreeMcpAttachResult,
   failure: WorktreeToolFailure,
@@ -79,7 +79,7 @@ const WorktreeAttachTool = Tool.make("t3_worktree_attach", {
 
 const WorktreeDetachTool = Tool.make("t3_worktree_detach", {
   description:
-    "Needs an agent running inside a T3 thread. Detach a workspace attached with t3_worktree_attach. One T3 allocated is released through SlipJay or git; detaching fails, and it stays attached, while it holds uncommitted edits or unlanded work, or while a Land or helper writer runs there. An adopted checkout is left in place.",
+    "Needs an agent running inside a T3 thread. Detach a workspace attached with t3_worktree_attach. One T3 allocated is released through SlipJay or git, and detaching fails while it holds uncommitted edits or unlanded work. An adopted checkout is left in place.",
   parameters: WorktreeMcpDetachInput,
   success: WorktreeMcpDetachResult,
   failure: WorktreeToolFailure,
@@ -94,7 +94,7 @@ const WorktreeDetachTool = Tool.make("t3_worktree_detach", {
 
 const WorktreeListTool = Tool.make("t3_worktree_list", {
   description:
-    "List branch refs and their associated checkout paths for a thread's workspace (omit threadId for this thread) using the app's ref inventory. Detached worktrees without a branch are not included. Use t3_worktree_status for the thread binding and t3_worktree_handoff to create a new worktree.",
+    "List branch refs and their checkout paths for a thread's workspace (omit threadId for this thread) from the app's ref inventory; detached worktrees without a branch are left out. Use t3_worktree_status for the thread binding.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     query: VcsListRefsInput.fields.query,

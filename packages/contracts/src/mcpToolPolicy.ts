@@ -134,16 +134,13 @@ const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
   "leaf",
   "report",
 ]);
-const PREVIEW: ReadonlySet<ToolFamily> = new Set([
-  "control",
-  "workspace",
-  "scheduling",
-  "worktree",
-  "project",
-  "preview",
-  "leaf",
-  "report",
-]);
+/**
+ * A browser session drives `preview_*`, and needs `leaf` for its own task status, cancel,
+ * watch and the html tools that show the user a page, plus `report` for its outcome. It
+ * orchestrates nothing, so it lists no control, workspace, scheduling, worktree or project
+ * tool; that listing is the child-preview one.
+ */
+const PREVIEW: ReadonlySet<ToolFamily> = new Set(["preview", "leaf", "report"]);
 const PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
   "control",
   "workspace",

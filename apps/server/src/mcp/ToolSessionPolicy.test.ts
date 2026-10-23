@@ -85,10 +85,15 @@ const session = (
 // own instructions name: the handoff family is part of the control plane and the
 // html tools are counted here. A delegated child lists its own work family and
 // the leaf tools only, so its ceiling is the reason it cannot drift back to the
-// control plane.
+// control plane. Each number is the payload that endpoint committed to: a change that
+// needs a higher one states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  ["ordinary", undefined, 50_000],
-  ["browser", session("phi", "browser"), 115_000],
+  // 39,983 measured.
+  ["ordinary", undefined, 40_000],
+  // The preview endpoint is a browser session's listing, so it carries no control plane.
+  // 32,741 measured; the ceiling moved by 100 for the theme guide's corrected code-variable
+  // names, which the html tools carry on this endpoint too.
+  ["browser/preview", session("phi", "browser"), 32_800],
   ["ui-verifier", session("phi", "ui-verifier"), 120_000],
   ["ui-worker", session("implementation-phi", "ui-worker"), 115_000],
   ["researcher", session("web-research", "researcher"), 105_000],
@@ -111,6 +116,17 @@ it("keeps every session endpoint under its payload budget", () => {
   }
 });
 
+it("lists a browser session only the families it uses", () => {
+  // The preview is what the session is for; leaf gives it its own task status, cancel,
+  // watch and the html tools to show the user a page, and report its outcome. A later
+  // family added here fails this test rather than quietly raising the budget.
+  expect([...SESSION_TOOL_ENDPOINTS.preview.families].sort()).toEqual([
+    "leaf",
+    "preview",
+    "report",
+  ]);
+});
+
 const toolsNamedIn = (text: string) =>
   // Bare names too: the SlipJay workspace notes name tools without backticks.
   tools.map((tool) => tool.name).filter((name) => new RegExp(`\\b${name}\\b`).test(text));
@@ -122,7 +138,8 @@ const toolsNamedIn = (text: string) =>
  */
 const instructionCases: ReadonlyArray<[string, SessionToolProfile | undefined]> = [
   ["ordinary", undefined],
-  ["browser", session("phi", "browser")],
+  // No parent browser session: a thread's profile and role come only from its agentTask,
+  // and the preview endpoint no longer carries the control plane the parent text names.
   ["ui-verifier", session("phi", "ui-verifier")],
   ["ui-worker", session("implementation-phi", "ui-worker")],
   ["researcher", session("web-research", "researcher")],
@@ -211,6 +228,9 @@ it("lists the preview family only for Phi profiles, and device only for a UI ver
   const browser = names(session("phi", "browser"));
   expect(browser.has("preview_interact")).toBe(true);
   expect(browser.has("device_open")).toBe(false);
+  expect(browser.has("delegate_task")).toBe(false);
+  expect(browser.has("t3_worktree_status")).toBe(false);
+  expect(browser.has("agent_task_outcome")).toBe(true);
 
   const verifier = names(session("phi", "ui-verifier"));
   expect(verifier.has("preview_interact")).toBe(true);
@@ -255,8 +275,9 @@ it("gives a delegated child its own work family and the leaf tools, never the co
   expect(worker.has("t3_worktree_status")).toBe(true);
   expect(worker.has("preview_interact")).toBe(false);
 
-  // The parent keeps the control plane it needs to orchestrate.
-  expect(names(session("phi", "browser")).has("delegate_task")).toBe(true);
+  // The browser endpoint is a browser session's listing, so it carries no control plane: the
+  // work an ordinary thread does to orchestrate belongs to the control endpoint alone.
+  expect(names(session("phi", "browser")).has("delegate_task")).toBe(false);
 });
 
 it("hands all three harnesses the same session endpoint", () => {
@@ -299,8 +320,6 @@ it("hands all three harnesses the same session endpoint", () => {
     expect(pi.env.T3_MCP_BEARER_TOKEN).toBe("test-token");
   }
 });
-
-// --- The instructions a real adapter builds, not just the shared helper. ---
 
 const instructionText = (value: unknown): string =>
   typeof value === "string"

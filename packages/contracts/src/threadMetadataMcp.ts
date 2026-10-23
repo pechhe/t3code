@@ -68,8 +68,7 @@ export const ThreadMetadataMcpAction = Schema.Literals([
   "link_work_item",
   "unlink_work_item",
 ]).annotate({
-  description:
-    "Metadata mutation: rename, regenerate_title, link_pull_request, unlink_pull_request, set_workflow, link_work_item, or unlink_work_item.",
+  description: "Metadata mutation. Each action takes only its own fields.",
 });
 export type ThreadMetadataMcpAction = typeof ThreadMetadataMcpAction.Type;
 
@@ -89,8 +88,7 @@ export type ThreadMetadataMcpPullRequest = typeof ThreadMetadataMcpPullRequest.T
 export const ThreadMetadataMcpWorkflow = Schema.Struct({
   kind: OrchestrationV2ThreadWorkflow.fields.kind,
   unattended: Schema.optional(Schema.Boolean).annotate({
-    description:
-      "Set only when the user changes the stance in chat; omit to keep the current stance.",
+    description: "Set only when the user changes the stance in chat.",
   }),
 });
 
@@ -105,11 +103,11 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   }),
   workflow: Schema.optional(Schema.NullOr(ThreadMetadataMcpWorkflow)).annotate({
     description:
-      "Governing workflow (kind: lead, shape, solo, chat or worker) and whether it runs unattended. Required only when action is set_workflow; null clears it. Omitting unattended keeps the current stance.",
+      "Governing workflow and unattended stance. Required only for set_workflow; null clears it.",
   }),
   workItem: Schema.optional(TrimmedNonEmptyString).annotate({
     description:
-      "The Weave Build Spec or Ticket to link: its Build URL, #<number> or number, on T3's Weave. Required only when action is link_work_item; linking replaces any earlier item.",
+      "The Weave Build Spec or Ticket to link: Build URL, #<number> or number. Required only for link_work_item, which replaces any earlier item.",
   }),
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
