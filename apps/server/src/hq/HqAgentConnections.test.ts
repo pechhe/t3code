@@ -5,8 +5,10 @@ import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers"
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import * as TestClock from "effect/testing/TestClock";
+import * as NodeUtil from "node:util";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { claudeMcpQueryOverrides } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
@@ -378,6 +380,42 @@ it.effect("a project's stored connection becomes the environment's, stored once"
     );
     yield* connections.prepare({ threadId: leadThread, role: "lead", model: "gpt-5.5" });
     assert.isDefined((yield* call(leadThread)).json.result);
+  }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+);
+
+it.effect("projects with different HQ origins keep one and report the other dropped", () =>
+  Effect.gen(function* () {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const directory = yield* fileSystem.makeTempDirectoryScoped();
+    const before = yield* Effect.service(ServerSecretStore.ServerSecretStore).pipe(
+      Effect.provide(ServerSecretStore.layerAtDirectory(directory)),
+    );
+    yield* before.set(
+      `hq-connection-${"a".repeat(32)}`,
+      new TextEncoder().encode(JSON.stringify({ origin, delegation })),
+    );
+    yield* before.set(
+      `hq-connection-${"b".repeat(32)}`,
+      new TextEncoder().encode(
+        JSON.stringify({ origin: otherOrigin, delegation: otherDelegation }),
+      ),
+    );
+    const logs: Array<string> = [];
+    const logLayer = Logger.layer(
+      [Logger.make(({ message }) => void logs.push(NodeUtil.inspect(message, { depth: 10 })))],
+      { mergeWithExisting: false },
+    );
+
+    // One connection per environment: the first project's in sorted order is kept and usable.
+    const { connections, call } = yield* makeHqHarnessAt(directory).pipe(Effect.provide(logLayer));
+    assert.strictEqual((yield* connections.read)?.origin, origin);
+    yield* connections.prepare({ threadId: leadThread, role: "lead", model: "gpt-5.5" });
+    assert.isDefined((yield* call(leadThread)).json.result);
+
+    // The origin that could not be kept is named alongside the one that was.
+    const report = logs.find((line) => line.includes(otherOrigin));
+    assert.isDefined(report, "the dropped HQ origin is reported");
+    assert.include(report, origin);
   }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
 );
 

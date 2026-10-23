@@ -11,7 +11,7 @@
 import type { OrchestrationV2AppThread, ThreadId } from "@t3tools/contracts";
 import * as AgentMcpServers from "@t3tools/provider-core/server/AgentMcpServers";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
-import { currentHqOrigin } from "@t3tools/shared/hqOrigins";
+import { currentHqOrigin, sameHqAddress } from "@t3tools/shared/hqOrigins";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -709,7 +709,8 @@ const make = Effect.gen(function* () {
 
   /**
    * Adopts the connection a project stored before the environment owned one, then removes every
-   * project copy so the delegation is stored once.
+   * project copy so the delegation is stored once. An environment holds one connection, so the
+   * first project's (in sorted order) is kept and the origins it displaced are reported.
    */
   yield* Effect.gen(function* () {
     const directory = store.directory;
@@ -722,6 +723,7 @@ const make = Effect.gen(function* () {
       .toSorted();
     if (projectEntries.length === 0) return;
     let adopted = Option.getOrUndefined(yield* readStored)?.origin;
+    const dropped = new Set<string>();
     for (const name of projectEntries) {
       const bytes = yield* store.get(name);
       const stored = Option.flatMap(bytes, (value) =>
@@ -730,13 +732,25 @@ const make = Effect.gen(function* () {
       if (adopted === undefined && Option.isSome(bytes) && Option.isSome(stored)) {
         yield* store.set(STORE_NAME, bytes.value);
         adopted = stored.value.origin;
-      }
+      } else if (
+        Option.isSome(stored) &&
+        adopted !== undefined &&
+        !sameHqAddress(stored.value.origin, adopted)
+      )
+        dropped.add(currentHqOrigin(stored.value.origin));
       yield* store.remove(name);
     }
-    yield* Effect.logInfo("Moved a project's HQ connection to the environment", {
+    const report = {
       origin: adopted ?? null,
       projectEntries: projectEntries.length,
-    });
+      droppedOrigins: [...dropped].sort(),
+    };
+    yield* dropped.size === 0
+      ? Effect.logInfo("Moved a project's HQ connection to the environment", report)
+      : Effect.logWarning(
+          "Moved a project's HQ connection to the environment and dropped other projects' HQ origins",
+          report,
+        );
   }).pipe(
     Effect.catchCause((cause) =>
       Effect.logWarning("Could not move a project's HQ connection to the environment", cause),
