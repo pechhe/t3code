@@ -40,7 +40,7 @@ const hostResourcesAtom = Atom.family((environmentIdsKey: string) =>
   }),
 );
 
-/** Only mounted for unresolved automatic drafts, so idle clients do not poll hosts. */
+/** Reads resources only until a draft has a recommendation; resolved drafts do not poll hosts. */
 export function useLoadBalancedEnvironment(
   environmentIds: readonly EnvironmentId[],
   weights: Readonly<Record<string, number>>,

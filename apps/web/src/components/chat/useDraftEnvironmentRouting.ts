@@ -28,9 +28,13 @@ interface DraftEnvironmentRoutingInput {
   readonly envLocked: boolean;
   readonly automaticEnvironment: boolean;
   readonly logicalProjectEnvironments: ReturnType<typeof useLogicalProjectEnvironments>;
-  readonly environmentById: ReadonlyMap<EnvironmentId, EnvironmentPresentation>;
+  readonly environmentById: ReadonlyMap<
+    EnvironmentId,
+    Pick<EnvironmentPresentation, "connection" | "serverConfig">
+  >;
   readonly providersByEnvironment: ReturnType<typeof useEnvironmentProviders>;
   readonly loadBalancingSettings: {
+    readonly loadBalancingEnabled: boolean;
     readonly loadBalancingWeights: Readonly<Record<string, number>>;
   };
   readonly referencedThreadContexts: ReadonlyArray<ThreadContextRecord>;
@@ -41,6 +45,29 @@ interface DraftEnvironmentRoutingInput {
   readonly activeProjectIsScratch: boolean;
   readonly projectGroupingSettings: ReturnType<typeof selectProjectGroupingSettings>;
   readonly sendInFlightRef: { readonly current: boolean };
+}
+
+export function isAutomaticDraftEnvironment(
+  input: Pick<
+    DraftEnvironmentRoutingInput,
+    "draftId" | "draftThread" | "envLocked" | "composerHasAttachments"
+  > & {
+    readonly clientSettingsHydrated: boolean;
+    readonly canAutoBalanceEnvironments: boolean;
+    readonly loadBalancingEnabled: boolean;
+  },
+) {
+  return Boolean(
+    input.clientSettingsHydrated &&
+    input.draftId &&
+    !input.envLocked &&
+    input.canAutoBalanceEnvironments &&
+    input.loadBalancingEnabled &&
+    input.draftThread?.environmentSelection !== "manual" &&
+    !input.composerHasAttachments &&
+    (!input.draftThread?.branch || input.draftThread.environmentSelection === "auto") &&
+    !input.draftThread?.worktreePath,
+  );
 }
 
 /**
@@ -75,61 +102,113 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
   );
   const allProjects = useProjects();
   const { openScratchProject } = useScratchProject();
-  const needsLoadBalancing = automaticEnvironment && !draftThread?.loadBalancedEnvironmentId;
-  const loadBalancingCandidates = needsLoadBalancing
-    ? logicalProjectEnvironments
-        .filter((candidate) => {
-          const environment = environmentById.get(candidate.environmentId);
-          return (
-            environment?.connection.phase === "connected" &&
-            (loadBalancingSettings.loadBalancingWeights[candidate.environmentId] ?? 50) > 0 &&
-            referencedThreadContexts.every(
-              (record) => record.environmentId === candidate.environmentId,
-            ) &&
-            providersByEnvironment
-              .get(candidate.environmentId)
-              ?.some(
-                (provider) =>
-                  (activeProviderInstanceId === null ||
-                    provider.instanceId === activeProviderInstanceId) &&
-                  provider.driver === selectedProvider &&
-                  (environment.serverConfig?.settings
-                    ? resolveProjectProviderInstanceEnabled(
-                        environment.serverConfig.settings,
-                        candidate.projectId,
-                        provider.instanceId,
-                      )
-                    : provider.enabled) &&
-                  provider.installed &&
-                  provider.status !== "error" &&
-                  provider.auth.status !== "unauthenticated" &&
-                  provider.availability !== "unavailable",
-              )
-          );
-        })
-        .map((candidate) => candidate.environmentId)
+  const balancingEnabled =
+    !!draftId &&
+    !envLocked &&
+    !activeProjectIsScratch &&
+    loadBalancingSettings.loadBalancingEnabled &&
+    logicalProjectEnvironments.length > 0;
+  // Live eligibility governs new picks and automatic moves; a connection blip
+  // must not replace an existing recommendation or erase a manual override.
+  const eligibleEnvironments = balancingEnabled
+    ? logicalProjectEnvironments.filter((candidate) => {
+        const environment = environmentById.get(candidate.environmentId);
+        return (
+          environment?.connection.phase === "connected" &&
+          (loadBalancingSettings.loadBalancingWeights[candidate.environmentId] ?? 50) > 0 &&
+          referencedThreadContexts.every(
+            (record) => record.environmentId === candidate.environmentId,
+          ) &&
+          providersByEnvironment
+            .get(candidate.environmentId)
+            ?.some(
+              (provider) =>
+                (activeProviderInstanceId === null ||
+                  provider.instanceId === activeProviderInstanceId) &&
+                provider.driver === selectedProvider &&
+                (environment.serverConfig?.settings
+                  ? resolveProjectProviderInstanceEnabled(
+                      environment.serverConfig.settings,
+                      candidate.projectId,
+                      provider.instanceId,
+                    )
+                  : provider.enabled) &&
+                provider.installed &&
+                provider.status !== "error" &&
+                provider.auth.status !== "unauthenticated" &&
+                provider.availability !== "unavailable",
+            )
+        );
+      })
     : [];
-  const loadBalancing = useLoadBalancedEnvironment(
-    loadBalancingCandidates,
+  const balanceTarget = logicalProjectEnvironments.find(
+    (environment) => environment.environmentId === draftThread?.loadBalancedEnvironmentId,
+  );
+  const applicableTarget = eligibleEnvironments.find(
+    (environment) => environment.environmentId === balanceTarget?.environmentId,
+  );
+  const needsRecommendation = balancingEnabled && !composerHasAttachments && !balanceTarget;
+  const resources = useLoadBalancedEnvironment(
+    needsRecommendation ? eligibleEnvironments.map((environment) => environment.environmentId) : [],
     loadBalancingSettings.loadBalancingWeights,
   );
+  const applyingRecommendation =
+    automaticEnvironment &&
+    !!applicableTarget &&
+    draftThread?.environmentId !== applicableTarget.environmentId;
+  const needsLoadBalancing =
+    automaticEnvironment &&
+    (!balanceTarget ||
+      !applicableTarget ||
+      draftThread?.environmentId !== balanceTarget.environmentId);
+  const loadBalancing = {
+    ...resources,
+    pending: resources.pending || applyingRecommendation,
+  };
   useEffect(() => {
-    if (!needsLoadBalancing || loadBalancing.pending || !draftId || sendInFlightRef.current) return;
-    const target = logicalProjectEnvironments.find(
-      (environment) => environment.environmentId === loadBalancing.environmentId,
+    if (!needsRecommendation || resources.pending || !draftId || sendInFlightRef.current) return;
+    const target = eligibleEnvironments.find(
+      (environment) => environment.environmentId === resources.environmentId,
     );
     if (!target?.projectId) return;
     setDraftThreadContext(draftId, {
-      projectRef: scopeProjectRef(target.environmentId, target.projectId),
-      environmentSelection: "auto",
       loadBalancedEnvironmentId: target.environmentId,
     });
   }, [
-    needsLoadBalancing,
-    loadBalancing.pending,
-    loadBalancing.environmentId,
+    needsRecommendation,
+    resources.pending,
+    resources.environmentId,
     draftId,
-    logicalProjectEnvironments,
+    eligibleEnvironments,
+    sendInFlightRef,
+    setDraftThreadContext,
+  ]);
+  // A recommendation can outlive a machine-local pin. Apply it only after that
+  // pin is removed; caching the recommendation never grants permission to move.
+  useEffect(() => {
+    if (
+      !automaticEnvironment ||
+      composerHasAttachments ||
+      draftThread?.worktreePath ||
+      !draftId ||
+      !applicableTarget?.projectId ||
+      sendInFlightRef.current ||
+      (draftThread?.branch && draftThread.environmentSelection !== "auto") ||
+      (draftThread?.environmentId === applicableTarget.environmentId &&
+        draftThread.environmentSelection === "auto")
+    )
+      return;
+    setDraftThreadContext(draftId, {
+      projectRef: scopeProjectRef(applicableTarget.environmentId, applicableTarget.projectId),
+      environmentSelection: "auto",
+      loadBalancedEnvironmentId: applicableTarget.environmentId,
+    });
+  }, [
+    automaticEnvironment,
+    composerHasAttachments,
+    draftThread,
+    draftId,
+    applicableTarget,
     sendInFlightRef,
     setDraftThreadContext,
   ]);
@@ -160,13 +239,11 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
   };
   const onAutoEnvironmentStable = useStableCallback(onAutoEnvironment);
   const autoEnvironmentLabel = automaticEnvironment
-    ? draftThread?.loadBalancedEnvironmentId
+    ? !needsLoadBalancing
       ? "Auto balance"
       : loadBalancing.pending
         ? "Checking machines…"
-        : loadBalancing.failed
-          ? "Auto balance unavailable"
-          : "Auto balance"
+        : "Auto balance unavailable"
     : undefined;
 
   // A change in flight belongs to the draft and project it started on.
@@ -224,20 +301,33 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       )
         return;
       const projectRef = scopeProjectRef(target.environmentId, project.id);
-      // The switch keeps this position: the next new thread starts on the same machine.
-      setNewThreadEnvironmentId(target.environmentId);
+      const balancedEnvironmentId =
+        logicalProjectEnvironments.find(
+          (environment) => environment.environmentId === currentDraft.loadBalancedEnvironmentId,
+        )?.environmentId ?? null;
+      const selection = {
+        environmentSelection:
+          loadBalancingSettings.loadBalancingEnabled &&
+          !activeProjectIsScratch &&
+          target.environmentId === balancedEnvironmentId
+            ? ("auto" as const)
+            : ("manual" as const),
+        loadBalancedEnvironmentId: balancedEnvironmentId,
+      };
+      setNewThreadEnvironmentId(
+        selection.environmentSelection === "auto" ? null : target.environmentId,
+      );
       if (activeProjectIsScratch) {
         setLogicalProjectDraftThreadId(
           deriveLogicalProjectKeyFromSettings(project, projectGroupingSettings),
           projectRef,
           draftId,
-          { environmentSelection: "manual", loadBalancedEnvironmentId: null },
+          selection,
         );
       } else {
         setDraftThreadContext(draftId, {
           projectRef,
-          environmentSelection: "manual",
-          loadBalancedEnvironmentId: null,
+          ...selection,
         });
       }
     };
@@ -262,8 +352,27 @@ export function useDraftEnvironmentRouting(input: DraftEnvironmentRoutingInput) 
       .finally(finish);
   };
   const onEnvironmentChangeStable = useStableCallback(onEnvironmentChange);
+  const balanceState = balancingEnabled
+    ? balanceTarget
+      ? draftThread?.environmentId === balanceTarget.environmentId
+        ? ("auto" as const)
+        : draftThread?.environmentSelection === "manual"
+          ? ("override" as const)
+          : automaticEnvironment
+            ? loadBalancing.pending
+              ? ("checking" as const)
+              : ("unavailable" as const)
+            : undefined
+      : automaticEnvironment
+        ? loadBalancing.pending
+          ? ("checking" as const)
+          : ("unavailable" as const)
+        : undefined
+    : undefined;
 
   return {
+    balanceState,
+    balancedEnvironmentId: balanceTarget?.environmentId ?? null,
     needsLoadBalancing,
     loadBalancing,
     onAutoEnvironmentStable,

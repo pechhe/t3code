@@ -1053,25 +1053,38 @@
   opacity: 0.6;
 }
 
-/* Load balancing stamps the knob: A for the balancer's pick, O for an override,
-   so whose choice sits where reads on the machine, not only in the tooltip. */
+/* A recessed status light keeps the routing symbol clear against the brushed metal. */
 .device-switch__badge {
   position: absolute;
   top: 50%;
   left: 50%;
   z-index: 1;
   transform: translate(-50%, -50%);
-  font-family: var(--crt-mono);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1;
-  text-shadow: 0 1px 0 oklch(1 0.002 250 / 0.55);
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: oklch(0.12 0.006 250 / 0.8);
+  box-shadow:
+    inset 0 1px 3px oklch(0 0 0 / 0.8),
+    0 1px 0 oklch(1 0 0 / 0.15);
+}
+.device-switch__badge > svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.8;
+  filter: drop-shadow(0 0 3px currentColor);
 }
 .device-switch__badge--auto {
-  color: oklch(0.55 0.16 255);
+  color: oklch(0.8 0.12 240);
 }
 .device-switch__badge--override {
   color: var(--crt-amber);
+}
+.device-switch__badge--checking,
+.device-switch__badge--unavailable {
+  color: oklch(0.72 0.012 250);
 }
 
 /* ---------------- Send dial ---------------- */

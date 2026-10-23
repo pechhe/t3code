@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { userEvent, page } from "vite-plus/test/browser";
 
 import { type EnvironmentOption } from "../../BranchToolbar.logic";
 import { DeviceEnvironmentSwitch } from "./DeviceEnvironmentSwitch";
@@ -17,7 +17,7 @@ const UPPER = makeEnvironment("env-upper", "PEACH-BOX");
 const LOWER = makeEnvironment("env-lower", "MAC-STUDIO");
 
 describe("DeviceEnvironmentSwitch", () => {
-  it("stamps A on the knob while load balancing owns the pick", async () => {
+  it("explains the automatic pick and how to override it", async () => {
     await using screen = await render(
       <DeviceEnvironmentSwitch
         environments={[UPPER, LOWER]}
@@ -27,13 +27,17 @@ describe("DeviceEnvironmentSwitch", () => {
         onChange={vi.fn()}
       />,
     );
+    await userEvent.hover(screen.getByRole("switch"));
     await expect
-      .element(screen.getByRole("switch", { name: "Run on PEACH-BOX" }))
-      .toHaveAttribute("data-device-switch-balance", "auto");
-    await expect.element(screen.getByText("A", { exact: true })).toBeVisible();
+      .element(
+        page.getByText("Auto balance recommends PEACH-BOX. Click to choose MAC-STUDIO manually.", {
+          exact: true,
+        }),
+      )
+      .toBeVisible();
   });
 
-  it("stamps O when the user overrides the balanced pick", async () => {
+  it("names the recommended machine and the way back to Auto during an override", async () => {
     await using screen = await render(
       <DeviceEnvironmentSwitch
         environments={[UPPER, LOWER]}
@@ -44,14 +48,34 @@ describe("DeviceEnvironmentSwitch", () => {
         onChange={vi.fn()}
       />,
     );
+    await userEvent.hover(screen.getByRole("switch"));
     await expect
-      .element(screen.getByRole("switch", { name: "Run on MAC-STUDIO" }))
-      .toHaveAttribute("data-device-switch-balance", "override");
-    await expect.element(screen.getByText("O", { exact: true })).toBeVisible();
-    await expect.element(screen.getByText("A", { exact: true })).not.toBeInTheDocument();
+      .element(
+        page.getByText(
+          "Manual override. Runs on MAC-STUDIO; auto balance recommends PEACH-BOX. Click to return to Auto.",
+          { exact: true },
+        ),
+      )
+      .toBeVisible();
   });
 
-  it("stamps nothing on the plain, unbalanced lever", async () => {
+  it("reports a pending resource check without claiming a machine was selected", async () => {
+    await using screen = await render(
+      <DeviceEnvironmentSwitch
+        environments={[UPPER, LOWER]}
+        environmentId={UPPER.environmentId}
+        locked={false}
+        balanceState="checking"
+        onChange={vi.fn()}
+      />,
+    );
+    await userEvent.hover(screen.getByRole("switch"));
+    await expect
+      .element(page.getByText("Auto balance is checking machines…", { exact: true }))
+      .toBeVisible();
+  });
+
+  it("explains the plain machine choice when balancing is disabled", async () => {
     await using screen = await render(
       <DeviceEnvironmentSwitch
         environments={[UPPER, LOWER]}
@@ -60,25 +84,9 @@ describe("DeviceEnvironmentSwitch", () => {
         onChange={vi.fn()}
       />,
     );
+    await userEvent.hover(screen.getByRole("switch"));
     await expect
-      .element(screen.getByRole("switch", { name: "Run on PEACH-BOX" }))
-      .not.toHaveAttribute("data-device-switch-balance");
-    await expect.element(screen.getByText("A", { exact: true })).not.toBeInTheDocument();
-    await expect.element(screen.getByText("O", { exact: true })).not.toBeInTheDocument();
-  });
-
-  it("clicks to the other machine to override", async () => {
-    const onChange = vi.fn();
-    await using screen = await render(
-      <DeviceEnvironmentSwitch
-        environments={[UPPER, LOWER]}
-        environmentId={UPPER.environmentId}
-        locked={false}
-        balanceState="auto"
-        onChange={onChange}
-      />,
-    );
-    await userEvent.click(screen.getByRole("switch", { name: "Run on PEACH-BOX" }));
-    expect(onChange).toHaveBeenCalledWith(LOWER.environmentId);
+      .element(page.getByText("Runs on PEACH-BOX. Click to switch to MAC-STUDIO.", { exact: true }))
+      .toBeVisible();
   });
 });

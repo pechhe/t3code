@@ -61,6 +61,7 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
 
 export function useNewThreadHandler() {
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const loadBalancingEnabled = useClientSettings((settings) => settings.loadBalancingEnabled);
   const router = useRouter();
   const getCurrentRouteTarget = () => {
     const currentRouteParams = router.state.matches[router.state.matches.length - 1]?.params ?? {};
@@ -82,6 +83,10 @@ export function useNewThreadHandler() {
       retargetDraftId?: DraftId;
     },
   ): Promise<{ draftId: DraftId; threadId: ThreadId } | null> => {
+    const freshEnvironmentSelection =
+      loadBalancingEnabled && !options?.branch && !options?.worktreePath
+        ? { environmentSelection: "auto" as const, loadBalancedEnvironmentId: null }
+        : {};
     const projects = readProjects();
     // Read at call time: every provider status push replaces the config map, and
     // subscribing would hand every sidebar row a new handler.
@@ -185,6 +190,7 @@ export function useNewThreadHandler() {
         }
         // Same fresh workspace context as minting a new draft for the project.
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, retargetDraftId, {
+          ...freshEnvironmentSelection,
           threadId: retargeted.threadId,
           createdAt: retargeted.createdAt,
           branch: options?.branch ?? null,
@@ -287,6 +293,7 @@ export function useNewThreadHandler() {
         if (workspaceContext) {
           setDraftThreadContext(emptyStoredDraftThread.draftId, {
             ...workspaceContext,
+            ...(!isDraftAlreadyOpen ? freshEnvironmentSelection : {}),
             ...(!isDraftAlreadyOpen ? { runtimeMode: defaultRuntimeMode } : {}),
             ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
           });
@@ -315,6 +322,7 @@ export function useNewThreadHandler() {
           {
             threadId: emptyStoredDraftThread.threadId,
             ...workspaceContext,
+            ...(!isDraftAlreadyOpen ? freshEnvironmentSelection : {}),
             ...(!isDraftAlreadyOpen ? { runtimeMode: defaultRuntimeMode } : {}),
             ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
           },

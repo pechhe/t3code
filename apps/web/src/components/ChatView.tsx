@@ -375,7 +375,10 @@ import { observeResize } from "~/lib/observeResize";
 import { ThreadVisitWatermark } from "./chat/ThreadVisitWatermark";
 import { ChatTerminalDrawers } from "./chat/ChatTerminalDrawers";
 import { ChatRightPanel } from "./chat/ChatRightPanel";
-import { useDraftEnvironmentRouting } from "./chat/useDraftEnvironmentRouting";
+import {
+  isAutomaticDraftEnvironment,
+  useDraftEnvironmentRouting,
+} from "./chat/useDraftEnvironmentRouting";
 import { branchMismatchBannerItem } from "./chat/ThreadActivityBanners";
 import { useTimelineFollow } from "./chat/useTimelineFollow";
 import {
@@ -1241,17 +1244,15 @@ export default function ChatView(props: ChatViewProps) {
     loadBalancingEnabled: settings.loadBalancingEnabled,
     loadBalancingWeights: settings.loadBalancingWeights,
   }));
-  const automaticEnvironment = Boolean(
-    clientSettingsHydrated &&
-    draftId &&
-    !envLocked &&
-    canAutoBalanceEnvironments &&
-    loadBalancingSettings.loadBalancingEnabled &&
-    draftThread?.environmentSelection !== "manual" &&
-    (!composerHasAttachments || Boolean(draftThread?.loadBalancedEnvironmentId)) &&
-    (!draftThread?.branch || draftThread.environmentSelection === "auto") &&
-    !draftThread?.worktreePath,
-  );
+  const automaticEnvironment = isAutomaticDraftEnvironment({
+    clientSettingsHydrated,
+    draftId,
+    envLocked,
+    canAutoBalanceEnvironments,
+    loadBalancingEnabled: loadBalancingSettings.loadBalancingEnabled,
+    draftThread,
+    composerHasAttachments,
+  });
   const autoUpdateEnvironments = automaticEnvironment
     ? logicalProjectEnvironments.flatMap(({ environmentId }) => {
         const environment = environmentById.get(environmentId);
@@ -1810,6 +1811,8 @@ export default function ChatView(props: ChatViewProps) {
   const {
     needsLoadBalancing,
     loadBalancing,
+    balanceState: environmentBalanceState,
+    balancedEnvironmentId,
     onAutoEnvironmentStable,
     autoEnvironmentLabel,
     isEnvironmentChanging,
@@ -3075,7 +3078,7 @@ export default function ChatView(props: ChatViewProps) {
   const onComposerResumeStable = useStableCallback(onResume);
   const onComposerCompactContextStable = useStableCallback(onCompactContext);
   // On the device composer two machines get a lever instead of the strip's
-  // "Run on" picker, unless auto balance needs the picker's third option. Once a
+  // "Run on" picker. Once a
   // thread has started the lever stays as a locked readout of where it runs, even
   // when its project lives on one of the two machines only.
   const switchLocked = envLocked || !draftId;
@@ -3094,31 +3097,19 @@ export default function ChatView(props: ChatViewProps) {
     return first && second ? ([first, second] as const) : null;
   })();
   const activeEnvironmentId = activeThread?.environmentId;
-  // With load balancing the lever stays in its slot and the balancer owns the
-  // knob: it rests on the machine the balancer picked (A), and moving it off
-  // that pick reads O until the pick is chosen again.
   const autoBalanceOnSwitch =
     !!switchEnvironments &&
     !switchLocked &&
     canAutoBalanceEnvironments &&
     loadBalancingSettings.loadBalancingEnabled;
-  const balanceState = autoBalanceOnSwitch
-    ? automaticEnvironment
-      ? ("auto" as const)
-      : ("override" as const)
-    : undefined;
-  const balanceTarget = autoBalanceOnSwitch
-    ? (draftThread?.loadBalancedEnvironmentId ?? null)
-    : null;
-  const leverEnvironmentId = balanceTarget ?? activeEnvironmentId;
+  const balanceTarget = autoBalanceOnSwitch ? balancedEnvironmentId : null;
+  const leverEnvironmentId = draftThread?.environmentId ?? activeEnvironmentId;
+  const balanceState = autoBalanceOnSwitch ? environmentBalanceState : undefined;
   const balancedEnvironmentLabel =
     balanceState === "override"
       ? (switchEnvironments?.find((environment) => environment.environmentId === balanceTarget)
           ?.label ?? null)
       : null;
-  // While the balancer is still choosing, the knob waits on the current machine.
-  const checkingMachines =
-    balanceState === "auto" && balanceTarget === null && loadBalancing.pending;
   const deviceEnvironmentSwitch =
     switchEnvironments && leverEnvironmentId ? (
       <DeviceEnvironmentSwitch
@@ -3127,7 +3118,6 @@ export default function ChatView(props: ChatViewProps) {
         locked={switchLocked}
         {...(balanceState ? { balanceState } : {})}
         {...(balancedEnvironmentLabel ? { balancedEnvironmentLabel } : {})}
-        {...(checkingMachines ? { checkingMachines } : {})}
         onChange={onEnvironmentChangeStable}
       />
     ) : null;

@@ -114,11 +114,13 @@ memory available, **Less often** to reduce its share, or **Manual only** to excl
 it from automatic selection. These are preferences, not fixed traffic percentages.
 Preferences are saved separately in each client.
 
-The composer checks eligible machines when choosing a draft's environment, then keeps
-that choice stable. Choose **Auto balance** again to check current resources, or choose
-a specific machine to override it. Choosing a branch or worktree also keeps the draft
-on that machine. Existing threads stay where they started. If resource checks are
-unavailable or all eligible machines are full, choose a machine manually to continue.
+The composer keeps a draft's automatic pick stable through changes in load or
+connectivity. Choose another machine to override it; choosing the recommended machine
+restores Auto. Use **Auto balance** in the machine picker, when available, to check
+current resources again. If the recommended machine is removed from the project, Auto
+chooses again. Branches, worktrees and attachments keep a draft on its machine.
+Existing threads stay where they started. If resource checks are unavailable or all
+eligible machines are full, choose a machine manually to continue.
 Mobile keeps its manual environment selection.
 
 ### Link two environments

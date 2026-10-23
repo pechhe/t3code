@@ -212,7 +212,10 @@ vi.mock("../uiStateStore", () => ({
   legacyProjectCwdPreferenceKey: () => "remote-project",
   useUiStateStore: () => [],
 }));
-vi.mock("./useSettings", () => ({ useClientSettings: () => ({}) }));
+vi.mock("./useSettings", () => ({
+  useClientSettings: (select: (settings: { loadBalancingEnabled: boolean }) => unknown) =>
+    select({ loadBalancingEnabled: true }),
+}));
 
 import { useNewThreadHandler } from "./useHandleNewThread";
 
@@ -302,6 +305,8 @@ describe("useNewThreadHandler retargeting an open draft", () => {
         worktreePath: null,
         envMode: "worktree",
         startFromOrigin: true,
+        environmentSelection: "auto",
+        loadBalancedEnvironmentId: null,
       }),
     );
     expect(testState.router.navigate).not.toHaveBeenCalled();
@@ -334,6 +339,31 @@ describe("useNewThreadHandler retargeting an open draft", () => {
     expect(testState.draftStore.setLogicalProjectDraftThreadId).not.toHaveBeenCalled();
     expect(testState.router.navigate).not.toHaveBeenCalled();
   });
+});
+
+it("reopens an empty draft with a fresh automatic machine choice", async () => {
+  testState.reset({
+    draftId: "draft-existing",
+    environmentId: "environment-ssh",
+    promotedTo: null,
+    threadId: "thread-existing",
+  });
+  const pendingOpen = useNewThreadHandler()({
+    environmentId: "environment-ssh",
+    projectId: "project-remote",
+  } as never);
+  testState.completeProjectFileRead(null);
+  await pendingOpen;
+  expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(
+    "draft-existing",
+    expect.objectContaining({ environmentSelection: "auto", loadBalancedEnvironmentId: null }),
+  );
+  expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+    "remote-project",
+    expect.anything(),
+    "draft-existing",
+    expect.objectContaining({ environmentSelection: "auto", loadBalancedEnvironmentId: null }),
+  );
 });
 
 describe("useNewThreadHandler", () => {

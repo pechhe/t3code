@@ -1,5 +1,5 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { LockIcon } from "lucide-react";
+import { EllipsisIcon, HandIcon, LockIcon, MinusIcon, SparkleIcon } from "lucide-react";
 
 import { playRotary } from "~/lib/interfaceSounds";
 import { cn } from "~/lib/utils";
@@ -18,11 +18,9 @@ interface DeviceEnvironmentSwitchProps {
    * machine the knob rests on, "override" when the user moved it off the pick.
    * Undefined keeps the plain two-position lever, with no balancing in play.
    */
-  balanceState?: "auto" | "override" | undefined;
+  balanceState?: "auto" | "override" | "checking" | "unavailable" | undefined;
   /** What load balancing would have picked, shown only on an override. */
   balancedEnvironmentLabel?: string | undefined;
-  /** Auto mode, still choosing a machine from live load. */
-  checkingMachines?: boolean | undefined;
   onChange: (environmentId: EnvironmentId) => void;
 }
 
@@ -46,8 +44,8 @@ function SwitchLabel({
 /**
  * The two-position lever choosing which machine a new thread runs on. It
  * replaces the strip's "Run on" picker when the project lives on exactly two
- * machines; with load balancing, the stamped knob shows whose choice sits
- * where — A for the balancer's pick, O for an overridden one.
+ * machines; the illuminated symbol distinguishes the balancer's pick from a
+ * manual override without changing the machine labels' meaning.
  */
 export function DeviceEnvironmentSwitch({
   environments,
@@ -55,13 +53,25 @@ export function DeviceEnvironmentSwitch({
   locked,
   balanceState,
   balancedEnvironmentLabel,
-  checkingMachines,
   onChange,
 }: DeviceEnvironmentSwitchProps) {
   const [upper, lower] = environments;
   const active = environmentId === lower.environmentId ? lower : upper;
   const other = active === upper ? lower : upper;
   const atLower = active === lower;
+  const description = locked
+    ? `Runs on ${active.label}. A started thread stays on its machine.`
+    : balanceState === "auto"
+      ? `Auto balance recommends ${active.label}. Click to choose ${other.label} manually.`
+      : balanceState === "override"
+        ? balancedEnvironmentLabel
+          ? `Manual override. Runs on ${active.label}; auto balance recommends ${balancedEnvironmentLabel}. Click to return to Auto.`
+          : `Manual override. Runs on ${active.label}. Click to switch to ${other.label}.`
+        : balanceState === "checking"
+          ? "Auto balance is checking machines…"
+          : balanceState === "unavailable"
+            ? `Auto balance unavailable. Click to choose ${other.label}.`
+            : `Runs on ${active.label}. Click to switch to ${other.label}.`;
 
   return (
     <Tooltip>
@@ -73,6 +83,7 @@ export function DeviceEnvironmentSwitch({
             aria-checked={atLower}
             aria-disabled={locked || undefined}
             aria-label={`Run on ${active.label}`}
+            aria-description={description}
             data-composer-shortcut="composer.cycleHost"
             data-device-switch-balance={balanceState}
             onPointerDown={(event) => event.preventDefault()}
@@ -89,15 +100,16 @@ export function DeviceEnvironmentSwitch({
                 {locked ? (
                   <LockIcon className="device-switch__lock" />
                 ) : balanceState ? (
-                  <span
-                    className={cn(
-                      "device-switch__badge",
-                      balanceState === "auto"
-                        ? "device-switch__badge--auto"
-                        : "device-switch__badge--override",
+                  <span className={`device-switch__badge device-switch__badge--${balanceState}`}>
+                    {balanceState === "auto" ? (
+                      <SparkleIcon />
+                    ) : balanceState === "override" ? (
+                      <HandIcon />
+                    ) : balanceState === "checking" ? (
+                      <EllipsisIcon />
+                    ) : (
+                      <MinusIcon />
                     )}
-                  >
-                    {balanceState === "auto" ? "A" : "O"}
                   </span>
                 ) : null}
               </span>
@@ -106,19 +118,7 @@ export function DeviceEnvironmentSwitch({
           </button>
         }
       />
-      <TooltipPopup side="top">
-        {locked
-          ? `Runs on ${active.label}. A started thread stays on its machine.`
-          : balanceState === "auto"
-            ? checkingMachines
-              ? `Auto load balanced. Picking the least loaded machine…`
-              : `Auto load balanced. Runs on ${active.label}; click to switch to ${other.label}.`
-            : balanceState === "override"
-              ? balancedEnvironmentLabel === active.label
-                ? `Override. Your pick, which is also the machine auto load would choose.`
-                : `Override. Auto load would run on ${balancedEnvironmentLabel ?? "another machine"}.`
-              : `Runs on ${active.label}. Click to switch to ${other.label}.`}
-      </TooltipPopup>
+      <TooltipPopup side="top">{description}</TooltipPopup>
     </Tooltip>
   );
 }
