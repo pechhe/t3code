@@ -20,6 +20,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PubSub from "effect/PubSub";
+import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpServer } from "effect/http";
@@ -90,6 +91,46 @@ export class HqDecisionError extends Schema.TaggedError<HqDecisionError>()("HqDe
   reason: Schema.Literals(["not_connected", "other_origin", "unavailable"]),
 }) {}
 
+/**
+ * Weave answered, and refused this call in a way another attempt cannot change: the person revoked
+ * the agent, the reference already acts under another role, or Weave will not take the record. The
+ * code is Weave's own, so a caller can report why without retrying for ever.
+ */
+export class HqAgentCallRefused extends Schema.TaggedError<HqAgentCallRefused>()(
+  "HqAgentCallRefused",
+  {
+    tool: Schema.String,
+    code: Schema.String,
+  },
+) {
+  override get message(): string {
+    return `Weave refused ${this.tool} (${this.code}).`;
+  }
+}
+
+/**
+ * The call did not reach an answer another attempt could act on: Weave was unreachable, T3 is not
+ * connected, Weave would not accept the thread's credential, or the thread has no agent to act as.
+ */
+export class HqAgentCallUnavailable extends Schema.TaggedError<HqAgentCallUnavailable>()(
+  "HqAgentCallUnavailable",
+  {
+    tool: Schema.String,
+    reason: Schema.Literals(["not_connected", "unavailable", "unauthorized"]),
+  },
+) {
+  override get message(): string {
+    switch (this.reason) {
+      case "not_connected":
+        return `T3 is not connected to Weave, so ${this.tool} could not be called.`;
+      case "unauthorized":
+        return `Weave would not accept this thread's agent, so ${this.tool} could not be called.`;
+      case "unavailable":
+        return `Weave could not be reached, so ${this.tool} could not be called.`;
+    }
+  }
+}
+
 /** HQ's answer to one decisions call, with the connection that made it. */
 export interface HqDecisionResponse {
   readonly origin: string;
@@ -148,6 +189,14 @@ const ExchangeResponse = Schema.Struct({ token: Schema.String, expiresAt: Schema
 const decodeExchange = Schema.decodeUnknownOption(ExchangeResponse);
 const HqError = Schema.Struct({ error: Schema.String });
 const decodeHqError = Schema.decodeUnknownOption(HqError);
+/** A JSON-RPC error answer, which names the refusal in its data or its code. */
+const McpError = Schema.Struct({
+  error: Schema.Struct({
+    code: Schema.Number,
+    data: Schema.optional(Schema.Struct({ reason: Schema.optional(Schema.String) })),
+  }),
+});
+const decodeMcpError = Schema.decodeUnknownOption(McpError);
 
 const ToolCallResponse = Schema.Struct({
   result: Schema.Struct({
@@ -163,11 +212,45 @@ const decodeToolCall = Schema.decodeUnknownOption(ToolCallResponse);
 const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown));
 const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-const BuildWriteCall = Schema.Struct({
+/** What a refusal from the exchange or the request means for a call that has to reach Weave. */
+const callFailureOf = (
+  tool: string,
+  refusal: HqRefusal,
+): HqAgentCallRefused | HqAgentCallUnavailable => {
+  switch (refusal) {
+    // Only a person can undo these, so reporting the call is over beats retrying for ever.
+    case "agent_revoked":
+    case "agent_role_conflict":
+    case "agent_invalid":
+      return new HqAgentCallRefused({ tool, code: refusal });
+    case "not_connected":
+      return new HqAgentCallUnavailable({ tool, reason: "not_connected" });
+    // A revoked or expired delegation is fixed by connecting again, so it is worth waiting for.
+    case "invalid_delegation":
+    case "unauthorized":
+      return new HqAgentCallUnavailable({ tool, reason: "unauthorized" });
+    case "unavailable":
+      return new HqAgentCallUnavailable({ tool, reason: "unavailable" });
+  }
+};
+
+const ToolCallRequest = Schema.Struct({
   method: Schema.Literal("tools/call"),
-  params: Schema.Struct({ name: Schema.String }),
+  params: Schema.Struct({ name: Schema.String, arguments: Schema.optional(Schema.Unknown) }),
 });
-const decodeBuildWriteCall = Schema.decodeUnknownOption(BuildWriteCall);
+const decodeToolCallRequest = Schema.decodeUnknownOption(ToolCallRequest);
+/** The calls a forwarded MCP body makes, so the proxy can tell what an agent asked for. */
+const toolCallsOf = (body: Uint8Array): ReadonlyArray<{ readonly name: string }> => {
+  const parsed = decodeJson(new TextDecoder().decode(body));
+  if (Option.isNone(parsed)) return [];
+  const messages = Array.isArray(parsed.value) ? parsed.value : [parsed.value];
+  return messages.flatMap((message) =>
+    Option.match(decodeToolCallRequest(message), {
+      onNone: () => [],
+      onSome: (call) => [call.params],
+    }),
+  );
+};
 /**
  * HQ's Build tools that only read, and the heartbeat, which only renews a session and comes
  * often. Any other `hq_build_*` call may change what a card shows, so a tool HQ adds later
@@ -202,14 +285,21 @@ const BUILD_TOOLS_KEEPING_CARDS = new Set([
 const isBuildWrite = (tool: string) =>
   tool.startsWith("hq_build_") && !BUILD_TOOLS_KEEPING_CARDS.has(tool);
 
-const containsBuildWrite = (body: Uint8Array): boolean => {
-  const parsed = decodeJson(new TextDecoder().decode(body));
-  if (Option.isNone(parsed)) return false;
-  const messages = Array.isArray(parsed.value) ? parsed.value : [parsed.value];
-  return messages.some((message) =>
-    Option.exists(decodeBuildWriteCall(message), (call) => isBuildWrite(call.params.name)),
-  );
-};
+const containsBuildWrite = (body: Uint8Array): boolean =>
+  toolCallsOf(body).some((call) => isBuildWrite(call.name));
+
+/**
+ * The run `hq_build_run` answered with. Weave nests the run it recorded at `run`; a flattened answer
+ * is accepted too, so a run of either shape is still recorded.
+ */
+const HqBuildRun = Schema.Struct({
+  run: Schema.optional(Schema.NullOr(Schema.Struct({ id: Schema.String }))),
+  runId: Schema.optional(Schema.String),
+  id: Schema.optional(Schema.String),
+  spec: Schema.optional(Schema.NullOr(Schema.Struct({ id: Schema.String }))),
+  specId: Schema.optional(Schema.NullOr(Schema.String)),
+});
+const decodeBuildRun = Schema.decodeUnknownOption(HqBuildRun);
 
 const DELEGATION_PATTERN = /^yshqd_[A-Za-z0-9_-]{43}$/;
 
@@ -301,10 +391,52 @@ export class HqAgentConnections extends Context.Service<
     readonly connection: (threadId: ThreadId) => Effect.Effect<HqMcpConnection | undefined>;
     /** Serves one MCP request from a thread's agent by forwarding it to HQ as that agent. */
     readonly forward: (request: HqForwardRequest) => Effect.Effect<HqForwardResponse>;
+    /**
+     * Calls an HQ MCP tool as the thread's own agent, whether or not that agent was prepared in
+     * this process: an idle thread after a restart has no in-memory entry, so the connection is
+     * filled from `agent`. `agent` is who the caller read the thread acts as, from the thread's own
+     * projection. Only the server calls this, never a provider or an observer.
+     */
+    readonly callAs: (
+      agent: HqAgent,
+      tool: string,
+      args: Record<string, unknown>,
+    ) => Effect.Effect<{ readonly value: unknown }, HqAgentCallRefused | HqAgentCallUnavailable>;
+    /**
+     * The reviewer runs reported so far, without forgetting them: a run is only forgotten once it is
+     * on record, so a reader and a drain of the queue cannot each miss the one the other took.
+     */
+    readonly reportedRuns: Effect.Effect<ReadonlyArray<HqBuildRunReport>>;
+    /** Forgets the runs the caller has recorded, never one reported since it read them. */
+    readonly forgetReportedRuns: (recorded: ReadonlyArray<HqBuildRunReport>) => Effect.Effect<void>;
+    /**
+     * Stamps the T3 run a report was made in onto it, so a write that has to be tried again later
+     * names that run rather than the one its thread has moved on to.
+     */
+    readonly stampReportedRun: (stamped: HqReportedRunStamp) => Effect.Effect<void>;
+    /**
+     * Fires when a reviewer's run is reported, so the Build record queue records it before the
+     * reviewer's thread finishes: a restart, or its agent's end, may come first otherwise.
+     */
+    readonly reportedRunChanges: Stream.Stream<void>;
+    /**
+     * Sets what T3 does with a reported run before its agent is given the answer that names it. The
+     * Build record queue installs its write here, so a run is on record before a restart, or the
+     * reviewer's own end, can lose it. A write that cannot happen leaves the run reported, for the
+     * queue's next drain; until a hook is installed, the runs wait for that drain.
+     */
+    readonly setRunReportedHook: (hook: HqRunReportedHandler) => Effect.Effect<void>;
     /** Changes after proxied Build writes so display caches expire without another HQ call. */
     readonly buildWriteVersion: Effect.Effect<number>;
     /** Ends the thread's HQ agent (never revokes it); its next HQ call starts a new agent. */
     readonly end: (agent: Omit<HqAgent, "model">) => Effect.Effect<void>;
+    /**
+     * Ends the thread's HQ agent, failing when Weave could not be told, so a queued end stays due
+     * instead of leaving an agent that nothing will end.
+     */
+    readonly endAgent: (
+      agent: Omit<HqAgent, "model">,
+    ) => Effect.Effect<void, HqAgentCallUnavailable>;
     /** Ends the agent and drops the thread's connection, for a deleted thread. */
     readonly forget: (agent: Omit<HqAgent, "model">) => Effect.Effect<void>;
   }
@@ -313,6 +445,11 @@ export class HqAgentConnections extends Context.Service<
 const make = Effect.gen(function* () {
   const store = yield* ServerSecretStore.ServerSecretStore;
   const connectionChanges = yield* PubSub.sliding<void>(1);
+  const reportedRunChanges = yield* PubSub.sliding<void>(1);
+  /** Reviewer runs reported since the Build record queue last collected them. */
+  const reportedRuns = yield* Ref.make<ReadonlyArray<HqBuildRunReport>>([]);
+  /** What records a reported run before its agent is answered; nothing until the queue installs it. */
+  const runReported = yield* Ref.make<HqRunReportedHandler>(() => Effect.void);
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
   const httpClient = yield* HttpClient.HttpClient;
@@ -677,35 +814,186 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
+      yield* reportReviewRun(threadId, request, response).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not report a reviewer's Weave run", { threadId, cause }),
+        ),
+      );
       return response;
     },
   );
 
-  const end: HqAgentConnections["Service"]["end"] = Effect.fn("HqAgentConnections.end")(
-    function* (agent) {
-      yield* tokenLock.withLock(
-        agent.threadId,
-        Effect.gen(function* () {
-          dropToken(agent.threadId);
-          const stored = yield* readStored.pipe(Effect.mapError((): HqRefusal => "unavailable"));
-          if (Option.isNone(stored)) return;
-          const { status } = yield* postAgents(stored.value, {
-            action: "end",
-            agentRef: agentRef(agent.threadId),
-            role: agent.role,
-          });
-          if (status !== 200) return yield* Effect.fail<HqRefusal>("unavailable");
-        }).pipe(
-          Effect.catch((reason: HqRefusal) =>
-            Effect.logWarning("Could not end a thread's Weave agent", {
-              threadId: agent.threadId,
-              reason,
-            }),
-          ),
+  /**
+   * One HQ request as a thread's agent. `none` means HQ refused the token, so exchanging again
+   * either recovers or learns which refusal it is.
+   */
+  const callOnce = Effect.fn("HqAgentConnections.callOnce")(function* (
+    threadId: ThreadId,
+    stored: StoredHqConnection,
+    request: HqForwardRequest,
+  ) {
+    const token = yield* agentToken(threadId, stored);
+    const response = yield* callHq(stored.origin, token, request);
+    if (response.status !== 401) return Option.some(response);
+    dropToken(threadId);
+    return Option.none<HqForwardResponse>();
+  });
+
+  /**
+   * Calls an HQ MCP tool as the thread's own agent, giving it a connection here when this process
+   * has none: an idle thread after a restart has no entry, so the caller says who it acts as, from
+   * the thread's own projection, exactly as a turn does before it starts. Only the server calls
+   * this, never a provider, and never as the lead's or the observer's agent.
+   */
+  const callAs: HqAgentConnections["Service"]["callAs"] = Effect.fn("HqAgentConnections.callAs")(
+    function* (agent, tool, args) {
+      const failure = (refusal: HqRefusal) => callFailureOf(tool, refusal);
+      const stored = yield* readStored.pipe(Effect.mapError(() => failure("unavailable")));
+      if (Option.isNone(stored)) return yield* failure("not_connected");
+      yield* prepare(agent);
+      // `prepare` adds nothing while T3 is disconnected, so there is no agent to call as.
+      if (threads.get(agent.threadId) === undefined) return yield* failure("not_connected");
+      const threadId = agent.threadId;
+      const attempt = callOnce(threadId, stored.value, {
+        authorization: undefined,
+        body: new TextEncoder().encode(
+          encodeJson({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: tool, arguments: args },
+          }),
+        ),
+        contentType: "application/json",
+        accept: "application/json, text/event-stream",
+        protocolVersion: undefined,
+      }).pipe(Effect.mapError(failure));
+      const response = yield* attempt.pipe(
+        Effect.flatMap(
+          Option.match({
+            onSome: Effect.succeed,
+            onNone: () =>
+              attempt.pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onSome: Effect.succeed,
+                    onNone: () =>
+                      Effect.fail(new HqAgentCallUnavailable({ tool, reason: "unauthorized" })),
+                  }),
+                ),
+              ),
+          }),
         ),
       );
+      const text = new TextDecoder().decode(response.body);
+      const outcome =
+        response.status === 200
+          ? decodeJson(text).pipe(
+              Option.flatMap(decodeToolCall),
+              Option.map((answer) => answer.result.structuredContent),
+            )
+          : Option.none();
+      if (Option.isSome(outcome)) {
+        // Weave answering `duplicate` has already taken this record: the call reached its goal.
+        if (outcome.value.status === "succeeded" || outcome.value.status === "duplicate")
+          return { value: outcome.value.value };
+        if (outcome.value.code !== undefined)
+          return yield* new HqAgentCallRefused({ tool, code: outcome.value.code });
+        return yield* new HqAgentCallUnavailable({ tool, reason: "unavailable" });
+      }
+      // An answer with a status and a code of its own is a refusal; anything else may pass.
+      const code =
+        Option.getOrUndefined(
+          decodeJson(text).pipe(
+            Option.flatMap(decodeHqError),
+            Option.map((error) => error.error),
+          ),
+        ) ??
+        Option.getOrUndefined(
+          decodeJson(text).pipe(
+            Option.flatMap(decodeMcpError),
+            Option.map((error) => error.error.data?.reason ?? `mcp_error_${error.error.code}`),
+          ),
+        );
+      if (code !== undefined && response.status >= 400 && response.status < 500)
+        return yield* new HqAgentCallRefused({ tool, code });
+      return yield* new HqAgentCallUnavailable({ tool, reason: "unavailable" });
     },
   );
+
+  /**
+   * Reports a reviewer's own run from the answer Weave gave its `hq_build_run` call, so it can be
+   * recorded before the reviewer's agent ends. The run id reaches T3 nowhere else, and an agent that
+   * has ended cannot be asked for it again. A lead's Build runs are not reported: only a reviewer's
+   * call is its own review.
+   */
+  const reportReviewRun = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+    request: HqForwardRequest,
+    response: HqForwardResponse,
+  ) {
+    const role = threads.get(threadId)?.agent.role;
+    // A reviewer's role is its task's canonical one: `ticket-reviewer` or `spec-reviewer`.
+    if (role === undefined || !role.endsWith("-reviewer")) return;
+    if (response.status !== 200) return;
+    if (!toolCallsOf(request.body).some((call) => call.name === "hq_build_run")) return;
+    const run = decodeJson(new TextDecoder().decode(response.body)).pipe(
+      Option.flatMap(decodeToolCall),
+      Option.filter((answer) => answer.result.structuredContent.status === "succeeded"),
+      Option.flatMap((answer) => decodeBuildRun(answer.result.structuredContent.value)),
+    );
+    if (Option.isNone(run)) return;
+    const runId = run.value.run?.id ?? run.value.runId ?? run.value.id;
+    if (runId === undefined) return;
+    const report: HqBuildRunReport = {
+      threadId,
+      runId,
+      specId: run.value.spec?.id ?? run.value.specId ?? null,
+    };
+    yield* Ref.update(reportedRuns, (reported) => [...reported, report]);
+    yield* PubSub.publish(reportedRunChanges, undefined);
+    // The agent is not given its run id until the run is on record: this answer is the only place
+    // Weave's run id reaches T3, and the queue's next pass may come after the agent has ended.
+    const record = yield* Ref.get(runReported);
+    yield* record(report);
+  });
+
+  const endAgent: HqAgentConnections["Service"]["endAgent"] = Effect.fn(
+    "HqAgentConnections.endAgent",
+  )(function* (agent) {
+    yield* tokenLock.withLock(
+      agent.threadId,
+      Effect.gen(function* () {
+        dropToken(agent.threadId);
+        const stored = yield* readStored.pipe(Effect.mapError((): HqRefusal => "unavailable"));
+        // With no HQ connection there is no agent of ours left to end.
+        if (Option.isNone(stored)) return;
+        const { status } = yield* postAgents(stored.value, {
+          action: "end",
+          agentRef: agentRef(agent.threadId),
+          role: agent.role,
+        });
+        if (status === 200) return;
+        return yield* Effect.fail<HqRefusal>("unavailable");
+      }).pipe(
+        Effect.mapError(
+          (): HqAgentCallUnavailable =>
+            new HqAgentCallUnavailable({ tool: "hq_agent_end", reason: "unavailable" }),
+        ),
+      ),
+    );
+  });
+
+  const end: HqAgentConnections["Service"]["end"] = (agent) =>
+    endAgent(agent).pipe(
+      Effect.catchTags({
+        HqAgentCallUnavailable: (error) =>
+          Effect.logWarning("Could not end a thread's Weave agent", {
+            threadId: agent.threadId,
+            reason: error.reason,
+          }),
+      }),
+    );
 
   /**
    * Adopts the connection a project stored before the environment owned one, then removes every
@@ -757,6 +1045,36 @@ const make = Effect.gen(function* () {
     ),
   );
 
+  /**
+   * Gives the thread an HQ connection when T3 has one, and keeps the credential it already has so a
+   * live provider process's headers stay valid. Nothing is added while T3 is disconnected.
+   */
+  const prepare: HqAgentConnections["Service"]["prepare"] = Effect.fn("HqAgentConnections.prepare")(
+    function* (agent) {
+      const connected = yield* readStored.pipe(
+        Effect.map(Option.isSome),
+        Effect.catch(() =>
+          Effect.logWarning("Could not read T3's HQ connection", {
+            threadId: agent.threadId,
+          }).pipe(Effect.as(false)),
+        ),
+      );
+      const existing = threads.get(agent.threadId);
+      if (!connected) return;
+      if (existing !== undefined) {
+        existing.agent = agent;
+        return;
+      }
+      const credential = yield* crypto.randomBytes(32).pipe(
+        Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
+        Effect.orDie,
+      );
+      const credentialHash = yield* digest(credential);
+      threads.set(agent.threadId, { credential, credentialHash, agent, token: undefined });
+      threadByCredentialHash.set(credentialHash, agent.threadId);
+    },
+  );
+
   return HqAgentConnections.of({
     connectionChanges: Stream.fromPubSub(connectionChanges),
     connect: Effect.fn("HqAgentConnections.connect")(function* (input) {
@@ -806,29 +1124,7 @@ const make = Effect.gen(function* () {
         }),
       ),
     ),
-    prepare: Effect.fn("HqAgentConnections.prepare")(function* (agent) {
-      const connected = yield* readStored.pipe(
-        Effect.map(Option.isSome),
-        Effect.catch(() =>
-          Effect.logWarning("Could not read T3's HQ connection", {
-            threadId: agent.threadId,
-          }).pipe(Effect.as(false)),
-        ),
-      );
-      const existing = threads.get(agent.threadId);
-      if (!connected) return;
-      if (existing !== undefined) {
-        existing.agent = agent;
-        return;
-      }
-      const credential = yield* crypto.randomBytes(32).pipe(
-        Effect.map((bytes) => Buffer.from(bytes).toString("base64url")),
-        Effect.orDie,
-      );
-      const credentialHash = yield* digest(credential);
-      threads.set(agent.threadId, { credential, credentialHash, agent, token: undefined });
-      threadByCredentialHash.set(credentialHash, agent.threadId);
-    }),
+    prepare,
     // The credential stays stable for the thread's life: a live provider process keeps the
     // headers it started with, and Claude reopens its process when its MCP config changes.
     connection: (threadId) =>
@@ -841,8 +1137,29 @@ const make = Effect.gen(function* () {
     observe,
     decide,
     forward,
+    callAs,
+    reportedRuns: Ref.get(reportedRuns),
+    forgetReportedRuns: (recorded) =>
+      // Matched by the run it names, not by the object: stamping replaces the entry it stamps.
+      Ref.update(reportedRuns, (reported) =>
+        reported.filter(
+          (run) =>
+            !recorded.some((done) => done.threadId === run.threadId && done.runId === run.runId),
+        ),
+      ),
+    stampReportedRun: (stamped) =>
+      Ref.update(reportedRuns, (reported) =>
+        reported.map((run) =>
+          run.threadId === stamped.threadId && run.runId === stamped.runId
+            ? { ...run, t3RunId: stamped.t3RunId }
+            : run,
+        ),
+      ),
+    reportedRunChanges: Stream.fromPubSub(reportedRunChanges),
+    setRunReportedHook: (hook) => Ref.set(runReported, hook),
     buildWriteVersion: Effect.sync(() => buildWriteVersion),
     end,
+    endAgent,
     forget: Effect.fn("HqAgentConnections.forget")(function* (agent) {
       yield* end(agent);
       const connection = threads.get(agent.threadId);
@@ -854,6 +1171,25 @@ const make = Effect.gen(function* () {
 });
 
 export const layer = Layer.effect(HqAgentConnections, make);
+
+/** A reviewer's own Build run, as Weave answered its `hq_build_run` call. */
+export interface HqBuildRunReport {
+  readonly threadId: ThreadId;
+  readonly runId: string;
+  readonly specId: string | null;
+  /** The T3 run it was reported in, once the Build record queue has read that run. */
+  readonly t3RunId?: string;
+}
+
+/** The T3 run a reported run was made in, as the Build record queue read it. */
+export interface HqReportedRunStamp {
+  readonly threadId: ThreadId;
+  readonly runId: string;
+  readonly t3RunId: string;
+}
+
+/** What T3 does with a reported run before the reviewer is given the answer naming it. */
+export type HqRunReportedHandler = (report: HqBuildRunReport) => Effect.Effect<void>;
 
 /** Every adapter attaches the thread's Weave server through the shared agent-server list. */
 export const agentMcpServersLayer = Layer.effect(

@@ -13,7 +13,7 @@ import * as NodeUtil from "node:util";
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { claudeMcpQueryOverrides } from "../orchestration-v2/Adapters/ClaudeAdapterV2.ts";
 import { codexThreadRuntimeParams } from "../orchestration-v2/Adapters/CodexAdapterV2.ts";
-import { hqAgentRole } from "./HqAgentConnections.ts";
+import { HqAgentCallRefused, hqAgentRole } from "./HqAgentConnections.ts";
 import {
   agentMcpServersFor,
   delegation,
@@ -320,6 +320,58 @@ it.effect("one connection serves every thread, and disconnecting stops them all"
   }),
 );
 
+it.effect("calls a tool as an idle thread that nothing has prepared in this process", () =>
+  Effect.gen(function* () {
+    const { hq, connections, assertNoSecretsIn } = yield* makeHarness;
+    hq.tools.call = (name, args) => ({ status: "succeeded", value: { name, args } });
+    // What a restart leaves behind: a thread with no HQ connection in memory.
+    const idle = ThreadId.make("thread-idle");
+    assert.isUndefined(yield* connections.connection(idle));
+
+    const result = yield* connections.callAs(
+      { threadId: idle, role: "lead", model: "gpt-5.5" },
+      "hq_build_record_usage",
+      { inputTokens: 3 },
+    );
+
+    assert.deepStrictEqual(result.value, {
+      name: "hq_build_record_usage",
+      args: { inputTokens: 3 },
+    });
+    // The call was made as that thread's own new agent, not as a lead's or an observer's.
+    assert.deepStrictEqual(
+      hq.agents.map(({ agentRef, role }) => ({ agentRef, role })),
+      [{ agentRef: "environment-hq/thread-idle", role: "lead" }],
+    );
+    assert.isDefined(yield* connections.connection(idle));
+    assertNoSecretsIn(result);
+  }),
+);
+
+it.effect("tells Weave's refusal from an unreachable Weave and from a record it already has", () =>
+  Effect.gen(function* () {
+    const { hq, connections } = yield* makeHarness;
+    const agent = { threadId: leadThread, role: "lead", model: "gpt-5.5" };
+    hq.tools.call = () => ({ status: "failed", code: "validation_error" });
+    const refused = yield* connections.callAs(agent, "hq_build_record_usage", {}).pipe(Effect.flip);
+    assert.isTrue(isCallRefused(refused));
+    if (!isCallRefused(refused)) return;
+    assert.strictEqual(refused.code, "validation_error");
+
+    // Weave answering `duplicate` already has the record: the call reached its goal.
+    hq.tools.call = () => ({ status: "duplicate", value: { recorded: true } });
+    assert.deepStrictEqual((yield* connections.callAs(agent, "hq_build_record_usage", {})).value, {
+      recorded: true,
+    });
+
+    hq.state.unreachable = true;
+    const unavailable = yield* connections
+      .callAs(agent, "hq_build_record_usage", {})
+      .pipe(Effect.flip);
+    assert.strictEqual(unavailable._tag, "HqAgentCallUnavailable");
+  }),
+);
+
 it.effect(
   "a connection stored at Weave's old address is used at the current one and asks for a reconnect",
   () =>
@@ -453,6 +505,7 @@ it.effect("reconnecting to another HQ never presents one HQ's token to the other
 );
 
 const decodeAgentTask = Schema.decodeUnknownSync(AgentTaskBinding);
+const isCallRefused = Schema.is(HqAgentCallRefused);
 
 describe("hqAgentRole", () => {
   const lineage = (relationshipToParent: "fork" | "subagent" | null) => ({

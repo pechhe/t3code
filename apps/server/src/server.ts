@@ -92,6 +92,10 @@ import * as HqSignInRoute from "./hq/HqSignInRoute.ts";
 import * as RepositoryChipSync from "./hq/RepositoryChipSync.ts";
 import * as HqRepositories from "./hq/HqRepositories.ts";
 import * as HqAgentLifecycleReactor from "./hq/HqAgentLifecycleReactor.ts";
+import * as HqBuildRecordingReactor from "./hq/HqBuildRecordingReactor.ts";
+import * as BuildSpecOfThread from "./hq/BuildSpecOfThread.ts";
+import * as HqBuildRecords from "./hq/HqBuildRecords.ts";
+import * as HqBuildUsage from "./hq/HqBuildUsage.ts";
 import * as HqMcpRoute from "./hq/HqMcpRoute.ts";
 import * as PreviewAutomationBroker from "./mcp/PreviewAutomationBroker.ts";
 import * as DeviceService from "./device/DeviceService.ts";
@@ -542,6 +546,16 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
+  // Adapters hand each settled turn's token usage to the Build record queue (Spec #4395).
+  Layer.provide(
+    HqBuildUsage.layer.pipe(
+      Layer.provide(HqBuildRecords.layer),
+      // The queue resolves a row's Spec when it sends, with the resolver usage queues with.
+      Layer.provide(BuildSpecOfThread.layer),
+      Layer.provide(ProjectionStoreV2.layer),
+      Layer.provide(ProjectStore.layer),
+    ),
+  ),
   Layer.provide(layerCheckpointStore),
   Layer.provide(layerGitWorkflow),
   Layer.provide(
@@ -673,11 +687,24 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
       yield* (yield* ThreadWatchReactor.ThreadWatchReactor).start();
     }),
   ).pipe(Layer.provide(ThreadWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  // The queue starts first: the reactors hand it what a thread owes Weave, and it is also what
+  // delivers every Build record (Spec #4395). Recording starts before the lifecycle reactor
+  // because that reactor asks it for a finished run's records before queueing the thread's end.
   Layer.effectDiscard(
     Effect.gen(function* () {
+      yield* (yield* HqBuildRecords.HqBuildRecords).start();
+      yield* (yield* HqBuildRecordingReactor.HqBuildRecordingReactor).start();
       yield* (yield* HqAgentLifecycleReactor.HqAgentLifecycleReactor).start();
     }),
-  ).pipe(Layer.provide(HqAgentLifecycleReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  ).pipe(
+    Layer.provide(HqAgentLifecycleReactor.layer),
+    Layer.provide(HqBuildRecordingReactor.layer),
+    Layer.provideMerge(HqBuildRecords.layer),
+    // The queue resolves a row's Spec when it sends, with the resolver the reactors queue with.
+    Layer.provide(BuildSpecOfThread.layer),
+    Layer.provide(ProjectionStoreV2.layer),
+    Layer.provide(ProjectStore.layer),
+  ),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* RepositoryChipSync.RepositoryChipSync).start();

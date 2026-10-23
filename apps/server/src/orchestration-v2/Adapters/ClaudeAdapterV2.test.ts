@@ -94,6 +94,7 @@ import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter"
 import type * as ProviderContinuationRequests from "@t3tools/provider-core/server/ProviderContinuationRequests";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as HqTestkit from "../../hq/HqAgentConnections.testkit.ts";
+import * as HqBuildUsage from "../../hq/HqBuildUsage.ts";
 import * as ClaudeAdapterV2 from "./ClaudeAdapterV2.ts";
 import * as SlipJayGuard from "../../project/SlipJayGuard.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
@@ -5418,6 +5419,108 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           Layer.mergeAll(NodeServices.layer, IdAllocator.layer, McpProviderSessions.layer),
         ),
       ),
+  );
+
+  it.effect("records each Claude message's own usage once, not one row per snapshot", () =>
+    Effect.gen(function* () {
+      // What Weave's Build record would receive, kept where the test can read it.
+      const recorded: Array<HqBuildUsage.HqBuildUsageInput> = [];
+      const harness = yield* makeWakeHarness.pipe(
+        Effect.provideService(HqBuildUsage.HqBuildUsage, {
+          record: (input) => Effect.sync(() => void recorded.push(input)),
+        }),
+      );
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("build-usage-attempt"),
+          text: "Summarise the change",
+          attachments: [],
+        }),
+      );
+      const messageA = {
+        input_tokens: 10,
+        output_tokens: 2,
+        cache_read_input_tokens: 100,
+        cache_creation_input_tokens: 50,
+      };
+      const messageB = {
+        input_tokens: 20,
+        output_tokens: 4,
+        cache_read_input_tokens: 200,
+        cache_creation_input_tokens: 0,
+      };
+      const assistantFrame = (input: {
+        readonly uuid: string;
+        readonly messageId: string;
+        readonly usage: typeof messageA;
+      }) => {
+        const snapshot = makeAssistantTextFrame({ uuid: input.uuid, text: "Working." });
+        if (snapshot.type !== "assistant") throw new Error("Expected an assistant snapshot");
+        return {
+          ...snapshot,
+          message: {
+            ...snapshot.message,
+            id: input.messageId,
+            usage: { ...snapshot.message.usage, ...input.usage },
+          },
+        };
+      };
+      // One message, reported by two snapshots, then a second message.
+      yield* harness.offerAndWait(
+        assistantFrame({ uuid: "usage-a1", messageId: "msg-usage-a", usage: messageA }),
+      );
+      yield* harness.offerAndWait(
+        assistantFrame({ uuid: "usage-a2", messageId: "msg-usage-a", usage: messageA }),
+      );
+      yield* harness.offerAndWait(
+        assistantFrame({ uuid: "usage-b", messageId: "msg-usage-b", usage: messageB }),
+      );
+      yield* harness.offerAndWait(
+        makeResultFrame({
+          uuid: "usage-result",
+          result: "Done.",
+          usage: {
+            input_tokens: 30,
+            output_tokens: 6,
+            cache_read_input_tokens: 300,
+            cache_creation_input_tokens: 50,
+          },
+        }),
+      );
+      yield* Queue.take(harness.terminalReceipts);
+
+      const providerThreadId = harness.providerThread.id;
+      assert.deepStrictEqual(
+        recorded.map((usage) => [usage.usageRef, usage.level, usage.tokens]),
+        [
+          [
+            `claude:${providerThreadId}:msg-usage-a`,
+            "request",
+            { input: 10, output: 2, cacheRead: 100, cacheWrite: 50 },
+          ],
+          [
+            `claude:${providerThreadId}:msg-usage-b`,
+            "request",
+            { input: 20, output: 4, cacheRead: 200, cacheWrite: 0 },
+          ],
+        ],
+      );
+      assert.deepStrictEqual(
+        recorded.map((usage) => [usage.threadId, usage.modelRef]),
+        [
+          [harness.threadId, "claude-sonnet-4-6"],
+          [harness.threadId, "claude-sonnet-4-6"],
+        ],
+      );
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(NodeServices.layer, IdAllocator.layer, McpProviderSessions.layer),
+      ),
+    ),
   );
 
   describe("compaction on another model", () => {

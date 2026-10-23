@@ -905,6 +905,8 @@ export interface CursorAdapterV2Options {
   readonly getModels?: () => ReadonlyArray<ServerProviderModel>;
 }
 
+// Cursor reports no per-request token counts, so its turns record no usage for Weave's Build
+// record rather than a zero (Spec #4395).
 export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
   options: CursorAdapterV2Options,
 ) {

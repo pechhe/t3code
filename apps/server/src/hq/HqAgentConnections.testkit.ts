@@ -184,6 +184,8 @@ const makeFakeHq = () => {
   );
   return { client, agents, tokens, mcpCalls, state, tools, toolCalls };
 };
+/** Weave's fake as a test drives it: its answers, its outages and the calls it received. */
+export type FakeHq = ReturnType<typeof makeFakeHq>;
 
 /**
  * The real HqAgentConnections against a fake HQ, with every log line captured, a lead and a

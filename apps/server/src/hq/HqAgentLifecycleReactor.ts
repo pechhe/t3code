@@ -10,11 +10,19 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import { forkParked } from "../serverActivation.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
+import * as HqBuildRecords from "./HqBuildRecords.ts";
+import * as HqBuildRecordingReactor from "./HqBuildRecordingReactor.ts";
 
 /**
  * Ends a thread's HQ agent when its work is over: a delegated task that completed, failed or was
  * cancelled. A deleted thread's agent is dropped. An interrupted run is left alone, since a
  * restart continues it. T3 only ever ends agents; revoking one is the person's call in HQ.
+ *
+ * The end is queued rather than sent: ending replaces the agent's identity, so every Build record
+ * the thread still owes Weave has to reach it first (Spec #4395). A thread with nothing queued
+ * ahead of its end is ended on the queue's next pass, as it was before the queue existed. The
+ * records its finished run owes are queued here, in the same fiber, rather than from another
+ * reactor, so they are always ahead of the end.
  *
  * Archiving a thread keeps its agent. HQ lets only the agent that opened a Build bind or session
  * end it, and an ended agent is replaced by one with a new id, so ending it on archive would leave
@@ -33,11 +41,15 @@ const make = Effect.gen(function* () {
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const connections = yield* HqAgentConnections.HqAgentConnections;
+  const records = yield* HqBuildRecords.HqBuildRecords;
+  const recording = yield* HqBuildRecordingReactor.HqBuildRecordingReactor;
 
-  /** Ends or forgets the thread's agent; a thread with no HQ role never had one. */
+  /** Acts on the thread's agent; a thread with no HQ role never had one. */
   const withAgentOf = (
     threadId: ThreadId,
-    act: (agent: Omit<HqAgentConnections.HqAgent, "model">) => Effect.Effect<void>,
+    act: (
+      agent: Omit<HqAgentConnections.HqAgent, "model">,
+    ) => Effect.Effect<void, HqBuildRecords.HqBuildRecordError>,
   ) =>
     projections.getThread(threadId).pipe(
       Effect.flatMap((thread) => {
@@ -46,8 +58,10 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const handle: HqAgentLifecycleReactor["Service"]["handle"] = (event) =>
-    Effect.gen(function* () {
+  const handle: HqAgentLifecycleReactor["Service"]["handle"] = Effect.fn(
+    "HqAgentLifecycleReactor.handle",
+  )(
+    function* (event: OrchestrationV2DomainEvent) {
       switch (event.type) {
         case "run.updated": {
           const { status, delegatedTaskId } = event.payload;
@@ -56,35 +70,58 @@ const make = Effect.gen(function* () {
             (status !== "completed" && status !== "failed" && status !== "cancelled")
           )
             return;
-          return yield* withAgentOf(event.threadId, connections.end);
+          return yield* withAgentOf(event.threadId, (agent) =>
+            recording.recordCompletion(agent.threadId, event.payload).pipe(
+              Effect.andThen(
+                records.enqueue({
+                  kind: "end",
+                  // One end per run: a follow-up run gets a fresh agent, which needs its own end.
+                  recordKey: `end:${agent.threadId}:${event.payload.id}`,
+                  threadId: agent.threadId,
+                  role: agent.role,
+                }),
+              ),
+            ),
+          );
         }
         case "thread.deleted":
-          return yield* withAgentOf(event.threadId, connections.forget);
+          return yield* withAgentOf(event.threadId, (agent) =>
+            // Nothing can act as a deleted thread, so what it still owes goes with it, and its
+            // agent is ended now rather than on the queue's next pass.
+            records.forgetThread(agent.threadId).pipe(Effect.andThen(connections.forget(agent))),
+          );
         default:
           return;
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Could not end a thread's HQ agent", { threadId: event.threadId, cause }),
+    },
+    (effect, event) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not end a thread's HQ agent", {
+            threadId: event.threadId,
+            cause,
+          }),
+        ),
+      ),
+  );
+
+  const start: HqAgentLifecycleReactor["Service"]["start"] = Effect.fn(
+    "HqAgentLifecycleReactor.start",
+  )(function* () {
+    // Ending calls HQ, so one slow request must not hold up the events behind it.
+    const ends = yield* FiberSet.make<void, never>();
+    yield* forkParked(
+      Stream.runForEach(engine.streamDomainEvents, (event) =>
+        event.type === "run.updated" || event.type === "thread.deleted"
+          ? FiberSet.run(ends, handle(event)).pipe(Effect.asVoid)
+          : Effect.void,
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("HQ agent lifecycle event stream failed", { cause }),
+        ),
       ),
     );
-
-  const start: HqAgentLifecycleReactor["Service"]["start"] = () =>
-    Effect.gen(function* () {
-      // Ending calls HQ, so one slow request must not hold up the events behind it.
-      const ends = yield* FiberSet.make<void, never>();
-      yield* forkParked(
-        Stream.runForEach(engine.streamDomainEvents, (event) =>
-          event.type === "run.updated" || event.type === "thread.deleted"
-            ? FiberSet.run(ends, handle(event)).pipe(Effect.asVoid)
-            : Effect.void,
-        ).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logWarning("HQ agent lifecycle event stream failed", { cause }),
-          ),
-        ),
-      );
-    });
+  });
 
   return { start, handle } satisfies HqAgentLifecycleReactor["Service"];
 });

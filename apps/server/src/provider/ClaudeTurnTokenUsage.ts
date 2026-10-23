@@ -1,6 +1,9 @@
 import type { SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ProviderRuntimeTurnStatus, TurnTokenUsage } from "@t3tools/contracts";
 
+import type { HqBuildUsageTokens } from "../hq/HqBuildUsage.ts";
+import type { TurnRequestUsage } from "./TurnUsageRecords.ts";
+
 function finiteNonNegativeInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0
     ? Math.round(value)
@@ -132,5 +135,62 @@ export function normalizeClaudeTurnTokenUsage(
     usageStatus: "partial",
     ...(inputTokens !== undefined ? { inputTokens } : {}),
     ...(rawOutputTokens !== undefined ? { outputTokens: rawOutputTokens } : {}),
+  };
+}
+
+/**
+ * One Claude request's own token counts, for the per-request record Weave's Build keeps
+ * (Spec #4395). Claude reports the uncached input beside its cache reads and writes, so they stay
+ * separate here; only the turn's folded figure adds them together.
+ */
+function claudeRequestUsageTokens(usage: {
+  readonly input_tokens: number;
+  readonly cache_creation_input_tokens?: number | null;
+  readonly cache_read_input_tokens?: number | null;
+  readonly output_tokens: number;
+}): HqBuildUsageTokens | null {
+  const input = finiteNonNegativeInteger(usage.input_tokens);
+  const output = finiteNonNegativeInteger(usage.output_tokens);
+  if (input === undefined || output === undefined) return null;
+  // Claude omits nothing in practice; an unreported cache read is no cache read.
+  const cacheRead = finiteNonNegativeInteger(usage.cache_read_input_tokens) ?? 0;
+  const cacheWrite = finiteNonNegativeInteger(usage.cache_creation_input_tokens);
+  // A message that reports no tokens at all measured nothing, which is not a free request.
+  if (input + output + cacheRead + (cacheWrite ?? 0) === 0) return null;
+  return {
+    input,
+    output,
+    cacheRead,
+    ...(cacheWrite === undefined ? {} : { cacheWrite }),
+  };
+}
+
+/**
+ * One provider request's usage row: an assistant message is one request to Claude, and its message
+ * id is what a repeated snapshot of it shares.
+ */
+export function claudeRequestUsage(input: {
+  readonly providerThreadId: string;
+  /** Null when the message reported no id, which leaves the turn's own row as the honest one. */
+  readonly messageId: string | null;
+  readonly usage: {
+    readonly input_tokens: number;
+    readonly cache_creation_input_tokens?: number | null;
+    readonly cache_read_input_tokens?: number | null;
+    readonly output_tokens: number;
+  };
+  readonly modelRef: string;
+  readonly startedAt: number;
+  readonly endedAt: number;
+}): TurnRequestUsage | null {
+  const tokens = claudeRequestUsageTokens(input.usage);
+  if (tokens === null) return null;
+  return {
+    usageRef:
+      input.messageId === null ? null : `claude:${input.providerThreadId}:${input.messageId}`,
+    tokens,
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+    modelRef: input.modelRef,
   };
 }

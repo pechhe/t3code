@@ -1,0 +1,265 @@
+import { assert, it } from "@effect/vitest";
+import { ThreadId } from "@t3tools/contracts";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
+import * as TestClock from "effect/testing/TestClock";
+
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as BuildSpecOfThread from "./BuildSpecOfThread.ts";
+import * as HqAgentConnections from "./HqAgentConnections.ts";
+import {
+  delegation,
+  leadThread,
+  makeHqHarness,
+  origin,
+  otherDelegation,
+  otherOrigin,
+} from "./HqAgentConnections.testkit.ts";
+import * as HqBuildRecords from "./HqBuildRecords.ts";
+import * as HqBuildUsage from "./HqBuildUsage.ts";
+
+const unlinkedThread = ThreadId.make("thread-without-build-link");
+const tokens = { input: 1_200, output: 300, cacheRead: 4_000, cacheWrite: 500 };
+
+/**
+ * The queue over a real database and Weave's fake. A test drives the queue's pass itself, so
+ * nothing depends on when its worker happens to wake.
+ */
+const harness = Effect.gen(function* () {
+  const { hq, connections } = yield* makeHqHarness;
+  const database = yield* Layer.build(SqlitePersistence.layerMemory);
+  /** A read of the linked item that a test turns into an outage, as Weave being down would. */
+  const specReads = { unavailable: false };
+  // Only a thread with a Build link records anything.
+  const specs = Layer.succeed(BuildSpecOfThread.BuildSpecOfThread, {
+    of: (threadId: ThreadId) =>
+      threadId === leadThread
+        ? specReads.unavailable
+          ? Effect.fail(new BuildSpecOfThread.BuildSpecUnavailable({ threadId, origin }))
+          : Effect.succeed(Option.some({ specId: "spec-1", origin, leadThreadId: leadThread }))
+        : Effect.succeed(Option.none()),
+  });
+  const recordsLayer = HqBuildRecords.layer.pipe(
+    Layer.provide(specs),
+    Layer.provide(Layer.succeed(HqAgentConnections.HqAgentConnections, connections)),
+    Layer.provide(
+      Layer.mock(ProjectionStore.ProjectionStoreV2)({
+        // A thread's own projection says which agent its rows act as, as a turn reads it.
+        getThread: (threadId: ThreadId) =>
+          Effect.succeed({
+            id: threadId,
+            lineage: { parentThreadId: null },
+            modelSelection: { model: "claude-opus-5-5" },
+          } as never),
+      }),
+    ),
+    Layer.provide(Layer.succeedContext(database)),
+  );
+  const usageLayer = HqBuildUsage.layer.pipe(Layer.provide(recordsLayer), Layer.provide(specs));
+  const bootUsage = Effect.gen(function* () {
+    return yield* HqBuildUsage.HqBuildUsage;
+  }).pipe(Effect.provide(usageLayer));
+  const bootRecords = Effect.service(HqBuildRecords.HqBuildRecords).pipe(
+    Effect.provide(recordsLayer),
+  );
+  return { hq, connections, bootUsage, bootRecords, specReads };
+});
+
+const usageRequest = (overrides?: Partial<HqBuildUsage.HqBuildUsageInput>) =>
+  ({
+    threadId: leadThread,
+    usageRef: "claude:provider-thread-1:msg-1",
+    tokens,
+    startedAt: 1_000,
+    endedAt: 2_000,
+    modelRef: "claude-opus-5-5",
+    runId: "run-1",
+    level: "request",
+    ...overrides,
+  }) satisfies HqBuildUsage.HqBuildUsageInput;
+
+/** The session a lead's own link opened, which is what Weave attributes its turns to. */
+const openLeadSession = (records: HqBuildRecords.HqBuildRecords["Service"]) =>
+  records.enqueue({
+    kind: "session",
+    recordKey: `session:${leadThread}:spec-1`,
+    threadId: leadThread,
+    specId: "spec-1",
+    origin,
+    bind: { specId: "spec-1" },
+    startSession: { specId: "spec-1", modelRef: "claude-opus-5-5" },
+  });
+
+it.effect("records what a linked thread's request spent, as Weave's usage tool takes it", () =>
+  Effect.gen(function* () {
+    const { hq, bootUsage, bootRecords } = yield* harness;
+    const usage = yield* bootUsage;
+    const records = yield* bootRecords;
+    hq.tools.call = (name) =>
+      name === "hq_build_start_session"
+        ? { status: "succeeded", value: { session: { id: "session-1" } } }
+        : { status: "succeeded", value: {} };
+    yield* openLeadSession(records);
+    yield* records.deliverDue;
+
+    yield* usage.record(usageRequest());
+
+    assert.deepStrictEqual(
+      (yield* records.outstanding()).map((record) => [
+        record.recordKey,
+        record.kind,
+        record.specId,
+      ]),
+      [["usage:claude:provider-thread-1:msg-1", "usage", "spec-1"]],
+    );
+
+    yield* records.deliverDue;
+
+    assert.deepStrictEqual(hq.toolCalls, [
+      {
+        name: "hq_build_bind",
+        args: { specId: "spec-1" },
+        agentId: "agent-1",
+      },
+      {
+        name: "hq_build_start_session",
+        args: { specId: "spec-1", modelRef: "claude-opus-5-5" },
+        agentId: "agent-1",
+      },
+      {
+        name: "hq_build_record_usage",
+        args: {
+          usageRef: "claude:provider-thread-1:msg-1",
+          scope: "own",
+          evidenceRef: `t3-thread://v1/${leadThread}#request`,
+          startedAt: 1_000,
+          endedAt: 2_000,
+          tokens,
+          activeMs: 1_000,
+          harness: "t3code",
+          modelRef: "claude-opus-5-5",
+          sessionId: "session-1",
+        },
+        agentId: "agent-1",
+      },
+    ]);
+  }),
+);
+
+it.effect("names the session its thread recorded, never a T3 run id, and waits for it", () =>
+  Effect.gen(function* () {
+    const { hq, bootUsage, bootRecords } = yield* harness;
+    const usage = yield* bootUsage;
+    const records = yield* bootRecords;
+    hq.tools.call = (name) =>
+      name === "hq_build_start_session"
+        ? { status: "succeeded", value: { session: { id: "session-1" } } }
+        : { status: "succeeded", value: {} };
+
+    yield* usage.record(usageRequest());
+    yield* records.deliverDue;
+
+    // Nothing has named a session yet, so there is nothing Weave could attribute the turn to.
+    assert.deepStrictEqual(hq.toolCalls, []);
+    assert.strictEqual(
+      (yield* records.outstanding()).find((record) => record.kind === "usage")?.status,
+      "pending",
+    );
+
+    yield* openLeadSession(records);
+    yield* records.deliverDue;
+
+    const sent = hq.toolCalls.find(({ name }) => name === "hq_build_record_usage");
+    assert.strictEqual(sent?.args.sessionId, "session-1");
+    // A T3 run id means nothing to Weave: the run id it knows is a Build run's.
+    assert.isUndefined(sent?.args.runId);
+  }),
+);
+
+it.effect(
+  "a usage row queued for one Weave is never sent to another when its Spec was unreadable",
+  () =>
+    Effect.gen(function* () {
+      const { hq, connections, bootUsage, bootRecords, specReads } = yield* harness;
+      const usage = yield* bootUsage;
+      const records = yield* bootRecords;
+      hq.tools.call = (name) =>
+        name === "hq_build_start_session"
+          ? { status: "succeeded", value: { session: { id: "session-1" } } }
+          : { status: "succeeded", value: {} };
+      yield* openLeadSession(records);
+      yield* records.deliverDue;
+
+      // The link is there, but Weave cannot be read for its item when the turn reports.
+      specReads.unavailable = true;
+      yield* usage.record(usageRequest());
+      const [queued] = yield* records.outstanding();
+      // Which Weave the row belongs to is known from the link itself, without reading the item.
+      assert.strictEqual(queued?.origin, origin);
+      assert.isNull(queued?.specId ?? null);
+
+      // T3 moves to another Weave: the row must wait rather than be recorded there.
+      specReads.unavailable = false;
+      yield* connections.connect({ origin: otherOrigin, delegation: otherDelegation });
+      yield* records.deliverDue;
+      assert.deepStrictEqual(
+        hq.toolCalls.map(({ name }) => name),
+        ["hq_build_bind", "hq_build_start_session"],
+      );
+      assert.strictEqual((yield* records.outstanding())[0]?.status, "pending");
+
+      // Back on its own Weave, its item reads and the turn is recorded where it belongs.
+      yield* connections.connect({ origin, delegation });
+      yield* TestClock.adjust(Duration.millis(1_000));
+      yield* records.deliverDue;
+      assert.strictEqual(
+        hq.toolCalls.find(({ name }) => name === "hq_build_record_usage")?.args.sessionId,
+        "session-1",
+      );
+      assert.deepStrictEqual(yield* records.outstanding(), []);
+    }),
+);
+
+it.effect("records nothing for a thread that counts toward no Spec", () =>
+  Effect.gen(function* () {
+    const { bootUsage, bootRecords } = yield* harness;
+    const usage = yield* bootUsage;
+    const records = yield* bootRecords;
+
+    yield* usage.record(usageRequest({ threadId: unlinkedThread }));
+
+    assert.deepStrictEqual(yield* records.outstanding(), []);
+  }),
+);
+
+it.effect("records nothing when the usage is unknown, rather than a free request", () =>
+  Effect.gen(function* () {
+    const { bootUsage, bootRecords } = yield* harness;
+    const usage = yield* bootUsage;
+    const records = yield* bootRecords;
+
+    yield* usage.record(usageRequest({ tokens: null }));
+
+    assert.deepStrictEqual(yield* records.outstanding(), []);
+  }),
+);
+
+it.effect("stores a repeated usageRef once", () =>
+  Effect.gen(function* () {
+    const { bootUsage, bootRecords } = yield* harness;
+    const usage = yield* bootUsage;
+    const records = yield* bootRecords;
+
+    yield* usage.record(usageRequest());
+    // A replay of the same request reports the same usage under the same ref.
+    yield* usage.record(usageRequest({ endedAt: 3_000 }));
+
+    assert.deepStrictEqual(
+      (yield* records.outstanding()).map((record) => record.recordKey),
+      ["usage:claude:provider-thread-1:msg-1"],
+    );
+  }),
+);

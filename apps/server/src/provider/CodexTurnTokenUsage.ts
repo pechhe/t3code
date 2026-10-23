@@ -1,6 +1,8 @@
 import type { TurnTokenUsage } from "@t3tools/contracts";
 import type * as EffectCodexSchema from "effect-codex-app-server/schema";
 
+import type { TurnRequestUsage } from "./TurnUsageRecords.ts";
+
 type CodexCumulativeTokenUsage = {
   readonly inputTokens: number;
   readonly cachedInputTokens: number;
@@ -173,5 +175,48 @@ export function completeCodexTurnTokenUsage(
     outputTokens: usage.outputTokens,
     reasoningTokens: Math.min(usage.outputTokens, usage.reasoningTokens),
     hasSubagents: usage.hasSubagents,
+  };
+}
+
+function nonNegativeCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : undefined;
+}
+
+/**
+ * One Codex response's own usage row (Spec #4395). Codex reports a running thread total beside
+ * `last`, the newest response, so the total is what identifies the response: a replayed update
+ * carries the same total and keys the same row. Codex counts cache reads and writes inside its
+ * input, so the record takes them back out to keep them separate.
+ */
+export function codexRequestUsage(input: {
+  readonly providerThreadId: string;
+  readonly turnId: string;
+  readonly tokenUsage: EffectCodexSchema.V2ThreadTokenUsageUpdatedNotification["tokenUsage"];
+  readonly modelRef: string;
+  readonly startedAt: number;
+  readonly endedAt: number;
+}): TurnRequestUsage | null {
+  const { last, total } = input.tokenUsage;
+  const billedInput = nonNegativeCount(last.inputTokens);
+  const output = nonNegativeCount(last.outputTokens);
+  if (billedInput === undefined || output === undefined) return null;
+  const cacheRead = Math.min(nonNegativeCount(last.cachedInputTokens) ?? 0, billedInput);
+  const cacheWrite = Math.min(nonNegativeCount(last.cacheWriteInputTokens) ?? 0, billedInput);
+  const uncachedInput = billedInput - cacheRead - cacheWrite;
+  // A response that reports no tokens at all measured nothing, which is not a free response.
+  if (uncachedInput + cacheRead + cacheWrite + output === 0) return null;
+  return {
+    usageRef: `codex:${input.providerThreadId}:${input.turnId}:${total.inputTokens}/${total.outputTokens}`,
+    tokens: {
+      input: Math.max(uncachedInput, 0),
+      output,
+      cacheRead,
+      ...(last.cacheWriteInputTokens === undefined ? {} : { cacheWrite }),
+    },
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+    modelRef: input.modelRef,
   };
 }

@@ -210,6 +210,8 @@ export function makeAntigravityAcpAdapterFlavor(
   };
 }
 
+// Antigravity reports no per-request token counts, so its turns record no usage for Weave's
+// Build record rather than a zero (Spec #4395).
 export const makeAntigravityAdapterV2 = Effect.fn("makeAntigravityAdapterV2")(function* (
   options: AntigravityAdapterV2Options,
 ) {

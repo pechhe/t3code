@@ -428,6 +428,8 @@ interface PiWake {
   readonly events: Array<PiRpcRecord>;
 }
 
+// Pi reports no per-request token counts, so its turns record no usage for Weave's Build record
+// rather than a zero (Spec #4395).
 export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
   options: PiAdapterV2Options,
 ) {

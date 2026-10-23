@@ -338,6 +338,8 @@ export function makeGrokAcpAdapterFlavor(
   };
 }
 
+// Grok reports no per-request token counts, so its turns record no usage for Weave's Build record
+// rather than a zero (Spec #4395).
 export const makeGrokAdapterV2 = Effect.fn("makeGrokAdapterV2")(function* (
   options: GrokAdapterV2Options,
 ) {

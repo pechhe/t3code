@@ -707,6 +707,8 @@ const turnTokenUsage = (turn: ActiveTurn, status: OrchestrationV2ProviderTurn["s
         hasSubagents: turn.usedSubagents,
       };
 
+// OpenCode reports no per-request token counts, so its turns record no usage for Weave's Build
+// record rather than a zero (Spec #4395).
 export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: ProviderInstanceId) {
   const server = yield* OpenCode2Server.OpenCode2Server;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;

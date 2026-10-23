@@ -19,9 +19,17 @@ import {
   makeCodexTurnTokenUsageState,
   getCodexTurnAccumulator,
   accumulateCodexTurnTokenUsage,
+  codexRequestUsage,
   completeCodexTurnTokenUsage,
   type CodexTurnTokenUsageState,
 } from "../../provider/CodexTurnTokenUsage.ts";
+import {
+  addTurnRequestUsage,
+  makeTurnUsageBuffer,
+  settleTurnUsage,
+  type TurnUsageBuffer,
+} from "../../provider/TurnUsageRecords.ts";
+import * as HqBuildUsage from "../../hq/HqBuildUsage.ts";
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import type { CodexEffectiveRuntime } from "../../provider/CodexManagedRuntime.ts";
 import { classifyCodexManagedError } from "../../provider/CodexManagedErrors.ts";
@@ -81,6 +89,7 @@ import type {
   RuntimeMode,
   RuntimeRequestId,
   ThreadId,
+  TurnTokenUsage,
 } from "@t3tools/contracts";
 import * as CodexClient from "effect-codex-app-server/client";
 import * as CodexErrors from "effect-codex-app-server/errors";
@@ -1240,6 +1249,11 @@ interface ActiveCodexTurnContext {
   readonly subagent: CodexSubagentThreadContext | null;
   readonly startedAt: DateTime.Utc;
   readonly runningCompactionItemIds: Set<string>;
+  /**
+   * What each response of this turn spent, held until the turn ends so it records one level: its
+   * requests when they account for the turn's figure, and otherwise the turn itself (Spec #4395).
+   */
+  readonly requestUsage: TurnUsageBuffer;
   // Modern approval requests omit paths; keep the kinds without retaining patch bodies.
   readonly fileChangeKindsByItem: Map<string, CodexFileChangeKinds>;
   readonly itemPositions: Map<
@@ -1875,6 +1889,7 @@ export interface CodexAdapterV2Options {
 export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
   adapterOptions: CodexAdapterV2Options,
 ) {
+  const buildUsage = yield* HqBuildUsage.HqBuildUsage;
   const mcpSessions = yield* McpProviderSessions.McpProviderSessions;
   const readMcpSession = (threadId: ThreadId | null) =>
     threadId === null ? Effect.succeed(undefined) : mcpSessions.read(threadId);
@@ -2050,6 +2065,28 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             context.nativeTurnId,
           ).hasSubagents = true;
         };
+        /**
+         * Hands what the turn spent to Weave's Build record (Spec #4395). Its responses are kept one
+         * by one only while they account for the figure the turn shows; otherwise that figure is the
+         * turn's single row.
+         */
+        const recordTurnUsage = Effect.fnUntraced(function* (
+          context: ActiveCodexTurnContext,
+          turnTokenUsage: TurnTokenUsage,
+          completedAt: DateTime.Utc,
+        ) {
+          const usage = settleTurnUsage(context.requestUsage, turnTokenUsage, {
+            threadId: context.projectionThreadId,
+            provider: CODEX_PROVIDER,
+            providerThreadId: String(context.providerThread.id),
+            turnId: context.nativeTurnId,
+            modelRef: context.input.modelSelection.model,
+            startedAt: DateTime.toEpochMillis(context.startedAt),
+            endedAt: DateTime.toEpochMillis(completedAt),
+            ...(context.projectionRunId === null ? {} : { runId: String(context.projectionRunId) }),
+          });
+          for (const record of usage) yield* buildUsage.record(record);
+        });
         const pendingRootTurns = yield* Ref.make(
           new Map<string, ProviderAdapter.ProviderAdapterV2TurnInput>(),
         );
@@ -2234,6 +2271,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             itemPositions: new Map(),
             fileChangeKindsByItem: new Map(),
             runningCompactionItemIds: new Set(),
+            requestUsage: makeTurnUsageBuffer(),
           };
           yield* Ref.update(limitedTurnItems, (current) => {
             const next = new Map(current);
@@ -2816,6 +2854,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               itemPositions: new Map(),
               fileChangeKindsByItem: new Map(),
               runningCompactionItemIds: new Set(),
+              requestUsage: makeTurnUsageBuffer(),
             };
             beginTurnTokenUsage(activeContext);
             endSessionApprovalsOnModeChange(activeContext);
@@ -4619,6 +4658,20 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               return;
             }
             const now = yield* DateTime.now;
+            // Every update carries `last`, the newest response's own usage, beside the thread's
+            // running total that identifies it, so a replayed update keys the same row. The response
+            // began where the previous one ended, or with the turn (Spec #4395).
+            const request = codexRequestUsage({
+              providerThreadId: String(context.providerThread.id),
+              turnId: context.nativeTurnId,
+              tokenUsage: payload.tokenUsage,
+              modelRef: context.input.modelSelection.model,
+              startedAt:
+                context.requestUsage.requests.at(-1)?.endedAt ??
+                DateTime.toEpochMillis(context.startedAt),
+              endedAt: DateTime.toEpochMillis(now),
+            });
+            if (request !== null) addTurnRequestUsage(context.requestUsage, request);
             yield* emitProviderEvent({
               type: "provider_turn.updated",
               driver: CODEX_PROVIDER,
@@ -6300,6 +6353,15 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 nativeThreadId != null &&
                 (goalsByNativeThread.get(nativeThreadId)?.status === "active" ||
                   (activation !== undefined && !activation.stopped));
+              const turnTokenUsage = completeCodexTurnTokenUsage(
+                usageStateForThread(
+                  input.context.providerThread.nativeThreadRef?.nativeId ??
+                    String(input.context.providerThread.id),
+                ),
+                input.nativeTurnId,
+                input.status === "completed",
+              );
+              yield* recordTurnUsage(input.context, turnTokenUsage, input.completedAt);
               const completedTurn: OrchestrationV2ProviderTurn = {
                 id: input.context.providerTurnId,
                 providerThreadId: input.context.providerThread.id,
@@ -6315,14 +6377,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 status: input.status,
                 startedAt: input.context.startedAt,
                 completedAt: input.completedAt,
-                turnTokenUsage: completeCodexTurnTokenUsage(
-                  usageStateForThread(
-                    input.context.providerThread.nativeThreadRef?.nativeId ??
-                      String(input.context.providerThread.id),
-                  ),
-                  input.nativeTurnId,
-                  input.status === "completed",
-                ),
+                turnTokenUsage,
               };
               if (!holdsForGoal) {
                 yield* emitProviderEvent({
@@ -6579,6 +6634,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             itemPositions: new Map(),
             fileChangeKindsByItem: new Map(),
             runningCompactionItemIds: new Set(),
+            requestUsage: makeTurnUsageBuffer(),
           };
           const providerTurn = {
             id: context.providerTurnId,
