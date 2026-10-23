@@ -1053,6 +1053,27 @@
   opacity: 0.6;
 }
 
+/* Load balancing stamps the knob: A for the balancer's pick, O for an override,
+   so whose choice sits where reads on the machine, not only in the tooltip. */
+.device-switch__badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  transform: translate(-50%, -50%);
+  font-family: var(--crt-mono);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 0 oklch(1 0.002 250 / 0.55);
+}
+.device-switch__badge--auto {
+  color: oklch(0.55 0.16 255);
+}
+.device-switch__badge--override {
+  color: var(--crt-amber);
+}
+
 /* ---------------- Send dial ---------------- */
 .send-dial {
   position: relative;

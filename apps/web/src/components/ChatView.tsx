@@ -3080,8 +3080,6 @@ export default function ChatView(props: ChatViewProps) {
   const switchLocked = envLocked || !draftId;
   const switchEnvironments = (() => {
     if (isMobileViewport) return null;
-    if (!switchLocked && canAutoBalanceEnvironments && loadBalancingSettings.loadBalancingEnabled)
-      return null;
     const candidates =
       logicalProjectEnvironments.length === 2 || !switchLocked
         ? logicalProjectEnvironments
@@ -3095,12 +3093,40 @@ export default function ChatView(props: ChatViewProps) {
     return first && second ? ([first, second] as const) : null;
   })();
   const activeEnvironmentId = activeThread?.environmentId;
+  // With load balancing the lever stays in its slot and the balancer owns the
+  // knob: it rests on the machine the balancer picked (A), and moving it off
+  // that pick reads O until the pick is chosen again.
+  const autoBalanceOnSwitch =
+    !!switchEnvironments &&
+    !switchLocked &&
+    canAutoBalanceEnvironments &&
+    loadBalancingSettings.loadBalancingEnabled;
+  const balanceState = autoBalanceOnSwitch
+    ? automaticEnvironment
+      ? ("auto" as const)
+      : ("override" as const)
+    : undefined;
+  const balanceTarget = autoBalanceOnSwitch
+    ? (draftThread?.loadBalancedEnvironmentId ?? null)
+    : null;
+  const leverEnvironmentId = balanceTarget ?? activeEnvironmentId;
+  const balancedEnvironmentLabel =
+    balanceState === "override"
+      ? (switchEnvironments?.find((environment) => environment.environmentId === balanceTarget)
+          ?.label ?? null)
+      : null;
+  // While the balancer is still choosing, the knob waits on the current machine.
+  const checkingMachines =
+    balanceState === "auto" && balanceTarget === null && loadBalancing.pending;
   const deviceEnvironmentSwitch =
-    switchEnvironments && activeEnvironmentId ? (
+    switchEnvironments && leverEnvironmentId ? (
       <DeviceEnvironmentSwitch
         environments={switchEnvironments}
-        environmentId={activeEnvironmentId}
+        environmentId={leverEnvironmentId}
         locked={switchLocked}
+        {...(balanceState ? { balanceState } : {})}
+        {...(balancedEnvironmentLabel ? { balancedEnvironmentLabel } : {})}
+        {...(checkingMachines ? { checkingMachines } : {})}
         onChange={onEnvironmentChangeStable}
       />
     ) : null;
