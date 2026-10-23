@@ -167,7 +167,7 @@ import {
 } from "../../provider/claudeUsageLimits.ts";
 import type { ManagedServerProvider } from "@t3tools/provider-core/server/snapshot";
 import { mergeProviderInstanceEnvironment } from "@t3tools/provider-core/server/instanceEnvironment";
-import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
+import { t3OrchestrationText } from "@t3tools/provider-core/server/orchestrationInstructions";
 import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeInstructions";
 import {
   mcpToolPresentation,
@@ -1366,6 +1366,12 @@ export function makeClaudeQueryOptions(input: {
   readonly supportedDialogKinds?: ClaudeQueryOptions["supportedDialogKinds"];
   /** An assigned instruction experiment variant, appended after T3's own instructions. */
   readonly instructionOverlay?: string;
+  /** A delegated child gets the child text instead of the orchestration sections. */
+  readonly t3Delegated?: boolean;
+  /** The thread's listing carries the preview family. */
+  readonly t3Preview?: boolean;
+  /** False when the listing has no html tools. */
+  readonly t3Html?: boolean;
   readonly allowDangerouslySkipPermissions?: boolean;
   readonly appendSystemPromptFileText?: string;
 }): ClaudeAgentSdkQueryOptions {
@@ -1479,7 +1485,12 @@ export function makeClaudeQueryOptions(input: {
       preset: "claude_code" as const,
       append: [
         buildRuntimeInstructions({ harness: "Claude Code" }) +
-          (input.mcpServers === undefined ? "" : T3_CODE_ORCHESTRATION_INSTRUCTIONS),
+          (input.mcpServers === undefined
+            ? ""
+            : t3OrchestrationText(input.t3Delegated === true, {
+                preview: input.t3Preview === true,
+                html: input.t3Html !== false,
+              })),
         // The system prompt is not compacted, so the overlay holds for the whole session.
         ...(input.instructionOverlay === undefined ? [] : [input.instructionOverlay]),
         ...launchAppendSystemPrompt,
@@ -9534,8 +9545,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           nativeThreadId: string,
         ) {
           const queryPolicy = yield* queryPolicyForTurn(turnInput);
+          const t3McpSession = yield* mcpSessions.read(turnInput.threadId);
           const mcpOverrides = claudeMcpQueryOverrides({
-            mcpSession: yield* mcpSessions.read(turnInput.threadId),
+            mcpSession: t3McpSession,
             agentServers: yield* readAgentServers(turnInput.threadId),
             managedAgent: turnInput.runtimePolicy.managedAgent === true,
             readOnlySandbox:
@@ -9691,6 +9703,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             canUseTool,
             onUserDialog,
             supportedDialogKinds: ["resume_return"],
+            ...(t3McpSession?.delegated === true ? { t3Delegated: true } : {}),
+            ...(t3McpSession?.listsPreview === true ? { t3Preview: true } : {}),
+            ...(t3McpSession?.listsHtml === false ? { t3Html: false } : {}),
             ...(turnInput.instructionOverlay === undefined
               ? {}
               : { instructionOverlay: turnInput.instructionOverlay.text }),

@@ -18,6 +18,17 @@ export interface McpProviderSessionConfig {
    * managed task may attach it while no other T3 tool reaches the task.
    */
   readonly managedBrowser?: boolean;
+  /**
+   * A delegated child: it lists only its own work family and the leaf tools, and
+   * is told so instead of the parent's orchestration sections.
+   */
+  readonly delegated?: boolean;
+  /** The thread's listing carries the preview family. */
+  readonly listsPreview?: boolean;
+  /** The thread's listing carries the device family. */
+  readonly listsDevice?: boolean;
+  /** The thread's listing carries the html tools. */
+  readonly listsHtml?: boolean;
   /** Capabilities the credential grants ("preview", "device"). */
   readonly capabilities?: ReadonlySet<string>;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;

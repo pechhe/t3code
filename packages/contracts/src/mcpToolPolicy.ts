@@ -14,11 +14,19 @@ export type ToolFamily =
   | "queue"
   | "worktree"
   | "project"
-  | "experiments";
+  | "experiments"
+  | "work"
+  | "leaf"
+  | "report";
 
 export interface SessionToolProfile {
   readonly toolProfile?: AgentToolProfile | undefined;
   readonly agentRole?: AgentRole | undefined;
+  /**
+   * A thread with an `agentTask` is a delegated child: it lists only its own work
+   * family and the leaf tools, never the orchestration control plane.
+   */
+  readonly delegated?: boolean | undefined;
 }
 
 const SCHEDULING_TOOLS = new Set([
@@ -42,6 +50,26 @@ const CONTROL_EXTRA_TOOLS = new Set([
   "t3_thread_move_to_project",
   "t3_thread_suggest_project",
 ]);
+
+/**
+ * What a delegated child needs whatever its role: poll or cancel its own task,
+ * watch something it started, report its outcome, and show the user a page. Its
+ * own role's work family is the other half of every child listing.
+ */
+const LEAF_TOOLS = new Set([
+  "task_status",
+  "task_cancel",
+  "watch",
+  "unwatch",
+  "html_preview",
+  "html_render",
+]);
+
+/**
+ * The tool a managed agent reports its outcome with. It is separate from the leaf
+ * set because an ordinary thread never reports to a parent and never lists it.
+ */
+const REPORT_TOOLS = new Set(["agent_task_outcome"]);
 
 /** Thread tools the orchestrator itself offers; the rest of the thread family is workspace administration. */
 const CORE_THREAD_TOOLS = new Set([
@@ -71,8 +99,12 @@ const PULL_REQUEST_TOOLS = new Set([
  * every tool again when a family gains one.
  */
 export const toolFamily = (name: string): ToolFamily => {
+  if (REPORT_TOOLS.has(name)) return "report";
+  if (LEAF_TOOLS.has(name)) return "leaf";
   if (SCHEDULING_TOOLS.has(name)) return "scheduling";
-  if (name.startsWith("t3_experiments_") || name.startsWith("t3_work_")) return "experiments";
+  if (name.startsWith("t3_experiments_")) return "experiments";
+  // Work-unit allocation and evidence are an implementer's tools, not a researcher's.
+  if (name.startsWith("t3_work_")) return "work";
   if (name.startsWith("preview_") || name.startsWith("t3_preview_")) return "preview";
   if (name.startsWith("device_")) return "device";
   if (name.startsWith("t3_queue_")) return "queue";
@@ -91,7 +123,7 @@ export const toolFamily = (name: string): ToolFamily => {
   return "control";
 };
 
-const CONTROL: ReadonlySet<ToolFamily> = new Set(["control", "scheduling", "worktree"]);
+const CONTROL: ReadonlySet<ToolFamily> = new Set(["control", "scheduling", "worktree", "leaf"]);
 const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
   "control",
   "workspace",
@@ -99,21 +131,29 @@ const WORKSPACE: ReadonlySet<ToolFamily> = new Set([
   "queue",
   "worktree",
   "project",
+  "leaf",
+  "report",
 ]);
 const PREVIEW: ReadonlySet<ToolFamily> = new Set([
   "control",
   "workspace",
   "scheduling",
+  "worktree",
   "project",
   "preview",
+  "leaf",
+  "report",
 ]);
 const PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
   "control",
   "workspace",
   "scheduling",
+  "worktree",
   "project",
   "preview",
   "device",
+  "leaf",
+  "report",
 ]);
 const IMPLEMENTATION_PHI: ReadonlySet<ToolFamily> = new Set([
   "control",
@@ -122,6 +162,8 @@ const IMPLEMENTATION_PHI: ReadonlySet<ToolFamily> = new Set([
   "worktree",
   "project",
   "preview",
+  "leaf",
+  "report",
 ]);
 const RESEARCH: ReadonlySet<ToolFamily> = new Set([
   "control",
@@ -131,6 +173,29 @@ const RESEARCH: ReadonlySet<ToolFamily> = new Set([
   "worktree",
   "project",
   "experiments",
+  "work",
+  "leaf",
+  "report",
+]);
+
+/**
+ * A delegated child's listing: the leaf tools plus what its own role does, and
+ * nothing that belongs to the thread that delegated it.
+ */
+const CHILD_READER: ReadonlySet<ToolFamily> = new Set(["leaf", "report"]);
+const CHILD_RESEARCH: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "experiments"]);
+const CHILD_PREVIEW: ReadonlySet<ToolFamily> = new Set(["leaf", "report", "preview"]);
+const CHILD_PREVIEW_DEVICE: ReadonlySet<ToolFamily> = new Set([
+  "leaf",
+  "report",
+  "preview",
+  "device",
+]);
+const CHILD_IMPLEMENTATION: ReadonlySet<ToolFamily> = new Set([
+  "leaf",
+  "report",
+  "worktree",
+  "project",
 ]);
 
 export type SessionEndpointKey =
@@ -139,7 +204,12 @@ export type SessionEndpointKey =
   | "research"
   | "preview"
   | "ui-verifier"
-  | "implementation-phi";
+  | "implementation-phi"
+  | "child-reader"
+  | "child-research"
+  | "child-preview"
+  | "child-ui-verifier"
+  | "child-implementation";
 
 /**
  * The one policy table: each endpoint's path and the families its `tools/list`
@@ -159,10 +229,32 @@ export const SESSION_TOOL_ENDPOINTS: Readonly<
     path: "/mcp/implementation-phi",
     families: IMPLEMENTATION_PHI,
   },
+  "child-reader": { path: "/mcp/child-reader", families: CHILD_READER },
+  "child-research": { path: "/mcp/child-research", families: CHILD_RESEARCH },
+  "child-preview": { path: "/mcp/child-preview", families: CHILD_PREVIEW },
+  "child-ui-verifier": { path: "/mcp/child-ui-verifier", families: CHILD_PREVIEW_DEVICE },
+  "child-implementation": {
+    path: "/mcp/child-implementation",
+    families: CHILD_IMPLEMENTATION,
+  },
 };
 
 export const sessionEndpointKey = (session: SessionToolProfile | undefined): SessionEndpointKey => {
   if (session === undefined) return "control";
+  if (session.delegated === true) {
+    if (session.agentRole === "ui-verifier") return "child-ui-verifier";
+    switch (session.toolProfile) {
+      case "phi":
+        return "child-preview";
+      case "implementation":
+      case "implementation-phi":
+        return "child-implementation";
+      case "web-research":
+        return "child-research";
+      default:
+        return "child-reader";
+    }
+  }
   if (session.agentRole === "ui-verifier") return "ui-verifier";
   switch (session.toolProfile) {
     case "phi":
@@ -179,10 +271,12 @@ export const sessionEndpointKey = (session: SessionToolProfile | undefined): Ses
   }
 };
 
-const toolFamiliesForSession = (session: SessionToolProfile | undefined): ReadonlySet<ToolFamily> =>
-  SESSION_TOOL_ENDPOINTS[sessionEndpointKey(session)].families;
+/** The families an endpoint lists. Adapters read it so instructions describe only listed tools. */
+export const sessionToolFamilies = (
+  session: SessionToolProfile | undefined,
+): ReadonlySet<ToolFamily> => SESSION_TOOL_ENDPOINTS[sessionEndpointKey(session)].families;
 
 export const isToolListedForSession = (
   name: string,
   session: SessionToolProfile | undefined,
-): boolean => toolFamiliesForSession(session).has(toolFamily(name));
+): boolean => sessionToolFamilies(session).has(toolFamily(name));

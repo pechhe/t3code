@@ -2,7 +2,10 @@
  * Do not import t3code modules from the string body. The Pi process resolves
  * `@earendil-works/pi-coding-agent` and `typebox` from the user's pi install.
  */
-import { T3_CODE_ORCHESTRATION_INSTRUCTIONS } from "@t3tools/provider-core/server/orchestrationInstructions";
+import {
+  T3_CODE_ORCHESTRATION_INSTRUCTIONS,
+  t3ChildInstructions,
+} from "@t3tools/provider-core/server/orchestrationInstructions";
 
 export const PI_T3_MCP_EXTENSION_FILENAME = "pi-t3-mcp-extension.ts";
 
@@ -11,6 +14,37 @@ export const T3_MCP_BEARER_ENV = "T3_MCP_BEARER_TOKEN";
 /** JSON list of the thread's agent servers (`name`, `url`, `authorizationHeader`), such as Weave. */
 export const T3_MCP_AGENT_SERVERS_ENV = "T3_MCP_AGENT_SERVERS";
 export const T3_PI_RUNTIME_MODE_ENV = "T3_PI_RUNTIME_MODE";
+/** "1" when the thread is a delegated child, which gets the shorter child text. */
+/**
+ * The exact instruction text a delegated Pi thread receives, chosen here so the
+ * generated extension carries no selection logic of its own. Unset for a parent
+ * thread, which uses `ORCHESTRATION_INSTRUCTIONS`.
+ */
+export const T3_PI_INSTRUCTIONS_ENV = "T3_PI_INSTRUCTIONS";
+
+/**
+ * The child text a Pi process may need, keyed by what its endpoint lists, so the
+ * generated extension never names a tool its own listing lacks.
+ */
+export const PI_CHILD_INSTRUCTION_VARIANTS: Readonly<Record<string, string>> = {
+  none: t3ChildInstructions({ preview: false, html: false }).trim(),
+  html: t3ChildInstructions({ preview: false, html: true }).trim(),
+  preview: t3ChildInstructions({ preview: true, html: false }).trim(),
+  "preview-html": t3ChildInstructions({ preview: true, html: true }).trim(),
+};
+
+export const piChildInstructionKey = (listing: {
+  readonly preview: boolean;
+  readonly html: boolean;
+}): keyof typeof PI_CHILD_INSTRUCTION_VARIANTS =>
+  listing.preview ? (listing.html ? "preview-html" : "preview") : listing.html ? "html" : "none";
+
+/** The child text for a thread whose endpoint lists `listing`. */
+export const piChildInstructionsFor = (listing: {
+  readonly preview: boolean;
+  readonly html: boolean;
+}): string => PI_CHILD_INSTRUCTION_VARIANTS[piChildInstructionKey(listing)] ?? "";
+
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
 
 /**
@@ -30,7 +64,9 @@ const TOKEN_ENV = ${JSON.stringify(T3_MCP_BEARER_ENV)};
 const AGENT_SERVERS_ENV = ${JSON.stringify(T3_MCP_AGENT_SERVERS_ENV)};
 const RUNTIME_MODE_ENV = ${JSON.stringify(T3_PI_RUNTIME_MODE_ENV)};
 const EXTENSION_PATH_ENV = ${JSON.stringify(T3_PI_MCP_EXTENSION_PATH_ENV)};
+const INSTRUCTIONS_ENV = ${JSON.stringify(T3_PI_INSTRUCTIONS_ENV)};
 const ORCHESTRATION_INSTRUCTIONS = ${JSON.stringify(T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim())};
+
 const PROTOCOL = "2025-06-18";
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const FILE_CHANGE_TOOLS = new Set(${JSON.stringify(PI_FILE_CHANGE_TOOLS)});
@@ -523,16 +559,18 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
 
   if (!hasT3) return;
 
+  const instructions = process.env[INSTRUCTIONS_ENV] ?? ORCHESTRATION_INSTRUCTIONS;
+
   // Keep guidance in the system prompt so leading slash commands still expand.
   pi.on("before_agent_start", (event) => {
     reconcileDiscovery();
     const sections = event.systemPromptOptions?.sections;
     if (sections && typeof sections === "object" && event.systemPromptOptions?.forceSystemPrompt === undefined) {
       // A full prompt override bypasses Pi's later section rendering.
-      sections.t3_code_orchestration = ORCHESTRATION_INSTRUCTIONS;
+      sections.t3_code_orchestration = instructions;
       return undefined;
     }
-    return { systemPrompt: event.systemPrompt + "\\n\\n" + ORCHESTRATION_INSTRUCTIONS };
+    return { systemPrompt: event.systemPrompt + "\\n\\n" + instructions };
   });
 }
 `;

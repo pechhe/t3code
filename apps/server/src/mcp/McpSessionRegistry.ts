@@ -6,6 +6,7 @@ import {
   ProviderInstanceId,
   SESSION_TOOL_ENDPOINTS,
   sessionEndpointKey,
+  sessionToolFamilies,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
@@ -33,6 +34,8 @@ export interface McpCredentialRequest {
   readonly browserToolsAvailable?: boolean;
   readonly toolProfile?: AgentToolProfile;
   readonly agentRole?: AgentRole;
+  /** A delegated child thread lists only its own work family and the leaf tools. */
+  readonly delegated?: boolean;
   readonly browserBackends?: import("@t3tools/contracts").AgentBrowserBackends;
   readonly phiBrowserSkillDirectory?: string;
   /**
@@ -182,9 +185,29 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const browserToolsAvailable = managedBrowser || (request.browserToolsAvailable ?? true);
       const endpointKey = managedBrowser
         ? undefined
-        : request.toolProfile === undefined && request.agentRole === undefined
-          ? "control"
-          : sessionEndpointKey({ toolProfile: request.toolProfile, agentRole: request.agentRole });
+        : request.delegated === true ||
+            request.toolProfile !== undefined ||
+            request.agentRole !== undefined
+          ? sessionEndpointKey({
+              toolProfile: request.toolProfile,
+              agentRole: request.agentRole,
+              delegated: request.delegated,
+            })
+          : "control";
+      // A managed browser task lists Phi's operations only; every other session
+      // reads its families from the one policy table, so an adapter can tell a
+      // child what its own listing carries.
+      const families =
+        endpointKey === undefined
+          ? undefined
+          : sessionToolFamilies({
+              toolProfile: request.toolProfile,
+              agentRole: request.agentRole,
+              delegated: request.delegated,
+            });
+      const listsPreview = managedBrowser || families?.has("preview") === true;
+      const listsDevice = !managedBrowser && families?.has("device") === true;
+      const listsHtml = !managedBrowser && families?.has("leaf") === true;
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
         // A retry after a reconnect or server restart arrives on a fresh credential, so request
@@ -238,6 +261,10 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           authorizationHeader: `Bearer ${rawToken}`,
           browserToolsAvailable: scope.capabilities.has("preview"),
           ...(managedBrowser ? { managedBrowser: true } : {}),
+          ...(request.delegated === true ? { delegated: true } : {}),
+          listsPreview,
+          listsDevice,
+          listsHtml,
           capabilities: scope.capabilities,
         },
       };

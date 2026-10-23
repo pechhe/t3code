@@ -46,6 +46,49 @@ export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = `
 ${T3_CODE_ORCHESTRATION_SECTIONS.join("\n\n")}
 `;
 
+/**
+ * What a delegated child is told instead of the orchestration sections: it owns
+ * one task, it cannot delegate or schedule, and its parent reads only its final
+ * message. Everything here names a tool its own listing carries (the leaf tools,
+ * plus `preview_*` when the thread's role lists them).
+ */
+export const T3_CODE_CHILD_SECTIONS: ReadonlyArray<string> = [
+  `## T3 Code delegated task
+
+You are a child agent working on one delegated task inside T3 Code. The thread that delegated it owns the user's conversation: it reads your final message and nothing else of your work, so report what you did, what you verified and what you could not do there, in full sentences. Do not ask the user: a question that blocks you belongs in your final message as a blocked outcome, and the parent decides.`,
+  `- You cannot delegate, schedule, launch threads or move a workspace: your listing has none of those tools, and asking for one is not an answer to your task. Do the work yourself and say plainly what is left.
+- Keep the work inside the task you were given. If you find something else worth doing, report it rather than doing it.`,
+];
+
+/** Only for a child whose listing carries the html tools. */
+export const T3_CODE_CHILD_HTML_SECTION = `- When a chart, table, diagram, image collage or mockup says more than prose, call \`html_preview\` to check it and then \`html_render\` to show it in the thread above your reply. Never restate what the page says.`;
+
+/** Only for a child whose listing carries the preview family. */
+export const T3_CODE_CHILD_PREVIEW_SECTION = `- The \`preview_*\` tools are T3's own browser for this thread: \`preview_status\` first, then \`preview_open\`, \`preview_navigate\`, \`preview_snapshot\` and the interaction tools, preferring snapshot locators over coordinates. Do not reach for Playwright, agent-browser or a shell browser while they work.`;
+
+/**
+ * The child text, with the visuals and browser guidance only where the child's
+ * own listing carries those tools.
+ */
+export const t3ChildInstructions = (options: {
+  readonly preview: boolean;
+  readonly html: boolean;
+}): string =>
+  `\n\n${[
+    ...T3_CODE_CHILD_SECTIONS,
+    ...(options.html ? [T3_CODE_CHILD_HTML_SECTION] : []),
+    ...(options.preview ? [T3_CODE_CHILD_PREVIEW_SECTION] : []),
+  ].join("\n\n")}\n`;
+
+/** The orchestration text a thread receives: the parent's, or the child's shorter one. */
+export const t3OrchestrationText = (
+  delegated: boolean,
+  listing: { readonly preview?: boolean; readonly html?: boolean } = {},
+): string =>
+  delegated
+    ? t3ChildInstructions({ preview: listing.preview === true, html: listing.html !== false })
+    : T3_CODE_ORCHESTRATION_INSTRUCTIONS;
+
 export const T3_CODE_BROWSER_TOOL_INSTRUCTIONS = `
 
 ## T3 Code collaborative browser
@@ -73,6 +116,12 @@ Investigate with read-only actions and do not edit files or otherwise execute th
 export interface T3AcpInstructionState {
   readonly interactionMode: ProviderInteractionMode;
   readonly hasT3Mcp: boolean;
+  /** A delegated child gets the child text, which names only tools its listing carries. */
+  readonly delegated?: boolean;
+  /** The thread's listing carries the preview family. */
+  readonly preview?: boolean;
+  /** The thread's listing carries the html tools. */
+  readonly html?: boolean;
 }
 
 /**
@@ -88,7 +137,10 @@ export function t3AcpPromptWithInstructions(input: {
   if (input.prompt.trimStart().startsWith("/")) return input.prompt;
   if (
     input.previousState?.interactionMode === input.state.interactionMode &&
-    input.previousState.hasT3Mcp === input.state.hasT3Mcp
+    input.previousState.hasT3Mcp === input.state.hasT3Mcp &&
+    (input.previousState.delegated ?? false) === (input.state.delegated ?? false) &&
+    (input.previousState.preview ?? false) === (input.state.preview ?? false) &&
+    (input.previousState.html ?? true) === (input.state.html ?? true)
   ) {
     return input.prompt;
   }
@@ -97,7 +149,13 @@ export function t3AcpPromptWithInstructions(input: {
       ? T3_CODE_ACP_PLAN_MODE_INSTRUCTIONS
       : T3_CODE_ACP_DEFAULT_MODE_INSTRUCTIONS,
     ...(input.state.hasT3Mcp
-      ? [T3_CODE_BROWSER_TOOL_INSTRUCTIONS.trim(), T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim()]
+      ? [
+          ...(input.state.preview === true ? [T3_CODE_BROWSER_TOOL_INSTRUCTIONS.trim()] : []),
+          t3OrchestrationText(input.state.delegated === true, {
+            preview: input.state.preview === true,
+            html: input.state.html !== false,
+          }).trim(),
+        ]
       : []),
   ];
   return `<t3_code_instructions>\n${instructions.join("\n\n")}\n</t3_code_instructions>\n\n<user_request>\n${input.prompt}\n</user_request>`;
@@ -106,20 +164,39 @@ export function t3AcpPromptWithInstructions(input: {
 /**
  * Keep the wrapper explicit so it cannot be mistaken for text authored by the user.
  */
-function prependT3OrchestrationInstructions(prompt: string): string {
-  return `<t3_code_orchestration_instructions>${T3_CODE_ORCHESTRATION_INSTRUCTIONS.trim()}</t3_code_orchestration_instructions>\n\n<user_request>\n${prompt}\n</user_request>`;
+function prependT3OrchestrationInstructions(
+  prompt: string,
+  listing: { readonly delegated: boolean; readonly preview: boolean; readonly html: boolean },
+): string {
+  return `<t3_code_orchestration_instructions>${t3OrchestrationText(listing.delegated, listing).trim()}</t3_code_orchestration_instructions>\n\n<user_request>\n${prompt}\n</user_request>`;
 }
 
 export function t3OrchestrationPromptForFirstRun(input: {
   readonly prompt: string;
   readonly runOrdinal: number;
   readonly hasT3Mcp: boolean;
+  readonly delegated?: boolean;
+  /** The thread's listing carries the preview family. */
+  readonly preview?: boolean;
+  /** The thread's listing carries the html tools. */
+  readonly html?: boolean;
 }): string {
   return input.runOrdinal === 1 && input.hasT3Mcp
-    ? prependT3OrchestrationInstructions(input.prompt)
+    ? prependT3OrchestrationInstructions(input.prompt, {
+        delegated: input.delegated === true,
+        preview: input.preview === true,
+        html: input.html !== false,
+      })
     : input.prompt;
 }
 
-export function t3OrchestrationSystemPrompt(hasT3Mcp: boolean): string | undefined {
-  return hasT3Mcp ? T3_CODE_ORCHESTRATION_INSTRUCTIONS : undefined;
+export function t3OrchestrationSystemPrompt(
+  hasT3Mcp: boolean,
+  listing: {
+    readonly delegated?: boolean;
+    readonly preview?: boolean;
+    readonly html?: boolean;
+  } = {},
+): string | undefined {
+  return hasT3Mcp ? t3OrchestrationText(listing.delegated === true, listing) : undefined;
 }

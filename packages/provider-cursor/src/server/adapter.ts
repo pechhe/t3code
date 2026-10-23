@@ -2225,6 +2225,9 @@ export const makeCursorAdapterV2 = Effect.fn("makeCursorAdapterV2")(function* (
             }),
             runOrdinal: turnInput.runOrdinal,
             hasT3Mcp: mcpServers?.["t3-code"] !== undefined,
+            delegated: (yield* mcpSessions.read(turnInput.threadId))?.delegated === true,
+            preview: (yield* mcpSessions.read(turnInput.threadId))?.listsPreview === true,
+            html: (yield* mcpSessions.read(turnInput.threadId))?.listsHtml !== false,
           });
           const images = yield* Effect.forEach(
             turnInput.message.attachments.filter(isProviderNativeImageAttachment),

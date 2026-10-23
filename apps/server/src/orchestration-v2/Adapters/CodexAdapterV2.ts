@@ -756,8 +756,14 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly runtimePolicy: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
     readonly modelSelection: ModelSelection;
     readonly hasT3Mcp?: boolean;
-    readonly browserToolsAvailable?: boolean;
-    readonly deviceToolsAvailable?: boolean;
+    /** The thread's endpoint lists the preview family. */
+    readonly listsPreview?: boolean;
+    /** The thread's endpoint lists the device family. */
+    readonly listsDevice?: boolean;
+    /** A delegated child gets the child text, which names only tools its listing carries. */
+    readonly delegated?: boolean;
+    /** False when the listing has no html tools, so the child text must not name them. */
+    readonly listsHtml?: boolean;
     /** ChatGPT token sharing does not accept service tiers. */
     readonly omitServiceTier?: boolean;
     readonly appContext?: ProviderAdapter.ProviderAdapterV2TurnInput["appContext"];
@@ -799,9 +805,11 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
         ? buildCodexAdditionalContext(
             { model: input.modelSelection.model, reasoningEffort: effort ?? undefined },
             {
-              browser: input.browserToolsAvailable ?? true,
-              device: input.deviceToolsAvailable ?? false,
+              browser: input.listsPreview === true,
+              device: input.listsDevice === true,
+              ...(input.listsHtml === false ? { html: false } : {}),
             },
+            input.delegated === true,
           )
         : undefined;
     // Sent on every turn like T3's own context, so it survives compaction and a new session.
@@ -1391,6 +1399,20 @@ export const CODEX_THREAD_CONFIG = {
 // T3 wait tools can block for up to an hour. Keep Codex's MCP timeout above
 // that limit so the server's own wait timeout ends a long call.
 const CODEX_T3_MCP_TOOL_TIMEOUT_SEC = 65 * 60;
+
+/**
+ * What a turn's instructions may describe. It follows the endpoint's listing, not
+ * the permission: a reader in a browser-enabled project lists no preview tool and
+ * must not be told one exists.
+ */
+export const codexTurnInstructionListing = (
+  mcpSession: McpProviderSession.McpProviderSessionConfig | undefined,
+) => ({
+  delegated: mcpSession?.delegated === true,
+  listsPreview: mcpSession?.listsPreview === true,
+  listsDevice: mcpSession?.listsDevice === true,
+  ...(mcpSession?.listsHtml === false ? { listsHtml: false } : {}),
+});
 
 export function codexThreadRuntimeParams(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
@@ -6551,8 +6573,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               runtimePolicy: turnInput.runtimePolicy,
               modelSelection: turnInput.modelSelection,
               hasT3Mcp: mcpSession !== undefined,
-              browserToolsAvailable: mcpSession?.browserToolsAvailable ?? true,
-              deviceToolsAvailable: mcpSession?.capabilities?.has("device") ?? false,
+              ...codexTurnInstructionListing(mcpSession),
+              delegated: mcpSession?.delegated === true,
+              ...(mcpSession?.listsHtml === false ? { listsHtml: false } : {}),
               omitServiceTier: adapterOptions.resolveRuntime !== undefined,
               ...(turnInput.appContext === undefined ? {} : { appContext: turnInput.appContext }),
               ...(turnInput.instructionOverlay === undefined

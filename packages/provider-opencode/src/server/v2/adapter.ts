@@ -3212,7 +3212,11 @@ export const make = Effect.fn("OpenCode2Adapter.make")(function* (instanceId: Pr
       const mcpAvailable = added.some((server) => server.name === t3Name);
       const instructions = [
         buildRuntimeInstructions({ harness: "OpenCode", model: turnInput.modelSelection.model }),
-        t3OrchestrationSystemPrompt(mcpAvailable),
+        t3OrchestrationSystemPrompt(mcpAvailable, {
+          delegated: mcpSession?.delegated === true,
+          preview: mcpSession?.listsPreview === true,
+          html: mcpSession?.listsHtml !== false,
+        }),
       ]
         .filter((part) => part !== undefined && part.length > 0)
         .join("\n\n");

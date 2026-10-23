@@ -343,6 +343,7 @@ export const layerWithOptions = (
               managedBrowser: false,
               toolProfile: undefined,
               agentRole: undefined,
+              delegated: false,
             };
           return yield* Effect.gen(function* () {
             const settings = yield* serverSettings.value.getSettings;
@@ -352,6 +353,9 @@ export const layerWithOptions = (
             // endpoint whose listing includes the preview family.
             const managedBrowser =
               thread.agentTask?.role === "ui-worker" && usesPhi(thread.agentTask?.toolProfile);
+            // A thread with an agentTask is delegated: it lists only what its own role
+            // can use, and is told so (see sessionEndpointKey and the child instructions).
+            const delegated = thread.agentTask !== undefined;
             const toolProfile = thread.agentTask?.toolProfile;
             const agentRole = thread.agentTask?.role;
             const entries = Object.values(settings.projectSettingsOverrides);
@@ -374,6 +378,7 @@ export const layerWithOptions = (
                   managedBrowser,
                   toolProfile,
                   agentRole,
+                  delegated,
                 };
             }
             const effective = resolveProjectSettings(settings, thread.projectId).settings;
@@ -385,6 +390,7 @@ export const layerWithOptions = (
               managedBrowser,
               toolProfile,
               agentRole,
+              delegated,
             };
           }).pipe(
             Effect.catch((cause) =>
@@ -400,6 +406,7 @@ export const layerWithOptions = (
                   managedBrowser: false,
                   toolProfile: undefined,
                   agentRole: undefined,
+                  delegated: false,
                 }),
               ),
             ),
@@ -527,6 +534,7 @@ export const layerWithOptions = (
                   managedBrowser,
                   toolProfile,
                   agentRole,
+                  delegated,
                 } = accessSettings;
                 // A managed browser task whose project no longer allows Phi gets no credential.
                 if (
@@ -591,6 +599,7 @@ export const layerWithOptions = (
                   capabilities,
                   ...(toolProfile === undefined ? {} : { toolProfile }),
                   ...(agentRole === undefined ? {} : { agentRole }),
+                  ...(delegated ? { delegated: true } : {}),
                   ...(managedBrowser ? { managedBrowser: true } : {}),
                   ...(browserBackends === undefined ? {} : { browserBackends }),
                   ...(phiBrowserSkillDirectory === undefined ? {} : { phiBrowserSkillDirectory }),

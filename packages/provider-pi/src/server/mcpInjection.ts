@@ -10,6 +10,8 @@ import {
   PI_T3_MCP_EXTENSION_SOURCE,
   T3_MCP_BEARER_ENV,
   T3_MCP_URL_ENV,
+  T3_PI_INSTRUCTIONS_ENV,
+  piChildInstructionsFor,
   T3_PI_RUNTIME_MODE_ENV,
   T3_PI_MCP_EXTENSION_PATH_ENV,
 } from "./mcpExtensionSource.ts";
@@ -307,6 +309,14 @@ export function buildPiRpcLaunch(input: {
         ? {
             [T3_PI_RUNTIME_MODE_ENV]:
               input.runtimeMode === "auto" ? "approval-required" : input.runtimeMode,
+          }
+        : {}),
+      ...(hasT3Mcp && input.mcpSession?.delegated === true
+        ? {
+            [T3_PI_INSTRUCTIONS_ENV]: piChildInstructionsFor({
+              preview: input.mcpSession.listsPreview === true,
+              html: input.mcpSession.listsHtml !== false,
+            }),
           }
         : {}),
       ...(hasT3Mcp && input.mcpSession !== undefined

@@ -4,6 +4,9 @@ import { buildRuntimeInstructions } from "@t3tools/provider-core/server/runtimeI
 
 import {
   T3_CODE_BROWSER_TOOL_INSTRUCTIONS,
+  T3_CODE_CHILD_HTML_SECTION,
+  T3_CODE_CHILD_PREVIEW_SECTION,
+  T3_CODE_CHILD_SECTIONS,
   T3_CODE_ORCHESTRATION_SECTIONS,
 } from "@t3tools/provider-core/server/orchestrationInstructions";
 
@@ -21,6 +24,8 @@ The \`t3-code\` MCP server also exposes \`device_*\` tools for iOS Simulators an
 export interface T3CodeToolAvailability {
   readonly browser: boolean;
   readonly device: boolean;
+  /** False for a listing that does not carry the html tools, as the browser-only endpoint does not. */
+  readonly html?: boolean;
 }
 
 const normalizeAvailability = (
@@ -207,13 +212,22 @@ export function buildCodexDeveloperInstructions(interactionMode: ProviderInterac
 export function buildCodexAdditionalContext(
   runtime: CodexRuntimeInfo,
   toolsAvailable: boolean | T3CodeToolAvailability = true,
+  delegated = false,
 ): Record<string, V2TurnStartParams__AdditionalContextEntry> {
-  const tools = toolInstructions(toolsAvailable);
+  const availability = normalizeAvailability(toolsAvailable);
+  const tools = toolInstructions(availability);
   // Separate keys keep each value under Codex's per-entry cap. Codex emits
   // entries in key order, so the numbering preserves the authored order.
   return {
     ...Object.fromEntries(
-      T3_CODE_ORCHESTRATION_SECTIONS.map((section, index) => [
+      (delegated
+        ? [
+            ...T3_CODE_CHILD_SECTIONS,
+            ...(availability.html === false ? [] : [T3_CODE_CHILD_HTML_SECTION]),
+            ...(availability.browser ? [T3_CODE_CHILD_PREVIEW_SECTION] : []),
+          ]
+        : T3_CODE_ORCHESTRATION_SECTIONS
+      ).map((section, index) => [
         `t3_code_orchestration_${String(index + 1).padStart(2, "0")}`,
         { kind: "application" as const, value: section },
       ]),

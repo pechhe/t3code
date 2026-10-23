@@ -326,6 +326,8 @@ const makeInstructionCompactionHarness = Effect.fnUntraced(function* (
     endpoint: "http://127.0.0.1:43123/mcp",
     authorizationHeader: "Bearer instruction-compaction-token",
     browserToolsAvailable: true,
+    listsPreview: true,
+    listsHtml: true,
   });
   const adapter = yield* makeAcpAdapterV2({
     instanceId,
@@ -887,6 +889,10 @@ describe("AcpAdapterV2", () => {
         endpoint: "http://127.0.0.1:43123/mcp",
         authorizationHeader: "Bearer instruction-transition-token",
         browserToolsAvailable: false,
+        // This session's endpoint lists the preview family, so its instructions
+        // describe the browser tools even though the project withholds them.
+        listsPreview: true,
+        listsHtml: true,
       });
       const adapter = yield* makeAcpAdapterV2({
         instanceId,
