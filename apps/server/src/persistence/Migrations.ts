@@ -188,6 +188,20 @@ const migrationEntries = [
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
 
+/**
+ * Names a migration already shipped under in a released build. The database
+ * records the name beside the id and remains the truth for what it applied, so
+ * a rename at the same id looks like a skipped migration; a database that
+ * recorded one of these names has the schema already.
+ */
+const earlierMigrationNames: ReadonlyMap<number, readonly string[]> = new Map([
+  // Renamed for the Forge vocabulary after it had shipped as HqBuildRecords.
+  [89, ["HqBuildRecords"]],
+]);
+
+const migrationAlreadyApplied = (id: number, recordedName: string, name: string): boolean =>
+  recordedName === name || (earlierMigrationNames.get(id)?.includes(recordedName) ?? false);
+
 const makeMigrationLoader = (throughId?: number) =>
   Migrator.fromRecord(
     Object.fromEntries(
@@ -227,8 +241,10 @@ const assertV2MigrationsCanRun = Effect.fn("assertV2MigrationsCanRun")(function*
     )
       return [];
     const recordedName = recordedNames.get(id);
-    if (recordedName === name) return [];
-    return [`${id}_${name} (recorded: ${recordedName ?? "nothing"})`];
+    if (recordedName === undefined) return [`${id}_${name} (recorded: nothing)`];
+    return migrationAlreadyApplied(id, recordedName, name)
+      ? []
+      : [`${id}_${name} (recorded: ${recordedName})`];
   });
   if (skipped.length === 0) return;
   return yield* new Migrator.MigrationError({
@@ -272,7 +288,7 @@ export const runMigrations = Effect.fn("runMigrations")(function* ({
     if (expected === undefined) {
       return [`${row.migration_id}:${row.name} (unknown to this build)`];
     }
-    return expected === row.name
+    return migrationAlreadyApplied(row.migration_id, row.name, expected)
       ? []
       : [`${row.migration_id}:${row.name} (this build: ${expected})`];
   });
