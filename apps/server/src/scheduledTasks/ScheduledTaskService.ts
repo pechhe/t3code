@@ -436,8 +436,8 @@ export const layer = Layer.effect(
      * The model a subagent role's policy picks for this project on this machine, or null when
      * it cannot. Resolved the way `agent_roles` discovers roles, among the project's providers.
      */
-    const resolveRoleModel = (role: AgentRole, runtimeMode: RuntimeMode, projectId: ProjectId) =>
-      Effect.gen(function* () {
+    const resolveRoleModel = Effect.fn("ScheduledTaskService.resolveRoleModel")(
+      function* (role: AgentRole, runtimeMode: RuntimeMode, projectId: ProjectId) {
         if (Option.isNone(managedAgents) || Option.isNone(providerRegistry)) return null;
         const snapshot = yield* managedAgents.value.snapshot();
         const taskClass = snapshot.manifest.roles[role]?.taskClasses[0];
@@ -457,13 +457,16 @@ export const layer = Layer.effect(
           request: { taskClass, runtimeMode },
         });
         return result.roles.find((entry) => entry.role === role)?.selection ?? null;
-      }).pipe(
-        Effect.catch((cause) =>
-          Effect.logWarning("Subagent role did not resolve a model", { role, cause }).pipe(
-            Effect.as(null),
+      },
+      (effect, role) =>
+        effect.pipe(
+          Effect.catch((cause) =>
+            Effect.logWarning("Subagent role did not resolve a model", { role, cause }).pipe(
+              Effect.as(null),
+            ),
           ),
         ),
-      );
+    );
 
     /**
      * A task that names a subagent role follows that role's policy at each run, so a

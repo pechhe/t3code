@@ -123,37 +123,40 @@ export class ProviderRegistry extends Context.Service<
  * already in `providers`, so a list the caller narrowed stays narrowed. When a read fails the
  * cached reading stands.
  */
-export const chooseWithFreshUsage = <A, E, R>(
+export const chooseWithFreshUsage = Effect.fn("ProviderRegistry.chooseWithFreshUsage")(function* <
+  A,
+  E,
+  R,
+>(
   registry: ProviderRegistry["Service"],
   providers: ReadonlyArray<ServerProvider>,
   choose: (providers: ReadonlyArray<ServerProvider>) => Effect.Effect<A, E, R>,
   chosenInstance: (choice: A) => ProviderInstanceId | undefined,
-): Effect.Effect<A, E, R> =>
-  Effect.gen(function* () {
-    let candidates = providers;
-    let choice = yield* choose(candidates);
-    const refreshed = new Set<ProviderInstanceId>();
-    while (true) {
-      const instanceId = chosenInstance(choice);
-      const chosen = candidates.find((provider) => provider.instanceId === instanceId);
-      if (
-        chosen === undefined ||
-        refreshed.has(chosen.instanceId) ||
-        !needsUsageRefresh(chosen, DateTime.toEpochMillis(yield* DateTime.now))
-      ) {
-        return choice;
-      }
-      refreshed.add(chosen.instanceId);
-      const latest = new Map(
-        (yield* registry.refreshInstanceUsage(chosen.instanceId)).map((provider) => [
-          provider.instanceId,
-          provider,
-        ]),
-      );
-      candidates = candidates.map((provider) => latest.get(provider.instanceId) ?? provider);
-      choice = yield* choose(candidates);
+) {
+  let candidates = providers;
+  let choice = yield* choose(candidates);
+  const refreshed = new Set<ProviderInstanceId>();
+  while (true) {
+    const instanceId = chosenInstance(choice);
+    const chosen = candidates.find((provider) => provider.instanceId === instanceId);
+    if (
+      chosen === undefined ||
+      refreshed.has(chosen.instanceId) ||
+      !needsUsageRefresh(chosen, DateTime.toEpochMillis(yield* DateTime.now))
+    ) {
+      return choice;
     }
-  });
+    refreshed.add(chosen.instanceId);
+    const latest = new Map(
+      (yield* registry.refreshInstanceUsage(chosen.instanceId)).map((provider) => [
+        provider.instanceId,
+        provider,
+      ]),
+    );
+    candidates = candidates.map((provider) => latest.get(provider.instanceId) ?? provider);
+    choice = yield* choose(candidates);
+  }
+});
 
 const loadProviders = (
   providerSources: ReadonlyArray<ProviderSnapshotSource>,
@@ -1152,12 +1155,12 @@ export const layer = Layer.effect(
 
     // Pool snapshots are derived on every read so they follow their members'
     // latest usage; they are never cached, persisted or refreshed themselves.
-    const withPools = (providers: ReadonlyArray<ServerProvider>) =>
-      Effect.gen(function* () {
-        const pools = yield* Ref.get(poolsRef);
-        const now = yield* DateTime.now;
-        return withPoolSnapshots(providers, pools, DateTime.toEpochMillis(now));
-      });
+    // Untraced: every provider read runs it, so a span per read would swamp traces.
+    const withPools = Effect.fnUntraced(function* (providers: ReadonlyArray<ServerProvider>) {
+      const pools = yield* Ref.get(poolsRef);
+      const now = yield* DateTime.now;
+      return withPoolSnapshots(providers, pools, DateTime.toEpochMillis(now));
+    });
 
     return {
       getProviders: Ref.get(providersRef).pipe(Effect.flatMap(withPools)),

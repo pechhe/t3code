@@ -2968,32 +2968,33 @@ export const makeWithOptions = Effect.fn("TerminalManager.makeWithOptions")(func
       Effect.map((session) => (Option.isSome(session) ? summary(session.value) : null)),
     );
 
-  const readThreadOutput: TerminalManager["Service"]["readThreadOutput"] = (input) =>
-    Effect.gen(function* () {
-      const state = yield* readManagerState;
-      const sessions = [...state.sessions.values()]
-        .filter((session) => session.threadId === input.threadId)
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
-      const selected =
-        input.terminalId === undefined
-          ? sessions[0]
-          : sessions.find((session) => session.terminalId === input.terminalId);
-      if (input.terminalId !== undefined && selected === undefined) {
-        return yield* new TerminalSessionLookupError({
-          threadId: input.threadId,
-          terminalId: input.terminalId,
-        });
-      }
-      const { text, truncated } = selected
-        ? terminalOutputText(selected.history.value(), input.maxLines)
-        : { text: "", truncated: false };
-      return {
-        terminals: sessions.map(summary),
-        terminal: selected ? summary(selected) : null,
-        output: text,
-        truncated,
-      };
-    });
+  const readThreadOutput: TerminalManager["Service"]["readThreadOutput"] = Effect.fn(
+    "terminal.readThreadOutput",
+  )(function* (input) {
+    const state = yield* readManagerState;
+    const sessions = [...state.sessions.values()]
+      .filter((session) => session.threadId === input.threadId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    const selected =
+      input.terminalId === undefined
+        ? sessions[0]
+        : sessions.find((session) => session.terminalId === input.terminalId);
+    if (input.terminalId !== undefined && selected === undefined) {
+      return yield* new TerminalSessionLookupError({
+        threadId: input.threadId,
+        terminalId: input.terminalId,
+      });
+    }
+    const { text, truncated } = selected
+      ? terminalOutputText(selected.history.value(), input.maxLines)
+      : { text: "", truncated: false };
+    return {
+      terminals: sessions.map(summary),
+      terminal: selected ? summary(selected) : null,
+      output: text,
+      truncated,
+    };
+  });
 
   const subscribe: TerminalManager["Service"]["subscribe"] = (listener, registerCleanup) =>
     Effect.sync(() => {

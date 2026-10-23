@@ -67,24 +67,23 @@ const readStdin = Effect.tryPromise({
   catch: () => userError("Could not read request JSON."),
 });
 
-const requestData = (source: Option.Option<string>) =>
-  Effect.gen(function* () {
-    if (Option.isNone(source))
-      return yield* userError("Provide --request-file PATH or --request-file -.");
-    const text = yield* readAgentRequest(
-      source.value,
-      (path) =>
-        Effect.tryPromise({
-          try: () => NodeFSP.readFile(path, "utf8"),
-          catch: () => userError("Could not read request JSON."),
-        }),
-      () => readStdin,
-    );
-    return yield* Effect.try({
-      try: () => decodeJson(text),
-      catch: () => userError("Request file must contain valid JSON."),
-    });
+const requestData = Effect.fn("agentCli.requestData")(function* (source: Option.Option<string>) {
+  if (Option.isNone(source))
+    return yield* userError("Provide --request-file PATH or --request-file -.");
+  const text = yield* readAgentRequest(
+    source.value,
+    (path) =>
+      Effect.tryPromise({
+        try: () => NodeFSP.readFile(path, "utf8"),
+        catch: () => userError("Could not read request JSON."),
+      }),
+    () => readStdin,
+  );
+  return yield* Effect.try({
+    try: () => decodeJson(text),
+    catch: () => userError("Request file must contain valid JSON."),
   });
+});
 
 export const decodeAgentRequest = <A, S extends Schema.ConstraintDecoder<A>>(
   schema: S,
@@ -139,17 +138,16 @@ export const toAgentCommandError = (error: unknown) =>
           : "T3 agent command failed. Check the endpoint and local credentials.",
       );
 
-const withClient = <A, E>(
+const withClient = Effect.fn("agentCli.withClient")(function* <A, E>(
   directory: Option.Option<string>,
   run: (client: AgentCliClient.AgentCliClient["Service"]) => Effect.Effect<A, E>,
-) =>
-  Effect.gen(function* () {
-    const layer = yield* credentialsLayer(directory);
-    return yield* Effect.gen(function* () {
-      const client = yield* AgentCliClient.AgentCliClient;
-      return yield* run(client);
-    }).pipe(Effect.provide(Layer.provideMerge(AgentCliClient.layer, layer)));
-  }).pipe(Effect.mapError(toAgentCommandError));
+) {
+  const layer = yield* credentialsLayer(directory);
+  return yield* Effect.gen(function* () {
+    const client = yield* AgentCliClient.AgentCliClient;
+    return yield* run(client);
+  }).pipe(Effect.provide(Layer.provideMerge(AgentCliClient.layer, layer)));
+}, Effect.mapError(toAgentCommandError));
 
 const loginCommand = Command.make("login", {
   endpoint: endpointFlag,

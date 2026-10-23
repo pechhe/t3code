@@ -72,19 +72,18 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const record = (
+  const record = Effect.fn("WorkspaceAttachments.record")(function* (
     threadId: ThreadId,
     action: "release" | "detach",
     attachment: OrchestrationV2WorkspaceAttachment,
-  ) =>
-    Effect.gen(function* () {
-      yield* threads.dispatch({
-        type: "thread.workspace-attachment.update",
-        commandId: yield* commandId(threadId, action),
-        threadId,
-        change: { action, workspacePath: attachment.workspacePath },
-      });
+  ) {
+    yield* threads.dispatch({
+      type: "thread.workspace-attachment.update",
+      commandId: yield* commandId(threadId, action),
+      threadId,
+      change: { action, workspacePath: attachment.workspacePath },
     });
+  });
 
   const projectRoot = (attachment: OrchestrationV2WorkspaceAttachment) =>
     projects.getById(attachment.projectId).pipe(
@@ -94,11 +93,12 @@ const make = Effect.gen(function* () {
 
   // Released means no longer a checkout of the project, as for a primary workspace: SlipJay
   // may have removed or recycled the folder.
-  const released = (attachment: OrchestrationV2WorkspaceAttachment) =>
-    Effect.gen(function* () {
-      const root = yield* projectRoot(attachment);
-      return root !== undefined && !(yield* workspaces.contains(root, attachment.workspacePath));
-    });
+  const released = Effect.fn("WorkspaceAttachments.released")(function* (
+    attachment: OrchestrationV2WorkspaceAttachment,
+  ) {
+    const root = yield* projectRoot(attachment);
+    return root !== undefined && !(yield* workspaces.contains(root, attachment.workspacePath));
+  });
 
   const releaseGone = (
     threadId: ThreadId,

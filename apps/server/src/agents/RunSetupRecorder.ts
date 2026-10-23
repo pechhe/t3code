@@ -94,30 +94,30 @@ const skillsIn = Effect.fn("RunSetupRecorder.skillsIn")(function* (
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const skills: Array<RunSetupSkill> = [];
-  const visit = (
+  const visit: (
     folder: string,
     depth: number,
-  ): Effect.Effect<void, never, FileSystem.FileSystem | Crypto.Crypto> =>
-    Effect.gen(function* () {
-      const entries = yield* fs.readDirectory(folder).pipe(Effect.orElseSucceed(() => []));
-      for (const entry of [...entries].sort()) {
-        if (entry.startsWith(".")) continue;
-        const child = path.join(folder, entry);
-        const skillFile = path.join(child, "SKILL.md");
-        if (yield* fs.exists(skillFile).pipe(Effect.orElseSucceed(() => false))) {
-          skills.push({
-            name: path.relative(directory, child).split(path.sep).join("/"),
-            source,
-            path: skillFile,
-            sha256: yield* hashFile(skillFile),
-          });
-        } else if (depth < SKILL_DEPTH) {
-          const stat = yield* fs.stat(child).pipe(Effect.option);
-          if (Option.isSome(stat) && stat.value.type === "Directory")
-            yield* visit(child, depth + 1);
-        }
+  ) => Effect.Effect<void, never, FileSystem.FileSystem | Crypto.Crypto> = Effect.fn(
+    "RunSetupRecorder.visit",
+  )(function* (folder: string, depth: number) {
+    const entries = yield* fs.readDirectory(folder).pipe(Effect.orElseSucceed(() => []));
+    for (const entry of [...entries].sort()) {
+      if (entry.startsWith(".")) continue;
+      const child = path.join(folder, entry);
+      const skillFile = path.join(child, "SKILL.md");
+      if (yield* fs.exists(skillFile).pipe(Effect.orElseSucceed(() => false))) {
+        skills.push({
+          name: path.relative(directory, child).split(path.sep).join("/"),
+          source,
+          path: skillFile,
+          sha256: yield* hashFile(skillFile),
+        });
+      } else if (depth < SKILL_DEPTH) {
+        const stat = yield* fs.stat(child).pipe(Effect.option);
+        if (Option.isSome(stat) && stat.value.type === "Directory") yield* visit(child, depth + 1);
       }
-    });
+    }
+  });
   yield* visit(directory, 1);
   return skills;
 });
@@ -428,8 +428,8 @@ export const make = Effect.gen(function* () {
       VALUES (${record.runId}, ${record.threadId}, ${record.capturedAt}, ${encodeRecord(record)})
       RETURNING run_id`.pipe(Effect.map((rows) => rows.length > 0));
 
-  const capture = (run: OrchestrationV2Run) =>
-    Effect.gen(function* () {
+  const capture = Effect.fn("RunSetupRecorder.capture")(
+    function* (run: OrchestrationV2Run) {
       const thread = yield* projections.getThread(run.threadId);
       const project = yield* projects.get(thread.projectId);
       const provider = (yield* providers.getProviders).find(
@@ -469,50 +469,58 @@ export const make = Effect.gen(function* () {
           ),
       });
       return record;
-    }).pipe(Effect.provide(context), Effect.timeout("30 seconds"));
+    },
+    Effect.provide(context),
+    Effect.timeout("30 seconds"),
+  );
 
   /** The nearest run before or after `ordinal` whose setup was observed; unobserved runs say nothing. */
-  const recordAt = (threadId: string, ordinal: number, direction: "before" | "after") =>
-    Effect.gen(function* () {
-      const rows =
-        direction === "before"
-          ? yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
-              WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') < ${ordinal}
-                AND json_extract(record_json, '$.instructions') IS NOT NULL
-              ORDER BY json_extract(record_json, '$.runOrdinal') DESC LIMIT 1`
-          : yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
-              WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') > ${ordinal}
-                AND json_extract(record_json, '$.instructions') IS NOT NULL
-              ORDER BY json_extract(record_json, '$.runOrdinal') ASC LIMIT 1`;
-      return rows[0] === undefined ? null : yield* decodeRecord(rows[0].record_json);
-    });
+  const recordAt = Effect.fn("RunSetupRecorder.recordAt")(function* (
+    threadId: string,
+    ordinal: number,
+    direction: "before" | "after",
+  ) {
+    const rows =
+      direction === "before"
+        ? yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
+            WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') < ${ordinal}
+              AND json_extract(record_json, '$.instructions') IS NOT NULL
+            ORDER BY json_extract(record_json, '$.runOrdinal') DESC LIMIT 1`
+        : yield* sql<{ record_json: string }>`SELECT record_json FROM run_setup_records
+            WHERE thread_id = ${threadId} AND json_extract(record_json, '$.runOrdinal') > ${ordinal}
+              AND json_extract(record_json, '$.instructions') IS NOT NULL
+            ORDER BY json_extract(record_json, '$.runOrdinal') ASC LIMIT 1`;
+    return rows[0] === undefined ? null : yield* decodeRecord(rows[0].record_json);
+  });
 
   /** Records a `setup-change` observation on `next` for each running experiment its thread is in. */
-  const markCut = (previous: RunSetupRecord, next: RunSetupRecord) =>
-    Effect.gen(function* () {
-      const changes = setupChanges(previous, next);
-      if (changes.length === 0) return;
-      const running = new Set(
-        (yield* experiments.list())
-          .filter((experiment) => experiment.status === "running")
-          .map((experiment) => experiment.id),
-      );
-      const assignments = (yield* experiments.assignments({ threadId: next.threadId })).filter(
-        (assignment) => running.has(assignment.experimentId),
-      );
-      yield* Effect.forEach(assignments, (assignment) =>
-        experiments.recordObservation({
-          id: `setup-change:${assignment.id}:${next.runId}`,
-          assignmentId: assignment.id,
-          runId: next.runId,
-          kind: "setup-change",
-          usedTokens: null,
-          maxTokens: null,
-          setupChanges: changes,
-          evidence: [`run-setup:${previous.runId}`, `run-setup:${next.runId}`],
-        }),
-      );
-    });
+  const markCut = Effect.fn("RunSetupRecorder.markCut")(function* (
+    previous: RunSetupRecord,
+    next: RunSetupRecord,
+  ) {
+    const changes = setupChanges(previous, next);
+    if (changes.length === 0) return;
+    const running = new Set(
+      (yield* experiments.list())
+        .filter((experiment) => experiment.status === "running")
+        .map((experiment) => experiment.id),
+    );
+    const assignments = (yield* experiments.assignments({ threadId: next.threadId })).filter(
+      (assignment) => running.has(assignment.experimentId),
+    );
+    yield* Effect.forEach(assignments, (assignment) =>
+      experiments.recordObservation({
+        id: `setup-change:${assignment.id}:${next.runId}`,
+        assignmentId: assignment.id,
+        runId: next.runId,
+        kind: "setup-change",
+        usedTokens: null,
+        maxTokens: null,
+        setupChanges: changes,
+        evidence: [`run-setup:${previous.runId}`, `run-setup:${next.runId}`],
+      }),
+    );
+  });
 
   /**
    * Compares a new record with its neighbours in run order. Captures finish out of order,
@@ -520,14 +528,15 @@ export const make = Effect.gen(function* () {
    * A record holds the files as they were when it was captured, shortly after its run
    * started, so a change landing in that window can be attributed to the earlier run.
    */
-  const markCutPoints = (record: RunSetupRecord) =>
-    Effect.gen(function* () {
-      if (record.runOrdinal === undefined) return;
-      const previous = yield* recordAt(record.threadId, record.runOrdinal, "before");
-      if (previous !== null) yield* markCut(previous, record);
-      const following = yield* recordAt(record.threadId, record.runOrdinal, "after");
-      if (following !== null) yield* markCut(record, following);
-    });
+  const markCutPoints = Effect.fn("RunSetupRecorder.markCutPoints")(function* (
+    record: RunSetupRecord,
+  ) {
+    if (record.runOrdinal === undefined) return;
+    const previous = yield* recordAt(record.threadId, record.runOrdinal, "before");
+    if (previous !== null) yield* markCut(previous, record);
+    const following = yield* recordAt(record.threadId, record.runOrdinal, "after");
+    if (following !== null) yield* markCut(record, following);
+  });
 
   const record = (run: OrchestrationV2Run) =>
     captureOrder(run.threadId)

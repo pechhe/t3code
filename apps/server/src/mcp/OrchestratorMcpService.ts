@@ -2352,8 +2352,8 @@ const make = Effect.gen(function* () {
       return { status, secretRef: secretRef.value };
     }),
 
-    requestReleaseApproval: (scope, input) =>
-      Effect.gen(function* () {
+    requestReleaseApproval: Effect.fn("OrchestratorMcpService.requestReleaseApproval")(
+      function* (scope, input) {
         const { scope: threadScope, parent } = yield* loadThreadCaller(
           scope,
           "request_release_approval",
@@ -2382,7 +2382,8 @@ const make = Effect.gen(function* () {
               ),
             ),
           );
-      }).pipe(Effect.withSpan("OrchestratorMcpService.requestReleaseApproval")),
+      },
+    ),
 
     capabilities: Effect.fn("OrchestratorMcpService.capabilities")(function* (scope, input = {}) {
       const { parent, limits } = yield* loadCaller(scope);
@@ -2454,97 +2455,94 @@ const make = Effect.gen(function* () {
         },
       };
     }),
-    enrollWork: (scope, input) =>
-      Effect.gen(function* () {
-        yield* requireCapability(scope);
-        const { parent } = yield* requireWorkParent(scope);
-        const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-        if (Option.isNone(managed))
-          return yield* failure("capability_denied", "Managed role policy is unavailable.");
-        const policy = yield* managed.value.snapshot().pipe(Effect.mapError(workError));
-        let owner: ExperimentWorkOwner;
-        let selection: ModelSelection;
-        if (parent !== undefined) {
-          if (
-            input.externalSessionKey !== undefined ||
-            input.reportedOrchestratorSelection !== undefined
-          )
-            return yield* failure(
-              "invalid_request",
-              "T3 parent identity and selection are derived from the active run.",
-            );
-          owner = yield* internalWorkOwner(scope, parent);
-          selection = ThreadManagementService.latestActiveRun(parent)!.modelSelection;
-        } else {
-          if (
-            input.externalSessionKey === undefined ||
-            input.reportedOrchestratorSelection === undefined
-          )
-            return yield* failure(
-              "invalid_request",
-              "External enrollment requires an attached session and reported parent selection.",
-            );
-          const session = yield* external.pipe(
-            Effect.flatMap((service) =>
-              service
-                .session(scope, input.externalSessionKey!)
-                .pipe(Effect.mapError(externalFailure)),
-            ),
+    enrollWork: Effect.fn("OrchestratorMcpService.enrollWork")(function* (scope, input) {
+      yield* requireCapability(scope);
+      const { parent } = yield* requireWorkParent(scope);
+      const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+      if (Option.isNone(managed))
+        return yield* failure("capability_denied", "Managed role policy is unavailable.");
+      const policy = yield* managed.value.snapshot().pipe(Effect.mapError(workError));
+      let owner: ExperimentWorkOwner;
+      let selection: ModelSelection;
+      if (parent !== undefined) {
+        if (
+          input.externalSessionKey !== undefined ||
+          input.reportedOrchestratorSelection !== undefined
+        )
+          return yield* failure(
+            "invalid_request",
+            "T3 parent identity and selection are derived from the active run.",
           );
-          owner = {
-            environmentId: scope.environmentId,
-            projectId: session.projectId,
-            workspacePath: session.workspacePath,
-            parentThreadId: null,
-            externalSessionKey: session.key,
-            clientSessionId: session.clientSessionId,
-          };
-          selection = input.reportedOrchestratorSelection;
-        }
-        return yield* experiments
-          .enrollWork({
-            request: input,
-            owner,
-            orchestratorSelection: selection,
-            modelSource: parent === undefined ? "self-report" : "run-selection",
-            policyHash: policy.hash,
-            policyRevision: policy.sourceRevision,
-            alreadyStarted: input.alreadyStarted ?? false,
-          })
-          .pipe(Effect.mapError(workError));
-      }),
-    allocateWork: (scope, input) =>
-      Effect.gen(function* () {
-        yield* requireCapability(scope);
-        yield* requireWorkParent(scope);
-        return yield* experiments
-          .allocateWork(input, workReader(scope))
-          .pipe(Effect.mapError(workError));
-      }),
-    recordWorkEvidence: (scope, input) =>
-      Effect.gen(function* () {
+        owner = yield* internalWorkOwner(scope, parent);
+        selection = ThreadManagementService.latestActiveRun(parent)!.modelSelection;
+      } else {
+        if (
+          input.externalSessionKey === undefined ||
+          input.reportedOrchestratorSelection === undefined
+        )
+          return yield* failure(
+            "invalid_request",
+            "External enrollment requires an attached session and reported parent selection.",
+          );
+        const session = yield* external.pipe(
+          Effect.flatMap((service) =>
+            service
+              .session(scope, input.externalSessionKey!)
+              .pipe(Effect.mapError(externalFailure)),
+          ),
+        );
+        owner = {
+          environmentId: scope.environmentId,
+          projectId: session.projectId,
+          workspacePath: session.workspacePath,
+          parentThreadId: null,
+          externalSessionKey: session.key,
+          clientSessionId: session.clientSessionId,
+        };
+        selection = input.reportedOrchestratorSelection;
+      }
+      return yield* experiments
+        .enrollWork({
+          request: input,
+          owner,
+          orchestratorSelection: selection,
+          modelSource: parent === undefined ? "self-report" : "run-selection",
+          policyHash: policy.hash,
+          policyRevision: policy.sourceRevision,
+          alreadyStarted: input.alreadyStarted ?? false,
+        })
+        .pipe(Effect.mapError(workError));
+    }),
+    allocateWork: Effect.fn("OrchestratorMcpService.allocateWork")(function* (scope, input) {
+      yield* requireCapability(scope);
+      yield* requireWorkParent(scope);
+      return yield* experiments
+        .allocateWork(input, workReader(scope))
+        .pipe(Effect.mapError(workError));
+    }),
+    recordWorkEvidence: Effect.fn("OrchestratorMcpService.recordWorkEvidence")(
+      function* (scope, input) {
         yield* requireCapability(scope);
         yield* requireWorkParent(scope);
         return yield* experiments
           .recordWorkEvidence(input, workReader(scope))
           .pipe(Effect.mapError(workError));
-      }),
-    recordWorkOutcome: (scope, input) =>
-      Effect.gen(function* () {
+      },
+    ),
+    recordWorkOutcome: Effect.fn("OrchestratorMcpService.recordWorkOutcome")(
+      function* (scope, input) {
         yield* requireCapability(scope);
         yield* requireWorkParent(scope);
         return yield* experiments
           .recordWorkOutcome(input, workReader(scope))
           .pipe(Effect.mapError(workError));
-      }),
-    readWork: (scope, input) =>
-      Effect.gen(function* () {
-        yield* requireCapability(scope);
-        yield* loadCaller(scope);
-        return yield* experiments
-          .readWork(input, workReader(scope))
-          .pipe(Effect.mapError(workError));
-      }),
+      },
+    ),
+    readWork: Effect.fn("OrchestratorMcpService.readWork")(function* (scope, input) {
+      yield* requireCapability(scope);
+      yield* loadCaller(scope);
+      return yield* experiments.readWork(input, workReader(scope)).pipe(Effect.mapError(workError));
+    }),
     attachAgentSession: (scope, input) =>
       external.pipe(
         Effect.flatMap((service) =>
@@ -2557,56 +2555,55 @@ const make = Effect.gen(function* () {
           service.recordOutcome(scope, input).pipe(Effect.mapError(externalFailure)),
         ),
       ),
-    agentRoles: (scope, input) =>
-      Effect.gen(function* () {
-        yield* requireCapability(scope);
-        const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
-        if (Option.isNone(managed))
-          return yield* failure("capability_denied", "Managed role policy is unavailable.");
-        const { parent, limits } = yield* loadCaller(scope);
-        const session =
-          input.externalSessionKey === undefined
-            ? undefined
-            : yield* external.pipe(
-                Effect.flatMap((service) =>
-                  service
-                    .session(scope, input.externalSessionKey!)
-                    .pipe(Effect.mapError(externalFailure)),
-                ),
-              );
-        const projectId = session?.projectId ?? parent?.thread.projectId;
-        if (projectId === undefined)
-          return yield* failure(
-            "invalid_request",
-            "Attach an external agent session before discovering roles.",
-          );
-        const catalog = yield* loadProviders;
-        const eligible = yield* Effect.filter(catalog, (p) =>
-          threadManagement.isProviderInstanceEnabledForProject({
-            projectId,
-            instanceId: p.instanceId,
-          }),
+    agentRoles: Effect.fn("OrchestratorMcpService.agentRoles")(function* (scope, input) {
+      yield* requireCapability(scope);
+      const managed = yield* Effect.serviceOption(ManagedAgent.ManagedAgentService);
+      if (Option.isNone(managed))
+        return yield* failure("capability_denied", "Managed role policy is unavailable.");
+      const { parent, limits } = yield* loadCaller(scope);
+      const session =
+        input.externalSessionKey === undefined
+          ? undefined
+          : yield* external.pipe(
+              Effect.flatMap((service) =>
+                service
+                  .session(scope, input.externalSessionKey!)
+                  .pipe(Effect.mapError(externalFailure)),
+              ),
+            );
+      const projectId = session?.projectId ?? parent?.thread.projectId;
+      if (projectId === undefined)
+        return yield* failure(
+          "invalid_request",
+          "Attach an external agent session before discovering roles.",
         );
-        const result = yield* managed.value
-          .roles({
-            projectId,
-            providers: eligible,
-            ceiling: limits.runtimeMode,
-            request: input,
-            ...selectionOf({
-              providerInstanceId: input.providerInstanceId,
-              model: input.model,
-            }),
-            ...(parent === undefined
-              ? {}
-              : {
-                  callerModel: parent.thread.modelSelection.model,
-                  caller: parent.thread.modelSelection,
-                }),
-          })
-          .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
-        return { ...result, environmentId: scope.environmentId };
-      }),
+      const catalog = yield* loadProviders;
+      const eligible = yield* Effect.filter(catalog, (p) =>
+        threadManagement.isProviderInstanceEnabledForProject({
+          projectId,
+          instanceId: p.instanceId,
+        }),
+      );
+      const result = yield* managed.value
+        .roles({
+          projectId,
+          providers: eligible,
+          ceiling: limits.runtimeMode,
+          request: input,
+          ...selectionOf({
+            providerInstanceId: input.providerInstanceId,
+            model: input.model,
+          }),
+          ...(parent === undefined
+            ? {}
+            : {
+                callerModel: parent.thread.modelSelection.model,
+                caller: parent.thread.modelSelection,
+              }),
+        })
+        .pipe(Effect.mapError((error) => failure("capability_denied", error.message)));
+      return { ...result, environmentId: scope.environmentId };
+    }),
     delegateTask: Effect.fn("OrchestratorMcpService.delegateTask")(function* (callerScope, input) {
       if (
         input.followup !== undefined &&
@@ -4157,8 +4154,8 @@ const make = Effect.gen(function* () {
         timedOut: result.timedOut,
       } satisfies OrchestratorMcpThreadWaitResult;
     }),
-    watchThread: (scope, input, watching) =>
-      Effect.gen(function* () {
+    watchThread: Effect.fn("OrchestratorMcpService.watchThread")(
+      function* (scope, input, watching) {
         yield* requireCapability(scope);
         const { thread } = yield* requireThreadScope(scope, watching ? "watch" : "unwatch");
         const watcher = yield* threadManagement
@@ -4271,7 +4268,8 @@ const make = Effect.gen(function* () {
             ),
           );
         return { target, ...(label === undefined ? {} : { label }), watching, wasWatching };
-      }),
+      },
+    ),
     interruptThread: Effect.fn("OrchestratorMcpService.interruptThread")(function* (scope, input) {
       const { parent, limits, target } = yield* loadScopedThread(scope, input.threadId);
       yield* assertLiveCallerForOtherThread(scope, parent, target);

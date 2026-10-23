@@ -206,8 +206,9 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const handle: UnattendedReactor["Service"]["handle"] = (event) =>
-    Effect.gen(function* () {
+  // Untraced: it runs once per domain event, so a span per event would swamp traces.
+  const handle: UnattendedReactor["Service"]["handle"] = Effect.fnUntraced(
+    function* (event) {
       if (event.type === "runtime-request.updated" && answerableLiveQuestion(event.payload)) {
         return yield* answerQuestion(event.threadId, event.payload.id);
       }
@@ -217,14 +218,17 @@ const make = Effect.gen(function* () {
       if (event.type === "run.updated" && event.payload.status === "completed") {
         return yield* continueAfter(event.threadId, event.payload.id);
       }
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("unattended thread handling failed", {
-          threadId: event.threadId,
-          cause,
-        }),
+    },
+    (effect, event) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("unattended thread handling failed", {
+            threadId: event.threadId,
+            cause,
+          }),
+        ),
       ),
-    );
+  );
 
   const sweep: UnattendedReactor["Service"]["sweep"] = Effect.gen(function* () {
     const since = DateTime.toEpochMillis(yield* DateTime.now) - SWEEP_WINDOW_MS;

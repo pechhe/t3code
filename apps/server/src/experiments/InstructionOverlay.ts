@@ -46,8 +46,8 @@ export const layer = Layer.effect(
   InstructionOverlay,
   Effect.gen(function* () {
     const experiments = yield* ExperimentService.ExperimentService;
-    const decide = (input: Parameters<InstructionOverlay["Service"]["forRun"]>[0]) =>
-      Effect.gen(function* () {
+    const decide = Effect.fn("InstructionOverlay.decide")(
+      function* (input: Parameters<InstructionOverlay["Service"]["forRun"]>[0]) {
         if (!OVERLAY_DRIVERS.has(input.driver)) return null;
         const assignments = yield* experiments.assignForThread({
           threadLever: "instruction",
@@ -72,14 +72,17 @@ export const layer = Layer.effect(
               experimentId: assignment.experimentId,
               variantId: assignment.variant.id,
             };
-      }).pipe(
-        Effect.catchCause((cause) =>
-          Effect.logWarning("Instruction overlay unavailable", {
-            threadId: input.thread.id,
-            cause,
-          }).pipe(Effect.as(null)),
+      },
+      (effect, input) =>
+        effect.pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("Instruction overlay unavailable", {
+              threadId: input.thread.id,
+              cause,
+            }).pipe(Effect.as(null)),
+          ),
         ),
-      );
+    );
     const decisions = new Map<string, Deferred.Deferred<AssignedInstructionOverlay | null>>();
     return InstructionOverlay.of({
       forRun: (input) =>

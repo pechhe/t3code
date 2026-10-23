@@ -181,24 +181,28 @@ const make = Effect.gen(function* () {
       })
       .pipe(Effect.asVoid);
 
-  const sendToRequester = (requester: RequesterRow, key: string, text: string, user: boolean) =>
-    Effect.gen(function* () {
-      const shell = yield* threadManagement.getThreadShell(requester.threadId);
-      if (shell === null || shell.archivedAt !== null) return;
-      yield* threadManagement.sendToThread({
-        projectId: shell.projectId,
-        commandId: CommandId.make(key),
-        threadId: requester.threadId,
-        messageId: MessageId.make(key),
-        text,
-        attachments: [],
-        // Never interrupts a running tool; an idle thread starts a turn at once.
-        mode: "queue",
-        // The answer is the owner's own; a supersede notice is T3's.
-        createdBy: user ? "user" : "agent",
-        creationSource: "server",
-      });
+  const sendToRequester = Effect.fn("ReleaseApprovals.sendToRequester")(function* (
+    requester: RequesterRow,
+    key: string,
+    text: string,
+    user: boolean,
+  ) {
+    const shell = yield* threadManagement.getThreadShell(requester.threadId);
+    if (shell === null || shell.archivedAt !== null) return;
+    yield* threadManagement.sendToThread({
+      projectId: shell.projectId,
+      commandId: CommandId.make(key),
+      threadId: requester.threadId,
+      messageId: MessageId.make(key),
+      text,
+      attachments: [],
+      // Never interrupts a running tool; an idle thread starts a turn at once.
+      mode: "queue",
+      // The answer is the owner's own; a supersede notice is T3's.
+      createdBy: user ? "user" : "agent",
+      creationSource: "server",
     });
+  });
 
   /**
    * Each step for each requester stands alone: a card that fails to update (a deleted thread,
@@ -207,62 +211,62 @@ const make = Effect.gen(function* () {
    * calling thread's own failure fails the call, after every other step has run, so an agent
    * never waits on a card the owner cannot see.
    */
-  const forEachRequester = <E>(
+  const forEachRequester = Effect.fn("ReleaseApprovals.forEachRequester")(function* <E>(
     approvalId: string,
     steps: (requester: RequesterRow) => ReadonlyArray<Effect.Effect<void, E>>,
     caller?: ThreadId,
-  ) =>
-    Effect.gen(function* () {
-      let callerFailure: Cause.Cause<E> | undefined;
-      for (const requester of yield* requestersOf(approvalId)) {
-        for (const step of steps(requester)) {
-          const exit = yield* Effect.exit(step);
-          if (Exit.isSuccess(exit)) continue;
-          if (requester.threadId === caller) callerFailure ??= exit.cause;
-          else
-            yield* Effect.logWarning("Could not update a release approval requester", {
-              approvalId,
-              threadId: requester.threadId,
-              cause: exit.cause,
-            });
-        }
+  ) {
+    let callerFailure: Cause.Cause<E> | undefined;
+    for (const requester of yield* requestersOf(approvalId)) {
+      for (const step of steps(requester)) {
+        const exit = yield* Effect.exit(step);
+        if (Exit.isSuccess(exit)) continue;
+        if (requester.threadId === caller) callerFailure ??= exit.cause;
+        else
+          yield* Effect.logWarning("Could not update a release approval requester", {
+            approvalId,
+            threadId: requester.threadId,
+            cause: exit.cause,
+          });
       }
-      if (callerFailure !== undefined) return yield* Effect.failCause(callerFailure);
-    });
+    }
+    if (callerFailure !== undefined) return yield* Effect.failCause(callerFailure);
+  });
 
   /**
    * Tells the threads waiting on a replaced card that it will not be answered. The threads
    * already on the newer card, such as the one that replaced it, need no notice.
    */
-  const notifySuperseded = (superseded: ApprovalRow) =>
-    Effect.gen(function* () {
-      if (superseded.supersededBy === null) return;
-      const newer = yield* sql<{ readonly threadId: ThreadId }>`
+  const notifySuperseded = Effect.fn("ReleaseApprovals.notifySuperseded")(function* (
+    superseded: ApprovalRow,
+  ) {
+    if (superseded.supersededBy === null) return;
+    const newer = yield* sql<{ readonly threadId: ThreadId }>`
         SELECT requester.thread_id AS "threadId"
         FROM release_approval_requesters requester
         JOIN release_approvals approval ON approval.approval_id = requester.approval_id
         WHERE lower(approval.repository) = ${repositoryKey(superseded.repository)}
           AND approval.candidate = ${superseded.supersededBy}
       `;
-      const onNewer = new Set(newer.map((row) => row.threadId));
-      const text = supersededMessageText({
-        repository: superseded.repository,
-        candidate: superseded.candidate,
-        newer: superseded.supersededBy,
-      });
-      yield* forEachRequester(superseded.approvalId, (row) =>
-        onNewer.has(row.threadId)
-          ? []
-          : [
-              sendToRequester(
-                row,
-                `release-approval-superseded:${superseded.approvalId}:${row.threadId}`,
-                text,
-                false,
-              ),
-            ],
-      );
+    const onNewer = new Set(newer.map((row) => row.threadId));
+    const text = supersededMessageText({
+      repository: superseded.repository,
+      candidate: superseded.candidate,
+      newer: superseded.supersededBy,
     });
+    yield* forEachRequester(superseded.approvalId, (row) =>
+      onNewer.has(row.threadId)
+        ? []
+        : [
+            sendToRequester(
+              row,
+              `release-approval-superseded:${superseded.approvalId}:${row.threadId}`,
+              text,
+              false,
+            ),
+          ],
+    );
+  });
 
   const request: ReleaseApprovals["Service"]["request"] = (requester, input) => {
     const addRequester = (approvalId: string, now: string) => sql`
@@ -416,13 +420,12 @@ const make = Effect.gen(function* () {
    * planning leaves a rejected receipt its command id can never pass again; messages keep their
    * one id, so a thread that already has one never gets it twice.
    */
-  const settle = (approval: ApprovalRow) =>
-    Effect.gen(function* () {
-      const revision = yield* crypto.randomUUIDv4();
-      yield* forEachRequester(approval.approvalId, (row) => [recordCard(approval, row, revision)]);
-      if (approval.status === "superseded") return yield* notifySuperseded(approval);
-      yield* sendAnswer(approval);
-    });
+  const settle = Effect.fn("ReleaseApprovals.settle")(function* (approval: ApprovalRow) {
+    const revision = yield* crypto.randomUUIDv4();
+    yield* forEachRequester(approval.approvalId, (row) => [recordCard(approval, row, revision)]);
+    if (approval.status === "superseded") return yield* notifySuperseded(approval);
+    yield* sendAnswer(approval);
+  });
 
   const sendAnswer = (approval: ApprovalRow) => {
     if (approval.answerJson === null) return Effect.void;
@@ -441,8 +444,8 @@ const make = Effect.gen(function* () {
     ]);
   };
 
-  const answer: ReleaseApprovals["Service"]["answer"] = (input) =>
-    Effect.gen(function* () {
+  const answer: ReleaseApprovals["Service"]["answer"] = Effect.fn("ReleaseApprovals.answer")(
+    function* (input) {
       const found = yield* findApproval(input.approvalId);
       if (found === undefined) return yield* new ReleaseApprovalError({ reason: "not_found" });
       yield* lock.withLock(
@@ -485,10 +488,9 @@ const make = Effect.gen(function* () {
           });
         }),
       );
-    }).pipe(
-      Effect.mapError((cause) => (isReleaseApprovalError(cause) ? cause : failed(cause))),
-      Effect.withSpan("ReleaseApprovals.answer"),
-    );
+    },
+    Effect.mapError((cause) => (isReleaseApprovalError(cause) ? cause : failed(cause))),
+  );
 
   return ReleaseApprovals.of({ request, answer });
 });

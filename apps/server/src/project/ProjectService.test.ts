@@ -445,7 +445,16 @@ it.layer(layerTest)("ProjectService", (it) => {
       });
       const input = { commandId: CommandId.make("command:delete-retry:delete"), projectId };
       const deleted = yield* service.delete(input);
-      assert.deepEqual(yield* service.delete(input), deleted);
+      const retried = yield* service.delete(input);
+      // Optional enrichment can finish between reads; the command receipt preserves durable fields.
+      const durableFields = ({
+        repositoryIdentity: _identity,
+        faviconPath: _favicon,
+        ...project
+      }: Project) => project;
+      assert.isNotNull(deleted.deletedAt);
+      assert.equal(retried.deletedAt, deleted.deletedAt);
+      assert.deepEqual(durableFields(retried), durableFields(deleted));
       const events = yield* sql<{ readonly command_id: string }>`
         SELECT command_id FROM orchestration_events
         WHERE stream_id = ${projectId} AND event_type = 'project.deleted'

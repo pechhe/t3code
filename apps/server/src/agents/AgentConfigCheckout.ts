@@ -4,21 +4,24 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as ProcessRunner from "../processRunner.ts";
 
-const jjLog = (root: string, revset: string, template: string) =>
-  Effect.gen(function* () {
-    const processes = yield* ProcessRunner.ProcessRunner;
-    // --ignore-working-copy: reading never snapshots or rewrites the live checkout.
-    const output = yield* processes
-      .run({
-        command: "jj",
-        args: ["--ignore-working-copy", "log", "-r", revset, "--no-graph", "-T", template],
-        cwd: root,
-        timeout: "5 seconds",
-        maxOutputBytes: 64 * 1024,
-      })
-      .pipe(Effect.option);
-    return Option.isSome(output) && output.value.code === 0 ? output.value.stdout : null;
-  });
+const jjLog = Effect.fn("AgentConfigCheckout.jjLog")(function* (
+  root: string,
+  revset: string,
+  template: string,
+) {
+  const processes = yield* ProcessRunner.ProcessRunner;
+  // --ignore-working-copy: reading never snapshots or rewrites the live checkout.
+  const output = yield* processes
+    .run({
+      command: "jj",
+      args: ["--ignore-working-copy", "log", "-r", revset, "--no-graph", "-T", template],
+      cwd: root,
+      timeout: "5 seconds",
+      maxOutputBytes: 64 * 1024,
+    })
+    .pipe(Effect.option);
+  return Option.isSome(output) && output.value.code === 0 ? output.value.stdout : null;
+});
 
 /**
  * The agent-config checkout's landed base (the working copy's parent) and working copy.

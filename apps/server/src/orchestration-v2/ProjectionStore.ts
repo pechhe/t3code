@@ -4931,10 +4931,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError(controlReadError(threadId)));
 
-    const getSubagentByChildThread: ProjectionStoreV2Shape["getSubagentByChildThread"] = (
-      childThreadId,
-    ) =>
-      Effect.gen(function* () {
+    const getSubagentByChildThread: ProjectionStoreV2Shape["getSubagentByChildThread"] = Effect.fn(
+      "ProjectionStore.getSubagentByChildThread",
+    )(
+      function* (childThreadId) {
         const rows = yield* sql<PayloadRow>`
           SELECT payload_json FROM orchestration_v2_projection_subagents
           WHERE child_thread_id = ${childThreadId}
@@ -4943,7 +4943,10 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         return rows[0] === undefined
           ? undefined
           : yield* decodeSubagentPayload(rows[0].payload_json);
-      }).pipe(readOnly, Effect.mapError(controlReadError(childThreadId)));
+      },
+      (effect, childThreadId) =>
+        effect.pipe(readOnly, Effect.mapError(controlReadError(childThreadId))),
+    );
 
     const getProviderControlContext: ProjectionStoreV2Shape["getProviderControlContext"] = (
       threadId,
@@ -7083,14 +7086,15 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
             return stored !== undefined && Equal.equals(stored, node);
           }),
         ),
-      getSubagentByChildThread: (childThreadId) =>
-        Effect.gen(function* () {
+      getSubagentByChildThread: Effect.fn("ProjectionStore.getSubagentByChildThread")(
+        function* (childThreadId) {
           for (const projection of (yield* Ref.get(replayState)).projections.values()) {
             const found = projection.subagents.find((task) => task.childThreadId === childThreadId);
             if (found !== undefined) return found;
           }
           return undefined;
-        }),
+        },
+      ),
       getMessageCount: (threadId) =>
         Ref.get(replayState).pipe(
           Effect.map((state) => state.projections.get(threadId)?.messages.length ?? 0),

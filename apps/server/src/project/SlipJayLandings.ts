@@ -536,7 +536,7 @@ export const make = Effect.gen(function* () {
   });
 
   // The runner, not the checkout, answers these; the workspace may be gone.
-  const readRunner = (
+  const readRunner = Effect.fn("SlipJayLandings.readRunner")(function* (
     { cwd, operationId }: VcsSlipJayLandingLogInput,
     request: {
       readonly operation: string;
@@ -545,43 +545,42 @@ export const make = Effect.gen(function* () {
       readonly maxOutputBytes: number;
       readonly what: string;
     },
-  ) =>
-    Effect.gen(function* () {
-      const command = `slipjay runner ${request.subcommand}`;
-      const failure = (
-        detail: string,
-        extra: { readonly exitCode?: number; readonly cause?: unknown } = {},
-      ) =>
-        new SlipJayCommandError({
-          operation: request.operation,
-          command,
-          cwd,
-          detail,
-          ...extra,
-        });
-      if (!(yield* isShownLanding(cwd, operationId)))
-        return yield* failure("This landing is not tracked for this workspace.");
-      const output = yield* processes
-        .run({
-          command: "slipjay",
-          args: ["runner", request.subcommand, operationId],
-          timeout: request.timeout,
-          maxOutputBytes: request.maxOutputBytes,
-          outputMode: "truncate",
-        })
-        .pipe(
-          Effect.mapError((cause) =>
-            failure(`SlipJay could not be run to read the ${request.what}.`, { cause }),
-          ),
-        );
-      // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
-      if (output.code !== 0)
-        return yield* failure(
-          `SlipJay could not read the ${request.what}. Run \`${command}\` on the server for details.`,
-          output.code === null ? {} : { exitCode: output.code },
-        );
-      return { output, failure };
-    });
+  ) {
+    const command = `slipjay runner ${request.subcommand}`;
+    const failure = (
+      detail: string,
+      extra: { readonly exitCode?: number; readonly cause?: unknown } = {},
+    ) =>
+      new SlipJayCommandError({
+        operation: request.operation,
+        command,
+        cwd,
+        detail,
+        ...extra,
+      });
+    if (!(yield* isShownLanding(cwd, operationId)))
+      return yield* failure("This landing is not tracked for this workspace.");
+    const output = yield* processes
+      .run({
+        command: "slipjay",
+        args: ["runner", request.subcommand, operationId],
+        timeout: request.timeout,
+        maxOutputBytes: request.maxOutputBytes,
+        outputMode: "truncate",
+      })
+      .pipe(
+        Effect.mapError((cause) =>
+          failure(`SlipJay could not be run to read the ${request.what}.`, { cause }),
+        ),
+      );
+    // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
+    if (output.code !== 0)
+      return yield* failure(
+        `SlipJay could not read the ${request.what}. Run \`${command}\` on the server for details.`,
+        output.code === null ? {} : { exitCode: output.code },
+      );
+    return { output, failure };
+  });
 
   const readLog: SlipJayLandings["Service"]["readLog"] = Effect.fn("SlipJayLandings.readLog")(
     function* (input) {
@@ -695,7 +694,9 @@ export const make = Effect.gen(function* () {
   const isLanding: SlipJayLandings["Service"]["isLanding"] = (cwd) =>
     workspaceRootOf(cwd).pipe(
       Effect.flatMap((root) =>
-        root === null ? Effect.succeed(false) : Ref.get(lands).pipe(Effect.map((current) => current.has(root))),
+        root === null
+          ? Effect.succeed(false)
+          : Ref.get(lands).pipe(Effect.map((current) => current.has(root))),
       ),
     );
 

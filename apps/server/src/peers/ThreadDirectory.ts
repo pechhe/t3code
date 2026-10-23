@@ -275,8 +275,8 @@ const make = Effect.gen(function* () {
       ),
     );
 
-  const read: ThreadDirectory["Service"]["read"] = (environmentId, input) =>
-    Effect.gen(function* () {
+  const read: ThreadDirectory["Service"]["read"] = Effect.fn("ThreadDirectory.read")(
+    function* (environmentId, input) {
       if (Option.isNone(peers)) return yield* notLinked(environmentId);
       const found = (yield* peers.value.linked.pipe(Effect.orElseSucceed(() => []))).find(
         (peer) => peer.environmentId === environmentId,
@@ -314,51 +314,54 @@ const make = Effect.gen(function* () {
         ),
       );
       return { ...decoded, environmentId, notice: OrchestratorMcpPeerNotice };
-    });
+    },
+  );
 
-  const listAcross: ThreadDirectory["Service"]["listAcross"] = (input) =>
-    Effect.gen(function* () {
-      const plan = environmentPlan({
-        requested: input.query.environmentId,
-        localId: input.localId,
-        fromPeer: input.fromPeer,
-      });
-      const peerAnswers = plan.peers === undefined ? [] : yield* list(plan.peers, input.query);
-      if (!plan.includeLocal) {
-        // One linked environment asked for: its page stands in the top level, and its status
-        // and quoted-data notice are reported beside it, without repeating the page.
-        const [answer] = peerAnswers;
-        return {
-          environmentId: answer?.environmentId ?? (plan.peers as EnvironmentId),
-          projectId: answer?.page?.projectId ?? null,
-          currentThreadId: null,
-          threads: answer?.page?.threads ?? [],
-          nextCursor: answer?.page?.nextCursor ?? null,
-          total: answer?.page?.total ?? 0,
-          environments: reportedBesidePage(answer),
-        };
-      }
-      return { ...(yield* input.local), environments: peerAnswers };
+  const listAcross: ThreadDirectory["Service"]["listAcross"] = Effect.fn(
+    "ThreadDirectory.listAcross",
+  )(function* (input) {
+    const plan = environmentPlan({
+      requested: input.query.environmentId,
+      localId: input.localId,
+      fromPeer: input.fromPeer,
     });
+    const peerAnswers = plan.peers === undefined ? [] : yield* list(plan.peers, input.query);
+    if (!plan.includeLocal) {
+      // One linked environment asked for: its page stands in the top level, and its status
+      // and quoted-data notice are reported beside it, without repeating the page.
+      const [answer] = peerAnswers;
+      return {
+        environmentId: answer?.environmentId ?? (plan.peers as EnvironmentId),
+        projectId: answer?.page?.projectId ?? null,
+        currentThreadId: null,
+        threads: answer?.page?.threads ?? [],
+        nextCursor: answer?.page?.nextCursor ?? null,
+        total: answer?.page?.total ?? 0,
+        environments: reportedBesidePage(answer),
+      };
+    }
+    return { ...(yield* input.local), environments: peerAnswers };
+  });
 
-  const searchAcross: ThreadDirectory["Service"]["searchAcross"] = (input) =>
-    Effect.gen(function* () {
-      const plan = environmentPlan({
-        requested: input.query.environmentId,
-        localId: input.localId,
-        fromPeer: input.fromPeer,
-      });
-      const peerAnswers = plan.peers === undefined ? [] : yield* search(plan.peers, input.query);
-      if (!plan.includeLocal) {
-        const [answer] = peerAnswers;
-        return {
-          environmentId: answer?.environmentId ?? (plan.peers as EnvironmentId),
-          matches: answer?.page?.matches ?? [],
-          environments: reportedBesidePage(answer),
-        };
-      }
-      return { ...(yield* input.local), environments: peerAnswers };
+  const searchAcross: ThreadDirectory["Service"]["searchAcross"] = Effect.fn(
+    "ThreadDirectory.searchAcross",
+  )(function* (input) {
+    const plan = environmentPlan({
+      requested: input.query.environmentId,
+      localId: input.localId,
+      fromPeer: input.fromPeer,
     });
+    const peerAnswers = plan.peers === undefined ? [] : yield* search(plan.peers, input.query);
+    if (!plan.includeLocal) {
+      const [answer] = peerAnswers;
+      return {
+        environmentId: answer?.environmentId ?? (plan.peers as EnvironmentId),
+        matches: answer?.page?.matches ?? [],
+        environments: reportedBesidePage(answer),
+      };
+    }
+    return { ...(yield* input.local), environments: peerAnswers };
+  });
 
   const readAcross: ThreadDirectory["Service"]["readAcross"] = (input) =>
     input.environmentId !== undefined && input.environmentId !== input.localId && !input.fromPeer

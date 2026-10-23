@@ -717,8 +717,8 @@ const make = Effect.gen(function* () {
   // An account pool never reaches the orchestrator: a selection naming one is
   // replaced here by the member that should run it, keeping the thread's
   // current member while it has allowance.
-  const routePoolSelection = (selection: ModelSelection, threadId?: ThreadId) =>
-    Effect.gen(function* () {
+  const routePoolSelection = Effect.fn("orchestrationV2.threadManagement.routePoolSelection")(
+    function* (selection: ModelSelection, threadId?: ThreadId) {
       if (Option.isNone(providerRegistry)) return selection;
       const providers = yield* providerRegistry.value.getProviders;
       const pool = providers.find((provider) => provider.instanceId === selection.instanceId);
@@ -753,7 +753,8 @@ const make = Effect.gen(function* () {
       );
       member ??= members[0];
       return member === undefined ? selection : { ...selection, instanceId: member };
-    });
+    },
+  );
 
   const routePoolCommand = (
     command: OrchestrationV2ServerCommand,
@@ -784,40 +785,39 @@ const make = Effect.gen(function* () {
     }
   };
 
-  const dispatchOwned = (
+  const dispatchOwned = Effect.fn("orchestrationV2.threadManagement.dispatchOwned")(function* (
     input: OrchestrationV2ServerCommand,
     externalWorkOwner?: NonNullable<AgentTaskBinding["externalOwner"]>,
-  ) =>
-    Effect.gen(function* () {
-      const command = yield* routePoolCommand(input);
-      // Raw agent messages cannot bypass external work ownership. The owning
-      // service may continue a validated task with its authenticated principal.
+  ) {
+    const command = yield* routePoolCommand(input);
+    // Raw agent messages cannot bypass external work ownership. The owning
+    // service may continue a validated task with its authenticated principal.
+    if (
+      command.type === "message.dispatch" &&
+      command.createdBy === "agent" &&
+      command.dispatchMode.type !== "defer_start"
+    ) {
+      const shell = yield* orchestrator.getThreadShell(command.threadId);
+      const owner = shell?.agentTask?.externalOwner;
       if (
-        command.type === "message.dispatch" &&
-        command.createdBy === "agent" &&
-        command.dispatchMode.type !== "defer_start"
-      ) {
-        const shell = yield* orchestrator.getThreadShell(command.threadId);
-        const owner = shell?.agentTask?.externalOwner;
-        if (
-          owner !== undefined &&
-          (externalWorkOwner === undefined ||
-            owner.environmentId !== externalWorkOwner.environmentId ||
-            owner.clientSessionId !== externalWorkOwner.clientSessionId ||
-            owner.externalSessionKey !== externalWorkOwner.externalSessionKey ||
-            owner.projectId !== externalWorkOwner.projectId ||
-            owner.ceiling !== externalWorkOwner.ceiling)
-        )
-          return yield* new Orchestrator.OrchestratorCommandRejectedError({
-            commandId: command.commandId,
-            commandType: command.type,
-            cause: "Submit a new external work attempt instead of messaging its backing thread.",
-          });
-      }
-      yield* ensureCommandTranscripts(command);
-      yield* assertDispatchTargetEnabled(command);
-      return yield* orchestrator.dispatch(command);
-    });
+        owner !== undefined &&
+        (externalWorkOwner === undefined ||
+          owner.environmentId !== externalWorkOwner.environmentId ||
+          owner.clientSessionId !== externalWorkOwner.clientSessionId ||
+          owner.externalSessionKey !== externalWorkOwner.externalSessionKey ||
+          owner.projectId !== externalWorkOwner.projectId ||
+          owner.ceiling !== externalWorkOwner.ceiling)
+      )
+        return yield* new Orchestrator.OrchestratorCommandRejectedError({
+          commandId: command.commandId,
+          commandType: command.type,
+          cause: "Submit a new external work attempt instead of messaging its backing thread.",
+        });
+    }
+    yield* ensureCommandTranscripts(command);
+    yield* assertDispatchTargetEnabled(command);
+    return yield* orchestrator.dispatch(command);
+  });
 
   const dispatch: ThreadManagementServiceShape["dispatch"] = (input) => dispatchOwned(input);
 

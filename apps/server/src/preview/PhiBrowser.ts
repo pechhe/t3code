@@ -308,15 +308,13 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError((cause) => failure("unavailable", cause)));
   // Only the owning agent's explicit close removes a tab from the user's own Space, and only
   // one it opened there; a released session or a restart just forgets it.
-  const remove = (binding: Binding, closeUserTab = false) =>
-    Effect.gen(function* () {
-      if (binding.lane !== "user" || (closeUserTab && !binding.attached))
-        yield* run(binding, { operation: "close" });
-      yield* save((yield* Ref.get(state)).filter((tab) => tab.tabId !== binding.tabId));
-      references.delete(binding.tabId);
-      if (currentTabs.get(binding.sessionId) === binding.tabId)
-        currentTabs.delete(binding.sessionId);
-    });
+  const remove = Effect.fn("PhiBrowser.remove")(function* (binding: Binding, closeUserTab = false) {
+    if (binding.lane !== "user" || (closeUserTab && !binding.attached))
+      yield* run(binding, { operation: "close" });
+    yield* save((yield* Ref.get(state)).filter((tab) => tab.tabId !== binding.tabId));
+    references.delete(binding.tabId);
+    if (currentTabs.get(binding.sessionId) === binding.tabId) currentTabs.delete(binding.sessionId);
+  });
   const status = (binding: Binding, connected = true): PreviewAutomationStatus => ({
     backend: "phi",
     connected,
@@ -342,39 +340,41 @@ const make = Effect.gen(function* () {
   const reachability = yield* Ref.make<
     ReadonlyMap<string, { readonly value: PhiAvailability; readonly at: number }>
   >(new Map());
-  const availability = (input: { readonly skillDirectory: string; readonly probe: boolean }) =>
-    Effect.gen(function* () {
-      const now = yield* Clock.currentTimeMillis;
-      const known = (yield* Ref.get(reachability)).get(input.skillDirectory);
-      if (
-        !input.probe &&
-        known !== undefined &&
-        now - known.at < (known.value === "unreachable" ? UNREACHABLE_TTL_MS : REACHABILITY_TTL_MS)
-      )
-        return known.value;
-      const value: PhiAvailability = yield* runner
-        .run({
-          probe: true,
-          skillDirectory: input.skillDirectory,
-          context: { kind: "shadow", name: "t3-probe", incognito: true },
-          action: { operation: "status" },
-          timeoutMs: PROBE_TIMEOUT_MS,
-        })
-        .pipe(
-          Effect.as("available" as const),
-          Effect.catch((cause) =>
-            Effect.succeed(
-              cause.reason === "missing-skill"
-                ? ("skill-missing" as const)
-                : ("unreachable" as const),
-            ),
+  const availability = Effect.fn("PhiBrowser.availability")(function* (input: {
+    readonly skillDirectory: string;
+    readonly probe: boolean;
+  }) {
+    const now = yield* Clock.currentTimeMillis;
+    const known = (yield* Ref.get(reachability)).get(input.skillDirectory);
+    if (
+      !input.probe &&
+      known !== undefined &&
+      now - known.at < (known.value === "unreachable" ? UNREACHABLE_TTL_MS : REACHABILITY_TTL_MS)
+    )
+      return known.value;
+    const value: PhiAvailability = yield* runner
+      .run({
+        probe: true,
+        skillDirectory: input.skillDirectory,
+        context: { kind: "shadow", name: "t3-probe", incognito: true },
+        action: { operation: "status" },
+        timeoutMs: PROBE_TIMEOUT_MS,
+      })
+      .pipe(
+        Effect.as("available" as const),
+        Effect.catch((cause) =>
+          Effect.succeed(
+            cause.reason === "missing-skill"
+              ? ("skill-missing" as const)
+              : ("unreachable" as const),
           ),
-        );
-      yield* Ref.update(reachability, (values) =>
-        new Map(values).set(input.skillDirectory, { value, at: now }),
+        ),
       );
-      return value;
-    });
+    yield* Ref.update(reachability, (values) =>
+      new Map(values).set(input.skillDirectory, { value, at: now }),
+    );
+    return value;
+  });
 
   const invoke = Effect.fn("PhiBrowser.invoke")((request: PreviewAutomationInvokeInput) =>
     lock.withPermits(1)(

@@ -297,53 +297,53 @@ const make = Effect.gen(function* () {
    * link until it is linked again. A failed attempt is not repeated for a minute.
    * Returns the peer as stored now, or undefined when it was unlinked meanwhile.
    */
-  const freshPeer = (peer: StoredPeer, route: string) =>
-    Effect.gen(function* () {
-      const now = yield* Clock.currentTimeMillis;
-      if (peer.expiresAt.epochMilliseconds - now > Duration.toMillis(RENEW_WITHIN)) return peer;
-      const failedAt = (yield* Ref.get(renewFailures)).get(peer.environmentId);
-      if (failedAt !== undefined && now - failedAt < Duration.toMillis(RENEW_RETRY)) return peer;
-      const response = yield* post(
-        `${route}/api/auth/peer/renew`,
-        {},
-        peer.token,
-        RENEW_TIMEOUT,
-      ).pipe(
-        Effect.flatMap((renewed) =>
-          renewed.status >= 400
-            ? Effect.succeed(undefined)
-            : decodePeerSession(renewed).pipe(Effect.map((session) => session)),
+  const freshPeer = Effect.fn("PeerEnvironments.freshPeer")(function* (
+    peer: StoredPeer,
+    route: string,
+  ) {
+    const now = yield* Clock.currentTimeMillis;
+    if (peer.expiresAt.epochMilliseconds - now > Duration.toMillis(RENEW_WITHIN)) return peer;
+    const failedAt = (yield* Ref.get(renewFailures)).get(peer.environmentId);
+    if (failedAt !== undefined && now - failedAt < Duration.toMillis(RENEW_RETRY)) return peer;
+    const response = yield* post(
+      `${route}/api/auth/peer/renew`,
+      {},
+      peer.token,
+      RENEW_TIMEOUT,
+    ).pipe(
+      Effect.flatMap((renewed) =>
+        renewed.status >= 400
+          ? Effect.succeed(undefined)
+          : decodePeerSession(renewed).pipe(Effect.map((session) => session)),
+      ),
+      Effect.orElseSucceed(() => undefined),
+    );
+    if (response === undefined) {
+      yield* Ref.update(renewFailures, (current) => new Map(current).set(peer.environmentId, now));
+      // Another call may have renewed it first, which revokes the token this one held.
+      return yield* latestPeer(peer.environmentId);
+    }
+    const renewed: StoredPeer = { ...peer, token: response.token, expiresAt: response.expiresAt };
+    const stored = yield* updatePeers((peers) => {
+      const current = peers.find((existing) => existing.environmentId === peer.environmentId);
+      // Unlinked, or replaced by another call, while the peer was answering.
+      if (current === undefined || current.token !== peer.token) {
+        return Effect.succeed([false, peers] as const);
+      }
+      return Effect.succeed([
+        true,
+        peers.map((existing) =>
+          existing.environmentId === peer.environmentId ? renewed : existing,
         ),
-        Effect.orElseSucceed(() => undefined),
-      );
-      if (response === undefined) {
-        yield* Ref.update(renewFailures, (current) =>
-          new Map(current).set(peer.environmentId, now),
-        );
-        // Another call may have renewed it first, which revokes the token this one held.
-        return yield* latestPeer(peer.environmentId);
-      }
-      const renewed: StoredPeer = { ...peer, token: response.token, expiresAt: response.expiresAt };
-      const stored = yield* updatePeers((peers) => {
-        const current = peers.find((existing) => existing.environmentId === peer.environmentId);
-        // Unlinked, or replaced by another call, while the peer was answering.
-        if (current === undefined || current.token !== peer.token) {
-          return Effect.succeed([false, peers] as const);
-        }
-        return Effect.succeed([
-          true,
-          peers.map((existing) =>
-            existing.environmentId === peer.environmentId ? renewed : existing,
-          ),
-        ] as const);
-      });
-      if (!stored) {
-        // The new session would outlive the link that asked for it.
-        yield* post(`${route}/api/auth/peer/unlink`, {}, response.token).pipe(Effect.ignore);
-        return yield* latestPeer(peer.environmentId);
-      }
-      return renewed;
+      ] as const);
     });
+    if (!stored) {
+      // The new session would outlive the link that asked for it.
+      yield* post(`${route}/api/auth/peer/unlink`, {}, response.token).pipe(Effect.ignore);
+      return yield* latestPeer(peer.environmentId);
+    }
+    return renewed;
+  });
 
   const callOnRoute = (
     peer: StoredPeer,

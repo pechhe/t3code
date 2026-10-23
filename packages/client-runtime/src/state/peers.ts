@@ -11,7 +11,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { HttpClient } from "effect/http";
-import { Atom } from "effect/reactivity";
+import { Atom, AtomRegistry } from "effect/reactivity";
 
 import * as RemoteEnvironmentAuthorization from "../authorization/service.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
@@ -250,34 +250,36 @@ export function createPeerEnvironmentAtoms<R, E>(
      */
     mintCode: createRuntimeCommand(runtime, {
       label: "environment-data:peers:mint-code",
-      execute: ({ environmentId }: { readonly environmentId: EnvironmentId }, registry) =>
-        Effect.gen(function* () {
-          const prepared = Option.getOrNull(
-            registry.get(session.preparedConnectionValueAtom(environmentId)),
-          );
-          if (prepared === null) return yield* new PeerCodeUnavailable({ environmentId });
-          const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
-          const remoteAuthorization = yield* Effect.serviceOption(
-            RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
-          );
-          const client = yield* Effect.serviceOption(HttpClient.HttpClient);
-          if (Option.isNone(client)) return yield* new PeerCodeUnavailable({ environmentId });
-          const credential = yield* executeAuthenticatedEnvironmentHttpRequest({
-            prepared,
-            signer,
-            remoteAuthorization,
-            group: "auth",
-            method: "POST",
-            url: (urls) => urls.pairingCredential(),
-            timeoutMs: MINT_TIMEOUT_MS,
-            request: ({ client: api, headers }) =>
-              api.pairingCredential({
-                headers,
-                payload: { label: "Linked environment", scopes: [AuthOrchestrationReadScope] },
-              }),
-          }).pipe(Effect.provideService(HttpClient.HttpClient, client.value));
-          return credential.credential;
-        }),
+      execute: Effect.fn("peers.mintCode")(function* (
+        { environmentId }: { readonly environmentId: EnvironmentId },
+        registry: AtomRegistry.AtomRegistry,
+      ) {
+        const prepared = Option.getOrNull(
+          registry.get(session.preparedConnectionValueAtom(environmentId)),
+        );
+        if (prepared === null) return yield* new PeerCodeUnavailable({ environmentId });
+        const signer = yield* Effect.serviceOption(ManagedRelay.ManagedRelayDpopSigner);
+        const remoteAuthorization = yield* Effect.serviceOption(
+          RemoteEnvironmentAuthorization.RemoteEnvironmentAuthorization,
+        );
+        const client = yield* Effect.serviceOption(HttpClient.HttpClient);
+        if (Option.isNone(client)) return yield* new PeerCodeUnavailable({ environmentId });
+        const credential = yield* executeAuthenticatedEnvironmentHttpRequest({
+          prepared,
+          signer,
+          remoteAuthorization,
+          group: "auth",
+          method: "POST",
+          url: (urls) => urls.pairingCredential(),
+          timeoutMs: MINT_TIMEOUT_MS,
+          request: ({ client: api, headers }) =>
+            api.pairingCredential({
+              headers,
+              payload: { label: "Linked environment", scopes: [AuthOrchestrationReadScope] },
+            }),
+        }).pipe(Effect.provideService(HttpClient.HttpClient, client.value));
+        return credential.credential;
+      }),
     }),
   };
 }

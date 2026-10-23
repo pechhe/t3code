@@ -2912,43 +2912,41 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     );
   });
 
-  const emitThreadWatches = (
+  const emitThreadWatches = Effect.fn("Orchestrator.emitThreadWatches")(function* (
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     command: OrchestrationV2ServerCommand,
     thread: OrchestrationV2AppThread,
     watches: ReadonlyArray<OrchestrationV2ThreadWatch>,
-  ) =>
-    Effect.gen(function* () {
-      yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.metadata-updated",
-        threadId: thread.id,
-        providerInstanceId: thread.providerInstanceId,
-        occurredAt: yield* DateTime.now,
-        payload: withThreadWatches(thread, watches, yield* DateTime.now),
-      });
+  ) {
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: withThreadWatches(thread, watches, yield* DateTime.now),
     });
+  });
 
-  const emitWorkspaceAttachments = (
+  const emitWorkspaceAttachments = Effect.fn("Orchestrator.emitWorkspaceAttachments")(function* (
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
     command: OrchestrationV2ServerCommand,
     thread: OrchestrationV2AppThread,
     attachments: ReadonlyArray<OrchestrationV2WorkspaceAttachment>,
-  ) =>
-    Effect.gen(function* () {
-      yield* emit(
-        events,
-        command,
-      )({
-        type: "thread.metadata-updated",
-        threadId: thread.id,
-        providerInstanceId: thread.providerInstanceId,
-        occurredAt: yield* DateTime.now,
-        payload: withWorkspaceAttachments(thread, attachments),
-      });
+  ) {
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: thread.id,
+      providerInstanceId: thread.providerInstanceId,
+      occurredAt: yield* DateTime.now,
+      payload: withWorkspaceAttachments(thread, attachments),
     });
+  });
 
   const dispatchWorkspaceAttachmentUpdate = Effect.fn(
     "orchestrationV2.dispatch.workspaceAttachmentUpdate",
@@ -12260,97 +12258,37 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       }),
     );
 
-  const dispatchAdvisorLifecycle = (
+  const dispatchAdvisorLifecycle = Effect.fn("Orchestrator.dispatchAdvisorLifecycle")(function* (
     command: Extract<
       OrchestrationV2InternalCommand,
       { type: "advisor.result.observe" | "advisor.idle.close" }
     >,
     events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
-  ) =>
-    Effect.gen(function* () {
-      const child = yield* projectionStore
-        .getThreadRecords(command.threadId, ["runs", "subagents", "runtimeRequests"])
-        .pipe(
-          Effect.mapError(
-            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
-          ),
-        );
-      if (
-        child.thread.agentTask?.role !== "advisor" ||
-        child.thread.advisorClosedAt !== undefined ||
-        child.thread.deletedAt !== null ||
-        child.thread.archivedAt !== null ||
-        child.runs.some((run) =>
-          ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
-        ) ||
-        child.subagents.some((task) => ["pending", "running", "waiting"].includes(task.status)) ||
-        child.runtimeRequests.some((request) => request.status === "pending")
-      )
-        return;
-      const latest = child.runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
-      if (latest === undefined || !["completed", "failed"].includes(latest.status)) return;
-      const now = yield* DateTime.now;
-      if (command.type === "advisor.result.observe") {
-        if (latest.id !== command.runId || child.thread.advisorResultObserved?.runId === latest.id)
-          return;
-        yield* emit(
-          events,
-          command,
-        )({
-          type: "thread.metadata-updated",
-          threadId: command.threadId,
-          occurredAt: now,
-          payload: {
-            ...child.thread,
-            advisorResultObserved: { runId: latest.id, at: now },
-            updatedAt: now,
-          },
-        });
-        return;
-      }
-      const minutes = (yield* serverSettings.getSettings.pipe(Effect.orDie)).delegation
-        .advisorIdleCloseMinutes;
-      if (minutes === null) return;
-      let observedAt =
-        child.thread.advisorResultObserved?.runId === latest.id
-          ? child.thread.advisorResultObserved.at
-          : undefined;
-      const parentId = child.thread.lineage.parentThreadId;
-      let tasks: ReadonlyArray<OrchestrationV2Subagent> = [];
-      if (parentId !== null) {
-        const parent = yield* projectionStore
-          .getThreadRecords(parentId, ["subagents"])
-          .pipe(
-            Effect.mapError(
-              (cause) => new OrchestratorProjectionError({ threadId: parentId, cause }),
-            ),
-          );
-        tasks = parent.subagents.filter(
-          (task) => task.origin === "app_owned" && task.childThreadId === command.threadId,
-        );
-        const latestTask = tasks
-          .filter(
-            (task) => latest.delegatedTaskId === undefined || task.id === latest.delegatedTaskId,
-          )
-          .toSorted(
-            (a, b) => DateTime.toEpochMillis(b.updatedAt) - DateTime.toEpochMillis(a.updatedAt),
-          )[0];
-        if (
-          latestTask === undefined ||
-          !["delivered", "acknowledged"].includes(latestTask.completionDelivery?.state ?? "")
-        )
-          return;
-        observedAt = latestTask.updatedAt;
-      }
-      if (
-        observedAt === undefined ||
-        DateTime.toEpochMillis(now) -
-          Math.max(
-            DateTime.toEpochMillis(observedAt),
-            DateTime.toEpochMillis(latest.completedAt ?? latest.requestedAt),
-          ) <
-          minutes * 60000
-      )
+  ) {
+    const child = yield* projectionStore
+      .getThreadRecords(command.threadId, ["runs", "subagents", "runtimeRequests"])
+      .pipe(
+        Effect.mapError(
+          (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+        ),
+      );
+    if (
+      child.thread.agentTask?.role !== "advisor" ||
+      child.thread.advisorClosedAt !== undefined ||
+      child.thread.deletedAt !== null ||
+      child.thread.archivedAt !== null ||
+      child.runs.some((run) =>
+        ["queued", "preparing", "starting", "running", "waiting"].includes(run.status),
+      ) ||
+      child.subagents.some((task) => ["pending", "running", "waiting"].includes(task.status)) ||
+      child.runtimeRequests.some((request) => request.status === "pending")
+    )
+      return;
+    const latest = child.runs.toSorted((a, b) => b.ordinal - a.ordinal)[0];
+    if (latest === undefined || !["completed", "failed"].includes(latest.status)) return;
+    const now = yield* DateTime.now;
+    if (command.type === "advisor.result.observe") {
+      if (latest.id !== command.runId || child.thread.advisorResultObserved?.runId === latest.id)
         return;
       yield* emit(
         events,
@@ -12359,28 +12297,87 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         type: "thread.metadata-updated",
         threadId: command.threadId,
         occurredAt: now,
-        payload: { ...child.thread, advisorClosedAt: now, updatedAt: now },
+        payload: {
+          ...child.thread,
+          advisorResultObserved: { runId: latest.id, at: now },
+          updatedAt: now,
+        },
       });
-      for (const task of tasks) {
-        yield* emit(
-          events,
-          command,
-        )({
-          type: "subagent.updated",
-          threadId: task.threadId,
-          ...(task.runId === null ? {} : { runId: task.runId }),
-          nodeId: task.id,
-          driver: task.driver,
-          providerInstanceId: task.providerInstanceId,
-          occurredAt: now,
-          payload: {
-            ...task,
-            completionDelivery: { state: "disposed", observedByRunId: null },
-            updatedAt: now,
-          },
-        });
-      }
+      return;
+    }
+    const minutes = (yield* serverSettings.getSettings.pipe(Effect.orDie)).delegation
+      .advisorIdleCloseMinutes;
+    if (minutes === null) return;
+    let observedAt =
+      child.thread.advisorResultObserved?.runId === latest.id
+        ? child.thread.advisorResultObserved.at
+        : undefined;
+    const parentId = child.thread.lineage.parentThreadId;
+    let tasks: ReadonlyArray<OrchestrationV2Subagent> = [];
+    if (parentId !== null) {
+      const parent = yield* projectionStore
+        .getThreadRecords(parentId, ["subagents"])
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: parentId, cause }),
+          ),
+        );
+      tasks = parent.subagents.filter(
+        (task) => task.origin === "app_owned" && task.childThreadId === command.threadId,
+      );
+      const latestTask = tasks
+        .filter(
+          (task) => latest.delegatedTaskId === undefined || task.id === latest.delegatedTaskId,
+        )
+        .toSorted(
+          (a, b) => DateTime.toEpochMillis(b.updatedAt) - DateTime.toEpochMillis(a.updatedAt),
+        )[0];
+      if (
+        latestTask === undefined ||
+        !["delivered", "acknowledged"].includes(latestTask.completionDelivery?.state ?? "")
+      )
+        return;
+      observedAt = latestTask.updatedAt;
+    }
+    if (
+      observedAt === undefined ||
+      DateTime.toEpochMillis(now) -
+        Math.max(
+          DateTime.toEpochMillis(observedAt),
+          DateTime.toEpochMillis(latest.completedAt ?? latest.requestedAt),
+        ) <
+        minutes * 60000
+    )
+      return;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      occurredAt: now,
+      payload: { ...child.thread, advisorClosedAt: now, updatedAt: now },
     });
+    for (const task of tasks) {
+      yield* emit(
+        events,
+        command,
+      )({
+        type: "subagent.updated",
+        threadId: task.threadId,
+        ...(task.runId === null ? {} : { runId: task.runId }),
+        nodeId: task.id,
+        driver: task.driver,
+        providerInstanceId: task.providerInstanceId,
+        occurredAt: now,
+        payload: {
+          ...task,
+          completionDelivery: { state: "disposed", observedByRunId: null },
+          updatedAt: now,
+        },
+      });
+    }
+  });
 
   const dispatchOnce = Effect.fn("orchestrationV2.dispatch.once")(function* (
     command: OrchestrationV2ServerCommand,

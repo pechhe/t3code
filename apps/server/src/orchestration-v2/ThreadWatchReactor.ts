@@ -121,8 +121,9 @@ const make = Effect.gen(function* () {
 
   // A cheap read of stored state picks the moment; the orchestrator decides again under the
   // watcher's lock, with the restart-continuation hold only it can see.
-  const evaluate = ({ watcherId, watch }: Watching) =>
-    Effect.gen(function* () {
+  // Untraced: it runs once per watch on every domain event, so a span per check would swamp traces.
+  const evaluate = Effect.fnUntraced(
+    function* ({ watcherId, watch }: Watching) {
       if (watch.target.kind !== "thread") return;
       const watched = yield* projections.getThreadRecords(
         watch.target.threadId,
@@ -137,15 +138,18 @@ const make = Effect.gen(function* () {
         threadId: watcherId,
         watchId: watch.id,
       });
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logDebug("thread watch check failed", {
-          watcherId,
-          target: watch.target,
-          cause,
-        }),
+    },
+    (effect, { watcherId, watch }) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logDebug("thread watch check failed", {
+            watcherId,
+            target: watch.target,
+            cause,
+          }),
+        ),
       ),
-    );
+  );
 
   const handle: ThreadWatchReactor["Service"]["handle"] = (event) =>
     serial.withPermits(1)(
@@ -182,8 +186,8 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  const start: ThreadWatchReactor["Service"]["start"] = () =>
-    Effect.gen(function* () {
+  const start: ThreadWatchReactor["Service"]["start"] = Effect.fn("ThreadWatchReactor.start")(
+    function* () {
       yield* forkParked(
         Stream.runForEach(engine.streamDomainEvents, handle).pipe(
           Effect.catchCause((cause) =>
@@ -194,7 +198,8 @@ const make = Effect.gen(function* () {
       yield* forkParked(
         sweep.pipe(Effect.repeat(Schedule.spaced(`${SWEEP_MINUTES} minutes`)), Effect.asVoid),
       );
-    });
+    },
+  );
 
   return { start, handle, sweep } satisfies ThreadWatchReactor["Service"];
 });

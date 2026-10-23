@@ -418,19 +418,22 @@ const make = Effect.gen(function* () {
     }>`SELECT DISTINCT client_session_id FROM external_agent_sessions`,
   );
   for (const row of restored) yield* watch(row.client_session_id);
-  const workspaceAuthority = (projectId: ProjectId, request: AgentTaskRequest, owner: string) =>
-    Effect.gen(function* () {
-      // Isolated helpers and pinned readers may use another workspace of the repository,
-      // so both are checked against the writers there.
-      if (request.workspaceAssignment !== "isolated" && request.sourceRevision === undefined)
-        return {};
-      const project = yield* storage(projects.getById(projectId));
-      return {
-        owner,
-        ...(Option.isNone(project) ? {} : { projectRoot: project.value.workspaceRoot }),
-        occupants: yield* storage(occupantsEverywhere(projects, threads)),
-      };
-    });
+  const workspaceAuthority = Effect.fn("ExternalAgentWorkService.workspaceAuthority")(function* (
+    projectId: ProjectId,
+    request: AgentTaskRequest,
+    owner: string,
+  ) {
+    // Isolated helpers and pinned readers may use another workspace of the repository,
+    // so both are checked against the writers there.
+    if (request.workspaceAssignment !== "isolated" && request.sourceRevision === undefined)
+      return {};
+    const project = yield* storage(projects.getById(projectId));
+    return {
+      owner,
+      ...(Option.isNone(project) ? {} : { projectRoot: project.value.workspaceRoot }),
+      occupants: yield* storage(occupantsEverywhere(projects, threads)),
+    };
+  });
   const attach = (scope: McpInvocationScope, input: AgentSessionAttachInput) =>
     permit.withPermit(
       Effect.gen(function* () {

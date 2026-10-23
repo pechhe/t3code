@@ -293,14 +293,15 @@ const deleteForeignKeyOrphans = Effect.fn("deleteDevDbForeignKeyOrphans")(functi
 // Filtering is confined to the disposable copy. Disable enforcement outside the
 // transaction so RESTRICT, CASCADE and SET NULL cannot interfere with selection;
 // remove missing-parent rows transitively before committing, without relying on rowids.
-const withFilteredTransaction = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const sql = yield* SqlClient.SqlClient;
-    yield* sql.unsafe("PRAGMA foreign_keys = OFF").unprepared;
-    return yield* sql
-      .withTransaction(effect.pipe(Effect.tap(() => deleteForeignKeyOrphans())))
-      .pipe(Effect.ensuring(sql.unsafe("PRAGMA foreign_keys = ON").unprepared.pipe(Effect.orDie)));
-  });
+const withFilteredTransaction = Effect.fn("withFilteredTransaction")(function* <A, E, R>(
+  effect: Effect.Effect<A, E, R>,
+) {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql.unsafe("PRAGMA foreign_keys = OFF").unprepared;
+  return yield* sql
+    .withTransaction(effect.pipe(Effect.tap(() => deleteForeignKeyOrphans())))
+    .pipe(Effect.ensuring(sql.unsafe("PRAGMA foreign_keys = ON").unprepared.pipe(Effect.orDie)));
+});
 
 /**
  * One transaction reads the source, so the copy is consistent while the real server writes.

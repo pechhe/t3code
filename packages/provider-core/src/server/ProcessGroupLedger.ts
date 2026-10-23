@@ -141,26 +141,28 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
   const directory = path.join(input.stateDir, PROCESS_GROUP_DIRECTORY);
   const recordable = platform === "linux" || platform === "darwin";
 
-  const observeLinux = (pid: number, group?: number) =>
-    Effect.gen(function* () {
-      const stat = yield* fs.readFileString(`/proc/${pid}/stat`);
-      const fields = stat
-        .slice(stat.lastIndexOf(")") + 2)
-        .trim()
-        .split(/\s+/);
-      const pgid = Number(fields[2]);
-      const startTime = fields[19];
-      if (!Number.isSafeInteger(pgid) || startTime === undefined) return undefined;
-      if (group !== undefined && pgid !== group) return undefined;
-      const cmdline = yield* fs.readFileString(`/proc/${pid}/cmdline`);
-      return {
-        pid,
-        pgid,
-        startTime,
-        command: cmdline.replace(/\0$/, "").replaceAll("\0", " "),
-        zombie: fields[0] === "Z",
-      } satisfies ObservedProcess;
-    });
+  const observeLinux = Effect.fn("ProcessGroupLedger.observeLinux")(function* (
+    pid: number,
+    group?: number,
+  ) {
+    const stat = yield* fs.readFileString(`/proc/${pid}/stat`);
+    const fields = stat
+      .slice(stat.lastIndexOf(")") + 2)
+      .trim()
+      .split(/\s+/);
+    const pgid = Number(fields[2]);
+    const startTime = fields[19];
+    if (!Number.isSafeInteger(pgid) || startTime === undefined) return undefined;
+    if (group !== undefined && pgid !== group) return undefined;
+    const cmdline = yield* fs.readFileString(`/proc/${pid}/cmdline`);
+    return {
+      pid,
+      pgid,
+      startTime,
+      command: cmdline.replace(/\0$/, "").replaceAll("\0", " "),
+      zombie: fields[0] === "Z",
+    } satisfies ObservedProcess;
+  });
 
   const psDarwin = (selection: ReadonlyArray<string>) =>
     spawner
@@ -225,8 +227,10 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
   const owner =
     ownerProcess === undefined ? undefined : { pid: ownerPid, startTime: ownerProcess.startTime };
 
-  const track: (typeof ProcessGroupLedger)["Service"]["track"] = (group) =>
-    Effect.gen(function* () {
+  const track: (typeof ProcessGroupLedger)["Service"]["track"] = Effect.fn(
+    "ProcessGroupLedger.track",
+  )(
+    function* (group) {
       if (!recordable) return Effect.void;
       const pgid = group.pid;
       // The spawned process leads the group. If it already exited (a wrapper
@@ -274,50 +278,53 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
             Effect.logWarning("Could not forget a stopped provider process", { cause }),
           ),
         );
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Could not record a provider process", { cause }).pipe(
-          Effect.as(Effect.void),
-        ),
+    },
+    Effect.catchCause((cause) =>
+      Effect.logWarning("Could not record a provider process", { cause }).pipe(
+        Effect.as(Effect.void),
       ),
-    );
+    ),
+  );
 
   // Signals only a group whose recorded member still has the same pid, start
   // time, group, and full command line, so a recycled pid is never touched.
-  const stopOrphan = (entry: ProcessGroupEntry) =>
-    Effect.gen(function* () {
-      const observed = yield* observe(entry.pid);
-      if (
-        observed === undefined ||
-        observed.zombie ||
-        observed.startTime !== entry.startTime ||
-        observed.pgid !== entry.pgid ||
-        observed.command !== entry.command
-      ) {
-        return;
-      }
-      yield* Effect.logInfo("Stopping a provider process left by a previous T3 Code server", {
-        pid: entry.pgid,
-      });
-      signalGroup(entry.pgid, "SIGTERM");
-      for (let attempt = 0; attempt < STOP_POLL_ATTEMPTS && groupExists(entry.pgid); attempt++) {
-        yield* Effect.sleep(STOP_POLL_INTERVAL);
-      }
-      // The group never emptied, so its pgid cannot have been reused.
-      if (groupExists(entry.pgid)) signalGroup(entry.pgid, "SIGKILL");
+  const stopOrphan = Effect.fn("ProcessGroupLedger.stopOrphan")(function* (
+    entry: ProcessGroupEntry,
+  ) {
+    const observed = yield* observe(entry.pid);
+    if (
+      observed === undefined ||
+      observed.zombie ||
+      observed.startTime !== entry.startTime ||
+      observed.pgid !== entry.pgid ||
+      observed.command !== entry.command
+    ) {
+      return;
+    }
+    yield* Effect.logInfo("Stopping a provider process left by a previous T3 Code server", {
+      pid: entry.pgid,
     });
+    signalGroup(entry.pgid, "SIGTERM");
+    for (let attempt = 0; attempt < STOP_POLL_ATTEMPTS && groupExists(entry.pgid); attempt++) {
+      yield* Effect.sleep(STOP_POLL_INTERVAL);
+    }
+    // The group never emptied, so its pgid cannot have been reused.
+    if (groupExists(entry.pgid)) signalGroup(entry.pgid, "SIGKILL");
+  });
 
-  const outlives = (owner: ProcessIdentity, grace: Duration.Duration) =>
-    Effect.gen(function* () {
-      const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(grace);
-      while ((yield* Clock.currentTimeMillis) < deadline && pidExists(owner.pid)) {
-        yield* Effect.sleep(STOP_POLL_INTERVAL);
-      }
-      return yield* isRunning(owner);
-    });
+  const outlives = Effect.fn("ProcessGroupLedger.outlives")(function* (
+    owner: ProcessIdentity,
+    grace: Duration.Duration,
+  ) {
+    const deadline = (yield* Clock.currentTimeMillis) + Duration.toMillis(grace);
+    while ((yield* Clock.currentTimeMillis) < deadline && pidExists(owner.pid)) {
+      yield* Effect.sleep(STOP_POLL_INTERVAL);
+    }
+    return yield* isRunning(owner);
+  });
 
-  const reapEntry = (entryPath: string, stoppedOwners: StoppedOwners | undefined) =>
-    Effect.gen(function* () {
+  const reapEntry = Effect.fn("ProcessGroupLedger.reapEntry")(
+    function* (entryPath: string, stoppedOwners: StoppedOwners | undefined) {
       const entry = decodeEntry(yield* fs.readFileString(entryPath));
       if (Option.isSome(entry) && entry.value.stateDir === input.stateDir) {
         const { owner } = entry.value;
@@ -328,21 +335,25 @@ export const make = Effect.fn("ProcessGroupLedger.make")(function* (input: {
         yield* stopOrphan(entry.value);
       }
       yield* fs.remove(entryPath, { force: true });
-    }).pipe(
-      Effect.catchCause((cause) =>
-        Effect.logWarning("Could not clean up a recorded provider process", { entryPath, cause }),
+    },
+    (effect, entryPath) =>
+      effect.pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Could not clean up a recorded provider process", { entryPath, cause }),
+        ),
       ),
-    );
+  );
 
-  const reapOrphans = (stoppedOwners?: StoppedOwners) =>
-    Effect.gen(function* () {
-      const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
-      yield* Effect.forEach(
-        names.filter((name) => ENTRY_FILE.test(name)),
-        (name) => reapEntry(path.join(directory, name), stoppedOwners),
-        { concurrency: "unbounded", discard: true },
-      );
-    });
+  const reapOrphans = Effect.fn("ProcessGroupLedger.reapOrphans")(function* (
+    stoppedOwners?: StoppedOwners,
+  ) {
+    const names = yield* fs.readDirectory(directory).pipe(Effect.orElseSucceed(() => []));
+    yield* Effect.forEach(
+      names.filter((name) => ENTRY_FILE.test(name)),
+      (name) => reapEntry(path.join(directory, name), stoppedOwners),
+      { concurrency: "unbounded", discard: true },
+    );
+  });
 
   return { track, reapOrphans };
 });

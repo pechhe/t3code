@@ -260,31 +260,33 @@ export const make = Effect.gen(function* () {
       ),
     );
 
-  const readProject = (root: string, operation: string) =>
-    Effect.gen(function* () {
-      const onError = (cause: unknown) =>
-        failure(operation, "slipjay policy show", root, "SlipJay could not be run.", cause);
-      const [policy, config] = yield* Effect.all(
-        [
-          run(["policy", "show", "--json"], { cwd: root, timeout: "1 minute" }, onError),
-          run(["config", "--json"], { cwd: root, timeout: "30 seconds" }, onError),
-        ],
-        { concurrency: 2 },
+  const readProject = Effect.fn("SlipJaySettings.readProject")(function* (
+    root: string,
+    operation: string,
+  ) {
+    const onError = (cause: unknown) =>
+      failure(operation, "slipjay policy show", root, "SlipJay could not be run.", cause);
+    const [policy, config] = yield* Effect.all(
+      [
+        run(["policy", "show", "--json"], { cwd: root, timeout: "1 minute" }, onError),
+        run(["config", "--json"], { cwd: root, timeout: "30 seconds" }, onError),
+      ],
+      { concurrency: 2 },
+    );
+    const settings =
+      policy.code === 0 && config.code === 0
+        ? projectSettings(policy.stdout, config.stdout, root)
+        : undefined;
+    // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
+    if (settings === undefined)
+      return yield* failure(
+        operation,
+        "slipjay policy show",
+        root,
+        "SlipJay could not read this project's settings. Run `slipjay policy show` in the project for details.",
       );
-      const settings =
-        policy.code === 0 && config.code === 0
-          ? projectSettings(policy.stdout, config.stdout, root)
-          : undefined;
-      // SlipJay's stderr can carry runner URLs and paths, so it stays on the server.
-      if (settings === undefined)
-        return yield* failure(
-          operation,
-          "slipjay policy show",
-          root,
-          "SlipJay could not read this project's settings. Run `slipjay policy show` in the project for details.",
-        );
-      return settings;
-    });
+    return settings;
+  });
 
   const project: SlipJaySettings["Service"]["project"] = Effect.fn("SlipJaySettings.project")(
     function* ({ cwd }) {

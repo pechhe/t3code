@@ -213,20 +213,21 @@ export const makeManagedServerProvider = Effect.fn("makeManagedServerProvider")(
     },
   );
 
-  const replaceUsageLimits: ManagedServerProvider["replaceUsageLimits"] = (usageLimits) =>
-    Effect.gen(function* () {
-      const snapshot = yield* Ref.modify(snapshotStateRef, (state) => {
-        const resetCredits = state.snapshot.usageLimits?.resetCredits;
-        const next = withUsageLimits(state.snapshot, {
-          ...usageLimits,
-          ...(usageLimits.resetCredits === undefined && resetCredits !== undefined
-            ? { resetCredits }
-            : {}),
-        });
-        return [next, { ...state, snapshot: next }] as const;
+  const replaceUsageLimits: ManagedServerProvider["replaceUsageLimits"] = Effect.fn(
+    "replaceUsageLimits",
+  )(function* (usageLimits) {
+    const snapshot = yield* Ref.modify(snapshotStateRef, (state) => {
+      const resetCredits = state.snapshot.usageLimits?.resetCredits;
+      const next = withUsageLimits(state.snapshot, {
+        ...usageLimits,
+        ...(usageLimits.resetCredits === undefined && resetCredits !== undefined
+          ? { resetCredits }
+          : {}),
       });
-      yield* PubSub.publish(changesPubSub, snapshot);
+      return [next, { ...state, snapshot: next }] as const;
     });
+    yield* PubSub.publish(changesPubSub, snapshot);
+  });
 
   const refreshSnapshot = Effect.fn("refreshSnapshot")(function* () {
     const nextSettings = yield* input.getSettings;
