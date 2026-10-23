@@ -6,7 +6,6 @@ import {
   type ReactNode,
   type Ref,
   useImperativeHandle,
-  useMemo,
   useState,
 } from "react";
 
@@ -38,6 +37,7 @@ const PROVIDER_LIGHTS: Readonly<Record<string, string>> = {
   grok: "oklch(0.66 0.2 15)",
   opencode: "oklch(0.74 0.16 115)",
   antigravity: "oklch(0.66 0.17 255)",
+  pi: "oklch(0.45 0.17 264)",
 };
 
 const selectModelSlotLabels = (settings: ClientSettings) => settings.modelSlotLabels;
@@ -96,53 +96,38 @@ export function DeviceModelSlider(props: {
     ref,
   } = props;
 
-  const resolveSlot = useMemo(
-    () =>
-      (instanceId: ProviderInstanceId, model: string): Slot | null => {
-        const entry = instanceEntries.find((candidate) => candidate.instanceId === instanceId);
-        if (!entry || !entry.enabled) return null;
-        const option = resolveModelPickerSelectedModel({
-          driverKind: entry.driverKind,
-          model,
-          options: modelOptionsByInstance.get(instanceId) ?? [],
-        });
-        const locked =
-          lockedProvider !== null &&
-          (entry.driverKind !== lockedProvider ||
-            (lockedContinuationGroupKey !== null &&
-              entry.continuationGroupKey !== lockedContinuationGroupKey));
-        const slug = option?.slug ?? model;
-        const key = providerModelKey(instanceId, slug);
-        const modelName = option ? getTriggerDisplayModelName(option) : model;
-        return {
-          key,
-          instanceId,
-          model: slug,
-          label: slotLabels[key] ?? modelName,
-          modelName,
-          disabledReason: locked
-            ? "This thread can't switch to another provider"
-            : getModelDisabledReason(instanceId, model),
-        };
-      },
-    [
-      getModelDisabledReason,
-      instanceEntries,
-      lockedContinuationGroupKey,
-      lockedProvider,
-      modelOptionsByInstance,
-      slotLabels,
-    ],
-  );
+  const resolveSlot = (instanceId: ProviderInstanceId, model: string): Slot | null => {
+    const entry = instanceEntries.find((candidate) => candidate.instanceId === instanceId);
+    if (!entry || !entry.enabled) return null;
+    const option = resolveModelPickerSelectedModel({
+      driverKind: entry.driverKind,
+      model,
+      options: modelOptionsByInstance.get(instanceId) ?? [],
+    });
+    const locked =
+      lockedProvider !== null &&
+      (entry.driverKind !== lockedProvider ||
+        (lockedContinuationGroupKey !== null &&
+          entry.continuationGroupKey !== lockedContinuationGroupKey));
+    const slug = option?.slug ?? model;
+    const key = providerModelKey(instanceId, slug);
+    const modelName = option ? getTriggerDisplayModelName(option) : model;
+    return {
+      key,
+      instanceId,
+      model: slug,
+      label: slotLabels[key] ?? modelName,
+      modelName,
+      disabledReason: locked
+        ? "This thread can't switch to another provider"
+        : getModelDisabledReason(instanceId, model),
+    };
+  };
 
-  const slots = useMemo(
-    () =>
-      favorites
-        .map((favorite) => resolveSlot(favorite.provider, favorite.model))
-        .filter((slot): slot is Slot => slot !== null)
-        .slice(0, FAVORITE_SLOTS),
-    [favorites, resolveSlot],
-  );
+  const slots = favorites
+    .map((favorite) => resolveSlot(favorite.provider, favorite.model))
+    .filter((slot): slot is Slot => slot !== null)
+    .slice(0, FAVORITE_SLOTS);
   const active = resolveSlot(activeInstanceId, props.model);
   const activeIndex = slots.findIndex((slot) => slot.key === active?.key);
 
