@@ -7,6 +7,10 @@
       "types": "./src/projectIdentity.ts",
       "import": "./src/projectIdentity.ts"
     },
+    "./macWindowCapture": {
+      "types": "./src/macWindowCapture.ts",
+      "import": "./src/macWindowCapture.ts"
+    },
     "./changedFileKind": {
       "types": "./src/changedFileKind.ts",
       "import": "./src/changedFileKind.ts"
