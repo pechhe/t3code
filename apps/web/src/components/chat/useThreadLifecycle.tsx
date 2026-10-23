@@ -415,7 +415,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   };
   const handleStopBackgroundWorkStable = useStableCallback(handleStopBackgroundWork);
   const openRelatedThreadGenerationRef = useRef(0);
-  const onOpenRelatedThread = async (threadId: ThreadId) => {
+  const onOpenRelatedThread = async (threadId: ThreadId, hash?: string) => {
     const generation = ++openRelatedThreadGenerationRef.current;
     const threadRef = scopeThreadRef(environmentId, threadId);
     const isEnvironmentLive = () =>
@@ -440,6 +440,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(threadRef),
+      ...(hash === undefined ? {} : { hash }),
     });
   };
   const onOpenRelatedThreadStable = useStableCallback(onOpenRelatedThread);

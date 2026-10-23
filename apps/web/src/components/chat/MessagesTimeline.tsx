@@ -69,6 +69,7 @@ import {
   timelineTurnFoldRunIdsByEntryId,
   worktreeSetupAgentStarted,
   type MessagesTimelineRow,
+  findRunFirstRowIndex,
   findSubagentCardRow,
   type TimelineLatestRun,
 } from "./MessagesTimeline.logic";
@@ -215,7 +216,9 @@ interface MessagesTimelineProps {
   /** Off where another region already speaks the thread's status, like a subagent's bar. */
   announceTurnStatus?: boolean;
   onOpenTurnDiff: (runId: RunId, filePath?: string) => void;
-  onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"]) => void;
+  onOpenThread: (threadId: OrchestrationV2TurnItem["threadId"], hash?: string) => void;
+  /** A follow-up round to land on when a thread opens from its pill. */
+  roundAnchor?: { readonly runId: RunId; readonly key: string } | null;
   parentThreadLink?: {
     readonly threadId: ThreadId;
     readonly title: string;
@@ -332,6 +335,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   announceTurnStatus = true,
   onOpenTurnDiff,
   onOpenThread,
+  roundAnchor = null,
   parentThreadLink = null,
   workflowOpening = null,
   onForkFromRun,
@@ -661,6 +665,52 @@ const ConversationTimeline = memo(function ConversationTimeline({
     onCitationListLoad();
     setFindListReady(true);
   };
+  // A follow-up pill opens the reviewer's conversation at that round rather than at the end.
+  // The list is reused across threads, so a consumed anchor is forgotten when the thread changes;
+  // opening the same round again from the parent then lands on it again.
+  const roundAnchorScrolledRef = useRef<{ key: string; identity: string } | null>(null);
+  const roundAnchorRunId = roundAnchor?.runId ?? null;
+  const roundAnchorKey = roundAnchor?.key ?? null;
+  useEffect(() => {
+    const consumed = roundAnchorScrolledRef.current;
+    if (consumed !== null && consumed.identity !== listIdentityKey) {
+      roundAnchorScrolledRef.current = null;
+    }
+  }, [listIdentityKey]);
+  useEffect(() => {
+    const consumed = roundAnchorScrolledRef.current;
+    if (
+      roundAnchorKey === null ||
+      roundAnchorRunId === null ||
+      !findListReady ||
+      !listRef.current ||
+      (consumed?.key === roundAnchorKey && consumed.identity === listIdentityKey)
+    ) {
+      return;
+    }
+    // The list is reused across threads and resets its own scroll while its data swaps, so land
+    // on the round after that swap has laid out rather than during it.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const current = roundAnchorScrolledRef.current;
+        if (current?.key === roundAnchorKey && current.identity === listIdentityKey) return;
+        const index = findRunFirstRowIndex(rows, roundAnchorRunId);
+        if (index < 0) return;
+        roundAnchorScrolledRef.current = { key: roundAnchorKey, identity: listIdentityKey };
+        onManualNavigation();
+        void listRef.current?.scrollToIndex({ index, animated: false, viewOffset: 24 });
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    findListReady,
+    listIdentityKey,
+    listRef,
+    onManualNavigation,
+    roundAnchorKey,
+    roundAnchorRunId,
+    rows,
+  ]);
   const [minimapHasPersistentGutter, setMinimapHasPersistentGutter] = useState(false);
   const [fullscreenAppRowId, setFullscreenAppRowId] = useState<string | null>(null);
   const onAppFullscreenChange = (rowId: string, fullscreen: boolean) => {
@@ -1244,7 +1294,10 @@ const ConversationTimeline = memo(function ConversationTimeline({
               renderItem={renderItem}
               estimatedItemSize={90}
               initialScrollAtEnd={
-                !findActive && citationRequest === null && rememberedPosition?.atEnd !== false
+                !findActive &&
+                citationRequest === null &&
+                roundAnchor === null &&
+                rememberedPosition?.atEnd !== false
               }
               // Legend needs a data refresh to mount new pins without a scroll event.
               dataVersion={readyCitationRequest?.key ?? listIdentityKey}

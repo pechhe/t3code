@@ -28,8 +28,11 @@ import {
 } from "@t3tools/client-runtime/state/subagent-display";
 import { formatTokens } from "@t3tools/shared/usageFormat";
 import {
+  AGENT_ROLE_TITLE_LABEL,
   agentTaskTopic,
+  isReviewerRole,
   ProviderDriverKind,
+  type AgentRole,
   type OrchestrationV2Notification,
   type OrchestrationV2TurnItem,
   type OrchestrationV2Subagent,
@@ -47,6 +50,7 @@ import {
   ArrowRightLeftIcon,
   ArrowRightIcon,
   ArrowUpIcon,
+  ArrowUpRightIcon,
   FolderInputIcon,
   GitForkIcon,
   MessageSquareIcon,
@@ -65,8 +69,14 @@ import { formatShortTimestamp } from "../../timestampFormat";
 import { getTriggerDisplayModelName } from "./providerIconUtils";
 import { ProviderInstanceIcon, providerTextColor } from "./ProviderInstanceIcon";
 import { cn } from "~/lib/utils";
+import { subagentRoundHash } from "~/lib/subagentRoundNavigation";
 import { TimelineSystemDivider } from "./TimelineSystemDivider";
-import { subagentReturnStatus, subagentReturnVerb } from "./V2LifecycleRow.logic";
+import {
+  subagentFollowUpRound,
+  subagentFollowUpVerb,
+  subagentReturnStatus,
+  subagentReturnVerb,
+} from "./V2LifecycleRow.logic";
 import { Button, InlineButton } from "../ui/button";
 import { T3Wordmark } from "../T3Wordmark";
 
@@ -93,7 +103,7 @@ export function V2LifecycleRow(props: {
   readonly createdAt: string;
   readonly timestampFormat: TimestampFormat;
   readonly runs: ReadonlyArray<HandoffTimelineRun>;
-  readonly onOpenThread: (threadId: ThreadId) => void;
+  readonly onOpenThread: (threadId: ThreadId, hash?: string) => void;
 }) {
   const { item } = props;
   if (item.type === "run_interrupt_request") {
@@ -238,6 +248,7 @@ export function V2LifecycleRow(props: {
         startedAt={item.startedAt}
         completedAt={item.completedAt}
         threadId={item.childThreadId}
+        timestampFormat={props.timestampFormat}
         onOpenThread={props.onOpenThread}
       />
     );
@@ -368,6 +379,76 @@ export function EnvironmentSubagentAvatar({
   return <SubagentAvatar {...props} displayName={displayName} iconUrl={iconUrl} />;
 }
 
+const SUBAGENT_PILL_CLASS =
+  "my-1 ml-2 inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-1 text-2xs text-muted-foreground transition-colors hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-inset data-[return-highlight]:bg-info/12 data-[return-highlight]:ring-1 data-[return-highlight]:ring-info/40";
+
+/**
+ * One compact event involving a subagent: its return, or a follow-up round with an agent that
+ * already has a card. Both point at the same child conversation without introducing a new agent.
+ */
+function SubagentPill(props: {
+  readonly parentRef: ScopedThreadRef;
+  readonly providerInstanceId: ProviderInstanceId;
+  readonly driver: ProviderDriverKind | undefined;
+  readonly status: OrchestrationV2TurnItem["status"] | undefined;
+  readonly topic: string;
+  readonly round: number | null;
+  readonly verb: string;
+  readonly failed: boolean;
+  readonly timing: ReactNode;
+  readonly ariaLabel: string;
+  readonly kind: "notification" | "subagent";
+  readonly subagentId: NodeId | undefined;
+  readonly onActivate: () => void;
+  readonly onHighlight: ((highlighted: boolean) => void) | undefined;
+  readonly trailing: ReactNode;
+}) {
+  const highlight = props.onHighlight;
+  return (
+    <button
+      type="button"
+      data-v2-item-type={props.kind}
+      data-subagent-id={props.subagentId}
+      aria-label={props.ariaLabel}
+      onPointerEnter={highlight ? () => highlight(true) : undefined}
+      onPointerLeave={highlight ? () => highlight(false) : undefined}
+      onFocus={highlight ? () => highlight(true) : undefined}
+      onBlur={highlight ? () => highlight(false) : undefined}
+      onClick={props.onActivate}
+      className={cn(
+        SUBAGENT_PILL_CLASS,
+        props.failed ? "border-destructive/35" : "border-border/70",
+      )}
+    >
+      <EnvironmentSubagentAvatar
+        environmentId={props.parentRef.environmentId}
+        providerInstanceId={props.providerInstanceId}
+        driver={props.driver}
+        status={props.status}
+        size="sm"
+      />
+      <span className="min-w-0 truncate font-medium text-foreground">{props.topic}</span>
+      {props.round === null ? null : <span className="shrink-0">· Follow-up {props.round}</span>}
+      <span className={cn("shrink-0", props.failed && "text-destructive")}>{props.verb}</span>
+      {props.timing === null ? null : (
+        <>
+          <span aria-hidden className="shrink-0 text-muted-foreground/60">
+            ·
+          </span>
+          <span className="shrink-0 tabular-nums">{props.timing}</span>
+        </>
+      )}
+      {props.trailing}
+    </button>
+  );
+}
+
+/** The name a card shows as its role chip plus topic, so a chip identifies the same agent. */
+function subagentDisplayName(title: string, role: AgentRole | undefined): string {
+  const topic = role ? agentTaskTopic(title, role) : title;
+  return role ? [AGENT_ROLE_TITLE_LABEL[role], topic].filter(Boolean).join(" · ") : title;
+}
+
 /**
  * Marks where a subagent's result reached the parent. The subagent's own card already shows
  * its live status and result, so this stays a small chip that points back at that card.
@@ -393,47 +474,73 @@ export function SubagentReturnChip(props: {
       ) ?? null,
   );
   const childThreadId = agent?.childThreadId ?? props.childThreadId ?? null;
+  const round = useAtomValue(environmentThreadDetails.threadAtom(props.parentRef), (thread) =>
+    agent === null ? null : subagentFollowUpRound(thread?.projection.subagents ?? [], agent.id),
+  );
   const role = useThreadShell(
     childThreadId ? scopeThreadRef(props.parentRef.environmentId, childThreadId) : null,
   )?.source.agentTask?.role;
   if (agent === null) return props.fallback;
   const title = formatSubagentDisplayTitle(agent.title ?? "Subagent");
-  const topic = role ? agentTaskTopic(title, role) : title;
+  const name = subagentDisplayName(title, role);
   const failed = props.outcome === "failed";
   return (
-    <button
-      type="button"
-      data-v2-item-type="notification"
-      aria-label={`Jump to ${topic}`}
-      onPointerEnter={() => props.onHighlight(agent.id, true)}
-      onPointerLeave={() => props.onHighlight(agent.id, false)}
-      onFocus={() => props.onHighlight(agent.id, true)}
-      onBlur={() => props.onHighlight(agent.id, false)}
-      onClick={() => props.onJump(agent.id, childThreadId)}
-      className={cn(
-        "my-1 ml-2 inline-flex max-w-full min-w-0 cursor-pointer items-center gap-1.5 rounded-full border py-0.5 pr-2.5 pl-1 text-2xs text-muted-foreground transition-colors hover:bg-accent/20 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-inset",
-        failed ? "border-destructive/35" : "border-border/70",
-      )}
-    >
-      <EnvironmentSubagentAvatar
-        environmentId={props.parentRef.environmentId}
-        providerInstanceId={agent.providerInstanceId}
-        driver={agent.driver}
-        status={subagentReturnStatus(props.outcome) ?? agent.status}
-        size="sm"
-      />
-      <span className="min-w-0 truncate font-medium text-foreground">{topic}</span>
-      <span className={cn("shrink-0", failed && "text-destructive")}>
-        {subagentReturnVerb(props.outcome)}
-      </span>
-      <span aria-hidden className="shrink-0 text-muted-foreground/60">
-        ·
-      </span>
-      <span className="shrink-0 tabular-nums">
-        {formatShortTimestamp(props.createdAt, props.timestampFormat)}
-      </span>
-      <ArrowUpIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
-    </button>
+    <SubagentPill
+      parentRef={props.parentRef}
+      providerInstanceId={agent.providerInstanceId}
+      driver={agent.driver}
+      status={subagentReturnStatus(props.outcome) ?? agent.status}
+      topic={name}
+      round={round}
+      verb={subagentReturnVerb(props.outcome)}
+      failed={failed}
+      timing={formatShortTimestamp(props.createdAt, props.timestampFormat)}
+      ariaLabel={`Jump to ${name}`}
+      kind="notification"
+      subagentId={undefined}
+      onActivate={() => props.onJump(agent.id, childThreadId)}
+      onHighlight={(highlighted) => props.onHighlight(agent.id, highlighted)}
+      trailing={<ArrowUpIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />}
+    />
+  );
+}
+
+/**
+ * A follow-up with an agent whose assignment already has a card: the same avatar and name, one
+ * exchange counted from that assignment, opening the same child conversation.
+ */
+function SubagentFollowUpChip(props: {
+  readonly parentRef: ScopedThreadRef;
+  readonly subagentId: NodeId;
+  readonly providerInstanceId: ProviderInstanceId;
+  readonly driver: ProviderDriverKind;
+  readonly status: OrchestrationV2TurnItem["status"];
+  readonly name: string;
+  readonly round: number;
+  readonly reviewing: boolean;
+  readonly elapsed: ReactNode;
+  readonly onOpen: () => void;
+}) {
+  return (
+    <SubagentPill
+      parentRef={props.parentRef}
+      providerInstanceId={props.providerInstanceId}
+      driver={props.driver}
+      status={props.status}
+      topic={props.name}
+      round={props.round}
+      verb={subagentFollowUpVerb(props.status, props.reviewing)}
+      failed={props.status === "failed"}
+      timing={props.elapsed}
+      ariaLabel={`Open ${props.name} · follow-up ${props.round}`}
+      kind="subagent"
+      subagentId={props.subagentId}
+      onActivate={props.onOpen}
+      onHighlight={undefined}
+      trailing={
+        <ArrowUpRightIcon aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+      }
+    />
   );
 }
 
@@ -450,11 +557,17 @@ function SubagentTimelineLink(props: {
   readonly startedAt: DateTime.Utc | null;
   readonly completedAt: DateTime.Utc | null;
   readonly threadId: ThreadId | null;
-  readonly onOpenThread: (threadId: ThreadId) => void;
+  readonly timestampFormat: TimestampFormat;
+  readonly onOpenThread: (threadId: ThreadId, hash?: string) => void;
 }) {
   const agent = useAtomValue(
     environmentThreadDetails.threadAtom(props.parentRef),
     (thread) => thread?.projection.subagents.find((agent) => agent.id === props.subagentId) ?? null,
+  );
+  // A follow-up continues a child conversation that already has a card, so it stays a chip.
+  const followUpRound = useAtomValue(
+    environmentThreadDetails.threadAtom(props.parentRef),
+    (thread) => subagentFollowUpRound(thread?.projection.subagents ?? [], props.subagentId),
   );
   const threadId = props.threadId;
   // A managed task names its role in its title; the row shows it as the role chip instead.
@@ -497,6 +610,22 @@ function SubagentTimelineLink(props: {
   }
   if (agent?.totalTokens !== undefined) {
     meta.push(`${formatTokens(agent.totalTokens)} tokens`);
+  }
+  if (followUpRound !== null && threadId !== null) {
+    return (
+      <SubagentFollowUpChip
+        parentRef={props.parentRef}
+        subagentId={props.subagentId}
+        providerInstanceId={props.providerInstanceId}
+        driver={props.driver}
+        status={liveStatus}
+        name={subagentDisplayName(props.title, role)}
+        round={followUpRound}
+        reviewing={role !== undefined && isReviewerRole(role)}
+        elapsed={<SubagentElapsed agent={timing} />}
+        onOpen={() => props.onOpenThread(threadId, subagentRoundHash(props.subagentId))}
+      />
+    );
   }
   const content = (
     <>

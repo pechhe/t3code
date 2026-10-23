@@ -391,3 +391,74 @@ describe("compact reasoning math", () => {
     ]);
   });
 });
+
+describe("MessagesTimeline round anchors", () => {
+  it("opens at the follow-up round an anchor names, not at the end of the conversation", async () => {
+    const firstRun = RunId.make("run-first");
+    const secondRun = RunId.make("run-second");
+    const entry = (label: string, index: number, runId: RunId) =>
+      message(
+        `${label} round ${index}\n\n${"Review detail. ".repeat(160)}`,
+        { runId },
+        `${label}-${index}`,
+      );
+    const entries = [
+      ...Array.from({ length: 10 }, (_, index) => entry("first", index, firstRun)),
+      ...Array.from({ length: 10 }, (_, index) => entry("second", index, secondRun)),
+    ];
+    await using screen = await renderTimeline(entries, {
+      roundAnchor: { runId: secondRun, key: "second-round" },
+    });
+    await vi.waitFor(() => {
+      expect(roundRowTop(screen.container)).toBeLessThan(200);
+    });
+  });
+
+  it("lands on the round again after leaving the thread and returning", async () => {
+    const props = baseProps();
+    const firstRun = RunId.make("run-first");
+    const secondRun = RunId.make("run-second");
+    const entry = (label: string, index: number, runId: RunId) =>
+      message(
+        `${label} round ${index}\n\n${"Review detail. ".repeat(160)}`,
+        { runId },
+        `${label}-${index}`,
+      );
+    const entries = [
+      ...Array.from({ length: 10 }, (_, index) => entry("first", index, firstRun)),
+      ...Array.from({ length: 10 }, (_, index) => entry("second", index, secondRun)),
+    ];
+    const anchor = { runId: secondRun, key: "second-round" };
+    const timeline = (threadKey: string, roundAnchor: typeof anchor | null, data = entries) => (
+      <MessagesTimeline
+        {...props}
+        routeThreadKey={threadKey}
+        roundAnchor={roundAnchor}
+        timelineEntries={data}
+      />
+    );
+    await using screen = await renderElement(timeline("child", anchor));
+    await vi.waitFor(() => {
+      expect(roundRowTop(screen.container)).toBeLessThan(200);
+    });
+    const viewport = screen.container.querySelector<HTMLElement>(".messages-timeline-scroll")!;
+    await act(() => {
+      viewport.scrollTop = 0;
+      viewport.dispatchEvent(new Event("scroll"));
+    });
+    // Leave the reviewer conversation, then open the same round from the parent again.
+    await screen.rerender(timeline("parent", null, [message("parent")]));
+    await screen.rerender(timeline("child", anchor));
+    await vi.waitFor(() => {
+      expect(roundRowTop(screen.container)).toBeLessThan(200);
+    });
+  });
+});
+
+/** Distance from the timeline's top to the second round's first row, or a large value if hidden. */
+function roundRowTop(container: HTMLElement): number {
+  const row = container.querySelector('[data-timeline-row-id="entry-second-0"]');
+  const viewport = container.querySelector(".messages-timeline-scroll");
+  if (!row || !viewport) return Number.POSITIVE_INFINITY;
+  return row.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+}

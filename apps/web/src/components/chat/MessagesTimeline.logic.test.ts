@@ -25,6 +25,7 @@ import { describe, expect, it } from "vite-plus/test";
 import { EnvironmentId, MessageId, RunId } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import {
+  findRunFirstRowIndex,
   findSubagentCardRow,
   computeStableMessagesTimelineRows,
   computeMessageDurationStart,
@@ -4579,5 +4580,50 @@ describe("shouldCollapseUserMessage", () => {
 
     expect(shouldCollapseUserMessage(`${citation} Can you expand on this?`)).toBe(false);
     expect(shouldCollapseUserMessage(`${citation} ${"More text. ".repeat(60)}`)).toBe(true);
+  });
+});
+
+describe("findRunFirstRowIndex", () => {
+  const runA = RunId.make("run-a");
+  const runB = RunId.make("run-b");
+  const message = (id: string, runId: RunId): MessagesTimelineRow => ({
+    kind: "message",
+    id,
+    createdAt: "2026-10-23T09:00:00.000Z",
+    durationStart: "2026-10-23T09:00:00.000Z",
+    message: {
+      id: MessageId.make(id),
+      role: "user",
+      text: "",
+      runId,
+      createdAt: "2026-10-23T09:00:00.000Z",
+      updatedAt: "2026-10-23T09:00:00.000Z",
+      streaming: false,
+    },
+    showAssistantMeta: false,
+    showAssistantCopyButton: false,
+    assistantCopyStreaming: false,
+  });
+  const fold = (id: string, runId: RunId): MessagesTimelineRow => ({
+    kind: "turn-fold",
+    id,
+    createdAt: "2026-10-23T09:00:00.000Z",
+    runId,
+    label: "Worked for 12s",
+    expanded: false,
+  });
+
+  it("lands on the first row of a round, even after other rounds follow it", () => {
+    const rows = [message("a-1", runA), fold("b-fold", runB), message("b-1", runB)];
+    expect(findRunFirstRowIndex(rows, runA)).toBe(0);
+    expect(findRunFirstRowIndex(rows, runB)).toBe(1);
+  });
+
+  it("lands on the fold that stands in for a settled round", () => {
+    expect(findRunFirstRowIndex([fold("a-fold", runA), message("b-1", runB)], runA)).toBe(0);
+  });
+
+  it("reports an unknown round as absent", () => {
+    expect(findRunFirstRowIndex([message("a-1", runA)], runB)).toBe(-1);
   });
 });

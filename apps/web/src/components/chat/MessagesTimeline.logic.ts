@@ -670,6 +670,36 @@ export function subagentGroupDisclosureId(rowId: string): string {
   return `subagent-group:${rowId}`;
 }
 
+/**
+ * Where a round starts in a conversation: its first row, or the fold that stands in for it once
+ * the round has settled.
+ */
+export function findRunFirstRowIndex(
+  rows: ReadonlyArray<MessagesTimelineRow>,
+  runId: RunId,
+): number {
+  return rows.findIndex((row) => {
+    switch (row.kind) {
+      case "message":
+      case "assistant-meta":
+        return row.message.runId === runId;
+      case "event":
+        return row.projectedItem.item.runId === runId;
+      case "work":
+      case "work-live":
+        return row.groupedEntries.some((entry) => entry.runId === runId);
+      case "subagent-returns":
+        return row.entries.some((entry) => entry.runId === runId);
+      case "work-toggle":
+      case "turn-fold":
+      case "attempt-fold":
+        return row.runId === runId;
+      default:
+        return false;
+    }
+  });
+}
+
 export function findSubagentCardRow(
   rows: ReadonlyArray<MessagesTimelineRow>,
   subagentId: string,

@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { environmentThreadDetails } from "../../state/threads";
-import type { OrchestrationV2Notification, OrchestrationV2TurnItem } from "@t3tools/contracts";
+import type { OrchestrationV2TurnItem } from "@t3tools/contracts";
 import type { TimelineRow } from "./timelineRowContext";
 import { WorkLogDetails, WorkLogRow } from "./WorkLog";
 import {
@@ -50,6 +50,7 @@ import { cn } from "~/lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { SubagentReturnChip } from "./V2LifecycleRow";
+import { notificationSubagentRefs } from "./V2LifecycleRow.logic";
 import {
   TimelineRowCtx,
   TimelineRowActivityCtx,
@@ -162,15 +163,6 @@ export function WakeDivider() {
       <span className="h-px flex-1 bg-border/70" />
     </div>
   );
-}
-
-/** One chip per subagent a notification names; a batched delegated-task notice names several. */
-function notificationSubagentRefs(source: OrchestrationV2Notification["source"]) {
-  if (source.kind === "delegated_task" && source.childThreadId === undefined) {
-    return source.taskIds.map((subagentId) => ({ subagentId }));
-  }
-  const childThreadId = notificationChildThreadId(source);
-  return childThreadId === undefined ? [] : [{ childThreadId }];
 }
 
 const SubagentReturnChips = memo(function SubagentReturnChips(props: WorkEntryRowProps) {

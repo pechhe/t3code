@@ -140,6 +140,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
+import { subagentRoundTaskIdFromLocation } from "../lib/subagentRoundNavigation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -602,6 +603,18 @@ export default function ChatView(props: ChatViewProps) {
       ? { citation, key: citationLocation.key ?? citationLocation.href }
       : null;
   })() as AssistantCitationRequest | null;
+  // A follow-up pill links to the child thread with its delegated task id; the child run that
+  // answers that task is the round to land on.
+  const roundAnchor = (() => {
+    const taskId = subagentRoundTaskIdFromLocation(citationLocation.href);
+    const run =
+      taskId === null
+        ? undefined
+        : serverProjection?.runs.find((candidate) => candidate.delegatedTaskId === taskId);
+    return run === undefined || taskId === null
+      ? null
+      : { runId: run.id, key: `${taskId}:${run.id}` };
+  })();
   const { resolvedTheme } = useTheme();
   const composerRuntimeMode = useComposerDraftStore(
     (store) => store.getComposerDraft(composerDraftTarget)?.runtimeMode ?? null,
@@ -3568,6 +3581,7 @@ export default function ChatView(props: ChatViewProps) {
                 readyWorkspaceRoot={activeWorkspaceRoot ?? null}
                 citationRequest={paintOnlyDisplayedTimeline ? null : citationRequest}
                 citationHistoryLoading={threadDetailLoading}
+                roundAnchor={paintOnlyDisplayedTimeline ? null : roundAnchor}
                 {...(!paintOnlyDisplayedTimeline
                   ? {
                       onCiteAssistantText: citeAssistantTextStable,
