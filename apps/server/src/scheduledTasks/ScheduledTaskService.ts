@@ -33,6 +33,7 @@ import * as Crypto from "effect/Crypto";
 import * as Data from "effect/Data";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Exit from "effect/Exit";
 import * as Duration from "effect/Duration";
 import * as Metric from "effect/Metric";
@@ -501,7 +502,8 @@ export const layer = Layer.effect(
     const changesPubSub = yield* PubSub.sliding<void>(1);
     const notifyChanged = PubSub.publish(changesPubSub, undefined).pipe(Effect.asVoid);
 
-    const selectAllRows = () => sql<ScheduledTaskRow>`
+    const selectAllRows = () =>
+      sql<ScheduledTaskRow>`
       SELECT
         task_id,
         title,
@@ -532,7 +534,7 @@ export const layer = Layer.effect(
       -- Not updated_at: toggles, runs and edits rewrite it, and clients render
       -- this order as-is, so rows would move under the pointer.
       ORDER BY created_at DESC, task_id ASC
-    `;
+    `.pipe(NodeSqliteClient.readOnly);
 
     const listRows = Effect.fn("ScheduledTaskService.listRows")(function* () {
       const rows = yield* selectAllRows();
@@ -540,7 +542,8 @@ export const layer = Layer.effect(
       return yield* Effect.forEach(rows, (row) => decodeRow(row, origin), { concurrency: 1 });
     });
 
-    const getRows = (id: ScheduledTaskId) => sql<ScheduledTaskRow>`
+    const getRows = (id: ScheduledTaskId) =>
+      sql<ScheduledTaskRow>`
       SELECT
         task_id,
         title,
@@ -569,7 +572,7 @@ export const layer = Layer.effect(
         last_run_thread_id
       FROM scheduled_tasks
       WHERE task_id = ${id}
-    `;
+    `.pipe(NodeSqliteClient.readOnly);
 
     const findTask = Effect.fn("ScheduledTaskService.findTask")(function* (id: ScheduledTaskId) {
       const rows = yield* getRows(id).pipe(
@@ -852,8 +855,9 @@ export const layer = Layer.effect(
         }
         if (
           webhook !== undefined &&
-          (yield* sql`SELECT 1 FROM scheduled_task_webhook_pending WHERE delivery_id = ${webhook.deliveryId} AND state = 'completed'`)
-            .length > 0
+          (yield* sql`SELECT 1 FROM scheduled_task_webhook_pending WHERE delivery_id = ${webhook.deliveryId} AND state = 'completed'`.pipe(
+            NodeSqliteClient.readOnly,
+          )).length > 0
         )
           return { task: { ...active, lastRunStatus: "succeeded" as const }, threadId: null };
         const parsedNextRunAt =
@@ -1497,6 +1501,7 @@ export const layer = Layer.effect(
         FROM scheduled_task_webhook_deliveries d WHERE task_id = ${input.id}
         ORDER BY received_at DESC, rowid DESC
       `.pipe(
+        NodeSqliteClient.readOnly,
         Effect.map((rows) => ({
           deliveries: rows
             .filter(
@@ -1517,6 +1522,7 @@ export const layer = Layer.effect(
             WHERE p.delivery_id = d.delivery_id AND p.state IN ('pending', 'dispatching')) AS pending_window
           FROM scheduled_task_webhook_deliveries d WHERE task_id = ${input.id} AND delivery_id = ${input.deliveryId}
         `.pipe(
+        NodeSqliteClient.readOnly,
         Effect.mapError((cause) =>
           taskError("Could not load webhook delivery.", { taskId: input.id, cause }),
         ),
@@ -2209,7 +2215,7 @@ export const layer = Layer.effect(
       yield* sql`UPDATE scheduled_task_webhook_pending SET state = 'dispatching' WHERE state = 'pending' AND due_at <= ${now}`;
       const tasks = yield* sql<{ task_id: ScheduledTaskId }>`
         SELECT DISTINCT task_id FROM scheduled_task_webhook_pending WHERE state IN ('dispatching', 'running', 'completed', 'failed')
-      `;
+      `.pipe(NodeSqliteClient.readOnly);
       yield* Effect.forEach(
         tasks,
         ({ task_id: taskId }) =>
@@ -2233,7 +2239,7 @@ export const layer = Layer.effect(
                 }>`
               SELECT delivery_id, task_json, request_json, state FROM scheduled_task_webhook_pending
               WHERE task_id = ${taskId} AND state IN ('dispatching', 'running', 'completed', 'failed') ORDER BY due_at, rowid LIMIT 1
-            `;
+            `.pipe(NodeSqliteClient.readOnly);
                 if (entry === undefined) return;
                 const remove = sql`DELETE FROM scheduled_task_webhook_pending WHERE delivery_id = ${entry.delivery_id}`;
                 if (entry.state === "completed" || entry.state === "failed") {

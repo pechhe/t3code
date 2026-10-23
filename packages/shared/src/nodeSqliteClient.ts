@@ -80,14 +80,51 @@ interface Lease {
   readonly value: Connection;
   /** The writer was held by another borrower when this lease asked for it. */
   readonly contended?: boolean;
+  /** The writer's borrower when this lease asked for it, for the lock-wait trace. */
+  readonly ownerAtWaitStart?: ConnectionOwner | undefined;
   readonly release: Effect.Effect<void>;
 }
 
-const annotateAcquired = (fiber: Fiber.Fiber<unknown, unknown>, acquired: Acquired | undefined) => {
+interface ConnectionOwner {
+  readonly fiberId: number;
+  readonly name: string;
+  readonly traceId?: string;
+  readonly spanId?: string;
+}
+
+// The innermost span outside the SQLite client, so a lock-wait record names the
+// work that held the writer rather than the statement that waited on it.
+const connectionOwner = (fiber: Fiber.Fiber<unknown, unknown>): ConnectionOwner => {
+  const current = Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
+  if (current?._tag !== "Span") return { fiberId: fiber.id, name: "untraced" };
+  let span: Tracer.Span = current;
+  while (span.name === "sqlite" || span.name === "sql.transaction") {
+    const parent: Tracer.AnySpan | undefined = Option.getOrUndefined(span.parent);
+    if (parent?._tag !== "Span") break;
+    span = parent;
+  }
+  return { fiberId: fiber.id, name: span.name, traceId: span.traceId, spanId: span.spanId };
+};
+
+const annotateAcquired = (
+  fiber: Fiber.Fiber<unknown, unknown>,
+  acquired: Acquired | undefined,
+  ownerAtWaitStart?: ConnectionOwner,
+) => {
   const span = Context.getOrUndefined(fiber.context, Tracer.ParentSpan);
   if (span?._tag !== "Span" || acquired === undefined) return;
   span.attribute("db.connection", acquired.connection);
   span.attribute("db.lock_wait_ms", acquired.lockWaitMs);
+  if (ownerAtWaitStart !== undefined) {
+    span.attribute("db.lock_owner_at_start.fiber_id", ownerAtWaitStart.fiberId);
+    span.attribute("db.lock_owner_at_start.name", ownerAtWaitStart.name);
+    if (ownerAtWaitStart.traceId !== undefined) {
+      span.attribute("db.lock_owner_at_start.trace_id", ownerAtWaitStart.traceId);
+    }
+    if (ownerAtWaitStart.spanId !== undefined) {
+      span.attribute("db.lock_owner_at_start.span_id", ownerAtWaitStart.spanId);
+    }
+  }
 };
 
 /**
@@ -98,7 +135,12 @@ const annotateAcquired = (fiber: Fiber.Fiber<unknown, unknown>, acquired: Acquir
 type Restore = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
 
 const TransactionAcquire = Context.Reference<
-  { acquired?: Acquired; restore: Restore | undefined } | undefined
+  | {
+      acquired?: Acquired;
+      ownerAtWaitStart: ConnectionOwner | undefined;
+      restore: Restore | undefined;
+    }
+  | undefined
 >("@t3tools/shared/nodeSqliteClient/TransactionAcquire", { defaultValue: () => undefined });
 
 export class UnsupportedNodeSqliteVersionError extends Schema.TaggedError<UnsupportedNodeSqliteVersionError>()(
@@ -1264,17 +1306,41 @@ const make = Effect.fn("makeWithDatabase")(function* (
       Effect.flatMap((claimed) => (claimed ? Effect.void : claim(permits, restore))),
     );
 
-  const leaseWriter = (restore: Restore): Effect.Effect<Lease> =>
-    Effect.flatMap(semaphore.takeIfAvailable(1), (immediate) =>
-      Effect.as(immediate ? Effect.void : claim(semaphore, restore), {
-        connection: "writer" as const,
-        value: connection,
-        contended: !immediate,
-        release: Effect.asVoid(semaphore.release(1)),
-      }),
+  // The writer's current borrower, recorded so a borrower that waits names it.
+  let activeWriter: ConnectionOwner | undefined;
+
+  const leaseWriter = (
+    fiber: Fiber.Fiber<unknown, unknown>,
+    restore: Restore,
+  ): Effect.Effect<Lease> => {
+    const owner = connectionOwner(fiber);
+    const ownerAtWaitStart = activeWriter;
+    // Record the owner in the same step that takes the permit, so a borrower that
+    // finds it busy always names its holder.
+    return Effect.flatMap(semaphore.takeIfAvailable(1), (immediate) =>
+      Effect.as(
+        (immediate ? Effect.void : claim(semaphore, restore)).pipe(
+          Effect.tap(() =>
+            Effect.sync(() => {
+              activeWriter = owner;
+            }),
+          ),
+        ),
+        {
+          connection: "writer" as const,
+          value: connection,
+          contended: !immediate,
+          ownerAtWaitStart,
+          release: Effect.sync(() => {
+            if (activeWriter === owner) activeWriter = undefined;
+          }).pipe(Effect.andThen(semaphore.release(1)), Effect.asVoid),
+        },
+      ),
     );
+  };
   // The lowest free slot, so later workers start only when reads overlap.
   const leaseReader = (
+    fiber: Fiber.Fiber<unknown, unknown>,
     available: NonNullable<typeof readers>,
     restore: Restore,
   ): Effect.Effect<Lease> =>
@@ -1289,7 +1355,7 @@ const make = Effect.fn("makeWithDatabase")(function* (
         Effect.onError(() => release),
         Effect.flatMap((reader): Effect.Effect<Lease> =>
           reader === undefined
-            ? Effect.andThen(release, leaseWriter(restore))
+            ? Effect.andThen(release, leaseWriter(fiber, restore))
             : Effect.succeed({ connection: "reader" as const, value: reader, release }),
         ),
       );
@@ -1297,8 +1363,8 @@ const make = Effect.fn("makeWithDatabase")(function* (
   const lease = (fiber: Fiber.Fiber<unknown, unknown>, restore: Restore) =>
     Effect.uninterruptible(
       readers !== undefined && !readers.unavailable() && Context.get(fiber.context, ReadOnly)
-        ? leaseReader(readers, restore)
-        : leaseWriter(restore),
+        ? leaseReader(fiber, readers, restore)
+        : leaseWriter(fiber, restore),
     );
 
   const acquired = (
@@ -1327,7 +1393,7 @@ const make = Effect.fn("makeWithDatabase")(function* (
               fiber.getRef(References.TracerEnabled) &&
               fiber.getRef(Statement.SpanPropagationEnabled)
             ) {
-              annotateAcquired(fiber, acquired(taken, clock, start));
+              annotateAcquired(fiber, acquired(taken, clock, start), taken.ownerAtWaitStart);
             }
             const useConnection = restore(Effect.suspend(() => use(taken.value)));
             if (!options.checkpointWorker || taken.connection !== "writer") return useConnection;
@@ -1369,7 +1435,10 @@ const make = Effect.fn("makeWithDatabase")(function* (
       const pending = fiber.getRef(TransactionAcquire);
       return Effect.uninterruptible(
         Effect.flatMap(lease(fiber, pending?.restore ?? restore), (taken) => {
-          if (pending !== undefined) pending.acquired = acquired(taken, clock, start);
+          if (pending !== undefined) {
+            pending.acquired = acquired(taken, clock, start);
+            pending.ownerAtWaitStart = taken.ownerAtWaitStart;
+          }
           return Effect.as(Scope.addFinalizer(scope, taken.release), taken.value);
         }),
       );
@@ -1396,11 +1465,16 @@ const make = Effect.fn("makeWithDatabase")(function* (
     withTransaction: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       Effect.uninterruptibleMask((restore) => {
         // SqlClient masks setup; acquisition must preserve the caller's interruptibility.
-        const pending: { acquired?: Acquired; restore: Restore | undefined } = {
+        const pending: {
+          acquired?: Acquired;
+          ownerAtWaitStart: ConnectionOwner | undefined;
+          restore: Restore | undefined;
+        } = {
+          ownerAtWaitStart: undefined,
           restore,
         };
         const body = Effect.withFiber<A, E, R>((fiber) => {
-          annotateAcquired(fiber, pending.acquired);
+          annotateAcquired(fiber, pending.acquired, pending.ownerAtWaitStart);
           pending.restore = undefined;
           return effect;
         });
