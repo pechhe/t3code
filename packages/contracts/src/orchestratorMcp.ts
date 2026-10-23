@@ -1,4 +1,10 @@
-import { AgentRole, AgentTaskRequest, AgentTaskBinding, AgentTaskHandoff } from "./agentPolicy.ts";
+import {
+  AgentRole,
+  AgentTaskRequest,
+  AgentTaskBinding,
+  AgentTaskHandoff,
+  AgentTaskWireRequest,
+} from "./agentPolicy.ts";
 import { ExperimentOutcomeInput } from "./experiments.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -227,6 +233,16 @@ export const OrchestratorMcpDelegateTaskInput = Schema.Struct({
   interactionMode: Schema.optional(OrchestratorMcpInteractionMode),
 });
 export type OrchestratorMcpDelegateTaskInput = typeof OrchestratorMcpDelegateTaskInput.Type;
+
+/**
+ * The wire form advertises `agentTask` once, with the retired `reviewer` role as a value of it;
+ * the handler decodes it with `AgentTaskRequest` before the service sees it.
+ */
+export const OrchestratorMcpDelegateTaskWireInput = Schema.Struct({
+  ...OrchestratorMcpDelegateTaskInput.fields,
+  agentTask: Schema.optional(AgentTaskWireRequest),
+});
+export type OrchestratorMcpDelegateTaskWireInput = typeof OrchestratorMcpDelegateTaskWireInput.Type;
 
 export const OrchestratorMcpDelegateTaskResult = Schema.Struct({
   launchState: Schema.optional(

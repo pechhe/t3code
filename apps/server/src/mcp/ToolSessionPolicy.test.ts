@@ -63,7 +63,7 @@ const session = (
 // instructions name: the handoff family is part of the control plane and the
 // html tools are counted here.
 it("keeps an ordinary thread's listing under the payload budget", () => {
-  expect(payloadChars(undefined), "ordinary payload chars").toBeLessThan(55_000);
+  expect(payloadChars(undefined), "ordinary payload chars").toBeLessThan(50_000);
 });
 
 it("lists every tool an ordinary thread's own instructions name", () => {

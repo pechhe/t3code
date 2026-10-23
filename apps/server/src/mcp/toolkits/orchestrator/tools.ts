@@ -11,6 +11,7 @@ import {
   OrchestratorMcpCreateThreadsInput,
   OrchestratorMcpCreateThreadsResult,
   OrchestratorMcpDelegateTaskInput,
+  OrchestratorMcpDelegateTaskWireInput,
   OrchestratorMcpDelegateTaskResult,
   OrchestratorMcpDeleteScheduledTaskInput,
   OrchestratorMcpDeleteScheduledTaskResult,
@@ -113,7 +114,7 @@ const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
     "Delegate one task to a child agent of this thread, which runs only the supplied prompt. External main agents attach with agent_session_attach and pass externalSessionKey. Call agent_roles first, then pass agentTask (role, taskClass, workId, attemptId, workspacePath) and a stable clientRequestId; title is the topic only. With a configured role policy, every new delegation requires agentTask; if no eligible role fits, report it blocked. Raw delegation is available only without a configured role policy. A reviewer also needs sourceRevision (the full commit id) and review scope. workspaceAssignment 'isolated' gives a simultaneous writer its own workspace and returns a handoff revision; the default 'lead' uses the caller's workspace. Pass target.model/providerInstanceId and target.options to choose an advertised model and its settings. Use mode='wait' only when this turn needs the result; otherwise mode='async' and end the turn. The child's completion wakes this thread, so do not poll. Follow up in the same conversation with followup and its taskId. Check providerInstanceId, model, and options in the result.",
-  parameters: OrchestratorMcpDelegateTaskInput,
+  parameters: OrchestratorMcpDelegateTaskWireInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
@@ -238,7 +239,7 @@ const RequestReleaseApprovalTool = Tool.make("request_release_approval", {
 
 const CreateThreadsTool = Tool.make("create_threads", {
   description:
-    "Needs an agent running inside a T3 thread. Create one or more ORDINARY TOP-LEVEL T3 conversations. This is not delegation and does not create child agents/subagents. For delegated work, check agent_roles and call delegate_task with agentTask. Use create_threads for a batch of separate top-level threads sharing this checkout. Prefer t3_thread_launch for a single thread. Both require the user to request separate/new/top-level threads or conversations. Each entry may override provider, model, options, runtime mode, and interaction mode; omitted settings inherit. Project, branch, and worktree always inherit and cannot be overridden here. For independent implementation or a PR stack in its own worktree, use t3_thread_launch with workspaceStrategy instead of asking the agent to create a worktree in its prompt.",
+    "Needs an agent running inside a T3 thread. Create one or more ORDINARY TOP-LEVEL T3 conversations for a batch of threads sharing this checkout. This is not delegation and creates no child agents: use delegate_task for child work, and prefer t3_thread_launch for a single thread. Both need the user to ask for separate threads or conversations. Each entry may override provider, model, options, runtime mode and interaction mode; omitted settings inherit. Project, branch and worktree always inherit.",
   parameters: OrchestratorMcpCreateThreadsInput,
   success: OrchestratorMcpCreateThreadsResult,
   failure: OrchestratorMcpFailure,

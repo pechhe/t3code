@@ -438,6 +438,17 @@ export const AgentTaskRequest = Schema.Union([
 ]);
 export type AgentTaskRequest = typeof AgentTaskRequest.Type;
 
+/**
+ * The wire form advertises `agentTask` as one struct: the retired `reviewer` role is another
+ * value of the same fields, not a second copy of every field. Handlers decode it with
+ * `AgentTaskRequest`, which still maps that role to the reviewer it became.
+ */
+export const AgentTaskWireRequest = Schema.Struct({
+  ...agentTaskRequestFields,
+  role: Schema.Union([AgentRole, Schema.Literal("reviewer")]),
+});
+export type AgentTaskWireRequest = typeof AgentTaskWireRequest.Type;
+
 const agentTaskBindingFields = {
   ...agentTaskRequestFields,
   executionBoundary: Schema.optional(AgentExecutionBoundary),

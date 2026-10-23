@@ -1,4 +1,8 @@
-import { OrchestratorMcpFailure, OrchestratorMcpSchedule } from "@t3tools/contracts";
+import {
+  AgentTaskRequest,
+  OrchestratorMcpFailure,
+  OrchestratorMcpSchedule,
+} from "@t3tools/contracts";
 import { OrchestratorToolkit } from "./tools.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -11,6 +15,7 @@ import * as ThreadMetadataMcpService from "../../ThreadMetadataMcpService.ts";
 import * as ThreadDirectory from "../../../peers/ThreadDirectory.ts";
 
 const decodeScheduledTaskSchedule = Schema.decodeUnknownEffect(OrchestratorMcpSchedule);
+const decodeAgentTask = Schema.decodeUnknownEffect(AgentTaskRequest);
 
 export const handlers = {
   agent_task_outcome: McpToolAccess.writes((input) =>
@@ -45,7 +50,20 @@ export const handlers = {
     Effect.gen(function* () {
       const scope = yield* McpInvocationContext.McpInvocationContext;
       const service = yield* OrchestratorMcpService.OrchestratorMcpService;
-      return yield* service.delegateTask(scope, input);
+      const agentTask =
+        input.agentTask === undefined
+          ? undefined
+          : yield* decodeAgentTask(input.agentTask).pipe(
+              Effect.mapError(
+                () =>
+                  new OrchestratorMcpFailure({
+                    code: "invalid_request",
+                    message:
+                      "agentTask must carry role, taskClass, workId, attemptId and workspacePath.",
+                  }),
+              ),
+            );
+      return yield* service.delegateTask(scope, { ...input, agentTask });
     }),
   ),
   task_status: McpToolAccess.readsTask(({ taskId, timeoutMs }) =>

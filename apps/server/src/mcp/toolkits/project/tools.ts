@@ -126,7 +126,7 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     workspaceStrategy: Schema.optional(
       OrchestrationV2ThreadLaunchWorkspaceStrategy.annotate({
         description:
-          "Choose where this thread runs before starting its agent: worktree creates and binds a new checkout from baseRef, or, in a repository with slipjay.json, allocates a SlipJay workspace from the integration branch (branch, if given, names it; baseRef and startFromOrigin are ignored); existing_worktree binds worktreePath, which must be a git worktree or jj workspace of the project's repository; root uses the project checkout. Omitted means the project's default, not the caller's worktree: a fresh SlipJay workspace in a repository with slipjay.json, otherwise the project checkout. For a PR stack use the parent branch as baseRef and startFromOrigin:false. Uncommitted changes are not copied.",
+          "Where the thread runs, chosen before its agent starts: worktree (baseRef, branch) creates a checkout, or in a SlipJay repository allocates a workspace from the integration branch (branch names it; baseRef and startFromOrigin are ignored); existing_worktree binds worktreePath; root uses the project checkout. Omitted means the project's default, not the caller's worktree. For a PR stack use the parent branch as baseRef and startFromOrigin:false. Uncommitted changes are not copied.",
       }),
     ),
     buildItem: Schema.optional(

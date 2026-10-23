@@ -14,3 +14,19 @@ it("states t3_thread_read page size limits in the parameter descriptions", () =>
     expect(schema.properties[name]?.description, name).toContain(maximum);
   }
 });
+
+// The retired `reviewer` role must stay callable without a second copy of every agentTask field
+// in the listing: it is one role value, decoded to the reviewer it became (packages/contracts).
+it("advertises delegate_task's agentTask fields once, with the retired role as a value", () => {
+  const schema = Tool.getJsonSchema(OrchestratorToolkit.tools.delegate_task) as {
+    readonly properties: Readonly<Record<string, unknown>>;
+  };
+  const agentTask = JSON.stringify(schema.properties.agentTask);
+  // One struct (plus the optional-null wrapper), not two copies of the same fields.
+  expect(
+    agentTask.split('"workspacePath":').length - 1,
+    "agentTask fields are advertised once",
+  ).toBe(1);
+  expect(agentTask, "the retired role stays callable").toContain('"reviewer"');
+  expect(agentTask, "and still decodes to the reviewer it became").toContain('"spec-reviewer"');
+});
