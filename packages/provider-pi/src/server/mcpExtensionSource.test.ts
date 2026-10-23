@@ -77,6 +77,51 @@ describe("Pi orchestration prompt section", () => {
   });
 });
 
+describe("Pi MCP result declarations", () => {
+  // Pi renders this schema as the tool's declared return type, so a full result
+  // tree costs context on every turn. The field names are what a caller reads.
+  const detailed = {
+    type: "object",
+    required: ["taskId", "agentTask"],
+    properties: {
+      taskId: { type: "string", description: "A description that must not survive" },
+      status: { type: "string", enum: ["queued", "running", "completed"] },
+      agentTask: {
+        type: "object",
+        properties: {
+          providerInstanceId: { type: "string" },
+          options: {
+            type: "array",
+            items: { type: "object", properties: { id: { type: "string" } } },
+          },
+        },
+      },
+    },
+  } as const;
+
+  it("keeps a result's field names and drops the tree below them", async () => {
+    const bridge = await loadMcpBridge({ modern: true, outputSchema: detailed });
+    const tool = bridge.tools.find((tool) => tool.name === "mcp__t3-code__preview_snapshot")!;
+    const declared = tool.outputSchema as {
+      readonly properties: { readonly structuredContent: Record<string, unknown> };
+    };
+
+    assert.deepEqual(declared.properties.structuredContent, {
+      type: "object",
+      properties: {
+        taskId: { type: "string" },
+        status: { type: "string" },
+        agentTask: {},
+      },
+      required: ["taskId", "agentTask"],
+    });
+    const declaredChars = JSON.stringify(tool.outputSchema).length;
+    const detailedChars = JSON.stringify(detailed).length;
+    assert.isBelow(declaredChars, detailedChars);
+    assert.notInclude(JSON.stringify(tool.outputSchema), "must not survive");
+  });
+});
+
 describe("Pi MCP tool results", () => {
   it("returns mixed screenshot blocks and typed script output without repeating structured text", async () => {
     const content = [

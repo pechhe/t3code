@@ -208,12 +208,41 @@ function mcpScriptResult(result: JsonValue | undefined) {
   return scriptResult;
 }
 
+const PRIMITIVE_TYPES = new Set(["string", "number", "boolean", "integer", "null"]);
+
+/**
+ * The shape a caller needs to read a result is its field names, not the tree
+ * below them: this keeps every top-level property with its primitive type and
+ * collapses nested objects and arrays to "anything". A result schema carries
+ * more detail than any caller reads, and pi renders this whole thing as the
+ * declared return type of the tool.
+ */
+function summariseOutputSchema(schema: unknown) {
+  if (typeof schema !== "object" || schema === null) return schema;
+  const candidate = schema as { properties?: unknown; required?: unknown };
+  const properties = candidate.properties;
+  if (typeof properties !== "object" || properties === null) return schema;
+  const summarised: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(properties as Record<string, unknown>)) {
+    const type =
+      typeof value === "object" && value !== null ? (value as { type?: unknown }).type : undefined;
+    summarised[key] = typeof type === "string" && PRIMITIVE_TYPES.has(type) ? { type } : {};
+  }
+  return {
+    type: "object",
+    properties: summarised,
+    ...(Array.isArray(candidate.required) ? { required: candidate.required } : {}),
+  };
+}
+
 function mcpOutputSchema(tool: McpTool) {
   return jsonSchemaToTypebox({
     type: "object",
     properties: {
       content: { type: "array", items: { type: "object" } },
-      ...(tool.outputSchema === undefined ? {} : { structuredContent: tool.outputSchema }),
+      ...(tool.outputSchema === undefined
+        ? {}
+        : { structuredContent: summariseOutputSchema(tool.outputSchema) }),
       isError: { type: "boolean" },
       _meta: { type: "object" },
     },

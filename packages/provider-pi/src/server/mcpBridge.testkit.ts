@@ -48,6 +48,8 @@ export async function loadMcpBridge(
     readonly allowsTool?: (name: string) => boolean;
     readonly runtimeMode?: string;
     readonly inputSchema?: Record<string, unknown>;
+    /** Overrides the fixture catalogue's declared result schema. */
+    readonly outputSchema?: unknown;
     /** Omits the thread's t3-code session, as a thread without T3 tools has none. */
     readonly withoutT3?: boolean;
     readonly agentServers?: ReadonlyArray<{
@@ -85,7 +87,10 @@ export async function loadMcpBridge(
   ].map((tool) => ({
     ...tool,
     inputSchema: options.inputSchema ?? { type: "object", properties: {} },
-    outputSchema: { type: "object", properties: { count: { type: "number" } } },
+    outputSchema: options.outputSchema ?? {
+      type: "object",
+      properties: { count: { type: "number" } },
+    },
   }));
   const source = NodeModule.stripTypeScriptTypes(
     PI_T3_MCP_EXTENSION_SOURCE.replace(/^import .*;$/gm, "").replace(
