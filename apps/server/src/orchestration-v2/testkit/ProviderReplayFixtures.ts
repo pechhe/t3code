@@ -1,3 +1,6 @@
+// @effect-diagnostics nodeBuiltinImport:off -- the fixture-file guard reads the testkit directory
+// synchronously as this module loads, before any Effect runtime exists.
+import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import type { OrchestrationV2DomainEvent, ProviderReplayTranscript } from "@t3tools/contracts";
@@ -22,26 +25,38 @@ import {
 } from "./ProviderReplayHarness.ts";
 import { materializeReplayTranscriptRuntimeInstructions } from "./ReplayRuntimeInstructions.ts";
 
-// Each driver's fixtures run from its own <Provider>ReplayFixtures.integration.test.ts,
-// so a focused run loads one adapter. A fixture for a driver missing here would
-// silently never run, so loading this module fails instead.
-const DRIVERS_WITH_REPLAY_FIXTURE_FILES = new Set([
-  "acpRegistry",
-  "claudeAgent",
-  "codex",
-  "cursor",
-  "grok",
-  "muse",
-  "opencode",
-  "pi",
-]);
+// Each driver's fixtures run from its own <Provider>ReplayFixtures<group>.integration.test.ts
+// files, so a focused run loads one adapter. Tests within a file run one after another, so a
+// driver whose fixtures are slow spreads them over several files that run in parallel. A
+// fixture for a driver missing here, or a group whose file is missing, would silently never
+// run, so loading this module fails instead.
+const REPLAY_FIXTURE_FILES: Readonly<Record<string, { stem: string; files: number }>> = {
+  acpRegistry: { stem: "AcpRegistryReplayFixtures", files: 1 },
+  claudeAgent: { stem: "ClaudeReplayFixtures", files: 6 },
+  codex: { stem: "CodexReplayFixtures", files: 1 },
+  cursor: { stem: "CursorReplayFixtures", files: 1 },
+  grok: { stem: "GrokReplayFixtures", files: 2 },
+  muse: { stem: "MuseReplayFixtures", files: 1 },
+  opencode: { stem: "OpenCodeReplayFixtures", files: 2 },
+  pi: { stem: "PiReplayFixtures", files: 1 },
+};
 for (const fixture of ORCHESTRATOR_REPLAY_FIXTURES) {
   for (const provider of fixture.providers) {
-    if (!DRIVERS_WITH_REPLAY_FIXTURE_FILES.has(provider.driver)) {
+    if (!Object.hasOwn(REPLAY_FIXTURE_FILES, provider.driver)) {
       throw new Error(
         `${fixture.name}/${provider.driver} has no ReplayFixtures test file to run it.`,
       );
     }
+  }
+}
+for (const [driver, { stem, files }] of Object.entries(REPLAY_FIXTURE_FILES)) {
+  const present = NodeFS.readdirSync(import.meta.dirname).filter((name) =>
+    new RegExp(`^${stem}\\d*\\.integration\\.test\\.ts$`).test(name),
+  );
+  if (present.length !== files) {
+    throw new Error(
+      `${driver}'s replay fixtures are split over ${files} files, but there are ${present.length}: ${present.join(", ")}`,
+    );
   }
 }
 
@@ -200,20 +215,38 @@ export function findReplayFixture(name: string) {
 }
 
 /**
- * Registers one test per recorded fixture variant of `driver`. Call it inside the
+ * Registers this file's share of `driver`'s recorded fixtures: those whose position among the
+ * driver's fixtures leaves `group` when divided by the driver's file count. Call it inside the
  * provider file's `describe`. `run` picks the harness for each variant.
  */
 export function itRunsReplayFixtures<E>(
   driver: string,
   run: (input: ReplayFixtureCase) => Effect.Effect<unknown, E>,
+  group = 0,
 ) {
+  const files = REPLAY_FIXTURE_FILES[driver]?.files;
+  if (files === undefined) {
+    throw new Error(`${driver} has no ReplayFixtures test files to run its fixtures from.`);
+  }
+  if (group >= files) {
+    throw new Error(
+      `${driver} splits its fixtures over ${files} files, not one numbered ${group}.`,
+    );
+  }
   it.effect.each(
     ORCHESTRATOR_REPLAY_FIXTURES.flatMap((fixture) =>
       fixture.providers
         .filter((provider) => provider.driver === driver)
         .map((provider) => [fixture.name, provider.driver, fixture, provider] as const),
-    ),
+    ).filter((_, index) => index % files === group),
   )("runs %s/%s through OrchestratorV2 using deterministic replay", ([, , fixture, provider]) =>
     run({ fixtureName: fixture.name, buildInput: fixture.buildInput, driver: provider }),
   );
+}
+
+/** Runs one of `driver`'s recorded fixtures through its `harness`, with the shared checks. */
+export function replayFixtureRunner<Transcript extends ProviderReplayTranscript, Error>(
+  harness: OrchestratorV2ProviderReplayHarness<Transcript, Error>,
+) {
+  return (input: ReplayFixtureCase) => runReplayFixture({ ...input, harness });
 }

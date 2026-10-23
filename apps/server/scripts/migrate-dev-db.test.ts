@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as SqlClient from "effect/sql/SqlClient";
 
@@ -14,20 +16,49 @@ const withDatabase = <A, E>(
   effect: Effect.Effect<A, E, SqlClient.SqlClient>,
 ) => effect.pipe(Effect.provide(NodeSqliteClient.layer({ filename: databasePath })));
 
+/**
+ * The migrated database each test copies: running the whole migration series is most of a
+ * fixture's cost, and every test would otherwise pay it again.
+ */
+class MigratedSourceTemplate extends Context.Service<
+  MigratedSourceTemplate,
+  { readonly databasePath: string }
+>()("t3/scripts/migrate-dev-db.test/MigratedSourceTemplate") {
+  static readonly layer = Layer.effect(
+    MigratedSourceTemplate,
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-template-" });
+      const databasePath = path.join(baseDir, "userdata", "statev2.sqlite");
+      yield* fs.makeDirectory(path.dirname(databasePath), { recursive: true });
+      yield* withDatabase(databasePath, runMigrations());
+      return { databasePath };
+    }),
+  );
+}
+
 const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(function* (
   baseDir: string,
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const template = yield* MigratedSourceTemplate;
   const stateDir = path.join(baseDir, "userdata");
   const databasePath = path.join(stateDir, "statev2.sqlite");
   yield* fs.makeDirectory(stateDir, { recursive: true });
+  // VACUUM INTO carries the template's WAL contents into the copy, and refuses an existing file.
+  yield* withDatabase(
+    template.databasePath,
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql`VACUUM INTO ${databasePath}`;
+    }),
+  );
   yield* withDatabase(
     databasePath,
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations();
-
       yield* sql`INSERT INTO projection_projects
         (project_id, title, workspace_root, scripts_json, created_at, updated_at, deleted_at)
         VALUES
@@ -106,7 +137,9 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
   return databasePath;
 });
 
-it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
+const testLayer = MigratedSourceTemplate.layer.pipe(Layer.provideMerge(NodeServices.layer));
+
+it.layer(testLayer)("migrate-dev-db", (it) => {
   it.effect.each([
     { phase: "snapshot", removedThread: "archived-thread" },
     { phase: "prune", removedThread: "running-thread" },
@@ -332,7 +365,9 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const sourceDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-family-" });
-      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-family-dest-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "migrate-dev-db-family-dest-",
+      });
       const source = yield* createFixtureSource(sourceDir);
 
       // stopped-thread and its fork are 2 threads; settled-thread and limit-thread are 1 each.
@@ -402,7 +437,9 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const sharedDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-overlap-" });
-      const destDir = yield* fs.makeTempDirectoryScoped({ prefix: "migrate-dev-db-overlap-dest-" });
+      const destDir = yield* fs.makeTempDirectoryScoped({
+        prefix: "migrate-dev-db-overlap-dest-",
+      });
       const leftoverSnapshot = path.join(destDir, "userdata", "statev2.sqlite.migrate-dev-db-tmp");
       yield* fs.makeDirectory(path.dirname(leftoverSnapshot), { recursive: true });
       yield* fs.writeFileString(leftoverSnapshot, "not a real db");
