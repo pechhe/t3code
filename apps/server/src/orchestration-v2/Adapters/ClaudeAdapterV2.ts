@@ -1613,9 +1613,11 @@ export const CLAUDE_T3_MCP_TOOL_TIMEOUT_MS = 65 * 60 * 1_000;
 
 // The SDK's `allowedTools` only pre-approves tool calls; availability is the separate `tools`
 // option. Attaching the t3-code MCP server therefore always pre-approves its tools (headless
-// modes like `dontAsk` deny anything that is not pre-approved), but read-only sandboxes
-// pre-approve only the annotated read-only orchestrator tools so a read-only session cannot
-// silently spawn threads or scheduled tasks.
+// modes like `dontAsk` deny anything that is not pre-approved), but a read-only sandbox on the
+// general endpoint pre-approves only the annotated read-only orchestrator tools so a read-only
+// session cannot silently spawn threads or scheduled tasks. A managed task's credential reaches
+// one child endpoint, whose registry already decides what it serves, so it pre-approves that
+// endpoint whole.
 
 export function claudeMcpQueryOverrides(input: {
   readonly mcpSession: McpProviderSession.McpProviderSessionConfig | undefined;
@@ -1627,8 +1629,10 @@ export function claudeMcpQueryOverrides(input: {
   readonly readOnlySandbox: boolean;
   /**
    * A managed task is a leaf: no T3 tools, so an independent reviewer cannot read the author's
-   * thread. A managed browser task alone keeps its own session, whose endpoint serves Phi's
-   * browser operations and nothing else.
+   * thread. Two narrow credentials are the exception beside it. A managed browser task keeps its
+   * own session, whose endpoint serves Phi's browser operations and nothing else; a browser or
+   * ui-verifier child keeps its preview endpoint, whose listing is the preview family and the leaf
+   * tools and no thread control. Neither can reach the thread that delegated it.
    */
   readonly managedAgent?: boolean;
   readonly allowedTools?: ReadonlyArray<string>;
@@ -1637,7 +1641,10 @@ export function claudeMcpQueryOverrides(input: {
   readonly mcpServers?: ClaudeQueryOptions["mcpServers"];
 } {
   const managedBrowser = input.mcpSession?.managedBrowser === true;
-  const session = input.managedAgent === true && !managedBrowser ? undefined : input.mcpSession;
+  const keepsNarrowEndpoint =
+    managedBrowser || (input.managedAgent === true && input.mcpSession?.listsPreview === true);
+  const session =
+    input.managedAgent === true && !keepsNarrowEndpoint ? undefined : input.mcpSession;
   const agentServers = input.agentServers ?? [];
   if (session === undefined && agentServers.length === 0) {
     return input.allowedTools === undefined ? {} : { allowedTools: input.allowedTools };
@@ -1647,9 +1654,13 @@ export function claudeMcpQueryOverrides(input: {
       ? []
       : managedBrowser
         ? CLAUDE_MANAGED_BROWSER_MCP_ALLOWED_TOOLS
-        : input.readOnlySandbox
-          ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
-          : [CLAUDE_T3_MCP_TOOL_WILDCARD];
+        : input.managedAgent === true
+          ? // A delegated child's credential reaches one narrow endpoint, whose registry decides what
+            // it serves, so the wildcard pre-approves that endpoint's own tools and nothing else.
+            [CLAUDE_T3_MCP_TOOL_WILDCARD]
+          : input.readOnlySandbox
+            ? CLAUDE_READ_ONLY_T3_MCP_ALLOWED_TOOLS
+            : [CLAUDE_T3_MCP_TOOL_WILDCARD];
   return {
     allowedTools: Array.from(
       new Set([

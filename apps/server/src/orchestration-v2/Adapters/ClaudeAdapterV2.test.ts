@@ -506,15 +506,51 @@ describe("ClaudeAdapterV2 MCP query overrides", () => {
     browserToolsAvailable: true,
   });
 
-  it("attaches no t3-code tools to a managed task even when a session exists", () => {
+  it("attaches no t3-code tools to a managed task whose listing carries no preview tools", () => {
     const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
-      mcpSession: mcpSessionFor(ThreadId.make("thread-claude-mcp-managed")),
+      mcpSession: {
+        ...mcpSessionFor(ThreadId.make("thread-claude-mcp-managed")),
+        endpoint: "http://127.0.0.1:43123/mcp/child-reader",
+        delegated: true,
+        listsPreview: false,
+      },
       readOnlySandbox: true,
       managedAgent: true,
       allowedTools: ["Read"],
     });
 
     assert.deepEqual(overrides, { allowedTools: ["Read"] });
+  });
+
+  it("keeps a delegated browser or ui-verifier child's preview endpoint", () => {
+    for (const session of [
+      { endpoint: "http://127.0.0.1:43123/mcp/child-preview" },
+      { endpoint: "http://127.0.0.1:43123/mcp/child-ui-verifier", listsDevice: true },
+    ]) {
+      const overrides = ClaudeAdapterV2.claudeMcpQueryOverrides({
+        mcpSession: {
+          ...mcpSessionFor(ThreadId.make("thread-claude-mcp-preview-child")),
+          delegated: true,
+          listsPreview: true,
+          ...session,
+        },
+        readOnlySandbox: true,
+        managedAgent: true,
+        allowedTools: ["Read"],
+      });
+
+      // Its credential reaches one child endpoint, whose own registry decides the tools, so the
+      // wildcard pre-approves that endpoint and nothing else.
+      assert.deepEqual(overrides.allowedTools, ["Read", "mcp__t3-code__*"]);
+      assert.deepEqual(overrides.mcpServers, {
+        "t3-code": {
+          type: "http",
+          url: session.endpoint,
+          headers: { Authorization: "Bearer secret-claude-token" },
+          timeout: ClaudeAdapterV2.CLAUDE_T3_MCP_TOOL_TIMEOUT_MS,
+        },
+      });
+    }
   });
 
   it("gives a managed browser task only its endpoint's tools, never the wildcard", () => {

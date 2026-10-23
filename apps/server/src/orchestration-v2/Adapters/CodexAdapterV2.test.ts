@@ -403,6 +403,83 @@ describe("CodexAdapterV2 process spawning", () => {
     assert.notProperty(servers["t3-code"] ?? {}, "enabled");
   });
 
+  it("keeps a managed reader a leaf with no T3 endpoint", () => {
+    const readerSession = {
+      environmentId: EnvironmentId.make("managed-reader-environment"),
+      threadId: ThreadId.make("managed-reader-thread"),
+      providerSessionId: "managed-reader-session",
+      providerInstanceId: ProviderInstanceId.make("codex"),
+      endpoint: "http://127.0.0.1:43123/mcp/child-reader",
+      authorizationHeader: "Bearer managed-reader-token",
+      browserToolsAvailable: false,
+      delegated: true,
+      listsPreview: false,
+    };
+    const runtimePolicy = {
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      cwd: "/managed-workspace",
+      managedAgent: true,
+      approvalPolicy: "never",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+    } as const;
+
+    assert.notProperty(
+      CodexAdapterV2.codexThreadRuntimeParams({
+        mcpSession: readerSession,
+        modelSelection: { model: "gpt-5.4" },
+        runtimePolicy,
+      }).config,
+      "mcp_servers",
+    );
+    const disabled = CodexAdapterV2.codexThreadRuntimeParams({
+      mcpSession: readerSession,
+      modelSelection: { model: "gpt-5.4" },
+      runtimePolicy,
+      disabledMcpServers: ["t3-code"],
+    }).config.mcp_servers as Record<string, Record<string, unknown>>;
+    assert.deepEqual(disabled["t3-code"], { enabled: false });
+  });
+
+  it("attaches the preview endpoint to a delegated browser or ui-verifier child", () => {
+    for (const session of [
+      { endpoint: "http://127.0.0.1:43123/mcp/child-preview" },
+      { endpoint: "http://127.0.0.1:43123/mcp/child-ui-verifier", listsDevice: true },
+    ]) {
+      const params = CodexAdapterV2.codexThreadRuntimeParams({
+        mcpSession: {
+          environmentId: EnvironmentId.make("managed-preview-child-environment"),
+          threadId: ThreadId.make("managed-preview-child-thread"),
+          providerSessionId: "managed-preview-child-session",
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          authorizationHeader: "Bearer managed-preview-child-token",
+          browserToolsAvailable: true,
+          delegated: true,
+          listsPreview: true,
+          ...session,
+        },
+        modelSelection: { model: "gpt-5.4" },
+        runtimePolicy: {
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          cwd: "/managed-workspace",
+          managedAgent: true,
+          approvalPolicy: "never",
+          sandboxPolicy: { type: "readOnly", networkAccess: false },
+        },
+        disabledMcpServers: ["external-shell", "t3-code"],
+      });
+      const servers = params.config.mcp_servers as Record<string, Record<string, unknown>>;
+      // The user's own servers stay off; the child endpoint is on with T3's tools pre-approved.
+      assert.deepEqual(servers["external-shell"], { enabled: false });
+      assert.equal(servers["t3-code"]?.url, session.endpoint);
+      assert.equal(servers["t3-code"]?.default_tools_approval_mode, "approve");
+      // Its endpoint lists only the child's own families, so no narrower tool set is needed.
+      assert.notProperty(servers["t3-code"] ?? {}, "enabled_tools");
+      assert.notProperty(servers["t3-code"] ?? {}, "enabled");
+    }
+  });
+
   it("injects cwd, model, and MCP authorization into thread-scoped params", () => {
     const threadId = ThreadId.make("thread-codex-mcp");
     const mcpSession = {

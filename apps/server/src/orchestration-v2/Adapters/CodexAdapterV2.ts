@@ -1457,12 +1457,18 @@ export function codexThreadRuntimeParams(input: {
 } {
   const { mcpSession } = input;
   const compactLimit = codexCompactLimit(input.runtimePolicy, input.autoCompactWindow);
-  // One `mcp_servers` table: every configured server a managed task must not reach is disabled,
-  // and a managed browser task's own endpoint (Phi's operations only) is then added. A managed
-  // task is otherwise a leaf with no T3 tools.
+  // One `mcp_servers` table: every configured server a managed task must not reach is disabled.
+  // A managed task is a leaf with no T3 tools, so an independent reviewer cannot read the author's
+  // thread. Two narrow credentials are the exception beside it: a managed browser task's own
+  // endpoint (Phi's operations only) and a browser or ui-verifier child's preview endpoint, whose
+  // listing is the preview family and the leaf tools and no thread control.
+  const managedLeaf =
+    input.runtimePolicy?.managedAgent === true &&
+    mcpSession !== undefined &&
+    mcpSession.managedBrowser !== true &&
+    mcpSession.listsPreview !== true;
   const t3Server =
-    mcpSession === undefined ||
-    (input.runtimePolicy?.managedAgent === true && mcpSession.managedBrowser !== true)
+    mcpSession === undefined || managedLeaf
       ? undefined
       : {
           url: mcpSession.endpoint,
