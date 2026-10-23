@@ -275,8 +275,6 @@ describe("tests the import graph cannot see", () => {
       "reads node_modules, which only a lockfile change moves",
     "apps/mobile/src/lib/uniwind-dev-refresh.test.ts":
       "reads node_modules, which only a lockfile change moves",
-    "apps/server/src/provider/CodexManagedRuntime.test.ts":
-      "spawns the server's own bin.ts by URL, which no input rule owns",
     "apps/server/src/provider/acp/AcpSessionRuntime.processTree.test.ts":
       "compiles scripts/acp-thread-spawn-helper.c, mapped by the scripts rule",
     "apps/web/src/components/diffs/codeViewSearch.test.ts":

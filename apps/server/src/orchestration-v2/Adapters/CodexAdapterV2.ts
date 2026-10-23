@@ -772,8 +772,6 @@ export const buildCodexTurnStartParams = Effect.fn("CodexAdapterV2.buildCodexTur
     readonly delegated?: boolean;
     /** False when the listing has no html tools, so the child text must not name them. */
     readonly listsHtml?: boolean;
-    readonly browserToolsAvailable?: boolean;
-    readonly deviceToolsAvailable?: boolean;
     /** Whether every command must pass the guard, so a mode that never asks must ask. */
     readonly guardToolCalls?: boolean;
     /** ChatGPT token sharing does not accept service tiers. */
