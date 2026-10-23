@@ -30,7 +30,9 @@
 #           | blocked <evidence|owner-decision|checks|publication> <summary> | retry
 #       Record an update attempt's progress. Only `retry` lets a blocked attempt
 #       be dispatched again; a new tag never answers an owner decision, and no
-#       other thread's claim, even with --take-over, resumes one.
+#       other thread's claim, even with --take-over, resumes one. Only the attempt
+#       still holding its work takes a block: a superseded one is refused, and a
+#       landed one takes only its build's blocks.
 #   status
 #
 # The script works in its own git clone of the fork ($STATE/repo), never in the
@@ -688,12 +690,40 @@ attempt_command() {
         '.phase = "landed" | .landing = {operation: $op, commit: $c}'
       ;;
     blocked)
-      local kind="${3:?kind}"
+      local kind="${3:?kind}" phase other
       case "$kind" in evidence | owner-decision | checks | publication) ;; *)
         echo "blocked kind must be evidence, owner-decision, checks or publication" >&2
         exit 2
         ;;
       esac
+      # A block describes what stops that attempt's work, so only the attempt still
+      # holding that work takes one: a superseded attempt has none left, and a landed
+      # one has only its build's. Without this, a stale holder's owner decision holds
+      # back the attempt that did take over, and each refuses the other's retry
+      # (T3-171).
+      phase="$(json_get "$file" .phase)"
+      if [ "$phase" = superseded ]; then
+        echo "attempt $(json_get "$file" .attempt) was superseded by $(json_get "$file" .supersededBy); record the block on that attempt instead" >&2
+        exit 3
+      fi
+      ensure_clone
+      git -C "$REPO" fetch --quiet origin || true
+      # A recorded landing counts, through later build blocks, even when the fetch above failed and the cached ref is stale.
+      if [ -n "$(json_get "$file" .landing.commit)" ] || git -C "$REPO" merge-base --is-ancestor "$(json_get "$file" .sha)" "origin/$BRANCH" 2>/dev/null; then
+        case "$kind" in
+          evidence | publication) ;;
+          *)
+            echo "attempt $(json_get "$file" .attempt) has landed, so only a block of its build (evidence or publication) still applies" >&2
+            exit 3
+            ;;
+        esac
+      else
+        other="$(other_holder "$file")"
+        if [ -n "$other" ]; then
+          echo "attempt $(json_get "$file" .attempt) is no longer the update in flight: attempt $(json_get "$other" .attempt) ($(json_get "$other" .phase) by $(json_get "$other" .claimedBy)) holds every update back" >&2
+          exit 3
+        fi
+      fi
       attempt_set "$tag" --arg k "$kind" --arg s "${4:?summary}" \
         '.phase = "blocked" | .blocked = {kind: $k, summary: $s, resumeBy: (if $k == "owner-decision" then "Henry answers in the claiming thread; the agent there resumes this attempt" else "the claiming agent fixes the cause, or fork-nightly.sh attempt <tag> retry" end)}'
       ;;

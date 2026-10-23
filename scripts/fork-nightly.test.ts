@@ -1377,6 +1377,158 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     );
 
     it(
+      "refuses an owner decision from a superseded attempt, so two attempts cannot hold each other",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          await run(f, []);
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadA"])).code).toBe(0);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          // The older claim goes stale with its release, so the newer tag supersedes it.
+          await run(f, [], { T3FORK_REDISPATCH_SECONDS: "0", T3_TEST_ABSENT: `${OLD_TAG}/` });
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "superseded",
+            supersededBy: NEW_TAG,
+          });
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"])).code).toBe(0);
+
+          // The superseded attempt's thread reports its block late: it no longer holds
+          // the update, so the block is refused rather than deadlocking both attempts.
+          const late = await run(f, [
+            "attempt",
+            OLD_TAG,
+            "blocked",
+            "owner-decision",
+            "keep the fork worker?",
+          ]);
+          expect(late.code).toBe(3);
+          expect(late.stderr).toContain(`superseded by ${NEW_TAG}`);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "superseded" });
+
+          // The newer attempt is still the update in flight, and it can move on.
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"])).code).toBe(0);
+          expect((await run(f, ["attempt", NEW_TAG, "retry"])).code).toBe(0);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses a block on an attempt another thread's claim holds the update over",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadA"])).code).toBe(0);
+          await publishUpstreamTag(f, NEW_TAG, "2099-01-02T00:00:00Z");
+          // The older release vanishes, so its claim holds nothing back and the newer
+          // tag is claimed while the older one is still recorded as claimed.
+          const absent = { T3_TEST_ABSENT: `${OLD_TAG}/` };
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"], absent)).code).toBe(0);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "claimed",
+            claimedBy: "threadA",
+          });
+
+          const late = await run(f, [
+            "attempt",
+            OLD_TAG,
+            "blocked",
+            "owner-decision",
+            "keep the fork worker?",
+          ]);
+          expect(late.code).toBe(3);
+          expect(late.stderr).toContain(NEW_TAG);
+          expect(late.stderr).toContain("threadB");
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "claimed" });
+          expect((await run(f, ["attempt", NEW_TAG, "claim", "threadB"], absent)).code).toBe(0);
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses an owner decision on a landed attempt but keeps recording its build blocks",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadA"])).code).toBe(0);
+          // The agent lands the merge, records it, and then builds it.
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["checkout", "-q", "t3peach"]);
+          await git(
+            work,
+            ["merge", "-q", "--no-ff", "-m", `Merge ${OLD_TAG}`, OLD_TAG],
+            "2099-01-03T00:00:00Z",
+          );
+          const head = await git(work, ["rev-parse", "HEAD"]);
+          await git(work, ["push", "-q", f.origin, "t3peach"]);
+          expect((await run(f, ["attempt", OLD_TAG, "landed", "op-1", head])).code).toBe(0);
+
+          const decision = await run(f, [
+            "attempt",
+            OLD_TAG,
+            "blocked",
+            "owner-decision",
+            "keep the fork worker?",
+          ]);
+          expect(decision.code).toBe(3);
+          expect(decision.stderr).toContain("landed");
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "landed" });
+
+          const missing = await run(f, [
+            "attempt",
+            OLD_TAG,
+            "blocked",
+            "evidence",
+            `the upstream release of ${OLD_TAG} lacks SHA256SUMS`,
+          ]);
+          expect(missing.code).toBe(0);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({
+            phase: "blocked",
+            blocked: { kind: "evidence" },
+          });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
+      "refuses an owner decision on a recorded landing the updater clone cannot yet see on origin",
+      async () => {
+        await withFixture(async (f) => {
+          await seedRepos(f);
+          await publishUpstreamTag(f, OLD_TAG, "2099-01-01T00:00:00Z");
+          expect((await run(f, ["attempt", OLD_TAG, "claim", "threadA"])).code).toBe(0);
+          const work = NodePath.join(f.root, "work");
+          await git(work, ["checkout", "-q", "t3peach"]);
+          await git(
+            work,
+            ["merge", "-q", "--no-ff", "-m", `Merge ${OLD_TAG}`, OLD_TAG],
+            "2099-01-03T00:00:00Z",
+          );
+          const head = await git(work, ["rev-parse", "HEAD"]);
+          // Not pushed: origin/t3peach in the updater clone does not contain the landing.
+          expect((await run(f, ["attempt", OLD_TAG, "landed", "op-1", head])).code).toBe(0);
+
+          const decision = await run(f, ["attempt", OLD_TAG, "blocked", "owner-decision", "keep?"]);
+          expect(decision.code).toBe(3);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ phase: "landed" });
+
+          expect(
+            (await run(f, ["attempt", OLD_TAG, "blocked", "evidence", "no SHA256SUMS"])).code,
+          ).toBe(0);
+          const again = await run(f, ["attempt", OLD_TAG, "blocked", "owner-decision", "keep?"]);
+          expect(again.code).toBe(3);
+          expect(await attemptOf(f, OLD_TAG)).toMatchObject({ blocked: { kind: "evidence" } });
+        });
+      },
+      TIMEOUT,
+    );
+
+    it(
       "keeps a non-owner block with its holder through a claim, and an owner decision through a take-over",
       async () => {
         await withFixture(async (f) => {
