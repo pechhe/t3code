@@ -132,10 +132,14 @@ const AUTOMATION_PROMPT = "Triage the inbox\n\nLabel every new issue and close d
 describe("MessagesTimeline messages", () => {
   it("settles when equally long messages have very different rendered heights", async () => {
     const props = baseProps();
-    const tall = message("a\n\n".repeat(6000), { role: "assistant" }, "tall");
+    // The tall row has to clear 100k and both fixtures have to land in one
+    // `getItemType` length bucket, so the tall row's measurement is what the short
+    // ones are estimated from. These counts keep both true with headroom, and each
+    // extra repeat only adds markup this test has to render under load.
+    const tall = message("a\n\n".repeat(3400), { role: "assistant" }, "tall");
     const earlier = Array.from({ length: 80 }, (_, index) =>
       message(
-        `<details><summary>Reply ${index}</summary>${"compact ".repeat(2250)}</details>`,
+        `<details><summary>Reply ${index}</summary>${"compact ".repeat(1000)}</details>`,
         { role: "assistant" },
         `earlier-${index}`,
       ),

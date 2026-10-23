@@ -229,6 +229,19 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Decision:** `retain` (2026-10-23, T3-167).
 - **Owner:** T3-167.
 
+### timeline-layout-test-fixture
+
+- **Kind:** deliberate test-only performance change (upstreamable)
+- **Why:** the timeline's layout-pass regression test rendered more Markdown than its height-contrast scenario needed and exceeded its 15-second timeout under the nightly audit's load.
+- **Requirements:** the tall message still measures above 100,000 pixels; it and the 80 collapsed messages remain in the same `getItemType` length bucket, so the tall measurement seeds the short rows' estimates. Keep the heavy rerender and the assertion that nested commits stay below 20. Shrink only redundant fixture text; never raise the timeout or weaken the layout guard.
+- **Integration points:** `apps/web/src/components/chat/MessagesTimeline.browser.test.tsx` (the equally-long-message height-contrast fixture); `MessagesTimeline`'s item-type buckets and the list's layout-pass cap.
+- **Proof:** the browser file's 13 tests passed twice on peach-box after the fixture change. The worker disabled the actual list layout cap in Vite's prebundle and confirmed the same test still fails with React error 185, then restored the original files and verified their checksums. Existing height and nested-commit assertions are unchanged.
+- **Upstream:** the larger fixture is upstream-owned; the smaller fixture preserves the same regression scenario and can be proposed upstream.
+- **Retire when:** upstream adopts an equivalent smaller fixture or replaces this regression test with an equally sensitive, cheaper scenario.
+- **Constraints:** before `e43bf26d6c48`, after `c1a54ecbe0ba`: the tall fixture repeats 6,000 → 3,400 times and each compact fixture 2,250 → 1,000 times. Paired focused test durations on peach-box were 7.7/5.2 seconds and 9.7/7.0 seconds (before/after); a more heavily loaded pair was 22.4/9.8 seconds. Those observations show focused-run headroom, not a complete audit result or a calibrated speedup. Acceptance still requires a complete nightly audit on peach-box and its recorded file duration; that evidence is pending.
+- **Decision:** `retain` (2026-10-23, T3-210).
+- **Owner:** T3-210.
+
 ### build-items-hq
 
 - **Kind:** durable extension
