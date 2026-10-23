@@ -3,268 +3,240 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.3-nightly.20261023.3566",
-      "sha": "807319c276c6831b2c219640e9da5b38019a8f1d"
-    },
-    "target": {
       "tag": "v0.1.3-nightly.20261023.3579",
       "sha": "66ee628e0875b2b735b199f42e6151e347833637"
+    },
+    "target": {
+      "tag": "v0.1.3-nightly.20261023.3592",
+      "sha": "e340aaeeb98bc6ac623c2e70ac8eca8bcbddfe1b"
     }
   },
   "fork": {
-    "base": "8db7df2555c06e8bd548d5dcee40e01834710e93"
+    "base": "0b14363c757b82f7eaa2be8c74ef8ceef39d0322"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "391169c6e8e8d8e11400cd288951096ec5a16683"
+    "blob": "515ca3245c89cb449d00b7bea8179f81da3a5cee"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.3-nightly.20261023.3579@1792768901",
-  "reviewedAt": "2026-10-23T16:25:00Z",
+  "attempt": "v0.1.3-nightly.20261023.3592@1792790557",
+  "reviewedAt": "2026-10-23T21:41:11Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:39c4a7a1-3537-4c88-ba4e-4dd7ba3e1216",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:e9348fa5-8d0f-4194-9814-a5833f5d9395",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 22,
+    "upstreamCommits": 7,
     "entriesConsidered": [
-      "agent-process-ledger",
-      "compact-line",
+      "slipjay-workspaces",
       "managed-delegation",
-      "perf-persistence-reads",
-      "slipjay-delivery-config",
-      "web-client-customisation",
-      "subagent-return-chip",
-      "scheduled-tasks-extensions",
-      "thread-watches",
-      "image-annotation",
-      "snapshot-overlay",
-      "project-themes",
       "account-pools",
-      "t3-agent-cli",
-      "fork-updater",
-      "device-composer"
+      "device-composer",
+      "image-annotation",
+      "web-client-customisation",
+      "thread-watches",
+      "perf-persistence-reads",
+      "agent-process-ledger"
     ],
     "areas": [
-      "All 22 incoming commits (807319c2..66ee628e) by subject and stat, then the 49 files both sides changed read in the merged tree",
-      "Conflicts (10 files): OrchestratorMcpService.ts, ClaudeAdapterV2.ts, ClaudeAgentSdkQueryRunner.test.ts, AcpJsonRpcConnection.test.ts, AcpSessionRuntime.ts, provider-pi/adapter.ts, MessagesTimeline.tsx, settingsScopeNavigation.test.ts, work-log/presentation.test.ts, and tools.test.ts (upstream deleted it, the fork kept it)",
-      "Two conflicts were silent losses caught by the web typecheck rather than marked: CommandPalette.logic.test.ts took upstream's #24032 tests, which call `buildThreadActionItems`, the name the fork renamed to `forgeThreadActionItems` in the Forge sweep; renamed in the test. settingsScopeNavigation.test.ts took upstream's scheduled-tasks route, import and suite, but the fork serves scheduled tasks at the top-level `/scheduled` route and has no settings page for them, so the file is the fork's version with its three settings routes",
-      "Upstream's deletion in tools.test.ts (#24058) resolved in the fork's favour: the file's second test covers the retired `reviewer` agent-task role, which is a fork value",
-      "agent-process-ledger: upstream #21299 adds `AgentScope.stop`/`AgentScopeCommand.unit` and stops each agent's systemd scope when the process it launched exits (Claude's group watcher, ACP runtimes, Pi, Muse). It reaps `setsid` descendants outside the process group, so it complements the fork's POSIX-group ledger rather than replacing it. Pi spawns again to apply a compaction point in the same scope, so its exit watch moved inside `spawnConnection` (one per connection) and `prepareCompactionPoint` interrupts the old watch before terminating, or the stop would disable the process it just started",
-      "managed-delegation: upstream #23886 (Stop stops a thread's subagents again) is one line where it meets the fork, `stopDelegatedTasks: false` on the cancel-task `thread.stop`; the fork's delivery dispose, queued-run cancel and dispatch-mode limit are unchanged. Its ThreadStop test expects a repeated Stop to write no event, and the fork's stop path broke that twice: `markStoppedBackgroundWork` re-recorded work the run already named, and `disposeDelegatedCompletionCohort` re-emitted a cohort the first Stop had settled. Both now emit only when the payload would change, so the test stands as upstream wrote it",
-      "compact-line: upstream #24008 stops a typed `/compact` with instructions queueing a bare compaction first (`COMPACT_COMMAND_PATTERN`); the fork's per-thread point and Pi's settings write are untouched",
-      "perf-persistence-reads: upstream #23987 adds `ProjectionStore.listActiveSubagentThreadIds` so a shell subscription no longer reads every thread's shell on resume; it is wrapped in `readOnReader` like the other projection reads",
-      "slipjay-delivery-config: upstream's #23581 `check:changed` rewrite (side-by-side steps, a result cache keyed on the checked tree, unused-patch install check, `core.quotePath=false`) adopted; the fork's `slipjay.json` integration-branch default is the only deviation left in the file",
-      "web-client-customisation and subagent-return-chip: upstream #23752's activity announcer mounts in both the empty and filled timeline in `MessagesTimeline.tsx`, which keeps the fork's eased follow (`endPinSuppressed`/`glidesToEnd`, `size: !glidesToEnd`) and therefore drops upstream's `settlingListIdentity`/`TIMELINE_MAINTAIN_SCROLL_AT_END_SMOOTH` conditional it replaced; #23739, #23776, #24032, #24063 and #24036 adopted unchanged, the blockquote rule being upstream's own (the composer override that went with it was upstream's too)",
-      "No behavioural overlap found for: Bitbucket's startup sweep backoff, the desktop stuck-quit fix (#23873; the fork's quit finalizer in `DesktopApp.ts` takes the stopped pids and is untouched), preview screenshot serialisation (#24056) and PDF annotation (#24022), the mobile and web test restores (#23977, #23980, #24011, #23991), and the polling-loop lint rule (#23983)",
-      "Dependencies: upstream adds `patches/@muse-code__sdk@1.4.6.patch`, its `patchedDependencies` entry and removes two unused dependencies; `vp i` resolved the changed lockfile",
-      "The 49 files both sides changed, read in the merged tree: apps/desktop/src/app/DesktopLifecycle.test.ts, apps/server/src/mcp/OrchestratorMcpService.ts, apps/server/src/mcp/threadAccess.test.ts, apps/server/src/mcp/toolkits/orchestrator/tools.test.ts, apps/server/src/mcp/toolkits/preview/tools.test.ts, apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.ts, apps/server/src/orchestration-v2/Adapters/ClaudeAgentSdkQueryRunner.test.ts, apps/server/src/orchestration-v2/EventSink.ts, apps/server/src/orchestration-v2/Orchestrator.ts, apps/server/src/orchestration-v2/ProjectionStore.test.ts, apps/server/src/orchestration-v2/ProjectionStore.ts, apps/server/src/orchestration-v2/ProviderTurnControlService.test.ts, apps/server/src/orchestration-v2/ThreadManagementService.ts, apps/server/src/orchestration-v2/ThreadStop.test.ts, apps/server/src/provider/ProviderInstanceRegistryHydration.test.ts, apps/server/src/provider/acp/AcpJsonRpcConnection.test.ts, apps/server/src/relay/AgentAwarenessRelay.test.ts, apps/server/src/ws.test.ts, apps/server/src/ws.ts, apps/web/src/components/ChatView.logic.test.ts, apps/web/src/components/ChatView.logic.ts, apps/web/src/components/ChatView.tsx, apps/web/src/components/CommandPalette.logic.test.ts, apps/web/src/components/CommandPalette.logic.ts, apps/web/src/components/ComposerPromptEditorTiptap.tsx, apps/web/src/components/Sidebar.logic.ts, apps/web/src/components/chat/MessagesTimeline.logic.ts, apps/web/src/components/chat/MessagesTimeline.tsx, apps/web/src/components/settings/settingsScopeNavigation.test.ts, apps/web/src/components/sidebar/SidebarThreadRow.tsx, apps/web/src/index.css, apps/web/src/keybindings.test.ts, apps/web/src/session-logic.ts, docs/operations/development.md, knip.jsonc, packages/client-runtime/src/state/sharedSettings.test.ts, packages/client-runtime/src/state/sharedSettings.ts, packages/client-runtime/src/work-log/presentation.test.ts, packages/client-runtime/src/work-log/presentation.ts, packages/contracts/src/orchestrationV2.ts, packages/provider-acp/src/server/AcpSessionRuntime.ts, packages/provider-muse/src/server/adapter.test.ts, packages/provider-muse/src/server/adapter.ts, packages/provider-pi/src/server/adapter.test.ts, packages/provider-pi/src/server/adapter.ts, packages/shared/package.json, pnpm-lock.yaml, scripts/check-changed.ts, vite.config.ts",
-      "t3peach moved while this merged: 7 commits landed (Effect.fn for fork server code, Pi's result-declaration perf change, the machine lever under load balancing, split replay-fixture integration files, and a released migration's recorded name in the compact-line constraints, each with its record edit), so the merge was rebased onto 8db7df25 with the tag kept as its second parent. Only fork/differences.md conflicted, on compact-line, where the fork's new migration-name constraint and this update's /compact decision were both kept. Nothing else in the arriving range touches a disposition: the ProcessGroupLedger refactor is shape-only and still records each adopter's group, Pi's new work is in mcpExtensionSource and its testkit rather than the adapter's spawn path, and the split replay fixtures with the landing selector inputs belong to the gate"
+      "apps/server/src/vcs: checkpoint git subprocess attempt metering (#24218)",
+      "apps/server/src/storageCleanup: worktree deletion shared with subagents (#23900)",
+      "apps/server/src/orchestration-v2/ThreadPullRequestService: background-gated PR sweep (#23852)",
+      "apps/server/src/terminal: large clipboard sequence sanitizer (#23819)",
+      "apps/server/src/cli and cloud: stale CLI service recovery copy (#23541)",
+      "apps/web composer: preparing image tiles and their tile action (#23832)",
+      "apps/web usage: header layout container query (#24123)"
     ],
     "exclusions": [
       {
-        "what": "Web, desktop and mobile clients driven by hand",
-        "why": "No browser or device pass in this unattended webhook run; covered by the typechecks, the focused tests and the landing gate"
+        "what": "apps/server/src/cli/service.ts, cli/invocation.ts, cloud/servicePreflight.ts and their tests",
+        "why": "upstream's stale-service recovery message and entry-path reporting; the fork does not modify these files and no entry integrates with the service launcher"
       },
       {
-        "what": "Browser tests and the full gate selection",
-        "why": "Run by the SlipJay landing runner, not locally; only `test-landing.ts --plan` was run here"
-      },
-      {
-        "what": "Upstream's own repo-wide suite",
-        "why": "CI owns it; the gate runs the tests this candidate can reach"
-      },
-      {
-        "what": "Migration numbering",
-        "why": "The incoming range adds no migration"
-      },
-      {
-        "what": "`vp run fmt` across the tree",
-        "why": "The formatter (from the already-installed Vite+) rewraps files the candidate does not change; only this candidate's own files were checked, and the unrelated rewrites were reverted"
+        "what": "apps/web/src/lib/imageCompression.ts and its test, useComposerAttachmentIntake.ts, useComposerContextImport.ts, ComposerImageThumbnail.tsx, preparingComposerImages.ts",
+        "why": "upstream's pasted-image preprocessing and preview plumbing, unmodified by the fork; the fork's seams in that feature are the tile's action and the resting rule, recorded under image-annotation and device-composer"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "agent-process-ledger",
-      "upstream": "#21299 stops an agent's systemd scope when its process exits (`AgentScope.stop`, `AgentScopeCommand.unit`)",
-      "decision": "adapt",
+      "entry": "slipjay-workspaces",
+      "upstream": "#24218 meters every checkpoint git subprocess attempt as a span and counter; #23900 lets a deleted thread that still owns a worktree its remaining subagents share be cleaned up by the deletion rules",
+      "decision": "adopt",
       "requirements": [
-        "A provider process that exits takes its detached descendants with it, including `setsid` ones outside its process group",
-        "Pi still restarts within a session to apply a compaction point without losing that scope",
-        "The fork's ledger still records each adopter's POSIX group where there is no scope"
+        "Jujutsu driver, checkpoint services and the SlipJay workspace lifecycle keep their behaviour",
+        "SlipJay workspaces stay outside the managed worktree roots deletion cleanup acts on"
       ],
       "evidence": [
-        "packages/shared/src/AgentScope.ts carries `stop` and `unit`; apps/server/src/process/agentScope.test.ts passes (including the new stop cases)",
-        "apps/server/src/provider/acp/AcpJsonRpcConnection.test.ts passes with both the fork's ledger block and upstream's exit watch",
-        "packages/provider-pi/src/server/adapter.test.ts and rpc.test.ts pass; `exitWatch` is interrupted before the compaction restart"
+        "merged unchanged: apps/server/src/vcs/GitVcsDriver.ts and VcsProcess.ts differ from upstream only by the metrics wrap",
+        "storageCleanup.ts is not fork-modified; cleanWorktrees only acts inside managedWorktreesDirectories (config.worktreesDir and the worktrees settings), which excludes ~/.slipjay/workspaces",
+        "apps/server/src/storageCleanup.test.ts and GitVcsDriver.test.ts: merged upstream tests present"
       ]
     },
     {
       "entry": "managed-delegation",
-      "upstream": "#23886 Stop stops a thread's subagents again",
+      "upstream": "#23900 keeps a subagent's shared worktree owned by its deleted parent for deletion cleanup",
       "decision": "adopt",
       "requirements": [
-        "A Stop stops the thread's app-owned children as well as its runs",
-        "A cancelling task does not stop its children twice and keeps its delivery dispose, queued-run cancel and mode limit",
-        "A Stop writes an event only when it changes something"
+        "an isolated writer's worktree and a delegated task's removed workspace keep their existing rules"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/ThreadStop.test.ts passes (42 tests) with upstream's expectation that a repeated Stop writes no events, and the walk that still stops the delegated tasks",
-        "apps/server/src/mcp/OrchestratorMcpService.test.ts, ManagedDelegation.test.ts, ManagedFollowup.test.ts and TaskCancelNativeSubagent.integration.test.ts pass",
-        "apps/server/src/orchestration-v2/DelegatedCompletionDelivery.test.ts, CheckpointCaptureService.test.ts, ThreadManagementService.test.ts, ThreadWatch.test.ts, RestartBackgroundNote.test.ts and ProviderTurnControlService.test.ts pass with the two no-change guards"
+        "the change only alters which thread deletion cleanup treats as a worktree's owner and whether latest activity is re-checked; it adds no new deletion path for a live thread"
       ]
     },
     {
-      "entry": "perf-persistence-reads",
-      "upstream": "#23987 `listActiveSubagentThreadIds` replaces the full shell read on resume",
+      "entry": "account-pools",
+      "upstream": "#24123 sizes the Usage page header controls by the header's own container query instead of the viewport",
       "decision": "adopt",
-      "requirements": ["Non-mutating projection reads stay on readers, including the new one"],
+      "requirements": [
+        "the pool usage card and pool routing read the same data as before"
+      ],
       "evidence": [
-        "apps/server/src/orchestration-v2/ProjectionStore.test.ts passes with `listActiveSubagentThreadIds` through `readOnReader`",
-        "apps/server/src/ws.test.ts and apps/server/src/orchestration-v2/FoundationPersistence.test.ts pass"
+        "UsagePage.tsx is not fork-modified; merged unchanged",
+        "pnpm exec vp run --filter @t3tools/web typecheck passed"
       ]
     },
     {
-      "entry": "compact-line",
-      "upstream": "#24008 a typed `/compact` with instructions runs no bare compaction first",
-      "decision": "adopt",
+      "entry": "device-composer",
+      "upstream": "#23832 shows a pasted image's tile before its compressed copy exists and counts those tiles as expanded composer chrome",
+      "decision": "adapt",
       "requirements": [
-        "The fork's per-thread point, Pi's settings write and its restart are unchanged"
+        "the device composer itself never takes the resting composer layout",
+        "a preparing image tile appears immediately and is not clickable until its image is ready"
       ],
       "evidence": [
-        "apps/web/src/components/ChatView.logic.test.ts passes",
-        "packages/provider-pi/src/server/adapter.test.ts passes for the compaction paths"
+        "ChatComposer.tsx conflict resolved by keeping the fork's `!deviceComposer &&` resting rule and adding upstream's `preparingComposerImages.length > 0` term",
+        "pnpm exec vp run --filter @t3tools/web typecheck passed"
       ]
     },
     {
-      "entry": "slipjay-delivery-config",
-      "upstream": "#23581 `check:changed` runs its steps side by side and caches a passing result",
-      "decision": "adopt",
+      "entry": "image-annotation",
+      "upstream": "#23832 renders a preparing image through the same attachment tile, disabled until the compressed image exists",
+      "decision": "adapt",
       "requirements": [
-        "The fork's default ref stays `origin/<integrationBranch>` from slipjay.json",
-        "The landing gate keeps its own import-graph selector in scripts/test-landing.ts"
+        "the composer attachment tile opens the fork's annotator for a ready image",
+        "no preview/expand button returns to that tile"
       ],
       "evidence": [
-        "scripts/check-changed.ts keeps the `integrationBranch` read (lines 37-40) alongside upstream's rewrite",
-        "node scripts/test-landing.ts --plan listed the gate's per-package selection against the merged config"
+        "ComposerAttachmentStrip.tsx conflict resolved: the tile keeps `aria-label=\"Annotate ...\"` and `onAnnotateImage(ready)`, gaining upstream's `disabled={!ready}` and ready-gated cursor",
+        "apps/web/src/components/chat/ExpandedImagePreview.test.ts and composerAttachmentFiles.test.ts passed",
+        "pnpm exec vp run --filter @t3tools/web typecheck passed"
       ]
     },
     {
       "entry": "web-client-customisation",
-      "upstream": "#23752 activity announcer, #23739 streaming-scan allocations, #23776 changed-file collator, #24032 cmd+k filter, #24063 Cmd+B rule, #24036 blockquote rule",
+      "upstream": "#23832's composer tile and expanded-chrome changes in ChatComposer.tsx",
       "decision": "adopt",
       "requirements": [
-        "The fork's eased follow and calm streaming in the timeline survive the announcer's mount points",
-        "The fork's settings routes keep their entries in the shared-layout test"
+        "the fork's raised-card row, machine icons and background-work strip are untouched"
       ],
       "evidence": [
-        "apps/web/src/components/chat/MessagesTimeline.logic.test.ts passes and `pnpm exec vp run --filter @t3tools/web typecheck` passes after removing upstream's `settlingListIdentity` conditional from the conflict",
-        "apps/web/src/components/CommandPalette.logic.test.ts passes with the fork's `forgeThreadActionItems` name",
-        "apps/web/src/components/settings/settingsScopeNavigation.test.ts passes over the fork's three settings routes"
+        "the file's other fork behaviour (machine switch, Fast switch, sounds, compact line) merged unchanged around the single conflicted hunk"
       ]
     },
     {
-      "entry": "subagent-return-chip",
-      "upstream": "#23752 and #23739 in `MessagesTimeline.tsx`",
+      "entry": "thread-watches",
+      "upstream": "#23852 stops the periodic pull-request discovery sweep while no client holds an activity lease",
       "decision": "adopt",
       "requirements": [
-        "Return chips, their row builders and the jump/highlight handlers are unchanged"
+        "PR watches and the fork's thread and Forge watches keep waking from thread events",
+        "a headless server does no opportunistic GitHub reads"
       ],
       "evidence": [
-        "apps/web/src/components/chat/MessagesTimeline.logic.test.ts passes",
-        "the chips' sources are untouched in the merged tree"
+        "ThreadPullRequestService's event subscription and the watch reactors are untouched; only the one-minute sweep is gated",
+        "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts (upstream's sweep test plus the fork's two read tests) passed"
+      ]
+    },
+    {
+      "entry": "perf-persistence-reads",
+      "upstream": "#23852 gates the one-minute PR sweep on BackgroundPolicy.shouldRunOpportunisticWork",
+      "decision": "adopt",
+      "requirements": [
+        "the fork's getBranchPullRequestThreads read remains the sweep's and a thread event's read path"
+      ],
+      "evidence": [
+        "ThreadPullRequestService.ts merged with both: the fork's ProjectionStore read feeds upstream's policy check",
+        "the merge duplicated the test file's TestClock, Queue and OrchestrationV2DomainEvent imports; removed",
+        "upstream's sweep test gained the ProjectionStore mock the fork's read path needs, and the fork's two read tests mock the policy as allowed"
+      ]
+    },
+    {
+      "entry": "agent-process-ledger",
+      "upstream": "#23819 speeds up the terminal history sanitizer for large clipboard paste sequences",
+      "decision": "adopt",
+      "requirements": [
+        "terminal PTY session leaders are still recorded under the state directory until they exit",
+        "readThreadOutput keeps its behaviour"
+      ],
+      "evidence": [
+        "the change only moves the terminator scan's start position inside sanitizeTerminalHistoryChunk; the fork's ledger tracking and readThreadOutput merged unchanged",
+        "apps/server/src/terminal/Manager.test.ts passed"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
+      "command": "fork-nightly.sh attempt v0.1.3-nightly.20261023.3592 claim <this thread>",
+      "result": "passed",
+      "note": "claimed by this thread before any work; the attempt file reads phase claimed with claimedBy naming it"
+    },
+    {
       "command": "vp i",
       "result": "passed",
-      "note": "Resolved the new @muse-code/sdk patch and the two removed dependencies"
+      "note": "lockfile unchanged by the merge"
     },
     {
-      "command": "vp test run (agentScope, AcpJsonRpcConnection, provider-pi adapter, provider-pi rpc, ClaudeAgentSdkQueryRunner)",
+      "command": "vp test run apps/server/src/terminal/Manager.test.ts apps/server/src/storageCleanup.test.ts",
       "result": "passed",
-      "note": "5 files, 136 tests"
+      "note": "168 tests"
     },
     {
-      "command": "vp test run (ThreadStop, ClaudeAdapterV2, OrchestratorMcpService, ProjectionStore, orchestrator tools.test)",
+      "command": "vp test run apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
       "result": "passed",
-      "note": "5 files, 370 tests; the ThreadStop failure was in the fork's stop path, which the reconciliation then fixed (see managed-delegation)"
+      "note": "8 tests, after the duplicate-import and mock adaptations"
     },
     {
-      "command": "vp test run (work-log/presentation, settingsScopeNavigation, MessagesTimeline.logic, ChatView.logic, keybindings, ws, mcp/threadAccess, preview tools.test)",
+      "command": "vp test run apps/server/src/cli/service.test.ts apps/server/src/cloud/servicePreflight.test.ts apps/web/src/lib/imageCompression.test.ts",
       "result": "passed",
-      "note": "8 files, 239 tests"
+      "note": "81 tests"
     },
     {
-      "command": "vp test run (provider-muse adapter and sdk, FoundationPersistence)",
+      "command": "vp test run apps/web/src/components/chat/ExpandedImagePreview.test.ts apps/web/src/components/chat/composerAttachmentFiles.test.ts",
       "result": "passed",
-      "note": "3 files, 94 tests"
+      "note": "8 tests"
     },
     {
-      "command": "vp test run (CommandPalette.logic, settingsScopeNavigation, ThreadStop)",
-      "result": "passed",
-      "note": "Re-run after the two renamed or dropped names were reconciled; 3 files, 75 tests"
-    },
-    {
-      "command": "pnpm exec vp run --filter t3 typecheck",
-      "result": "passed",
-      "note": "Server app, after the merge and the reconciliation edits"
-    },
-    {
-      "command": "pnpm exec vp run --filter @t3tools/web typecheck",
-      "result": "passed",
-      "note": "Caught the two dropped names in CommandPalette.logic.test.ts and settingsScopeNavigation.test.ts"
+      "command": "vp test run apps/server/src/vcs/GitVcsDriver.test.ts",
+      "result": "failed",
+      "note": "55 of 56 passed; \"lists the fetch and push URLs of a partial clone remote\" fails because this machine's global git `url.git@github.com:.insteadOf https://github.com/` rewrites the remote URL the test asserts. The test file is byte-identical to the tag's (sha256 750d7422...), the driver differs from the tag only by upstream's #24218 change, and a bare `git init` + `git remote add origin https://github.com/pingdotgg/t3code.git` on this machine reports `git@github.com:pingdotgg/t3code.git`, so the failure is environmental and would fail on the bare tag too; left."
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "Listed the gate's per-package selection against the merged config"
+      "note": "listed the affected packages' tests against the merged config"
     },
     {
-      "command": "vp test run (ThreadStop after restoring upstream's repeated-Stop expectation and adding the two no-change guards)",
+      "command": "pnpm exec vp run --filter t3 typecheck",
       "result": "passed",
-      "note": "42 tests, with upstream's repeated-Stop expectation and the two no-change guards in Orchestrator.ts"
+      "note": "after removing the duplicated test imports"
     },
     {
-      "command": "vp test run (DelegatedCompletionDelivery, CheckpointCaptureService, ThreadManagementService, ThreadWatch, RestartBackgroundNote)",
+      "command": "pnpm exec vp run --filter @t3tools/web typecheck",
       "result": "passed",
-      "note": "5 files, 77 tests"
+      "note": "after annotating from the ready image"
     },
     {
-      "command": "vp test run (ManagedDelegation, ManagedFollowup, TaskCancelNativeSubagent.integration, OrchestratorMcpService, ProviderTurnControlService)",
-      "result": "passed",
-      "note": "5 files, 60 tests"
-    },
-    {
-      "command": "node scripts/fork-upstream-receipt.ts verify --repo /Users/henrypetch/Engineering/t3code --rev <candidate> --landed <t3peach@origin>",
-      "result": "passed",
-      "note": "Printed 'receipt ok: v0.1.3-nightly.20261023.3579 (66ee628e0875) onto df8c60a78661' before the review; re-run after the review fixes and before landing"
-    },
-    {
-      "command": "slipjay land gate (test-landing.ts, both typechecks, receipt verify)",
+      "command": "Browser panel check of the composer attachment tile",
       "result": "not-run",
-      "note": "Runs on the SlipJay runner"
+      "note": "this scheduled thread's T3 tool listing carries no preview_* (Browser panel) tools, and test-t3-app forbids switching to another automation system, so the visible tile change was not checked in a real client; it is covered by the web typecheck, the tile's helper tests and the reviewer's source trace of both files"
     },
     {
-      "command": "vp test run packages/provider-pi/src/server/adapter.test.ts",
-      "result": "passed",
-      "note": "90 tests, including the new \"keeps Pi's agent scope when the process restarts for a compaction point\""
-    },
-    {
-      "command": "vp test run (provider-pi adapter, provider-pi mcpExtensionSource, ThreadStop, OpenCodeServerLedger, CodexProcessGroup) after the rebase",
-      "result": "passed",
-      "note": "5 files, 172 tests"
-    },
-    {
-      "command": "pnpm exec vp run --filter t3 typecheck and --filter @t3tools/web typecheck after the rebase",
-      "result": "passed",
-      "note": "No errors"
+      "command": "slipjay land",
+      "result": "failed",
+      "note": "first attempt failed at the receipt check: t3peach moved to 0b14363c while this merge was being reviewed, so the runner rebased the merge onto it and the receipt named the old fork base. Rebased jj rebase -s <merge> -d t3peach@origin -d <tag> with no conflicts, receipt fork.base updated to 0b14363c, verified and landed again."
     }
   ],
   "result": "reconciled"
