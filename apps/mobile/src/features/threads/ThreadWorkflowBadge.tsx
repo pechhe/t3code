@@ -37,7 +37,7 @@ export function ThreadWorkflowBadge(props: {
       {shown.unattended ? (
         <>
           <View className={cn("mx-0.5 h-3 w-px", colors.divider)} />
-          <SymbolView name="moon" size={11} tintColorClassName={colors.symbol} type="monochrome" />
+          <SymbolView name="moon" size={11} tintColorClassName={colors.tint} type="monochrome" />
         </>
       ) : null}
     </View>

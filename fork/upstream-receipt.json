@@ -3,230 +3,116 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.3-nightly.20261023.3592",
-      "sha": "e340aaeeb98bc6ac623c2e70ac8eca8bcbddfe1b"
-    },
-    "target": {
       "tag": "v0.1.3-nightly.20261024.3604",
       "sha": "3f3a1bf419f07b4dcbb3be9f9fbb4ed54055ee4f"
+    },
+    "target": {
+      "tag": "v0.1.3-nightly.20261024.3617",
+      "sha": "27e0c684c585f955252d65f06206dd11a143bff5"
     }
   },
   "fork": {
-    "base": "f959e8a68790b4914bdc08f321f29e3dc5257bd0"
+    "base": "560072a2d4a45ed141c509c887aa2d8461d00041"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "661cdb76fa0692b7b0fed72536698817546f41db"
+    "blob": "a2174d108246f94bd4fc1254ed3e39ca72c72c3f"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.3-nightly.20261024.3604@1792815861",
-  "reviewedAt": "2026-10-24T04:38:35Z",
+  "attempt": "v0.1.3-nightly.20261024.3617@1792837491",
+  "reviewedAt": "2026-10-24T10:32:46Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:f53e3dc3-7d73-4a67-b3e8-2d4147c3bbfd",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:043bf485-7406-42b3-9ce0-8c178df511a6",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 26,
+    "upstreamCommits": 10,
     "entriesConsidered": [
-      "compact-line",
-      "managed-delegation",
-      "run-interrupt-cause",
-      "ws-rpc-group-split",
-      "account-pools",
-      "dev-state-tooling",
-      "quiet-run-read-state",
       "mobile-fork-screens",
-      "phi-browser-backend",
-      "image-annotation",
-      "device-composer",
-      "linked-environments",
       "thread-workflow-chip",
-      "repository-chips-hq",
-      "screen-recording-video"
+      "account-pools",
+      "live-response-streaming",
+      "quiet-run-read-state",
+      "build-items-hq"
     ],
     "areas": [
-      "apps/server/src/cli/pair.ts: pairing refuses a server whose protocol is incompatible (#23789)",
-      "apps/web usage: the usage-limit wake action stays visible (#23803)",
-      "apps/desktop/src/ipc/methods/sshEnvironment.ts and apps/web connection: an older reused remote server reports its version mismatch (#23647)",
-      "packages/client-runtime/src/state: a Stop clears commands the server had already finished (#23814)",
-      "apps/server/src/preview, packages/contracts/src/preview.ts: agent recordings take the client's browser recording frame rate (#23895)",
-      "apps/server/src/orchestration-v2/ProjectionStore.ts: a fork's first /compact sees its inherited history (#24172)",
-      "packages/client-runtime/src/state/orchestrationV2Projection.ts: streamed replacements skip ordering and position scans (#24264)",
-      "apps/server/src/orchestration-v2, mcp/OrchestratorMcpService.ts: an agent's Stop says so and a run's interrupt result carries the Stop's reason (#24299)",
-      "apps/mobile/src/Stack.tsx, features/home, features/pull-requests, features/threads: Duo header minimize, UIKit-owned insets, host-searched pull request filters, draft workspace controls (#24235, #24284, #24295, #23923, #23922, #24239)",
-      "apps/server/src/config.ts, apps/web observability, desktop observability, packages/shared relayTracing: the t3code attribute prefix and a matching dev version (#23974, #23975)",
-      "apps/server/src/provider/CodexProvider.ts: Codex accounts show ChatGPT's current plan names (#24200)",
-      "apps/web/src/components/pullRequest: review avatars unclipped and timeline actions centred (#23545, #24259)",
-      "apps/mobile/src/lib composer chip presentation and project icons, apps/mobile/src/state/entities.ts: chat and composer chips readable in light mode (#22585)",
-      "apps/server/src/resourceTelemetry, apps/web resourceTelemetryState: the monitor found from build output and stale errors cleared after retry (#23965, #24229)",
-      "apps/mobile/deps: react-native-screens t3.37 and docs/operations/mobile-screens-fork.md (#24235)",
-      ".github/workflows/stale-needs-more-info.yml: CI closes a needs-more-info issue after seven days without a reply (#22628)"
+      "apps/mobile workspace navigation and layout: Usage and Settings join the workspace tabs behind a glass header, with the Duo rail, portrait navigation and iPad column sizing (#23841, #24348, #24339, #24206, #24182)",
+      "apps/mobile/src/lib/projectIcon.ts and features/threads: a no-project thread draws a chat bubble, and project colour classes gain `tint` where the fork had named the field `symbol` (#21546)",
+      "packages/client-runtime/src/handoff.ts: the footer stops duplicating a handoff committed at startup (#24349)",
+      "apps/server/src/orchestration-v2/ThreadLiveEventCoalescer.ts: superseded streaming text and running tool updates coalesce in one pass (#24267)",
+      "packages/provider-muse and apps/server/src/usage, apps/web usage: Muse Code session history joins Usage (#22443)",
+      "apps/mobile/src/widgets/AgentActivity.tsx: the Live Activity shows the Working glyph instead of an agent count (#24329)",
+      "docs/user/usage.md: Muse Code history and Usage in the mobile workspace navigation documented; the fork's compact-line and experiments sections are kept"
     ],
     "exclusions": [
       {
-        "what": "scripts/fixtures/issue-21397.json, scripts/seed-issue-21397.py, scripts/seed-issue-21397.test.py, scripts/fixtures/issue-18188/",
-        "why": "upstream's regression seed fixtures for its own usage-limit and stale-command fixes; nothing in the fork consumes them"
+        "what": "apps/mobile/src/widgets/AgentActivity.tsx (#24329)",
+        "why": "upstream's own Live Activity widget; the fork does not modify it and no record entry integrates with it"
       },
       {
-        "what": "infra/relay/src/previewStages.ts, previewTunnelSweep.ts and .github/workflows/relay-preview*.yml",
-        "why": "deployment of labelled PR preview stages; the fork builds and installs locally, has no update feed and integrates with none of it"
+        "what": "upstream-only tests (ThreadLiveEventCoalescer.test.ts, UsageService.test.ts, usageTranscriptStreaming.test.ts, provider-muse usage.test.ts, navigation-tab-order.test.ts, workspace-tabs-state.test.ts, layout.test.ts, reserved-regions.test.ts, storage.test.ts)",
+        "why": "upstream's proof for its own changes; the landing gate runs them and no fork seam is asserted in them"
       },
       {
-        "what": "docs/operations/observability.md, docs/operations/release.md, docs/operations/mobile-screens-fork.md",
-        "why": "upstream's own operation docs; the fork's jj-workspace path lines in observability.md are kept, and no entry depends on their wording"
-      },
-      {
-        "what": "apps/mobile/src/lib/markdownDocument.ts (#22110)",
-        "why": "upstream's mobile Markdown link handling, a file the fork does not modify; no recorded entry integrates with it"
-      },
-      {
-        "what": "pnpm-lock.yaml, apps/mobile/deps/react-native-screens-5.0.0-t3.37.tgz, apps/mobile/package.json",
-        "why": "mechanical dependency updates, taken from upstream and regenerated with vp i"
-      },
-      {
-        "what": "upstream-only tests (pair.test.ts, serverLogger.test.ts, OrchestratorMcpToolkit.integration.test.ts, ThreadFork.execution.test.ts, previewStages.test.ts)",
-        "why": "upstream's proof for its own changes; the landing gate runs them, and no fork seam is asserted in them"
+        "what": "pnpm-lock.yaml, apps/mobile/package.json, apps/mobile/deps/react-native-screens-5.0.0-t3.43.tgz, docs/operations/mobile-screens-fork.md",
+        "why": "mechanical dependency update (react-native-screens t3.37 to t3.43), taken from upstream and regenerated with vp i"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "compact-line",
-      "upstream": "a fork's first /compact sees the history it inherited (#24172)",
-      "decision": "adopt",
-      "requirements": [
-        "the context bar keeps the fork's draggable per-thread point, the per-model point and Pi's settings write",
-        "a /compact on a fork is refused only when no history reached it"
-      ],
-      "evidence": [
-        "apps/server/src/orchestration-v2/ThreadFork.execution.test.ts (a $execution fork's first /compact is rejected only when no history reaches it)",
-        "apps/server/src/orchestration-v2/TurnStartReads.test.ts"
-      ]
-    },
-    {
-      "entry": "managed-delegation",
-      "upstream": "a Stop started by an agent says so, and a Stop clears commands the server already finished (#24299, #23814)",
-      "decision": "adopt",
-      "requirements": [
-        "a cancelled task's thread.stop still passes stopDelegatedTasks: false",
-        "a cancelling task keeps its queued-run cancellation, completion-delivery dispose and dispatch-mode limit"
-      ],
-      "evidence": [
-        "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts (a stopped run reports Stopped by an agent: <reason>)",
-        "apps/server/src/mcp/OrchestratorMcpService.test.ts",
-        "packages/client-runtime/src/state/threadCommands.test.ts"
-      ]
-    },
-    {
-      "entry": "run-interrupt-cause",
-      "upstream": "an interrupt result carries the Stop's own reason (#24299)",
+      "entry": "mobile-fork-screens",
+      "upstream": "Usage and Settings join the workspace navigation behind a glass header, with the Duo rail, portrait navigation and iPad column fixes (#23841, #24348, #24339, #24206, #24182), and a no-project thread shows a chat bubble (#21546)",
       "decision": "adapt",
       "requirements": [
-        "cause stays: user only for a Stop, move for a moved thread, else server-close or provider-abort",
-        "a message names the Stop's reason when one exists and otherwise says what happened, never blaming the user for an abort"
+        "the Forge item sheet and header, the workflow badge, the release approval card and the fork's settings entries (Experiments, environment filter, agent browser access) stay",
+        "the workflow badge keeps its unattended divider while reading upstream's tint"
       ],
       "evidence": [
-        "apps/server/src/orchestration-v2/RunExecutionService.test.ts (writes the Stop's own reason, so an agent's Stop is not the user's; keeps the user's Stop as the cause; provider abort, server close, move)",
-        "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+        "apps/mobile/src/lib/composerChipPresentation.test.ts",
+        "apps/mobile/src/features/pull-requests/pullRequestList.test.ts",
+        "apps/mobile/src/features/workspace/navigation-tab-order.test.ts",
+        "apps/mobile/src/features/workspace/workspace-tabs-state.test.ts",
+        "no test covers the Forge item sheet, its header, the workflow badge or the release approval card: the batch leaves those fork files untouched, checked by reading the merged tree, and vp run --filter @t3tools/mobile typecheck passes"
       ]
     },
     {
-      "entry": "ws-rpc-group-split",
-      "upstream": "pullRequestsFilterOptions joins the fork's pull request RPC group (#23924)",
-      "decision": "retain",
+      "entry": "thread-workflow-chip",
+      "upstream": "project colour classes carry `tint` where the fork had named the field `symbol` (#21546)",
+      "decision": "adapt",
       "requirements": [
-        "every WebSocket RPC is served through the feature group that owns it",
-        "the new handler lives in layerWsPullRequestRpc, not in the core layer"
+        "the mobile badge shows the workflow tint and the unattended moon segment divided from it"
       ],
       "evidence": [
-        "apps/server/src/ws.test.ts",
-        "vp run --filter t3 typecheck (the layer's requirements stay typed)"
+        "vp run --filter @t3tools/mobile typecheck (no `.symbol` reference remains, so the badge's tint and divider resolve)",
+        "no test renders ThreadWorkflowBadge: the tint and divider were checked by reading apps/mobile/src/features/threads/ThreadWorkflowBadge.tsx and apps/mobile/src/lib/projectIcon.ts"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "the usage-limit wake action stays visible and Codex shows current plan names (#23803, #24200)",
-      "decision": "adopt",
-      "requirements": [
-        "pooled routing and the usage card read the same sources",
-        "the fork's provider presentation is untouched"
-      ],
-      "evidence": [
-        "apps/server/src/provider/ProviderRegistry.test.ts",
-        "apps/server/src/provider/CodexChatGptModels.test.ts"
-      ]
-    },
-    {
-      "entry": "dev-state-tooling",
-      "upstream": "pairing refuses a server whose protocol is incompatible (#23789)",
-      "decision": "adopt",
-      "requirements": [
-        "t3 pair in a jj workspace still never falls back to the shared home"
-      ],
-      "evidence": [
-        "apps/server/src/cli/pair.test.ts",
-        "packages/shared/src/devHome.test.ts"
-      ]
-    },
-    {
-      "entry": "quiet-run-read-state",
-      "upstream": "streamed item replacement no longer scans ordering or positions (#24264)",
-      "decision": "adopt",
-      "requirements": [
-        "a successful bound run still marks its thread read and an explicit mark-unread still overrides it"
-      ],
-      "evidence": [
-        "packages/client-runtime/src/state/orchestrationV2Projection.test.ts (quiet completion read state, and the scan-free streamed replacement)"
-      ]
-    },
-    {
-      "entry": "mobile-fork-screens",
-      "upstream": "Duo header minimize, UIKit-owned insets, light-mode chips and host-searched pull request filters (#24235, #24284, #24295, #22585, #23924, #23922, #23923)",
+      "upstream": "the footer stops duplicating a committed handoff at startup (#24349) and Muse Code session history joins Usage (#22443)",
       "decision": "adapt",
       "requirements": [
-        "the Forge item header and sheet, the workflow badge, the release approval card and the fork's settings entries stay",
-        "mentions in a message still resolve with the fork's Forge labels before chip icons are drawn"
+        "pooled routing still sends the preview destination through `routePoolSelection` from the thread's own member",
+        "a handoff to another account is still previewed on selection and dropped once it starts"
       ],
       "evidence": [
-        "apps/mobile/src/lib/composerChipPresentation.test.ts",
-        "apps/mobile/src/lib/projectIcon.test.ts",
-        "apps/mobile/src/features/pull-requests/pullRequestList.test.ts"
+        "packages/client-runtime/src/handoff.test.ts (the pool routing cases and upstream's startup-preview cases)",
+        "packages/provider-muse/src/server/usage.test.ts",
+        "apps/server/src/usage/UsageService.test.ts"
       ]
     },
     {
-      "entry": "phi-browser-backend",
-      "upstream": "agent recordings take the client's browser recording frame rate (#23895)",
+      "entry": "live-response-streaming",
+      "upstream": "superseded streaming text and running tool updates coalesce in one pass, keeping each survivor's position (#24267)",
       "decision": "retain",
       "requirements": [
-        "the browser backend stays selectable and preview tools still route through Phi",
-        "recording remains outside the managed browser roles' delegated mutations"
+        "the opt-in reveal, the paragraph default and the eased follow read whatever text updates arrive"
       ],
       "evidence": [
-        "apps/server/src/preview/ServerBrowser.test.ts"
-      ]
-    },
-    {
-      "entry": "image-annotation",
-      "upstream": "chat and composer chips stay readable in light mode (#22585)",
-      "decision": "adopt",
-      "requirements": [
-        "the annotation chip keeps its accent colour and pencil icon"
-      ],
-      "evidence": [
-        "apps/mobile/src/lib/composerChipPresentation.test.ts"
-      ]
-    },
-    {
-      "entry": "linked-environments",
-      "upstream": "light-mode composer chips build thread link icons from threadChipTargets (#22585)",
-      "decision": "adapt",
-      "requirements": [
-        "a thread link that names its environment keeps that environment for its label, its click and now its icon"
-      ],
-      "evidence": [
-        "apps/mobile/src/lib/enrichedLinkPresentation.test.ts (stamps a qualified thread link with the environment it names)"
+        "apps/server/src/orchestration-v2/ThreadLiveEventCoalescer.test.ts"
       ]
     }
   ],
@@ -235,52 +121,37 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "dependency set synced to the merged lockfile (27 added, 2 removed)"
+      "note": "dependency set synced to the merged lockfile (27 added, 2 removed); the auto-merged pnpm-lock.yaml already matched the regenerated one"
     },
     {
-      "command": "vp run --filter t3 --filter @t3tools/client-runtime --filter @t3tools/contracts --filter @t3tools/web --filter @t3tools/mobile --filter @t3tools/desktop typecheck",
+      "command": "vp run --filter t3 --filter @t3tools/client-runtime --filter @t3tools/contracts --filter @t3tools/web --filter @t3tools/mobile --filter @t3tools/provider-muse typecheck",
       "result": "passed",
-      "note": "6/6 packages successful"
+      "note": "6/6 packages successful, so the resolved projectIcon, ThreadWorkflowBadge and handoff test typecheck"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/RunExecutionService.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
+      "command": "vp test run packages/client-runtime/src/handoff.test.ts apps/mobile/src/lib/projectIcon.test.ts apps/mobile/src/features/workspace/navigation-tab-order.test.ts apps/mobile/src/features/workspace/workspace-tabs-state.test.ts",
       "result": "passed",
-      "note": "104 tests"
+      "note": "46 tests, including the conflict-resolved handoff preview cases beside the fork's pool routing"
     },
     {
-      "command": "vp test run apps/server/src/mcp/OrchestratorMcpService.test.ts apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts apps/server/src/ws.test.ts",
+      "command": "vp test run apps/mobile/src/lib/layout.test.ts apps/mobile/src/lib/reserved-regions.test.ts apps/mobile/src/lib/storage.test.ts apps/mobile/src/lib/composerChipPresentation.test.ts apps/mobile/src/features/pull-requests/pullRequestList.test.ts",
       "result": "passed",
-      "note": "53 tests"
+      "note": "51 tests, the mobile seams the dispositions cite"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/ThreadFork.execution.test.ts apps/server/src/provider/ProviderRegistry.test.ts apps/server/src/cli/pair.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/ThreadLiveEventCoalescer.test.ts packages/provider-muse/src/server/usage.test.ts apps/server/src/usage/usageTranscriptStreaming.test.ts",
       "result": "passed",
-      "note": "57 tests"
+      "note": "40 tests, upstream's proof for the coalescer and Muse usage changes"
     },
     {
-      "command": "vp test run packages/client-runtime/src/state/orchestrationV2Projection.test.ts packages/client-runtime/src/state/threadCommands.test.ts apps/mobile/src/lib/composerChipPresentation.test.ts apps/mobile/src/lib/projectIcon.test.ts",
-      "result": "passed",
-      "note": "49 tests"
-    },
-    {
-      "command": "vp test run apps/server/src/preview/ServerBrowser.test.ts apps/server/src/persistence/Migrations/080_ThreadCompactAt.test.ts apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
-      "result": "passed",
-      "note": "30 tests"
+      "command": "vp test run apps/server/src/usage/UsageService.test.ts",
+      "result": "failed",
+      "note": "2 of 40 fail identically on the bare tag v0.1.3-nightly.20261024.3617 (the Pi default-home case compares /private/var with /var, and the Codex restart case asserts a transcript was reopened), so the merge did not cause them; recorded and left"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "the gate selects its tests against the merged config; the full gate runs on the SlipJay runner"
-    },
-    {
-      "command": "vp test run apps/server/src/orchestration-v2/TurnStartReads.test.ts apps/server/src/provider/CodexChatGptModels.test.ts apps/server/src/provider/ProviderRegistry.test.ts packages/shared/src/devHome.test.ts",
-      "result": "passed",
-      "note": "57 tests, the evidence the dispositions cite"
-    },
-    {
-      "command": "vp test run apps/mobile/src/features/pull-requests/pullRequestList.test.ts apps/mobile/src/lib/enrichedLinkPresentation.test.ts",
-      "result": "passed",
-      "note": "24 tests, including the qualified thread link icon"
+      "note": "the gate lists and selects its tests against the merged config; the full gate runs on the SlipJay runner"
     }
   ],
   "result": "reconciled"
