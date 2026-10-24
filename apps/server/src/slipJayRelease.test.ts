@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { parseReleaseResult, releaseOperationId, releaseSlipJayWorkspace } from "./slipJayRelease.ts";
+import { isSlipJayWorkspacePath, parseReleaseResult, releaseOperationId, releaseSlipJayWorkspace, restoreSlipJayWorkspace } from "./slipJayRelease.ts";
 
 const runner = (code: number, stdout: string, stderr = "") =>
   async () => ({ code, stdout, stderr });
@@ -55,5 +55,36 @@ describe("releasing a SlipJay workspace from cleanup", () => {
     expect(outcome.kind).toBe("unavailable");
     const noResult = await releaseSlipJayWorkspace({ workspacePath: "/w", threadId: "t", settledAt: null, run: runner(0, "oops") });
     expect(noResult.kind).toBe("unavailable");
+  });
+});
+
+describe("restoring a released workspace on resume", () => {
+  it("restores the newest archive of the path, in place", async () => {
+    const calls: string[] = [];
+    const outcome = await restoreSlipJayWorkspace({
+      workspacePath: "/home/h/.slipjay/workspaces/ys-12",
+      run: async (command, args) => {
+        calls.push([command, ...args].join(" "));
+        return { code: 0, stdout: '{"state":"restored","archiveId":"a1","workspacePath":"/home/h/.slipjay/workspaces/ys-12"}', stderr: "" };
+      },
+    });
+    expect(outcome).toEqual({ kind: "restored", workspacePath: "/home/h/.slipjay/workspaces/ys-12" });
+    expect(calls).toEqual(["slipjay restore --latest --path /home/h/.slipjay/workspaces/ys-12"]);
+  });
+
+  it("reports a missing archive rather than offering a branch checkout", async () => {
+    const outcome = await restoreSlipJayWorkspace({
+      workspacePath: "/w",
+      run: async () => ({ code: 1, stdout: "", stderr: "No archive of /w to restore." }),
+    });
+    expect(outcome.kind).toBe("unavailable");
+    expect(outcome.kind === "unavailable" && outcome.reason).toContain("No archive of /w to restore.");
+  });
+
+  it("knows a SlipJay home, and nothing else", () => {
+    expect(isSlipJayWorkspacePath("/home/h/.slipjay/workspaces/ys-1", "/home/h", "/")).toBe(true);
+    expect(isSlipJayWorkspacePath("/home/h/Engineering/t3code/.worktrees/a", "/home/h", "/")).toBe(false);
+    expect(isSlipJayWorkspacePath("/home/h/.slipjay/workspaces-other/x", "/home/h", "/")).toBe(false);
+    expect(isSlipJayWorkspacePath("/home/h/.slipjay/workspaces/ys-1", "", "/")).toBe(false);
   });
 });

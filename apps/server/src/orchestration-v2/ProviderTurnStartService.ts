@@ -29,7 +29,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import * as HostProcess from "@t3tools/shared/HostProcess";
+import { hostReleaseRunner, isSlipJayWorkspacePath, restoreSlipJayWorkspace } from "../slipJayRelease.ts";
 
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
@@ -682,6 +682,28 @@ export const layer: Layer.Layer<
         const exists = yield* fileSystem
           .exists(worktreePath)
           .pipe(Effect.orElseSucceed(() => true));
+        // A released SlipJay workspace comes back from its archive, never from the branch:
+        // the branch has none of the files the thread wrote outside history.
+        if (!exists && isSlipJayWorkspacePath(path.resolve(worktreePath), process.env.HOME ?? "", path.sep)) {
+          const restored = yield* Effect.promise(() => restoreSlipJayWorkspace({
+            workspacePath: path.resolve(worktreePath),
+            run: hostReleaseRunner,
+          }));
+          if (restored.kind === "restored") {
+            yield* Effect.logInfo("provider turn start restored a released SlipJay workspace", {
+              threadId: projection.thread.id,
+              worktreePath: restored.workspacePath,
+            });
+            return yield* Effect.void;
+          }
+          // No archive, or SlipJay could not restore it: leave the path missing so the run
+          // fails visibly, instead of a checkout that silently lacks the thread's own files.
+          yield* Effect.logWarning("provider turn start could not restore a released SlipJay workspace", {
+            threadId: projection.thread.id,
+            worktreePath,
+            reason: restored.reason,
+          });
+        }
         if (!exists && (yield* isManagedWorktreePath(worktreePath))) {
           const project = yield* projects.getById(projection.thread.projectId).pipe(
             Effect.map(Option.getOrUndefined),

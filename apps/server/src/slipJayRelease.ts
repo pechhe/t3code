@@ -1,13 +1,18 @@
-// @effect-diagnostics-next-line nodeBuiltinImport:off -- SlipJay is a CLI, not an Effect service; cleanup shells out to it.
+// @effect-diagnostics-next-line nodeBuiltinImport:off -- SlipJay is a CLI, not an Effect service; cleanup and resume shell out to it.
 import * as NodeChildProcess from "node:child_process";
 
 /**
- * Releasing a SlipJay workspace from T3's storage cleanup.
+ * Releasing, and restoring, a SlipJay workspace from T3.
  *
  * Cleanup may not remove these with git: a SlipJay workspace is a git-worktree-backed
  * Jujutsu workspace, so `git worktree remove` would take ignored files a thread wrote
  * and leave Jujutsu believing the workspace still exists. SlipJay archives the checkout
  * before it retires it, so cleanup asks it to and keeps whatever it declines.
+ *
+ * A thread that resumes after that has no checkout either. Recreating it from the
+ * branch would silently lose everything outside git, so the turn-start path asks
+ * SlipJay to restore the newest archive of that path instead, and refuses the turn if
+ * it cannot - never a branch-only checkout that looks complete.
  *
  * The operation id is derived from the thread, the workspace and the settlement it was
  * judged under, so a retry after a refused or interrupted attempt names the same
@@ -25,6 +30,10 @@ export type SlipJayReleaseOutcome =
   | { kind: "uncertain"; reason: string }
   | { kind: "unavailable"; reason: string };
 
+export type SlipJayRestoreOutcome =
+  | { kind: "restored"; workspacePath: string }
+  | { kind: "unavailable"; reason: string };
+
 /** Stable per thread, workspace and settlement: a retry reuses it, a resume does not. */
 export function releaseOperationId(threadId: string, workspacePath: string, settledAt: string | null): string {
   const settled = settledAt === null ? "unsettled" : String(Date.parse(settledAt) || 0);
@@ -33,7 +42,7 @@ export function releaseOperationId(threadId: string, workspacePath: string, sett
   return `t3-${threadId}-${workspace}-${settled}`.replace(/[^A-Za-z0-9._-]/gu, "-").slice(0, 128);
 }
 
-export type ParsedRelease = { state: string; reason?: string; archiveId?: string };
+export type ParsedRelease = { state: string; reason?: string; archiveId?: string; workspacePath?: string };
 
 /** The last JSON line a command printed: SlipJay's result, whatever it logged before it. */
 export function parseReleaseResult(stdout: string): ParsedRelease | null {
@@ -43,9 +52,9 @@ export function parseReleaseResult(stdout: string): ParsedRelease | null {
     .filter((line) => line.startsWith("{"))
     .toReversed();
   for (const line of candidates) {
-    let parsed: { state?: unknown; reason?: unknown; archiveId?: unknown } | null = null;
+    let parsed: { state?: unknown; reason?: unknown; archiveId?: unknown; workspacePath?: unknown } | null = null;
     try {
-      parsed = JSON.parse(line) as { state?: unknown; reason?: unknown; archiveId?: unknown };
+      parsed = JSON.parse(line) as { state?: unknown; reason?: unknown; archiveId?: unknown; workspacePath?: unknown };
     } catch {
       continue;
     }
@@ -54,6 +63,7 @@ export function parseReleaseResult(stdout: string): ParsedRelease | null {
         state: parsed.state,
         ...(typeof parsed.reason === "string" ? { reason: parsed.reason } : {}),
         ...(typeof parsed.archiveId === "string" ? { archiveId: parsed.archiveId } : {}),
+        ...(typeof parsed.workspacePath === "string" ? { workspacePath: parsed.workspacePath } : {}),
       };
     }
   }
@@ -89,6 +99,36 @@ export async function releaseSlipJayWorkspace(input: {
     default:
       return { kind: "unavailable", reason: `slipjay answered "${result.state}"` };
   }
+}
+
+/**
+ * Put a released checkout back where its thread expects it: the newest archive of that
+ * path, restored in place. Anything else is a failure to report, not a branch checkout
+ * that lacks what the thread wrote outside history.
+ */
+export async function restoreSlipJayWorkspace(input: {
+  workspacePath: string;
+  run: ReleaseRunner;
+}): Promise<SlipJayRestoreOutcome> {
+  let outcome: { code: number; stdout: string; stderr: string };
+  try {
+    outcome = await input.run("slipjay", ["restore", "--latest", "--path", input.workspacePath]);
+  } catch (error) {
+    return { kind: "unavailable", reason: `slipjay could not be run: ${error instanceof Error ? error.message : String(error)}` };
+  }
+  const result = parseReleaseResult(outcome.stdout);
+  if (result?.state === "restored" && typeof result.workspacePath === "string") {
+    return { kind: "restored", workspacePath: result.workspacePath };
+  }
+  const detail = result?.reason ?? (outcome.stderr || outcome.stdout).trim().split("\n").slice(-1)[0] ?? "no output";
+  return { kind: "unavailable", reason: `no archived checkout to restore (exit ${outcome.code}): ${detail}` };
+}
+
+/** Whether a path is one SlipJay keeps its workspaces in. */
+export function isSlipJayWorkspacePath(worktreePath: string, home: string, separator: string): boolean {
+  if (home === "") return false;
+  const homes = [".slipjay", ".slipway", ".pi"].map((name) => `${home}${separator}${name}${separator}workspaces`);
+  return homes.some((root) => worktreePath === root || worktreePath.startsWith(`${root}${separator}`));
 }
 
 /** The default runner: `slipjay` from the host's PATH, with a bounded wait. */
