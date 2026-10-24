@@ -821,38 +821,20 @@ const make = Effect.gen(function* () {
       const keep = (reason: string) => entries.push({ ...entry, reason: sentence(reason) });
       yield* Effect.gen(function* () {
         if (!(yield* fs.exists(worktreePath))) return;
-        // Before any eligibility rule: a SlipJay or Jujutsu workspace is never removed
-        // here. It is released through SlipJay, which archives it first; anything it
-        // declines to release is kept, and nothing falls back to git.
-        const slipJayReason = slipJayWorkspaceReason(path.resolve(worktreePath), {
+        // A SlipJay workspace is released through SlipJay rather than removed with git,
+        // but only where every gate below has already agreed it may go: recognising it must
+        // not pre-empt the checks that keep a running, shared or unsettled thread's checkout.
+        const slipJay = slipJayWorkspaceReason(path.resolve(worktreePath), {
           home: process.env.HOME ?? "",
           jj: yield* fs.exists(path.join(worktreePath, ".jj")),
           separator: path.sep,
-        });
-        if (slipJayReason !== null) {
-          const released = yield* Effect.promise(() => releaseSlipJayWorkspace({
-            workspacePath: path.resolve(worktreePath),
-            threadId: thread.id,
-            settledAt: thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
-            run: hostReleaseRunner,
-          }));
-          if (released.kind === "retired") {
-            entries.push({ ...entry, outcome: "removed", reason: sentence("released through SlipJay"), bytes: null });
-            yield* gitManager.invalidateStatus(project?.workspaceRoot ?? worktreePath).pipe(Effect.catch(() => Effect.void));
-            return;
-          }
-          return keep(released.kind === "unavailable"
-            ? `kept: ${released.reason}`
-            : released.kind === "uncertain"
-              ? `kept: SlipJay could not confirm the release (${released.reason}); reconcile before using it`
-              : `kept: SlipJay would not release it (${released.reason})`);
-        }
+        }) !== null;
         if (deleted && !settings.worktreeOnDelete) return keep("no rules apply");
         if (members.length > 1 && worktreeOwner(members) === undefined)
           return keep(`shared by ${members.length} threads`);
         if (project === undefined) return keep("project is unavailable");
         if (
-          thread.branch === null ||
+          (thread.branch === null && !slipJay) ||
           !group.every((member) => storageCleanupThreadIdle(member, now))
         )
           return keep("thread is running or has pending work");
@@ -869,9 +851,9 @@ const make = Effect.gen(function* () {
           return keep("outside the managed worktree folder");
         if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.projects]))
           return keep("contains a project checkout");
-        if ((yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
+        if (!slipJay && (yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
           return keep("not a linked worktree");
-        if (yield* branchChanged(worktreePath, thread.branch))
+        if (!slipJay && (yield* branchChanged(worktreePath, thread.branch)))
           return keep("repository or branch changed");
         const changes = yield* localChangesReason(worktreePath, settings);
         if (changes !== null) return keep(changes);
@@ -1056,7 +1038,7 @@ const make = Effect.gen(function* () {
         const bytes = yield* measureWorktree(worktreePath);
         const blockedWhileMeasuring = yield* blockedSinceCheck();
         if (blockedWhileMeasuring !== null) return keep(blockedWhileMeasuring);
-        if (yield* branchChanged(worktreePath, thread.branch))
+        if (!slipJay && (yield* branchChanged(worktreePath, thread.branch)))
           return keep("repository or branch changed since check");
         if (
           (yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" })).commitSha !==
@@ -1084,6 +1066,26 @@ const make = Effect.gen(function* () {
         if (submodules.force) {
           const changes = yield* localChangesReason(worktreePath, settings);
           if (changes !== null) return keep(changes);
+        }
+        if (slipJay) {
+          // Every gate has agreed; SlipJay archives the checkout before it retires it, and
+          // anything it declines keeps the checkout here. Nothing falls back to git.
+          const released = yield* Effect.promise(() => releaseSlipJayWorkspace({
+            workspacePath: path.resolve(worktreePath),
+            threadId: thread.id,
+            settledAt: thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
+            run: hostReleaseRunner,
+          }));
+          if (released.kind !== "retired") {
+            return keep(released.kind === "unavailable"
+              ? `kept: ${released.reason}`
+              : released.kind === "uncertain"
+                ? `kept: SlipJay could not confirm the release (${released.reason}); reconcile before using it`
+                : `kept: SlipJay would not release it (${released.reason})`);
+          }
+          entries.push({ ...entry, outcome: "removed", reason: sentence(`${removalReason}, released through SlipJay`), bytes });
+          yield* gitManager.invalidateStatus(project.workspaceRoot).pipe(Effect.catch(() => Effect.void));
+          return yield* Effect.logInfo("storage cleanup released a SlipJay workspace", { threadId: thread.id });
         }
         yield* removeLinkedWorktree({
           operation: "StorageCleanup.cleanupGit",

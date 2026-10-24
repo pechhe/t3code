@@ -124,6 +124,33 @@ export async function restoreSlipJayWorkspace(input: {
   return { kind: "unavailable", reason: `no archived checkout to restore (exit ${outcome.code}): ${detail}` };
 }
 
+/**
+ * The reason a turn must not start, when an earlier release of this checkout never
+ * finished. The record is SlipJay's own, keyed by the operation this thread would have
+ * used, so an uncertain outcome blocks the workspace instead of being a log line.
+ */
+export async function unresolvedRelease(input: {
+  workspacePath: string;
+  threadId: string;
+  settledAt: string | null;
+  run: ReleaseRunner;
+}): Promise<string | null> {
+  const operationId = releaseOperationId(input.threadId, input.workspacePath, input.settledAt);
+  let outcome: { code: number; stdout: string; stderr: string };
+  try {
+    outcome = await input.run("slipjay", ["retire-result", operationId]);
+  } catch {
+    // No SlipJay here, or it could not answer: nothing to hold the turn for.
+    return null;
+  }
+  const result = parseReleaseResult(outcome.stdout);
+  if (!result) return null;
+  if (result.state === "uncertain" || result.state === "retiring") {
+    return `release ${operationId} is unresolved (${result.state}): ${result.reason ?? "reconcile it before using this workspace"}`;
+  }
+  return null;
+}
+
 /** Whether a path is one SlipJay keeps its workspaces in. */
 export function isSlipJayWorkspacePath(worktreePath: string, home: string, separator: string): boolean {
   if (home === "") return false;

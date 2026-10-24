@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { isSlipJayWorkspacePath, parseReleaseResult, releaseOperationId, releaseSlipJayWorkspace, restoreSlipJayWorkspace } from "./slipJayRelease.ts";
+import { isSlipJayWorkspacePath, parseReleaseResult, releaseOperationId, releaseSlipJayWorkspace, restoreSlipJayWorkspace, unresolvedRelease } from "./slipJayRelease.ts";
 
 const runner = (code: number, stdout: string, stderr = "") =>
   async () => ({ code, stdout, stderr });
@@ -86,5 +86,30 @@ describe("restoring a released workspace on resume", () => {
     expect(isSlipJayWorkspacePath("/home/h/Engineering/t3code/.worktrees/a", "/home/h", "/")).toBe(false);
     expect(isSlipJayWorkspacePath("/home/h/.slipjay/workspaces-other/x", "/home/h", "/")).toBe(false);
     expect(isSlipJayWorkspacePath("/home/h/.slipjay/workspaces/ys-1", "", "/")).toBe(false);
+  });
+});
+
+describe("an unresolved release blocks the workspace", () => {
+  it("reports uncertainty for the operation this thread would have used", async () => {
+    const reason = await unresolvedRelease({
+      workspacePath: "/home/h/.slipjay/workspaces/ys-12",
+      threadId: "thread-1",
+      settledAt: "2026-10-24T04:00:00.000Z",
+      run: async () => ({ code: 2, stdout: '{"state":"uncertain","reason":"removal may have half-finished"}', stderr: "" }),
+    });
+    expect(reason).toContain("unresolved");
+    expect(reason).toContain("half-finished");
+  });
+
+  it("lets a turn start when the release was retired, refused or never made", async () => {
+    for (const stdout of ['{"state":"retired"}', '{"state":"refused","reason":"in use"}', "null"]) {
+      const reason = await unresolvedRelease({ workspacePath: "/w", threadId: "t", settledAt: null, run: async () => ({ code: 0, stdout, stderr: "" }) });
+      expect(reason).toBeNull();
+    }
+  });
+
+  it("lets a turn start when SlipJay cannot be asked", async () => {
+    const reason = await unresolvedRelease({ workspacePath: "/w", threadId: "t", settledAt: null, run: async () => { throw new Error("spawn slipjay ENOENT"); } });
+    expect(reason).toBeNull();
   });
 });

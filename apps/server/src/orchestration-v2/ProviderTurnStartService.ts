@@ -29,7 +29,7 @@ import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
-import { hostReleaseRunner, isSlipJayWorkspacePath, restoreSlipJayWorkspace } from "../slipJayRelease.ts";
+import { hostReleaseRunner, isSlipJayWorkspacePath, restoreSlipJayWorkspace, unresolvedRelease } from "../slipJayRelease.ts";
 
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
@@ -678,13 +678,15 @@ export const layer: Layer.Layer<
         }
       }
       const { worktreePath, branch } = projection.thread;
-      if (worktreePath !== null && branch !== null) {
+      const isSlipJayWorkspace =
+        worktreePath !== null && isSlipJayWorkspacePath(path.resolve(worktreePath), process.env.HOME ?? "", path.sep);
+      if (worktreePath !== null && (branch !== null || isSlipJayWorkspace)) {
         const exists = yield* fileSystem
           .exists(worktreePath)
           .pipe(Effect.orElseSucceed(() => true));
         // A released SlipJay workspace comes back from its archive, never from the branch:
         // the branch has none of the files the thread wrote outside history.
-        if (!exists && isSlipJayWorkspacePath(path.resolve(worktreePath), process.env.HOME ?? "", path.sep)) {
+        if (!exists && isSlipJayWorkspace) {
           const restored = yield* Effect.promise(() => restoreSlipJayWorkspace({
             workspacePath: path.resolve(worktreePath),
             run: hostReleaseRunner,
@@ -694,17 +696,16 @@ export const layer: Layer.Layer<
               threadId: projection.thread.id,
               worktreePath: restored.workspacePath,
             });
-            return yield* Effect.void;
           }
           // No archive, or SlipJay could not restore it: leave the path missing so the run
           // fails visibly, instead of a checkout that silently lacks the thread's own files.
           yield* Effect.logWarning("provider turn start could not restore a released SlipJay workspace", {
             threadId: projection.thread.id,
             worktreePath,
-            reason: restored.reason,
+            reason: restored.kind === "unavailable" ? restored.reason : "unknown",
           });
         }
-        if (!exists && (yield* isManagedWorktreePath(worktreePath))) {
+        if (!exists && branch !== null && (yield* isManagedWorktreePath(worktreePath))) {
           const project = yield* projects.getById(projection.thread.projectId).pipe(
             Effect.map(Option.getOrUndefined),
             Effect.orElseSucceed(() => undefined),
@@ -734,6 +735,35 @@ export const layer: Layer.Layer<
               ),
             );
           }
+        }
+      }
+      // A checkout whose release never finished must not be used: SlipJay recorded the
+      // operation, and starting a turn on it would build on a half-removed workspace.
+      if (worktreePath !== null && isSlipJayWorkspace) {
+        const unresolved = yield* Effect.promise(() => unresolvedRelease({
+          workspacePath: path.resolve(worktreePath),
+          threadId: projection.thread.id,
+          settledAt: projection.thread.settledAt === null ? null : String(projection.thread.settledAt),
+          run: hostReleaseRunner,
+        }));
+        if (unresolved !== null) {
+          const now = yield* DateTime.now;
+          yield* settleRunBeforeStart({
+            signal: "workspace-missing",
+            status: "failed",
+            now,
+            providerInstanceId: run.providerInstanceId,
+            itemProviderThreadId: providerThread.id,
+            item: {
+              type: "error",
+              title: "Release unresolved",
+              failure: makeProviderFailure({
+                message: unresolved,
+                code: "release_unresolved",
+              }),
+            },
+          });
+          return;
         }
       }
       // A provider never starts in a missing directory: it would run somewhere
