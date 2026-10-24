@@ -220,13 +220,18 @@ const seedRun = (
   input: {
     readonly ordinal?: number;
     readonly status: OrchestrationV2Run["status"];
+    /** A run its queue holds, as a Stop leaves it: queued and never started. */
+    readonly held?: boolean;
     readonly text?: string;
     readonly extra?: ReadonlyArray<OrchestrationV2DomainEvent>;
   },
 ) =>
   Effect.gen(function* () {
     const eventSink = yield* EventSink.EventSinkV2;
-    const seeded = run(threadId, input.ordinal ?? 1, input.status);
+    const seeded = {
+      ...run(threadId, input.ordinal ?? 1, input.status),
+      ...(input.held === true ? { queueHeld: true, startedAt: null, completedAt: null } : {}),
+    };
     const scope = {
       threadId,
       runId: seeded.id,
@@ -276,6 +281,76 @@ const seedRun = (
               },
             ]),
         ...(input.extra ?? []),
+      ],
+    });
+  });
+
+/**
+ * A monitor run: a wake T3 Code wrote for itself, such as a pull request watch. Its user message
+ * carries the monitor notification that tells `delegatedTaskProgress` the run is not the thread's
+ * own work. Written once, when the run starts.
+ */
+const seedMonitorRun = (
+  threadId: ThreadId,
+  input: {
+    readonly ordinal: number;
+    readonly status: OrchestrationV2Run["status"];
+    readonly withWake?: boolean;
+  },
+) =>
+  Effect.gen(function* () {
+    const eventSink = yield* EventSink.EventSinkV2;
+    const monitor = run(threadId, input.ordinal, input.status);
+    const scope = {
+      threadId,
+      runId: monitor.id,
+      nodeId: rootNodeId,
+      providerInstanceId: modelSelection.instanceId,
+      occurredAt: now,
+    };
+    const wake =
+      input.withWake === true
+        ? makeSubagentConversationArtifacts({
+            messageId: MessageId.make(`${monitor.id}:wake`),
+            turnItemId: TurnItemId.make(`${monitor.id}:wake`),
+            threadId,
+            rootNodeId,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            role: "user",
+            text: "Update on pull request #7, which T3 Code is watching for you.",
+            ordinal: 1,
+            now,
+          })
+        : undefined;
+    return yield* eventSink.write({
+      commandId: CommandId.make(`command:seed-monitor:${monitor.id}:${input.status}`),
+      events: [
+        {
+          ...scope,
+          id: EventId.make(`event:${monitor.id}:${input.status}`),
+          type: "run.updated",
+          payload: monitor,
+        },
+        ...(wake === undefined
+          ? []
+          : [
+              {
+                ...scope,
+                id: EventId.make(`event:${monitor.id}:wake`),
+                type: "message.updated" as const,
+                payload: {
+                  ...wake.message,
+                  runId: monitor.id,
+                  notification: {
+                    source: { kind: "monitor" as const },
+                    outcome: "updated" as const,
+                    summary: "#7",
+                  },
+                },
+              },
+            ]),
       ],
     });
   });
@@ -690,6 +765,91 @@ it.layer(layerTest)("thread watches", (it) => {
       const [wake, ...rest] = yield* wakes(lead);
       assert.lengthOf(rest, 0);
       assert.equal(wake?.notification?.outcome, "completed");
+    }),
+  );
+
+  it.effect("does not wake for an older result while a newer run waits in a held queue", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+      const lead = yield* createThread("held-lead");
+      const worker = yield* createThread("held-worker", "Held worker");
+      yield* seedRun(worker, { status: "completed", text: "The first pass landed abc123." });
+      yield* seedRun(worker, { ordinal: 2, status: "queued", held: true });
+
+      yield* watch(lead, worker);
+      yield* reactor.sweep;
+      assert.lengthOf(yield* wakes(lead), 0);
+      const [started] = yield* watchesOf(lead);
+      assert.isDefined(started);
+      // A fire already in flight redecides under the watcher's lock, and still waits.
+      const early = yield* orchestrator.dispatch({
+        type: "thread.thread-watch.fire",
+        commandId: CommandId.make("command:held-fire"),
+        threadId: lead,
+        watchId: started?.id ?? "",
+      });
+      assert.lengthOf(early.storedEvents, 0);
+      assert.lengthOf(yield* wakes(lead), 0);
+      assert.lengthOf(yield* watchesOf(lead), 1);
+
+      // The queue runs again and finishes, and the wake quotes that newer result.
+      yield* observe(yield* seedRun(worker, { ordinal: 2, status: "running" }));
+      assert.lengthOf(yield* wakes(lead), 0);
+      yield* observe(
+        yield* seedRun(worker, {
+          ordinal: 2,
+          status: "completed",
+          text: "The second pass landed def456.",
+        }),
+      );
+      const [wake, ...rest] = yield* wakes(lead);
+      assert.lengthOf(rest, 0);
+      assert.equal(wake?.notification?.summary, "Finished: Held worker");
+      assert.include(wake?.text, "> The second pass landed def456.");
+      assert.notInclude(wake?.text, "abc123");
+    }),
+  );
+
+  it.effect("does not wake for the older result while a monitor run is unfinished", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+      const lead = yield* createThread("monitor-lead");
+      const worker = yield* createThread("monitor-worker", "Monitored");
+      yield* seedRun(worker, { status: "completed", text: "Landed abc123." });
+      yield* seedMonitorRun(worker, { ordinal: 2, status: "running", withWake: true });
+      yield* watch(lead, worker);
+      yield* reactor.sweep;
+      assert.lengthOf(yield* wakes(lead), 0);
+
+      // The monitor's run is not the thread's own result, so the wake keeps the ordinary run's.
+      yield* observe(yield* seedMonitorRun(worker, { ordinal: 2, status: "completed" }));
+      const [wake, ...rest] = yield* wakes(lead);
+      assert.lengthOf(rest, 0);
+      assert.equal(wake?.notification?.summary, "Finished: Monitored");
+      assert.include(wake?.text, "> Landed abc123.");
+    }),
+  );
+
+  it.effect("waits for a newer ordinary run in any unfinished state", () =>
+    Effect.gen(function* () {
+      const reactor = yield* ThreadWatchReactor.ThreadWatchReactor;
+      for (const status of ["starting", "queued", "running"] as const) {
+        const lead = yield* createThread(`ordinary-lead-${status}`);
+        const worker = yield* createThread(`ordinary-worker-${status}`);
+        yield* seedRun(worker, { status: "completed", text: "The old result." });
+        yield* seedRun(worker, { ordinal: 2, status });
+        yield* watch(lead, worker);
+        yield* reactor.sweep;
+        assert.lengthOf(yield* wakes(lead), 0, status);
+
+        yield* observe(
+          yield* seedRun(worker, { ordinal: 2, status: "completed", text: "The new result." }),
+        );
+        const messages = yield* wakes(lead);
+        assert.lengthOf(messages, 1, status);
+        assert.include(messages[0]?.text, "> The new result.", status);
+      }
     }),
   );
 

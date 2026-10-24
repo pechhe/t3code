@@ -72,6 +72,18 @@ const waitsOnPerson = (request: OrchestrationV2RuntimeRequest) =>
   request.kind !== "dynamic_tool_call" &&
   request.kind !== "auth_refresh";
 
+/**
+ * A run is over once it has one of these statuses; any other, including one the contract may add
+ * later, is still unfinished, so a watch never wakes early.
+ */
+const RUN_ENDED: ReadonlySet<OrchestrationV2Run["status"]> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+  "rolled_back",
+]);
+
 /** The first outcome that applies, in precedence order, or none while the thread still works. */
 export function decideThreadWatch(state: WatchedThreadState): ThreadWatchDecision | undefined {
   if (state.thread.archivedAt !== null || state.thread.deletedAt !== null) {
@@ -84,6 +96,10 @@ export function decideThreadWatch(state: WatchedThreadState): ThreadWatchDecisio
         DateTime.toEpochMillis(left.createdAt) - DateTime.toEpochMillis(right.createdAt),
     );
   if (requests.length > 0) return { kind: "needs-input", requests };
+  // The watch promises the thread's work, so no run of it may be unfinished: `delegatedTaskProgress`
+  // leaves out a monitor run and a run a held queue has not started, either of which would otherwise
+  // report an older run's result while the thread still works.
+  if (state.runs.some((entry) => !RUN_ENDED.has(entry.status))) return undefined;
   const progress = delegatedTaskProgress(state);
   if (progress.state !== "result_available" || progress.resultRun === undefined) return undefined;
   const status = runOutcome(progress.resultRun);
