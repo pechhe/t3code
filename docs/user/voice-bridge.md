@@ -20,6 +20,7 @@ app is used exactly as installed, with one provider entry pointing at it.
   ```
 
   The bridge reuses that credential, so there is nothing else to sign in to.
+
 - That sign-in approved in **Settings → Connections** with **Supervised** access or
   above. Read-only access can list models but cannot start threads.
 
@@ -29,13 +30,13 @@ app is used exactly as installed, with one provider entry pointing at it.
 t3 voice-bridge --endpoint http://127.0.0.1:3773/mcp
 ```
 
-| Flag | Default | What it does |
-|---|---|---|
-| `--port` | `4319` | Port the bridge listens on |
-| `--host` | `127.0.0.1` | Address it listens on; keep it on loopback |
-| `--capture` | on for macOS | Attach a capture of the window that had focus |
-| `--poll-ms` | `600` | How often it reads the thread for new text |
-| `--wait-seconds` | `900` | How long one answer streams before it points at the thread |
+| Flag             | Default      | What it does                                               |
+| ---------------- | ------------ | ---------------------------------------------------------- |
+| `--port`         | `4319`       | Port the bridge listens on                                 |
+| `--host`         | `127.0.0.1`  | Address it listens on; keep it on loopback                 |
+| `--capture`      | on for macOS | Attach a capture of the window that had focus              |
+| `--poll-ms`      | `600`        | How often it reads the thread for new text                 |
+| `--wait-seconds` | `900`        | How long one answer streams before it points at the thread |
 
 ## Connect FluidVoice
 
@@ -47,6 +48,11 @@ In FluidVoice, open **AI Providers**, add a provider and fill in:
 
 Select **Fetch models**. T3's providers and their models appear, as they are
 configured in this environment. Pick one in Command Mode.
+
+For replies in the notch pill, leave FluidVoice's main Command Mode tab before
+using the global shortcut. That tab routes replies to its own conversation view
+and suppresses notch output; hiding the main window may leave that suppression
+active.
 
 ## What happens to an ask
 
@@ -68,6 +74,9 @@ configured in this environment. Pick one in Command Mode.
 
 ## Limits
 
+- The screenshot is taken when FluidVoice submits the transcribed instruction,
+  after dictation. The provider connection cannot capture the earlier button
+  press. It captures the window behind FluidVoice at submission time.
 - The window shows the agent's words, not its tool calls, file changes or terminal.
 - Audio never reaches T3: FluidVoice transcribes on the Mac and only the words are
   sent. With `--capture` off, no image is sent either.

@@ -6,6 +6,7 @@ import * as NodePath from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Console from "effect/Console";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -43,14 +44,16 @@ const hostFlag = Flag.String("host").pipe(
 );
 const captureFlag = Flag.Boolean("capture").pipe(
   Flag.withDescription("Attach a capture of the window that had focus. Default: on for macOS."),
-  Flag.withDefault(process.platform === "darwin"),
+  Flag.optional,
 );
 const pollFlag = Flag.Int("poll-ms").pipe(
   Flag.withDescription("How often to read the thread for new text. Default: 600."),
   Flag.withDefault(600),
 );
 const waitFlag = Flag.Int("wait-seconds").pipe(
-  Flag.withDescription("How long to stream one answer before pointing at the thread. Default: 900."),
+  Flag.withDescription(
+    "How long to stream one answer before pointing at the thread. Default: 900.",
+  ),
   Flag.withDefault(900),
 );
 
@@ -68,27 +71,31 @@ type BridgeFlags = {
   readonly credentialsDir: Option.Option<string>;
   readonly port: number;
   readonly host: string;
-  readonly capture: boolean;
+  readonly capture: Option.Option<boolean>;
   readonly pollMs: number;
   readonly waitSeconds: number;
 };
 
-const readSessions = (fileSystem: FileSystem.FileSystem, sessionsPath: string) =>
-  Effect.gen(function* () {
-    const text = yield* fileSystem
-      .readFileString(sessionsPath)
-      .pipe(Effect.catch(() => Effect.succeed("")));
-    if (text.trim() === "") return EMPTY_SESSIONS;
-    const decoded = yield* Schema.decodeUnknownEffect(sessionFile)(text).pipe(
-      Effect.catch(() => Effect.succeed(undefined)),
-    );
-    return decodeSessions(decoded);
-  });
+const readSessions = Effect.fn("voiceBridge.readSessions")(function* (
+  fileSystem: FileSystem.FileSystem,
+  sessionsPath: string,
+) {
+  const text = yield* fileSystem
+    .readFileString(sessionsPath)
+    .pipe(Effect.catch(() => Effect.succeed("")));
+  if (text.trim() === "") return EMPTY_SESSIONS;
+  const decoded = yield* Schema.decodeUnknownEffect(sessionFile)(text).pipe(
+    Effect.catch(() => Effect.succeed(undefined)),
+  );
+  return decodeSessions(decoded);
+});
 
 const runBridge = (flags: BridgeFlags) =>
   Effect.scoped(
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
+      const platform = yield* HostProcess.Platform;
+      const captureEnabled = Option.getOrElse(flags.capture, () => platform === "darwin");
       const stateDir = NodePath.join(NodeOS.homedir(), ".t3", "voice-bridge");
       yield* fileSystem.makeDirectory(stateDir, { recursive: true }).pipe(Effect.orDie);
       const sessionsPath = NodePath.join(stateDir, "sessions.json");
@@ -98,7 +105,17 @@ const runBridge = (flags: BridgeFlags) =>
       const deps = {
         port: makePort(client, flags.endpoint),
         capture: () =>
-          flags.capture ? Effect.promise(() => captureFrontWindow(capturePath)) : Effect.succeed(null),
+          captureEnabled
+            ? Effect.promise(() => captureFrontWindow(capturePath)).pipe(
+                Effect.tap((captured) =>
+                  captured === null
+                    ? Effect.logWarning(
+                        "Screenshot capture failed; sending text only. Check Screen Recording permission and that a window is visible.",
+                      )
+                    : Effect.void,
+                ),
+              )
+            : Effect.succeed(null),
         sessions: {
           read: () => readSessions(fileSystem, sessionsPath),
           write: (store: SessionStore) =>
@@ -124,7 +141,7 @@ const runBridge = (flags: BridgeFlags) =>
         [
           `T3 voice bridge listening on http://${flags.host}:${flags.port}`,
           `FluidVoice provider server URL: http://${flags.host}:${flags.port}/v1`,
-          flags.capture ? "Capturing the front window with each ask." : "Sending words only.",
+          captureEnabled ? "Capturing the front window with each ask." : "Sending words only.",
         ].join("\n"),
       );
       return yield* Effect.never;
@@ -148,7 +165,9 @@ export const voiceBridgeCommand = Command.make("voice-bridge", {
       Effect.provide(
         AgentCliClient.layer.pipe(
           Layer.provide(
-            ServerSecretStore.layerAtDirectory(resolveBridgeCredentialsDirectory(flags.credentialsDir)),
+            ServerSecretStore.layerAtDirectory(
+              resolveBridgeCredentialsDirectory(flags.credentialsDir),
+            ),
           ),
           Layer.provideMerge(NodeServices.layer),
         ),

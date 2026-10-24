@@ -21,7 +21,7 @@ const skipBundleIds = skipEnv.isNil()
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
 function appForPid(pid) {
-  const app = $.NSRunningApplication.runningApplicationWithProcessId(pid);
+  const app = $.NSRunningApplication.runningApplicationWithProcessIdentifier(pid);
   return app.isNil() ? undefined : app;
 }
 function frontWindow() {
@@ -37,6 +37,7 @@ function frontWindow() {
     const w = ObjC.castRefToObject($.CFArrayGetValueAtIndex(list, i));
     if (w.objectForKey("kCGWindowLayer").js !== 0) continue;
     const pid = w.objectForKey("kCGWindowOwnerPID").js;
+    if (skipBundleIds.length === 0 && pid !== frontmost.processIdentifier) continue;
     const app = appForPid(pid);
     const bundleId = app === undefined ? "" : String(app.bundleIdentifier.js || "");
     // A caller that opened its own window over the app being captured names that
