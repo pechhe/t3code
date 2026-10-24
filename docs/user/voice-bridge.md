@@ -57,8 +57,10 @@ configured in this environment. Pick one in Command Mode.
   which opens the thread in T3 Code's web client in your browser. T3's own
   `t3-thread://` link form only works inside T3's renderer, so the bridge prints the
   web address instead; paste that form into T3 if you need the desktop app.
-- A follow-up in the same Command conversation adds a turn to the same thread. A
-  new Command conversation starts a new thread.
+- A follow-up in the same Command conversation adds a turn to the same thread,
+  whatever FluidVoice does with its system prompt: the bridge recognises the
+  conversation by the answer it produced last. A new Command conversation starts
+  a new thread, as does a picker change to another model.
 - A run that stops for an approval or an agent question ends the answer with a line
   naming the request: open the thread to answer it, and T3 carries on there.
 - `curl http://127.0.0.1:4319/health` reports whether the bridge is running and

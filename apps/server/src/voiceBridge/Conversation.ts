@@ -45,42 +45,25 @@ export function lastUserText(messages: ReadonlyArray<ChatMessage>): string {
   return "";
 }
 
-/**
- * A conversation's identity at one point in its history. The bridge stores the
- * signature of the history a turn was asked from, and of the history once its
- * answer is included, so the next turn finds its thread and an edited history
- * does not.
- */
-export function conversationSignature(messages: ReadonlyArray<ChatMessage>): string {
-  const hash = createHash("sha256");
-  for (const message of messages) {
-    hash.update(message.role);
-    hash.update("\u0000");
-    hash.update(messageText(message));
-    hash.update("\u0001");
-  }
-  return hash.digest("hex");
-}
-
-/**
- * The history the instruction was asked from: everything before the last thing
- * the person said. Turn two's history is turn one's, once its answer is in.
- */
-export function historyBeforeInstruction(
-  messages: ReadonlyArray<ChatMessage>,
-): ReadonlyArray<ChatMessage> {
+/** The last thing the bridge answered, as FluidVoice resends it. */
+export function lastAssistantText(messages: ReadonlyArray<ChatMessage>): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index]?.role === "user") return messages.slice(0, index);
+    const message = messages[index];
+    if (message === undefined || message.role !== "assistant") continue;
+    const text = messageText(message);
+    if (text !== "") return text;
   }
-  return messages;
+  return null;
 }
 
-/** The history as it stands once `answer` is the agent's reply, as FluidVoice will resend it. */
-export function historyWithAnswer(
-  messages: ReadonlyArray<ChatMessage>,
-  answer: string,
-): ReadonlyArray<ChatMessage> {
-  return [...messages, { role: "assistant", content: answer }];
+/**
+ * A conversation's identity is the answer the bridge produced last: FluidVoice
+ * resends that answer in the next turn's history, whatever it does with the
+ * system prompt or earlier formatting, so the thread is found from the one part
+ * of the history the bridge knows it wrote.
+ */
+export function answerSignature(answer: string): string {
+  return createHash("sha256").update("answer\u0000").update(answer).digest("hex");
 }
 
 /** A thread title from the spoken instruction, so the thread list stays legible. */

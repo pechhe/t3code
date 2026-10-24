@@ -13,10 +13,20 @@ export const MAC_WINDOW_CAPTURE_SCRIPT = `
 ObjC.import("AppKit");
 $.NSApplication.sharedApplication.setActivationPolicy($.NSApplicationActivationPolicyProhibited);
 ObjC.import("CoreGraphics");
+const skipEnv = $.NSProcessInfo.processInfo.environment.objectForKey("T3_CAPTURE_SKIP_BUNDLE_IDS");
+const skipBundleIds = skipEnv.isNil()
+  ? []
+  : String(skipEnv.js)
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+function appForPid(pid) {
+  const app = $.NSRunningApplication.runningApplicationWithProcessId(pid);
+  return app.isNil() ? undefined : app;
+}
 function frontWindow() {
-  const app = $.NSWorkspace.sharedWorkspace.frontmostApplication;
-  if (app.isNil()) return undefined;
-  const pid = app.processIdentifier;
+  const frontmost = $.NSWorkspace.sharedWorkspace.frontmostApplication;
+  if (frontmost.isNil()) return undefined;
   const list = $.CGWindowListCopyWindowInfo(
     $.kCGWindowListOptionOnScreenOnly | $.kCGWindowListExcludeDesktopElements,
     $.kCGNullWindowID,
@@ -25,18 +35,26 @@ function frontWindow() {
   const count = $.CFArrayGetCount(list);
   for (let i = 0; i < count; i++) {
     const w = ObjC.castRefToObject($.CFArrayGetValueAtIndex(list, i));
-    if (w.objectForKey("kCGWindowOwnerPID").js !== pid) continue;
     if (w.objectForKey("kCGWindowLayer").js !== 0) continue;
+    const pid = w.objectForKey("kCGWindowOwnerPID").js;
+    const app = appForPid(pid);
+    const bundleId = app === undefined ? "" : String(app.bundleIdentifier.js || "");
+    // A caller that opened its own window over the app being captured names that
+    // window's app here, so the capture falls through to the window behind it.
+    if (skipBundleIds.indexOf(bundleId) !== -1) continue;
     const b = ObjC.deepUnwrap(w.objectForKey("kCGWindowBounds"));
     return {
       id: w.objectForKey("kCGWindowNumber").js,
       title: String(ObjC.unwrap(w.objectForKey("kCGWindowName")) || ""),
       bounds: { x: b.X, y: b.Y, width: b.Width, height: b.Height },
       owner: {
-        name: String(app.localizedName.js || ObjC.unwrap(w.objectForKey("kCGWindowOwnerName")) || ""),
+        name:
+          app === undefined
+            ? String(ObjC.unwrap(w.objectForKey("kCGWindowOwnerName")) || "")
+            : String(app.localizedName.js || ObjC.unwrap(w.objectForKey("kCGWindowOwnerName")) || ""),
         processId: pid,
-        path: String(app.bundleURL.path.js || ""),
-        bundleId: String(app.bundleIdentifier.js || ""),
+        path: app === undefined ? "" : String(app.bundleURL.path.js || ""),
+        bundleId,
       },
     };
   }

@@ -7,6 +7,16 @@ import * as NodeFSP from "node:fs/promises";
 import { MAC_WINDOW_CAPTURE_SCRIPT } from "@t3tools/shared/macWindowCapture";
 
 const OSASCRIPT_PATH = "/usr/bin/osascript";
+
+/**
+ * The app whose own window must not be the capture: the ask arrives from
+ * FluidVoice's Command window, which is frontmost by then, and the interesting
+ * window is the one behind it — the page the person was looking at.
+ */
+export const FLUIDVOICE_BUNDLE_ID = "com.FluidApp.app";
+
+/** The bundle ids the shared window reader skips, as its helper variable wants them. */
+export const captureSkipBundleIds = (): string => FLUIDVOICE_BUNDLE_ID;
 const SCREEN_CAPTURE_PATH = "/usr/sbin/screencapture";
 const HELPER_TIMEOUT_MS = 5_000;
 const SCREEN_CAPTURE_TIMEOUT_MS = 15_000;
@@ -48,6 +58,7 @@ function readFrontWindow(outputPath: string): Promise<HelperReply | null> {
   return new Promise((resolve) => {
     const child = NodeChildProcess.spawn(OSASCRIPT_PATH, ["-l", "JavaScript", "-e", MAC_WINDOW_CAPTURE_SCRIPT], {
       stdio: ["pipe", "ignore", "pipe"],
+      env: { ...process.env, T3_CAPTURE_SKIP_BUNDLE_IDS: captureSkipBundleIds() },
     });
     const lines: Array<string> = [];
     let buffered = "";

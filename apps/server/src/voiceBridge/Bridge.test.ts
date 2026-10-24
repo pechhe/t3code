@@ -6,7 +6,7 @@ import * as Ref from "effect/Ref";
 import { beginTurn, runTurn, type TurnDeps, type TurnRequest } from "./Bridge.ts";
 import type { CapturedWindow } from "./Capture.ts";
 import type { ChatMessage } from "./Conversation.ts";
-import { conversationSignature, historyBeforeInstruction, historyWithAnswer } from "./Conversation.ts";
+import { answerSignature } from "./Conversation.ts";
 import { EMPTY_SESSIONS, type SessionStore } from "./Sessions.ts";
 import type { ThreadPage, TurnResult, VoiceBridgePort } from "./T3Port.ts";
 import { VoiceBridgeError } from "./T3Port.ts";
@@ -129,15 +129,17 @@ const run = (deps: TurnDeps, request: TurnRequest) =>
     return { outcome, texts: yield* Ref.get(emitted) };
   });
 
-const sessionsFor = (messages: ReadonlyArray<ChatMessage>, threadId: string): SessionStore => ({
+const sessionsFor = (answer: string, threadId: string): SessionStore => ({
   version: 1,
-  entries: { [conversationSignature(messages)]: { threadId, updatedAt: 1 } },
+  entries: { [answerSignature(answer)]: { threadId, updatedAt: 1 } },
 });
 
 /** The history a conversation carries once the bridge has answered it. */
+const FIRST_ANSWER = "First answer.\n\nhttp://127.0.0.1:3773/env-1/thread-old";
+
 const ANSWERED: ReadonlyArray<ChatMessage> = [
   ...MESSAGES,
-  { role: "assistant", content: "First answer.\n\nhttp://127.0.0.1:3773/env-1/thread-old" },
+  { role: "assistant", content: FIRST_ANSWER },
 ];
 
 /** A conversation that already carries one answer, so the next ask continues it. */
@@ -184,7 +186,7 @@ it.effect("a follow-up continues its thread, streams only what is new, and saves
   Effect.gen(function* () {
     const followUp = FOLLOW_UP;
     const harness = yield* makeHarness({
-      sessions: sessionsFor(historyBeforeInstruction(followUp), "thread-old"),
+      sessions: sessionsFor(FIRST_ANSWER, "thread-old"),
       // The baseline read proves the thread's model before the ask is sent.
       pages: [
         // The baseline read that also proves the thread's model.
@@ -203,16 +205,36 @@ it.effect("a follow-up continues its thread, streams only what is new, and saves
     assert.deepStrictEqual(texts, ["Second answer.", "\n\nhttp://127.0.0.1:3773/env-1/thread-old"]);
     const saved = yield* Ref.get(harness.saved);
     assert.strictEqual(
-      saved.entries[conversationSignature(historyWithAnswer(followUp, texts.join("")))]?.threadId,
+      saved.entries[answerSignature(texts.join(""))]?.threadId,
       "thread-old",
     );
+  }),
+);
+
+it.effect("continues the conversation even when the client rewrites its system prompt", () =>
+  Effect.gen(function* () {
+    const rewritten: ReadonlyArray<ChatMessage> = [
+      { role: "system", content: "You answer in one short paragraph." },
+      ...ANSWERED.slice(1),
+      { role: "user", content: "and the last one?" },
+    ];
+    const harness = yield* makeHarness({
+      sessions: sessionsFor(FIRST_ANSWER, "thread-old"),
+      pages: [
+        page({ modelId: MODEL, nextPosition: 3 }),
+        page({ items: [assistantItem(3, "Second answer.")], nextPosition: 4 }),
+      ],
+    });
+    const { outcome } = yield* run(harness.deps, { model: MODEL, messages: rewritten });
+    assert.strictEqual(outcome.threadId, "thread-old");
+    assert.lengthOf(yield* Ref.get(harness.launched), 0);
   }),
 );
 
 it.effect("picking another model starts a new thread rather than answering on the old one", () =>
   Effect.gen(function* () {
     const harness = yield* makeHarness({
-      sessions: sessionsFor(ANSWERED, "thread-old"),
+      sessions: sessionsFor(FIRST_ANSWER, "thread-old"),
       pages: [
         page({ modelId: "claudeAgent/claude-sonnet-5-5", nextPosition: 3 }),
         page({ items: [assistantItem(1, "Fresh.")], nextPosition: 2 }),
@@ -264,7 +286,7 @@ it.effect("drops the capture and says so when the provider cannot carry it", () 
   Effect.gen(function* () {
     const harness = yield* makeHarness({
       capture: CAPTURE,
-      sessions: sessionsFor(ANSWERED, "thread-old"),
+      sessions: sessionsFor(FIRST_ANSWER, "thread-old"),
       failOnceWith: new VoiceBridgeError({ reason: "send", detail: "attachments are unsupported" }),
       pages: [
         page({ nextPosition: 3 }),
@@ -289,7 +311,7 @@ it.effect("a refusal that is not about the capture is reported, not retried", ()
   Effect.gen(function* () {
     const harness = yield* makeHarness({
       capture: CAPTURE,
-      sessions: sessionsFor(ANSWERED, "thread-old"),
+      sessions: sessionsFor(FIRST_ANSWER, "thread-old"),
       failOnceWith: new VoiceBridgeError({ reason: "send", detail: "the provider is offline" }),
       pages: [page({ nextPosition: 3 })],
     });

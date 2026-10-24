@@ -2,8 +2,8 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 
 import {
-  conversationSignature,
-  historyWithAnswer,
+  answerSignature,
+  lastAssistantText,
   type ChatMessage,
   lastUserText,
   messageText,
@@ -37,17 +37,25 @@ it.effect("reads the last thing the person said, including part-shaped content",
   }),
 );
 
-it.effect("signs a history, so a grown or edited conversation signs differently", () =>
+it.effect("identifies a conversation by the answer the bridge produced last", () =>
   Effect.sync(() => {
-    const signature = conversationSignature(messages);
-    const withAnswer = historyWithAnswer(messages, "It is a pricing page.");
-    assert.notStrictEqual(conversationSignature(withAnswer), signature);
-    // The same history always signs the same way, so a resent conversation finds
-    // its thread, and a session that reuses a first message does not: its answer
-    // differs by the time it grows.
-    assert.strictEqual(conversationSignature(withAnswer), conversationSignature(withAnswer));
-    const edited = [...withAnswer.slice(0, -1), { role: "assistant" as const, content: "Edited." }];
-    assert.notStrictEqual(conversationSignature(edited), conversationSignature(withAnswer));
+    const askedOnly = messages.filter((message) => message.role !== "assistant");
+    assert.isNull(lastAssistantText(askedOnly));
+    assert.strictEqual(lastAssistantText([...messages, { role: "assistant", content: "It is a pricing page." }]),
+      "It is a pricing page.");
+
+    const answer = "It is a pricing page.\n\nhttp://127.0.0.1:3773/env-1/thread-1";
+    // Resent with a different system prompt, the same answer still names the
+    // conversation, which is what a follow-up has to rely on.
+    const withNewSystemPrompt = [
+      { role: "system" as const, content: "You answer briefly." },
+      ...messages.slice(1),
+      { role: "assistant" as const, content: answer },
+      { role: "user" as const, content: "and the middle one?" },
+    ];
+    assert.strictEqual(lastAssistantText(withNewSystemPrompt), answer);
+    assert.strictEqual(answerSignature(answer), answerSignature(answer));
+    assert.notStrictEqual(answerSignature(answer), answerSignature(`${answer} `));
   }),
 );
 

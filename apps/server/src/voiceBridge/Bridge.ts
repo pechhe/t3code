@@ -5,9 +5,8 @@ import * as Effect from "effect/Effect";
 import type { CapturedWindow } from "./Capture.ts";
 import type { ChatMessage } from "./Conversation.ts";
 import {
-  conversationSignature,
-  historyBeforeInstruction,
-  historyWithAnswer,
+  answerSignature,
+  lastAssistantText,
   lastUserText,
   threadTitle,
   turnMessage,
@@ -165,13 +164,13 @@ export const beginTurn = (
     const modelId = encodeModelId(decoded.instanceId, decoded.model);
     const modelSelection = { instanceId: ProviderInstanceId.make(decoded.instanceId), model: decoded.model };
     const sessions = yield* deps.sessions.read();
-    // Only a history that already carries one of the bridge's own answers
-    // continues a thread: a new Command session has produced nothing earlier,
-    // however similar its first words are.
-    const prefix = historyBeforeInstruction(request.messages);
-    const stored = prefix.some((message) => message.role === "assistant")
-      ? threadFor(sessions, conversationSignature(prefix))
-      : null;
+    // Only a history that carries one of the bridge's own answers continues a
+    // thread: a new Command session has produced nothing earlier, however
+    // similar its first words are. The answer is the only part of the history
+    // the bridge wrote, so it is the only part worth matching.
+    const previousAnswer = lastAssistantText(request.messages);
+    const stored =
+      previousAnswer === null ? null : threadFor(sessions, answerSignature(previousAnswer));
 
     // A conversation only continues on the model the picker shows now: picking
     // another model is a different question, so it starts its own thread.
@@ -312,15 +311,7 @@ export const streamTurn = (
     const now = yield* Clock.currentTimeMillis;
     const sessions = yield* deps.sessions.read();
     yield* deps.sessions.write(
-      pruneSessions(
-        rememberThread(
-          sessions,
-          conversationSignature(historyWithAnswer(request.messages, answer)),
-          begun.threadId,
-          now,
-        ),
-        now,
-      ),
+      pruneSessions(rememberThread(sessions, answerSignature(answer), begun.threadId, now), now),
     );
 
     return { threadId: begun.threadId, captureDropped: begun.preface !== "" };
