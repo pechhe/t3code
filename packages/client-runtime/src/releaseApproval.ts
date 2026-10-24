@@ -21,7 +21,7 @@ const VERIFICATION_LABELS: Record<ReleaseVerificationStatus, string> = {
   none: "Not verified",
 };
 
-export const verificationLabel = (verification: ReleaseApprovalSummary["verification"]) =>
+const verificationLabel = (verification: ReleaseApprovalSummary["verification"]) =>
   verification.detail?.trim()
     ? `${VERIFICATION_LABELS[verification.status]}: ${verification.detail.trim()}`
     : VERIFICATION_LABELS[verification.status];

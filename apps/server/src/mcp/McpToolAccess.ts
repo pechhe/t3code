@@ -398,7 +398,7 @@ export class HandlersLayer<Tools extends Record<string, Tool.Any>, EX = never, R
  * the peer's identity and version, nothing else. Every other tool refuses it
  * before running, so a tool added later is closed to peers until listed here.
  */
-export const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
+const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "t3_fleet_summary",
   "t3_thread_list",
   "t3_thread_search",

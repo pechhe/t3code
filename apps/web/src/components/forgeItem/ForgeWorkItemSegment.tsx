@@ -98,7 +98,7 @@ export function ForgeWorkItemSegment(props: {
 }
 
 /** The status dot, then Held and Blocked beside it: separate from status, never derived from it. */
-export function ForgeItemFlags(props: { shown: ForgeWorkItemPresentation }) {
+function ForgeItemFlags(props: { shown: ForgeWorkItemPresentation }) {
   const { shown } = props;
   return (
     <>

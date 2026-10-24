@@ -192,7 +192,7 @@ async function requestThreadUnpinConfirmation(input: {
 }
 
 /** Settling ends the provider session, so the person is told which of the thread's work stops. */
-export function threadSettleStopsWorkMessage(input: {
+function threadSettleStopsWorkMessage(input: {
   readonly title: string;
   readonly work: ReadonlyArray<string>;
 }): string {

@@ -182,7 +182,7 @@ const decodeForgeAcceptance = Schema.decodeUnknownOption(
 );
 
 /** Tickets a Spec card names before "+N more". */
-export const CARD_TICKET_LIMIT = 5;
+const CARD_TICKET_LIMIT = 5;
 /** Forge's summary is already plain text; a card shows three lines of it. */
 const CARD_SUMMARY_LIMIT = 400;
 
@@ -249,7 +249,7 @@ interface CachedItem extends ReadCadence {
 }
 
 /** Items kept for their last known summary, and numbers kept resolved, per HQ connection. */
-export const ITEM_CACHE_LIMIT = 1024;
+const ITEM_CACHE_LIMIT = 1024;
 
 /** A number resolved on one HQ: its item, or null while Forge doesn't know it. */
 interface CachedNumber {

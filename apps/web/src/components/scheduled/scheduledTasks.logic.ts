@@ -49,7 +49,7 @@ export interface ScheduledTaskGroup {
   readonly lead: ScheduledTask;
 }
 
-export const memberKey = (environmentId: EnvironmentId, id: ScheduledTaskId | string) =>
+const memberKey = (environmentId: EnvironmentId, id: ScheduledTaskId | string) =>
   `${environmentId}:${id}`;
 
 export function groupScheduledTasks(

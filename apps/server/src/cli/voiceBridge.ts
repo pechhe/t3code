@@ -70,7 +70,7 @@ const waitFlag = Flag.Int("wait-seconds").pipe(
 const sessionFile = Schema.fromJsonString(Schema.Unknown);
 
 /** The CLI's own credentials, so one `t3 agent login` serves the bridge too. */
-export const resolveBridgeCredentialsDirectory = (
+const resolveBridgeCredentialsDirectory = (
   directory: Option.Option<string>,
   home = NodeOS.homedir(),
 ): string =>

@@ -368,6 +368,11 @@ function currentRevision(repo: string): string {
   }
 }
 
+// The landing gate reads this CLI's stdout text, stderr text and exit code, so it writes
+// those streams itself: Effect logging would add a runtime and reformat what it reports.
+const writeLine = (line: string) => process.stdout.write(`${line}\n`);
+const writeError = (line: string) => process.stderr.write(`${line}\n`);
+
 function main(argv: ReadonlyArray<string>): number {
   const [command, ...rest] = argv;
   try {
@@ -396,22 +401,22 @@ function main(argv: ReadonlyArray<string>): number {
         landed: values.landed,
       });
       if (values.json) {
-        console.log(JSON.stringify(result, null, 2));
+        writeLine(JSON.stringify(result, null, 2));
       } else if (result.ok && result.merge !== null) {
         const target = (result.receipt as { upstream: { target: { tag: string } } }).upstream.target
           .tag;
-        console.log(
+        writeLine(
           `receipt ok: ${target} (${short(result.merge.target)}) onto ${short(result.merge.base)}`,
         );
       } else {
-        for (const reason of result.reasons) console.error(reason);
+        for (const reason of result.reasons) writeError(reason);
       }
       return result.ok ? 0 : 1;
     }
     if (command === "skeleton") {
       if (values.tag === undefined) throw new Error("skeleton requires --tag <tag>");
       const rev = values.rev ?? currentRevision(values.repo);
-      console.log(
+      writeLine(
         JSON.stringify(
           skeleton({
             repo: values.repo,
@@ -427,7 +432,7 @@ function main(argv: ReadonlyArray<string>): number {
     }
     throw new Error("usage: fork-upstream-receipt.ts verify|skeleton [options]");
   } catch (error) {
-    console.error((error as Error).message);
+    writeError((error as Error).message);
     return 1;
   }
 }

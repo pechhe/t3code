@@ -18,7 +18,7 @@ export function rolePolicy(manifest: Manifest, role: AgentRole): RolePolicy {
 }
 
 /** The jobs in the order the page lists them; roles sharing a list appear together. */
-export const ROLE_ORDER: ReadonlyArray<AgentRole> = [
+const ROLE_ORDER: ReadonlyArray<AgentRole> = [
   "implementation-worker",
   "ui-worker",
   "ticket-reviewer",
@@ -103,26 +103,6 @@ export function modelLabel(
       .flatMap((provider) => provider.models)
       .find((model) => model.slug === binding.model)?.name ?? binding.model
   );
-}
-
-/** The effort values a model offers, or none when its account is not installed here. */
-export function effortChoices(
-  binding: Binding | undefined,
-  providers: ReadonlyArray<ServerProvider>,
-): string[] {
-  if (binding === undefined) return [];
-  return [
-    ...new Set(
-      providers
-        .filter((provider) => provider.driver === binding.driverKind)
-        .flatMap((provider) => provider.models.filter((model) => model.slug === binding.model))
-        .flatMap((model) => model.capabilities?.optionDescriptors ?? [])
-        .filter((option) => option.id === binding.effortOption)
-        .flatMap((option) =>
-          option.type === "select" ? option.options.map((choice) => choice.id) : [],
-        ),
-    ),
-  ];
 }
 
 /** Keeps an effort the model offers, else its medium, else its first choice. */

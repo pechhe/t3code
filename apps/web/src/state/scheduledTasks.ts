@@ -17,7 +17,7 @@ export interface EnvironmentScheduledTasks {
 }
 
 /** Every connected machine's live task list; the Scheduled page and sidebar share it. */
-export const allScheduledTasksAtom = Atom.make((get): ReadonlyArray<EnvironmentScheduledTasks> =>
+const allScheduledTasksAtom = Atom.make((get): ReadonlyArray<EnvironmentScheduledTasks> =>
   get(environmentSummaries.connectedEnvironmentIdsAtom).map((environmentId) => {
     const result = get(serverEnvironment.scheduledTasksLive({ environmentId, input: {} }));
     const value = Option.getOrNull(AsyncResult.value(result));

@@ -112,7 +112,7 @@ export function buildStatusTone(item: { readonly status: string } | null): Forge
   }
 }
 
-export const BUILD_STATUS_LABELS: Record<string, string> = {
+const BUILD_STATUS_LABELS: Record<string, string> = {
   inbox: "Inbox",
   shaping: "Shaping",
   ready: "Ready",

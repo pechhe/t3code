@@ -1,5 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- A conversation signature is a local content hash used as a map key, not a secret or a platform service.
-import { createHash } from "node:crypto";
+import * as NodeCrypto from "node:crypto";
 
 /**
  * Turning one OpenAI chat request into one T3 turn.
@@ -63,7 +63,7 @@ export function lastAssistantText(messages: ReadonlyArray<ChatMessage>): string 
  * of the history the bridge knows it wrote.
  */
 export function answerSignature(answer: string): string {
-  return createHash("sha256").update("answer\u0000").update(answer).digest("hex");
+  return NodeCrypto.createHash("sha256").update("answer\u0000").update(answer).digest("hex");
 }
 
 /** A thread title from the spoken instruction, so the thread list stays legible. */
@@ -75,7 +75,7 @@ export function threadTitle(text: string): string {
 }
 
 /** Marks where the capture is, so the agent knows the image is the page in question. */
-export const CAPTURE_NOTE = "The attached screenshot is the window that had focus when I asked.";
+const CAPTURE_NOTE = "The attached screenshot is the window that had focus when I asked.";
 
 /** What the thread is told: the spoken words, and a line about the capture. */
 export function turnMessage(text: string, captureAttached: boolean): string {

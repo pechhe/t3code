@@ -24,7 +24,7 @@ export interface ComposerFinish {
   screenText?: string;
 }
 
-export const DEFAULT_COMPOSER_FINISH_ID = "auto";
+const DEFAULT_COMPOSER_FINISH_ID = "auto";
 
 export const COMPOSER_FINISHES: ReadonlyArray<ComposerFinish> = [
   { id: DEFAULT_COMPOSER_FINISH_ID, label: "Match theme" },

@@ -433,7 +433,7 @@ export const OrchestratorMcpThreadListItem = Schema.Struct({
 export type OrchestratorMcpThreadListItem = typeof OrchestratorMcpThreadListItem.Type;
 
 /** One linked environment's share of a list, search or read, or why it has none. */
-export const OrchestratorMcpPeerResult = <A extends Schema.Top>(page: A) =>
+const OrchestratorMcpPeerResult = <A extends Schema.Top>(page: A) =>
   Schema.Struct({
     environmentId: EnvironmentId,
     label: Schema.String,

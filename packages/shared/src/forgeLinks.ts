@@ -13,7 +13,7 @@ import { sameHqAddress } from "./hqOrigins.ts";
  * `#<number>` in prose. Forge numbers start at 1,000,000, so GitHub references such as `#78` never
  * match; an escaped `\#`, an HTML entity or a path fragment is not a mention.
  */
-export const FORGE_MENTION_PATTERN = /(?<![\w/\\&#])#([1-9]\d{6,})(?!\w)/gu;
+const FORGE_MENTION_PATTERN = /(?<![\w/\\&#])#([1-9]\d{6,})(?!\w)/gu;
 
 /** What a reference names: the canonical item number, or a friendly ref such as `YS-12`. */
 export type ForgeReference =
@@ -107,7 +107,8 @@ const SKIPPED_NODES = new Set([
 
 /** The Forge mentions in markdown, outside code, against T3's Weave `origin`. */
 export function findForgeMentions(markdown: string, origin: string): ForgeMention[] {
-  if (!markdown.includes("#") && !markdown.includes("/forge/") && !markdown.includes("/build/")) return [];
+  if (!markdown.includes("#") && !markdown.includes("/forge/") && !markdown.includes("/build/"))
+    return [];
   const mentions: ForgeMention[] = [];
   const visit = (node: MarkdownNode) => {
     if (SKIPPED_NODES.has(node.type)) return;

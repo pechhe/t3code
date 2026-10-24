@@ -29,7 +29,7 @@ interface SendOrigin {
 let pendingOrigin: SendOrigin | null = null;
 
 /** The motion to play, or null while it is off or the system asks for reduced motion. */
-export function activeSendMotion(): ActiveMotion | null {
+function activeSendMotion(): ActiveMotion | null {
   const motion = getClientSettings().sendMotion;
   if (motion === "off") return null;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return null;

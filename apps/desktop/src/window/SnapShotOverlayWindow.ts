@@ -2,7 +2,7 @@ import type { DesktopSnapShotOverlayInsets } from "@t3tools/contracts";
 import type * as Electron from "electron";
 
 /** Marks the renderer as the SnapShot overlay; read once by the web app at startup. */
-export const SNAP_SHOT_OVERLAY_SURFACE = "snap-shot-overlay";
+const SNAP_SHOT_OVERLAY_SURFACE = "snap-shot-overlay";
 
 // Before its first placement, which stretches it from the top of the work area to the bottom of
 // the screen: room above the composer for its menus and the whole conversation.

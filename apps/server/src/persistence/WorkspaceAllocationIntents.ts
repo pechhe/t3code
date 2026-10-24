@@ -37,7 +37,7 @@ export class WorkspaceAllocationIntents extends Context.Service<
   }
 >()("t3/persistence/WorkspaceAllocationIntents") {}
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   return WorkspaceAllocationIntents.of({

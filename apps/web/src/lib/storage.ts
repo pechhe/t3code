@@ -45,7 +45,7 @@ export function resolveStorage(storage: Partial<StateStorage> | null | undefined
 }
 
 /** Writes are dropped: the storage hydrates from what another window saved. */
-export function createReadOnlyStorage(storage: StateStorage): StateStorage {
+function createReadOnlyStorage(storage: StateStorage): StateStorage {
   return {
     getItem: (name) => storage.getItem(name),
     setItem: () => undefined,

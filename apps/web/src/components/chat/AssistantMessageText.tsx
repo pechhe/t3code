@@ -10,7 +10,7 @@ import { revealEnd } from "./AssistantMessageText.logic";
 // author as one. The thread title in ChatHeader is an <h2>; headings written
 // inside a message are exposed below this level. Visually hidden and excluded
 // from selection so sighted users and copied text are unaffected.
-export const MESSAGE_HEADING_LEVEL = 3;
+const MESSAGE_HEADING_LEVEL = 3;
 
 // A streaming reply is revealed by a clock rather than as text arrives, because
 // providers send text in uneven bursts. The playhead trails the received text by

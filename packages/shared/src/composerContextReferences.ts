@@ -240,7 +240,7 @@ export function formatImageAnnotationNotes(record: ImageAnnotationContextRecord)
 }
 
 /** What the agent reads for an image annotation. */
-export function formatImageAnnotationBody(record: ImageAnnotationContextRecord): string {
+function formatImageAnnotationBody(record: ImageAnnotationContextRecord): string {
   return [
     `image: ${record.imageName} (ref=${record.imageContextId}${record.imageSize ? `, ${record.imageSize.width}x${record.imageSize.height}px` : ""})`,
     formatImageAnnotationNotes(record),

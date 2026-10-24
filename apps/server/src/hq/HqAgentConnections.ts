@@ -29,7 +29,7 @@ import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
 import { mcpEndpointOrigin } from "../mcp/McpSessionRegistry.ts";
 
-export const HQ_MCP_SERVER_NAME = "yardsmith-hq";
+const HQ_MCP_SERVER_NAME = "yardsmith-hq";
 export const HQ_MCP_PATH = "/mcp/yardsmith-hq";
 
 const STORE_NAME = "hq-connection";

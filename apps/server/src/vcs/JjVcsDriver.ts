@@ -101,7 +101,7 @@ const clipPatch = (patch: string, limit: number) => {
   };
 };
 
-export const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
+const makeVcsDriverShape = Effect.fn("makeJjVcsDriverShape")(function* () {
   const vcsProcess = yield* VcsProcess.VcsProcess;
   // Reads the policy a SlipJay checkout of an older revision lacks; see findSlipJayProject.
   const processes = yield* ProcessRunner.make();

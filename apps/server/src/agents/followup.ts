@@ -31,7 +31,7 @@ export const followupBinding = (
  * pinned; a worker launched without a revision stays unpinned, since its
  * revision moves as it writes.
  */
-export const pinsFollowupRevision = (binding: AgentTaskBinding) =>
+const pinsFollowupRevision = (binding: AgentTaskBinding) =>
   isConsultingRole(binding.role) || binding.sourceRevision !== undefined;
 
 /** The binding a managed thread's runs are validated against, with any follow-up pin applied. */

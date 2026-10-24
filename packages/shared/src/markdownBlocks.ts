@@ -17,7 +17,7 @@ export interface MarkdownBlock {
 }
 
 /** GitHub's heading anchor: lowercased, punctuation dropped, spaces as hyphens. */
-export function githubHeadingSlug(text: string): string {
+function githubHeadingSlug(text: string): string {
   return text
     .trim()
     .toLowerCase()

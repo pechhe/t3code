@@ -56,7 +56,7 @@ export type MacWindowCapture = {
   readonly captured: boolean;
 };
 
-export function parseMacWindowCaptureReply(line: string): MacWindowCapture {
+function parseMacWindowCaptureReply(line: string): MacWindowCapture {
   const { window, captured } = decodeMacWindowCaptureReply(line);
   if (!window) return { captured: false };
   return {

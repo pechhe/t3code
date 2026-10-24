@@ -7,7 +7,7 @@
 export const DEFAULT_HQ_ORIGIN = "https://weave.yardsmith.co.uk";
 
 /** Addresses Weave answered on before the move. They are the same service as the default. */
-export const LEGACY_HQ_ORIGINS: ReadonlySet<string> = new Set(["https://hq.yardsmith.co.uk"]);
+const LEGACY_HQ_ORIGINS: ReadonlySet<string> = new Set(["https://hq.yardsmith.co.uk"]);
 
 /** The address Weave answers on now, for a link, connection or record made at any of its addresses. */
 export const currentHqOrigin = (origin: string): string =>

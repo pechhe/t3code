@@ -146,7 +146,7 @@ export const threadOwner = (
  * without a managed read-only binding writes. Given its project's main checkout, an unbound
  * thread occupies that checkout, where it runs.
  */
-export const workspaceOccupants = (
+const workspaceOccupants = (
   shells: ReadonlyArray<OrchestrationV2ThreadShell>,
   projectRoot?: string,
 ): ReadonlyArray<WorkspaceOccupant> =>

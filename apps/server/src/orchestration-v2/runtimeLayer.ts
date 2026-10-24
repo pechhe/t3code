@@ -293,7 +293,7 @@ const layerThreadLaunchProvided = ThreadLaunchService.layer.pipe(
     ),
   ),
 );
-export const layerWorkspaceAttachmentsProvided = WorkspaceAttachments.layer.pipe(
+const layerWorkspaceAttachmentsProvided = WorkspaceAttachments.layer.pipe(
   Layer.provide(
     Layer.mergeAll(layerProjectService, WorkspaceProvider.layer, layerThreadManagementProvided),
   ),

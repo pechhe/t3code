@@ -26,7 +26,7 @@ export interface BackgroundWorkLinkHandlers {
 }
 
 /** The item's name, as a link when it has somewhere to go. */
-export function BackgroundWorkItemLabel({
+function BackgroundWorkItemLabel({
   item,
   handlers,
 }: {

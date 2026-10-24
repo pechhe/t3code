@@ -377,7 +377,7 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
   });
 });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   return yield* makeAtDirectory(config.secretsDir);
 });

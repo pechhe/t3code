@@ -35,7 +35,7 @@ export type ImageMark =
     };
 
 /** Magenta reads against almost any screenshot, where green vanishes into success states. */
-export const ANNOTATION_MARK_COLOR = "#f0249b";
+const ANNOTATION_MARK_COLOR = "#f0249b";
 
 /** Marks a user left without a note are dropped rather than sent as bare numbers. */
 export function notedMarks(marks: ReadonlyArray<ImageMark>): ImageMark[] {

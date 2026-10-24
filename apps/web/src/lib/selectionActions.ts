@@ -60,8 +60,8 @@ export function markSelectionCoveredChips(
   }
 }
 
-export const SELECTION_ACTION_EDGE_PX = 8;
-export const SELECTION_ACTION_GAP_PX = 6;
+const SELECTION_ACTION_EDGE_PX = 8;
+const SELECTION_ACTION_GAP_PX = 6;
 
 /**
  * Places a selection's action toolbar clear of the selected text: above its

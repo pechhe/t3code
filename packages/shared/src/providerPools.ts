@@ -36,7 +36,7 @@ const limitPercentOf = (pool: Pick<ProviderPool, "policy">): number =>
   pool.policy?.reservePercent ?? 100;
 
 /** Whether the provider can take a turn now, ignoring usage limits. */
-export const isProviderRoutable = (provider: ServerProvider): boolean =>
+const isProviderRoutable = (provider: ServerProvider): boolean =>
   provider.enabled &&
   provider.installed &&
   provider.availability !== "unavailable" &&
@@ -63,7 +63,7 @@ export const isProviderUsageExhausted = (
 export const USAGE_REFRESH_STALE_MS = 60_000;
 
 /** A window this used is close enough to its limit for a stale reading to hide exhaustion. */
-export const USAGE_REFRESH_NEAR_LIMIT_PERCENT = 95;
+const USAGE_REFRESH_NEAR_LIMIT_PERCENT = 95;
 
 /**
  * Whether a turn about to use this account should re-read its usage first:

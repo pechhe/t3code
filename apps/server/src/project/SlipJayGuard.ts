@@ -181,7 +181,7 @@ const make = Effect.gen(function* () {
   });
 });
 
-export const layer = Layer.effect(SlipJayGuard, make);
+const layer = Layer.effect(SlipJayGuard, make);
 
 /**
  * The one guard layer the server provides. Every consumer shares this value so they

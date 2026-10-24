@@ -298,7 +298,7 @@ export const PHI_ARIA_STATE = String.raw`function () {
  * root or a cross-origin frame. Most pages have none, and a snapshot then skips the per-control reads.
  * Kept as source because it runs in the page.
  */
-export const PHI_HAS_ARIA_STATE = String.raw`() => {
+const PHI_HAS_ARIA_STATE = String.raw`() => {
   const documents = (root) => [root, ...Array.from(root.querySelectorAll('iframe, frame')).flatMap(frame => {
     try {
       return frame.contentDocument ? documents(frame.contentDocument) : [];

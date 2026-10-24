@@ -217,7 +217,7 @@ export class SlipJayLandings extends Context.Service<
 >()("t3/project/SlipJayLandings") {}
 
 /** `owner/name` of a GitHub remote URL, the key SlipJay's runner files a landing under. */
-export const githubRepository = (remote: string): string | null => {
+const githubRepository = (remote: string): string | null => {
   let path: string;
   if (remote.includes("://")) {
     try {

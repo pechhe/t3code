@@ -30,7 +30,7 @@ import { createEnvironmentSessionAtoms } from "./session.ts";
 const MINT_TIMEOUT_MS = 8_000;
 
 /** The client holds no connection to the environment, so it cannot ask for a code. */
-export class PeerCodeUnavailable extends Data.TaggedError("PeerCodeUnavailable")<{
+class PeerCodeUnavailable extends Data.TaggedError("PeerCodeUnavailable")<{
   readonly environmentId: EnvironmentId;
 }> {}
 
@@ -179,7 +179,7 @@ export function unreadableThreadRefs<Ref extends { readonly environmentId: Envir
   );
 }
 
-export function peerStatusLabel(status: NonNullable<PeerEnvironment["status"]>): string {
+function peerStatusLabel(status: NonNullable<PeerEnvironment["status"]>): string {
   switch (status) {
     case "ok":
       return "Linked";

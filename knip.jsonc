@@ -50,6 +50,8 @@
         "scripts/measure-pr-preview.ts",
         "scripts/probe-claude-fork-local-rollback-replay.ts",
         "scripts/update-test-shard-weights.ts",
+        // A manual offline tool: docs/operations/agent-delegation.md runs it by path.
+        "scripts/validate-agent-policy.ts",
         "scripts/verify-background-live.ts",
         "src/provider/testFixtures/*.mjs",
         // graphqlgen reads its config.
@@ -79,6 +81,10 @@
         "src/preview-pip-preload.ts!",
         "src/mac-permission-preload.ts!",
         "src/preview/Annotation.css!",
+        // start-electron.mjs and build-desktop-artifact.ts run this native build by path.
+        "scripts/build-screen-picker.mjs",
+        // Vite packs this sandboxed preload, which ScreenRecordingIndicator loads by filename.
+        "src/screen-recording-indicator-preload.ts!",
       ],
       // The injected runtime resolves Playwright by string; release tooling runs
       // electron-builder from this workspace, outside its package scripts.

@@ -277,9 +277,12 @@ describe("tests the import graph cannot see", () => {
       "reads node_modules, which only a lockfile change moves",
     "apps/server/src/provider/acp/AcpSessionRuntime.processTree.test.ts":
       "compiles scripts/acp-thread-spawn-helper.c, mapped by the scripts rule",
+    "apps/server/src/resourceTelemetry/ResourceMonitorBinary.test.ts":
+      "compares its own directory against the candidate paths, reading no repository file",
     "apps/web/src/components/diffs/codeViewSearch.test.ts":
       "reads node_modules, which only a lockfile change moves",
     "scripts/build-desktop-artifact.test.ts": "checks the repository root for a tarball",
+    "scripts/clean.test.ts": "copies clean.ts into a temporary tree and runs it there",
     "scripts/dev-runner.test.ts": "runs the dev runner in a temporary directory",
     "scripts/legend-list-initial-reveal.test.ts":
       "reads node_modules, which only a lockfile change moves",

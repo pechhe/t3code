@@ -395,7 +395,7 @@ export function playRotary(): void {
 }
 
 /** The quiet tick as the pointer passes a sidebar item. */
-export function playHoverTick(): void {
+function playHoverTick(): void {
   const now = performance.now();
   if (now - lastTickAt < TICK_INTERVAL_MS || !context) return;
   lastTickAt = now;

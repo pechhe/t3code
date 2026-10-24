@@ -388,7 +388,7 @@ export const t3McpServerName = Effect.fn("t3McpServerName")(function* (threadId:
  * A thread's agent server, such as Weave, carries its T3 name as a prefix, so the `t3-code-*`
  * deny keeps every thread's servers on the shared OpenCode server from every other thread.
  */
-export const t3AgentMcpServerName = Effect.fn("t3AgentMcpServerName")(function* (
+const t3AgentMcpServerName = Effect.fn("t3AgentMcpServerName")(function* (
   threadId: string,
   agentServer: string,
 ) {

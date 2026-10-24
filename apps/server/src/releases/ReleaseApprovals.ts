@@ -91,7 +91,7 @@ const ANSWERED_BY = "the owner";
 const isReleaseApprovalError = Schema.is(ReleaseApprovalError);
 const failed = (cause: unknown) => new ReleaseApprovalError({ reason: "failed", cause });
 
-export const answerMessageText = (input: {
+const answerMessageText = (input: {
   readonly approvalId: string;
   readonly repository: string;
   readonly answer: ReleaseApprovalAnswer;

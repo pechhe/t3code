@@ -7,6 +7,8 @@ import * as NodePath from "node:path";
 import * as NodeUtil from "node:util";
 import { afterAll, describe, expect, it } from "vite-plus/test";
 
+import { waitForChange } from "./lib/wait-for-change.ts";
+
 const execFile = NodeUtil.promisify(NodeChildProcess.execFile);
 
 const SCRIPT =
@@ -78,6 +80,14 @@ esac
 `,
   // The script's waits shrink so polling loops finish quickly.
   sleep: `exec /bin/sleep 0.2
+`,
+  // A fixed clock for tests that age a claim, so it is the fixture's and not the wall
+  // clock's. Other forms (an ISO timestamp, a file-name stamp) stay the host's.
+  date: `if [ "$1" = "+%s" ] && [ -n "$T3_TEST_NOW_EPOCH" ]; then
+  echo "$T3_TEST_NOW_EPOCH"
+  exit 0
+fi
+exec /bin/date "$@"
 `,
   // Describes the install-on-quit job as the test's job-state file says.
   launchctl: `printf '%s\\n' "launchctl $*" >> "$T3_TEST_ROOT/calls.log"
@@ -220,7 +230,11 @@ async function stageBuild(
   options: { source?: string; selected?: string; invalid?: boolean } = {},
 ) {
   const source = options.source ?? "new-src";
-  await makeApp(NodePath.join(f.state, "staged", APP), "new", { invalid: options.invalid });
+  await makeApp(
+    NodePath.join(f.state, "staged", APP),
+    "new",
+    options.invalid ? { invalid: true } : {},
+  );
   await writeJson(NodePath.join(f.state, "staged/receipt.json"), { source, version: "1.0.1" });
   await writeJson(NodePath.join(f.state, "selected.json"), { source: options.selected ?? source });
 }
@@ -247,12 +261,13 @@ async function curlCalls(f: Fixture) {
     });
 }
 
-async function pollUntil(condition: () => Promise<boolean>, what: string) {
-  const deadline = Date.now() + 15_000;
-  while (!(await condition())) {
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
+/** Waits until the fixture's `<name>.log` holds at least `lines` lines. */
+async function waitForLines(f: Fixture, name: string, lines: number) {
+  const log = NodePath.join(f.root, `${name}.log`);
+  await waitForChange(
+    f.root,
+    async () => (await readText(log)).split("\n").filter(Boolean).length >= lines,
+  );
 }
 
 async function git(cwd: string, args: ReadonlyArray<string>, date?: string) {
@@ -869,17 +884,9 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
               XPC_SERVICE_NAME: INSTALL_JOB,
             });
             // The script has entered its wait once it has asked pgrep.
-            await pollUntil(
-              async () => (await readText(NodePath.join(f.root, "pgrep.log"))) !== "",
-              "the installer to start waiting",
-            );
+            await waitForLines(f, "pgrep", 1);
             // Several polls while the app is marked running: a premature install would show here.
-            await pollUntil(
-              async () =>
-                (await readText(NodePath.join(f.root, "pgrep.log"))).split("\n").filter(Boolean)
-                  .length >= 3,
-              "the installer to keep waiting",
-            );
+            await waitForLines(f, "pgrep", 3);
             expect(await build(f.installed)).toBe("old");
             expect(await build(stateFile(f, "staged", APP))).toBe("new");
             expect(await calls(f, "open")).toEqual([]);
@@ -2246,6 +2253,9 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
     it(
       "never takes over a quiet claim on a landed update; it notifies once and retry resumes it",
       async () => {
+        // The fixture's `date` stub reports this clock, so the claim's age is the
+        // fixture's rather than the wall clock's.
+        const nowEpoch = 1_800_000_000;
         const claimed = (epoch: number) => ({
           tag: BUILD_TAG,
           sha: "0".repeat(40),
@@ -2255,14 +2265,11 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           dispatches: 1,
           updatedEpoch: epoch,
         });
-        const env = { T3FORK_REDISPATCH_SECONDS: "5" };
+        const env = { T3FORK_REDISPATCH_SECONDS: "5", T3_TEST_NOW_EPOCH: `${nowEpoch}` };
         await withFixture(async (f) => {
           await seedRepos(f);
           await landIntegration(f, BUILD_TAG, "2026-02-01T00:00:00Z");
-          await writeJson(
-            stateFile(f, "attempts", `${BUILD_TAG}.json`),
-            claimed(Math.floor(Date.now() / 1000) - 600),
-          );
+          await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), claimed(nowEpoch - 600));
           await run(f, [], env);
           await run(f, [], env);
           expect(await curlCalls(f)).toEqual([]);
@@ -2281,10 +2288,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
         await withFixture(async (f) => {
           await seedRepos(f);
           await landIntegration(f, BUILD_TAG, "2026-02-01T00:00:00Z");
-          await writeJson(
-            stateFile(f, "attempts", `${BUILD_TAG}.json`),
-            claimed(Math.floor(Date.now() / 1000) + 3600),
-          );
+          await writeJson(stateFile(f, "attempts", `${BUILD_TAG}.json`), claimed(nowEpoch + 3600));
           await run(f, [], env);
           expect(await curlCalls(f)).toEqual([]);
           expect(await attemptOf(f, BUILD_TAG)).toMatchObject({ phase: "claimed" });

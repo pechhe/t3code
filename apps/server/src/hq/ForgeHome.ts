@@ -254,7 +254,7 @@ export const leadThreadOf = (lead: { readonly harness: string; readonly sessionR
     : { environmentId: null, threadId: parts[0]! };
 };
 
-export const sendBackMessageText = (input: { readonly specLabel: string; readonly note: string }) =>
+const sendBackMessageText = (input: { readonly specLabel: string; readonly note: string }) =>
   [
     `Your owner sent ${input.specLabel} back from Forge.`,
     "",

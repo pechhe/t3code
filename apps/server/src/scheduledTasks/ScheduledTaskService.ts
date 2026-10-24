@@ -75,7 +75,7 @@ import { constantTimeEquals, verifyWebhookSignature } from "./webhookVerificatio
 
 export const WEBHOOK_ROUTE_PREFIX = "/api/hooks";
 /** The role a new task names when its caller names none. */
-export const DEFAULT_SCHEDULED_TASK_ROLE: AgentRole = "implementation-worker";
+const DEFAULT_SCHEDULED_TASK_ROLE: AgentRole = "implementation-worker";
 const isScheduledTaskError = Schema.is(ScheduledTaskError);
 const PROMPT_TOO_LONG = "The filled-in prompt is too long.";
 const WEBHOOK_DELIVERY_RETENTION = 50;

@@ -102,7 +102,7 @@ export interface TurnWorkspace {
  * Sent with each turn of a thread that has workspaces attached in other projects, so the agent
  * knows where it works after compaction.
  */
-export const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string =>
+const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string =>
   [
     "This thread works in these workspaces. Read a workspace's instruction files before working there, and land each repository from its own workspace.",
     ...workspaces.map((workspace) => {

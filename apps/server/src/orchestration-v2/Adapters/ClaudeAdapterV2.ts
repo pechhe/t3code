@@ -520,10 +520,10 @@ export interface ClaudeAgentSdkQueryPresetTools {
 export type ClaudeAgentSdkQueryTools = ClaudeAgentSdkQueryToolList | ClaudeAgentSdkQueryPresetTools;
 
 export const CLAUDE_READ_ONLY_ALLOWED_TOOLS = ["Read", "Glob", "Grep"] as const;
-export const CLAUDE_WEB_RESEARCH_TOOLS = ["WebSearch", "WebFetch"] as const;
+const CLAUDE_WEB_RESEARCH_TOOLS = ["WebSearch", "WebFetch"] as const;
 // Claude Code defers MCP tool schemas only when ToolSearch is available. A restricted tool list
 // without it sends every schema up front: HQ alone added 50k+ tokens to each delegated session.
-export const CLAUDE_TOOL_SEARCH_TOOL = "ToolSearch";
+const CLAUDE_TOOL_SEARCH_TOOL = "ToolSearch";
 
 function claudeAgentSdkQueryToolsForSdk(
   tools: ClaudeAgentSdkQueryTools,

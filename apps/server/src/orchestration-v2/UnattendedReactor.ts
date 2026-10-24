@@ -30,7 +30,7 @@ import {
   UNATTENDED_CONTINUATION_MESSAGE_PREFIX,
 } from "./serverContinuation.ts";
 
-export const AWAY_ANSWER =
+const AWAY_ANSWER =
   "The owner is away and this thread is unattended, so nobody will answer questions. Decide yourself from the evidence and the governing intent. When you are unsure about a consequential choice, consult the advisor role, then decide. Record anything that truly needs the owner (acceptance, promotion, spending, permission widening, an irreversible choice) as a hold, and carry on with all other work.";
 
 const CONTINUE_PROMPT =

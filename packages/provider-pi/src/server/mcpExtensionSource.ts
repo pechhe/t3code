@@ -33,7 +33,7 @@ export const PI_CHILD_INSTRUCTION_VARIANTS: Readonly<Record<string, string>> = {
   "preview-html": t3ChildInstructions({ preview: true, html: true }).trim(),
 };
 
-export const piChildInstructionKey = (listing: {
+const piChildInstructionKey = (listing: {
   readonly preview: boolean;
   readonly html: boolean;
 }): keyof typeof PI_CHILD_INSTRUCTION_VARIANTS =>

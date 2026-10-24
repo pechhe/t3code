@@ -6,7 +6,7 @@ import { ProjectFavicon, type ProjectFaviconProject } from "./ProjectFavicon";
 import { TintChip, type TintChipProps } from "./TintChip";
 
 /** The colour a project wears: its chosen icon colour, else the one its name generates. */
-export function projectTintColor(project: ProjectFaviconProject): ProjectIconColor {
+function projectTintColor(project: ProjectFaviconProject): ProjectIconColor {
   const icon = project.projectIcon;
   if (icon?.color) return icon.color;
   return deriveProjectIdentity(project.title).color;
