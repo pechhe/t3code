@@ -49,6 +49,7 @@ import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 import { removeLinkedWorktree } from "./vcs/worktreeRemoval.ts";
 import { withWorkspaceLease } from "./workspace/workspaceLease.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { hostReleaseRunner, releaseSlipJayWorkspace } from "./slipJayRelease.ts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { isNetworkPath } from "@t3tools/shared/path";
 
@@ -820,13 +821,32 @@ const make = Effect.gen(function* () {
       const keep = (reason: string) => entries.push({ ...entry, reason: sentence(reason) });
       yield* Effect.gen(function* () {
         if (!(yield* fs.exists(worktreePath))) return;
-        // Before any eligibility rule: a SlipJay or Jujutsu workspace is never removed here.
+        // Before any eligibility rule: a SlipJay or Jujutsu workspace is never removed
+        // here. It is released through SlipJay, which archives it first; anything it
+        // declines to release is kept, and nothing falls back to git.
         const slipJayReason = slipJayWorkspaceReason(path.resolve(worktreePath), {
           home: process.env.HOME ?? "",
           jj: yield* fs.exists(path.join(worktreePath, ".jj")),
           separator: path.sep,
         });
-        if (slipJayReason !== null) return keep(slipJayReason);
+        if (slipJayReason !== null) {
+          const released = yield* Effect.promise(() => releaseSlipJayWorkspace({
+            workspacePath: path.resolve(worktreePath),
+            threadId: thread.id,
+            settledAt: thread.settledAt === null ? null : DateTime.formatIso(thread.settledAt),
+            run: hostReleaseRunner,
+          }));
+          if (released.kind === "retired") {
+            entries.push({ ...entry, outcome: "removed", reason: sentence("released through SlipJay"), bytes: null });
+            yield* gitManager.invalidateStatus(project?.workspaceRoot ?? worktreePath).pipe(Effect.catch(() => Effect.void));
+            return;
+          }
+          return keep(released.kind === "unavailable"
+            ? `kept: ${released.reason}`
+            : released.kind === "uncertain"
+              ? `kept: SlipJay could not confirm the release (${released.reason}); reconcile before using it`
+              : `kept: SlipJay would not release it (${released.reason})`);
+        }
         if (deleted && !settings.worktreeOnDelete) return keep("no rules apply");
         if (members.length > 1 && worktreeOwner(members) === undefined)
           return keep(`shared by ${members.length} threads`);
