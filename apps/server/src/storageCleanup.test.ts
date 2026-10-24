@@ -46,6 +46,7 @@ import {
   storageCleanupActivityAt,
   storageCleanupPullRequestMerged,
   storageCleanupThreadIdle,
+  worktreeEligibility,
 } from "./storageCleanup.ts";
 
 const NOW_MS = Date.parse("2026-06-10T12:00:00.000Z");
@@ -1914,5 +1915,43 @@ describe("a SlipJay workspace is released through SlipJay, never git", () => {
     expect(slipJayWorkspaceReason("/tmp/anything", { home: "", jj: false, separator })).toBeNull();
     expect(slipJayWorkspaceReason("/tmp/anything", { home: "", jj: true, separator }))
       .toBe("a Jujutsu workspace: release goes through SlipJay, never git");
+  });
+});
+
+describe("when a checkout may go", () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  it("releases a SlipJay workspace only because its thread was settled", () => {
+    const eligible = worktreeEligibility({
+      slipJay: true, deleted: false, settledForMs: 8 * DAY, inactiveForMs: 90 * DAY,
+      afterDays: 7, settledAfterDays: 7,
+    });
+    expect(eligible).toEqual({ eligible: true, reason: "settled for 8 days" });
+  });
+
+  it("never releases a SlipJay workspace for inactivity alone", () => {
+    const eligible = worktreeEligibility({
+      slipJay: true, deleted: false, settledForMs: null, inactiveForMs: 365 * DAY,
+      afterDays: 7, settledAfterDays: 7,
+    });
+    expect(eligible.eligible).toBe(false);
+  });
+
+  it("treats a null settlement threshold as disabled, not as the inactivity clock", () => {
+    const eligible = worktreeEligibility({
+      slipJay: true, deleted: false, settledForMs: 30 * DAY, inactiveForMs: 30 * DAY,
+      afterDays: 7, settledAfterDays: null,
+    });
+    expect(eligible.eligible).toBe(false);
+  });
+
+  it("keeps the git-worktree rules: inactivity releases one, a fresh one is kept", () => {
+    expect(worktreeEligibility({ slipJay: false, deleted: false, settledForMs: null, inactiveForMs: 9 * DAY, afterDays: 7, settledAfterDays: 7 }).eligible).toBe(true);
+    expect(worktreeEligibility({ slipJay: false, deleted: false, settledForMs: null, inactiveForMs: DAY, afterDays: 7, settledAfterDays: 7 }).eligible).toBe(false);
+  });
+
+  it("releases a deleted thread's checkout whatever the policy", () => {
+    expect(worktreeEligibility({ slipJay: true, deleted: true, settledForMs: null, inactiveForMs: 0, afterDays: null, settledAfterDays: null }))
+      .toEqual({ eligible: true, reason: "thread was deleted" });
   });
 });

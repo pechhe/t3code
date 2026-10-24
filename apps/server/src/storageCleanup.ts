@@ -75,6 +75,36 @@ const SETTLE_SCRIPT_GRACE_MS = 60_000;
 const ORPHAN_WORKTREE_GRACE_MS = 60 * 60 * 1_000;
 
 /**
+ * When a checkout may go. A SlipJay workspace is released only because its thread was
+ * settled for the configured number of days; its inactivity is not a reason, and a null
+ * settlement threshold disables it rather than falling back to the inactivity clock.
+ */
+export function worktreeEligibility(input: {
+  slipJay: boolean;
+  deleted: boolean;
+  settledForMs: number | null;
+  inactiveForMs: number;
+  afterDays: number | null;
+  settledAfterDays: number | null;
+}): { eligible: boolean; reason: string | null } {
+  if (input.deleted) return { eligible: true, reason: "thread was deleted" };
+  const inactivityMatters = !input.slipJay;
+  const old =
+    inactivityMatters &&
+    input.afterDays !== null &&
+    input.inactiveForMs > input.afterDays * DAY_MS;
+  const settledEnough =
+    input.settledForMs !== null &&
+    input.settledAfterDays !== null &&
+    input.settledForMs >= input.settledAfterDays * DAY_MS;
+  const eligible = input.slipJay ? settledEnough : old || settledEnough;
+  if (!eligible) return { eligible: false, reason: null };
+  if (input.slipJay) return { eligible: true, reason: `settled for ${Math.floor((input.settledForMs ?? 0) / DAY_MS)} days` };
+  if (old) return { eligible: true, reason: `inactive for ${Math.floor(input.inactiveForMs / DAY_MS)} days` };
+  return { eligible: true, reason: `settled for ${Math.floor((input.settledForMs ?? 0) / DAY_MS)} days` };
+}
+
+/**
  * SlipJay keeps its workspaces under its own homes, and every one carries a `.jj`
  * directory. `git worktree remove` would take the directory, drop whatever the
  * checkout held outside git — ignored files a thread wrote, a local `.env` — and leave
