@@ -899,11 +899,6 @@ const make = Effect.gen(function* () {
         const head = yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" });
         // A SlipJay workspace is released when its thread is settled, never because it has
         // been inactive: settlement is the promise Henry made, and inactivity is not it.
-        const old =
-          !deleted &&
-          !slipJay &&
-          settings.worktreeAfterDays !== null &&
-          activityAt < now - settings.worktreeAfterDays * DAY_MS;
         const settledFor =
           deleted || thread.settledAt === null
             ? null
@@ -911,16 +906,19 @@ const make = Effect.gen(function* () {
               ? now - DateTime.toEpochMillis(thread.settledAt)
               : now - Math.max(DateTime.toEpochMillis(thread.settledAt), activityAt);
         const settledDays = settledFor === null ? null : Math.floor(settledFor / DAY_MS);
-        const settled =
-          settledFor !== null &&
-          settings.worktreeSettledAfterDays !== null &&
-          settledFor >= settings.worktreeSettledAfterDays * DAY_MS;
-        let eligible = deleted || old || settled;
-        let removalReason = deleted
-          ? "thread was deleted"
-          : old
-            ? `inactive for ${Math.floor((now - activityAt) / DAY_MS)} days`
-            : `settled for ${settledDays} days`;
+        // One rule, tested on its own: settlement (or the thread's deletion) is what makes a
+        // SlipJay workspace eligible, and a git worktree keeps its inactivity clock.
+        const policy = worktreeEligibility({
+          slipJay,
+          deleted,
+          settledForMs: settledFor,
+          inactiveForMs: now - activityAt,
+          afterDays: settings.worktreeAfterDays,
+          settledAfterDays: settings.worktreeSettledAfterDays,
+        });
+        const old = !slipJay && !deleted && settings.worktreeAfterDays !== null && now - activityAt > settings.worktreeAfterDays * DAY_MS;
+        let eligible = policy.eligible;
+        let removalReason = policy.reason ?? (deleted ? "thread was deleted" : `settled for ${settledDays} days`);
         if (!eligible && (settings.worktreeUnchanged || settings.worktreeOnMerge)) {
           const repositoryCwd = path.resolve(project.workspaceRoot);
           const remote = yield* git.resolvePrimaryRemoteName(repositoryCwd);
