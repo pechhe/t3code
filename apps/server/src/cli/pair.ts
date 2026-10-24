@@ -2,6 +2,7 @@ import {
   type AuthEnvironmentScope,
   AuthStandardClientScopes,
   ExecutionEnvironmentDescriptor,
+  ORCHESTRATION_PROTOCOL_VERSION,
   PortSchema,
 } from "@t3tools/contracts";
 import { resolveWorkspaceT3Home } from "@t3tools/shared/devHome";
@@ -75,6 +76,18 @@ export class NoRunningServerError extends Schema.TaggedError<NoRunningServerErro
           ]
         : []),
       "Start one with `npx t3 serve`, or connect this machine with T3 Connect: `npx t3 connect`.",
+    ].join("\n");
+  }
+}
+
+export class IncompatibleServerProtocolError extends Schema.TaggedError<IncompatibleServerProtocolError>()(
+  "IncompatibleServerProtocolError",
+  { serverVersion: Schema.String, serverProtocolVersion: Schema.Number },
+) {
+  override get message(): string {
+    return [
+      `The running T3 Code server (${this.serverVersion}) speaks orchestration protocol ${String(this.serverProtocolVersion)}, but this CLI speaks protocol ${String(ORCHESTRATION_PROTOCOL_VERSION)}.`,
+      `Pair with the matching CLI instead: \`npx t3@${this.serverVersion} pair\`.`,
     ].join("\n");
   }
 }
@@ -495,6 +508,16 @@ export const pairCommand = Command.make("pair", {
       const logLevel = Option.getOrElse(cliLogLevel, () => "Warn" as const);
 
       const target = yield* discoverPairTarget(Option.getOrUndefined(flags.baseDir));
+      // Each protocol keeps auth in its own database, so a token minted here
+      // for another protocol's server would never be accepted by it. Refuse
+      // before any local layer opens (and migrates) that database.
+      const serverProtocolVersion = target.descriptor.orchestrationProtocolVersion ?? 1;
+      if (serverProtocolVersion !== ORCHESTRATION_PROTOCOL_VERSION) {
+        return yield* new IncompatibleServerProtocolError({
+          serverVersion: target.descriptor.serverVersion,
+          serverProtocolVersion,
+        });
+      }
 
       const notes: Array<string> = [];
       let pairingBaseUrl: string;

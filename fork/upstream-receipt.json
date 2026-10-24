@@ -3,240 +3,284 @@
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.3-nightly.20261023.3579",
-      "sha": "66ee628e0875b2b735b199f42e6151e347833637"
-    },
-    "target": {
       "tag": "v0.1.3-nightly.20261023.3592",
       "sha": "e340aaeeb98bc6ac623c2e70ac8eca8bcbddfe1b"
+    },
+    "target": {
+      "tag": "v0.1.3-nightly.20261024.3604",
+      "sha": "3f3a1bf419f07b4dcbb3be9f9fbb4ed54055ee4f"
     }
   },
   "fork": {
-    "base": "0b14363c757b82f7eaa2be8c74ef8ceef39d0322"
+    "base": "f959e8a68790b4914bdc08f321f29e3dc5257bd0"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "515ca3245c89cb449d00b7bea8179f81da3a5cee"
+    "blob": "661cdb76fa0692b7b0fed72536698817546f41db"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.3-nightly.20261023.3592@1792790557",
-  "reviewedAt": "2026-10-23T21:41:11Z",
+  "attempt": "v0.1.3-nightly.20261024.3604@1792815861",
+  "reviewedAt": "2026-10-24T04:38:35Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:e9348fa5-8d0f-4194-9814-a5833f5d9395",
+    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:f53e3dc3-7d73-4a67-b3e8-2d4147c3bbfd",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 7,
+    "upstreamCommits": 26,
     "entriesConsidered": [
-      "slipjay-workspaces",
+      "compact-line",
       "managed-delegation",
+      "run-interrupt-cause",
+      "ws-rpc-group-split",
       "account-pools",
-      "device-composer",
+      "dev-state-tooling",
+      "quiet-run-read-state",
+      "mobile-fork-screens",
+      "phi-browser-backend",
       "image-annotation",
-      "web-client-customisation",
-      "thread-watches",
-      "perf-persistence-reads",
-      "agent-process-ledger"
+      "device-composer",
+      "linked-environments",
+      "thread-workflow-chip",
+      "repository-chips-hq",
+      "screen-recording-video"
     ],
     "areas": [
-      "apps/server/src/vcs: checkpoint git subprocess attempt metering (#24218)",
-      "apps/server/src/storageCleanup: worktree deletion shared with subagents (#23900)",
-      "apps/server/src/orchestration-v2/ThreadPullRequestService: background-gated PR sweep (#23852)",
-      "apps/server/src/terminal: large clipboard sequence sanitizer (#23819)",
-      "apps/server/src/cli and cloud: stale CLI service recovery copy (#23541)",
-      "apps/web composer: preparing image tiles and their tile action (#23832)",
-      "apps/web usage: header layout container query (#24123)"
+      "apps/server/src/cli/pair.ts: pairing refuses a server whose protocol is incompatible (#23789)",
+      "apps/web usage: the usage-limit wake action stays visible (#23803)",
+      "apps/desktop/src/ipc/methods/sshEnvironment.ts and apps/web connection: an older reused remote server reports its version mismatch (#23647)",
+      "packages/client-runtime/src/state: a Stop clears commands the server had already finished (#23814)",
+      "apps/server/src/preview, packages/contracts/src/preview.ts: agent recordings take the client's browser recording frame rate (#23895)",
+      "apps/server/src/orchestration-v2/ProjectionStore.ts: a fork's first /compact sees its inherited history (#24172)",
+      "packages/client-runtime/src/state/orchestrationV2Projection.ts: streamed replacements skip ordering and position scans (#24264)",
+      "apps/server/src/orchestration-v2, mcp/OrchestratorMcpService.ts: an agent's Stop says so and a run's interrupt result carries the Stop's reason (#24299)",
+      "apps/mobile/src/Stack.tsx, features/home, features/pull-requests, features/threads: Duo header minimize, UIKit-owned insets, host-searched pull request filters, draft workspace controls (#24235, #24284, #24295, #23923, #23922, #24239)",
+      "apps/server/src/config.ts, apps/web observability, desktop observability, packages/shared relayTracing: the t3code attribute prefix and a matching dev version (#23974, #23975)",
+      "apps/server/src/provider/CodexProvider.ts: Codex accounts show ChatGPT's current plan names (#24200)",
+      "apps/web/src/components/pullRequest: review avatars unclipped and timeline actions centred (#23545, #24259)",
+      "apps/mobile/src/lib composer chip presentation and project icons, apps/mobile/src/state/entities.ts: chat and composer chips readable in light mode (#22585)",
+      "apps/server/src/resourceTelemetry, apps/web resourceTelemetryState: the monitor found from build output and stale errors cleared after retry (#23965, #24229)",
+      "apps/mobile/deps: react-native-screens t3.37 and docs/operations/mobile-screens-fork.md (#24235)",
+      ".github/workflows/stale-needs-more-info.yml: CI closes a needs-more-info issue after seven days without a reply (#22628)"
     ],
     "exclusions": [
       {
-        "what": "apps/server/src/cli/service.ts, cli/invocation.ts, cloud/servicePreflight.ts and their tests",
-        "why": "upstream's stale-service recovery message and entry-path reporting; the fork does not modify these files and no entry integrates with the service launcher"
+        "what": "scripts/fixtures/issue-21397.json, scripts/seed-issue-21397.py, scripts/seed-issue-21397.test.py, scripts/fixtures/issue-18188/",
+        "why": "upstream's regression seed fixtures for its own usage-limit and stale-command fixes; nothing in the fork consumes them"
       },
       {
-        "what": "apps/web/src/lib/imageCompression.ts and its test, useComposerAttachmentIntake.ts, useComposerContextImport.ts, ComposerImageThumbnail.tsx, preparingComposerImages.ts",
-        "why": "upstream's pasted-image preprocessing and preview plumbing, unmodified by the fork; the fork's seams in that feature are the tile's action and the resting rule, recorded under image-annotation and device-composer"
+        "what": "infra/relay/src/previewStages.ts, previewTunnelSweep.ts and .github/workflows/relay-preview*.yml",
+        "why": "deployment of labelled PR preview stages; the fork builds and installs locally, has no update feed and integrates with none of it"
+      },
+      {
+        "what": "docs/operations/observability.md, docs/operations/release.md, docs/operations/mobile-screens-fork.md",
+        "why": "upstream's own operation docs; the fork's jj-workspace path lines in observability.md are kept, and no entry depends on their wording"
+      },
+      {
+        "what": "apps/mobile/src/lib/markdownDocument.ts (#22110)",
+        "why": "upstream's mobile Markdown link handling, a file the fork does not modify; no recorded entry integrates with it"
+      },
+      {
+        "what": "pnpm-lock.yaml, apps/mobile/deps/react-native-screens-5.0.0-t3.37.tgz, apps/mobile/package.json",
+        "why": "mechanical dependency updates, taken from upstream and regenerated with vp i"
+      },
+      {
+        "what": "upstream-only tests (pair.test.ts, serverLogger.test.ts, OrchestratorMcpToolkit.integration.test.ts, ThreadFork.execution.test.ts, previewStages.test.ts)",
+        "why": "upstream's proof for its own changes; the landing gate runs them, and no fork seam is asserted in them"
       }
     ]
   },
   "dispositions": [
     {
-      "entry": "slipjay-workspaces",
-      "upstream": "#24218 meters every checkpoint git subprocess attempt as a span and counter; #23900 lets a deleted thread that still owns a worktree its remaining subagents share be cleaned up by the deletion rules",
+      "entry": "compact-line",
+      "upstream": "a fork's first /compact sees the history it inherited (#24172)",
       "decision": "adopt",
       "requirements": [
-        "Jujutsu driver, checkpoint services and the SlipJay workspace lifecycle keep their behaviour",
-        "SlipJay workspaces stay outside the managed worktree roots deletion cleanup acts on"
+        "the context bar keeps the fork's draggable per-thread point, the per-model point and Pi's settings write",
+        "a /compact on a fork is refused only when no history reached it"
       ],
       "evidence": [
-        "merged unchanged: apps/server/src/vcs/GitVcsDriver.ts and VcsProcess.ts differ from upstream only by the metrics wrap",
-        "storageCleanup.ts is not fork-modified; cleanWorktrees only acts inside managedWorktreesDirectories (config.worktreesDir and the worktrees settings), which excludes ~/.slipjay/workspaces",
-        "apps/server/src/storageCleanup.test.ts and GitVcsDriver.test.ts: merged upstream tests present"
+        "apps/server/src/orchestration-v2/ThreadFork.execution.test.ts (a $execution fork's first /compact is rejected only when no history reaches it)",
+        "apps/server/src/orchestration-v2/TurnStartReads.test.ts"
       ]
     },
     {
       "entry": "managed-delegation",
-      "upstream": "#23900 keeps a subagent's shared worktree owned by its deleted parent for deletion cleanup",
+      "upstream": "a Stop started by an agent says so, and a Stop clears commands the server already finished (#24299, #23814)",
       "decision": "adopt",
       "requirements": [
-        "an isolated writer's worktree and a delegated task's removed workspace keep their existing rules"
+        "a cancelled task's thread.stop still passes stopDelegatedTasks: false",
+        "a cancelling task keeps its queued-run cancellation, completion-delivery dispose and dispatch-mode limit"
       ],
       "evidence": [
-        "the change only alters which thread deletion cleanup treats as a worktree's owner and whether latest activity is re-checked; it adds no new deletion path for a live thread"
+        "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts (a stopped run reports Stopped by an agent: <reason>)",
+        "apps/server/src/mcp/OrchestratorMcpService.test.ts",
+        "packages/client-runtime/src/state/threadCommands.test.ts"
+      ]
+    },
+    {
+      "entry": "run-interrupt-cause",
+      "upstream": "an interrupt result carries the Stop's own reason (#24299)",
+      "decision": "adapt",
+      "requirements": [
+        "cause stays: user only for a Stop, move for a moved thread, else server-close or provider-abort",
+        "a message names the Stop's reason when one exists and otherwise says what happened, never blaming the user for an abort"
+      ],
+      "evidence": [
+        "apps/server/src/orchestration-v2/RunExecutionService.test.ts (writes the Stop's own reason, so an agent's Stop is not the user's; keeps the user's Stop as the cause; provider abort, server close, move)",
+        "apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts"
+      ]
+    },
+    {
+      "entry": "ws-rpc-group-split",
+      "upstream": "pullRequestsFilterOptions joins the fork's pull request RPC group (#23924)",
+      "decision": "retain",
+      "requirements": [
+        "every WebSocket RPC is served through the feature group that owns it",
+        "the new handler lives in layerWsPullRequestRpc, not in the core layer"
+      ],
+      "evidence": [
+        "apps/server/src/ws.test.ts",
+        "vp run --filter t3 typecheck (the layer's requirements stay typed)"
       ]
     },
     {
       "entry": "account-pools",
-      "upstream": "#24123 sizes the Usage page header controls by the header's own container query instead of the viewport",
+      "upstream": "the usage-limit wake action stays visible and Codex shows current plan names (#23803, #24200)",
       "decision": "adopt",
       "requirements": [
-        "the pool usage card and pool routing read the same data as before"
+        "pooled routing and the usage card read the same sources",
+        "the fork's provider presentation is untouched"
       ],
       "evidence": [
-        "UsagePage.tsx is not fork-modified; merged unchanged",
-        "pnpm exec vp run --filter @t3tools/web typecheck passed"
+        "apps/server/src/provider/ProviderRegistry.test.ts",
+        "apps/server/src/provider/CodexChatGptModels.test.ts"
       ]
     },
     {
-      "entry": "device-composer",
-      "upstream": "#23832 shows a pasted image's tile before its compressed copy exists and counts those tiles as expanded composer chrome",
-      "decision": "adapt",
+      "entry": "dev-state-tooling",
+      "upstream": "pairing refuses a server whose protocol is incompatible (#23789)",
+      "decision": "adopt",
       "requirements": [
-        "the device composer itself never takes the resting composer layout",
-        "a preparing image tile appears immediately and is not clickable until its image is ready"
+        "t3 pair in a jj workspace still never falls back to the shared home"
       ],
       "evidence": [
-        "ChatComposer.tsx conflict resolved by keeping the fork's `!deviceComposer &&` resting rule and adding upstream's `preparingComposerImages.length > 0` term",
-        "pnpm exec vp run --filter @t3tools/web typecheck passed"
+        "apps/server/src/cli/pair.test.ts",
+        "packages/shared/src/devHome.test.ts"
+      ]
+    },
+    {
+      "entry": "quiet-run-read-state",
+      "upstream": "streamed item replacement no longer scans ordering or positions (#24264)",
+      "decision": "adopt",
+      "requirements": [
+        "a successful bound run still marks its thread read and an explicit mark-unread still overrides it"
+      ],
+      "evidence": [
+        "packages/client-runtime/src/state/orchestrationV2Projection.test.ts (quiet completion read state, and the scan-free streamed replacement)"
+      ]
+    },
+    {
+      "entry": "mobile-fork-screens",
+      "upstream": "Duo header minimize, UIKit-owned insets, light-mode chips and host-searched pull request filters (#24235, #24284, #24295, #22585, #23924, #23922, #23923)",
+      "decision": "adapt",
+      "requirements": [
+        "the Forge item header and sheet, the workflow badge, the release approval card and the fork's settings entries stay",
+        "mentions in a message still resolve with the fork's Forge labels before chip icons are drawn"
+      ],
+      "evidence": [
+        "apps/mobile/src/lib/composerChipPresentation.test.ts",
+        "apps/mobile/src/lib/projectIcon.test.ts",
+        "apps/mobile/src/features/pull-requests/pullRequestList.test.ts"
+      ]
+    },
+    {
+      "entry": "phi-browser-backend",
+      "upstream": "agent recordings take the client's browser recording frame rate (#23895)",
+      "decision": "retain",
+      "requirements": [
+        "the browser backend stays selectable and preview tools still route through Phi",
+        "recording remains outside the managed browser roles' delegated mutations"
+      ],
+      "evidence": [
+        "apps/server/src/preview/ServerBrowser.test.ts"
       ]
     },
     {
       "entry": "image-annotation",
-      "upstream": "#23832 renders a preparing image through the same attachment tile, disabled until the compressed image exists",
+      "upstream": "chat and composer chips stay readable in light mode (#22585)",
+      "decision": "adopt",
+      "requirements": [
+        "the annotation chip keeps its accent colour and pencil icon"
+      ],
+      "evidence": [
+        "apps/mobile/src/lib/composerChipPresentation.test.ts"
+      ]
+    },
+    {
+      "entry": "linked-environments",
+      "upstream": "light-mode composer chips build thread link icons from threadChipTargets (#22585)",
       "decision": "adapt",
       "requirements": [
-        "the composer attachment tile opens the fork's annotator for a ready image",
-        "no preview/expand button returns to that tile"
+        "a thread link that names its environment keeps that environment for its label, its click and now its icon"
       ],
       "evidence": [
-        "ComposerAttachmentStrip.tsx conflict resolved: the tile keeps `aria-label=\"Annotate ...\"` and `onAnnotateImage(ready)`, gaining upstream's `disabled={!ready}` and ready-gated cursor",
-        "apps/web/src/components/chat/ExpandedImagePreview.test.ts and composerAttachmentFiles.test.ts passed",
-        "pnpm exec vp run --filter @t3tools/web typecheck passed"
-      ]
-    },
-    {
-      "entry": "web-client-customisation",
-      "upstream": "#23832's composer tile and expanded-chrome changes in ChatComposer.tsx",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's raised-card row, machine icons and background-work strip are untouched"
-      ],
-      "evidence": [
-        "the file's other fork behaviour (machine switch, Fast switch, sounds, compact line) merged unchanged around the single conflicted hunk"
-      ]
-    },
-    {
-      "entry": "thread-watches",
-      "upstream": "#23852 stops the periodic pull-request discovery sweep while no client holds an activity lease",
-      "decision": "adopt",
-      "requirements": [
-        "PR watches and the fork's thread and Forge watches keep waking from thread events",
-        "a headless server does no opportunistic GitHub reads"
-      ],
-      "evidence": [
-        "ThreadPullRequestService's event subscription and the watch reactors are untouched; only the one-minute sweep is gated",
-        "apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts (upstream's sweep test plus the fork's two read tests) passed"
-      ]
-    },
-    {
-      "entry": "perf-persistence-reads",
-      "upstream": "#23852 gates the one-minute PR sweep on BackgroundPolicy.shouldRunOpportunisticWork",
-      "decision": "adopt",
-      "requirements": [
-        "the fork's getBranchPullRequestThreads read remains the sweep's and a thread event's read path"
-      ],
-      "evidence": [
-        "ThreadPullRequestService.ts merged with both: the fork's ProjectionStore read feeds upstream's policy check",
-        "the merge duplicated the test file's TestClock, Queue and OrchestrationV2DomainEvent imports; removed",
-        "upstream's sweep test gained the ProjectionStore mock the fork's read path needs, and the fork's two read tests mock the policy as allowed"
-      ]
-    },
-    {
-      "entry": "agent-process-ledger",
-      "upstream": "#23819 speeds up the terminal history sanitizer for large clipboard paste sequences",
-      "decision": "adopt",
-      "requirements": [
-        "terminal PTY session leaders are still recorded under the state directory until they exit",
-        "readThreadOutput keeps its behaviour"
-      ],
-      "evidence": [
-        "the change only moves the terminator scan's start position inside sanitizeTerminalHistoryChunk; the fork's ledger tracking and readThreadOutput merged unchanged",
-        "apps/server/src/terminal/Manager.test.ts passed"
+        "apps/mobile/src/lib/enrichedLinkPresentation.test.ts (stamps a qualified thread link with the environment it names)"
       ]
     }
   ],
   "unresolved": [],
   "checks": [
     {
-      "command": "fork-nightly.sh attempt v0.1.3-nightly.20261023.3592 claim <this thread>",
-      "result": "passed",
-      "note": "claimed by this thread before any work; the attempt file reads phase claimed with claimedBy naming it"
-    },
-    {
       "command": "vp i",
       "result": "passed",
-      "note": "lockfile unchanged by the merge"
+      "note": "dependency set synced to the merged lockfile (27 added, 2 removed)"
     },
     {
-      "command": "vp test run apps/server/src/terminal/Manager.test.ts apps/server/src/storageCleanup.test.ts",
+      "command": "vp run --filter t3 --filter @t3tools/client-runtime --filter @t3tools/contracts --filter @t3tools/web --filter @t3tools/mobile --filter @t3tools/desktop typecheck",
       "result": "passed",
-      "note": "168 tests"
+      "note": "6/6 packages successful"
     },
     {
-      "command": "vp test run apps/server/src/orchestration-v2/ThreadPullRequestService.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/RunExecutionService.test.ts apps/server/src/orchestration-v2/ProviderTurnStartService.test.ts",
       "result": "passed",
-      "note": "8 tests, after the duplicate-import and mock adaptations"
+      "note": "104 tests"
     },
     {
-      "command": "vp test run apps/server/src/cli/service.test.ts apps/server/src/cloud/servicePreflight.test.ts apps/web/src/lib/imageCompression.test.ts",
+      "command": "vp test run apps/server/src/mcp/OrchestratorMcpService.test.ts apps/server/src/mcp/OrchestratorMcpToolkit.integration.test.ts apps/server/src/ws.test.ts",
       "result": "passed",
-      "note": "81 tests"
+      "note": "53 tests"
     },
     {
-      "command": "vp test run apps/web/src/components/chat/ExpandedImagePreview.test.ts apps/web/src/components/chat/composerAttachmentFiles.test.ts",
+      "command": "vp test run apps/server/src/orchestration-v2/ThreadFork.execution.test.ts apps/server/src/provider/ProviderRegistry.test.ts apps/server/src/cli/pair.test.ts",
       "result": "passed",
-      "note": "8 tests"
+      "note": "57 tests"
     },
     {
-      "command": "vp test run apps/server/src/vcs/GitVcsDriver.test.ts",
-      "result": "failed",
-      "note": "55 of 56 passed; \"lists the fetch and push URLs of a partial clone remote\" fails because this machine's global git `url.git@github.com:.insteadOf https://github.com/` rewrites the remote URL the test asserts. The test file is byte-identical to the tag's (sha256 750d7422...), the driver differs from the tag only by upstream's #24218 change, and a bare `git init` + `git remote add origin https://github.com/pingdotgg/t3code.git` on this machine reports `git@github.com:pingdotgg/t3code.git`, so the failure is environmental and would fail on the bare tag too; left."
+      "command": "vp test run packages/client-runtime/src/state/orchestrationV2Projection.test.ts packages/client-runtime/src/state/threadCommands.test.ts apps/mobile/src/lib/composerChipPresentation.test.ts apps/mobile/src/lib/projectIcon.test.ts",
+      "result": "passed",
+      "note": "49 tests"
+    },
+    {
+      "command": "vp test run apps/server/src/preview/ServerBrowser.test.ts apps/server/src/persistence/Migrations/080_ThreadCompactAt.test.ts apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts",
+      "result": "passed",
+      "note": "30 tests"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "listed the affected packages' tests against the merged config"
+      "note": "the gate selects its tests against the merged config; the full gate runs on the SlipJay runner"
     },
     {
-      "command": "pnpm exec vp run --filter t3 typecheck",
+      "command": "vp test run apps/server/src/orchestration-v2/TurnStartReads.test.ts apps/server/src/provider/CodexChatGptModels.test.ts apps/server/src/provider/ProviderRegistry.test.ts packages/shared/src/devHome.test.ts",
       "result": "passed",
-      "note": "after removing the duplicated test imports"
+      "note": "57 tests, the evidence the dispositions cite"
     },
     {
-      "command": "pnpm exec vp run --filter @t3tools/web typecheck",
+      "command": "vp test run apps/mobile/src/features/pull-requests/pullRequestList.test.ts apps/mobile/src/lib/enrichedLinkPresentation.test.ts",
       "result": "passed",
-      "note": "after annotating from the ready image"
-    },
-    {
-      "command": "Browser panel check of the composer attachment tile",
-      "result": "not-run",
-      "note": "this scheduled thread's T3 tool listing carries no preview_* (Browser panel) tools, and test-t3-app forbids switching to another automation system, so the visible tile change was not checked in a real client; it is covered by the web typecheck, the tile's helper tests and the reviewer's source trace of both files"
-    },
-    {
-      "command": "slipjay land",
-      "result": "failed",
-      "note": "first attempt failed at the receipt check: t3peach moved to 0b14363c while this merge was being reviewed, so the runner rebased the merge onto it and the receipt named the old fork base. Rebased jj rebase -s <merge> -d t3peach@origin -d <tag> with no conflicts, receipt fork.base updated to 0b14363c, verified and landed again."
+      "note": "24 tests, including the qualified thread link icon"
     }
   ],
   "result": "reconciled"

@@ -2551,6 +2551,22 @@ it.effect("keeps the user's Stop as the cause when the provider ends the run aft
   }),
 );
 
+it.effect("writes the Stop's own reason, so an agent's Stop is not the user's", () =>
+  Effect.gen(function* () {
+    const { written } = yield* captureRootRunTermination({
+      key: "agent-stop",
+      shouldFinalizeRun: () => Effect.succeed(true),
+      hasUnpairedRunInterruptRequest: () => Effect.succeed(true),
+      loadRunInterruptReason: () => Effect.succeed("Stopped by an agent: cancel the task"),
+    });
+    assert.deepInclude(written[0], {
+      type: "run_interrupt_result",
+      cause: "user",
+      message: "Stopped by an agent: cancel the task",
+    });
+  }),
+);
+
 it.effect("refreshes pull requests after a provider stream exits with an error", () =>
   Effect.gen(function* () {
     const { written, observed } = yield* captureRootRunTermination({
@@ -2886,6 +2902,7 @@ function captureRootRunTermination(input: {
   readonly rejectTerminalWrite?: boolean;
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
   readonly movedTo?: () => Effect.Effect<string | undefined, never>;
+  readonly loadRunInterruptReason?: () => Effect.Effect<string | undefined, never>;
   readonly seedOpenSubagent?: boolean;
   readonly events?: (
     ids: BackgroundScenarioIds,
@@ -3079,6 +3096,9 @@ function captureRootRunTermination(input: {
               hasUnpairedRunInterruptRequest: input.hasUnpairedRunInterruptRequest,
             }),
         ...(input.movedTo === undefined ? {} : { movedTo: input.movedTo }),
+        ...(input.loadRunInterruptReason === undefined
+          ? {}
+          : { loadRunInterruptReason: input.loadRunInterruptReason }),
         message: {
           messageId: MessageId.make(`message:${input.key}`),
           text: "interrupt projection",

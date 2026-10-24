@@ -585,6 +585,7 @@ export interface RunExecutionServiceV2StartRootRunInput {
   readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
   /** Where the thread moved, when a workspace or project move cut the run short. */
   readonly movedTo?: () => Effect.Effect<string | undefined, never>;
+  readonly loadRunInterruptReason?: () => Effect.Effect<string | undefined, never>;
   readonly message: ProviderAdapter.ProviderAdapterV2TurnMessage;
   readonly modelSelection: ModelSelection;
   readonly compaction?: ProviderAdapter.ProviderAdapterV2TurnInput["compaction"];
@@ -637,6 +638,7 @@ export const layer: Layer.Layer<
         readonly shouldFinalizeRun?: () => Effect.Effect<boolean, ProjectionStoreV2Error>;
         readonly hasUnpairedRunInterruptRequest?: () => Effect.Effect<boolean, never>;
         readonly movedTo?: () => Effect.Effect<string | undefined, never>;
+        readonly loadRunInterruptReason?: () => Effect.Effect<string | undefined, never>;
         readonly openRunOwnedSubagents?: OpenRunOwnedSubagentProjection;
         // Only for finalisation after the provider stream is gone: nothing will report these
         // items' results, so settle them with the run.
@@ -658,6 +660,10 @@ export const layer: Layer.Layer<
             : Effect.succeed(undefined);
         const interruptResultItem = Effect.gen(function* () {
           const moved = yield* movedToMessage;
+          const reason =
+            input.loadRunInterruptReason === undefined
+              ? undefined
+              : yield* input.loadRunInterruptReason();
           const stoppedByUser =
             input.hasUnpairedRunInterruptRequest === undefined
               ? false
@@ -677,6 +683,7 @@ export const layer: Layer.Layer<
                       ? input.terminal.interruptCause
                       : undefined) ?? "provider-abort"),
             moved,
+            reason,
           });
         });
         const finalizedAttempt: OrchestrationV2RunAttempt | null = {
@@ -1132,6 +1139,9 @@ export const layer: Layer.Layer<
                   hasUnpairedRunInterruptRequest: input.hasUnpairedRunInterruptRequest,
                 }),
             ...(input.movedTo === undefined ? {} : { movedTo: input.movedTo }),
+            ...(input.loadRunInterruptReason === undefined
+              ? {}
+              : { loadRunInterruptReason: input.loadRunInterruptReason }),
             openRunOwnedSubagents: openSubagents,
             terminal,
             failureItemPersisted: terminal.status === "failed",
@@ -1813,11 +1823,19 @@ const INTERRUPT_CAUSE_MESSAGES = {
   "server-close": "The provider session was closed before the run finished",
 } as const;
 
+/**
+ * Clients send Stop without a reason; server callers acting for an agent
+ * always set one, so a missing reason means a person stopped the run.
+ */
+export const USER_STOP_REASON = "Stopped by user";
+
 export function makeInterruptResultTurnItem(input: {
   readonly idAllocator: IdAllocator.IdAllocatorV2["Service"];
   readonly run: OrchestrationV2Run;
   readonly rootNode: OrchestrationV2ExecutionNode;
   readonly providerThread: OrchestrationV2ProviderThread;
+  /** The Stop's own reason, from its run_interrupt_request item. */
+  readonly reason: string | undefined;
   readonly completedAt: DateTime.Utc;
   readonly cause: OrchestrationV2RunInterruptCause;
   /** Where the thread moved, which is the message when `cause` is `move`. */
@@ -1846,7 +1864,9 @@ export function makeInterruptResultTurnItem(input: {
     updatedAt: input.completedAt,
     type: "run_interrupt_result",
     message:
-      input.cause === "move" ? (input.moved ?? "Moved") : INTERRUPT_CAUSE_MESSAGES[input.cause],
+      input.cause === "move"
+        ? (input.moved ?? "Moved")
+        : (input.reason ?? INTERRUPT_CAUSE_MESSAGES[input.cause]),
     cause: input.cause,
   };
 }
