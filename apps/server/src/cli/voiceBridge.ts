@@ -18,7 +18,13 @@ import { HttpRouter } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
 import { captureFrontWindow } from "../voiceBridge/Capture.ts";
+import * as CaptureSession from "../voiceBridge/CaptureSession.ts";
 import { routes } from "../voiceBridge/Http.ts";
+import {
+  isFluidVoiceRecording,
+  startMacCommandShortcut,
+  toggleFluidVoiceCommand,
+} from "../voiceBridge/MacCommandShortcut.ts";
 import { decodeSessions, EMPTY_SESSIONS, type SessionStore } from "../voiceBridge/Sessions.ts";
 import { makePort } from "../voiceBridge/T3Port.ts";
 import * as AgentCliClient from "./AgentCliClient.ts";
@@ -50,6 +56,10 @@ const pollFlag = Flag.Int("poll-ms").pipe(
   Flag.withDescription("How often to read the thread for new text. Default: 600."),
   Flag.withDefault(600),
 );
+const commandShortcutFlag = Flag.Boolean("command-shortcut").pipe(
+  Flag.withDescription("On macOS, Control-Option-Command-V captures before starting FluidVoice."),
+  Flag.withDefault(false),
+);
 const waitFlag = Flag.Int("wait-seconds").pipe(
   Flag.withDescription(
     "How long to stream one answer before pointing at the thread. Default: 900.",
@@ -72,6 +82,7 @@ type BridgeFlags = {
   readonly port: number;
   readonly host: string;
   readonly capture: Option.Option<boolean>;
+  readonly commandShortcut: boolean;
   readonly pollMs: number;
   readonly waitSeconds: number;
 };
@@ -102,20 +113,69 @@ const runBridge = (flags: BridgeFlags) =>
       const capturePath = NodePath.join(stateDir, "capture.png");
 
       const client = yield* AgentCliClient.AgentCliClient;
+      const captures = yield* CaptureSession.CaptureSession.pipe(
+        Effect.provide(
+          Layer.effect(
+            CaptureSession.CaptureSession,
+            CaptureSession.make(() =>
+              captureEnabled
+                ? Effect.promise(() => captureFrontWindow(capturePath)).pipe(
+                    Effect.tap((captured) =>
+                      captured === null
+                        ? Effect.logWarning(
+                            "Screenshot capture failed; sending text only. Check Screen Recording permission and that a window is visible.",
+                          )
+                        : Effect.void,
+                    ),
+                  )
+                : Effect.succeed(null),
+            ),
+          ),
+        ),
+      );
+      if (flags.commandShortcut) {
+        if (platform !== "darwin")
+          return yield* Effect.die(new Error("The command shortcut requires macOS."));
+        let triggering = false;
+        yield* Effect.acquireRelease(
+          Effect.tryPromise(() =>
+            startMacCommandShortcut({
+              helperPath: NodePath.join(stateDir, "command-shortcut.swift"),
+              onTrigger: () => {
+                if (triggering) return;
+                triggering = true;
+                void Effect.runPromise(
+                  captures
+                    .invoke({
+                      isRecording: Effect.tryPromise((signal) => isFluidVoiceRecording(signal)),
+                      toggle: Effect.tryPromise((signal) => toggleFluidVoiceCommand(signal)),
+                    })
+                    .pipe(
+                      Effect.catch((error) =>
+                        captures.clear().pipe(Effect.andThen(Effect.logError(error))),
+                      ),
+                      Effect.ensuring(
+                        Effect.sync(() => {
+                          triggering = false;
+                        }),
+                      ),
+                    ),
+                );
+              },
+              onCancel: () => {
+                void Effect.runPromise(captures.clear());
+              },
+              onFailure: (error) => {
+                void Effect.runPromise(Effect.logError(error));
+              },
+            }),
+          ),
+          (stop) => Effect.sync(stop),
+        );
+      }
       const deps = {
         port: makePort(client, flags.endpoint),
-        capture: () =>
-          captureEnabled
-            ? Effect.promise(() => captureFrontWindow(capturePath)).pipe(
-                Effect.tap((captured) =>
-                  captured === null
-                    ? Effect.logWarning(
-                        "Screenshot capture failed; sending text only. Check Screen Recording permission and that a window is visible.",
-                      )
-                    : Effect.void,
-                ),
-              )
-            : Effect.succeed(null),
+        capture: captures.take,
         sessions: {
           read: () => readSessions(fileSystem, sessionsPath),
           write: (store: SessionStore) =>
@@ -142,6 +202,9 @@ const runBridge = (flags: BridgeFlags) =>
           `T3 voice bridge listening on http://${flags.host}:${flags.port}`,
           `FluidVoice provider server URL: http://${flags.host}:${flags.port}/v1`,
           captureEnabled ? "Capturing the front window with each ask." : "Sending words only.",
+          ...(flags.commandShortcut
+            ? ["Control-Option-Command-V starts/stops FluidVoice with an initial screenshot."]
+            : []),
         ].join("\n"),
       );
       return yield* Effect.never;
@@ -154,6 +217,7 @@ export const voiceBridgeCommand = Command.make("voice-bridge", {
   port: portFlag,
   host: hostFlag,
   capture: captureFlag,
+  commandShortcut: commandShortcutFlag,
   pollMs: pollFlag,
   waitSeconds: waitFlag,
 }).pipe(

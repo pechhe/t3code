@@ -54,6 +54,22 @@ using the global shortcut. That tab routes replies to its own conversation view
 and suppresses notch output; hiding the main window may leave that suppression
 active.
 
+## Capture before dictating
+
+Start the bridge with `--command-shortcut`, keeping FluidVoice's Command Mode
+shortcut set to right Option. Press **Control-Option-Command-V** to capture the
+page and start Command Mode. Press it again to stop dictation and send the ask;
+the second press keeps the first screenshot, even if you changed windows.
+
+The Mac needs Apple's Command Line Tools for the shortcut helper and Accessibility
+permission for the app running the bridge, such as Terminal. A shortcut conflict
+or unavailable permission is reported in the bridge's output.
+
+Escape or FluidVoice's default cancel key discards the staged screenshot. A new
+recording replaces any abandoned image. The initial image remains available through
+long dictation and transcription, and is consumed only once.
+Omit `--command-shortcut` to remove the shared shortcut.
+
 ## What happens to an ask
 
 - One ask starts one thread in the Scratch project, titled from your first few
@@ -74,9 +90,8 @@ active.
 
 ## Limits
 
-- The screenshot is taken when FluidVoice submits the transcribed instruction,
-  after dictation. The provider connection cannot capture the earlier button
-  press. It captures the window behind FluidVoice at submission time.
+- Starting directly with FluidVoice's right-Option shortcut captures at submission
+  time, after dictation. Use Control-Option-Command-V for an initial screenshot.
 - The window shows the agent's words, not its tool calls, file changes or terminal.
 - Audio never reaches T3: FluidVoice transcribes on the Mac and only the words are
   sent. With `--capture` off, no image is sent either.
