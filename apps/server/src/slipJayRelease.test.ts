@@ -90,6 +90,15 @@ describe("restoring a released workspace on resume", () => {
 });
 
 describe("an unresolved release blocks the workspace", () => {
+  it("asks by path, since a resume cannot recompute the id", async () => {
+    const calls: string[] = [];
+    await unresolvedRelease({
+      workspacePath: "/home/h/.slipjay/workspaces/ys-12", threadId: "t", settledAt: null,
+      run: async (command, args) => { calls.push([command, ...args].join(" ")); return { code: 0, stdout: "null", stderr: "" }; },
+    });
+    expect(calls).toEqual(["slipjay retire-result --path /home/h/.slipjay/workspaces/ys-12"]);
+  });
+
   it("reports uncertainty for the operation this thread would have used", async () => {
     const reason = await unresolvedRelease({
       workspacePath: "/home/h/.slipjay/workspaces/ys-12",

@@ -135,10 +135,11 @@ export async function unresolvedRelease(input: {
   settledAt: string | null;
   run: ReleaseRunner;
 }): Promise<string | null> {
-  const operationId = releaseOperationId(input.threadId, input.workspacePath, input.settledAt);
   let outcome: { code: number; stdout: string; stderr: string };
   try {
-    outcome = await input.run("slipjay", ["retire-result", operationId]);
+    // By path: a resume cannot recompute the id an earlier attempt used, because the
+    // settlement it came from is gone.
+    outcome = await input.run("slipjay", ["retire-result", "--path", input.workspacePath]);
   } catch {
     // No SlipJay here, or it could not answer: nothing to hold the turn for.
     return null;
@@ -146,7 +147,7 @@ export async function unresolvedRelease(input: {
   const result = parseReleaseResult(outcome.stdout);
   if (!result) return null;
   if (result.state === "uncertain" || result.state === "retiring") {
-    return `release ${operationId} is unresolved (${result.state}): ${result.reason ?? "reconcile it before using this workspace"}`;
+    return `the last release of this checkout is unresolved (${result.state}): ${result.reason ?? "reconcile it before using this workspace"}`;
   }
   return null;
 }

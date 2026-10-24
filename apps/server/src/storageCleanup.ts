@@ -847,7 +847,7 @@ const make = Effect.gen(function* () {
         const realParent = yield* fs.realPath(path.dirname(worktreePath));
         if (realPath !== path.join(realParent, path.basename(worktreePath)))
           return keep("worktree is a symbolic link");
-        if (!roots.some((root) => inside(root, realPath)))
+        if (!slipJay && !roots.some((root) => inside(root, realPath)))
           return keep("outside the managed worktree folder");
         if (yield* containsProjectRoot(worktreePath, [project, ...snapshot.projects]))
           return keep("contains a project checkout");
@@ -867,14 +867,19 @@ const make = Effect.gen(function* () {
         )
           return keep("settled moments ago");
         const head = yield* git.resolveCommit({ cwd: worktreePath, revision: "HEAD" });
+        // A SlipJay workspace is released when its thread is settled, never because it has
+        // been inactive: settlement is the promise Henry made, and inactivity is not it.
         const old =
           !deleted &&
+          !slipJay &&
           settings.worktreeAfterDays !== null &&
           activityAt < now - settings.worktreeAfterDays * DAY_MS;
         const settledFor =
           deleted || thread.settledAt === null
             ? null
-            : now - Math.max(DateTime.toEpochMillis(thread.settledAt), activityAt);
+            : slipJay
+              ? now - DateTime.toEpochMillis(thread.settledAt)
+              : now - Math.max(DateTime.toEpochMillis(thread.settledAt), activityAt);
         const settledDays = settledFor === null ? null : Math.floor(settledFor / DAY_MS);
         const settled =
           settledFor !== null &&
@@ -1059,9 +1064,11 @@ const make = Effect.gen(function* () {
         )
           return keep("settings changed since check");
         // Clean only untracked files. Ordinary worktrees retain Git's final tracked-edit check.
-        if (settings.worktreeKeepWhen === "tracked-changes")
+        // `git clean` would delete the ignored and untracked bytes before SlipJay archives
+        // them, so it is a git-worktree step only; SlipJay's own freshness check covers them.
+        if (settings.worktreeKeepWhen === "tracked-changes" && !slipJay)
           yield* cleanupGit(worktreePath, ["clean", "-ffdx"], "git clean");
-        const submodules = yield* submoduleRemoval(worktreePath, settings);
+        const submodules = slipJay ? { reason: null, force: false } : yield* submoduleRemoval(worktreePath, settings);
         if (submodules.reason !== null) return keep(submodules.reason);
         if (submodules.force) {
           const changes = yield* localChangesReason(worktreePath, settings);
