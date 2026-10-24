@@ -6,6 +6,7 @@ import {
   OrchestratorMcpDelegateTaskResult,
   OrchestratorMcpScheduleTaskInput,
   OrchestratorMcpScheduledTask,
+  OrchestratorMcpThreadSearchPage,
   OrchestratorMcpUpdateScheduledTaskInput,
 } from "./orchestratorMcp.ts";
 
@@ -131,5 +132,61 @@ describe("scheduled task MCP contracts", () => {
         lastRunStatus: "never",
       }).agentRole,
     ).toBeNull();
+  });
+});
+
+describe("thread search MCP contracts", () => {
+  const decodePage = Schema.decodeUnknownSync(OrchestratorMcpThreadSearchPage);
+
+  it("carries a thread title match beside its environment", () => {
+    expect(
+      decodePage({
+        matches: [
+          {
+            threadId: "thread-1",
+            projectId: "project-1",
+            title: "Rollover handling",
+            source: "title",
+            environmentId: "environment-local",
+          },
+        ],
+      }).matches,
+    ).toEqual([
+      {
+        threadId: "thread-1",
+        projectId: "project-1",
+        title: "Rollover handling",
+        source: "title",
+        environmentId: "environment-local",
+      },
+    ]);
+  });
+
+  // A linked environment on a build from before the palette search sends only
+  // message matches, without a title; its page must still decode.
+  it("decodes a peer's page from a build that sent message matches alone", () => {
+    expect(
+      decodePage({
+        matches: [
+          {
+            threadId: "thread-1",
+            projectId: "project-1",
+            source: "user",
+            snippet: "the rollover message",
+            messageCreatedAt: "2026-10-01T00:00:00.000Z",
+            environmentId: "environment-remote",
+          },
+        ],
+      }).matches,
+    ).toEqual([
+      {
+        threadId: "thread-1",
+        projectId: "project-1",
+        source: "user",
+        snippet: "the rollover message",
+        messageCreatedAt: "2026-10-01T00:00:00.000Z",
+        environmentId: "environment-remote",
+      },
+    ]);
   });
 });

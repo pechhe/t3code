@@ -1,7 +1,7 @@
 import { useImperativeHandle, useRef, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vite-plus/test";
 import { act, fakeTimers, render } from "../../test/render";
-import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
+import { DEFAULT_RESOLVED_KEYBINDINGS, isMacPlatform } from "@t3tools/shared/keybindings";
 import { CommandPalette } from "./CommandPalette";
 import { useComposerHandleContext } from "../composerHandleContext";
 import { openCommandPalette } from "../commandPaletteBus";
@@ -57,7 +57,7 @@ vi.mock("../state/entities", async (importOriginal) => ({
 }));
 vi.mock("../state/queries", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../state/queries")>()),
-  useThreadSearch: () => ({ matches: [] }),
+  useThreadSearch: () => ({ matches: [], query: "", isPending: false }),
 }));
 vi.mock("../state/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../state/session")>()),
@@ -133,11 +133,13 @@ describe("command palette focus restoration", () => {
     await using screen = await renderPalette(<input aria-label="Settings field" />);
     const field = screen.container.querySelector("input")!;
     await act(() => field.focus());
+    // The matcher reads `mod` as Meta on Apple platforms and Control elsewhere.
+    const mod = isMacPlatform(navigator.platform) ? { metaKey: true } : { ctrlKey: true };
     await act(() =>
       field.dispatchEvent(
         new KeyboardEvent("keydown", {
           key: "p",
-          ctrlKey: true,
+          ...mod,
           bubbles: true,
           cancelable: true,
         }),

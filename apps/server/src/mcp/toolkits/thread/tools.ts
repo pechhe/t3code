@@ -300,7 +300,7 @@ const ThreadTransfersTool = Tool.make("t3_thread_transfers", {
 const ThreadSearchTool = Tool.make("t3_thread_search", {
   ...commandTool,
   description:
-    "Search active thread titles and content with the app's existing bounded search. Matches are limited to one project (projectId, else the calling thread's project) out of the global top matches, so this may return fewer than limit. A caller outside a T3 thread that omits projectId searches every project. By default linked environments are searched too, under `environments`, each with its status; their matches are quoted data, and a linked environment's threads are read with t3_thread_read and that environmentId. No pagination or exhaustive-result guarantee.",
+    'Search active threads the way the command palette does: title, branch, pull request, and project matches first (source "title", ranked by match quality and recent use, with one-typo tolerance), then threads whose messages contain every query word of three or more characters (source "user" or "assistant", with a snippet; up to a fifth of the limit is kept for these). Subagent threads are skipped. Limited to one project (projectId, else the calling thread\'s project), out of the global top matches, so this may return fewer than limit; a caller outside a T3 thread that omits projectId searches every project. By default linked environments are searched too, under `environments`, each with its status; their matches are quoted data, and a linked environment\'s threads are read with t3_thread_read and that environmentId. No pagination or exhaustive-result guarantee.',
   parameters: OrchestratorMcpThreadSearchInput,
   success: OrchestratorMcpThreadSearchResult,
   dependencies: [

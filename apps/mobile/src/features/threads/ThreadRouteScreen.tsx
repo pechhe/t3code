@@ -330,6 +330,12 @@ function ThreadRouteContent(
           input: { threadId: selectedThread.id },
         });
       },
+      onLoadThrough: (throughEntryId: string) => {
+        void loadEarlierHistory({
+          environmentId: selectedThread.environmentId,
+          input: { threadId: selectedThread.id, throughEntryId },
+        });
+      },
     };
   })();
   const navigation = useNavigation();

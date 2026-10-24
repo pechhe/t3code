@@ -69,6 +69,7 @@ describe("V2 preview upgrade", () => {
         [87, "ScheduledTaskRoleBackfill"],
         [88, "ShellStopRequestIndex"],
         [89, "HqForgeRecords"],
+        [90, "ThreadMessageSearch"],
       ]);
       assert.deepStrictEqual(yield* runMigrations(), []);
       assert.deepStrictEqual(yield* sql`SELECT * FROM orchestration_v2_legacy_imports`, imports);
@@ -181,6 +182,7 @@ describe("V2 preview upgrade", () => {
         [87, "ScheduledTaskRoleBackfill"],
         [88, "ShellStopRequestIndex"],
         [89, "HqForgeRecords"],
+        [90, "ThreadMessageSearch"],
       ]);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

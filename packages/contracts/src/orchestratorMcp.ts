@@ -47,7 +47,7 @@ import {
   ReleaseCandidate,
 } from "./releaseApproval.ts";
 import { ProviderInteractionMode, ProviderRequestKind, RuntimeMode } from "./providerPolicy.ts";
-import { OrchestrationSearchThreadsInput, OrchestrationThreadSearchMatch } from "./threadSearch.ts";
+import { OrchestrationSearchThreadsInput } from "./threadSearch.ts";
 import { PullRequestState } from "./pullRequest.ts";
 import {
   ThreadLinkedPullRequest,
@@ -469,9 +469,23 @@ export const OrchestratorMcpThreadSearchInput = Schema.Struct({
 });
 export type OrchestratorMcpThreadSearchInput = typeof OrchestratorMcpThreadSearchInput.Type;
 
+/**
+ * One environment's matches: a thread whose title, branch, pull request or
+ * project matched (`title`), or one whose messages did (`user`, `assistant`),
+ * with the snippet the match came from. A build older than the palette search
+ * sends message matches only, without a title.
+ */
 export const OrchestratorMcpThreadSearchPage = Schema.Struct({
   matches: Schema.Array(
-    Schema.Struct({ ...OrchestrationThreadSearchMatch.fields, environmentId: EnvironmentId }),
+    Schema.Struct({
+      threadId: ThreadId,
+      projectId: ProjectId,
+      title: Schema.optional(Schema.String),
+      source: Schema.Literals(["title", "user", "assistant"]),
+      snippet: Schema.optional(Schema.String),
+      messageCreatedAt: Schema.optional(Schema.NullOr(IsoDateTime)),
+      environmentId: EnvironmentId,
+    }),
   ),
 });
 

@@ -9,14 +9,14 @@ import {
   runRanAfter,
   usageLimitBlockedRun,
 } from "@t3tools/shared/orchestrationV2ThreadError";
-import { threadPullRequestsOf } from "@t3tools/shared/threadPullRequests";
 import { liveWorkspaceAttachments } from "@t3tools/shared/workspaceAttachments";
 import {
   normalizeThreadPullRequestKey,
+  threadPullRequestsOf,
   visibleThreadPullRequests,
   threadPullRequestKeysEqual,
   legacyThreadPullRequestKey,
-} from "@t3tools/shared/threadPullRequests";
+} from "../sourceControl/threadPullRequests.ts";
 import {
   ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE,
   type ChatAttachment,
@@ -68,6 +68,7 @@ import {
   type TurnItemId,
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
+import { recordThreadOpen } from "@t3tools/shared/paletteSearch";
 import {
   backgroundWorkName,
   derivePendingBackgroundWork,
@@ -2662,6 +2663,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     const movesForward =
       thread.lastVisitedAt === null ||
       DateTime.toEpochMillis(visitedAt.value) > DateTime.toEpochMillis(thread.lastVisitedAt);
+    const occurredAt = yield* DateTime.now;
+    // Opens are timed by the server clock so devices with skewed clocks agree.
+    const opens = command.opened
+      ? recordThreadOpen(
+          thread.opens ?? null,
+          DateTime.toEpochMillis(occurredAt),
+          command.searchQuery,
+        )
+      : null;
     // Viewing a thread changes read state only. Loading its transcript (or
     // bumping updatedAt) makes a routine read receipt scale with its history.
     yield* emit(
@@ -2671,8 +2681,12 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       type: "thread.visited",
       threadId: command.threadId,
       providerInstanceId: thread.providerInstanceId,
-      occurredAt: yield* DateTime.now,
-      payload: movesForward ? { ...thread, lastVisitedAt: visitedAt.value } : thread,
+      occurredAt,
+      payload: {
+        ...thread,
+        ...(movesForward ? { lastVisitedAt: visitedAt.value } : {}),
+        ...(opens ? { opens } : {}),
+      },
     });
   });
 

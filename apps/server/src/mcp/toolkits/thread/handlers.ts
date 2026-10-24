@@ -151,13 +151,15 @@ export const handlers = {
           // outside a thread searches every project.
           const projectId = requested ?? caller?.projectId;
           const threadSearch = yield* ThreadSearch.ThreadSearch;
-          const result = yield* threadSearch.search(query).pipe(Effect.mapError(unavailable));
+          const result = yield* threadSearch
+            .searchThreads({ ...query, projectId })
+            .pipe(Effect.mapError(unavailable));
           return {
             environmentId: scope.environmentId,
-            matches: (projectId === undefined
-              ? result.matches
-              : result.matches.filter((match) => match.projectId === projectId)
-            ).map((match) => ({ ...match, environmentId: scope.environmentId })),
+            matches: result.matches.map((match) => ({
+              ...match,
+              environmentId: scope.environmentId,
+            })),
           };
         }),
       });

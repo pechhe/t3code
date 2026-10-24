@@ -10,6 +10,7 @@ import {
   NodeId,
   OrchestratorMcpThreadReadResult,
   ProviderDriverKind,
+  ProjectId,
   ProviderInstanceId,
   RunId,
   RuntimeRequestId,
@@ -19,6 +20,7 @@ import {
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 import * as McpProviderSessions from "@t3tools/provider-core/server/McpProviderSessions";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as TestClock from "effect/testing/TestClock";
 import * as Layer from "effect/Layer";
@@ -56,6 +58,7 @@ import * as SqlitePersistence from "../../persistence/Sqlite.ts";
 import * as McpHttpServer from "../McpHttpServer.ts";
 import * as McpInvocationContext from "../McpInvocationContext.ts";
 import * as McpToolAccessTestkit from "../McpToolAccess.testkit.ts";
+import * as AnalyticsService from "../../telemetry/AnalyticsService.ts";
 import { dispatchFailure } from "../threadAccess.ts";
 import * as EnvironmentHandlers from "./environment/handlers.ts";
 import * as AttachmentHandlers from "./attachment/handlers.ts";
@@ -80,9 +83,11 @@ const decodeMcpAttachmentInput = Schema.decodeUnknownEffect(McpAttachmentInput);
 const decodeThreadReadResult = Schema.decodeUnknownEffect(OrchestratorMcpThreadReadResult);
 
 const layerThreadToolkitWith = (
+  // The analytics recording path asks for the registered providers on every
+  // recorded call, so the default mock answers it with none.
   providers: Layer.Layer<ProviderRegistry.ProviderRegistry> = Layer.mock(
     ProviderRegistry.ProviderRegistry,
-  )({}),
+  )({ getProviders: Effect.succeed([]) }),
 ) =>
   McpHttpServer.layerThreadToolkit.pipe(
     Layer.provide(Layer.mock(ThreadProjectMove.ThreadProjectMoveService)({})),
@@ -327,6 +332,61 @@ it.effect("returns an HTML render reference that Codex and Claude tool rows both
     ),
   ),
 );
+
+it.effect("records only failed calls of tools that hand off no work", () => {
+  // Recording runs detached from the tool response, so the first event is awaited.
+  const recorded = Deferred.makeUnsafe<{ event: string; properties: object }>();
+  return Effect.gen(function* () {
+    const server = yield* McpServer.McpServer;
+    const organize = (capabilities: McpInvocationContext.McpInvocationScope["capabilities"]) =>
+      server.callTool({ name: "t3_thread_organize", arguments: { action: "pin" } }).pipe(
+        Effect.provideService(McpInvocationContext.McpInvocationContext, {
+          ...scope,
+          capabilities,
+        }),
+        Effect.provideService(McpSchema.McpServerClient, client),
+      );
+    expect((yield* organize(scope.capabilities)).isError).not.toBe(true);
+    expect(declaredFailure(yield* organize(new Set<never>()))).toMatchObject({
+      code: "capability_denied",
+    });
+    // The successful call ran first, so it would be the first event if it were recorded.
+    expect(yield* Deferred.await(recorded)).toMatchObject({
+      event: "mcp.tool.invoked",
+      properties: { tool: "t3_thread_organize", outcome: "error" },
+    });
+  }).pipe(
+    Effect.provide(
+      layerThreadToolkit.pipe(
+        Layer.provideMerge(McpServer.McpServer.layer),
+        Layer.provide(NodeCrypto.layer),
+        Layer.provide(
+          Layer.mock(ThreadManagement.ThreadManagementService)({
+            getThreadShell: (id) => Effect.succeed(McpToolAccessTestkit.liveThreadShell(id)),
+            getProjectThreadRecords: ({ threadId: id }) =>
+              Effect.succeed(
+                McpToolAccessTestkit.idleThreadProjection(McpToolAccessTestkit.liveThreadShell(id)),
+              ),
+            dispatch: () => Effect.succeed({ sequence: 1 } as never),
+          }),
+        ),
+        Layer.provide(
+          Layer.succeed(
+            AnalyticsService.AnalyticsService,
+            AnalyticsService.AnalyticsService.of({
+              record: (event, properties) =>
+                Deferred.succeed(recorded, { event, properties: properties ?? {} }).pipe(
+                  Effect.asVoid,
+                ),
+              flush: Effect.void,
+              recordOwners: () => Effect.void,
+            }),
+          ),
+        ),
+      ),
+    ),
+  );
+});
 
 it.effect("keeps unexpected handler defects private through the production registration", () =>
   Effect.gen(function* () {
@@ -599,9 +659,19 @@ it.effect(
 
       const searched = yield* call("t3_thread_search", { query: "rollover" });
       expect(searched.isError).toBe(false);
+      // The wrapper stamps this environment on every match it passes back, so a
+      // linked row says where it is; an unreachable peer is still reported beside it.
       expect(searched.structuredContent).toEqual({
         environmentId: "mcp-core-environment",
-        matches: [],
+        matches: [
+          {
+            threadId: "local-match",
+            projectId: "other-project",
+            title: "Rollover handling",
+            source: "title",
+            environmentId: "mcp-core-environment",
+          },
+        ],
         environments: [],
       });
 
@@ -623,6 +693,17 @@ it.effect(
           Layer.provide(
             Layer.mock(ThreadSearch.ThreadSearch)({
               search: () => Effect.succeed({ matches: [] } as never),
+              searchThreads: () =>
+                Effect.succeed({
+                  matches: [
+                    {
+                      threadId: ThreadId.make("local-match"),
+                      projectId: ProjectId.make("other-project"),
+                      title: "Rollover handling",
+                      source: "title" as const,
+                    },
+                  ],
+                }),
             }),
           ),
           Layer.provide(Layer.mock(ScheduledTaskService.ScheduledTaskService)({})),

@@ -88,7 +88,7 @@ const session = (
 // control plane. Each number is the payload that endpoint committed to: a change that
 // needs a higher one states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // 39,983 measured.
+  // 39,994 measured.
   ["ordinary", undefined, 40_000],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // 32,741 measured; the ceiling moved by 100 for the theme guide's corrected code-variable
