@@ -76,7 +76,7 @@ const makeHarness = (options: {
     const fallback = page();
 
     const port: VoiceBridgePort = {
-      capabilities: () => Effect.succeed({ providers: [] }),
+      capabilities: () => Effect.succeed({ environmentId: "env-1", providers: [] }),
       prepareUpload: () => Effect.succeed({ attachmentId: "attachment-1", relativeUrl: "/upload" }),
       uploadBytes: () => Ref.update(uploads, (count) => count + 1),
       launch: (input) =>
@@ -105,6 +105,7 @@ const makeHarness = (options: {
         }),
       pendingQuestion: () => Effect.succeed(options.question ?? null),
       pendingApproval: () => Effect.succeed(options.approval ?? null),
+      threadUrl: (threadId) => Effect.succeed(`http://127.0.0.1:3773/env-1/${threadId}`),
     };
 
     const deps: TurnDeps = {
@@ -136,7 +137,7 @@ const sessionsFor = (messages: ReadonlyArray<ChatMessage>, threadId: string): Se
 /** The history a conversation carries once the bridge has answered it. */
 const ANSWERED: ReadonlyArray<ChatMessage> = [
   ...MESSAGES,
-  { role: "assistant", content: "First answer.\n\nt3-thread://v1/thread-old" },
+  { role: "assistant", content: "First answer.\n\nhttp://127.0.0.1:3773/env-1/thread-old" },
 ];
 
 /** A conversation that already carries one answer, so the next ask continues it. */
@@ -174,7 +175,7 @@ it.effect("a new ask starts a scratch thread with the words, its title and the c
     assert.deepStrictEqual(texts, [
       "Three plans",
       ", and the middle one.",
-      "\n\nt3-thread://v1/thread-new",
+      "\n\nhttp://127.0.0.1:3773/env-1/thread-new",
     ]);
   }),
 );
@@ -199,7 +200,7 @@ it.effect("a follow-up continues its thread, streams only what is new, and saves
     assert.strictEqual(outcome.threadId, "thread-old");
     assert.lengthOf(yield* Ref.get(harness.sent), 1);
     assert.lengthOf(yield* Ref.get(harness.launched), 0);
-    assert.deepStrictEqual(texts, ["Second answer.", "\n\nt3-thread://v1/thread-old"]);
+    assert.deepStrictEqual(texts, ["Second answer.", "\n\nhttp://127.0.0.1:3773/env-1/thread-old"]);
     const saved = yield* Ref.get(harness.saved);
     assert.strictEqual(
       saved.entries[conversationSignature(historyWithAnswer(followUp, texts.join("")))]?.threadId,
@@ -241,7 +242,7 @@ it.effect("follows pages until the thread has more to give", () =>
       ],
     });
     const { texts } = yield* run(harness.deps, { model: MODEL, messages: MESSAGES });
-    assert.deepStrictEqual(texts, ["AAAA", "BBBB", "\n\nt3-thread://v1/thread-new"]);
+    assert.deepStrictEqual(texts, ["AAAA", "BBBB", "\n\nhttp://127.0.0.1:3773/env-1/thread-new"]);
   }),
 );
 
@@ -255,7 +256,7 @@ it.effect("a text-only ask carries no attachment and still starts a thread", () 
 
     assert.notProperty((yield* Ref.get(harness.launched))[0] ?? {}, "attachment");
     assert.strictEqual(yield* Ref.get(harness.uploads), 0);
-    assert.deepStrictEqual(texts, ["Done.", "\n\nt3-thread://v1/thread-new"]);
+    assert.deepStrictEqual(texts, ["Done.", "\n\nhttp://127.0.0.1:3773/env-1/thread-new"]);
   }),
 );
 
@@ -279,7 +280,7 @@ it.effect("drops the capture and says so when the provider cannot carry it", () 
     assert.deepStrictEqual(texts, [
       "_The screenshot could not be attached, so this is the words only._\n\n",
       "Answer.",
-      "\n\nt3-thread://v1/thread-old",
+      "\n\nhttp://127.0.0.1:3773/env-1/thread-old",
     ]);
   }),
 );
@@ -310,7 +311,7 @@ it.effect("names the question T3 is waiting on, instead of holding the window op
     const { texts } = yield* run(harness.deps, { model: MODEL, messages: MESSAGES });
     const last = texts.at(-1) ?? "";
     assert.include(last, "Which environment?");
-    assert.include(last, "t3-thread://v1/thread-new");
+    assert.include(last, "http://127.0.0.1:3773/env-1/thread-new");
   }),
 );
 
@@ -334,7 +335,7 @@ it.effect("re-reads a message that is still being written and emits only its new
       ],
     });
     const { texts } = yield* run(harness.deps, { model: MODEL, messages: MESSAGES });
-    assert.deepStrictEqual(texts, ["Hello", " world", "\n\nt3-thread://v1/thread-new"]);
+    assert.deepStrictEqual(texts, ["Hello", " world", "\n\nhttp://127.0.0.1:3773/env-1/thread-new"]);
   }),
 );
 
@@ -363,7 +364,7 @@ it.effect("says how a run that failed ended", () =>
     const { texts } = yield* run(harness.deps, { model: MODEL, messages: MESSAGES });
     assert.deepStrictEqual(texts, [
       "Half an answer.",
-      "\n\nThat run ended failed in T3.\n\nt3-thread://v1/thread-new",
+      "\n\nThat run ended failed in T3.\n\nhttp://127.0.0.1:3773/env-1/thread-new",
     ]);
   }),
 );

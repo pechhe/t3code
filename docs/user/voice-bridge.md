@@ -53,7 +53,10 @@ configured in this environment. Pick one in Command Mode.
 - One ask starts one thread in the Scratch project, titled from your first few
   words, with the capture of the window that had focus attached.
 - The answer streams into the Command window as it arrives. Its last line is the
-  thread's link, which opens that same thread in T3 Code.
+  thread's address on this environment (`http://127.0.0.1:3773/<environment>/<thread>`),
+  which opens the thread in T3 Code's web client in your browser. T3's own
+  `t3-thread://` link form only works inside T3's renderer, so the bridge prints the
+  web address instead; paste that form into T3 if you need the desktop app.
 - A follow-up in the same Command conversation adds a turn to the same thread. A
   new Command conversation starts a new thread.
 - A run that stops for an approval or an agent question ends the answer with a line

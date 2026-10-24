@@ -148,6 +148,28 @@ it.effect("reads an item whole when the first page cuts it short", () =>
   }),
 );
 
+it.effect("builds a thread link the reader's app can open, and falls back without an id", () =>
+  Effect.gen(function* () {
+    const calls = yield* Ref.make<ReadonlyArray<Call>>([]);
+    const withId = makePort(
+      makeClient(calls, (call) =>
+        call.tool === "orchestrator_capabilities" ? { environmentId: "env-1", providers: [] } : {},
+      ),
+      "http://127.0.0.1:3773/mcp",
+    );
+    assert.strictEqual(
+      yield* withId.threadUrl("thread-1"),
+      "http://127.0.0.1:3773/env-1/thread-1",
+    );
+
+    const withoutId = makePort(
+      makeClient(calls, () => ({ providers: [] })),
+      "http://127.0.0.1:3773/mcp",
+    );
+    assert.strictEqual(yield* withoutId.threadUrl("thread-1"), "t3-thread://v1/thread-1");
+  }),
+);
+
 it.effect("asks for the thread after the cursor it was given", () =>
   Effect.gen(function* () {
     const calls = yield* Ref.make<ReadonlyArray<Call>>([]);

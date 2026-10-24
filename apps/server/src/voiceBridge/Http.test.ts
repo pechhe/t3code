@@ -79,7 +79,7 @@ const withServer = <A, E>(
         capabilities: () =>
           options.paired === false
             ? Effect.fail(new VoiceBridgeError({ reason: "unauthorized", detail: "not signed in" }))
-            : Effect.succeed(capabilities),
+            : Effect.succeed({ environmentId: "env-1", ...capabilities }),
         prepareUpload: () => Effect.die("this test never captures"),
         uploadBytes: () => Effect.die("this test never captures"),
         launch: (input) =>
@@ -96,6 +96,7 @@ const withServer = <A, E>(
           }),
         pendingQuestion: () => Effect.succeed(null),
         pendingApproval: () => Effect.succeed(null),
+        threadUrl: (threadId) => Effect.succeed(`http://127.0.0.1:3773/env-1/${threadId}`),
       };
       const deps: TurnDeps = {
         port,
@@ -169,7 +170,7 @@ it.effect("streams the answer as chat-completion deltas, ending with the thread 
         assert.include(body, '"role":"assistant"');
         assert.include(body, "It is");
         assert.include(body, " a pricing page.");
-        assert.include(body, "t3-thread://v1/");
+        assert.include(body, "http://127.0.0.1:3773/env-1/");
         assert.include(body, '"finish_reason":"stop"');
         assert.include(body, "data: [DONE]");
         assert.strictEqual(yield* Ref.get(counts.launches), 1, "one ask starts one thread");
@@ -188,7 +189,7 @@ it.effect("answers a non-streaming completion with the thread's text and a link"
       const body = yield* HttpClientResponse.schemaBodyJson(CompletionResponse)(response);
       const content = body.choices[0]?.message.content ?? "";
       assert.include(content, "It is a pricing page.");
-      assert.include(content, "t3-thread://v1/");
+      assert.include(content, "http://127.0.0.1:3773/env-1/");
       assert.strictEqual(yield* Ref.get(counts.launches), 1);
     }),
   ),

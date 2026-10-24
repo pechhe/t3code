@@ -29,6 +29,7 @@ it.effect("offers models only from providers that can start a thread", () =>
   Effect.sync(() => {
     const models = modelsFromCapabilities(
       {
+        environmentId: null,
         providers: [
           {
             providerInstanceId: "codex",

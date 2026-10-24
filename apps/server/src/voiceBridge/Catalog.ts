@@ -9,6 +9,8 @@ export type ProviderModelSet = {
 };
 
 export type ProviderModels = {
+  /** The environment's id, used to build a thread link that opens outside T3. */
+  readonly environmentId: string | null;
   readonly providers: ReadonlyArray<ProviderModelSet>;
 };
 

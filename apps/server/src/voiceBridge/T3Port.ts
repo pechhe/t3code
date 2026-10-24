@@ -44,6 +44,12 @@ export interface VoiceBridgePort {
   readonly pendingQuestion: (threadId: string) => Effect.Effect<string | null, VoiceBridgeError>;
   /** The approval T3 is waiting on, as the activity view names it. */
   readonly pendingApproval: (threadId: string) => Effect.Effect<string | null, VoiceBridgeError>;
+  /**
+   * A URL that opens this thread outside T3: the environment's own web client at
+   * `/<environmentId>/<threadId>`, which is the only link form another app can
+   * hand to the system.
+   */
+  readonly threadUrl: (threadId: string) => Effect.Effect<string, VoiceBridgeError>;
 }
 
 export type AttachmentRef = {
@@ -190,6 +196,20 @@ export const makePort = (
         ),
       );
 
+  // The environment's id never changes while the bridge runs, and a thread link
+  // needs it on every answer, so it is read once.
+  let environmentId: string | null = null;
+  const readEnvironmentId = Effect.gen(function* () {
+    if (environmentId !== null) return environmentId;
+    const decoded = yield* call("orchestrator_capabilities", {}).pipe(
+      Effect.flatMap((value) =>
+        decode(Schema.Struct({ environmentId: Schema.optional(Schema.String) }), value, "capabilities"),
+      ),
+    );
+    environmentId = decoded.environmentId ?? null;
+    return environmentId;
+  });
+
   return {
     capabilities: () =>
       call("orchestrator_capabilities", {}).pipe(
@@ -197,6 +217,7 @@ export const makePort = (
         Effect.flatMap((value) =>
           decode(
             Schema.Struct({
+              environmentId: Schema.optional(Schema.String),
               providers: Schema.Array(
                 Schema.Struct({
                   providerInstanceId: Schema.String,
@@ -212,7 +233,18 @@ export const makePort = (
             "capabilities",
           ),
         ),
+        Effect.map((decoded) => {
+          environmentId = decoded.environmentId ?? null;
+          return { environmentId, providers: decoded.providers };
+        }),
       ),
+    threadUrl: (threadId) =>
+      Effect.gen(function* () {
+        const id = yield* readEnvironmentId;
+        // Without an id the bridge can only offer T3's own link form.
+        if (id === null) return `t3-thread://v1/${threadId}`;
+        return `${originOf(endpoint)}/${encodeURIComponent(id)}/${encodeURIComponent(threadId)}`;
+      }).pipe(Effect.catch(() => Effect.succeed(`t3-thread://v1/${threadId}`))),
     prepareUpload: (input) =>
       call("t3_attachment_prepare_upload", {
         upload: { type: "image", name: input.name, mimeType: input.mimeType, sizeBytes: input.sizeBytes },

@@ -9,7 +9,6 @@ import {
   historyBeforeInstruction,
   historyWithAnswer,
   lastUserText,
-  threadLink,
   threadTitle,
   turnMessage,
 } from "./Conversation.ts";
@@ -69,8 +68,6 @@ export type BegunTurn = {
   /** Text that belongs before the answer, such as a note that the capture was dropped. */
   readonly preface: string;
 };
-
-const linkLine = (threadId: string) => `\n\n${threadLink(threadId)}`;
 
 const push = (emit: (text: string) => Effect.Effect<void>, text: string) =>
   text === "" ? Effect.void : emit(text);
@@ -282,24 +279,27 @@ export const streamTurn = (
         const question = yield* deps.port.pendingQuestion(begun.threadId);
         const approval = question === null ? yield* deps.port.pendingApproval(begun.threadId) : null;
         const named = question ?? approval;
+        const link = yield* deps.port.threadUrl(begun.threadId);
         yield* say(
           named === null
-            ? `\n\nT3 is waiting on a decision in this thread. Open it to answer.${linkLine(begun.threadId)}`
-            : `\n\nT3 is waiting on “${named}”. Open the thread to answer it.${linkLine(begun.threadId)}`,
+            ? `\n\nT3 is waiting on a decision in this thread. Open it to answer.\n\n${link}`
+            : `\n\nT3 is waiting on “${named}”. Open the thread to answer it.\n\n${link}`,
         );
         break;
       }
       if (TERMINAL_STATUSES.includes(page.status)) {
+        const link = yield* deps.port.threadUrl(begun.threadId);
         yield* say(
           page.status === "completed"
-            ? linkLine(begun.threadId)
-            : `\n\nThat run ended ${page.status} in T3.${linkLine(begun.threadId)}`,
+            ? `\n\n${link}`
+            : `\n\nThat run ended ${page.status} in T3.\n\n${link}`,
         );
         break;
       }
       if (waited >= deps.maxWaitMs) {
+        const link = yield* deps.port.threadUrl(begun.threadId);
         yield* say(
-          `\n\nT3 is still working on this. It keeps going after you close this window.${linkLine(begun.threadId)}`,
+          `\n\nT3 is still working on this. It keeps going after you close this window.\n\n${link}`,
         );
         break;
       }
