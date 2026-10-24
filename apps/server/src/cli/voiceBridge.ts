@@ -57,7 +57,7 @@ const pollFlag = Flag.Int("poll-ms").pipe(
   Flag.withDefault(600),
 );
 const commandShortcutFlag = Flag.Boolean("command-shortcut").pipe(
-  Flag.withDescription("On macOS, Control-Option-Command-V captures before starting FluidVoice."),
+  Flag.withDescription("On macOS, right Option captures before starting FluidVoice."),
   Flag.withDefault(false),
 );
 const waitFlag = Flag.Int("wait-seconds").pipe(
@@ -203,7 +203,7 @@ const runBridge = (flags: BridgeFlags) =>
           `FluidVoice provider server URL: http://${flags.host}:${flags.port}/v1`,
           captureEnabled ? "Capturing the front window with each ask." : "Sending words only.",
           ...(flags.commandShortcut
-            ? ["Control-Option-Command-V starts/stops FluidVoice with an initial screenshot."]
+            ? ["Right Option starts/stops FluidVoice with an initial screenshot."]
             : []),
         ].join("\n"),
       );

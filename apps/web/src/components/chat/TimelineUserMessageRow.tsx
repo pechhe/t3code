@@ -336,7 +336,9 @@ function UserMessageTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "me
   });
   // Messages from other agents fold to one line so the user's own messages stay easy to find.
   const folded = userMessage.attribution === "agent";
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(
+    row.message.creationSource === "mcp" && senderThreadId === undefined && userImages.length > 0,
+  );
   const revealFoldRef = findRevealRef(() => setExpanded(true));
   const senderShell = useQuietThreadShell(
     folded && senderThreadId

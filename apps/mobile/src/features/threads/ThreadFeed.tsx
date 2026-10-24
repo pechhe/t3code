@@ -1209,7 +1209,12 @@ function renderFeedEntry(
     readonly failedRunIds: ReadonlySet<RunId>;
     readonly onCopyWorkRow: (rowId: string, value: string) => void;
     readonly onToggleWorkGroup: (groupId: string, anchorKey?: string) => void;
-    readonly onToggleWorkRow: (rowId: string, anchorKey?: string, groupId?: string) => void;
+    readonly onToggleWorkRow: (
+      rowId: string,
+      anchorKey?: string,
+      groupId?: string,
+      initiallyExpanded?: boolean,
+    ) => void;
     readonly onToggleTurnFold: (runId: RunId) => void;
     readonly onOpenTurnDiff: (checkpoint: ThreadCheckpointSummary) => void;
     readonly onPressPreview: (source: FilePreviewSource) => void;
@@ -1448,7 +1453,12 @@ function renderFeedEntry(
     if (isUser) {
       const enterAnimated = isFreshTimestamp(message.createdAt);
       const foldRowId = presentation.attribution === "agent" ? `agent:${message.id}` : null;
-      const foldExpanded = foldRowId !== null && (props.expandedWorkRows[foldRowId] ?? false);
+      const initiallyExpanded =
+        message.creationSource === "mcp" &&
+        message.senderThreadId === undefined &&
+        attachments.some(isImageAttachment);
+      const foldExpanded =
+        foldRowId !== null && (props.expandedWorkRows[foldRowId] ?? initiallyExpanded);
       const bubbleBodyVisible = foldRowId === null || foldExpanded;
       const intentBadge = resolveUserMessageIntentBadge(message.inputIntent);
       const referenceIds = new Set(
@@ -1505,7 +1515,9 @@ function renderFeedEntry(
                     ?.trim() ?? ""
                 }
                 expanded={foldExpanded}
-                onToggle={() => props.onToggleWorkRow(foldRowId, entry.id)}
+                onToggle={() =>
+                  props.onToggleWorkRow(foldRowId, entry.id, undefined, initiallyExpanded)
+                }
                 iconSubtleColor={iconSubtleColor}
               />
             ) : null}
@@ -2875,10 +2887,15 @@ export const ThreadFeed = memo(function ThreadFeed(props: ThreadFeedProps) {
   // A lone call's row stands in for its group header, so both disclosures move
   // together. Details the reader opened stay open when a second call turns the
   // row into a group.
-  const onToggleWorkRow = (rowId: string, anchorKey?: string, groupId?: string) => {
+  const onToggleWorkRow = (
+    rowId: string,
+    anchorKey?: string,
+    groupId?: string,
+    initiallyExpanded = false,
+  ) => {
     suspendEndScrollMaintenanceForDisclosure(anchorKey ?? null);
     setInteractionState((current) => {
-      const expanded = !(current.expandedWorkRows[rowId] ?? false);
+      const expanded = !(current.expandedWorkRows[rowId] ?? initiallyExpanded);
       return {
         ...current,
         expandedWorkRows: { ...current.expandedWorkRows, [rowId]: expanded },

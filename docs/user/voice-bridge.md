@@ -56,8 +56,8 @@ active.
 
 ## Capture before dictating
 
-Start the bridge with `--command-shortcut`, keeping FluidVoice's Command Mode
-shortcut set to right Option. Press **Control-Option-Command-V** to capture the
+Set FluidVoice's Command Mode shortcut to **Control-Option-Command-V**, then start
+the bridge with `--command-shortcut`. Press **right Option alone** to capture the
 page and start Command Mode. Press it again to stop dictation and send the ask;
 the second press keeps the first screenshot, even if you changed windows.
 
@@ -68,7 +68,9 @@ or unavailable permission is reported in the bridge's output.
 Escape or FluidVoice's default cancel key discards the staged screenshot. A new
 recording replaces any abandoned image. The initial image remains available through
 long dictation and transcription, and is consumed only once.
-Omit `--command-shortcut` to remove the shared shortcut.
+Other Option key combinations keep their normal behavior. Omit `--command-shortcut`
+to remove the shared shortcut; Control-Option-Command-V still starts FluidVoice
+directly, or restore its Command Mode shortcut to right Option.
 
 ## What happens to an ask
 
@@ -79,6 +81,8 @@ Omit `--command-shortcut` to remove the shared shortcut.
   which opens the thread in T3 Code's web client in your browser. T3's own
   `t3-thread://` link form only works inside T3's renderer, so the bridge prints the
   web address instead; paste that form into T3 if you need the desktop app.
+- For a separate task, use **+ / New chat** in the expanded pill before dictating.
+  The recent-chats button returns to earlier conversations.
 - A follow-up in the same Command conversation adds a turn to the same thread,
   whatever FluidVoice does with its system prompt: the bridge recognises the
   conversation by the answer it produced last. A new Command conversation starts
@@ -90,8 +94,8 @@ Omit `--command-shortcut` to remove the shared shortcut.
 
 ## Limits
 
-- Starting directly with FluidVoice's right-Option shortcut captures at submission
-  time, after dictation. Use Control-Option-Command-V for an initial screenshot.
+- Starting directly with Control-Option-Command-V captures at submission time,
+  after dictation. Use right Option through the bridge for an initial screenshot.
 - The window shows the agent's words, not its tool calls, file changes or terminal.
 - Audio never reaches T3: FluidVoice transcribes on the Mac and only the words are
   sent. With `--capture` off, no image is sent either.

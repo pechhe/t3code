@@ -341,6 +341,31 @@ describe("MessagesTimeline agent messages", () => {
     expect(screen.text()).not.toContain("drops the index");
   });
 
+  it("shows an external voice screenshot immediately and still lets it collapse", async () => {
+    setup();
+    await using screen = await renderTimeline([
+      message("Describe this page", {
+        createdBy: "agent",
+        creationSource: "mcp",
+        attachments: [
+          {
+            id: "voice-image",
+            type: "image",
+            name: "SnapShot-Page.png",
+            mimeType: "image/png",
+            sizeBytes: 68,
+            previewUrl:
+              "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXs8AAAAASUVORK5CYII=",
+          },
+        ],
+      }),
+    ]);
+    expect(screen.button(/^Agent/).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.buttons("Preview SnapShot-Page.png")).toHaveLength(1);
+    await click(screen.button(/^Agent/));
+    expect(screen.buttons("Preview SnapShot-Page.png")).toHaveLength(0);
+  });
+
   it("leaves messages sent by T3 Code as full bubbles", async () => {
     setup();
     await using screen = await renderTimeline([

@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off -- The local macOS shortcut uses Carbon and the installed app's Accessibility surface.
+// @effect-diagnostics nodeBuiltinImport:off -- The local macOS shortcut observes modifier events and uses the installed app's Accessibility surface.
 // @effect-diagnostics globalTimers:off -- The startup deadline belongs to a native child process, outside Effect fibers.
 
 import * as NodeChildProcess from "node:child_process";
@@ -6,7 +6,29 @@ import * as NodeFSP from "node:fs/promises";
 
 const HELPER_SOURCE = `
 import AppKit
-import Carbon
+
+struct RightOptionGesture {
+    private var held = false
+    private var armed = false
+
+    mutating func reset() { held = false; armed = false }
+    mutating func otherInput() { armed = false }
+
+    mutating func flagsChanged(keyCode: UInt16, flags: UInt64) -> Bool {
+        guard keyCode == 61 else { armed = false; return false }
+        let pressed = flags & 0x40 != 0
+        if pressed && !held {
+            held = true
+            // Device bits distinguish right Option from left Option; Caps Lock is independent.
+            armed = flags & 0x9e0000 == 0x80000 && flags & 0x20 == 0
+            return false
+        }
+        guard !pressed && held else { return false }
+        let trigger = armed
+        reset()
+        return trigger
+    }
+}
 
 func emit(_ line: String) {
     print(line)
@@ -14,21 +36,22 @@ func emit(_ line: String) {
 }
 
 NSApplication.shared.setActivationPolicy(.prohibited)
-var key: EventHotKeyRef?
-var kind = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-let handler = InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
-    emit("trigger")
-    return noErr
-}, 1, &kind, nil, nil)
-let registered = RegisterEventHotKey(9, UInt32(cmdKey | optionKey | controlKey),
-    EventHotKeyID(signature: 0x54335643, id: 1), GetApplicationEventTarget(), 0, &key)
-guard handler == noErr, registered == noErr else {
-    emit("error: The Control-Option-Command-V shortcut is already in use.")
+var gesture = RightOptionGesture()
+let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
+    // Our internal FluidVoice chord must never alter a new physical gesture.
+    if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == 0x54335643 { return }
+    if event.type == .flagsChanged {
+        if gesture.flagsChanged(keyCode: event.keyCode, flags: UInt64(event.modifierFlags.rawValue)) { emit("trigger") }
+    } else {
+        gesture.otherInput()
+        if event.type == .keyDown && (event.keyCode == 53 || event.keyCode == 10) { emit("cancel") }
+    }
+}
+guard monitor != nil else {
+    emit("error: Right Option observation requires Accessibility permission.")
     exit(1)
 }
-let monitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
-    if event.keyCode == 53 || event.keyCode == 10 { emit("cancel") }
-}
+let wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in gesture.reset() }
 let parent = getppid()
 let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
     if getppid() != parent { exit(0) }
@@ -53,17 +76,19 @@ ObjC.import('Foundation');
 ObjC.import('CoreGraphics');
 const defaults = $.NSUserDefaults.alloc.initWithSuiteName('com.FluidApp.app');
 const data = defaults.objectForKey('CommandModeHotkeyShortcut');
-if (data.isNil()) throw new Error('Configure FluidVoice Command Mode to use right Option.');
+if (data.isNil()) throw new Error('Configure FluidVoice Command Mode to use Control-Option-Command-V.');
 const shortcut = JSON.parse($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding).js);
-if (shortcut.keyCode !== 61 || shortcut.modifierFlagsRawValue !== 0 ||
-    JSON.stringify(shortcut.modifierKeyCodes) !== '[61]') {
-  throw new Error('This shortcut requires FluidVoice Command Mode to use right Option.');
+if (shortcut.keyCode !== 9 || shortcut.modifierFlagsRawValue !== 0x1c0000 ||
+    (shortcut.modifierKeyCodes || []).length !== 0) {
+  throw new Error('Right Option capture requires FluidVoice Command Mode to use Control-Option-Command-V.');
 }
-const down = $.CGEventCreateKeyboardEvent(null, 61, true);
-$.CGEventSetFlags(down, 0x80040);
+const down = $.CGEventCreateKeyboardEvent(null, 9, true);
+$.CGEventSetFlags(down, 0x1c0000);
+$.CGEventSetIntegerValueField(down, 42, 0x54335643);
 $.CGEventPost(1, down);
-const up = $.CGEventCreateKeyboardEvent(null, 61, false);
+const up = $.CGEventCreateKeyboardEvent(null, 9, false);
 $.CGEventSetFlags(up, 0);
+$.CGEventSetIntegerValueField(up, 42, 0x54335643);
 $.CGEventPost(1, up);
 `;
 

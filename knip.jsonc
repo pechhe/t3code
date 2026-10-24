@@ -30,6 +30,7 @@
         "setup-worktree.ts",
         "sign-macos.ts",
         "test-landing.ts",
+        "test-voice-shortcut.mjs",
         "verify-windows-desktop-artifact.ts",
       ],
       "ignoreDependencies": ["esbuild"],
