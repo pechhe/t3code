@@ -73,6 +73,29 @@ const SETTLE_SCRIPT_GRACE_MS = 60_000;
 // Worktree creation can precede its thread row, including review-guide checkouts.
 const ORPHAN_WORKTREE_GRACE_MS = 60 * 60 * 1_000;
 
+/**
+ * SlipJay keeps its workspaces under its own homes, and every one carries a `.jj`
+ * directory. `git worktree remove` would take the directory, drop whatever the
+ * checkout held outside git — ignored files a thread wrote, a local `.env` — and leave
+ * Jujutsu still believing the workspace exists. Those are released through SlipJay,
+ * which archives the checkout before it retires it, so cleanup keeps them and says why.
+ */
+export function slipJayWorkspaceReason(
+  worktreePath: string,
+  markers: { home: string; jj: boolean; separator: string },
+): string | null {
+  if (markers.home !== "") {
+    const homes = [".slipjay", ".slipway", ".pi"].map(
+      (name) => `${markers.home}${markers.separator}${name}${markers.separator}workspaces`,
+    );
+    if (homes.some((home) => worktreePath === home || worktreePath.startsWith(`${home}${markers.separator}`))) {
+      return "a SlipJay workspace: release goes through SlipJay, never git";
+    }
+  }
+  if (markers.jj) return "a Jujutsu workspace: release goes through SlipJay, never git";
+  return null;
+}
+
 const sentence = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 const REPORT_ENTRY_LIMIT = 200;
 const isGitCommandError = Schema.is(GitCommandError);
@@ -797,6 +820,13 @@ const make = Effect.gen(function* () {
       const keep = (reason: string) => entries.push({ ...entry, reason: sentence(reason) });
       yield* Effect.gen(function* () {
         if (!(yield* fs.exists(worktreePath))) return;
+        // Before any eligibility rule: a SlipJay or Jujutsu workspace is never removed here.
+        const slipJayReason = slipJayWorkspaceReason(path.resolve(worktreePath), {
+          home: process.env.HOME ?? "",
+          jj: yield* fs.exists(path.join(worktreePath, ".jj")),
+          separator: path.sep,
+        });
+        if (slipJayReason !== null) return keep(slipJayReason);
         if (deleted && !settings.worktreeOnDelete) return keep("no rules apply");
         if (members.length > 1 && worktreeOwner(members) === undefined)
           return keep(`shared by ${members.length} threads`);

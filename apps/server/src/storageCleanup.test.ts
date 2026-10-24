@@ -42,6 +42,7 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import {
+  slipJayWorkspaceReason,
   storageCleanupActivityAt,
   storageCleanupPullRequestMerged,
   storageCleanupThreadIdle,
@@ -1886,3 +1887,32 @@ it.live("keeps saved usage data when removing a settled checkout", () =>
     }),
   ),
 );
+
+describe("a SlipJay workspace is released through SlipJay, never git", () => {
+  const home = "/home/henry";
+  const separator = "/";
+
+  it("keeps anything under a SlipJay workspaces home", () => {
+    expect(slipJayWorkspaceReason("/home/henry/.slipjay/workspaces/ys-1234", { home, jj: false, separator }))
+      .toBe("a SlipJay workspace: release goes through SlipJay, never git");
+  });
+
+  it("keeps any Jujutsu workspace, wherever it lives", () => {
+    expect(slipJayWorkspaceReason("/home/henry/Engineering/checkouts/task", { home, jj: true, separator }))
+      .toBe("a Jujutsu workspace: release goes through SlipJay, never git");
+  });
+
+  it("leaves an ordinary git worktree to cleanup", () => {
+    expect(slipJayWorkspaceReason("/home/henry/Engineering/t3code/.worktrees/a", { home, jj: false, separator })).toBeNull();
+  });
+
+  it("does not treat a lookalike path as inside the home", () => {
+    expect(slipJayWorkspaceReason("/home/henry/.slipjay/workspaces-other/x", { home, jj: false, separator })).toBeNull();
+  });
+
+  it("falls back to the Jujutsu marker when no home is known", () => {
+    expect(slipJayWorkspaceReason("/tmp/anything", { home: "", jj: false, separator })).toBeNull();
+    expect(slipJayWorkspaceReason("/tmp/anything", { home: "", jj: true, separator }))
+      .toBe("a Jujutsu workspace: release goes through SlipJay, never git");
+  });
+});
