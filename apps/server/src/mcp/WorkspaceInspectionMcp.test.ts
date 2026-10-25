@@ -62,6 +62,13 @@ const git = (cwd: string, ...args: string[]) =>
     expect(out.code, out.stderr).toBe(0);
   });
 
+const jj = (cwd: string, ...args: string[]) =>
+  Effect.gen(function* () {
+    const out = yield* (yield* ProcessRunner.ProcessRunner).run({ command: "jj", args, cwd });
+    expect(out.code, out.stderr).toBe(0);
+    return out.stdout;
+  });
+
 const fingerprint = (root: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -224,4 +231,67 @@ it.effect(
         }).pipe(Effect.provide(layerFor(root)));
       }),
     ).pipe(Effect.provide(outer)),
+);
+
+it.effect("reads a jj workspace over the same registry without snapshotting it", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.realPath(
+        yield* fs.makeTempDirectoryScoped({ prefix: "t3-inspect-jj-smoke-" }),
+      );
+      yield* jj(root, "git", "init", ".");
+      yield* fs.writeFileString(`${root}/a.ts`, "export const needle = 1;\n");
+      yield* jj(root, "commit", "-m", "base");
+      const revision = (yield* jj(root, "log", "-r", "@", "--no-graph", "-T", "commit_id")).trim();
+      yield* fs.writeFileString(`${root}/a.ts`, "export const needle = 2;\n");
+      const before = yield* fingerprint(root);
+
+      yield* Effect.gen(function* () {
+        const context = structured(
+          yield* callAs("read-only", "workspace_read_context", { externalSessionKey: ownKey }),
+        );
+        const token = context.source.token as string;
+        // No snapshot on read: the edit stays a disk observation against the last recorded revision.
+        expect(context.source.vcs).toBe("jj");
+        expect(context.source.revision).toBe(revision);
+        expect(context.changes).toEqual([{ path: "a.ts", status: "M", recordedIn: "disk" }]);
+        const status = structured(
+          yield* callAs("read-only", "workspace_vcs_status", { externalSessionKey: ownKey, token }),
+        );
+        expect(status.changes).toEqual([{ path: "a.ts", status: "M", recordedIn: "disk" }]);
+        const log = structured(
+          yield* callAs("read-only", "workspace_vcs_log", { externalSessionKey: ownKey, token }),
+        );
+        expect(log.entries.map((entry: { summary: string }) => entry.summary)).toContain("base");
+        const search = structured(
+          yield* callAs("read-only", "workspace_search", {
+            externalSessionKey: ownKey,
+            token,
+            query: "needle",
+          }),
+        );
+        expect(search.matches).toEqual([
+          { path: "a.ts", line: 1, text: "export const needle = 2;" },
+        ]);
+        const file = structured(
+          yield* callAs("read-only", "workspace_read_file", {
+            externalSessionKey: ownKey,
+            token,
+            path: "a.ts",
+          }),
+        );
+        expect(file.content).toContain("needle = 2");
+        const diff = structured(
+          yield* callAs("read-only", "workspace_vcs_diff", {
+            externalSessionKey: ownKey,
+            token,
+            scope: "working",
+          }),
+        );
+        expect(diff.diff).toContain("+export const needle = 2;");
+        expect(yield* fingerprint(root)).toBe(before);
+      }).pipe(Effect.provide(layerFor(root)));
+    }),
+  ).pipe(Effect.provide(outer)),
 );
