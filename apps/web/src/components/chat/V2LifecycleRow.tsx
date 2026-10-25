@@ -480,6 +480,9 @@ export function SubagentReturnChip(props: {
   const title = formatSubagentDisplayTitle(agent.title ?? "Subagent");
   const name = subagentDisplayName(title, role);
   const failed = props.outcome === "failed";
+  // The notification can wait behind the parent's active turn, so a batch shares its delivery
+  // time; the subagent's own completion is when it actually returned.
+  const returnedAt = props.outcome === "updated" ? null : isoOrNull(agent.completedAt);
   return (
     <SubagentPill
       parentRef={props.parentRef}
@@ -490,7 +493,7 @@ export function SubagentReturnChip(props: {
       round={round}
       verb={subagentReturnVerb(props.outcome)}
       failed={failed}
-      timing={formatShortTimestamp(props.createdAt, props.timestampFormat)}
+      timing={formatShortTimestamp(returnedAt ?? props.createdAt, props.timestampFormat)}
       ariaLabel={`Jump to ${name}`}
       kind="notification"
       subagentId={undefined}
