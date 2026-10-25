@@ -919,6 +919,12 @@ it.effect.each(["limit", "runLimit", "maxCharsPerItem"])(
   },
 );
 
+it("describes role-first delegation with a managed follow-up", () => {
+  const description = OrchestratorToolkit.tools.delegate_task.description ?? "";
+  expect(description).toContain("Call agent_roles first");
+  expect(description).toContain("followup with a taskId to continue that conversation");
+});
+
 it.effect(
   "registers the pull request toolkit and surfaces a missing capability as a tool error",
   () =>

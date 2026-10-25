@@ -7,9 +7,12 @@ export function resolveThreadNotificationKind(input: {
   readonly priorCompletion: number | null;
   readonly readOnCompletionRunId?: RunId | null | undefined;
   readonly latestRun: { readonly runId: RunId; readonly status: string } | null;
+  /** A run with nothing to report, such as a compaction T3 started, stays quiet. */
+  readonly latestRunSilent?: boolean | undefined;
 }): "input" | "completion" | null {
   if (input.attention && input.attention !== input.priorAttention) return "input";
   if (
+    input.latestRunSilent !== true &&
     input.completion !== null &&
     (input.priorCompletion === null || input.completion > input.priorCompletion) &&
     !isQuietRunCompletion(

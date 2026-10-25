@@ -42,6 +42,24 @@ describe("buildCodexDeveloperInstructions", () => {
   });
 });
 
+describe("Codex orchestration context", () => {
+  it("routes a managed task's follow-up through delegate_task, not the child thread", () => {
+    const orchestration = Object.entries(buildCodexAdditionalContext({ model: "gpt-6.1-sol" }))
+      .filter(([key]) => key.startsWith("t3_code_orchestration_"))
+      .map(([, entry]) => entry.value)
+      .join("\n");
+
+    NodeAssert.ok(
+      orchestration.includes("For every T3 delegated review round, call `delegate_task` again."),
+    );
+    NodeAssert.ok(
+      orchestration.includes(
+        "Do not use `t3_thread_send` on `childThreadId` to continue a delegated review.",
+      ),
+    );
+  });
+});
+
 function runtimeInstructions(runtime: Parameters<typeof buildCodexAdditionalContext>[0]) {
   return buildCodexAdditionalContext(runtime).t3_code_runtime!.value;
 }

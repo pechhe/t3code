@@ -5,7 +5,8 @@ import * as Option from "effect/Option";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 
-import { render, stubGlobal, type Screen } from "../../test/render";
+import { COMPLETION_SETTLE_MS } from "./ThreadNotificationCoordinator";
+import { fakeTimers, render, stubGlobal, type Screen } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   mode: "notifications",
@@ -80,6 +81,7 @@ const thread = {
   id: "thread",
   title: "Test thread",
   archivedAt: null as string | null,
+  latestRunSilent: false,
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   session: null as { status: string } | null,
@@ -112,6 +114,7 @@ function toV2ThreadShell(input: typeof thread) {
     createdBy: "user",
     creationSource: "web",
     latestRunId: latestTurn.turnId,
+    latestRunSilent: input.latestRunSilent,
     activeRunId: null,
     status:
       latestTurn.state === "completed"
@@ -186,6 +189,7 @@ function setup() {
   );
   let screen: Screen | undefined;
   return {
+    ui,
     async render() {
       if (screen) await screen.rerender(ui());
       else screen = stack.use(await render(ui()));
@@ -215,3 +219,26 @@ it.each(["hasPendingApprovals", "hasPendingUserInput"] as const)(
     expect(notification.close).toHaveBeenCalled();
   },
 );
+
+it.each([
+  ["pre-expiry compaction", true, "completed", []],
+  ["manual compaction", false, "completed", ["Thread completed"]],
+  ["failed pre-expiry compaction", true, "error", ["Thread failed"]],
+] as const)("notifies for %s only when attention is needed", async (_, silent, status, titles) => {
+  await using app = setup();
+  using _timers = fakeTimers();
+  state.environmentIds = ["one"];
+  state.shells.set("one", shell({ latestRunSilent: silent }));
+  await using screen = await render(app.ui());
+  state.shells.set(
+    "one",
+    shell({
+      latestRunSilent: silent,
+      latestTurn: { turnId: "turn", state: status, completedAt: "2026-09-13T07:01:00.000Z" },
+    }),
+  );
+  await screen.rerender(app.ui());
+  // A completion alert waits for the thread to stay settled.
+  await vi.advanceTimersByTimeAsync(COMPLETION_SETTLE_MS);
+  expect(TestNotification.sent.map((notification) => notification.title)).toEqual(titles);
+});

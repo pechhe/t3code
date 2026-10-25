@@ -180,6 +180,7 @@ function EnvironmentNotifications({
         priorCompletion: prior.completion,
         readOnCompletionRunId: thread.readOnCompletionRunId,
         latestRun: thread.latestRun,
+        latestRunSilent: rawThread.latestRunSilent === true,
       });
       if (!kind) continue;
       const title =

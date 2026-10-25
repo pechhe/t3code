@@ -45,6 +45,10 @@ describe("thread notification decisions", () => {
     ).toBe("completion");
   });
 
+  it("stays quiet for a run with nothing to report, such as a compaction T3 started", () => {
+    expect(resolveThreadNotificationKind({ ...completion, latestRunSilent: true })).toBeNull();
+  });
+
   it("consumes the quiet completion so subsequent shell changes do not notify", () => {
     expect(resolveThreadNotificationKind({ ...completion, priorCompletion: 20 })).toBeNull();
   });
