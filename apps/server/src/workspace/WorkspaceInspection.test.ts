@@ -256,6 +256,64 @@ describe.each(["git", "jj"] as const)("WorkspaceInspection on %s", (kind) => {
     ),
   );
 
+  it.effect("continues a page inside one file that holds more matches than the limit", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const root = yield* repo;
+        const inspection = yield* Inspection.WorkspaceInspection;
+        yield* write(root, "src/many.ts", "markerhere\nmarkerhere\nmarkerhere\n");
+        const token = (yield* inspection.observe(root)).token;
+        const first = yield* inspection.search(root, {
+          token,
+          query: "markerhere",
+          mode: "content",
+          limit: 2,
+        });
+        assert.deepStrictEqual(
+          first.matches.map((match) => [match.path, match.line]),
+          [
+            ["src/many.ts", 1],
+            ["src/many.ts", 2],
+          ],
+        );
+        const second = yield* inspection.search(root, {
+          token,
+          query: "markerhere",
+          mode: "content",
+          limit: 2,
+          cursor: first.nextCursor ?? "",
+        });
+        assert.deepStrictEqual(
+          second.matches.map((match) => [match.path, match.line]),
+          [["src/many.ts", 3]],
+        );
+        assert.isNull(second.nextCursor);
+      }).pipe(Effect.provide(layer)),
+    ),
+  );
+
+  it.effect("keeps a cursor inside its bound however long the query and prefix are", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const root = yield* repo;
+        const inspection = yield* Inspection.WorkspaceInspection;
+        const deep = Array.from({ length: 20 }, (_, index) => `level${index}`).join("/");
+        const marker = "m".repeat(200);
+        yield* write(root, `${deep}/f.ts`, `${marker}\n${marker}\n`);
+        const token = (yield* inspection.observe(root)).token;
+        const page = yield* inspection.search(root, {
+          token,
+          query: marker,
+          mode: "content",
+          pathPrefix: deep,
+          limit: 1,
+        });
+        assert.isNotNull(page.nextCursor);
+        assert.isAtMost(page.nextCursor.length, Inspection.INSPECTION_LIMITS.cursorChars);
+      }).pipe(Effect.provide(layer)),
+    ),
+  );
+
   it.effect("drops diff blocks that touch secrets and pages the rest", () =>
     Effect.scoped(
       Effect.gen(function* () {
@@ -484,6 +542,55 @@ describe("recorded landing evidence", () => {
         assert.strictEqual(read.evidence, "recorded");
         assert.strictEqual(read.sourceMatch, expected);
         assert.strictEqual(read.landing?.checks[0]?.outcome, "passed");
+      }).pipe(Effect.provide(layer)),
+    ),
+  );
+
+  it.effect("bounds the size of a landing record and says when it was cut", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const root = yield* jjRepo;
+        yield* write(root, "slipjay.json", '{"integrationBranch":"main"}');
+        yield* sh(root, "jj", "commit", "-m", "config");
+        const inspection = yield* Inspection.WorkspaceInspection;
+        const source = yield* inspection.observe(root);
+        const recorded = Array.from({ length: 30 }, (_, index) => ({
+          command: `vp test ${index}`,
+          purpose: "gate",
+          outcome: "failed",
+          failingTests: Array.from(
+            { length: 20 },
+            (_, test) => `suite ${index} > case ${test} ${"x".repeat(200)}`,
+          ),
+        }));
+        const read = yield* inspection.evidence(root, source.token).pipe(
+          Effect.provide(
+            Layer.mock(SlipJayLandings.SlipJayLandings)({
+              landingFor: () =>
+                Effect.succeed({
+                  operationId: "op_1",
+                  status: "landed",
+                  stage: "done",
+                  live: true,
+                }),
+              readDetail: () =>
+                Effect.succeed({
+                  status: "landed",
+                  stage: "done",
+                  terminal: true,
+                  commitId: source.revision,
+                  checks: recorded,
+                }),
+            }),
+          ),
+        );
+        assert.isTrue(read.truncated);
+        assert.isBelow(read.landing?.checks.length ?? 0, recorded.length);
+        assert.isAtMost(
+          Buffer.byteLength(JSON.stringify(read.landing?.checks), "utf8"),
+          Inspection.INSPECTION_LIMITS.responseBytes,
+        );
+        assert.isAtMost(read.landing?.checks[0]?.failingTests[0]?.length ?? 0, 200);
       }).pipe(Effect.provide(layer)),
     ),
   );

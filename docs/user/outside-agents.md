@@ -291,5 +291,7 @@ Linked environments cannot use these tools. `workspace_test_evidence` reports
 the SlipJay landing recorded for the workspace, with its checks and the commit it
 published. `sourceMatch` is `current` only when that landing published exactly
 this clean revision, `stale` for a finished landing of other source, `unverified`
-for one still running, and `none` when nothing was recorded. A command you ran
-inside T3 is not part of this record.
+for one still running, and `none` when nothing was recorded. Its checks fit the
+same response budget as the other tools (at most 30, with long commands, outcomes
+and failing test names shortened), and `truncated` is true when any of them was
+left out or shortened. A command you ran inside T3 is not part of this record.

@@ -1,4 +1,5 @@
 // @effect-diagnostics nodeBuiltinImport:off -- Reads must not follow links out of the root, which needs lstat, O_NOFOLLOW and inode checks that Effect's FileSystem lacks.
+import * as NodeCrypto from "node:crypto";
 import * as NodeFSP from "node:fs/promises";
 import * as NodeOS from "node:os";
 
@@ -25,6 +26,7 @@ import { findSlipJayProject } from "../vcs/SlipJayProject.ts";
 
 export const INSPECTION_LIMITS = {
   responseBytes: 20 * 1024,
+  cursorChars: 256,
   fileBytes: 1024 * 1024,
   searchFileBytes: 512 * 1024,
   searchFiles: 5000,
@@ -141,7 +143,7 @@ const SearchCursor = Schema.Struct({
   token: Schema.String,
   file: Schema.Int,
   line: Schema.Int,
-  /** Everything that shapes the result order, so a cursor cannot be replayed on another query. */
+  /** Digest of everything that shapes the result order, so a cursor cannot be replayed elsewhere. */
   query: Schema.String,
 });
 const DiffCursor = Schema.Struct({
@@ -155,6 +157,10 @@ const searchKey = (input: {
   readonly caseSensitive?: boolean | undefined;
   readonly pathPrefix?: string | undefined;
 }) => [input.mode, input.caseSensitive === true, input.pathPrefix ?? "", input.query].join("\0");
+// A cursor carries a digest of what it binds, so its length never follows the length of the input.
+const binding = (value: string) =>
+  NodeCrypto.createHash("sha256").update(value).digest("base64url").slice(0, 22);
+const searchBinding = (input: Parameters<typeof searchKey>[0]) => binding(searchKey(input));
 const SearchCursorJson = Schema.fromJsonString(SearchCursor);
 const DiffCursorJson = Schema.fromJsonString(DiffCursor);
 const base64 = (text: string) => Buffer.from(text).toString("base64url");
@@ -163,6 +169,7 @@ const badCursor = () =>
   refuse("invalid_cursor", "This cursor is not valid. Start the request again.");
 const encodeSearchJson = Schema.encodeSync(SearchCursorJson);
 const encodeDiffJson = Schema.encodeSync(DiffCursorJson);
+const toJsonText = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 const decodeSearchJson = Schema.decodeUnknownEffect(SearchCursorJson);
 const decodeDiffJson = Schema.decodeUnknownEffect(DiffCursorJson);
 const encodeSearchCursor = (value: typeof SearchCursor.Type) => base64(encodeSearchJson(value));
@@ -268,6 +275,13 @@ export interface LogRead {
   }>;
   readonly source: SourceObservation;
 }
+export interface EvidenceCheck {
+  readonly command: string;
+  readonly purpose: string;
+  readonly outcome: string;
+  readonly durationMs?: number | undefined;
+  readonly failingTests: ReadonlyArray<string>;
+}
 export interface EvidenceRead {
   readonly source: SourceObservation;
   readonly evidence: "recorded" | "unavailable";
@@ -286,14 +300,10 @@ export interface EvidenceRead {
     readonly submittedAt?: string;
     readonly finishedAt?: string;
     readonly failureReason?: string;
-    readonly checks: ReadonlyArray<{
-      readonly command: string;
-      readonly purpose: string;
-      readonly outcome: string;
-      readonly durationMs?: number | undefined;
-      readonly failingTests: ReadonlyArray<string>;
-    }>;
+    readonly checks: ReadonlyArray<EvidenceCheck>;
   };
+  /** True when part of the record was left out or shortened to fit the response budget. */
+  readonly truncated: boolean;
   readonly note: string;
 }
 export interface DiffPage {
@@ -721,7 +731,10 @@ export const make = Effect.gen(function* () {
       if (typeof checked !== "string") return yield* checked;
     }
     const cursor = input.cursor === undefined ? undefined : yield* decodeSearchCursor(input.cursor);
-    if (cursor !== undefined && (cursor.token !== input.token || cursor.query !== searchKey(input)))
+    if (
+      cursor !== undefined &&
+      (cursor.token !== input.token || cursor.query !== searchBinding(input))
+    )
       return yield* refuse("stale_source", "This cursor belongs to another read context or query.");
     const source = yield* requireCurrent(root, input.token);
     const files = (yield* readableFiles(root, source)).filter(
@@ -771,13 +784,14 @@ export const make = Effect.gen(function* () {
         const shown = truncateBytes(line, 240).text;
         outputBytes += shown.length + name.length + 24;
         if (matches.length >= limit || outputBytes > INSPECTION_LIMITS.responseBytes) {
+          yield* requireCurrent(root, input.token);
           return {
             matches,
             nextCursor: encodeSearchCursor({
               token: input.token,
               file: fileIndex,
               line: index,
-              query: input.query,
+              query: searchBinding(input),
             }),
             truncated: true,
             filesScanned: scannedFiles,
@@ -797,7 +811,7 @@ export const make = Effect.gen(function* () {
             token: input.token,
             file: fileIndex,
             line: 0,
-            query: searchKey(input),
+            query: searchBinding(input),
           })
         : null,
       truncated: more,
@@ -867,7 +881,7 @@ export const make = Effect.gen(function* () {
       if (typeof checked !== "string") return yield* checked;
       path = checked;
     }
-    const key = `${input.scope}:${path ?? ""}`;
+    const key = binding(`${input.scope}:${path ?? ""}`);
     const cursor = input.cursor === undefined ? undefined : yield* decodeDiffCursor(input.cursor);
     if (cursor !== undefined && (cursor.token !== input.token || cursor.key !== key))
       return yield* refuse(
@@ -1005,6 +1019,7 @@ export const make = Effect.gen(function* () {
       source,
       evidence: "unavailable",
       sourceMatch: "none",
+      truncated: false,
       note: "No SlipJay landing is recorded for this workspace. Nothing was run.",
     } satisfies EvidenceRead;
     const landings = yield* Effect.serviceOption(SlipJayLandings.SlipJayLandings);
@@ -1020,13 +1035,44 @@ export const make = Effect.gen(function* () {
     const detail = yield* landings.value
       .readDetail({ cwd: root, operationId: landing.operationId })
       .pipe(Effect.option);
-    const terminal = Option.isSome(detail) && detail.value.terminal;
-    const commitId = Option.isSome(detail) ? detail.value.commitId : landing.commitId;
+    const recorded = Option.isSome(detail) ? detail.value : undefined;
+    const failure = recorded?.failure;
+    const failureReason = failure === undefined ? undefined : truncateBytes(failure.reason, 500);
+    const terminal = recorded?.terminal === true;
+    const commitId = recorded === undefined ? landing.commitId : recorded.commitId;
     const sourceMatch = !terminal
       ? "unverified"
       : commitId === source.revision && source.changes.length === 0
         ? "current"
         : "stale";
+    let checksBudget = INSPECTION_LIMITS.responseBytes;
+    let truncated = failureReason?.truncated === true;
+    const checks: Array<EvidenceCheck> = [];
+    for (const check of (recorded?.checks ?? []).slice(0, 30)) {
+      const command = truncateBytes(check.command, 300);
+      const purpose = truncateBytes(check.purpose, 100);
+      const outcome = truncateBytes(check.outcome, 100);
+      const failingTests = check.failingTests.slice(0, 20).map((name) => truncateBytes(name, 200));
+      const entry = {
+        command: command.text,
+        purpose: purpose.text,
+        outcome: outcome.text,
+        ...(check.durationMs === undefined ? {} : { durationMs: check.durationMs }),
+        failingTests: failingTests.map((name) => name.text),
+      } satisfies EvidenceCheck;
+      const size = Buffer.byteLength(toJsonText(entry), "utf8");
+      if (size > checksBudget) break;
+      checksBudget -= size;
+      truncated =
+        truncated ||
+        command.truncated ||
+        purpose.truncated ||
+        outcome.truncated ||
+        check.failingTests.length > failingTests.length ||
+        failingTests.some((name) => name.truncated);
+      checks.push(entry);
+    }
+    if (recorded !== undefined && checks.length < recorded.checks.length) truncated = true;
     return {
       source,
       evidence: "recorded",
@@ -1035,36 +1081,21 @@ export const make = Effect.gen(function* () {
         operationId: landing.operationId,
         status: landing.status,
         stage: landing.stage,
-        ...(Option.isSome(detail)
-          ? {
-              terminal: detail.value.terminal,
-              ...(detail.value.baseCommitId === undefined
+        ...(recorded === undefined
+          ? {}
+          : {
+              terminal: recorded.terminal,
+              ...(recorded.baseCommitId === undefined
                 ? {}
-                : { baseCommitId: detail.value.baseCommitId }),
+                : { baseCommitId: recorded.baseCommitId }),
               ...(commitId === undefined ? {} : { commitId }),
-              ...(detail.value.submittedAt === undefined
-                ? {}
-                : { submittedAt: detail.value.submittedAt }),
-              ...(detail.value.finishedAt === undefined
-                ? {}
-                : { finishedAt: detail.value.finishedAt }),
-              ...(detail.value.failure === undefined
-                ? {}
-                : { failureReason: truncateBytes(detail.value.failure.reason, 500).text }),
-            }
-          : {}),
-        checks: Option.isSome(detail)
-          ? detail.value.checks.slice(0, 30).map((check) => ({
-              command: truncateBytes(check.command, 300).text,
-              purpose: truncateBytes(check.purpose, 100).text,
-              outcome: truncateBytes(check.outcome, 100).text,
-              ...(check.durationMs === undefined ? {} : { durationMs: check.durationMs }),
-              failingTests: check.failingTests
-                .slice(0, 20)
-                .map((name) => truncateBytes(name, 200).text),
-            }))
-          : [],
+              ...(recorded.submittedAt === undefined ? {} : { submittedAt: recorded.submittedAt }),
+              ...(recorded.finishedAt === undefined ? {} : { finishedAt: recorded.finishedAt }),
+              ...(failureReason === undefined ? {} : { failureReason: failureReason.text }),
+            }),
+        checks,
       },
+      truncated,
       note: "Recorded by the SlipJay runner for this workspace's change; nothing was run to produce it. Only a landing that published exactly this clean revision is current evidence, and a command run inside T3 is not part of this record.",
     } satisfies EvidenceRead;
   });

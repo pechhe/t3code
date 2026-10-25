@@ -14,7 +14,9 @@ const Token = Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/)).annotate({
   description:
     "The token from workspace_read_context. Refused as stale_source once the workspace changes.",
 });
-const Cursor = Schema.String.check(Schema.isMaxLength(512));
+const Cursor = Schema.String.check(
+  Schema.isMaxLength(WorkspaceInspection.INSPECTION_LIMITS.cursorChars),
+);
 
 const Source = Schema.Struct({
   vcs: Schema.Literals(["git", "jj"]),
@@ -172,7 +174,7 @@ const DiffTool = Tool.make("workspace_vcs_diff", {
 const EvidenceTool = Tool.make("workspace_test_evidence", {
   ...shared,
   description:
-    "Already-recorded SlipJay landing results for the attached workspace. Runs nothing. Each check reports its recorded outcome. sourceMatch is 'current' only when the landing published exactly this clean revision, 'stale' for a finished landing of other source, 'unverified' for an unfinished or unreadable record, and 'none' with evidence 'unavailable' when nothing was recorded; none of these is a pass for source it does not match.",
+    "Already-recorded SlipJay landing results for the attached workspace. Runs nothing. Each check reports its recorded outcome. sourceMatch is 'current' only when the landing published exactly this clean revision, 'stale' for a finished landing of other source, 'unverified' for an unfinished or unreadable record, and 'none' with evidence 'unavailable' when nothing was recorded; none of these is a pass for source it does not match. truncated is true when part of the record was left out or shortened to fit the response budget.",
   parameters: Schema.Struct({ externalSessionKey: SessionKey, token: Token }),
   success: Schema.Struct({
     source: Source,
@@ -198,6 +200,7 @@ const EvidenceTool = Tool.make("workspace_test_evidence", {
         ),
       }),
     ),
+    truncated: Schema.Boolean,
     note: Schema.String,
   }),
 })
