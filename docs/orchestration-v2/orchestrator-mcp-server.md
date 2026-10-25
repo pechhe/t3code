@@ -426,16 +426,18 @@ and `creationSource: "mcp"`; provider output uses `creationSource: "provider"`.
 Actor and ingress are separate so agent-authored user-role messages remain
 distinguishable from human-authored messages.
 
-Agents mention another thread as `[title](t3-thread://v1/<threadId>)`. The
-link carries only the id. Unqualified links first resolve in the message's
-environment, then use a unique match in another enabled environment. Ambiguous
-matches stay unresolved. A link from a known linked environment adds
-`?environment=<environmentId>`, as returned by the tool; an explicit qualifier
-never falls back to a different environment. Web and desktop show the current
-resolved title. An unknown qualified environment shows the written label and
-environment id; mobile leaves foreign qualified links unopened. A thread attached
-in the composer reaches the agent as its bare `threadId` and `environmentId`,
-the exact pair `t3_thread_read` accepts.
+Agents mention another thread as `[title](t3-thread://v1/<threadId>)`. Thread
+results carry this ready-made as `link`, so agents never format the id. The
+link carries only the id. Clients first resolve it in the message's environment,
+then use a unique match in another enabled environment. Ambiguous matches stay
+unresolved. Web and desktop show the resolved thread’s current title. Mobile
+relabels local matches; cross-environment links can retain the written label. A
+link from a known linked environment adds `?environment=<environmentId>`, as
+returned by the tool; an explicit qualifier never falls back to a different
+environment, and an unknown qualified environment shows the written label and id
+while mobile leaves that link unopened. A thread attached in the composer reaches
+the agent as its bare `threadId` and `environmentId`, the exact pair
+`t3_thread_read` accepts.
 
 List and read results report `snoozed` and `snoozedUntil`, and
 `t3_thread_list` filters on `snoozed`. The server's `isSnoozed` follows the

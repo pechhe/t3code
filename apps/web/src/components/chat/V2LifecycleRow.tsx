@@ -637,16 +637,6 @@ function SubagentTimelineLink(props: {
           {topic ? (
             <span className="min-w-0 truncate text-xs font-medium text-foreground">{topic}</span>
           ) : null}
-          {detail !== null && status !== "completed" ? (
-            <span
-              className={cn(
-                "shrink-0 text-3xs",
-                failed ? "text-destructive" : "text-muted-foreground",
-              )}
-            >
-              {statusLabel}
-            </span>
-          ) : null}
         </span>
         <span
           className={cn(
@@ -663,6 +653,13 @@ function SubagentTimelineLink(props: {
           )}
         </span>
       </span>
+      {detail !== null && status !== "completed" ? (
+        <span
+          className={cn("shrink-0 text-xs", failed ? "text-destructive" : "text-muted-foreground")}
+        >
+          {statusLabel}
+        </span>
+      ) : null}
       <span className="flex shrink-0 flex-col items-end text-xs text-muted-foreground tabular-nums">
         <span>
           <SubagentElapsed agent={timing} />

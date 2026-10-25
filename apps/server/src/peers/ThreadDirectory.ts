@@ -16,6 +16,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
+
 import * as PeerEnvironments from "./PeerEnvironments.ts";
 
 /** Most threads or matches asked of each peer when a list or search spans every environment. */
@@ -371,11 +373,21 @@ const make = Effect.gen(function* () {
   return ThreadDirectory.of({ list, search, read, listAcross, searchAcross, readAcross });
 });
 
-/** Stamps every thread or match of a peer's page with the environment it was read from. */
+/** A peer match that names a thread, so a link it carries can name its environment too. */
+interface PeerMatchFields {
+  readonly threadId?: unknown;
+  readonly title?: unknown;
+  readonly link?: unknown;
+}
+
+/**
+ * Stamps every thread or match of a peer's page with the environment it was read from, and points a
+ * match's thread link at that environment: an unqualified link opens a thread of the same id here.
+ */
 const retag = <
   Page extends {
     readonly threads?: ReadonlyArray<object>;
-    readonly matches?: ReadonlyArray<object>;
+    readonly matches?: ReadonlyArray<PeerMatchFields & object>;
   },
 >(
   answer: PeerAnswer<Page>,
@@ -392,7 +404,24 @@ const retag = <
             : { threads: answer.page.threads.map((thread) => ({ ...thread, environmentId })) }),
           ...(answer.page.matches === undefined
             ? {}
-            : { matches: answer.page.matches.map((match) => ({ ...match, environmentId })) }),
+            : {
+                matches: answer.page.matches.map((match) => {
+                  const { link, threadId, title, ...rest } = match;
+                  return {
+                    ...rest,
+                    environmentId,
+                    ...(typeof link === "string" && typeof threadId === "string"
+                      ? {
+                          link: formatThreadLink(
+                            threadId,
+                            typeof title === "string" ? title : threadId,
+                            environmentId,
+                          ),
+                        }
+                      : {}),
+                  };
+                }),
+              }),
         },
       };
 

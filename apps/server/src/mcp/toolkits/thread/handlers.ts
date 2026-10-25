@@ -12,6 +12,7 @@ import {
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
 
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
@@ -159,6 +160,7 @@ export const handlers = {
             matches: result.matches.map((match) => ({
               ...match,
               environmentId: scope.environmentId,
+              link: formatThreadLink(match.threadId, match.title),
             })),
           };
         }),

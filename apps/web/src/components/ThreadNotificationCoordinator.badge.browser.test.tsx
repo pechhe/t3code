@@ -1,11 +1,11 @@
 import { RegistryContext } from "@effect/atom-react";
+import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
 import { EnvironmentId } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import { Atom, AtomRegistry } from "effect/reactivity";
 import { expect, it, vi } from "vite-plus/test";
 
-import { COMPLETION_SETTLE_MS } from "./ThreadNotificationCoordinator";
 import { fakeTimers, render, stubGlobal, type Screen } from "../../test/render";
 
 const state = vi.hoisted(() => ({
@@ -226,7 +226,6 @@ it.each([
   ["failed pre-expiry compaction", true, "error", ["Thread failed"]],
 ] as const)("notifies for %s only when attention is needed", async (_, silent, status, titles) => {
   await using app = setup();
-  using _timers = fakeTimers();
   state.environmentIds = ["one"];
   state.shells.set("one", shell({ latestRunSilent: silent }));
   await using screen = await render(app.ui());
@@ -237,8 +236,32 @@ it.each([
       latestTurn: { turnId: "turn", state: status, completedAt: "2026-09-13T07:01:00.000Z" },
     }),
   );
+  using _timers = fakeTimers();
   await screen.rerender(app.ui());
   // A completion alert waits for the thread to stay settled.
-  await vi.advanceTimersByTimeAsync(COMPLETION_SETTLE_MS);
+  await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
   expect(TestNotification.sent.map((notification) => notification.title)).toEqual(titles);
+});
+
+it("holds a completion through a continuation gap and notifies once it settles", async () => {
+  await using app = setup();
+  await app.render();
+  using _timers = fakeTimers();
+  const finished = (turnId: string, completedAt: string) => ({
+    latestTurn: { turnId, state: "completed", completedAt },
+  });
+  state.shells.set("one", shell(finished("turn-1", "2026-09-13T07:00:01.000Z")));
+  await app.render();
+  state.shells.set(
+    "one",
+    shell({ latestTurn: { turnId: "turn-2", state: "running", completedAt: null } }),
+  );
+  await app.render();
+  state.shells.set("one", shell(finished("turn-2", "2026-09-13T07:00:02.000Z")));
+  await app.render();
+  expect(TestNotification.sent).toEqual([]);
+  await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS - 1);
+  expect(TestNotification.sent).toEqual([]);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(TestNotification.sent.map((sent) => sent.title)).toEqual(["Thread completed"]);
 });

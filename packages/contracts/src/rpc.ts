@@ -16,6 +16,8 @@ import {
   OrchestrationV2SearchThreadError,
   OrchestrationV2SearchThreadInput,
   OrchestrationV2SearchThreadResult,
+  OrchestrationV2SearchThreadsInput,
+  OrchestrationV2SearchThreadsResult,
 } from "./orchestrationV2.ts";
 import { OrchestrationDispatchCommandError } from "./orchestrationDispatch.ts";
 import {
@@ -190,11 +192,7 @@ import {
   ReviewDiffPreviewResult,
 } from "./review.ts";
 import { KeybindingsConfigError } from "./keybindings.ts";
-import {
-  OrchestrationSearchThreadsError,
-  OrchestrationSearchThreadsInput,
-  OrchestrationSearchThreadsResult,
-} from "./threadSearch.ts";
+import { OrchestrationSearchThreadsError } from "./threadSearch.ts";
 import {
   ForgeHomeDecideInput,
   ForgeHomeDecideResult,
@@ -1897,8 +1895,8 @@ const WsOrchestrationV2SearchThreadStreamRpc = Rpc.make(
 );
 
 const WsOrchestrationV2SearchThreadsRpc = Rpc.make(ORCHESTRATION_V2_WS_METHODS.searchThreads, {
-  payload: OrchestrationSearchThreadsInput,
-  success: OrchestrationSearchThreadsResult,
+  payload: OrchestrationV2SearchThreadsInput,
+  success: OrchestrationV2SearchThreadsResult,
   error: Schema.Union([OrchestrationSearchThreadsError, EnvironmentAuthorizationError]),
 });
 
@@ -1922,6 +1920,15 @@ const WsOrchestrationV2GetWorktreeThreadIdsRpc = Rpc.make(
   {
     payload: OrchestrationV2RpcSchemas.getWorktreeThreadIds.input,
     success: OrchestrationV2RpcSchemas.getWorktreeThreadIds.output,
+    error: Schema.Union([OrchestrationV2GetShellSnapshotError, EnvironmentAuthorizationError]),
+  },
+);
+
+const WsOrchestrationV2GetOlderSettledThreadsRpc = Rpc.make(
+  ORCHESTRATION_V2_WS_METHODS.getOlderSettledThreads,
+  {
+    payload: OrchestrationV2RpcSchemas.getOlderSettledThreads.input,
+    success: OrchestrationV2RpcSchemas.getOlderSettledThreads.output,
     error: Schema.Union([OrchestrationV2GetShellSnapshotError, EnvironmentAuthorizationError]),
   },
 );
@@ -2462,14 +2469,14 @@ export const WsPeersRpcGroup = RpcGroup.make(WsPeersListRpc, WsPeersUpdateRpc).m
 
 // The core group is at the size where the type checker starts degrading inferred layer
 // requirements to `any`, so new RPCs get their own group and handler layer.
-export const WsGuestShareRpcGroup = RpcGroup.make(WsGuestShareCreateRpc).middleware(
-  RpcScopeAuthorization,
-);
+export const WsGuestShareRpcGroup =
+  RpcGroup.make(WsGuestShareCreateRpc).middleware(RpcScopeAuthorization);
 
 // The thread-structure reads the shell and Lineage call; they stay out of the core group too.
 export const WsThreadStructureRpcGroup = RpcGroup.make(
   WsOrchestrationV2GetThreadFamilyRpc,
   WsOrchestrationV2GetWorktreeThreadIdsRpc,
+  WsOrchestrationV2GetOlderSettledThreadsRpc,
 ).middleware(RpcScopeAuthorization);
 
 export const WsHqRpcGroup = RpcGroup.make(WsHqSignInStartRpc, WsHqDisconnectRpc).middleware(

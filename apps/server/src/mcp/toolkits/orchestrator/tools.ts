@@ -10,7 +10,6 @@ import {
   OrchestrationV2StopWorkflowInput,
   OrchestratorMcpCreateThreadsInput,
   OrchestratorMcpCreateThreadsResult,
-  OrchestratorMcpDelegateTaskInput,
   OrchestratorMcpDelegateTaskWireInput,
   OrchestratorMcpDelegateTaskResult,
   OrchestratorMcpDeleteScheduledTaskInput,
@@ -42,7 +41,6 @@ import {
   OrchestratorMcpThreadWatchResult,
   ThreadMetadataMcpUpdateInput,
   ThreadMetadataMcpUpdateResult,
-  TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import { Tool, Toolkit } from "effect/ai";
 import * as Schema from "effect/Schema";
@@ -100,7 +98,7 @@ const AgentRolesTool = Tool.make("agent_roles", {
 
 const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
   description:
-    "The provider instances, a short list of their models from the same live catalog as the composer, inherited runtime settings, and this caller's orchestration features. omittedModels counts the models left out; pass search, such as 'sonnet 4.6', to find one, and delegate_task accepts any catalog model. This is not the delegation menu: delegate by role through agent_roles. For a separate thread use t3_thread_launch.",
+    "List providers, a short list of their models from the live catalog, inherited runtime settings, and this caller's orchestration features. `omittedModels` counts what is left out; `search`, such as 'sonnet 4.6', finds others, and `delegate_task` accepts any catalog model. This is not the delegation menu: delegate by role through `agent_roles`. For a separate thread use `t3_thread_launch`.",
   parameters: OrchestratorMcpCapabilitiesInput,
   success: OrchestratorMcpCapabilitiesResult,
   failure: OrchestratorMcpFailure,
@@ -114,7 +112,7 @@ const OrchestratorCapabilitiesTool = Tool.make("orchestrator_capabilities", {
 
 const DelegateTaskTool = Tool.make("delegate_task", {
   description:
-    "Delegate one task to a child agent of this thread, which runs only the supplied prompt. Call agent_roles first, then pass agentTask (role, taskClass, workId, attemptId, workspacePath) and a stable clientRequestId; title is the topic only. With a role policy, agentTask is required and an unfillable role is blocked, not substituted. A reviewer also needs sourceRevision (the full commit id) and review scope. workspaceAssignment 'isolated' gives a simultaneous writer its own workspace and returns a handoff revision; 'lead' (default) uses the caller's. Pass a target for a model and options, or followup with a taskId to continue that conversation. External main agents pass the externalSessionKey.",
+    "Start one child agent with only `task`: no parent history. Call `agent_roles` first, then pass `agentTask` (role, taskClass, workId, attemptId, workspacePath) and a stable `clientRequestId`; `title` is the topic only. With a role policy, `agentTask` is required and an unfillable role is blocked, not substituted. A reviewer also needs `sourceRevision` (the full commit id) and review scope. `workspaceAssignment: 'isolated'` gives a simultaneous writer its own workspace and returns a handoff revision; `'lead'` (default) uses the caller's. Pass a `target` for a model and options, or `followup` with a `taskId` to continue that conversation. External main agents pass the `externalSessionKey`. Keep `taskId` for `task_status` and `task_cancel`.",
   parameters: OrchestratorMcpDelegateTaskWireInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,
@@ -127,7 +125,7 @@ const DelegateTaskTool = Tool.make("delegate_task", {
 
 const TaskStatusTool = Tool.make("task_status", {
   description:
-    "Read a T3-owned delegated task by taskId. summary is its final result; latestTerminal* holds a later turn; pendingApproval names the oldest live approval. Reading a terminal result acknowledges its automatic parent delivery. Follow up an idle task rather than starting another.",
+    "Read a T3-owned delegated task by `taskId`. `summary` is its final result, and reading a terminal result acknowledges its automatic parent delivery; `latestTerminal*` holds a later turn; `pendingApproval` names the oldest live approval. `workState` is working, waiting_for_children or result_available, and a finished turn with live child work is not done. Follow up an idle task rather than starting another.",
   parameters: OrchestratorMcpTaskStatusInput,
   success: OrchestratorMcpDelegateTaskResult,
   failure: OrchestratorMcpFailure,
@@ -141,7 +139,7 @@ const TaskStatusTool = Tool.make("task_status", {
 
 const TaskCancelTool = Tool.make("task_cancel", {
   description:
-    "External OAuth callers can cancel only their owned managed tasks; otherwise this needs an agent inside a T3 thread. Stop a delegated task and dispose its automatic parent delivery: its child thread stops like a user Stop, its queued turns are cancelled, its pull request watches end, and the tasks it delegated stop too. A terminal task returns its status; published results remain available.",
+    "External OAuth callers can cancel only their owned managed tasks; otherwise this needs an agent inside a T3 thread. Stop a delegated task by `taskId` and dispose its automatic parent delivery: its child thread stops like a user Stop, its running and queued turns are cancelled, its pull request watches end, and the tasks it delegated stop too. A terminal task returns its status, and its published result remains available.",
   parameters: OrchestratorMcpTaskCancelInput,
   success: OrchestratorMcpTaskCancelResult,
   failure: OrchestratorMcpFailure,
@@ -153,7 +151,7 @@ const TaskCancelTool = Tool.make("task_cancel", {
 
 const WorkflowStopTool = Tool.make("t3_workflow_stop", {
   description:
-    "Stop one running Claude workflow in a T3 thread, using the coordinator's subagentId from t3_thread_read with view='activity'. Stops the whole workflow, its phases and agents, but not the parent thread or other workflows; a single phase or agent cannot be stopped.",
+    "Stop a running Claude workflow in a thread. `subagentId`: the coordinator from `t3_thread_read` view 'activity'. Stops the workflow with its phases and agents, not the thread or another workflow; a single phase or agent cannot be stopped.",
   parameters: OrchestrationV2StopWorkflowInput,
   success: Schema.Struct({}),
   failure: OrchestratorMcpFailure,
@@ -162,7 +160,6 @@ const WorkflowStopTool = Tool.make("t3_workflow_stop", {
 })
   .annotate(Tool.Title, "Stop a workflow")
   .annotate(Tool.Destructive, true);
-
 
 const ScheduleTaskTool = Tool.make("schedule_task", {
   description:
@@ -180,7 +177,7 @@ const ScheduleTaskTool = Tool.make("schedule_task", {
 const ListScheduledTasksTool = Tool.make("list_scheduled_tasks", {
   parameters: OrchestratorMcpListScheduledTasksInput,
   description:
-    "List recurring scheduled tasks in a project (omit projectId for the calling thread's project, or every project when there is no calling thread), with their id, schedule, prompt, enabled state, bound thread, next run time and last run status. Use its scheduledTaskId with update_scheduled_task or delete_scheduled_task.",
+    "List scheduled tasks in a project (omit projectId for the calling thread's project, or every project when there is no calling thread), with their id, schedule, prompt, enabled state, bound thread, next run time and last run status. Use its scheduledTaskId with update_scheduled_task or delete_scheduled_task. In a scheduled run, do not call this to find your task: do the prompt.",
   success: OrchestratorMcpListScheduledTasksResult,
   failure: OrchestratorMcpFailure,
   failureMode: "return",
@@ -193,7 +190,7 @@ const ListScheduledTasksTool = Tool.make("list_scheduled_tasks", {
 
 const UpdateScheduledTaskTool = Tool.make("update_scheduled_task", {
   description:
-    "Update an existing scheduled task by scheduledTaskId. agentRole moves it to another subagent role instead of naming a model. replayKey, coalesceKey and coalesceWindowSeconds (10–3600, default 120) suppress webhook replays for 7 days. Only the provided fields change; enabled=false pauses without deleting. Without filters a webhook schedule keeps its stored ones; pass filters to replace them, or filters:[] to clear them.",
+    "Update one scheduled task by `scheduledTaskId`. Only the provided fields change; `enabled=false` pauses without deleting, and agentRole moves it to another subagent role instead of naming a model. replayKey, coalesceKey and coalesceWindowSeconds (10–3600, default 120) suppress webhook replays for 7 days. Without filters a webhook schedule keeps its stored ones; pass filters to replace them, or `filters:[]` to clear them.",
   parameters: OrchestratorMcpUpdateScheduledTaskWireInput,
   success: OrchestratorMcpScheduleTaskResult,
   failure: OrchestratorMcpFailure,
@@ -205,7 +202,7 @@ const UpdateScheduledTaskTool = Tool.make("update_scheduled_task", {
 
 const DeleteScheduledTaskTool = Tool.make("delete_scheduled_task", {
   description:
-    "Permanently delete a scheduled task by scheduledTaskId. The task stops running immediately; to keep it but stop runs, use update_scheduled_task with enabled=false.",
+    "Delete one scheduled task by `scheduledTaskId`. It stops at once. To pause instead, update it with `enabled=false`.",
   parameters: OrchestratorMcpDeleteScheduledTaskInput,
   success: OrchestratorMcpDeleteScheduledTaskResult,
   failure: OrchestratorMcpFailure,
@@ -217,7 +214,7 @@ const DeleteScheduledTaskTool = Tool.make("delete_scheduled_task", {
 
 const RequestSecretTool = Tool.make("request_secret", {
   description:
-    "Ask the user for a secret (a token, API key, password) through a private card in this thread, and wait for their answer. The app keeps it and NEVER returns it to you or the transcript. The result's secretRef works once, for a tool that accepts one (e.g. schedule_task's signature.secretRef). Never ask for a secret in chat, and never invent one.",
+    "Ask the user to enter a secret (a token, API key, password) in a private card in this thread, and wait for their answer. The app keeps it and NEVER returns it to you or the transcript: the result's `secretRef` works once, for a tool that accepts one (e.g. `schedule_task`'s `signature.secretRef`), or with `delivery: \"file\"` a private file path to read inside a shell command. Never ask for a secret in chat, and never invent one. Asked how to provide a secret: call this now, do not explain instead.",
   parameters: OrchestratorMcpRequestSecretInput,
   success: OrchestratorMcpRequestSecretResult,
   failure: OrchestratorMcpFailure,
@@ -241,7 +238,7 @@ const RequestReleaseApprovalTool = Tool.make("request_release_approval", {
 
 const CreateThreadsTool = Tool.make("create_threads", {
   description:
-    "Needs an agent running inside a T3 thread. Create a batch of ORDINARY TOP-LEVEL T3 conversations sharing this checkout. This is not delegation and creates no child agents: use delegate_task for child work and prefer t3_thread_launch for one thread; both need the user to ask for separate threads. Entries may override provider, model, options and modes; project, branch and worktree inherit.",
+    "Create new top-level threads in this checkout. Not delegation and creates no child agents: use `delegate_task` for child work and prefer `t3_thread_launch` for one thread of its own; both need the user to ask for separate threads. Entries may override provider, model, options and modes; project, branch and worktree inherit.",
   parameters: OrchestratorMcpCreateThreadsInput,
   success: OrchestratorMcpCreateThreadsResult,
   failure: OrchestratorMcpFailure,
@@ -254,7 +251,7 @@ const CreateThreadsTool = Tool.make("create_threads", {
 
 const ThreadListTool = Tool.make("t3_thread_list", {
   description:
-    "List T3 threads in a project, newest first. Filter by status, title, settled or snoozed state; paginate with the cursor. Linked environments are included under environments.",
+    "List threads in a project, newest first. Omit `projectId` for yours. Filter by status, title, settled or snoozed. Page with the cursor. Linked environments come under `environments`.",
   parameters: OrchestratorMcpThreadListInput,
   success: OrchestratorMcpThreadListResult,
   failure: OrchestratorMcpFailure,
@@ -268,7 +265,7 @@ const ThreadListTool = Tool.make("t3_thread_list", {
 
 const ThreadReadTool = Tool.make("t3_thread_read", {
   description:
-    "Read a T3 thread's durable state and paginated timeline. view=messages (default) returns user and assistant messages; activity returns summarized timeline items. Continue with afterPosition=nextPosition; recover long text with itemId and textOffset.",
+    "Read any thread by id. `messages` (default): user and assistant messages and plans. `activity`: all timeline items. Keep reads small: low `limit` and `maxCharsPerItem`. Page with `afterPosition=nextPosition`. Cut-off text: `itemId` with `textOffset=nextTextOffset`. Reading a child's final result marks it delivered. Name it in your reply as its `link` verbatim. A linked environment's thread needs its `environmentId`.",
   parameters: OrchestratorMcpThreadReadInput,
   success: OrchestratorMcpThreadReadResult,
   failure: OrchestratorMcpFailure,
@@ -283,7 +280,7 @@ const ThreadReadTool = Tool.make("t3_thread_read", {
 
 const ThreadUpdateTool = Tool.make("t3_thread_update", {
   description:
-    "Update a thread's metadata: rename, regenerate_title, link_pull_request, unlink_pull_request, set_workflow, link_work_item or unlink_work_item. Omit threadId for this thread.",
+    "Rename a thread (`action:'rename'` with `title`), regenerate its title, link or unlink a PR, `set_workflow`, or `link_work_item`/`unlink_work_item` for its Forge item. Omit `threadId` for this thread. Workspace and branch cannot change here.",
   parameters: ThreadMetadataMcpUpdateInput,
   success: ThreadMetadataMcpUpdateResult,
   failure: OrchestratorMcpFailure,
@@ -296,7 +293,7 @@ const ThreadUpdateTool = Tool.make("t3_thread_update", {
 
 const ThreadSendTool = Tool.make("t3_thread_send", {
   description:
-    "Send a message to a T3 thread. mode=auto starts an idle thread or steers a live one; queue, steer and restart force the delivery. For a follow-up in the same child conversation, send to its childThreadId.",
+    "Send a message to any thread; the target cannot run with broader modes than yours. `mode:'auto'` starts an idle thread, steers a running turn, or queues; `queue` starts a new turn, `steer` is a mid-turn update, `restart` interrupts and restarts. A send to a finished child thread starts a fresh task in it and returns its `taskId`; continue managed work with `delegate_task`'s `followup` instead. Name the thread in your reply as its `link` verbatim.",
   parameters: OrchestratorMcpThreadSendInput,
   success: OrchestratorMcpThreadSendResult,
   failure: OrchestratorMcpFailure,
@@ -309,7 +306,7 @@ const ThreadSendTool = Tool.make("t3_thread_send", {
 
 const ThreadWaitTool = Tool.make("t3_thread_wait", {
   description:
-    "Wait for a T3 thread run to reach a terminal durable state, within this turn. Without runId the latest run at call time is selected, and an idle thread returns immediately. A timeout does not interrupt work, so call again or read the thread after timedOut=true. Waiting reports status only; it does not acknowledge a delegated result. A run can end while the thread still has work, such as a reviewer; to wait for all of it, call watch and end your turn.",
+    "Wait for a thread's run to finish within this turn. No `runId`: the latest run at call time. Idle: it returns at once. A timeout does not interrupt work, so with `next` end your turn; without, call again or read the thread. It reports status only and does not acknowledge a delegated result; to wait for all of a thread's work, `watch` and end your turn.",
   parameters: OrchestratorMcpThreadWaitInput,
   success: OrchestratorMcpThreadWaitResult,
   failure: OrchestratorMcpFailure,
@@ -351,7 +348,7 @@ const UnwatchThreadTool = Tool.make("unwatch", {
 
 const ThreadInterruptTool = Tool.make("t3_thread_interrupt", {
   description:
-    "Request interruption of a running turn in any T3 thread in this environment. Without runId the newest interruptible run is selected; terminal runs and idle threads return without effect. clientRequestId makes retries idempotent.",
+    "Interrupt a running turn in any thread in this environment. No `runId`: the newest running turn. No effect when idle or already terminal; `clientRequestId` makes retries idempotent. For a delegate, use `task_cancel`.",
   parameters: OrchestratorMcpThreadInterruptInput,
   success: OrchestratorMcpThreadInterruptResult,
   failure: OrchestratorMcpFailure,

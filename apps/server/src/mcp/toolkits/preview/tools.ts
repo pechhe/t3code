@@ -38,9 +38,7 @@ const PreviewToolFailure = Schema.Union([PreviewAutomationError, OrchestratorMcp
 
 const presentationFields = { toolIcon: Schema.optional(ToolActivityIcon) };
 
-const PreviewActionResult = Schema.Struct(presentationFields).annotate({
-  description: "The preview action completed successfully.",
-});
+const PreviewActionResult = Schema.Struct(presentationFields);
 
 const browserTool = <T extends Tool.Any>(tool: T): T =>
   tool.annotate(Tool.OpenWorld, true).annotate(Tool.Destructive, true) as T;
@@ -53,7 +51,7 @@ const readonlyBrowserTool = <T extends Tool.Any>(tool: T): T =>
 
 const PreviewStatusTool = Tool.make("preview_status", {
   description:
-    "Report browser backend identity, connectivity, supported operations and tab state. Phi status can also return humanMessages from its console; read and follow those user instructions before continuing. A disconnected backend is not permission to use another one. Integrated tabs include control owner, pending dialog, URL, title, visibility, loading state, viewport mode and measured CSS-pixel size. Pass tabId to inspect a specific tab; omit it to use this agent session's current tab, or the tab the user is viewing when you have none. Server hosts also list every tab in the thread (tabs) with its owner, including tabs the user opened, and the browser profiles preview_open accepts. You can read any listed tab; act only on your own tabs, or on an unclaimed tab while no human controls it.",
+    "Report preview tab state: backend identity and connectivity, supported operations, owner, pending dialog, URL, title, loading, viewport and size. Phi status can also return `humanMessages` from its console: read and follow those user instructions before continuing. A disconnected backend is not permission to use another one. Pass `tabId` to inspect a specific tab; omit it for this session's current tab, or the tab the user is viewing when you have none. `tabs` lists every tab in this thread with its owner, including tabs the user opened, and `profiles` lists logins for `preview_open`. Read any listed tab. Act only on your tab, or an unclaimed tab with no human in control.",
   parameters: PreviewAutomationTabTargetInput,
   success: PreviewAutomationStatus,
   failure: PreviewToolFailure,
@@ -67,7 +65,7 @@ const PreviewStatusTool = Tool.make("preview_status", {
 const PreviewOpenTool = browserTool(
   Tool.make("preview_open", {
     description:
-      "Open a browser tab for this thread. Integrated tabs open their inline preview by default. Set backend=phi for Phi, or omit backend for the effective default. Phi opens outside the inline panel; phiLane=shadow creates an isolated incognito window, and phiLane=agents uses the shared sign-in Space with exclusive task custody. phiLane=user works in the user's own window, only when the user asks for it: without url it takes over the tab they have selected, so you can carry on where they left off; with url it opens a new tab there. Closing a user-lane tab releases it and closes only a tab you opened. The user stays in control, so re-snapshot before each step; a snapshot needs the tab still selected in their window. The user lane cannot resize or hand off. A tab keeps its backend/profile/lane; changing them requires a new tab. Set open=false for background-only automation. Pass tabId to reuse a specific existing tab, set reuseExistingTab=false to create another tab, or omit both to use this agent session's current tab. Parallel subagents sharing a provider session must each open with reuseExistingTab=false and pass their returned tabId on every call. Pass profileId (an id or name from preview_status profiles) to open under a browser profile and its saved logins; omit it for the user's default profile. Another agent session's tabs can be read but not operated.",
+      "Open a preview tab in this thread and show it. `open=false` keeps it in the background. Set `backend=phi` for Phi, which opens outside the inline panel; omit it for the effective default. `phiLane=shadow` is an isolated incognito window, `phiLane=agents` the shared sign-in Space with exclusive task custody, and `phiLane=user` the user's own window, only when the user asks for it: without `url` it takes over the tab they have selected, so you can carry on where they left off, and with `url` it opens a new tab there. Closing a user-lane tab releases it and closes only a tab you opened; the user stays in control, so re-snapshot before each step, and that lane cannot resize or hand off. A tab keeps its backend, profile and lane. Reuses your current tab unless `tabId` or `reuseExistingTab=false` says otherwise. Parallel subagents sharing a provider session must each use `reuseExistingTab=false`, then their own returned `tabId`. `profileId` (an id or name from `preview_status` profiles) opens under a profile and its saved logins. Another agent session's tabs can be read but not operated.",
     parameters: PreviewAutomationOpenInput,
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
@@ -80,7 +78,7 @@ const PreviewOpenTool = browserTool(
 const PreviewDialogTool = browserTool(
   Tool.make("preview_dialog", {
     description:
-      "Accept or dismiss the server browser dialog reported by preview_status. For a prompt, supply promptText when accepting. Requires this agent to own the tab, or the tab to be unclaimed with no human in control. Desktop hosts may not support this operation.",
+      "Accept or dismiss the dialog `preview_status` reports. Pass `promptText` to accept a prompt. Needs your own tab, or an unclaimed one. Desktop hosts may not support this.",
     parameters: PreviewAutomationDialogInput,
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
@@ -91,7 +89,7 @@ const PreviewDialogTool = browserTool(
 const PreviewNavigateTool = safeBrowserTool(
   Tool.make("preview_navigate", {
     description:
-      "Navigate a collaborative browser tab. Pass tabId to target a specific tab, plus {url:'https://t3.chat'} for a website or {target:{kind:'environment-port',port:5173}} for a dev server. Exactly one of url or target is required.",
+      "Navigate the chosen tab. Pass `url` for a website, or `target:{kind:'environment-port',port}` for a dev server. Exactly one of `url` and `target`.",
     parameters: PreviewAutomationNavigateInput,
     success: PreviewAutomationStatus,
     failure: PreviewToolFailure,
@@ -102,7 +100,7 @@ const PreviewNavigateTool = safeBrowserTool(
 const PreviewResizeTool = safeBrowserTool(
   Tool.make("preview_resize", {
     description:
-      "Resize a collaborative browser tab, optionally selected by tabId. Use {mode:'fill'}, {mode:'freeform',width:1024,height:768}, or {mode:'preset',preset:'iphone-12-pro',orientation:'portrait'}. This changes CSS layout breakpoints without changing the desktop browser user agent.",
+      "Resize the chosen tab: {mode:'fill'}, {mode:'freeform',width,height}, or {mode:'preset',preset,orientation}. Changes CSS size only, not the user agent.",
     parameters: PreviewAutomationResizeInput,
     success: Schema.Struct({ ...PreviewAutomationResizeResult.fields, ...presentationFields }),
     failure: PreviewToolFailure,
@@ -115,7 +113,7 @@ const PreviewResizeTool = safeBrowserTool(
 const PreviewSetAppearanceTool = safeBrowserTool(
   Tool.make("preview_set_appearance", {
     description:
-      "Emulate prefers-color-scheme in a collaborative browser tab, optionally selected by tabId. Use {colorScheme:'dark'} or {colorScheme:'light'} to preview the page in that appearance, and {colorScheme:'system'} to clear the override and follow the OS appearance.",
+      "Set `prefers-color-scheme` for the chosen tab: 'dark', 'light', or 'system' to clear the override.",
     parameters: PreviewAutomationSetColorSchemeInput,
     success: Schema.Struct({
       ...PreviewAutomationSetColorSchemeResult.fields,
@@ -132,19 +130,17 @@ const PreviewSetAppearanceTool = safeBrowserTool(
 export const PreviewSnapshotTool = safeBrowserTool(
   Tool.make("preview_snapshot", {
     description:
-      "Inspect a page before interacting. Pass tabId to inspect a specific tab, including one the user opened (see preview_status tabs), even while they control it; omit it to use this agent session's current tab, or the tab the user is viewing when you have none. Returns page state, semantic elements, diagnostics, action history, and screenshot dimensions. Each element is listed once, with a ref: server snapshots in an accessibilityTree, Phi in visibleText. Pass locator=aria-ref=<ref> to target one exact element, including inside frames. Hidden and zero-size elements are left out, and very long names are cut. Pass locator on this tool to snapshot only one region, such as a card or dialog, when the full page is more than you need. Refresh refs after navigation, another snapshot, or human takeover. The text is capped near 20 KB and lists what it omitted. Integrated browsing supports preview_evaluate for further inspection; Phi deliberately rejects page evaluation, and lists ARIA state (pressed, selected, expanded, checked, current) at the start of its visibleText instead. Set includeImage=true only when you need to see the page, including a screenshot you also save; the image stays in tool history. Set save=true to write the PNG to disk and get back only the url and screenshotPath. Embed that path in your reply as ![alt](screenshotPath) so the user sees it. This is the only way to show the user a screenshot; the image in the tool result is not saved anywhere.",
+      "Use it only when the current request asks for browser work, including checking an edit in the browser. Never use it unasked to verify your own edit, or to repeat a snapshot from an earlier turn. Works on a tab the user is driving, even while they control it. Returns page state, semantic elements, diagnostics, action history and screenshot size. Each element is listed once with a `ref`, in `accessibilityTree` for the server browser and in `visibleText` for Phi, whose ARIA state (pressed, selected, expanded, checked, current) leads that text and which refuses page evaluation. Target one element with `locator='aria-ref=<ref>'` from `accessibilityTree`, even inside frames, and pass `locator` here to snapshot only one region, such as a card or dialog. Hidden and zero-size elements are left out, very long names are cut, and refs die on navigation, a new snapshot or human takeover. Text caps near 20 KB and lists what it omitted; `preview_evaluate` reads more on the server browser. To show a user a screenshot, `save=true` and embed ![alt](screenshotPath) in your reply: the image in a tool result is saved nowhere, and `includeImage=true` is only for you to see the page.",
     parameters: Schema.Struct({
       ...PreviewAutomationSnapshotInput.fields,
       includeImage: Schema.optional(
         Schema.Boolean.annotate({
-          description:
-            "Include the PNG image in the tool response. Defaults to false. Set true only when you need to see the page.",
+          description: "Default false. True only to see the page.",
         }),
       ),
       save: Schema.optional(
         Schema.Boolean.annotate({
-          description:
-            "Write the screenshot PNG to disk and return its absolute path as screenshotPath. Unless includeImage=true, return only the url and screenshotPath. Defaults to false.",
+          description: "Write PNG, return `screenshotPath`.",
         }),
       ),
     }),
@@ -245,7 +241,7 @@ const PreviewInteractTool = browserTool(
 const PreviewUploadTool = browserTool(
   Tool.make("preview_upload", {
     description:
-      "Give files on the environment to the page in the tab selected by tabId, or this agent session's current tab when omitted. After clicking an upload control, preview_status reports the open fileChooser; call this with absolute paths to answer it, or with an empty list to cancel. Pass a locator for an <input type=file> to set its files without a picker. Server browser tabs only.",
+      "Give files from this environment to the page. After a click opens a file picker, `preview_status` reports it. Pass absolute paths to answer it, or an empty list to cancel. Or pass a locator for an <input type=file>.",
     parameters: PreviewAutomationUploadInput,
     success: PreviewActionResult,
     failure: PreviewToolFailure,
@@ -259,12 +255,12 @@ export const PreviewEvaluateResult = Schema.Struct({
   value: Schema.Unknown.annotate({
     description: "The JSON-serializable value the expression produced, or null.",
   }),
-}).annotate({ description: "The evaluated expression result." });
+});
 
 const PreviewEvaluateTool = browserTool(
   Tool.make("preview_evaluate", {
     description:
-      "Evaluate JavaScript in the tab selected by tabId, or this agent session's current tab when omitted. Needs the same control as clicking: it works on your own tabs and on the user's tab only while nobody controls it. To read a tab the user is driving, use preview_snapshot. Returns {value} with a serializable result up to 64 KB; the expression may mutate page state.",
+      "Run JavaScript in the page. It can change page state. Returns `{value}`, up to 64 KB. Needs your tab, or an unclaimed one. To read a tab the user drives, use `preview_snapshot`. Page tools reached here: read data only, never create, save, or display. Show results with `html_render`.",
     parameters: PreviewAutomationEvaluateInput,
     success: PreviewEvaluateResult,
     failure: PreviewToolFailure,
@@ -275,7 +271,7 @@ const PreviewEvaluateTool = browserTool(
 const PreviewWaitForTool = readonlyBrowserTool(
   Tool.make("preview_wait_for", {
     description:
-      "Wait in the tab selected by tabId, or this agent session's current tab when omitted, until all supplied locator, selector, text, and URL conditions match. textAbsent and locatorAbsent wait for text or an element to go away, such as a card leaving after Accept or a dialog closing. A timeout names the condition that never held.",
+      "Wait in the chosen tab, this session's current one when `tabId` is omitted, until all supplied locator, selector, text and URL conditions match. `textAbsent` and `locatorAbsent` wait for text or an element to go away, such as a card leaving after Accept or a dialog closing. A timeout names the condition that never held.",
     parameters: PreviewAutomationWaitForInput,
     success: PreviewActionResult,
     failure: PreviewToolFailure,
@@ -285,8 +281,7 @@ const PreviewWaitForTool = readonlyBrowserTool(
 
 const PreviewRecordingStartTool = safeBrowserTool(
   Tool.make("preview_recording_start", {
-    description:
-      "Start recording the collaborative browser tab selected by tabId, or this agent session's current tab when omitted.",
+    description: "Start recording the chosen tab.",
     parameters: PreviewAutomationTabTargetInput,
     success: Schema.Struct({ ...PreviewAutomationRecordingStatus.fields, ...presentationFields }),
     failure: PreviewToolFailure,
@@ -297,7 +292,7 @@ const PreviewRecordingStartTool = safeBrowserTool(
 const PreviewRecordingStopTool = safeBrowserTool(
   Tool.make("preview_recording_stop", {
     description:
-      "Stop recording the collaborative browser tab selected by tabId, or this agent session's current tab when omitted, and transfer the compressed recording once (up to 50 MiB) to an evidence file readable in this agent's environment. Returns its environment-local path after transfer succeeds.",
+      "Stop recording the chosen tab. Returns a local path to the recording file (max 50 MiB).",
     parameters: PreviewAutomationTabTargetInput,
     success: Schema.Struct({ ...PreviewAutomationRecordingArtifact.fields, ...presentationFields }),
     failure: PreviewToolFailure,

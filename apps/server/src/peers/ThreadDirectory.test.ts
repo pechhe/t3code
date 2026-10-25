@@ -1,4 +1,5 @@
 import { EnvironmentId, OrchestratorMcpPeerNotice } from "@t3tools/contracts";
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -123,6 +124,33 @@ it.effect("reports a peer whose answer this build cannot read as unsupported", (
     ]);
     expect(yield* directory.search("all", { query: "rollover" })).toMatchObject([
       { status: "unsupported", page: null },
+    ]);
+  }),
+);
+
+it.effect("points a peer's search match link at the peer's environment", () =>
+  Effect.gen(function* () {
+    const directory = yield* withPeer(() =>
+      Effect.succeed({
+        isError: false,
+        text: "",
+        structuredContent: {
+          matches: [
+            {
+              threadId: "peer-thread",
+              projectId: "peer-project",
+              title: "Peer work",
+              source: "title",
+              environmentId: "whatever-the-peer-says",
+              link: formatThreadLink("peer-thread", "Peer work"),
+            },
+          ],
+        },
+      }),
+    );
+    const [answer] = yield* directory.search(peerId, { query: "peer" });
+    expect(answer?.page?.matches).toMatchObject([
+      { environmentId: peerId, link: formatThreadLink("peer-thread", "Peer work", peerId) },
     ]);
   }),
 );

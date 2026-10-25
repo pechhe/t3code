@@ -222,20 +222,20 @@ export function htmlRenderTheme(
 }
 
 export const HTML_RENDER_THEME_GUIDE = [
-  "T3 injects its active theme as CSS custom properties on :root, live with the user's theme and light/dark mode:",
+  "Use theme CSS variables on :root, not fixed colors, live with the user's theme and light/dark mode:",
   "--background (the page background, identical to the thread around the frame), --foreground, --border, --input, --ring,",
-  "--radius, --font-sans, --font-mono, --chart-1 … --chart-6 (categorical chart series), and for --muted, --card,",
+  "--radius, --font-sans, --font-mono, --chart-1 to --chart-6 (categorical chart series), and for --muted, --card,",
   "--popover, --secondary, --primary, --accent, --accent-surface, --destructive, --warning, --success, --info and",
-  "--code-background; each has a -foreground variant (code text is --code-foreground); -surface",
-  "(and, for accent, -surface-foreground) exists for accent, destructive and warning.",
-  "The base stylesheet sets html background/color/font, body margin 0 and hides the page scrollbar; your CSS overrides it.",
+  "--code-background; each has a -foreground variant (code text is --code-foreground), and accent, destructive",
+  "and warning also have -surface (accent has -surface-foreground).",
+  "The base sheet sets html background/color/font, body margin 0, hides the page scrollbar; your CSS overrides it.",
 ].join(" ");
 
 export const HTML_RENDER_LAYOUT_GUIDE = [
-  `The frame is borderless, as wide as the reply column (${HTML_RENDER_COLUMN_WIDTH}px on desktop, about 360px on phones) and lined up with your reply text.`,
-  "Leave html, body and the outermost element without a background, padding, outer card, border or banner title: the page is part of your reply.",
-  "A box with its own background gets 16px padding and var(--radius) corners.",
-  "Give charts fixed pixel heights and let content set the page height: viewport-relative heights grow the frame again and again, so html_preview and html_render reject vh, svh, lvh and dvh units, as height:100% on html or body does.",
+  `Frame width is reply width (${HTML_RENDER_COLUMN_WIDTH}px desktop, about 360px phones), on the thread background, lined up with your reply text.`,
+  "Leave html, body, and the outer element with no background, padding, outer card, border or banner title. This wins over any rule that sets a page background.",
+  "A box that needs its own background gets 16px padding and var(--radius) corners. Give charts fixed pixel heights.",
+  "Let content set the height. Do not use vh, svh, lvh or dvh units, or height:100% on html or body: html_preview and html_render reject them, and viewport heights grow the frame again and again.",
 ].join(" ");
 
 const HOST_CONTEXT_CHANGED_METHOD = "ui/notifications/host-context-changed";

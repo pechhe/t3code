@@ -30,7 +30,7 @@ describe("buildCodexAdditionalContext", () => {
   });
 });
 
-describe("buildCodexDeveloperInstructions", () => {
+describe("Codex runtime context", () => {
   it("flattens multiline metadata into single-line runtime info", () => {
     const instructions = runtimeInstructions({
       model: "gpt\n5.3\ncodex",
@@ -43,12 +43,21 @@ describe("buildCodexDeveloperInstructions", () => {
 });
 
 describe("Codex orchestration context", () => {
-  it("routes a managed task's follow-up through delegate_task, not the child thread", () => {
+  it("names the native subagent path only without a role policy, and delegate_task for the rest", () => {
     const orchestration = Object.entries(buildCodexAdditionalContext({ model: "gpt-6.1-sol" }))
       .filter(([key]) => key.startsWith("t3_code_orchestration_"))
       .map(([, entry]) => entry.value)
       .join("\n");
 
+    NodeAssert.ok(orchestration.includes("use your native tool when the child uses your provider"));
+    NodeAssert.ok(orchestration.includes("`run_in_background:false`"));
+    NodeAssert.ok(orchestration.includes("A native type running another provider's model"));
+    // The fork's role policy wins over the native path.
+    NodeAssert.ok(
+      orchestration.includes(
+        "with a configured role policy, delegate by role even if the user names a model",
+      ),
+    );
     NodeAssert.ok(
       orchestration.includes("For every T3 delegated review round, call `delegate_task` again."),
     );
@@ -57,6 +66,10 @@ describe("Codex orchestration context", () => {
         "Do not use `t3_thread_send` on `childThreadId` to continue a delegated review.",
       ),
     );
+    NodeAssert.ok(!orchestration.includes("inheritedOptions"));
+    NodeAssert.ok(!orchestration.includes("Prefer native"));
+    // The ACP terminal fallback is ACP-only; Codex agents never need it.
+    NodeAssert.ok(!orchestration.includes("acp-mcp-call"));
   });
 });
 

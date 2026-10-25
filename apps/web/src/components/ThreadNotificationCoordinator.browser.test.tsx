@@ -1,9 +1,9 @@
 import type { ClientSettings } from "@t3tools/contracts/settings";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
+import { WORKING_EXIT_GRACE_MS } from "@t3tools/client-runtime/state/thread-inbox";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { COMPLETION_SETTLE_MS } from "./ThreadNotificationCoordinator";
 import { fakeTimers, render, stubGlobal, type Screen } from "../../test/render";
 
 const state = vi.hoisted(() => ({
@@ -214,7 +214,7 @@ describe("thread notifications", () => {
     state.background = [];
     await app.render();
     expect(state.add).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(COMPLETION_SETTLE_MS);
+    await vi.advanceTimersByTimeAsync(WORKING_EXIT_GRACE_MS);
     expect(state.add).toHaveBeenCalledTimes(1);
     expect(state.add).toHaveBeenLastCalledWith(
       expect.objectContaining({ title: "Thread completed" }),

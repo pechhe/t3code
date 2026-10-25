@@ -21,20 +21,20 @@ const Html = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512_0
 });
 
 const PAGE_RULES =
-  "Write one self-contained document with inline <style> and <script>. Absolute local image paths (src or CSS url) are inlined automatically; remote http(s) URLs, such as a CDN chart library, load as-is.";
+  "Inline <style> and <script>. Local images as absolute paths are inlined. Remote URLs load as-is.";
 
 export const HtmlPreviewTool = Tool.make("html_preview", {
-  description: `Render an HTML page in T3's headless browser and get back a PNG screenshot, contentHeight (the height it needs at this width) and its console output with stack traces. Iterate on a page with it before html_render; a first preview may fail while T3 installs its browser, so call again. Write the page as html_render describes: the same page rules, theme and layout apply.`,
+  description: `Check an HTML page before html_render. Returns PNG, contentHeight, and console output. If it says the browser is still installing, call again in a minute. ${PAGE_RULES} Theme and layout rules are in html_render.`,
   parameters: Schema.Struct({
     html: Html,
     width: Schema.optional(
       Schema.Int.annotate({
-        description: `Viewport width in CSS pixels, 240-1600; ${HTML_RENDER_COLUMN_WIDTH} (the reply column) by default, about 390 for phones.`,
+        description: `CSS pixels, 240 to 1600. Default ${HTML_RENDER_COLUMN_WIDTH}. Use about 390 for phones.`,
       }),
     ),
     appearance: Schema.optional(
       Schema.Literals(["dark", "light"]).annotate({
-        description: "Theme to preview. Defaults to dark.",
+        description: "Default dark.",
       }),
     ),
   }),
@@ -71,15 +71,15 @@ export const HtmlPreviewTool = Tool.make("html_preview", {
 
 // This affects only the caller's thread, not its workspace, so read-only sandboxes and plan mode may use it.
 const HtmlRenderTool = Tool.make(HTML_RENDER_TOOL_NAME, {
-  description: `Show a finished HTML page (chart, table, diagram, collage, mockup) inline in this thread, above your final reply; preview it with html_preview first. ${PAGE_RULES} ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`,
+  description: `Show a finished HTML page inline in this thread, above your final reply. Do not announce or restate the page. Frame fits height to ${HTML_RENDER_MAX_FIT_HEIGHT}px. On mobile, content past the given height scrolls. ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`,
   parameters: Schema.Struct({
     html: Html,
     title: Schema.String.check(
       Schema.isMinLength(1),
       Schema.isMaxLength(HTML_RENDER_MAX_TITLE_LENGTH),
-    ).annotate({ description: "Short name for the page." }),
+    ),
     height: Schema.Int.annotate({
-      description: `Frame height in CSS pixels, ${HTML_RENDER_MIN_HEIGHT}-${HTML_RENDER_MAX_HEIGHT}, from html_preview's contentHeight; lower scrolls long content on mobile.`,
+      description: `Frame height in CSS pixels, ${HTML_RENDER_MIN_HEIGHT} to ${HTML_RENDER_MAX_HEIGHT}. Use the contentHeight from html_preview.`,
     }),
   }),
   success: Schema.Struct({

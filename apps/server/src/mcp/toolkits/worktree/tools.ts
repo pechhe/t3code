@@ -31,7 +31,7 @@ const WorktreeToolFailure = Schema.Union([WorktreeMcpFailure, OrchestratorMcpFai
 
 const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
   description:
-    "Needs an agent running inside a T3 thread. Move this thread into a new workspace, or with worktreePath into an existing checkout (such as a SlipJay workspace from `slipjay start`); the previous one is left as it is. A new worktree gets the branch, or in a repository with slipjay.json is a SlipJay workspace from the integration branch named after branch (baseRef, startFromOrigin and path are ignored), with the project's setup script by default. Changing workspace detaches the live provider session, so the turn ends after the handoff is recorded: call this last. continuationPrompt, one sentence, is queued as the thread's next message, starting a new turn there with the conversation preserved; without it the thread stays idle. A new worktree is not removed when the thread is deleted.",
+    "Move THIS thread into a new git worktree on a new branch, or with `worktreePath` into an existing checkout such as a SlipJay workspace from `slipjay start`; the previous workspace is left as it is. Runs the setup script by default. In a repository with slipjay.json a new one is a SlipJay workspace from the integration branch, named after `branch`, and `baseRef`, `startFromOrigin` and `path` are ignored. A separate agent in a worktree: `t3_thread_launch` with `workspaceStrategy`. Call last in your turn. The move ends the live session. One sentence of `continuationPrompt` resumes work there next turn. Without it, the thread waits. The worktree stays after the thread is deleted. Fails if this thread has a worktree.",
   parameters: WorktreeMcpHandoffInput,
   success: WorktreeMcpHandoffResult,
   failure: WorktreeToolFailure,
@@ -46,8 +46,11 @@ const WorktreeHandoffTool = Tool.make("t3_worktree_handoff", {
 
 const WorktreeStatusTool = Tool.make("t3_worktree_status", {
   description:
-    "Needs an agent running inside a T3 thread. Report this thread's workspaces: whether its primary one is a worktree or SlipJay workspace, its path and branch, the project's main workspace root, the startFromOrigin default, and workspaces attached in other projects. Call it before t3_worktree_handoff or t3_worktree_attach.",
-  // Empty Struct emits object|array, making MCP clients reject the server; use EmptyParams for an object schema.
+    "Needs an agent running inside a T3 thread. Report this thread's workspaces: attached or not, whether the primary one is a git worktree or a SlipJay workspace, its path and branch, the project root, the `startFromOrigin` default, and workspaces attached in other projects. Check before `t3_worktree_handoff` or `t3_worktree_attach`.",
+  // No `parameters`: Tool.make defaults to Tool.EmptyParams, which serializes
+  // to a top-level `type: "object"` JSON Schema. An explicit empty
+  // Schema.Struct({}) serializes to `anyOf: [object, array]`, which is not a
+  // valid MCP tool input schema and makes clients reject the whole server.
   success: WorktreeMcpStatusResult,
   failure: WorktreeToolFailure,
   failureMode: "return",
@@ -91,7 +94,7 @@ const WorktreeDetachTool = Tool.make("t3_worktree_detach", {
 
 const WorktreeListTool = Tool.make("t3_worktree_list", {
   description:
-    "List branch refs and their checkout paths for a thread's workspace (omit threadId for this thread) from the app's ref inventory; detached worktrees without a branch are left out. Use t3_worktree_status for the thread binding.",
+    "List branch refs and checkout paths for a thread's workspace. Omit `threadId` for this thread. Detached worktrees with no branch are left out.",
   parameters: Schema.Struct({
     threadId: Schema.optional(ThreadId),
     query: VcsListRefsInput.fields.query,

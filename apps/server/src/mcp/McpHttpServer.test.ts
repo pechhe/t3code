@@ -920,8 +920,13 @@ it.effect.each(["limit", "runLimit", "maxCharsPerItem"])(
 
 it("describes role-first delegation with a managed follow-up", () => {
   const description = OrchestratorToolkit.tools.delegate_task.description ?? "";
-  expect(description).toContain("Call agent_roles first");
-  expect(description).toContain("followup with a taskId to continue that conversation");
+  expect(description).toContain("Start one child agent with only `task`");
+  expect(description).toContain("Call `agent_roles` first");
+  expect(description).toContain("`followup` with a `taskId` to continue that conversation");
+  // Review rounds and polling are routed in the system text.
+  expect(description).not.toContain("t3_thread_send");
+  expect(description).not.toContain("Do not poll");
+  expect(description).not.toContain("Prefer native");
 });
 
 it.effect(
@@ -940,7 +945,8 @@ it.effect(
       const linkTool = server.tools.find(({ tool }) => tool.name === "link_pull_request");
       expect(linkTool?.tool.annotations?.idempotentHint).toBe(true);
       expect(linkTool?.tool.annotations?.openWorldHint).toBe(false);
-      expect(linkTool?.tool.description).toContain("Register every pull request you open");
+      expect(linkTool?.tool.description).toContain("Link a PR to this thread");
+      expect(linkTool?.tool.description).toContain("settles the thread on merge");
 
       const denied = yield* server
         .callTool({ name: "list_thread_pull_requests", arguments: {} })
@@ -1307,6 +1313,93 @@ it.effect("admits provider and OAuth client credentials and points only clients 
       const deadProvider = yield* call("deadProviderToken");
       expect(deadProvider.status).toBe(401);
       expect(deadProvider.headers["www-authenticate"]).toBe('Bearer error="invalid_token"');
+    }),
+  ).pipe(Effect.provide(NodeHttpServer.layerTest)),
+);
+
+it.effect("lists pull request watch tools only to threads that are not delegated children", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const scopeFor = (
+        token: string,
+        subagent: boolean,
+      ): McpInvocationContext.McpThreadInvocationScope => ({
+        environmentId,
+        requestNamespace: token,
+        thread: {
+          threadId: ThreadId.make(`thread-${token}`),
+          providerSessionId: token,
+          providerInstanceId: ProviderInstanceId.make("codex"),
+          subagent,
+        },
+        client: undefined,
+        capabilities: new Set(["pull-requests"]),
+        issuedAt: 1,
+      });
+      const scopes = new Map([
+        ["parentToken", scopeFor("parentToken", false)],
+        ["childToken", scopeFor("childToken", true)],
+      ]);
+      const serverLayer = McpHttpServer.layerPullRequestsToolkit.pipe(
+        Layer.provideMerge(McpHttpServer.layerMcpTransport),
+        Layer.provide(
+          Layer.mock(McpSessionRegistry.McpSessionRegistry)({
+            resolve: (token) => Effect.succeed(scopes.get(token)),
+          }),
+        ),
+        Layer.provide(
+          Layer.mergeAll(
+            McpToolAccessTestkit.liveThreadsLayer,
+            Layer.mock(ProjectService.ProjectService)({}),
+            Layer.mock(PullRequestReviewGuideService.PullRequestReviewGuideService)({}),
+            Layer.mock(Orchestrator.OrchestratorV2)({}),
+            Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+            NodeServices.layer,
+          ),
+        ),
+      );
+      yield* HttpRouter.serve(serverLayer, { disableListenLog: true, disableLogger: true }).pipe(
+        Layer.build,
+      );
+      const httpClient = yield* HttpClient.HttpClient;
+      const listedTools = (token: string) =>
+        Effect.gen(function* () {
+          const headers = {
+            accept: "application/json, text/event-stream",
+            authorization: `Bearer ${token}`,
+          };
+          const initialize = yield* httpClient.post("/mcp", {
+            headers,
+            body: HttpBody.text(
+              `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1.0.0"}}}`,
+              "application/json",
+            ),
+          });
+          const listed = yield* httpClient.post("/mcp", {
+            headers: {
+              ...headers,
+              "mcp-session-id": initialize.headers["mcp-session-id"]!,
+              "mcp-protocol-version": "2025-06-18",
+            },
+            body: HttpBody.text(
+              `{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
+              "application/json",
+            ),
+          });
+          const body = (yield* listed.json) as {
+            readonly result: { readonly tools: ReadonlyArray<{ readonly name: string }> };
+          };
+          return body.result.tools.map((tool) => tool.name);
+        });
+
+      const parentTools = yield* listedTools("parentToken");
+      const childTools = yield* listedTools("childToken");
+      expect(parentTools).toEqual(
+        expect.arrayContaining(["link_pull_request", "watch_pull_request", "unwatch_pull_request"]),
+      );
+      expect(childTools).toContain("link_pull_request");
+      expect(childTools).not.toContain("watch_pull_request");
+      expect(childTools).not.toContain("unwatch_pull_request");
     }),
   ).pipe(Effect.provide(NodeHttpServer.layerTest)),
 );

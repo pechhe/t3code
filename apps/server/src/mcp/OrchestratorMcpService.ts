@@ -25,6 +25,7 @@ import {
   MessageId,
   type ModelSelection,
   NodeId,
+  ORCHESTRATOR_MCP_RUNNING_TASK_NEXT,
   TurnItemId,
   type OrchestrationV2Run,
   type OrchestrationV2Subagent,
@@ -98,6 +99,7 @@ import {
 } from "@t3tools/contracts";
 import { getProviderOptionCurrentValue } from "@t3tools/shared/model";
 import { runRanAfter } from "@t3tools/shared/orchestrationV2ThreadError";
+import { formatThreadLink } from "@t3tools/shared/threadLinks";
 import {
   normalizeThreadPullRequestKey,
   visibleThreadPullRequests,
@@ -1012,6 +1014,7 @@ function listItemFromShell(
     environmentId,
     projectId: shell.projectId,
     title: shell.title,
+    link: formatThreadLink(shell.id, shell.title),
     createdBy: shell.createdBy,
     creationSource: shell.creationSource,
     status: shell.activityRunStatus ?? shell.status,
@@ -1044,6 +1047,7 @@ function threadDetail(
     threadId: projection.thread.id,
     projectId: projection.thread.projectId,
     title: projection.thread.title,
+    link: formatThreadLink(projection.thread.id, projection.thread.title),
     createdBy: projection.thread.createdBy,
     creationSource: projection.thread.creationSource,
     status: active?.status ?? latest?.status ?? "idle",
@@ -1869,11 +1873,12 @@ const make = Effect.gen(function* () {
         instanceId: task.providerInstanceId,
         model: task.model,
       };
-    const response = {
+    const result = {
       ...(binding === undefined ? {} : { agentTask: binding }),
       ...(handoff === undefined ? {} : { handoff }),
       taskId: task.id,
       childThreadId: task.childThreadId,
+      link: formatThreadLink(task.childThreadId, childControls.thread.title),
       childRunId: childRun?.id ?? null,
       childNodeId: task.id,
       status,
@@ -1906,6 +1911,10 @@ const make = Effect.gen(function* () {
           : pendingTaskApproval(childControls, task.id, childRun),
       waitTimedOut,
     } satisfies OrchestratorMcpDelegateTaskResult;
+    const response: OrchestratorMcpDelegateTaskResult =
+      endsTaskWait(result) || task.completionDelivery?.state === "disposed"
+        ? result
+        : { ...result, next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT };
     if (
       acknowledgeTerminal &&
       isTerminalTaskStatus(status) &&
@@ -2239,6 +2248,7 @@ const make = Effect.gen(function* () {
             label: input.label,
             reason: input.reason,
             ...(input.placeholder === undefined ? {} : { placeholder: input.placeholder }),
+            ...(input.delivery === "file" ? { delivery: "file" as const } : {}),
             secretStatus,
           })
           .pipe(
@@ -2317,6 +2327,12 @@ const make = Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan({ "secret_request.status": status });
       yield* Metrics.increment(Metrics.secretRequestsTotal, { status });
       if (status !== "saved") return { status };
+      if (input.delivery === "file") {
+        const file = yield* secretRequests
+          .saveToFile({ threadId, turnItemId })
+          .pipe(Effect.mapError((error) => failure("orchestration_error", error.message)));
+        return { status, file };
+      }
       const secretRef = yield* secretRequests.savedRef({ threadId: threadId, turnItemId });
       if (Option.isNone(secretRef)) {
         return yield* failure(
@@ -3599,8 +3615,8 @@ const make = Effect.gen(function* () {
             ),
           ),
         );
-        // A follow-up that lost its child run (#19002) stays running on the parent, while its
-        // status here comes from the child's last run. Stop on the parent cancels that task.
+        // A follow-up that lost its child run stays running on the parent, while its status
+        // here comes from the child's last run. Stop on the parent cancels that task.
         const cancelOrphan = Effect.gen(function* () {
           if (parentTask?.runId == null || !isOrchestrationV2WorkActive(parentTask.status))
             return false;
@@ -3821,6 +3837,7 @@ const make = Effect.gen(function* () {
                 );
               return {
                 threadId,
+                link: formatThreadLink(threadId, projection.thread.title),
                 runId: run?.id ?? null,
                 status: run?.status ?? "idle",
                 title: projection.thread.title,
@@ -4103,6 +4120,7 @@ const make = Effect.gen(function* () {
         );
       return {
         threadId: input.threadId,
+        link: formatThreadLink(input.threadId, target.thread.title),
         messageId,
         runId: result.run.id,
         ...(result.run.delegatedTaskId === undefined ? {} : { taskId: result.run.delegatedTaskId }),
@@ -4111,7 +4129,7 @@ const make = Effect.gen(function* () {
       } satisfies OrchestratorMcpThreadSendResult;
     }),
     waitForThread: Effect.fn("OrchestratorMcpService.waitForThread")(function* (scope, input) {
-      const { target } = yield* loadScopedThread(scope, input.threadId);
+      const { parent, target } = yield* loadScopedThread(scope, input.threadId);
       const result = yield* threadManagement
         .waitForThread({
           projectId: target.thread.projectId,
@@ -4123,11 +4141,33 @@ const make = Effect.gen(function* () {
           ),
         })
         .pipe(Effect.mapError(threadManagementFailure));
+      const status = result.run === null ? "idle" : runOutcome(result.run);
+      const taskId = result.run?.delegatedTaskId;
+      const ownedTask =
+        result.timedOut &&
+        status !== "waiting" &&
+        parent?.subagents.some(
+          (task) =>
+            task.id === taskId &&
+            task.origin === "app_owned" &&
+            task.threadId === parent.thread.id &&
+            task.childThreadId === input.threadId &&
+            task.completionDelivery?.state !== "disposed",
+        ) === true;
+      // A child waiting on a question or approval needs an answer, not a wake.
+      const childRequests = ownedTask
+        ? (yield* threadManagement
+            .getThreadRecords(input.threadId, ["runtimeRequests"])
+            .pipe(Effect.mapError(threadManagementFailure))).runtimeRequests
+        : [];
+      const wakesCaller =
+        ownedTask && !childRequests.some((request) => request.status === "pending");
       return {
         threadId: input.threadId,
         runId: result.run?.id ?? null,
-        status: result.run === null ? "idle" : runOutcome(result.run),
+        status,
         timedOut: result.timedOut,
+        ...(wakesCaller ? { next: ORCHESTRATOR_MCP_RUNNING_TASK_NEXT } : {}),
       } satisfies OrchestratorMcpThreadWaitResult;
     }),
     watchThread: Effect.fn("OrchestratorMcpService.watchThread")(

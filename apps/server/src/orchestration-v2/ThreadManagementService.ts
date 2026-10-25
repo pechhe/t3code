@@ -380,8 +380,9 @@ export interface ThreadManagementServiceShape {
     readonly threadIds?: ReadonlyArray<ThreadId>;
   }) => Effect.Effect<OrchestrationV2ThreadShellSnapshot, Orchestrator.OrchestratorV2Error>;
   readonly listActiveSubagentThreadIds: Orchestrator.OrchestratorV2["Service"]["listActiveSubagentThreadIds"];
+  readonly listOlderSettledThreads: Orchestrator.OrchestratorV2["Service"]["listOlderSettledThreads"];
   readonly readShellSnapshot: (
-    options?: Pick<ShellSnapshotOptions, "location" | "subagentFamilyOf" | "worktreePath">,
+    options?: Pick<ShellSnapshotOptions, "location" | "familyOf" | "worktreePath" | "threadIds">,
   ) => Effect.Effect<
     Effect.Effect<OrchestrationV2ThreadShellSnapshot, Orchestrator.OrchestratorV2Error>,
     Orchestrator.OrchestratorV2Error
@@ -1361,6 +1362,7 @@ const make = Effect.gen(function* () {
     getProjectThread,
     getShellSnapshot: orchestrator.getShellSnapshot,
     listActiveSubagentThreadIds: orchestrator.listActiveSubagentThreadIds,
+    listOlderSettledThreads: orchestrator.listOlderSettledThreads,
     readShellSnapshot: orchestrator.readShellSnapshot,
     getThreadShell: orchestrator.getThreadShell,
     listProjectThreads,

@@ -5,7 +5,7 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { memo, useMemo } from "react";
+import { memo } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -183,19 +183,13 @@ function SidebarUtilityItem({
 function useScheduledSignal() {
   const sources = useAllScheduledTasks();
   const [seen] = useSeenScheduledFailures();
-  const signal = useMemo(
-    () =>
-      scheduledSignal(
-        groupScheduledTasks(
-          sources.flatMap((source) =>
-            source.tasks === null
-              ? []
-              : [{ environmentId: source.environmentId, tasks: source.tasks }],
-          ),
-        ),
-        seen,
+  const signal = scheduledSignal(
+    groupScheduledTasks(
+      sources.flatMap((source) =>
+        source.tasks === null ? [] : [{ environmentId: source.environmentId, tasks: source.tasks }],
       ),
-    [sources, seen],
+    ),
+    seen,
   );
   const indicator =
     signal.unseenFailures > 0 ? (

@@ -10,7 +10,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   branch: Schema.optional(
     TrimmedNonEmptyString.annotate({
       description:
-        "Branch name to create for a new worktree (e.g. 'feature/my-change'); in a SlipJay project, the new workspace's task name. Required unless worktreePath is given.",
+        "Branch to create for a new worktree (e.g. 'feature/my-change'); in a SlipJay project, the new workspace's task name. Required unless worktreePath is given.",
     }),
   ),
   worktreePath: Schema.optional(
@@ -21,26 +21,24 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   ),
   baseRef: Schema.optional(
     TrimmedNonEmptyString.annotate({
-      description:
-        "Branch or ref the worktree branch starts from. Defaults to the branch currently checked out in the project workspace.",
+      description: "Default: checked-out branch.",
     }),
   ),
   startFromOrigin: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Start the branch from baseRef's remote-tracking commit, fetching it first; defaults to the server's remote-start setting.",
+        "True: fetch, start from the remote ref; check `startedFromOrigin`. Default: server setting.",
     }),
   ),
   runSetupScript: Schema.optional(
     Schema.Boolean.annotate({
-      description:
-        "Run the setup script there; true by default for a new workspace, false for an existing one.",
+      description: "True for a new workspace, false for one attached with `worktreePath`.",
     }),
   ),
   continuationPrompt: Schema.optional(
     TrimmedNonEmptyString.check(Schema.isMaxLength(120_000)).annotate({
       description:
-        "Message queued as the thread's next turn, so the work resumes inside the worktree; omit to stop after the handoff.",
+        "Work to resume in the worktree next turn. Omitted: the thread stops after the handoff.",
     }),
   ),
 });
@@ -158,16 +156,12 @@ export const WorktreeMcpDetachResult = Schema.Struct({
 export type WorktreeMcpDetachResult = typeof WorktreeMcpDetachResult.Type;
 
 export const WorktreeMcpStatusResult = Schema.Struct({
-  attached: Schema.Boolean.annotate({
-    description: "True when this thread is attached to a worktree or SlipJay workspace.",
-  }),
+  attached: Schema.Boolean,
   worktreePath: Schema.NullOr(TrimmedNonEmptyString),
   branch: Schema.NullOr(TrimmedNonEmptyString),
-  projectWorkspaceRoot: TrimmedNonEmptyString.annotate({
-    description: "Root of the project's main workspace checkout.",
-  }),
+  projectWorkspaceRoot: TrimmedNonEmptyString,
   defaultStartFromOrigin: Schema.Boolean.annotate({
-    description: "Server default used by t3_worktree_handoff when startFromOrigin is omitted.",
+    description: "`startFromOrigin` default for `t3_worktree_handoff`.",
   }),
   attachments: Schema.Array(OrchestrationV2WorkspaceAttachment).annotate({
     description:
