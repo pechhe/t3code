@@ -37,21 +37,31 @@ func emit(_ line: String) {
 
 NSApplication.shared.setActivationPolicy(.prohibited)
 var gesture = RightOptionGesture()
-let monitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
-    // Our internal FluidVoice chord must never alter a new physical gesture.
-    if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == 0x54335643 { return }
-    if event.type == .flagsChanged {
-        if gesture.flagsChanged(keyCode: event.keyCode, flags: UInt64(event.modifierFlags.rawValue)) { emit("trigger") }
-    } else {
-        gesture.otherInput()
-        if event.type == .keyDown && (event.keyCode == 53 || event.keyCode == 10) { emit("cancel") }
+var monitor: Any?
+func observe() {
+    if monitor != nil { NSEvent.removeMonitor(monitor!) }
+    monitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
+        // Our internal FluidVoice chord must never alter a new physical gesture.
+        if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == 0x54335643 { return }
+        if event.type == .flagsChanged {
+            if gesture.flagsChanged(keyCode: event.keyCode, flags: UInt64(event.modifierFlags.rawValue)) { emit("trigger") }
+        } else {
+            gesture.otherInput()
+            if event.type == .keyDown && (event.keyCode == 53 || event.keyCode == 10) { emit("cancel") }
+        }
     }
 }
+observe()
 guard monitor != nil else {
     emit("error: Right Option observation requires Accessibility permission.")
     exit(1)
 }
-let wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in gesture.reset() }
+let wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+    // A global monitor can stop delivering events across a sleep, and a press it
+    // never sees leaves FluidVoice waiting, so a wake installs a fresh one.
+    gesture.reset()
+    observe()
+}
 let parent = getppid()
 let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
     if getppid() != parent { exit(0) }

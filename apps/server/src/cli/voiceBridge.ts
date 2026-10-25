@@ -142,15 +142,31 @@ const runBridge = (flags: BridgeFlags) =>
             startMacCommandShortcut({
               helperPath: NodePath.join(stateDir, "command-shortcut.swift"),
               onTrigger: () => {
-                if (triggering) return;
+                if (triggering) {
+                  void Effect.runPromise(
+                    Effect.logInfo("Right Option ignored: the previous press is still working."),
+                  );
+                  return;
+                }
                 triggering = true;
                 void Effect.runPromise(
                   captures
                     .invoke({
-                      isRecording: Effect.tryPromise((signal) => isFluidVoiceRecording(signal)),
+                      isRecording: Effect.tryPromise((signal) => isFluidVoiceRecording(signal)).pipe(
+                        Effect.tap((recording) =>
+                          Effect.logInfo(
+                            recording
+                              ? "Right Option: stopping FluidVoice."
+                              : "Right Option: capturing the page, then starting FluidVoice.",
+                          ),
+                        ),
+                      ),
                       toggle: Effect.tryPromise((signal) => toggleFluidVoiceCommand(signal)),
                     })
                     .pipe(
+                      // A native call that never returns must not swallow every
+                      // later press, so the guard is released on a deadline too.
+                      Effect.timeoutOption("30 seconds"),
                       Effect.catch((error) =>
                         captures.clear().pipe(Effect.andThen(Effect.logError(error))),
                       ),
