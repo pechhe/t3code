@@ -565,6 +565,11 @@ describe("background work kinds from older or newer servers", () => {
     ).toEqual({ kind: "background_task" });
     expect(sourceOf({ kind: "background_command" })).toEqual({ kind: "command" });
     expect(sourceOf({ kind: "monitor" })).toEqual({ kind: "monitor" });
+    expect(sourceOf({ kind: "landing", operationId: "op_1" })).toEqual({
+      kind: "landing",
+      operationId: "op_1",
+    });
+    expect(sourceOf({ kind: "a_kind_from_a_newer_server" })).toEqual({ kind: "background_task" });
   });
 
   it("sends and stores sources that clients from before specific kinds still decode", () => {

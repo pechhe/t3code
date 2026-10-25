@@ -290,6 +290,7 @@ export type BackgroundWorkGroup =
   | "thread"
   | "pull_request"
   | "build_item"
+  | "landing"
   | "subagent"
   | "command"
   | "monitor"
@@ -302,10 +303,11 @@ const BACKGROUND_WORK_GROUPS: Record<
   thread: { order: 0, singular: "thread", plural: "threads" },
   pull_request: { order: 1, singular: "pull request", plural: "pull requests" },
   build_item: { order: 2, singular: "Build item", plural: "Build items" },
-  subagent: { order: 3, singular: "subagent", plural: "subagents" },
-  command: { order: 4, singular: "command", plural: "commands" },
-  monitor: { order: 5, singular: "monitor", plural: "monitors" },
-  background_task: { order: 6, singular: "background task", plural: "background tasks" },
+  landing: { order: 3, singular: "landing", plural: "landings" },
+  subagent: { order: 4, singular: "subagent", plural: "subagents" },
+  command: { order: 5, singular: "command", plural: "commands" },
+  monitor: { order: 6, singular: "monitor", plural: "monitors" },
+  background_task: { order: 7, singular: "background task", plural: "background tasks" },
 };
 
 export interface PendingBackgroundWorkItem {
@@ -338,6 +340,8 @@ function groupOfTask(task: OrchestrationV2PendingBackgroundTask): BackgroundWork
       return "pull_request";
     case "build_item":
       return "build_item";
+    case "landing":
+      return "landing";
     default:
       return "monitor";
   }
@@ -356,6 +360,8 @@ function watchLabel(
       return description?.replace(/^Watching pull request /, "");
     case "build_item":
       return `Build #${task.watching.number}`;
+    case "landing":
+      return description?.replace(/^Watching landing /, "");
     default:
       return description;
   }
@@ -470,6 +476,7 @@ export function notificationChildThreadId(
     case "command":
     case "monitor":
     case "build_item":
+    case "landing":
     case "thread":
     case "background_task":
     case "system":

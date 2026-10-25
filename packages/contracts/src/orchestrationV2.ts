@@ -503,6 +503,7 @@ export const OrchestrationV2WatchTarget = Schema.Union([
     number: PositiveInt,
     until: Schema.Literals(["unblocked", "closed"]),
   }),
+  Schema.Struct({ kind: Schema.Literal("landing"), operationId: TrimmedNonEmptyString }),
 ]);
 export type OrchestrationV2WatchTarget = typeof OrchestrationV2WatchTarget.Type;
 
@@ -1409,6 +1410,10 @@ const BuildNotificationSource = Schema.Struct({
   number: PositiveInt,
   until: Schema.Literals(["unblocked", "closed"]),
 });
+const LandingNotificationSource = Schema.Struct({
+  kind: Schema.Literal("landing"),
+  operationId: TrimmedNonEmptyString,
+});
 const CommandNotificationSource = Schema.Struct({ kind: Schema.Literal("command") });
 const ThreadNotificationSource = Schema.Struct({
   kind: Schema.Literal("thread"),
@@ -1459,6 +1464,7 @@ export const OrchestrationV2NotificationSource = kindUnionWithFallback(
     SubagentNotificationSource,
     ThreadNotificationSource,
     BuildNotificationSource,
+    LandingNotificationSource,
     CommandNotificationSource,
     Schema.Struct({ kind: Schema.Literal("monitor") }),
     Schema.Struct({ kind: Schema.Literal("background_task") }),
@@ -3820,6 +3826,17 @@ const OrchestrationV2InternalCommand = Schema.Union([
         title: TrimmedNonEmptyString,
         url: TrimmedNonEmptyString,
         condition: Schema.Literals(["unblocked", "closed", "dropped"]),
+      }),
+    ),
+    landing: Schema.optional(
+      Schema.Struct({
+        operationId: TrimmedNonEmptyString,
+        outcome: Schema.Literals(["landed", "failed", "cancelled", "declined", "unknown"]),
+        repository: TrimmedNonEmptyString,
+        stage: TrimmedNonEmptyString,
+        reason: Schema.optional(TrimmedNonEmptyString),
+        commitId: Schema.optional(TrimmedNonEmptyString),
+        spec: Schema.optional(PositiveInt),
       }),
     ),
   }),

@@ -146,6 +146,8 @@ import {
 import { ProviderAdapterRegistryV2 } from "./ProviderAdapterRegistry.ts";
 import {
   buildWatchWake,
+  landingVerdictReachesRun,
+  landingWatchWake,
   watchTargetsEqual,
   decideThreadWatch,
   queuedThreadWatchWakes,
@@ -2836,7 +2838,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         title:
           watched?.title ??
           command.title ??
-          `Build #${target.kind === "build_item" ? target.number : ""}`,
+          (target.kind === "landing"
+            ? `Landing ${target.operationId}`
+            : `Build #${target.kind === "build_item" ? target.number : ""}`),
         startedAt: DateTime.formatIso(yield* DateTime.now),
       },
     ]);
@@ -2865,6 +2869,47 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         commandType: command.type,
         cause: "The thread watch has ended.",
       });
+    }
+    if (watch.target.kind === "landing") {
+      const landing = command.landing;
+      if (landing === undefined || landing.operationId !== watch.target.operationId) return;
+      const remaining = watches.filter((candidate) => candidate !== watch);
+      // The thread's own `slipjay land` hands it the verdict, so the watch ends without a wake.
+      // A settled thread is not woken either: a message would unsettle it.
+      const records = yield* projectionStore
+        .getThreadRecords(command.threadId, ["runs", "turnItems"], {
+          turnItemTypes: ["command_execution"],
+        })
+        .pipe(
+          Effect.mapError(
+            (cause) => new OrchestratorProjectionError({ threadId: command.threadId, cause }),
+          ),
+        );
+      const settled =
+        thread.archivedAt !== null ||
+        thread.settledOverride === "settled" ||
+        thread.settledAt !== null;
+      if (settled || landingVerdictReachesRun(records, landing.operationId)) {
+        yield* emitThreadWatches(events, command, thread, remaining);
+        return;
+      }
+      yield* emitThreadWatches(events, command, thread, remaining);
+      yield* dispatchMessage(
+        {
+          type: "message.dispatch",
+          commandId: command.commandId,
+          threadId: command.threadId,
+          messageId: MessageId.make(`message:${watch.id}`),
+          ...landingWatchWake(landing),
+          attachments: [],
+          dispatchMode: { type: "queue_after_active" },
+          createdBy: "agent",
+          creationSource: "server",
+        },
+        events,
+        effects,
+      );
+      return;
     }
     if (watch.target.kind === "build_item") {
       const build = command.build;

@@ -50,6 +50,7 @@ import {
   type LandingChange,
   type LandingOutcome,
   type LandingWatchState,
+  type TrackedLanding,
 } from "./slipJayLandingState.ts";
 
 const decodeLandVerdict = Schema.decodeUnknownOption(
@@ -176,6 +177,15 @@ export class SlipJayLandings extends Context.Service<
     ) => Effect.Effect<VcsStatusSlipJayLanding | undefined>;
     /** Emits each tracked landing that changes, or every landing when the watch connects or drops. */
     readonly changes: Stream.Stream<LandingChange>;
+    /** Every landing this host tracks, oldest first. */
+    readonly landings: Effect.Effect<ReadonlyArray<TrackedLanding>>;
+    /** Starts the runner watch on a host with SlipJay, with no client asking for a status. */
+    readonly follow: Effect.Effect<void>;
+    /** The root of SlipJay workspace `name` in the repository holding `cwd`, while it exists. */
+    readonly workspaceRoot: (input: {
+      readonly cwd: string;
+      readonly name: string;
+    }) => Effect.Effect<string | undefined>;
     /**
      * The repository key, as `changes` names it, of the SlipJay workspace holding `cwd`;
      * null when it has none.
@@ -236,7 +246,7 @@ const githubRepository = (remote: string): string | null => {
   return match ? `${match[1]}/${match[2]}`.toLowerCase() : null;
 };
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 export const make = Effect.gen(function* () {
   const processes = yield* ProcessRunner.ProcessRunner;
   const registry = yield* VcsDriverRegistry.VcsDriverRegistry;
@@ -761,7 +771,40 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const follow = Ref.get(started).pipe(
+    Effect.flatMap((watching) => (watching ? Effect.succeed(false) : slipJayInstalled)),
+    Effect.flatMap((installed) => (installed ? ensureWatching : Effect.void)),
+  );
+
+  const landings = Ref.get(state).pipe(Effect.map((current) => [...current.operations.values()]));
+
+  // `slipjay list` prints `<name>\t<root>\t<state>` per workspace of the repository around `cwd`.
+  const workspaceRoot: SlipJayLandings["Service"]["workspaceRoot"] = ({ cwd, name }) =>
+    processes
+      .run({
+        command: "slipjay",
+        args: ["list"],
+        cwd,
+        timeout: "20 seconds",
+        maxOutputBytes: 256 * 1024,
+        outputMode: "truncate",
+      })
+      .pipe(
+        Effect.map((output) =>
+          output.code === 0
+            ? output.stdout
+                .split("\n")
+                .map((line) => line.split("\t"))
+                .find((columns) => columns[0] === name && (columns[1] ?? "") !== "")?.[1]
+            : undefined,
+        ),
+        Effect.orElseSucceed(() => undefined),
+      );
+
   return SlipJayLandings.of({
+    landings,
+    follow,
+    workspaceRoot,
     runner,
     followRunnerChange,
     cancel,
@@ -785,6 +828,9 @@ export const layerNone = Layer.succeed(
     landingFor: () => Effect.succeed(undefined),
     removedWorkspaceLanding: () => Effect.succeed(undefined),
     changes: Stream.empty,
+    landings: Effect.succeed([]),
+    follow: Effect.void,
+    workspaceRoot: () => Effect.succeed(undefined),
     runner: Stream.make(emptyRunnerOverview),
     followRunnerChange: Effect.void,
     cancel: () =>

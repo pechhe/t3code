@@ -333,7 +333,9 @@ function watchTasks(input: {
       description:
         watch.target.kind === "thread"
           ? `Watching thread ${watch.title}`
-          : `Watching Build #${watch.target.number} until ${watch.target.until}`,
+          : watch.target.kind === "landing"
+            ? `Watching landing ${watch.title}`
+            : `Watching Build #${watch.target.number} until ${watch.target.until}`,
       kind: "monitor" as const,
       watching: watch.target,
     })),

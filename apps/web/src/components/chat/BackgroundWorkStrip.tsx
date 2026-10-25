@@ -13,6 +13,7 @@ const KIND_LABELS: Record<PendingBackgroundWorkItem["group"], string> = {
   thread: "Thread",
   pull_request: "PR",
   build_item: "Forge",
+  landing: "Landing",
   subagent: "Agent",
   command: "Command",
   monitor: "Monitor",

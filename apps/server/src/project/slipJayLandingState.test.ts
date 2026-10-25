@@ -198,6 +198,28 @@ describe("slipJayLandingState", () => {
     expect(repeated.vanished).toEqual([]);
   });
 
+  it("learns who submitted a landing from the snapshot that lists it active", () => {
+    const { state } = apply(
+      initialLandingWatchState,
+      submitted(1, "op_a", "change-a"),
+      snapshot(1, [
+        {
+          id: "op_a",
+          repo: REPO,
+          changeId: "change-a",
+          stage: "queued",
+          submittedBy: "host:ws-a",
+        },
+      ]),
+      event(2, "op_a", { type: "failed", stage: "verifying", reason: "tests failed" }),
+    );
+    expect(state.operations.get("op_a")).toMatchObject({
+      status: "failed",
+      stage: "verifying",
+      submittedBy: "host:ws-a",
+    });
+  });
+
   it("names the repository and change a stage moved, and every landing on reconnect", () => {
     const { state } = apply(
       initialLandingWatchState,

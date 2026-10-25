@@ -25,6 +25,8 @@ export interface TrackedLanding {
   readonly reason?: string;
   /** The Build item SlipJay recorded the landing as delivering, kept once the queue drops it. */
   readonly spec?: number;
+  /** SlipJay's `<host>:<workspace>` label, known only from a snapshot that listed it active. */
+  readonly submittedBy?: string;
 }
 
 export interface LandingWatchState {
@@ -285,7 +287,12 @@ export function applyWatchEnvelope(
         listed.add(operation.id);
         const known = operations.get(operation.id);
         const spec = operation.spec ?? known?.spec;
-        if (known?.status === "active" && known.stage === operation.stage && known.spec === spec)
+        if (
+          known?.status === "active" &&
+          known.stage === operation.stage &&
+          known.spec === spec &&
+          known.submittedBy === operation.submittedBy
+        )
           continue;
         changed = true;
         operations.set(operation.id, {
@@ -296,6 +303,7 @@ export function applyWatchEnvelope(
           stage: operation.stage,
           ...(known?.commitId === undefined ? {} : { commitId: known.commitId }),
           ...(spec === undefined ? {} : { spec }),
+          ...(operation.submittedBy === undefined ? {} : { submittedBy: operation.submittedBy }),
         });
       }
       const vanished = [...operations.values()]

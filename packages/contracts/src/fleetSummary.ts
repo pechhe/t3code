@@ -24,6 +24,11 @@ export const FleetWatch = Schema.Union([
     until: Schema.Literals(["unblocked", "closed"]),
     startedAt: Schema.String,
   }),
+  Schema.Struct({
+    kind: Schema.Literal("landing"),
+    operationId: Schema.String,
+    startedAt: Schema.String,
+  }),
 ]);
 
 const ThreadFields = {

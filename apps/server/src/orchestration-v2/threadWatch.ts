@@ -4,6 +4,7 @@ import type {
   OrchestrationV2Notification,
   OrchestrationV2Run,
   OrchestrationV2RuntimeRequest,
+  OrchestrationV2ServerCommand,
   OrchestrationV2WatchTarget,
   ForgeWorkItemSummary,
   OrchestrationV2TurnItem,
@@ -127,9 +128,12 @@ export function queuedThreadWatchWakes(
           ? message.notification?.source.kind === "thread" &&
             message.notification.source.threadId ===
               (typeof target === "string" ? target : target.threadId)
-          : message.notification?.source.kind === "build_item" &&
-            message.notification.source.number === target.number &&
-            message.notification.source.until === target.until,
+          : target.kind === "landing"
+            ? message.notification?.source.kind === "landing" &&
+              message.notification.source.operationId === target.operationId
+            : message.notification?.source.kind === "build_item" &&
+              message.notification.source.number === target.number &&
+              message.notification.source.until === target.until,
       )
       .map((message) => message.id),
   );
@@ -246,9 +250,16 @@ export function watchTargetsEqual(
   left: OrchestrationV2WatchTarget,
   right: OrchestrationV2WatchTarget,
 ): boolean {
-  return left.kind === "thread"
-    ? right.kind === "thread" && left.threadId === right.threadId
-    : right.kind === "build_item" && left.number === right.number && left.until === right.until;
+  switch (left.kind) {
+    case "thread":
+      return right.kind === "thread" && left.threadId === right.threadId;
+    case "landing":
+      return right.kind === "landing" && left.operationId === right.operationId;
+    case "build_item":
+      return (
+        right.kind === "build_item" && left.number === right.number && left.until === right.until
+      );
+  }
 }
 
 export function decideBuildWatch(
@@ -285,4 +296,88 @@ export function buildWatchWake(input: {
       summary: `Build ${label}: ${condition}`,
     },
   };
+}
+
+type LandingWakeInput = NonNullable<
+  Extract<OrchestrationV2ServerCommand, { readonly type: "thread.thread-watch.fire" }>["landing"]
+>;
+
+const LANDING_REASON_LENGTH = 1000;
+
+const LANDING_LABEL: Record<LandingWakeInput["outcome"], string> = {
+  landed: "landed",
+  failed: "failed",
+  cancelled: "was cancelled",
+  declined: "was declined",
+  unknown: "ended without a recorded outcome",
+};
+
+const LANDING_OUTCOME: Record<LandingWakeInput["outcome"], OrchestrationV2Notification["outcome"]> =
+  {
+    landed: "completed",
+    failed: "failed",
+    cancelled: "cancelled",
+    declined: "cancelled",
+    unknown: "unknown",
+  };
+
+/** The wake reports SlipJay's recorded facts; the failure reason is quoted as runner text. */
+export function landingWatchWake(landing: LandingWakeInput): {
+  readonly text: string;
+  readonly notification: OrchestrationV2Notification;
+} {
+  const label = landing.spec === undefined ? landing.repository : `Build #${landing.spec}`;
+  const lines = [
+    `The landing of ${label} in ${landing.repository} (operation ${landing.operationId}) ${LANDING_LABEL[landing.outcome]}${
+      landing.outcome === "failed" || landing.outcome === "unknown" ? ` at ${landing.stage}` : ""
+    }.`,
+  ];
+  if (landing.commitId !== undefined) lines.push(`Published commit: ${landing.commitId}.`);
+  if (landing.reason !== undefined) {
+    const reason = landing.reason.trim();
+    const shown =
+      reason.length > LANDING_REASON_LENGTH ? `${reason.slice(0, LANDING_REASON_LENGTH)}…` : reason;
+    lines.push("", "SlipJay's recorded reason:", ...shown.split("\n").map((line) => `> ${line}`));
+  }
+  lines.push(
+    "",
+    landing.outcome === "failed"
+      ? `Read the runner log with \`slipjay runner log ${landing.operationId}\`; \`slipjay repair ${landing.operationId}\` starts a repair of this failed operation. T3 Code has stopped watching this landing.`
+      : "T3 Code has stopped watching this landing. If you already saw this result, there is nothing more to do.",
+  );
+  return {
+    text: lines.join("\n"),
+    notification: {
+      source: { kind: "landing", operationId: landing.operationId },
+      outcome: LANDING_OUTCOME[landing.outcome],
+      summary: `Landing of ${label}: ${landing.outcome}`,
+    },
+  };
+}
+
+const SLIPJAY_LAND_COMMAND = /\bslipjay\s+land\b/;
+
+/**
+ * Whether the thread's own `slipjay land` already hands, or will hand, it this landing's verdict:
+ * a command of a run still going that is landing, or one whose output names the operation.
+ */
+export function landingVerdictReachesRun(
+  state: {
+    readonly runs: ReadonlyArray<Pick<OrchestrationV2Run, "id" | "status">>;
+    readonly turnItems: ReadonlyArray<OrchestrationV2TurnItem>;
+  },
+  operationId: string,
+): boolean {
+  const active = new Set(
+    state.runs.filter((run) => !RUN_ENDED.has(run.status)).map((run) => run.id),
+  );
+  return state.turnItems.some(
+    (item) =>
+      item.type === "command_execution" &&
+      item.runId !== null &&
+      active.has(item.runId) &&
+      (item.output?.includes(operationId) === true ||
+        ((item.status === "pending" || item.status === "running" || item.status === "waiting") &&
+          SLIPJAY_LAND_COMMAND.test(item.input))),
+  );
 }

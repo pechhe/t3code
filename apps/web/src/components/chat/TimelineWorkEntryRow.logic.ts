@@ -156,6 +156,7 @@ export function workEntryIconName(workEntry: TimelineWorkEntry): WorkEntryIconNa
       case "monitor":
       case "thread":
       case "build_item":
+      case "landing":
         return "eye";
       case "background_task":
         return "zap";

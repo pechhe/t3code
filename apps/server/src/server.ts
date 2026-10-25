@@ -20,6 +20,7 @@ import * as PullRequestWatchReactor from "./orchestration-v2/PullRequestWatchRea
 import * as DelegatedTaskQuestionReactor from "./orchestration-v2/DelegatedTaskQuestionReactor.ts";
 import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
 import * as ForgeWatchReactor from "./orchestration-v2/ForgeWatchReactor.ts";
+import * as LandingWatchReactor from "./orchestration-v2/LandingWatchReactor.ts";
 import * as ThreadWatchReactor from "./orchestration-v2/ThreadWatchReactor.ts";
 // Effect wraps this raw Node HTTP server after its startup and write-error guards attach.
 // @effect-diagnostics nodeBuiltinImport:off
@@ -555,7 +556,7 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
-  // Adapters hand each settled turn's token usage to the Build record queue (Spec #4395).
+  // Adapters hand each settled turn's token usage to the Build record queue.
   Layer.provide(
     HqForgeUsage.layer.pipe(
       Layer.provide(HqForgeRecords.layer),
@@ -693,11 +694,16 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ).pipe(Layer.provide(ForgeWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
+      yield* (yield* LandingWatchReactor.LandingWatchReactor).start();
+    }),
+  ).pipe(Layer.provide(LandingWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+  Layer.effectDiscard(
+    Effect.gen(function* () {
       yield* (yield* ThreadWatchReactor.ThreadWatchReactor).start();
     }),
   ).pipe(Layer.provide(ThreadWatchReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   // The queue starts first: the reactors hand it what a thread owes Weave, and it is also what
-  // delivers every Build record (Spec #4395). Recording starts before the lifecycle reactor
+  // delivers every Build record. Recording starts before the lifecycle reactor
   // because that reactor asks it for a finished run's records before queueing the thread's end.
   Layer.effectDiscard(
     Effect.gen(function* () {
