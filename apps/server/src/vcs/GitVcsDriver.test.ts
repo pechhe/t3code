@@ -120,12 +120,28 @@ it.effect("lists the fetch and push URLs of a partial clone remote", () =>
     yield* runGit(cwd, ["config", "remote.origin.promisor", "true"]);
     yield* runGit(cwd, ["config", "remote.origin.partialclonefilter", "blob:none"]);
 
+    // A machine's git config may rewrite a remote URL (a url.<base>.insteadOf
+    // rule, such as one that sends https://github.com/ over SSH), and `git
+    // remote -v` reports the rewritten URL. Expected values come from git so the
+    // test proves the driver reads the fetch and push URLs out of a partial
+    // clone's annotated `remote -v` lines, not that this machine has no rules.
+    const git = (args: ReadonlyArray<string>) =>
+      driver.execute({
+        operation: "GitVcsDriver.contract.git",
+        cwd,
+        args,
+        timeoutMs: 10_000,
+      });
+    const fetchUrl = (yield* git(["remote", "get-url", "origin"])).stdout.trim();
+    const pushUrl = (yield* git(["remote", "get-url", "--push", "origin"])).stdout.trim();
+    assert.notEqual(fetchUrl, pushUrl);
+
     const result = yield* driver.listRemotes(cwd);
     assert.deepEqual(result.remotes, [
       {
         name: "origin",
-        url: "https://github.com/pingdotgg/t3code.git",
-        pushUrl: Option.some("git@github.com:octocat/t3code.git"),
+        url: fetchUrl,
+        pushUrl: Option.some(pushUrl),
         isPrimary: true,
       },
     ]);
