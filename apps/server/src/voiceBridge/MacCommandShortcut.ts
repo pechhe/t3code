@@ -14,6 +14,16 @@ struct RightOptionGesture {
     mutating func reset() { held = false; armed = false }
     mutating func otherInput() { armed = false }
 
+    mutating func receive(type: CGEventType, event: CGEvent) -> String? {
+        if event.getIntegerValueField(.eventSourceUserData) == 0x54335643 { return nil }
+        let key = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        if type == .flagsChanged {
+            return flagsChanged(keyCode: key, flags: event.flags.rawValue) ? "trigger" : nil
+        }
+        otherInput()
+        return type == .keyDown && (key == 53 || key == 10) ? "cancel" : nil
+    }
+
     mutating func flagsChanged(keyCode: UInt16, flags: UInt64) -> Bool {
         guard keyCode == 61 else { armed = false; return false }
         let pressed = flags & 0x40 != 0
@@ -30,6 +40,16 @@ struct RightOptionGesture {
     }
 }
 
+struct RightOptionMonitor<Token> {
+    private(set) var current: Token?
+
+    mutating func restart(install: () -> Token?, remove: (Token) -> Void) -> Bool {
+        if let current { remove(current) }
+        current = install()
+        return current != nil
+    }
+}
+
 func emit(_ line: String) {
     print(line)
     fflush(stdout)
@@ -37,31 +57,45 @@ func emit(_ line: String) {
 
 NSApplication.shared.setActivationPolicy(.prohibited)
 var gesture = RightOptionGesture()
-var monitor: Any?
+var monitor = RightOptionMonitor<CFMachPort>()
+var source: CFRunLoopSource?
 func observe() {
-    if monitor != nil { NSEvent.removeMonitor(monitor!) }
-    monitor = NSEvent.addGlobalMonitorForEvents(matching: [.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { event in
-        // Our internal FluidVoice chord must never alter a new physical gesture.
-        if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == 0x54335643 { return }
-        if event.type == .flagsChanged {
-            if gesture.flagsChanged(keyCode: event.keyCode, flags: UInt64(event.modifierFlags.rawValue)) { emit("trigger") }
-        } else {
-            gesture.otherInput()
-            if event.type == .keyDown && (event.keyCode == 53 || event.keyCode == 10) { emit("cancel") }
-        }
+    if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+    gesture.reset()
+    let mask = [CGEventType.flagsChanged, .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        .reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
+    let installed = monitor.restart(install: {
+        CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .listenOnly,
+            eventsOfInterest: mask, callback: { _, type, event, _ in
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    gesture.reset()
+                    if let tap = monitor.current {
+                        CGEvent.tapEnable(tap: tap, enable: true)
+                        if !CGEvent.tapIsEnabled(tap: tap) { emit("error: Right Option listener could not recover.") }
+                    }
+                    return Unmanaged.passUnretained(event)
+                }
+                // Observe before FluidVoice's session tap can consume cancel or other shortcuts.
+                if let line = gesture.receive(type: type, event: event) { emit(line) }
+                return Unmanaged.passUnretained(event)
+            }, userInfo: nil)
+    }, remove: { CFMachPortInvalidate($0) })
+    guard installed, let tap = monitor.current,
+          let next = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else {
+        emit("error: Right Option listener unavailable; check Input Monitoring and Accessibility permissions.")
+        exit(1)
+    }
+    source = next
+    CFRunLoopAddSource(CFRunLoopGetMain(), next, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+    if !CGEvent.tapIsEnabled(tap: tap) {
+        emit("error: Right Option listener could not start.")
+        exit(1)
     }
 }
 observe()
-guard monitor != nil else {
-    emit("error: Right Option observation requires Accessibility permission.")
-    exit(1)
-}
-let wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
-    // A global monitor can stop delivering events across a sleep, and a press it
-    // never sees leaves FluidVoice waiting, so a wake installs a fresh one.
-    gesture.reset()
-    observe()
-}
+let wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in observe() }
+
 let parent = getppid()
 let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
     if getppid() != parent { exit(0) }
@@ -95,11 +129,11 @@ if (shortcut.keyCode !== 9 || shortcut.modifierFlagsRawValue !== 0x1c0000 ||
 const down = $.CGEventCreateKeyboardEvent(null, 9, true);
 $.CGEventSetFlags(down, 0x1c0000);
 $.CGEventSetIntegerValueField(down, 42, 0x54335643);
-$.CGEventPost(1, down);
+$.CGEventPost(0, down);
 const up = $.CGEventCreateKeyboardEvent(null, 9, false);
 $.CGEventSetFlags(up, 0);
 $.CGEventSetIntegerValueField(up, 42, 0x54335643);
-$.CGEventPost(1, up);
+$.CGEventPost(0, up);
 `;
 
 function runScript(script: string, signal?: AbortSignal): Promise<string> {
@@ -116,8 +150,14 @@ function runScript(script: string, signal?: AbortSignal): Promise<string> {
   });
 }
 
+export function parseFluidVoiceRecordingStatus(status: string): boolean {
+  if (status === "recording") return true;
+  if (status === "ready") return false;
+  throw new Error(`Unexpected FluidVoice recording status: ${JSON.stringify(status)}`);
+}
+
 export const isFluidVoiceRecording = async (signal?: AbortSignal): Promise<boolean> =>
-  (await runScript(STATUS_SCRIPT, signal)) === "recording";
+  parseFluidVoiceRecordingStatus(await runScript(STATUS_SCRIPT, signal));
 
 export const toggleFluidVoiceCommand = async (signal?: AbortSignal): Promise<void> => {
   await runScript(TOGGLE_SCRIPT, signal);

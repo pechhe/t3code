@@ -150,9 +150,9 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     reason: "test runs the script",
   },
   {
-    when: /^apps\/mobile\/(?:plugins\/|app\.config\.ts$)/,
-    select: ["apps/mobile/plugins/withAndroidFbjniVersion.test.mjs"],
-    reason: "test applies the registered app config and plugins",
+    when: /^apps\/mobile\/modules\/t3-highlights\/Vendor\/highlights\//,
+    select: ["apps/mobile/scripts/generate-highlights.test.ts"],
+    reason: "test reads the generated native highlights source from disk",
   },
   {
     when: /^scripts\/fork-vps-runtime\.sh$/,

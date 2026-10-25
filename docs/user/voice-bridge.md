@@ -59,11 +59,16 @@ active.
 Set FluidVoice's Command Mode shortcut to **Control-Option-Command-V**, then start
 the bridge with `--command-shortcut`. Press **right Option alone** to capture the
 page and start Command Mode. Press it again to stop dictation and send the ask;
-the second press keeps the first screenshot, even if you changed windows.
+the second press keeps the first screenshot, even if you changed windows. If the
+Mac cannot read whether FluidVoice is recording, the press still sends the toggle
+and keeps any staged screenshot instead of taking a new one. If an earlier recording
+was abandoned without a cancel event, that image may be older; the bridge logs this
+fallback, and the next start with readable status replaces it.
 
-The Mac needs Apple's Command Line Tools for the shortcut helper and Accessibility
-permission for the app running the bridge, such as Terminal. A shortcut conflict
-or unavailable permission is reported in the bridge's output.
+The Mac needs Apple's Command Line Tools for the shortcut helper. The app running
+the bridge, such as Terminal, needs Input Monitoring access to observe keys and
+Accessibility permission to control FluidVoice. Unavailable permission or a listener
+that cannot recover after wake is reported in the bridge's output.
 
 Escape or FluidVoice's default cancel key discards the staged screenshot. A new
 recording replaces any abandoned image. The initial image remains available through
