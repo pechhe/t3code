@@ -79,12 +79,12 @@ const ProjectCreateTool = Tool.make("t3_project_create", {
   }),
   success: Schema.Struct({ ...Project.fields, commitError: Schema.optional(Schema.String) }),
   dependencies: [...shared.dependencies, ManagedProjectFolders.ManagedProjectFolders],
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 const ProjectUpdateTool = Tool.make("t3_project_update", {
   ...shared,
   description: "Update one project's settings. Omitted fields are unchanged.",
   parameters: Schema.Struct({ projectId: ProjectId, ...ProjectUpdatePayload.fields }),
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 const ProjectDeleteTool = Tool.make("t3_project_delete", {
   ...shared,
   description: "Delete one project. Nonempty needs `force: true`. Folder on disk stays.",
@@ -101,8 +101,8 @@ const ProjectCloneTool = Tool.make("t3_project_clone", {
     SourceControlRepositoryService.SourceControlRepositoryService,
   ],
 })
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 const ThreadLaunchTool = Tool.make("t3_thread_launch", {
   ...shared,
   description:
@@ -165,8 +165,8 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
     ServerSettings.ServerSettingsService,
   ],
 })
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 
 const HqConnectionTool = Tool.make("t3_hq_connection", {
   ...shared,
@@ -183,7 +183,7 @@ const HqConnectionTool = Tool.make("t3_hq_connection", {
     SecretRequests.SecretRequests,
     HqAgentConnections.HqAgentConnections,
   ],
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 
 export const ProjectToolkit = Toolkit.make(
   ThreadLaunchTool,

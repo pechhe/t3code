@@ -38,7 +38,7 @@ const AttachmentUploadTool = Tool.make("t3_attachment_prepare_upload", {
     "Get an upload URL. POST the file's exact bytes to `relativeUrl` on this MCP server's HTTP origin, then send via `t3_thread_send_attachments` with the returned `attachmentId`.",
   parameters: Schema.Struct({ upload: AttachmentCreateUploadUrlInput }),
   success: AttachmentCreateUploadUrlResult,
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 const AttachmentDiscardTool = Tool.make("t3_attachment_discard", {
   ...shared,
   description: "Discard a pending upload (not a sent attachment).",
@@ -64,8 +64,8 @@ const AttachmentSendTool = Tool.make("t3_thread_send_attachments", {
     status: OrchestrationV2RunStatus,
   }),
 })
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 const VideoFramesTool = Tool.make("t3_video_frames", {
   failure: OrchestratorMcpFailure,
   failureMode: "return" as const,

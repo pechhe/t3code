@@ -63,5 +63,5 @@ const EnvironmentPreferencesTool = Tool.make("t3_environment_preferences_update"
     sourceControlWritingStyle: ServerSettingsPatch.fields.sourceControlWritingStyle,
   }),
   success: Schema.Struct(PreferenceFields),
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 export const EnvironmentToolkit = Toolkit.make(EnvironmentReadTool, EnvironmentPreferencesTool);

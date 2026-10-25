@@ -69,7 +69,7 @@ const ThreadOrganizeTool = Tool.make("t3_thread_organize", {
   ],
 })
   .annotate(Tool.Title, "Organize a thread")
-  .annotate(Tool.Destructive, true);
+  .annotate(Tool.Destructive, false);
 
 const queueTarget = { threadId: Schema.optional(ThreadId), queuedRunId: RunId };
 const commandTool = {
@@ -118,7 +118,7 @@ const QueueEditTool = Tool.make("t3_queue_edit", {
     ...queueTarget,
     text: Schema.String.check(Schema.isMaxLength(100000)),
   }),
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 const QueueCancelTool = Tool.make("t3_queue_cancel", {
   ...commandTool,
   description: "Cancel one queued run.",
@@ -128,12 +128,12 @@ const QueueReorderTool = Tool.make("t3_queue_reorder", {
   ...commandTool,
   description: "Move one queued run before another, or to the end with `beforeRunId=null`.",
   parameters: Schema.Struct({ ...queueTarget, beforeRunId: Schema.NullOr(RunId) }),
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 const QueuePromoteTool = Tool.make("t3_queue_promote_to_steer", {
   ...commandTool,
   description: "Send one queued message now as steering to the given active run.",
   parameters: Schema.Struct({ ...queueTarget, targetRunId: RunId }),
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 
 const requestTarget = { threadId: Schema.optional(ThreadId), requestId: RuntimeRequestId };
 const question = Schema.Struct({
@@ -178,8 +178,8 @@ const PendingRequestRespondTool = Tool.make("t3_pending_request_respond", {
   description: "Answer one pending user question. This cannot approve a permission request.",
   parameters: Schema.Struct({ ...requestTarget, answers: ProviderUserInputAnswers }),
 })
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 
 const ThreadConfigurationTool = Tool.make("t3_thread_configuration", {
   ...commandTool,
@@ -224,7 +224,7 @@ const ThreadConfigureTool = Tool.make("t3_thread_configure", {
     threadId: Schema.optional(ThreadId),
     modelSelection: ModelSelection,
   }),
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 
 const transferResult = Schema.Struct({ sequence: NonNegativeInt, targetThreadId: ThreadId });
 const ThreadForkTool = Tool.make("t3_thread_fork", {
@@ -237,7 +237,7 @@ const ThreadForkTool = Tool.make("t3_thread_fork", {
     title: Schema.optional(TrimmedNonEmptyString),
   }),
   success: transferResult,
-}).annotate(Tool.Destructive, true);
+}).annotate(Tool.Destructive, false);
 const projectMoveDependencies = [
   ...commandTool.dependencies,
   ProjectService.ProjectService,
@@ -264,7 +264,7 @@ const ThreadMoveToProjectTool = Tool.make("t3_thread_move_to_project", {
   dependencies: [...commandTool.dependencies, ThreadProjectMoveService.ThreadProjectMoveService],
 })
   .annotate(Tool.Title, "Move a chat into a project")
-  .annotate(Tool.Destructive, true);
+  .annotate(Tool.Destructive, false);
 const ThreadMergeBackTool = Tool.make("t3_thread_merge_back", {
   ...commandTool,
   description:
@@ -323,8 +323,8 @@ const ScheduledTaskRunTool = Tool.make("run_scheduled_task_now", {
   }),
   dependencies: [...commandTool.dependencies, ScheduledTaskService.ScheduledTaskService],
 })
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 
 export const ThreadToolkit = Toolkit.make(
   ScheduledTaskRunTool,

@@ -120,8 +120,8 @@ const DelegateTaskTool = Tool.make("delegate_task", {
   dependencies,
 })
   .annotate(Tool.Title, "Delegate a child task")
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 
 const TaskStatusTool = Tool.make("task_status", {
   description:
@@ -171,8 +171,8 @@ const ScheduleTaskTool = Tool.make("schedule_task", {
   dependencies,
 })
   .annotate(Tool.Title, "Schedule a recurring task")
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 
 const ListScheduledTasksTool = Tool.make("list_scheduled_tasks", {
   parameters: OrchestratorMcpListScheduledTasksInput,
@@ -198,7 +198,7 @@ const UpdateScheduledTaskTool = Tool.make("update_scheduled_task", {
   dependencies,
 })
   .annotate(Tool.Title, "Update a scheduled task")
-  .annotate(Tool.Destructive, true);
+  .annotate(Tool.Destructive, false);
 
 const DeleteScheduledTaskTool = Tool.make("delete_scheduled_task", {
   description:
@@ -246,8 +246,8 @@ const CreateThreadsTool = Tool.make("create_threads", {
   dependencies,
 })
   .annotate(Tool.Title, "Create T3 threads")
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 
 const ThreadListTool = Tool.make("t3_thread_list", {
   description:
@@ -288,7 +288,7 @@ const ThreadUpdateTool = Tool.make("t3_thread_update", {
   dependencies: threadMetadataDependencies,
 })
   .annotate(Tool.Title, "Update T3 thread metadata")
-  .annotate(Tool.Destructive, true)
+  .annotate(Tool.Destructive, false)
   .annotate(Tool.Idempotent, false);
 
 const ThreadSendTool = Tool.make("t3_thread_send", {
@@ -301,8 +301,8 @@ const ThreadSendTool = Tool.make("t3_thread_send", {
   dependencies,
 })
   .annotate(Tool.Title, "Send to a T3 thread")
-  .annotate(Tool.Destructive, true)
-  .annotate(Tool.OpenWorld, true);
+  .annotate(Tool.Destructive, false)
+  .annotate(Tool.OpenWorld, false);
 
 const ThreadWaitTool = Tool.make("t3_thread_wait", {
   description:

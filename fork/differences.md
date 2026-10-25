@@ -742,3 +742,14 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 - **Upstream:** none known: upstream has no transcript export, and its composer thread-context attachment stays JSONL for T3's own agents. An upstream thread action list, transcript endpoint change or item contract change meets this here.
 - **Retire when:** upstream ships a transcript export that covers sub-agent threads and the two verbosity options.
 - **Owner:** pechhe/t3code Forge T3-252 (#5124).
+
+### mcp-orchestration-annotations
+
+- **Kind:** durable extension
+- **Why:** A hosted agent such as ChatGPT asks its user before every tool it sees as destructive or open-world. Starting, messaging and configuring threads is what the user directed the agent to do, so those tools must not be labelled like deletes.
+- **Requirements:** tools that create, send, launch, configure or answer (`delegate_task`, `create_threads`, `t3_thread_launch`, `t3_thread_send`, `t3_pending_request_respond`, the queue and project edit tools) declare `destructiveHint: false` and `openWorldHint: false`. Tools that delete, cancel, stop, interrupt or merge keep `destructiveHint: true`. No state-changing tool is ever marked read-only.
+- **Integration points:** the `Tool.Destructive` and `Tool.OpenWorld` annotations in `apps/server/src/mcp/toolkits/*/tools.ts`, copied into `tools/list` by `McpHttpServer.ts`.
+- **Proof:** none beyond the existing MCP listing tests (unverified in ChatGPT).
+- **Upstream:** none known.
+- **Retire when:** upstream annotates these tools equivalently.
+- **Owner:** none (requested by Henry directly).
