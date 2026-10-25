@@ -49,9 +49,11 @@ export interface TranscriptExportSections {
 }
 
 /**
- * Every thread the export covers, in creation order: a thread, then the sub-agents it
- * started, each followed by theirs before the next sibling. A thread that cannot be read
- * is reported instead of dropping out of the document.
+ * Every thread the export covers: a thread, then the sub-agents it started, ordered by when
+ * that parent started each of them. A thread whose row recorded no start takes its previous
+ * sibling's, or its parent's when it is the first, so it stays next to the siblings it was
+ * found with; equal keys keep discovery order. A thread that cannot be read is reported
+ * instead of dropping out of the document.
  */
 export async function collectTranscriptSections(input: {
   readonly root: Pick<ScopedThreadRef, "environmentId" | "threadId">;
@@ -72,10 +74,11 @@ export async function collectTranscriptSections(input: {
   const visit = async (
     transcript: OrchestrationV2ThreadTranscript,
     environmentId: ScopedThreadRef["environmentId"],
+    parentKey: string,
   ): Promise<void> => {
-    // A row with no recorded start takes its previous sibling's, so it stays where the
-    // thread listed it rather than sorting to the end.
-    let siblingStart: string | null = null;
+    // A row with no recorded start inherits the previous sibling's key, or its parent's for
+    // a first child, so it keeps its place instead of sorting ahead of the thread it came from.
+    let siblingStart = parentKey;
     for (const child of subagentChildren(transcript)) {
       const orderKey = child.startedAtIso ?? siblingStart;
       if (child.startedAtIso !== null) siblingStart = child.startedAtIso;
@@ -95,12 +98,12 @@ export async function collectTranscriptSections(input: {
           brief: child.brief,
           transcript: childTranscript,
         },
-        orderKey: orderKey ?? "",
+        orderKey,
       });
-      await visit(childTranscript, environmentId);
+      await visit(childTranscript, environmentId, orderKey);
     }
   };
-  await visit(main, input.root.environmentId);
+  await visit(main, input.root.environmentId, "");
 
   return {
     main: root.main,

@@ -203,6 +203,33 @@ describe("collectTranscriptSections", () => {
     expect(sections.subagents.map((section) => section.title)).toEqual(["A", "B", "G"]);
   });
 
+  it("keeps a first child with no recorded start under its own parent, not at the front", async () => {
+    const untimedFirst: Record<string, OrchestrationV2ThreadTranscript> = {
+      ...catalogue,
+      a: transcript("A", "a", [
+        subagentRow({ childThreadId: "x", prompt: "X brief" }),
+        subagentRow({
+          childThreadId: "y",
+          prompt: "Y brief",
+          startedAt: "2026-10-25T09:15:00.000Z",
+        }),
+      ]),
+      x: transcript("X", "x"),
+      y: transcript("Y", "y"),
+    };
+    const sections = await collectTranscriptSections({
+      root: ROOT,
+      includeSubagents: true,
+      load: (async (_environmentId: string, threadId: string) => untimedFirst[threadId]!) as never,
+      describeFailure: describeExportFailure,
+    });
+
+    // X was started by A but its row records no start, so it follows A rather than leading
+    // the document; the timed sections after it follow their own start times (B at 09:11,
+    // Y at 09:15), not the shape of the tree.
+    expect(sections.subagents.map((section) => section.title)).toEqual(["A", "X", "B", "Y"]);
+  });
+
   it("names a thread it cannot read and keeps its siblings", async () => {
     const sections = await collectTranscriptSections({
       root: ROOT,
