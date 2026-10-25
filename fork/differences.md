@@ -113,9 +113,9 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** Agents outside T3 (other harnesses) take part in T3-managed work through a thin authenticated CLI.
-- **Requirements:** `t3 agent` commands reach delegation with the caller's auth; external work is recorded and status reports no pending question; an external attach works for a project registered in a repository subdirectory.
-- **Integration points:** `cli/agent.ts`, `AgentCliClient`, `ExternalAgentWorkService`; migration 065; MCP/OAuth auth path; docs/user/outside-agents.md.
-- **Proof:** apps/server/src/cli/AgentCliClient.test.ts, agent.test.ts; apps/server/src/agents/ExternalAgentWorkService.test.ts.
+- **Requirements:** `t3 agent` commands reach delegation with the caller's auth; external work is recorded and status reports no pending question; an external attach works for a project registered in a repository subdirectory; an attached external session can read its exact workspace (files, search, Git/jj status, log, diff, recorded landing evidence) read-only, revision-pinned and without mutating the checkout or VCS metadata.
+- **Integration points:** `cli/agent.ts`, `AgentCliClient`, `ExternalAgentWorkService`; migration 065; MCP/OAuth auth path; the `workspace_*` read-only inspection toolkit (`WorkspaceInspection`, `mcp/toolkits/workspace`, tool family `inspection`, legacy `/mcp` only); docs/user/outside-agents.md.
+- **Proof:** apps/server/src/cli/AgentCliClient.test.ts, agent.test.ts; apps/server/src/agents/ExternalAgentWorkService.test.ts; apps/server/src/workspace/WorkspaceInspection.test.ts, apps/server/src/mcp/toolkits/workspace/handlers.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent external-agent CLI covering the requirements.
 - **Decision:** `adopt` (v0.1.3-nightly.20261023.3566, 2026-10-23): upstream aborts an ACP MCP fetch when its request is interrupted (#23955); adopted, and the exported `callAcpMcpTool` that `AgentCliClient` calls is unchanged. Earlier: `adapt` (v0.1.2-nightly.20261021.3473, 2026-10-21): upstream's `t3 thread` command (#22732, local token) sits beside `t3 agent` (OAuth); the bridge adopts upstream's shared `mcpToolSession` and keeps the exported `callAcpMcpTool` that `AgentCliClient` calls. Earlier: `retain` (v0.1.2-nightly.20261021.3457, 2026-10-21): upstream's removal of test-only exports (#22557) reverted for `callAcpMcpTool`, which `AgentCliClient` calls in production. Earlier: `retain` (seed, 2026-10-19).

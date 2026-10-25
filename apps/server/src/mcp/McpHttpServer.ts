@@ -51,6 +51,10 @@ import { EnvironmentToolkit } from "./toolkits/environment/tools.ts";
 import { FleetToolkit } from "./toolkits/fleet/tools.ts";
 import * as FleetHandlers from "./toolkits/fleet/handlers.ts";
 import * as EnvironmentHandlers from "./toolkits/environment/handlers.ts";
+import { WorkspaceToolkit } from "./toolkits/workspace/tools.ts";
+import * as WorkspaceHandlers from "./toolkits/workspace/handlers.ts";
+import * as WorkspaceInspection from "../workspace/WorkspaceInspection.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import * as ProjectHandlers from "./toolkits/project/handlers.ts";
 import { AttachmentToolkit } from "./toolkits/attachment/tools.ts";
@@ -1128,6 +1132,11 @@ const layerProjectRegistration = toolkitRegistration(ProjectToolkit, ProjectHand
   Layer.provide(WorkspaceProvider.layer),
 );
 
+export const layerWorkspaceInspectionToolkit = toolkitRegistration(
+  WorkspaceToolkit,
+  WorkspaceHandlers.layer,
+).pipe(Layer.provide(WorkspaceInspection.layer.pipe(Layer.provide(ProcessRunner.layer))));
+
 export const layerAttachmentToolkit = toolkitRegistration(
   AttachmentToolkit,
   AttachmentHandlers.layer,
@@ -1289,6 +1298,7 @@ const legacyLayer = Layer.mergeAll(
   layerOrchestratorToolkit,
   layerThreadToolkit,
   layerAttachmentToolkit,
+  layerWorkspaceInspectionToolkit,
   layerProjectRegistration,
   layerEnvironmentToolkit,
   toolkitRegistration(FleetToolkit, FleetHandlers.layer),

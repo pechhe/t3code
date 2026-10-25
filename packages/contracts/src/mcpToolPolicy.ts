@@ -16,6 +16,7 @@ export type ToolFamily =
   | "project"
   | "experiments"
   | "work"
+  | "inspection"
   | "leaf"
   | "report";
 
@@ -105,6 +106,8 @@ export const toolFamily = (name: string): ToolFamily => {
   if (name.startsWith("t3_experiments_")) return "experiments";
   // Work-unit allocation and evidence are an implementer's tools, not a researcher's.
   if (name.startsWith("t3_work_")) return "work";
+  // Source inspection is for external OAuth clients; no session endpoint lists it.
+  if (name.startsWith("workspace_")) return "inspection";
   if (name.startsWith("preview_") || name.startsWith("t3_preview_")) return "preview";
   if (name.startsWith("device_")) return "device";
   if (name.startsWith("t3_queue_")) return "queue";

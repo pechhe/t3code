@@ -257,3 +257,39 @@ coverage leaves complete total token counts null, while retaining observed subto
 Experiment reports preserve the full intention-to-treat denominator and exclusions
 when detailed work is paginated. These are descriptive samples, not significance,
 subscription charges or an automatically promoted winner.
+
+## Read a workspace
+
+An agent attached to a workspace (`t3 agent attach`, or `agent_session_attach` over
+MCP) can inspect that exact checkout without starting a helper, opening a shell or
+getting write access. It needs a **Read only** sign-in or better and the session key
+from the attach. Nothing is copied: each tool reads the checkout as it is now.
+
+1. `workspace_read_context` returns the VCS type (Git or Jujutsu), the current
+   revision and parents, uncommitted changes, and a **token**.
+2. `workspace_search`, `workspace_read_file`, `workspace_vcs_status`,
+   `workspace_vcs_log` and `workspace_vcs_diff` take the session key and that token.
+3. `workspace_test_evidence` shows the SlipJay landing result already recorded for
+   the workspace. It runs nothing.
+
+If the workspace changes after the token was issued, every call fails with
+`stale_source`; call `workspace_read_context` again. Paths are relative to the
+workspace root. Ignored files, binary or oversized files, credential and key
+files, runtime stores such as `.t3`, `.git` and `.jj`, and files containing secret
+material are refused, and diffs leave them out. Results are capped (about 20 KiB
+per call) and continue with a `nextCursor`.
+
+A Jujutsu working copy is read without snapshotting it, so `snapshotAt` shows when
+jj last recorded it. Edits made since are found by comparing the disk with that
+snapshot and are marked `disk` in the change list. This is bounded: only files
+modified at or after the snapshot are compared, at most 25 by content (the rest
+are listed as modified), and a very large tree or an unreadable ignore list sets
+`observationComplete` to false. A file rewritten with its old modification time
+(`cp -p`, `rsync -a`) is not noticed in jj. Git working copies are exact.
+
+Linked environments cannot use these tools. `workspace_test_evidence` reports
+the SlipJay landing recorded for the workspace, with its checks and the commit it
+published. `sourceMatch` is `current` only when that landing published exactly
+this clean revision, `stale` for a finished landing of other source, `unverified`
+for one still running, and `none` when nothing was recorded. A command you ran
+inside T3 is not part of this record.

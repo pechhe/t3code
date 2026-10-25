@@ -38,6 +38,7 @@ import { PreviewControlsToolkit } from "./toolkits/previewControls/tools.ts";
 import { ProjectToolkit } from "./toolkits/project/tools.ts";
 import { PullRequestsToolkit } from "./toolkits/pullRequests/tools.ts";
 import { ThreadToolkit } from "./toolkits/thread/tools.ts";
+import { WorkspaceToolkit } from "./toolkits/workspace/tools.ts";
 import { WorktreeToolkit } from "./toolkits/worktree/tools.ts";
 import { MANAGED_BROWSER_TOOL_NAMES } from "./toolkits/managedBrowser/toolNames.ts";
 
@@ -429,4 +430,22 @@ it("gives Pi's process the child text its own listing earns", () => {
   expect(
     launch({ delegated: false, listsPreview: true, listsHtml: true }).env.T3_PI_INSTRUCTIONS,
   ).toBeUndefined();
+});
+
+it("keeps workspace inspection off every session endpoint and its listing small", () => {
+  const inspection = Object.values(WorkspaceToolkit.tools);
+  expect(inspection.map((tool) => toolFamily(tool.name))).toEqual(
+    inspection.map(() => "inspection"),
+  );
+  for (const endpoint of Object.values(SESSION_TOOL_ENDPOINTS))
+    for (const tool of inspection) expect(endpoint.families.has(toolFamily(tool.name))).toBe(false);
+  const chars = inspection.reduce(
+    (total, tool) =>
+      total +
+      (Tool.getDescription(tool) ?? "").length +
+      JSON.stringify(Tool.getJsonSchema(tool)).length,
+    0,
+  );
+  // Measured at 5,011 characters for seven tools; external clients list them, threads never do.
+  expect(chars).toBeLessThan(6_000);
 });
