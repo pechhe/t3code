@@ -203,7 +203,7 @@ interface DeliveryRow {
   readonly reportedAt: string | null;
   /** The HQ that recorded the finding; only it is told how delivery went. */
   readonly hqOrigin: string;
-  readonly noteKind: "send_back" | "answer" | "decision";
+  readonly noteKind: "send_back" | "answer" | "decision" | "gate_removal";
   /** The Proposed Decision a `decision` note was sent back on (YS-277), as `#N “title”`. */
   readonly decisionLabel: string | null;
   readonly specProject: string | null;
@@ -215,7 +215,7 @@ interface DeliveryRow {
 const HqNote = Schema.Struct({
   id: Schema.String,
   note: Schema.String,
-  kind: Schema.Literals(["send_back", "answer", "decision"]),
+  kind: Schema.Literals(["send_back", "answer", "decision", "gate_removal"]),
   decision: Schema.optional(
     Schema.NullOr(
       Schema.Struct({
@@ -235,9 +235,23 @@ const HqNote = Schema.Struct({
   leadThread: Schema.NullOr(Schema.Struct({ harness: Schema.String, sessionRef: Schema.String })),
   claim: Schema.NullOr(Schema.Struct({ environmentId: Schema.String })),
 });
-const decodeNotes = Schema.decodeUnknownOption(
-  Schema.Union([Schema.Array(HqNote), Schema.Struct({ notes: Schema.Array(HqNote) })]),
+const decodeNoteList = Schema.decodeUnknownOption(
+  Schema.Union([
+    Schema.Array(Schema.Unknown),
+    Schema.Struct({ notes: Schema.Array(Schema.Unknown) }),
+  ]),
 );
+const decodeNote = Schema.decodeUnknownOption(HqNote);
+/** Each note decodes on its own, so one of a kind this build does not know is skipped, never the rest. */
+const decodeNotes = (value: unknown) =>
+  decodeNoteList(value).pipe(
+    Option.map((list) =>
+      ("notes" in list ? list.notes : list).flatMap((raw) => {
+        const note = decodeNote(raw);
+        return Option.isSome(note) ? [note.value] : [];
+      }),
+    ),
+  );
 
 /**
  * The T3 thread a Forge lead session names (Spec #4070): harness `t3code` or `t3`, with a bare thread
@@ -570,9 +584,11 @@ const make = Effect.gen(function* () {
         ? sendBackMessageText(row)
         : row.noteKind === "answer"
           ? `Your owner answered your hold on ${row.specLabel}: ${row.note}`
-          : row.noteKind === "decision"
-            ? `Your owner sent back ${row.decisionLabel ? `Decision ${row.decisionLabel}, which` : "a Decision that"} ${row.specLabel} proposed, to revise or drop: ${row.note}`
-            : `Your owner sent ${row.specLabel} back: ${row.note}`;
+          : row.noteKind === "gate_removal"
+            ? `${row.specLabel} was accepted. ${row.note}`
+            : row.noteKind === "decision"
+              ? `Your owner sent back ${row.decisionLabel ? `Decision ${row.decisionLabel}, which` : "a Decision that"} ${row.specLabel} proposed, to revise or drop: ${row.note}`
+              : `Your owner sent ${row.specLabel} back: ${row.note}`;
     if (
       row.claimed !== 0 &&
       (target === fallbackId ||
@@ -758,8 +774,7 @@ const make = Effect.gen(function* () {
             message: "Weave could not read undelivered notes.",
           }),
         );
-      const notes = "notes" in decoded.value ? decoded.value.notes : decoded.value;
-      for (const note of notes) {
+      for (const note of decoded.value) {
         if (note.claim !== null && note.claim.environmentId !== environmentId) continue;
         const lead = note.leadThread === null ? null : leadThreadOf(note.leadThread);
         if (lead !== null) {
@@ -829,7 +844,7 @@ const make = Effect.gen(function* () {
     readonly note: string;
     readonly lead: { readonly harness: string; readonly sessionRef: string } | null;
     readonly hqOrigin: string;
-    readonly noteKind?: "send_back" | "answer" | "decision";
+    readonly noteKind?: "send_back" | "answer" | "decision" | "gate_removal";
     readonly decisionLabel?: string | null;
     readonly specProject?: string | null;
     readonly specNumber?: number;

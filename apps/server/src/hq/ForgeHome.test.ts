@@ -688,7 +688,7 @@ const note = (
 ) => ({
   id,
   note: "Use the current route",
-  kind: "send_back" as "send_back" | "answer" | "decision",
+  kind: "send_back" as "send_back" | "answer" | "decision" | "gate_removal",
   spec: { id: "spec-1", number: 4530, ref: "YS-260", title: "Inbox", project: "pechhe/yardsmith" },
   decision: null as { number: number; ref: string | null; title: string } | null,
   leadThread: lead,
@@ -1070,6 +1070,33 @@ it.effect("delivers a note sent back on a Proposed Decision to its source Spec's
       "Your owner sent back Decision #4548 “Hum acts on your WhatsApp instruction”, which YS-260 proposed, to revise or drop: Only your own number counts",
     );
     assert.strictEqual(deliveries(hq).at(-1)?.state, "delivered");
+  }),
+);
+
+it.effect("delivers a gate-removal note as Forge's own job, not the owner's words", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    const n = note();
+    n.kind = "gate_removal";
+    n.note = "Remove its Spec gate and land it as a chore.";
+    hq.answer = noteAnswer([n]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(
+      world.sent[0]?.text,
+      "YS-260 was accepted. Remove its Spec gate and land it as a chore.",
+    );
+    assert.strictEqual(deliveries(hq).at(-1)?.state, "delivered");
+  }),
+);
+
+it.effect("skips a note of a kind it does not know and still delivers the others", () =>
+  Effect.gen(function* () {
+    const { hq, world, service } = yield* connected;
+    const unknown = { ...note("note-unknown"), kind: "something_new" };
+    hq.answer = noteAnswer([unknown as unknown as ReturnType<typeof note>, note("note-known")]);
+    yield* service.settleDeliveries;
+    assert.strictEqual(world.sent.length, 1);
+    assert.strictEqual(world.sent[0]?.text, "Your owner sent YS-260 back: Use the current route");
   }),
 );
 
