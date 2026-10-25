@@ -150,11 +150,12 @@ export function isRestartNoteSource(
 }
 
 /**
- * Everything a restart cancelled except a shell wakes the run: a dev server left running waits for
- * the next user message, while a monitor, a subagent or a task reports what it lost.
+ * Matches the Working-section hold: a shell or monitor wakes the run only when the agent said it
+ * waits on it. Most are dev servers and their watchdogs, so their note waits for the next user
+ * message; a subagent or a task always reports what it lost.
  */
-export function isAwaitedWork(work: Pick<Work, "kind">): boolean {
-  return work.kind !== "shell";
+export function isAwaitedWork(work: Pick<Work, "kind" | "awaited">): boolean {
+  return work.awaited === true || (work.kind !== "shell" && work.kind !== "monitor");
 }
 
 /** A run whose background work a restart or a Stop cut short did not finish, whatever its turn did. */

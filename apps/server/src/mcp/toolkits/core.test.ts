@@ -668,6 +668,7 @@ it.effect(
             title: "Rollover handling",
             source: "title",
             environmentId: "mcp-core-environment",
+            link: "[Rollover handling](t3-thread://v1/local-match)",
           },
         ],
         environments: [],

@@ -130,7 +130,13 @@ it("names a lost subagent by the id the agent resumes it with", () => {
   assert.lengthOf(longId, 160);
   // A command with no owning subagent is a shell, which waits for the next user message.
   assert.isFalse(isAwaitedWork(cancelledRosterTaskWork({ kind: "command", taskId: "shell-2" })));
-  assert.isTrue(isAwaitedWork(cancelledRosterTaskWork({ kind: "monitor", taskId: "watchdog" })));
+  assert.isTrue(
+    isAwaitedWork(cancelledRosterTaskWork({ kind: "command", taskId: "tests", awaited: true })),
+  );
+  assert.isFalse(isAwaitedWork(cancelledRosterTaskWork({ kind: "monitor", taskId: "watchdog" })));
+  assert.isTrue(
+    isAwaitedWork(cancelledRosterTaskWork({ kind: "monitor", taskId: "ci", awaited: true })),
+  );
   assert.equal(
     cancelledTurnItemWork({
       id: "item-1",
