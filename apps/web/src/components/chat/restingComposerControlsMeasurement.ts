@@ -47,8 +47,7 @@ function controlBlockWidths(block: HTMLElement): { natural: number; iconOnly: nu
   for (const label of block.querySelectorAll<HTMLElement>("[data-composer-control-label]")) {
     const labelStyle = getComputedStyle(label);
     const inFlow = labelStyle.position !== "absolute";
-    // Phone widths already hide the build label with sr-only. Its clipping
-    // remains in effect even when compact styles replace its one-pixel width.
+    // Phone sr-only clipping survives compact styles overriding the label width.
     if (!inFlow && (!compact || labelStyle.clip !== "auto")) continue;
     const labelWidth = label.scrollWidth;
     const renderedWidth = inFlow ? label.getBoundingClientRect().width : 0;
@@ -65,7 +64,7 @@ function controlBlockWidths(block: HTMLElement): { natural: number; iconOnly: nu
   return { natural, iconOnly: Math.min(natural, iconOnly) };
 }
 
-/** The natural widths the composer decides overflow from, independent of what it hid last render. */
+/** Measure independently of controls hidden by the previous render. */
 export function measureRestingComposerControls(
   controls: HTMLElement,
 ): RestingComposerControlsMeasurement | null {

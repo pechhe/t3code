@@ -1,7 +1,4 @@
-/**
- * Do not import t3code modules from the string body. The Pi process resolves
- * `@earendil-works/pi-coding-agent` and `typebox` from the user's pi install.
- */
+// No T3 imports inside the string; resolve Pi and typebox from the user's Pi install.
 import {
   T3_CODE_ORCHESTRATION_INSTRUCTIONS,
   t3ChildInstructions,
@@ -47,10 +44,7 @@ export const piChildInstructionsFor = (listing: {
 
 export const T3_PI_MCP_EXTENSION_PATH_ENV = "T3_PI_MCP_EXTENSION_PATH";
 
-/**
- * Pi tools whose confirmations the bridge raises as file-change approvals.
- * Auto-accept edits skips them; the adapter keys the approval kind off them.
- */
+// These tools trigger file-change approvals, bypassed by Auto-accept edits.
 export const PI_FILE_CHANGE_TOOLS = ["edit", "write"] as const;
 
 export const PI_T3_MCP_EXTENSION_SOURCE = `\

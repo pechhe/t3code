@@ -421,14 +421,14 @@ describe("AgentAwarenessRelay", () => {
       }).pipe(Effect.scoped),
   );
 
-  it.effect("keeps settled live work until its monitor finishes", () =>
+  it.effect("keeps settled live work until its awaited monitor finishes", () =>
     Effect.gen(function* () {
       const { relay, currentShell, publications } = yield* makeTestRelay();
       yield* relay.publishThread(THREAD_ID);
       const held = shell({
         status: "completed",
         settledOverride: "settled",
-        pendingBackgroundTasks: [{ taskId: "watch", kind: "monitor" }],
+        pendingBackgroundTasks: [{ taskId: "watch", kind: "monitor", awaited: true }],
       });
       yield* Ref.set(currentShell, held);
       yield* relay.publishThread(THREAD_ID);

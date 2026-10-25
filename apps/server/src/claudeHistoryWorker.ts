@@ -9,16 +9,10 @@ import * as Schema from "effect/Schema";
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- spawns the worker with a provider's environment.
 import * as NodeChildProcess from "node:child_process";
 
-// The SDK's session helpers find transcripts through `CLAUDE_CONFIG_DIR` in
-// `process.env`. A separate process gives them a provider's environment without
-// mutating the server's environment. `claude-history-worker.ts` is the
-// standalone entry bundled beside the server for npm installs; the
-// single-executable hosts the same function as its `__claude-history`
-// subcommand, which has no Node to run a sibling script. Nothing here may run
-// on import: inside the executable `import.meta.main` is true for the whole
-// bundle.
+// Bundled import.meta.main is always true; imports must have no side effects.
 const HistoryOptions = Schema.Struct({
   dir: Schema.optionalKey(Schema.String),
+  includeSystemMessages: Schema.optionalKey(Schema.Boolean),
   upToMessageId: Schema.optionalKey(Schema.String),
   agentId: Schema.optionalKey(Schema.String),
   limit: Schema.optionalKey(Schema.Number),
@@ -38,6 +32,7 @@ const forkWithHead = async (sessionId: string, options: Omit<HistoryOptions, "ag
 
 const runHistory = (method: string | undefined, sessionId: string, options: HistoryOptions) => {
   const { agentId, ...rest } = options;
+  if (method === "getSessionMessages") return getSessionMessages(sessionId, rest);
   if (method === "forkSession") return forkWithHead(sessionId, rest);
   if (method === "getSubagentMessages" && agentId !== undefined) {
     return getSubagentMessages(sessionId, agentId, rest);

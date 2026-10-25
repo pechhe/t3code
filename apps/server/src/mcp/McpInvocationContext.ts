@@ -35,10 +35,7 @@ export interface McpClientCaller {
   readonly access: McpClientAccess;
 }
 
-/**
- * A read-only client never reaches a write (`McpToolAccess` refuses it first),
- * so it maps to the lowest mode rather than to nothing.
- */
+/** Read-only clients map to the lowest mode because McpToolAccess blocks writes first. */
 export const clientRuntimeModeCeiling = (client: McpClientCaller | undefined): RuntimeMode =>
   client === undefined || client.access === "read-only" || client.access === "peer-threads"
     ? "approval-required"
@@ -48,11 +45,7 @@ export const clientRuntimeModeCeiling = (client: McpClientCaller | undefined): R
 export const isReadOnlyClient = (client: McpClientCaller) =>
   client.access === "read-only" || client.access === "peer-threads";
 
-/**
- * A thread caller's omitted target falls back to its own thread; a client
- * caller has no own thread, so tools that act as the caller (delegate_task,
- * preview, worktree handoff) need `thread`.
- */
+/** Thread callers default to their own thread; client callers need thread for tools that act as the caller. */
 export interface McpInvocationScope {
   readonly environmentId: EnvironmentId;
   readonly capabilities: ReadonlySet<McpCapability>;

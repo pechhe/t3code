@@ -34,10 +34,9 @@ const FLIP_MAX_AGE_MS = 5_000;
 
 /**
  * Glides keyed elements from where they were to where they land after a re-render: the
- * chosen chip flies into the question, the one it replaces flies back to its place in the
- * row, and everything between them slides. `capture(target)` records positions before a
- * change; the move plays when `changeKey` becomes `target`, and is dropped if anything else
- * lands first. Transforms only, one shot.
+ * chosen chip flies into the question, the one it replaces flies back, and everything
+ * between slides. `capture(target)` records positions before a change; the move plays when
+ * `changeKey` becomes `target`, and is dropped if anything else lands first.
  */
 function useFlip(changeKey: string) {
   const nodes = useRef(new Map<string, HTMLElement>());

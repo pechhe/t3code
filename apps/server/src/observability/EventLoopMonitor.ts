@@ -19,10 +19,7 @@ import * as ServerConfig from "../config.ts";
 import * as HostResources from "../resourceTelemetry/HostResources.ts";
 import * as Metrics from "./Metrics.ts";
 
-// Node's delay histogram wakes a native timer every RESOLUTION_MS and records the
-// gap between wakeups, so an idle loop reads about RESOLUTION_MS and a stall of S
-// reads between S and S + RESOLUTION_MS. We subtract the resolution, so a delay can
-// undercount a stall by up to RESOLUTION_MS.
+// Subtract the histogram's timer resolution; this can undercount stalls by up to RESOLUTION_MS.
 const RESOLUTION_MS = 1000;
 const STALL_THRESHOLD_MS = 2000;
 const SAMPLE_INTERVAL = "30 seconds";
@@ -114,9 +111,8 @@ const makeNodeSampler = Effect.gen(function* () {
 
 /**
  * A stall is delay the loop spent running JavaScript. A freeze is delay it spent idle in
- * poll: the computer asleep (libuv's clock keeps running through sleep on macOS and
- * Windows), the process suspended by the OS, or starved of CPU and memory. They are
- * recorded apart so a freeze never inflates the stall count.
+ * poll — asleep (libuv's clock keeps running through sleep on macOS and Windows), suspended,
+ * or starved — recorded apart so that it never inflates the stall count.
  */
 export const loopDelay = ({ delayMaxNs, activeMs }: EventLoopReadings) => {
   const delayMs = Math.round(delayMaxNs / 1e6) - RESOLUTION_MS;
@@ -249,10 +245,7 @@ export const layerWith = (
       }).pipe(sampling.withPermits(1));
       const tick = detect.pipe(Effect.flatMap((report) => report ?? Effect.void));
       const wait = Effect.sleep(SAMPLE_INTERVAL);
-      // The layer builds before the rest of the server, so the first sample covers
-      // startup work such as migrations and projection bootstrap. That can block the
-      // loop for seconds on a large database, so skip it rather than warn at every
-      // launch.
+      // The first sample includes migrations and bootstrap; skip expected startup stalls.
       yield* wait.pipe(
         Effect.andThen(sampling.withPermits(1)(sample)),
         Effect.andThen(Ref.set(warmedUp, true)),

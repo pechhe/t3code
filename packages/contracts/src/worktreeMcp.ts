@@ -5,12 +5,7 @@ import { OrchestrationV2WorkspaceAttachment } from "./orchestrationV2.ts";
 
 const AbsolutePath = TrimmedNonEmptyString.check(Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/));
 
-/**
- * The server picks the location in its managed worktrees folder.
- * Changing the thread's workspace detaches the live provider session, so the
- * current turn ends shortly after the handoff is recorded; the conversation
- * continues inside the worktree on the thread's next run.
- */
+/** Uses the managed worktree folder; handoff detaches the provider, ending this turn and resuming there next run. */
 export const WorktreeMcpHandoffInput = Schema.Struct({
   branch: Schema.optional(
     TrimmedNonEmptyString.annotate({

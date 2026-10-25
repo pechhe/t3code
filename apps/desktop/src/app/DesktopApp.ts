@@ -350,11 +350,7 @@ const scopedProgram = Effect.scoped(
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
 
     yield* Effect.addFinalizer(() =>
-      // Stop every backend in the pool, not just the primary. The
-      // electronApp.quit() path can race ahead of the layer-scope
-      // cascade, so leaving the WSL instance for its parent scope
-      // finalizer means it gets hard-killed by the OS instead of
-      // receiving SIGTERM + grace.
+      // Quit can outrun layer finalizers; stop pooled backends here so they receive SIGTERM before OS teardown.
       stopAllPoolInstances().pipe(
         // A server killed after its grace period leaves its agents running. A stop that timed
         // out returns just before that kill lands, so wait briefly for the server to exit.

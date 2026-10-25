@@ -1,11 +1,13 @@
 import { MessageId, ThreadId, OrchestratorMcpFailure, ProjectId } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as ThreadLaunch from "../../../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadMessageIntake from "../../../orchestration-v2/ThreadMessageIntake.ts";
 import * as Claims from "../../../orchestration-v2/AttachmentClaims.ts";
 import { threadWatchRefusal } from "../../../orchestration-v2/threadWatch.ts";
 import * as Project from "../../../project/ProjectService.ts";
+import * as GitVcsDriver from "../../../vcs/GitVcsDriver.ts";
 import * as ManagedProjectFolders from "../../../project/ManagedProjectFolders.ts";
 import * as Repositories from "../../../sourceControl/SourceControlRepositoryService.ts";
 import * as WorkspaceProvider from "../../../project/WorkspaceProvider.ts";
@@ -29,6 +31,26 @@ function projectFailure(error: Project.ProjectServiceError) {
         : "The project is not empty; force=true is required to delete it.";
   return new OrchestratorMcpFailure({ code: "invalid_request", message });
 }
+
+/** Require project worktrees so launches cannot target arbitrary host directories. */
+const assertProjectWorktree = Effect.fn("mcp.assertProjectWorktree")(function* (
+  workspaceRoot: string,
+  worktreePath: string,
+) {
+  const git = yield* GitVcsDriver.GitVcsDriver;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const real = (path: string) => fileSystem.realPath(path).pipe(Effect.orElseSucceed(() => path));
+  const worktrees = yield* git.listWorktreePaths(workspaceRoot).pipe(
+    Effect.flatMap((paths) => Effect.forEach(paths, (path) => real(path))),
+    Effect.orElseSucceed((): ReadonlyArray<string> => []),
+  );
+  if (!worktrees.includes(yield* real(worktreePath)))
+    return yield* new OrchestratorMcpFailure({
+      code: "invalid_request",
+      message:
+        "worktreePath must be one of the project's git worktrees. t3_worktree_list shows them.",
+    });
+});
 
 const access = Effect.gen(function* () {
   yield* readCaller();
@@ -115,8 +137,7 @@ export const handlers = {
                 "worktreePath must be a git worktree or jj workspace of the project's repository.",
             });
         }
-        // A launch is accepted before its worktree is provisioned, so a base
-        // ref that cannot resolve is refused while the agent can still act on it.
+        // Reject unresolved base refs before accepting a launch; worktree provisioning happens later.
         const strategy = input.workspaceStrategy;
         if (strategy?.type === "worktree")
           yield* ThreadLaunch.ThreadLaunchService.pipe(
@@ -259,8 +280,7 @@ export const handlers = {
     Effect.gen(function* () {
       const projects = yield* Project.ProjectService;
       if (workspaceRoot === undefined) {
-        // Project creation records no model default (only an update does), so
-        // reject what this mode would otherwise drop silently.
+        // Only updates record model defaults; reject defaults that creation would silently drop.
         if (
           input.scripts !== undefined ||
           input.createWorkspaceRootIfMissing !== undefined ||

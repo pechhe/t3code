@@ -71,12 +71,7 @@ export const ProviderPoolPolicy = Schema.Struct({
 });
 export type ProviderPoolPolicy = typeof ProviderPoolPolicy.Type;
 
-/**
- * The driver-specific config payload is left as `Schema.Unknown`; each driver
- * registers its own decoder with the runtime registry, and envelopes for
- * unknown drivers are preserved verbatim so they round-trip across version
- * changes without data loss.
- */
+/** Drivers decode their own config; unknown-driver envelopes round-trip verbatim across versions. */
 export const ProviderInstanceConfig = Schema.Struct({
   driver: ProviderDriverKind,
   displayName: Schema.optional(TrimmedNonEmptyString),
@@ -121,11 +116,6 @@ export type ProviderInstanceMutation = typeof ProviderInstanceMutation.Type;
 export const ProviderInstanceConfigMap = Schema.Record(ProviderInstanceId, ProviderInstanceConfig);
 export type ProviderInstanceConfigMap = typeof ProviderInstanceConfigMap.Type;
 
-/**
- * The legacy single-instance-per-driver world used the driver kind itself as
- * the instance id; preserving that mapping keeps existing persisted threads,
- * bindings, and cache files routable across the migration without rewriting
- * their stored selection payloads.
- */
+/** Driver-kind ids keep stored selections routable without migration. */
 export const defaultInstanceIdForDriver = (driver: ProviderDriverKind): ProviderInstanceId =>
   ProviderInstanceId.make(driver);

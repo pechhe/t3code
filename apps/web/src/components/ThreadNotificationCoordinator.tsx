@@ -161,7 +161,11 @@ function EnvironmentNotifications({
         settling.current.delete(thread.id);
       }
       const attention =
-        status === "input" || status === "approval" || status === "failed" || status === "limited"
+        status === "input" ||
+        status === "request" ||
+        status === "approval" ||
+        status === "failed" ||
+        status === "limited"
           ? `${thread.latestRun?.runId ?? ""}:${status}`
           : null;
       const completedAt = Date.parse(thread.latestRun?.completedAt ?? "");
@@ -192,7 +196,9 @@ function EnvironmentNotifications({
               ? "Usage limit reached"
               : status === "failed"
                 ? "Thread failed"
-                : "Input needed";
+                : status === "request"
+                  ? "Guest request"
+                  : "Input needed";
       const deliver = () => {
         if (hasNotificationSound(mode)) {
           void playNotificationSound(kind, () =>

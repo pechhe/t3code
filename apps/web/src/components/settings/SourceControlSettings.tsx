@@ -279,7 +279,6 @@ function DiscoveryItemRow({
   const [isExpanded, setIsExpanded] = useState(useInSettingsSearchResults());
   const hasDetails = children !== undefined;
   const searchTargetId = useSettingsSearchTargetId();
-  // A search jump to a setting inside this row opens it when the target arrives.
   const [seenSearchTargetId, setSeenSearchTargetId] = useState<string | null>(null);
   const targetsThisRow =
     (item.kind === "git" && searchTargetId === searchableSetting("git-fetch-interval").id) ||
@@ -560,7 +559,6 @@ export function SourceControlSettingsPanel() {
     return (
       <SettingsSearchTarget id={sourceControlHostSettingsSearchId(item.kind)}>
         <SourceControlHostSettings
-          // Drafts belong to one environment; switching must not carry them over.
           key={environmentId}
           environmentId={environmentId}
           definition={{ ...definition, settings: definition.settings }}

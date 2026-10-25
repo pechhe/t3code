@@ -752,7 +752,6 @@ describe("subagent worktree ownership", () => {
         id: ThreadId.make("grandchild"),
         lineage: { ...child.lineage, parentThreadId: child.id },
       };
-      // The worktree owner can follow its children in the snapshot.
       fixture.setThreads(
         scenario === "grandchild"
           ? [grandchild, child, root]
@@ -1894,27 +1893,50 @@ describe("a SlipJay workspace is released through SlipJay, never git", () => {
   const separator = "/";
 
   it("keeps anything under a SlipJay workspaces home", () => {
-    expect(slipJayWorkspaceReason("/home/henry/.slipjay/workspaces/ys-1234", { home, jj: false, separator }))
-      .toBe("a SlipJay workspace: release goes through SlipJay, never git");
+    expect(
+      slipJayWorkspaceReason("/home/henry/.slipjay/workspaces/ys-1234", {
+        home,
+        jj: false,
+        separator,
+      }),
+    ).toBe("a SlipJay workspace: release goes through SlipJay, never git");
   });
 
   it("keeps any Jujutsu workspace, wherever it lives", () => {
-    expect(slipJayWorkspaceReason("/home/henry/Engineering/checkouts/task", { home, jj: true, separator }))
-      .toBe("a Jujutsu workspace: release goes through SlipJay, never git");
+    expect(
+      slipJayWorkspaceReason("/home/henry/Engineering/checkouts/task", {
+        home,
+        jj: true,
+        separator,
+      }),
+    ).toBe("a Jujutsu workspace: release goes through SlipJay, never git");
   });
 
   it("leaves an ordinary git worktree to cleanup", () => {
-    expect(slipJayWorkspaceReason("/home/henry/Engineering/t3code/.worktrees/a", { home, jj: false, separator })).toBeNull();
+    expect(
+      slipJayWorkspaceReason("/home/henry/Engineering/t3code/.worktrees/a", {
+        home,
+        jj: false,
+        separator,
+      }),
+    ).toBeNull();
   });
 
   it("does not treat a lookalike path as inside the home", () => {
-    expect(slipJayWorkspaceReason("/home/henry/.slipjay/workspaces-other/x", { home, jj: false, separator })).toBeNull();
+    expect(
+      slipJayWorkspaceReason("/home/henry/.slipjay/workspaces-other/x", {
+        home,
+        jj: false,
+        separator,
+      }),
+    ).toBeNull();
   });
 
   it("falls back to the Jujutsu marker when no home is known", () => {
     expect(slipJayWorkspaceReason("/tmp/anything", { home: "", jj: false, separator })).toBeNull();
-    expect(slipJayWorkspaceReason("/tmp/anything", { home: "", jj: true, separator }))
-      .toBe("a Jujutsu workspace: release goes through SlipJay, never git");
+    expect(slipJayWorkspaceReason("/tmp/anything", { home: "", jj: true, separator })).toBe(
+      "a Jujutsu workspace: release goes through SlipJay, never git",
+    );
   });
 });
 
@@ -1923,35 +1945,73 @@ describe("when a checkout may go", () => {
 
   it("releases a SlipJay workspace only because its thread was settled", () => {
     const eligible = worktreeEligibility({
-      slipJay: true, deleted: false, settledForMs: 8 * DAY, inactiveForMs: 90 * DAY,
-      afterDays: 7, settledAfterDays: 7,
+      slipJay: true,
+      deleted: false,
+      settledForMs: 8 * DAY,
+      inactiveForMs: 90 * DAY,
+      afterDays: 7,
+      settledAfterDays: 7,
     });
     expect(eligible).toEqual({ eligible: true, reason: "settled for 8 days" });
   });
 
   it("never releases a SlipJay workspace for inactivity alone", () => {
     const eligible = worktreeEligibility({
-      slipJay: true, deleted: false, settledForMs: null, inactiveForMs: 365 * DAY,
-      afterDays: 7, settledAfterDays: 7,
+      slipJay: true,
+      deleted: false,
+      settledForMs: null,
+      inactiveForMs: 365 * DAY,
+      afterDays: 7,
+      settledAfterDays: 7,
     });
     expect(eligible.eligible).toBe(false);
   });
 
   it("treats a null settlement threshold as disabled, not as the inactivity clock", () => {
     const eligible = worktreeEligibility({
-      slipJay: true, deleted: false, settledForMs: 30 * DAY, inactiveForMs: 30 * DAY,
-      afterDays: 7, settledAfterDays: null,
+      slipJay: true,
+      deleted: false,
+      settledForMs: 30 * DAY,
+      inactiveForMs: 30 * DAY,
+      afterDays: 7,
+      settledAfterDays: null,
     });
     expect(eligible.eligible).toBe(false);
   });
 
   it("keeps the git-worktree rules: inactivity releases one, a fresh one is kept", () => {
-    expect(worktreeEligibility({ slipJay: false, deleted: false, settledForMs: null, inactiveForMs: 9 * DAY, afterDays: 7, settledAfterDays: 7 }).eligible).toBe(true);
-    expect(worktreeEligibility({ slipJay: false, deleted: false, settledForMs: null, inactiveForMs: DAY, afterDays: 7, settledAfterDays: 7 }).eligible).toBe(false);
+    expect(
+      worktreeEligibility({
+        slipJay: false,
+        deleted: false,
+        settledForMs: null,
+        inactiveForMs: 9 * DAY,
+        afterDays: 7,
+        settledAfterDays: 7,
+      }).eligible,
+    ).toBe(true);
+    expect(
+      worktreeEligibility({
+        slipJay: false,
+        deleted: false,
+        settledForMs: null,
+        inactiveForMs: DAY,
+        afterDays: 7,
+        settledAfterDays: 7,
+      }).eligible,
+    ).toBe(false);
   });
 
   it("releases a deleted thread's checkout whatever the policy", () => {
-    expect(worktreeEligibility({ slipJay: true, deleted: true, settledForMs: null, inactiveForMs: 0, afterDays: null, settledAfterDays: null }))
-      .toEqual({ eligible: true, reason: "thread was deleted" });
+    expect(
+      worktreeEligibility({
+        slipJay: true,
+        deleted: true,
+        settledForMs: null,
+        inactiveForMs: 0,
+        afterDays: null,
+        settledAfterDays: null,
+      }),
+    ).toEqual({ eligible: true, reason: "thread was deleted" });
   });
 });

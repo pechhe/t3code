@@ -69,8 +69,7 @@ export const HtmlPreviewTool = Tool.make("html_preview", {
   .annotate(Tool.Idempotent, true)
   .annotate(Tool.OpenWorld, true);
 
-// Read-only in the MCP sense: it shows a page in the caller's own thread and
-// touches no workspace, so plan mode and read-only sandboxes can use it.
+// This affects only the caller's thread, not its workspace, so read-only sandboxes and plan mode may use it.
 const HtmlRenderTool = Tool.make(HTML_RENDER_TOOL_NAME, {
   description: `Show a finished HTML page (chart, table, diagram, collage, mockup) inline in this thread, above your final reply; preview it with html_preview first. ${PAGE_RULES} ${HTML_RENDER_LAYOUT_GUIDE} ${HTML_RENDER_THEME_GUIDE}`,
   parameters: Schema.Struct({

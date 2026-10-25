@@ -125,7 +125,6 @@ vi.mock(import("../../state/entities"), async (original) => ({
 vi.mock(import("./settingsLayout"), async (original) => ({
   ...(await original()),
   useSettingsSearchTargetId: () => state.searchTargetId,
-  // The real row reads write permission and overrides from live environment state.
   SettingsRow: (({
     id,
     title,
@@ -150,7 +149,6 @@ vi.mock(import("./settingsLayout"), async (original) => ({
     </div>
   )) as never,
 }));
-// Its own data flows are covered by its suite; this one is about the panel.
 vi.mock(import("./UsageProviderSettings"), async (original) => ({
   ...(await original()),
   UsageProviderSettings: (() => null) as never,

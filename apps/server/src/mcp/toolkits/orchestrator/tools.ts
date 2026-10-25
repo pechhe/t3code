@@ -42,6 +42,7 @@ import {
   OrchestratorMcpThreadWatchResult,
   ThreadMetadataMcpUpdateInput,
   ThreadMetadataMcpUpdateResult,
+  TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import { Tool, Toolkit } from "effect/ai";
 import * as Schema from "effect/Schema";
@@ -161,6 +162,7 @@ const WorkflowStopTool = Tool.make("t3_workflow_stop", {
 })
   .annotate(Tool.Title, "Stop a workflow")
   .annotate(Tool.Destructive, true);
+
 
 const ScheduleTaskTool = Tool.make("schedule_task", {
   description:

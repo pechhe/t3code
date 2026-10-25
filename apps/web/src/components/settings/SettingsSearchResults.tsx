@@ -62,6 +62,9 @@ const SETTINGS_PAGE_PANELS: Readonly<Record<SettingsPath, ComponentType>> = {
       },
     })),
   ),
+  "/settings/beta": lazy(() =>
+    import("./BetaSettingsPanel").then((module) => ({ default: module.BetaSettingsPanel })),
+  ),
   "/settings/delegation": lazy(() =>
     import("./DelegationSettings").then((module) => ({ default: module.DelegationSettings })),
   ),

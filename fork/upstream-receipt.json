@@ -1,185 +1,410 @@
 {
-  "version": 1,
+  "version": 2,
   "kind": "update",
   "upstream": {
     "baseline": {
-      "tag": "v0.1.3-nightly.20261024.3630",
-      "sha": "d53873b6a4799e87afd63c8d288ef0089f5a3748"
-    },
-    "target": {
       "tag": "v0.1.3-nightly.20261024.3643",
       "sha": "3cc31ed27c8956b36cee35a50509fb7c6869592b"
+    },
+    "target": {
+      "tag": "v0.1.3-nightly.20261025.3655",
+      "sha": "e9d61252f6fd8369b80fe8f7e07209cbbb7221d9"
     }
   },
   "fork": {
-    "base": "5af64deb3bef3067568f94971bd930349a5f5b09"
+    "base": "f8abe60a9d6dd7faf4d8c95edb6ccd5f86369375"
   },
   "record": {
     "path": "fork/differences.md",
-    "blob": "a1a5777d2daada2cec28d3366e4cd69bb795c145"
+    "blob": "bcc8507b758cfeadc7806cd2bad6c8bfb29c047b"
   },
   "policy": {
     "requiredLandingVerificationSha256": "507e52dd8401d55d141e10c6164c6fbe5cc12f057e16fa6900faed90eec832b8"
   },
-  "attempt": "v0.1.3-nightly.20261024.3643@1792884435",
-  "reviewedAt": "2026-10-24T23:55:42Z",
+  "attempt": "v0.1.3-nightly.20261025.3655@1792909695",
+  "reviewedAt": "2026-10-25T08:29:35Z",
   "reviewer": {
-    "thread": "thread:project:mcp%3A2839a4ae-3ff8-46cd-8c81-2763c53b5b42:5b98cde3-2d6a-4080-89d6-ebc80eeabab4",
+    "thread": "thread:delegated-task:command%3Amcp%3Athread%253Athread%253Aproject%253Amcp%25253A2839a4ae-3ff8-46cd-8c81-2763c53b5b42%253Ad9f1557c-a231-41c4-8a39-7e10cff016f8%3Adelegate-task%3Afork-3655-review-round1b",
     "model": "opencode-go/deepseek-v4.1-flash"
   },
   "coverage": {
-    "upstreamCommits": 11,
+    "upstreamCommits": 46,
     "entriesConsidered": [
       "compact-line",
       "compact-model",
+      "experiments",
+      "agent-policy-roles",
+      "managed-delegation",
+      "t3-agent-cli",
+      "run-setup-records",
+      "delegation-settings",
+      "slipjay-workspaces",
+      "slipjay-landing",
+      "slipjay-release-approvals",
+      "slipjay-settings",
+      "slipjay-delivery-config",
+      "validation-tooling",
+      "slipjay-command-guard",
+      "landing-test-parallelism",
+      "timeline-layout-test-fixture",
+      "build-items-hq",
+      "repository-chips-hq",
+      "thread-workflow-chip",
+      "unattended-threads",
+      "thread-watches",
+      "scheduled-tasks-extensions",
+      "linked-environments",
+      "account-pools",
+      "phi-browser-backend",
+      "managed-browser-roles",
+      "screen-recording-video",
+      "snapshot-overlay",
+      "device-composer",
+      "image-annotation",
+      "side-chat",
+      "no-project-chats",
+      "project-themes",
+      "fleet-summary",
+      "live-response-streaming",
+      "web-client-customisation",
+      "mobile-fork-screens",
+      "desktop-fork-build",
+      "fork-name",
+      "nightly-app-icon",
+      "fork-updater",
+      "fork-guidance",
+      "perf-persistence-reads",
+      "perf-secret-reads",
+      "perf-landing-refresh",
+      "perf-persistence-writes",
+      "perf-markdown-blocks",
+      "agent-process-ledger",
+      "dev-state-tooling",
       "quiet-run-read-state",
       "subagent-return-chip",
-      "managed-delegation",
       "session-tool-listings",
-      "dev-state-tooling",
-      "mobile-fork-screens",
-      "linked-environments",
-      "phi-browser-backend",
-      "timeline-layout-test-fixture"
+      "run-interrupt-cause",
+      "ws-rpc-group-split",
+      "voice-bridge",
+      "thread-transcript-export"
     ],
     "areas": [
-      "apps/server/src/auth and ws.ts: a websocket ticket now names the route it opens, with DPoP binding on the RPC socket",
-      "apps/server/src/orchestration-v2: compaction row and quiet-run projection, plus the fork's orchestrator/ProjectionStore seams",
-      "apps/web components/chat: the compaction row, the working row's compacting label, response folds",
-      "apps/web notification decisions and shared agent awareness: latestRunSilent",
-      "apps/mobile thread feed, thread activity and the Enriched Markdown tarball",
-      "MCP orchestrator toolkit text and provider-core orchestration instructions",
-      "apps/server/scripts/migrate-dev-db copy rules",
-      "provider adapters: Cursor late resume, Claude compaction timings",
-      "source control: GitCafe check listing uses each check's newest run",
-      "preview and html render"
+      "apps/server/src/orchestration-v2: the orchestrator's guest-share and pull-request-link paths, shell snapshots and thread opens that now send each long id and message body once, and the awaited background-work seam",
+      "apps/server/src/mcp and packages/contracts: the awaited-mark tool and RPC surfaces, the fork's session tool families and its grouped WebSocket RPC",
+      "apps/server/src/auth, cli and preview: LAN reachability for background services, preview navigation timeouts, secret-store and RPC-instrumentation edits",
+      "provider adapters: ACP terminal kill and idle errors, Codex pending requests, Grok monitors and picked skills, Cursor skills, Muse usage, Pi's MCP extension, Claude's tool-search cache",
+      "apps/web: @pierre/highlights replacing Shiki, command palette submenu search, the new guest share surfaces, scroll settle, DNG and out-of-workspace image fixes",
+      "apps/mobile, apps/desktop and scripts: Settings as a workspace tab, pull-request editing and live checks, native highlights, the Duo header, Linux protocol launchers, the nightly icon and the desktop build",
+      "packages/shared: the four-line comment cap, the pending background work derivation, usage pool text"
     ],
     "exclusions": [
       {
-        "what": ".macroscope/ignore.md",
-        "why": "Upstream review tooling only; no fork code or recorded difference is involved."
+        "what": ".github/, .macroscope/ignore.md, patches/, pnpm-lock.yaml",
+        "why": "Upstream review and CI tooling and dependency plumbing; no fork code or recorded difference is involved."
       },
       {
-        "what": "apps/mobile/deps tarball and pnpm-lock.yaml",
-        "why": "Upstream's own dependency tarball; taken as-is and reinstalled with vp i."
+        "what": "apps/mobile/modules/t3-highlights/Vendor/wasm2c and other vendored native sources",
+        "why": "Upstream's own vendored highlighter payload; no fork code reads it."
       },
       {
-        "what": "docs/internals/environment-auth.md",
-        "why": "Describes upstream's route-bound websocket tickets; the fork adds no websocket route of its own there."
+        "what": "docs/internals and docs/user pages for upstream's own features",
+        "why": "They describe upstream behaviour the fork takes unchanged; any fork difference is carried by its record entry."
       },
       {
-        "what": "packages/source-control-gitcafe check listing and the analytics-only commit",
-        "why": "Upstream-owned areas with no recorded fork difference touching them."
+        "what": "apps/marketing",
+        "why": "Not part of the fork's build or runtime."
       }
     ]
   },
   "dispositions": [
     {
       "entry": "compact-line",
-      "upstream": "#24334: compactions T3 starts read as one working row and stay quiet",
-      "decision": "adopt",
-      "requirements": [
-        "the per-thread compact-at point, its per-model default, the draggable marker and the Pi settings write are unchanged",
-        "a running compaction still says why it runs, and a compact-on-return still holds its sent message back on the working row",
-        "a compaction-only run finishes without the live status line"
-      ],
-      "evidence": [
-        "apps/web/src/components/chat/MessagesTimeline.logic.test.ts: compaction triggers, answered compact-on-return, retries and folds",
-        "apps/web/src/components/chat/MessagesTimeline.browser.test.tsx: one live divider, then the reasoned divider with its token delta",
-        "apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts"
-      ]
-    },
-    {
-      "entry": "compact-model",
-      "upstream": "#24334: the compaction row carries a title and a failure word",
       "decision": "adapt",
+      "upstream": "Claude's ENABLE_TOOL_SEARCH=auto cache fix (#24654) and the adapter's comment trim, under the fork's per-thread compact point.",
       "requirements": [
-        "a compaction on another model still names the model in its row",
-        "a chosen model whose window is too small still reports it"
+        "the per-thread, per-model and Pi compaction points survive an update, and a changed point still reopens the Claude session at its next turn"
       ],
       "evidence": [
-        "MessagesTimeline.logic.ts builds modelName and windowTooSmall on the reconciled row; MessagesTimeline.tsx renders both beside upstream's title and failure",
-        "packages/shared/src/claudeCompaction.test.ts"
-      ]
-    },
-    {
-      "entry": "quiet-run-read-state",
-      "upstream": "#24334: latestRunSilent keeps a compaction-only run from raising its thread",
-      "decision": "adapt",
-      "requirements": [
-        "the run-bound read request, the explicit unread reversal and the 5 s settle delay still decide notifications",
-        "a silent run raises nothing on either client, and failures still do"
-      ],
-      "evidence": [
-        "apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts: a silent run is quiet, a failure is not",
-        "apps/web/src/components/ThreadNotificationCoordinator.badge.browser.test.tsx: the settle delay advanced for a manual compaction",
-        "packages/shared/src/agentAwareness.test.ts"
+        "Adapters/ClaudeAdapterV2.test.ts (per-thread point, reopen on a changed point, reported thresholds) ran green"
       ]
     },
     {
       "entry": "managed-delegation",
-      "upstream": "#24560: a same-child follow-up goes through t3_thread_send and runs as a fresh task in the child thread",
       "decision": "retain",
+      "upstream": "#24610 makes Working hold only awaited background work; the fork keeps holding for any of it, and drops upstream's t3_background_wait tool and the adapter's awaited marking that only served it.",
       "requirements": [
-        "a managed follow-up continues the same child through delegate_task followup.taskId, in its conversation, workspace, model and permissions",
-        "the tool description and orchestration sections still describe the fork's managed follow-up"
+        "any pending background work holds a thread's completion, so no result is reported early"
       ],
       "evidence": [
-        "apps/server/src/mcp/McpHttpServer.test.ts: the description keeps the role-first and followup guidance",
-        "apps/server/src/provider/CodexDeveloperInstructions.test.ts: the sections reach Codex with the fork's review-round rule",
-        "docs/orchestration-v2/orchestrator-mcp-server.md now describes the fork's follow-up route"
+        "packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts and agentAwareness.test.ts (any pending work holds) ran green",
+        "ToolSessionPolicy.test.ts keeps the ordinary control plane at 39,994 characters once the tool is gone",
+        "RestartContinuation.test.ts restores the base wake for a monitor the restart cancelled"
       ]
     },
     {
-      "entry": "session-tool-listings",
-      "upstream": "#24560 lengthened delegate_task's description",
+      "entry": "t3-agent-cli",
+      "decision": "adopt",
+      "upstream": "LAN reachability for background services (#24588) and upstream's auth and CLI edits.",
+      "requirements": [
+        "the exported callAcpMcpTool and the read-only workspace inspection toolkit still serve the outside-agent CLI"
+      ],
+      "evidence": [
+        "AgentCliClient.test.ts compiles and runs; its changed-environment case fails on the fork base too (secret-watch timing here)"
+      ]
+    },
+    {
+      "entry": "unattended-threads",
       "decision": "retain",
+      "upstream": "The stance reads the same pending-background-work derivation that upstream narrowed.",
       "requirements": [
-        "the ordinary control plane stays inside its 40,000-character budget",
-        "agentTask keeps advertising the wire form, never two branches"
+        "an unattended thread still waits for its own background work before it continues"
       ],
       "evidence": [
-        "apps/server/src/mcp/ToolSessionPolicy.test.ts: per-endpoint payload budgets",
-        "apps/server/src/mcp/toolkits/orchestrator/tools.test.ts: agentTask advertises its fields once and keeps the role enum"
+        "UnattendedReactor's shared derivation is unchanged; the shared tests ran green"
       ]
     },
     {
-      "entry": "subagent-return-chip",
-      "upstream": "#24334 keeps a compaction entry visible through deriveTurnFolds' isCompaction guard",
-      "decision": "adopt",
+      "entry": "thread-watches",
+      "decision": "adapt",
+      "upstream": "The awaited mark is adopted as vocabulary, a pull-request watch carries both watching and awaited, git.cafe link canonicalisation (#22634) is taken at the registry boundary, and the restart wake keeps the fork's own rule.",
       "requirements": [
-        "a compaction divider never folds, including after the terminal entry",
-        "the fork's return chips, their wakes and the round anchors are unchanged"
+        "thread and Forge watches still wake on their targets and keep their ids stable"
       ],
       "evidence": [
-        "MessagesTimeline.logic.ts deriveTurnFolds uses isCompaction for both guards; the fork's duplicate check is gone",
-        "apps/web/src/components/chat/MessagesTimeline.logic.test.ts subagent fold cases"
+        "packages/shared/src/orchestrationV2PendingBackgroundWork.test.ts (watching and awaited on a pull-request watch) ran green",
+        "RestartBackgroundNote.test.ts and RestartContinuation.test.ts (a monitor the restart cancelled still wakes the run) ran green"
       ]
     },
     {
-      "entry": "dev-state-tooling",
-      "upstream": "#24404: migrate-dev-db no longer trips over the scheduled-task webhook tables",
-      "decision": "adopt",
+      "entry": "linked-environments",
+      "decision": "adapt",
+      "upstream": "Mobile pull-request links open the way web does (#24738) and git.cafe links are canonicalised in the shared helpers.",
       "requirements": [
-        "webhook replay keys and pending deliveries are dropped with the rest",
-        "the fork's family limits, foreign-key pruning and experiment-observation children are unchanged"
+        "an environment-qualified thread link still opens only in its own environment"
       ],
       "evidence": [
-        "apps/server/scripts/migrate-dev-db.test.ts: the fixture writes a replay key and a pending delivery, the copy asserts webhooks: 0 beside observations [\"observation-kept\"]"
+        "apps/mobile ThreadFeed keeps the link rule around openLinkedThread"
+      ]
+    },
+    {
+      "entry": "account-pools",
+      "decision": "retain",
+      "upstream": "Upstream rewrote the usage pool's mean; the fork keeps its capacity-weighted used percent.",
+      "requirements": [
+        "pool routing and the usage card still read the members' capacity-weighted spend"
+      ],
+      "evidence": [
+        "packages/shared/src/usageLimits.test.ts ran green"
+      ]
+    },
+    {
+      "entry": "phi-browser-backend",
+      "decision": "adapt",
+      "upstream": "Preview navigation timeouts are reported accurately (#24356) through the fork's Phi-aware close.",
+      "requirements": [
+        "Phi routing, custody and the managed roles' exclusion are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/preview and mcp toolkits typecheck and their focused tests ran green"
+      ]
+    },
+    {
+      "entry": "managed-browser-roles",
+      "decision": "retain",
+      "upstream": "Upstream still ships one preview tool per interaction; the fork keeps its single preview_interact, so upstream's per-action tools are not listed.",
+      "requirements": [
+        "one interaction tool covers press, scroll and the rest inside the browser endpoint's budget"
+      ],
+      "evidence": [
+        "apps/server/src/mcp/toolkits/preview/tools.ts lists preview_interact only; ToolSessionPolicy.test.ts ran green"
+      ]
+    },
+    {
+      "entry": "snapshot-overlay",
+      "decision": "adapt",
+      "upstream": "Linux distribution protocol launchers (#24591) in the desktop shell.",
+      "requirements": [
+        "the overlay window, shortcut and capture pool are unchanged"
+      ],
+      "evidence": [
+        "apps/desktop typechecks; DesktopWindow keeps the overlay refs"
+      ]
+    },
+    {
+      "entry": "device-composer",
+      "decision": "retain",
+      "upstream": "Upstream's web fixes reach other components; the device composer, machine switch and Fast switch are unchanged.",
+      "requirements": [
+        "the machine switch keeps its position and the resting-layout rule stands"
+      ],
+      "evidence": [
+        "apps/web typecheck and the device-composer browser tests ran green"
+      ]
+    },
+    {
+      "entry": "image-annotation",
+      "decision": "adapt",
+      "upstream": "A DNG original attaches as a generic file (#24625).",
+      "requirements": [
+        "the annotation chip keeps its marks, notes and pencil icon"
+      ],
+      "evidence": [
+        "ChatView's attachment handling keeps the annotation chip; web tests ran green"
+      ]
+    },
+    {
+      "entry": "web-client-customisation",
+      "decision": "adapt",
+      "upstream": "Command palette options inside submenus (#24709), with the fork's palette items, environment labels and exclusions kept.",
+      "requirements": [
+        "copied thread ids, inline-code copy, settings search and the raised sidebar row stay"
+      ],
+      "evidence": [
+        "CommandPalette.logic.test.ts and CommandPalette.focus.browser.test.tsx ran green"
+      ]
+    },
+    {
+      "entry": "no-project-chats",
+      "decision": "adapt",
+      "upstream": "Guest sharing gives resolveUserMessagePresentation a guest attribution beside the fork's continuation.",
+      "requirements": [
+        "a prompt a thread queued for itself still reads as a continuation, and new threads still start as No project"
+      ],
+      "evidence": [
+        "packages/client-runtime/src/userMessage.test.ts and, on mobile, threadListV2.test.ts ran green"
       ]
     },
     {
       "entry": "mobile-fork-screens",
-      "upstream": "#24334's compaction divider in the mobile feed, and #24534's Enriched Markdown t3.16 block renderers",
-      "decision": "adopt",
+      "decision": "adapt",
+      "upstream": "The mobile batch is adopted: Settings and Usage as workspace tabs, pull-request editing and live checks, native @pierre/highlights, in-app pull-request links, and the deleted settings-sheet-targets moved into the new tab.",
       "requirements": [
-        "a compaction command shows as one divider in the mobile feed",
-        "the fork's continuation row, link rule, automation bubble and Forge rows are unchanged"
+        "the Forge item header and sheet, workflow badge, release approval card, Jujutsu labels and fork settings entries stay"
       ],
       "evidence": [
-        "apps/mobile/src/features/threads tests",
-        "apps/mobile/src/lib tests",
-        "apps/mobile/src/native/useRetryingImageSource.test.tsx"
+        "apps/mobile/src/features/threads/threadListV2.test.ts ran green; the whole repo typechecks"
+      ]
+    },
+    {
+      "entry": "desktop-fork-build",
+      "decision": "adapt",
+      "upstream": "Linux protocol launchers (#24591); the screen-picker staging, no-update-feed build and T3 Peach name are unchanged.",
+      "requirements": [
+        "the app never updates itself back to the official nightly and keeps its local signing"
+      ],
+      "evidence": [
+        "scripts/build-desktop-artifact.ts keeps resolveDesktopProductName and the screen-picker entries"
+      ]
+    },
+    {
+      "entry": "perf-persistence-reads",
+      "decision": "adopt",
+      "upstream": "Long IDs once per shell snapshot (#24643), message bodies once per open or event (#24647), long turns opening lazily (#24589), analytics exclusions (#24601) and a retried provider-event write (#24571).",
+      "requirements": [
+        "the fork's batched shell snapshot, four-reader pool and freeze rows stay on top of upstream's shapes"
+      ],
+      "evidence": [
+        "ProjectionStore.test.ts, ThreadMessageIntake.test.ts and the shared nodeSqliteClient tests ran green"
+      ]
+    },
+    {
+      "entry": "perf-markdown-blocks",
+      "decision": "adapt",
+      "upstream": "@pierre/highlights replaces Shiki (#23178) beneath the fork's per-block memoisation.",
+      "requirements": [
+        "an update re-renders only the block it changed and no Shiki code returns"
+      ],
+      "evidence": [
+        "apps/web/src/components/ChatMarkdown keeps ChatMarkdownBlock; web tests ran green"
+      ]
+    },
+    {
+      "entry": "live-response-streaming",
+      "decision": "retain",
+      "upstream": "The highlighter swap sits under the opt-in calm look, and #24622's settle is taken only where the fork's eased follow is untouched.",
+      "requirements": [
+        "the reveal, eased height and dot-matrix working row stay opt-in and unchanged"
+      ],
+      "evidence": [
+        "MessagesTimeline.logic.test.ts and the timeline browser tests ran green"
+      ]
+    },
+    {
+      "entry": "subagent-return-chip",
+      "decision": "adapt",
+      "upstream": "Cold connects skip idle subagent threads (#24648).",
+      "requirements": [
+        "each subagent still shows once, as a card, with its returns as chips"
+      ],
+      "evidence": [
+        "MessagesTimeline.logic.test.ts and V2LifecycleRow.logic.test.ts ran green"
+      ]
+    },
+    {
+      "entry": "quiet-run-read-state",
+      "decision": "retain",
+      "upstream": "#24610 changes what reads as Working, not how a run-bound quiet request marks it read.",
+      "requirements": [
+        "a quiet completion still leaves the thread read, with the five-second settle delay"
+      ],
+      "evidence": [
+        "the shared agent-awareness and client-runtime unread tests ran green"
+      ]
+    },
+    {
+      "entry": "run-interrupt-cause",
+      "decision": "adopt",
+      "upstream": "A failed runtime-request answer delivery (#24616), idle ACP agent errors failing their turns (#24615) and analytics exclusions (#24601).",
+      "requirements": [
+        "an interrupted run still records whether the user, a move, a server close or a provider abort ended it"
+      ],
+      "evidence": [
+        "RunExecutionService and adapter tests ran green"
+      ]
+    },
+    {
+      "entry": "ws-rpc-group-split",
+      "decision": "adapt",
+      "upstream": "Upstream's new RPCs each get their own group and handler layer: guest share in WsGuestShareRpcGroup, the thread family and worktree thread reads in WsThreadStructureRpcGroup, and upstream's widened schemas stay in place.",
+      "requirements": [
+        "each WebSocket RPC is served by the feature group that owns it, with typed requirements"
+      ],
+      "evidence": [
+        "apps/server/src/ws.ts registers both new groups' layers and typechecks; ws.test.ts ran green",
+        "the landing gate's server typecheck is the check that caught the core group passing its instantiation limit"
+      ]
+    },
+    {
+      "entry": "session-tool-listings",
+      "decision": "adapt",
+      "upstream": "Upstream added t3_background_wait to the orchestrator toolkit; the fork lists it for nobody, so the ordinary control plane stays at its 39,994-character payload.",
+      "requirements": [
+        "a change meets the payload budget by trimming text and shape, never by unlisting a capability"
+      ],
+      "evidence": [
+        "apps/server/src/mcp/ToolSessionPolicy.test.ts ran green"
+      ]
+    },
+    {
+      "entry": "agent-process-ledger",
+      "decision": "adopt",
+      "upstream": "ACP terminal force-kill (#24596), bounded Codex pending requests (#24600) and Grok monitors (#24609).",
+      "requirements": [
+        "the ledger still records OpenCode, ACP, Pi, Codex and terminal process groups"
+      ],
+      "evidence": [
+        "provider adapter tests ran green"
+      ]
+    },
+    {
+      "entry": "slipjay-workspaces",
+      "decision": "retain",
+      "upstream": "Only the comment trim reaches the handoff, VCS and workspace files.",
+      "requirements": [
+        "the CheckoutPlan handoff, its per-thread serialisation and allocation settlement are unchanged"
+      ],
+      "evidence": [
+        "apps/server/src/mcp/WorktreeMcpService.test.ts ran green"
       ]
     }
   ],
@@ -188,57 +413,42 @@
     {
       "command": "vp i",
       "result": "passed",
-      "note": "Installed upstream's Enriched Markdown t3.16 tarball; the mobile typecheck failure from the stale t3.15 link cleared."
+      "note": "the merged dependency set, including @pierre/highlights, installed with no lockfile change"
     },
     {
-      "command": "vp run typecheck",
+      "command": "vp run typecheck (server, web and every other package)",
       "result": "passed",
-      "note": "All 33 packages, after fixing two merge seams: a compaction row missing modelName/windowTooSmall, and the calm working row's CompactingLabel."
+      "note": "no type errors after the reconciliation"
     },
     {
-      "command": "vp test run apps/web/src/components/chat/MessagesTimeline.logic.test.ts apps/web/src/components/ThreadNotificationCoordinator.logic.test.ts",
-      "result": "passed",
-      "note": "120 tests."
+      "command": "vp test run apps/web/src",
+      "result": "failed",
+      "note": "383 files, 4496 tests: one failure, GuestPage.browser.test.tsx 'follows the end as replies stream', which passes in isolation (three consecutive runs) and fails the same way on the bare upstream tag under the same parallel run (1 failed, 4088 passed there); the merge's own regression in that page's follow was fixed in this commit"
     },
     {
-      "command": "vp test run apps/web/src/components/chat/MessagesTimeline.browser.test.tsx",
-      "result": "passed",
-      "note": "17 browser tests, including upstream's live divider and the fork's round anchors."
-    },
-    {
-      "command": "vp test run apps/server/scripts/migrate-dev-db.test.ts apps/server/src/mcp/McpHttpServer.test.ts apps/server/src/provider/CodexDeveloperInstructions.test.ts packages/shared/src/agentAwareness.test.ts packages/provider-core/src/server/orchestrationInstructions.test.ts apps/server/src/mcp/ToolSessionPolicy.test.ts apps/server/src/mcp/toolkits/orchestrator/tools.test.ts",
-      "result": "passed",
-      "note": "76 tests."
-    },
-    {
-      "command": "vp test run apps/mobile/src/features/threads apps/server/src/orchestration-v2/ProjectionStore.test.ts apps/server/src/orchestration-v2/Orchestrator.compact-at.test.ts apps/web/src/components/ThreadNotificationCoordinator.badge.browser.test.tsx",
-      "result": "passed",
-      "note": "240 tests; the badge case now advances the fork's 5 s settle delay."
-    },
-    {
-      "command": "vp test run apps/server/src/auth/EnvironmentAuth.test.ts packages/client-runtime/src/authorization apps/mobile/src/native packages/provider-cursor/src/server/adapter.test.ts apps/server/src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts apps/server/src/htmlRender/HtmlRender.test.ts",
-      "result": "passed",
-      "note": "362 tests, 3 quarantined skips."
-    },
-    {
-      "command": "vp test run apps/mobile/src/lib apps/web/src/session-logic.test.ts apps/web/src/components/chat/useComposerSend.test.ts",
-      "result": "passed",
-      "note": "489 tests."
+      "command": "vp test run apps/server/src",
+      "result": "failed",
+      "note": "nine failures, each reproduced on the bare tag or the fork base in this environment: Pi history default home, Codex reconciliation replay, sandbox symlink exclusion, agent file-request confinement, plugin enablement order, install ownership, npm prefix bin, downloaded-executable proof and changed-environment credentials (a request too slow for the secret watch here)"
     },
     {
       "command": "node scripts/test-landing.ts --plan",
       "result": "passed",
-      "note": "The gate lists and selects its suite against the merged config."
+      "note": "the gate lists and selects tests against the merged configuration"
     },
     {
-      "command": "vp fmt --check on the change's 72 changed text files",
+      "command": "node scripts/fork-upstream-receipt.ts verify",
       "result": "passed",
-      "note": "The review's format check caught one hand-rejoined JSX line in MessagesTimeline.tsx; reformatted, then every changed text file passes."
+      "note": "receipt v2, every recorded entry named, record blob and policy hash current"
     },
     {
-      "command": "vp lint on the change's 65 changed TS/TSX files",
+      "command": "code-review (ticket-reviewer, round 1)",
       "result": "passed",
-      "note": "No errors; the remaining warnings are pre-existing in files this merge did not author."
+      "note": "one blocking and four should-fix findings; the restart wake for held work was fixed (isAwaitedWork back to the fork's rule, base test restored), the record's two inaccurate claims and the receipt's reviewer fields were corrected, and the palette comment now states the runtime fact"
+    },
+    {
+      "command": "vp test run apps/server/src/orchestration-v2/Restart*.test.ts, apps/server/src/ws.test.ts",
+      "result": "passed",
+      "note": "the review's blocking finding was fixed in the same reconciliation commit (the restart wake keeps the fork's rule) and the new guest-share RPC group is served by its own layer"
     }
   ],
   "result": "reconciled"

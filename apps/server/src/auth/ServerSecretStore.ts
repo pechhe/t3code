@@ -151,7 +151,7 @@ export class ServerSecretStore extends Context.Service<
   }
 >()("t3/auth/ServerSecretStore") {}
 
-/** @public Service construction is part of the canonical Effect module API. */
+/** @public */
 const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
@@ -170,11 +170,9 @@ const makeAtDirectory = Effect.fn(function* (secretsDir: string) {
 
   const resolveSecretPath = (name: string) => path.join(secretsDir, `${name}.bin`);
 
-  // Some readers check a secret on every thread event, and each file read
-  // queues on Node's I/O pool behind everything else. Another process (the
-  // `t3 connect` CLI) can rewrite these files, so reads are cached only while
-  // the directory watcher is running, and any change in the directory clears
-  // the cache.
+  // Some readers check a secret on every thread event, and each read queues on Node's I/O pool.
+  // Another process (the `t3 connect` CLI) can rewrite these files, so reads are cached only
+  // while the directory watcher runs, and any change in the directory clears the cache.
   const cache = new Map<string, Option.Option<Uint8Array>>();
   let cacheGeneration = 0;
   let watching = false;

@@ -173,8 +173,7 @@ function SettingsRouteLayout() {
       singleEnvironment={pathname === "/settings/providers" && !isSearching}
       environmentOnly={pathname === "/settings/delegation" && !isSearching}
       onChange={(next) => {
-        // Send every axis so the retain middleware sees an explicit target
-        // even when the choice is "all", which is the absence of a key.
+        // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({
           to: pathname,
           search: () => ({

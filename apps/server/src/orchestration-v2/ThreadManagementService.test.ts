@@ -1,6 +1,6 @@
 import * as TestClock from "effect/testing/TestClock";
 import * as Ref from "effect/Ref";
-import { ProviderDriverKind, type OrchestrationV2ThreadShell } from "@t3tools/contracts";
+import { type OrchestrationV2ThreadShell } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import {
   CommandId,
@@ -9,6 +9,10 @@ import {
   type OrchestrationV2PendingBackgroundTask,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2Run,
+  type OrchestrationV2ProviderThread,
+  ProviderThreadId,
+  ProviderDriverKind,
+  ProviderSessionId,
   type OrchestrationV2StoredEvent,
   type OrchestrationV2ThreadProjection,
   ProjectId,
@@ -19,6 +23,7 @@ import {
 } from "@t3tools/contracts";
 import * as Deferred from "effect/Deferred";
 import * as DateTime from "effect/DateTime";
+import * as Option from "effect/Option";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -30,7 +35,9 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
+import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
+import * as ThreadCommandExecutor from "./ThreadCommandExecutor.ts";
 
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ProviderRegistryMock from "../provider/testUtils/providerRegistryMock.ts";

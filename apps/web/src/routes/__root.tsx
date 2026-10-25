@@ -21,6 +21,7 @@ import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
 import { ExportTranscriptDialogHost } from "../components/ExportTranscriptDialog";
+import { GuestShareDialogHost } from "../components/chat/GuestShareControls";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
@@ -72,6 +73,7 @@ import { useUiStateStore } from "../uiStateStore";
 import { syncBrowserChromeTheme } from "../hooks/useTheme";
 import { configureClientTracing } from "../observability/clientTracing";
 import { resolveInitialServerAuthGateState } from "../environments/primary";
+import { GUEST_PAGE_PATH } from "../guestPage";
 import { hasHostedPairingRequest, isHostedStaticApp } from "../hostedPairing";
 import { useHostedPromptLinkLanding } from "../components/promptLinks/HostedPromptLinkLanding";
 import { isLocalEnvironmentDisabled } from "../localEnvironment";
@@ -96,6 +98,16 @@ import { useComposerFinishSync } from "../lib/composerFinish";
 
 export const Route = createRootRoute({
   beforeLoad: async ({ location }) => {
+    // Guest links open on the owner's tunnel host in a browser with no T3 session, and must
+    // not trigger pairing or an environment connection.
+    if (location.pathname === GUEST_PAGE_PATH) {
+      return {
+        authGateState: {
+          status: "guest",
+        } as const,
+      };
+    }
+
     if (location.pathname === "/pair" && hasHostedPairingRequest(new URL(window.location.href))) {
       return {
         authGateState: {
@@ -162,6 +174,8 @@ function RootRouteView() {
     authGateState.status === "hosted-static",
   );
 
+  if (pathname === GUEST_PAGE_PATH) return <Outlet />;
+
   if (pathname === "/pair" || pathname === "/connect" || pathname === "/connect-agent") {
     return (
       <>
@@ -172,8 +186,7 @@ function RootRouteView() {
     );
   }
 
-  // Ahead of first-run onboarding, which would otherwise send a new visitor to the welcome
-  // wizard and lose the link.
+  // Handle links before onboarding redirects lose them.
   if (hostedPromptLinkLanding !== null) {
     return (
       <>
@@ -197,6 +210,7 @@ function RootRouteView() {
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
           <ExportTranscriptDialogHost />
+          <GuestShareDialogHost />
           <CommandPalette>
             <AppSidebarLayout>
               <Outlet />
@@ -274,6 +288,7 @@ function RootRouteView() {
           <CustomSnoozeDialogHost />
           <ExportTranscriptDialogHost />
           <ScreenRecordingBar />
+          <GuestShareDialogHost />
           <SlowRpcRequestToastCoordinator />
           <HostFreezeToastCoordinator />
           <PermissionUpdateNotice />
@@ -287,8 +302,7 @@ function RootRouteView() {
           ) : null}
           {isElectron ? <DesktopUpdateLaunchNotice /> : null}
           {appShell}
-          {/* Above the router: a theme draft is judged by walking the app, so the
-              editor has to survive navigation away from settings. */}
+          {/* Keep the theme editor above the router so drafts survive navigation. */}
           <ThemeEditorHost />
         </FirstRunGate>
       </AnchoredToastProvider>
@@ -298,8 +312,7 @@ function RootRouteView() {
 
 function EnvironmentThemeSync() {
   useEnvironmentThemeSync();
-  // Ordered after the palette sync so a first-run client adopting the
-  // environment's own theme finds it already in the library.
+  // Sync palettes before adopting the environment theme so it is already in the library.
   useDefaultThemeAdoption();
   useProjectThemeSync();
   return null;
@@ -376,7 +389,7 @@ function FontAppearanceSync() {
   return null;
 }
 
-/** Keyed by pathname: each route paints its own surface, which the browser chrome samples. */
+// Each route paints its own surface for browser chrome to sample.
 function BrowserChromeThemeSync() {
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -510,9 +523,7 @@ function errorDetails(error: unknown): string {
 
 const MAX_ERROR_CAUSE_DEPTH = 5;
 
-/**
- * Takes the pathname only so tokens in the query never land on the clipboard.
- */
+// Use only pathname to keep query tokens off the clipboard.
 function errorReport(error: unknown, pathname: string): string {
   const lines = [
     `${APP_DISPLAY_NAME} ${APP_VERSION}`,
