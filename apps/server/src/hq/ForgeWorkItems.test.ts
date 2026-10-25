@@ -195,7 +195,7 @@ const makeHarness = Effect.gen(function* () {
     body: BODY,
   });
   harness.hq.tools.call = (name, args) => {
-    if (name === "hq_build_list")
+    if (name === "hq_forge_list")
       return {
         status: "succeeded",
         value: [...items.values()]
@@ -203,12 +203,12 @@ const makeHarness = Effect.gen(function* () {
           .toSorted((a, b) => a.number - b.number)
           .map(viewOf),
       };
-    if (name === "hq_build_sessions")
+    if (name === "hq_forge_sessions")
       return {
         status: "succeeded",
         value: sessions.filter((session) => session.specId === args.specId),
       };
-    if (name === "hq_build_acceptance")
+    if (name === "hq_forge_acceptance")
       return { status: "succeeded", value: acceptances.get(String(args.specId)) ?? null };
     const found =
       args.itemId !== undefined
@@ -217,10 +217,10 @@ const makeHarness = Effect.gen(function* () {
           ? [...items.values()].find((entry) => entry.ref === args.ref)
           : items.get(Number(args.number));
     if (found === undefined) return { status: "failed", code: "build_item_unavailable" };
-    if (name === "hq_build_read") return { status: "succeeded", value: viewOf(found) };
-    if (name === "hq_build_attempts")
+    if (name === "hq_forge_read") return { status: "succeeded", value: viewOf(found) };
+    if (name === "hq_forge_attempts")
       return { status: "succeeded", value: attempts.get(found.id) ?? [] };
-    if (name === "hq_build_waits")
+    if (name === "hq_forge_waits")
       return {
         status: "succeeded",
         value: found.waits.map(({ required, blocker }) => ({
@@ -313,7 +313,7 @@ it.effect("links by URL, #number or number through T3's own observer agent", () 
   }),
 );
 
-it.effect("links by a friendly ref in any case with hq_build_read {ref}", () =>
+it.effect("links by a friendly ref in any case with hq_forge_read {ref}", () =>
   Effect.gen(function* () {
     const { hq, service, add, thread } = yield* makeHarness;
     add({ ...item(1_000_078, "spec", "Show the Forge item", "in_progress"), ref: "YS-12" });
@@ -324,7 +324,7 @@ it.effect("links by a friendly ref in any case with hq_build_read {ref}", () =>
     yield* service.link({ threadId, reference: "YS-12.1" });
     assert.strictEqual(thread.workItem?.number, 1_000_079);
     assert.deepStrictEqual(
-      hq.toolCalls.filter((call) => call.name === "hq_build_read").map((call) => call.args),
+      hq.toolCalls.filter((call) => call.name === "hq_forge_read").map((call) => call.args),
       [{ ref: "YS-12" }, { ref: "YS-12.1" }],
     );
     const unknown = yield* service.link({ threadId, reference: "YS-99" }).pipe(Effect.flip);
@@ -458,7 +458,7 @@ it.effect("resolves an Arc and shows it as an Arc, never as a Spec or a Ticket",
     assert.deepStrictEqual(
       hq.toolCalls
         .map((call) => call.name)
-        .filter((name) => name === "hq_build_attempts" || name === "hq_build_list"),
+        .filter((name) => name === "hq_forge_attempts" || name === "hq_forge_list"),
       [],
     );
 
@@ -576,8 +576,8 @@ it.effect("one observer reads for the environment until it disconnects", () =>
   Effect.gen(function* () {
     const { hq, connections } = yield* makeHarness;
     yield* connections.connect({ origin, delegation });
-    yield* connections.observe("hq_build_read", { number: 1 }).pipe(Effect.ignore);
-    yield* connections.observe("hq_build_read", { number: 1 }).pipe(Effect.ignore);
+    yield* connections.observe("hq_forge_read", { number: 1 }).pipe(Effect.ignore);
+    yield* connections.observe("hq_forge_read", { number: 1 }).pipe(Effect.ignore);
     assert.strictEqual(hq.agents.length, 1);
 
     yield* connections.disconnect;

@@ -10,6 +10,7 @@
  */
 import { ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -25,7 +26,7 @@ export interface HqForgeUsageTokens {
   readonly input: number;
   readonly output: number;
   readonly cacheRead: number;
-  /** Absent when the provider reported no cache write, which must never read as zero writes. */
+  /** Absent when the provider reported no cache write; Weave is sent zero for it, as it takes no gap. */
   readonly cacheWrite?: number;
 }
 
@@ -48,6 +49,8 @@ export interface HqForgeUsageInput {
   /** A single provider request, or the whole turn when its requests cannot be told apart. */
   readonly level: "request" | "turn";
 }
+
+const isoOf = (epochMs: number) => DateTime.formatIso(DateTime.makeUnsafe(epochMs));
 
 interface HqForgeUsageShape {
   readonly record: (input: HqForgeUsageInput) => Effect.Effect<void>;
@@ -89,10 +92,11 @@ const make = Effect.gen(function* () {
           usageRef: input.usageRef,
           scope: "own",
           evidenceRef: `t3-thread://v1/${input.threadId}#${input.level}`,
-          startedAt: input.startedAt,
-          endedAt: input.endedAt,
-          tokens: input.tokens,
-          activeMs: input.endedAt - input.startedAt,
+          startedAt: isoOf(input.startedAt),
+          endedAt: isoOf(input.endedAt),
+          // Weave takes every token field, and a provider with no cache write has none to count.
+          tokens: { ...input.tokens, cacheWrite: input.tokens.cacheWrite ?? 0 },
+          activeMs: Math.max(0, Math.round(input.endedAt - input.startedAt)),
           harness: "t3code",
           modelRef: input.modelRef,
         },

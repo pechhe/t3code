@@ -39,7 +39,9 @@ const harness = Effect.gen(function* () {
       threadId === leadThread
         ? specReads.unavailable
           ? Effect.fail(new ForgeSpecOfThread.BuildSpecUnavailable({ threadId, origin }))
-          : Effect.succeed(Option.some({ specId: "spec-1", origin, leadThreadId: leadThread }))
+          : Effect.succeed(
+              Option.some({ specId: "spec-1", origin, project: null, leadThreadId: leadThread }),
+            )
         : Effect.succeed(Option.none()),
   });
   const recordsLayer = HqForgeRecords.layer.pipe(
@@ -99,7 +101,7 @@ it.effect("records what a linked thread's request spent, as Weave's usage tool t
     const usage = yield* bootUsage;
     const records = yield* bootRecords;
     hq.tools.call = (name) =>
-      name === "hq_build_start_session"
+      name === "hq_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
     yield* openLeadSession(records);
@@ -120,23 +122,23 @@ it.effect("records what a linked thread's request spent, as Weave's usage tool t
 
     assert.deepStrictEqual(hq.toolCalls, [
       {
-        name: "hq_build_bind",
+        name: "hq_forge_bind",
         args: { specId: "spec-1" },
         agentId: "agent-1",
       },
       {
-        name: "hq_build_start_session",
+        name: "hq_forge_start_session",
         args: { specId: "spec-1", modelRef: "claude-opus-5-5" },
         agentId: "agent-1",
       },
       {
-        name: "hq_build_record_usage",
+        name: "hq_forge_record_usage",
         args: {
           usageRef: "claude:provider-thread-1:msg-1",
           scope: "own",
           evidenceRef: `t3-thread://v1/${leadThread}#request`,
-          startedAt: 1_000,
-          endedAt: 2_000,
+          startedAt: "1970-01-01T00:00:01.000Z",
+          endedAt: "1970-01-01T00:00:02.000Z",
           tokens,
           activeMs: 1_000,
           harness: "t3code",
@@ -149,13 +151,38 @@ it.effect("records what a linked thread's request spent, as Weave's usage tool t
   }),
 );
 
+it.effect("sends a cache write of zero when the provider reported none", () =>
+  Effect.gen(function* () {
+    const { hq, bootUsage, bootRecords } = yield* harness;
+    const usage = yield* bootUsage;
+    const records = yield* bootRecords;
+    hq.tools.call = (name) =>
+      name === "hq_forge_start_session"
+        ? { status: "succeeded", value: { session: { id: "session-1" } } }
+        : { status: "succeeded", value: {} };
+    yield* openLeadSession(records);
+    yield* records.deliverDue;
+
+    yield* usage.record(usageRequest({ tokens: { input: 10, output: 5, cacheRead: 0 } }));
+    yield* records.deliverDue;
+
+    const sent = hq.toolCalls.find(({ name }) => name === "hq_forge_record_usage");
+    assert.deepStrictEqual(sent?.args.tokens, {
+      input: 10,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
+  }),
+);
+
 it.effect("names the session its thread recorded, never a T3 run id, and waits for it", () =>
   Effect.gen(function* () {
     const { hq, bootUsage, bootRecords } = yield* harness;
     const usage = yield* bootUsage;
     const records = yield* bootRecords;
     hq.tools.call = (name) =>
-      name === "hq_build_start_session"
+      name === "hq_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
 
@@ -172,7 +199,7 @@ it.effect("names the session its thread recorded, never a T3 run id, and waits f
     yield* openLeadSession(records);
     yield* records.deliverDue;
 
-    const sent = hq.toolCalls.find(({ name }) => name === "hq_build_record_usage");
+    const sent = hq.toolCalls.find(({ name }) => name === "hq_forge_record_usage");
     assert.strictEqual(sent?.args.sessionId, "session-1");
     // A T3 run id means nothing to Weave: the run id it knows is a Forge run's.
     assert.isUndefined(sent?.args.runId);
@@ -187,7 +214,7 @@ it.effect(
       const usage = yield* bootUsage;
       const records = yield* bootRecords;
       hq.tools.call = (name) =>
-        name === "hq_build_start_session"
+        name === "hq_forge_start_session"
           ? { status: "succeeded", value: { session: { id: "session-1" } } }
           : { status: "succeeded", value: {} };
       yield* openLeadSession(records);
@@ -207,7 +234,7 @@ it.effect(
       yield* records.deliverDue;
       assert.deepStrictEqual(
         hq.toolCalls.map(({ name }) => name),
-        ["hq_build_bind", "hq_build_start_session"],
+        ["hq_forge_bind", "hq_forge_start_session"],
       );
       assert.strictEqual((yield* records.outstanding())[0]?.status, "pending");
 
@@ -216,7 +243,7 @@ it.effect(
       yield* TestClock.adjust(Duration.millis(1_000));
       yield* records.deliverDue;
       assert.strictEqual(
-        hq.toolCalls.find(({ name }) => name === "hq_build_record_usage")?.args.sessionId,
+        hq.toolCalls.find(({ name }) => name === "hq_forge_record_usage")?.args.sessionId,
         "session-1",
       );
       assert.deepStrictEqual(yield* records.outstanding(), []);

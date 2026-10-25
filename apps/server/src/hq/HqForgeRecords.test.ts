@@ -4,6 +4,7 @@ import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -11,6 +12,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
@@ -106,6 +108,9 @@ const harness = Effect.gen(function* () {
   // Another process over the same database, as a restart is: its queue starts with nothing in memory.
   const openQueue = HqForgeRecords.layer.pipe(
     Layer.provide(ForgeSpecOfThread.layer),
+    Layer.provide(
+      Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeed(Option.none()) }),
+    ),
     Layer.provide(Layer.succeed(HqAgentConnections.HqAgentConnections, connections)),
     Layer.provide(projections),
     Layer.provide(Layer.succeedContext(database)),
@@ -114,7 +119,7 @@ const harness = Effect.gen(function* () {
   return { hq, connections, boot, projectionReads, runs, sql };
 });
 
-/** Calls `hq_build_run` as the thread's own agent, as a reviewer reporting its run does. */
+/** Calls `hq_forge_run` as the thread's own agent, as a reviewer reporting its run does. */
 const reportForgeRun = (
   connections: HqAgentConnections.HqAgentConnections["Service"],
   threadId: ThreadId,
@@ -128,7 +133,7 @@ const reportForgeRun = (
           jsonrpc: "2.0",
           id: 1,
           method: "tools/call",
-          params: { name: "hq_build_run", arguments: { specId: "spec-1" } },
+          params: { name: "hq_forge_run", arguments: { specId: "spec-1" } },
         }),
       ),
       contentType: "application/json",
@@ -172,7 +177,7 @@ it.effect(
 
       assert.deepStrictEqual(
         hq.toolCalls.map(({ name, args }) => ({ name, args })),
-        [{ name: "hq_build_record_usage", args: usage.args }],
+        [{ name: "hq_forge_record_usage", args: usage.args }],
       );
       assert.deepStrictEqual(yield* records.outstanding(), []);
     }),
@@ -219,7 +224,7 @@ it.effect("keeps trying while Weave is unreachable, backing off to five minutes"
     yield* records.deliverDue;
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name, args }) => ({ name, args })),
-      [{ name: "hq_build_record_usage", args: usage.args }],
+      [{ name: "hq_forge_record_usage", args: usage.args }],
     );
     assert.deepStrictEqual(yield* records.outstanding(), []);
   }),
@@ -256,7 +261,7 @@ it.effect("a restart over the same database picks up what is still owed", () =>
 
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name, args }) => ({ name, args })),
-      [{ name: "hq_build_record_usage", args: usage.args }],
+      [{ name: "hq_forge_record_usage", args: usage.args }],
     );
   }),
 );
@@ -266,7 +271,7 @@ it.effect("a lead's session opens under the generation its bind returned", () =>
     const { hq, boot } = yield* harness;
     const records = yield* boot;
     hq.tools.call = (name) =>
-      name === "hq_build_bind"
+      name === "hq_forge_bind"
         ? { status: "succeeded", value: { generation: 3 } }
         : { status: "succeeded", value: {} };
     yield* records.enqueue(leadSession);
@@ -277,8 +282,8 @@ it.effect("a lead's session opens under the generation its bind returned", () =>
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name, args }) => ({ name, args })),
       [
-        { name: "hq_build_bind", args: leadSession.bind },
-        { name: "hq_build_start_session", args: { ...leadSession.startSession, generation: 3 } },
+        { name: "hq_forge_bind", args: leadSession.bind },
+        { name: "hq_forge_start_session", args: { ...leadSession.startSession, generation: 3 } },
       ],
     );
     assert.deepStrictEqual(yield* records.outstanding(), []);
@@ -290,7 +295,7 @@ it.effect("a helper waits for its lead's session and then names it as its parent
     const { hq, boot } = yield* harness;
     const records = yield* boot;
     hq.tools.call = (name) =>
-      name === "hq_build_start_session"
+      name === "hq_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
     // Queued before the lead's session, so the first pass meets it with no parent to name.
@@ -308,7 +313,7 @@ it.effect("a helper waits for its lead's session and then names it as its parent
 
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name }) => name),
-      ["hq_build_bind", "hq_build_start_session"],
+      ["hq_forge_bind", "hq_forge_start_session"],
     );
     const waiting = (yield* records.outstanding()).find((record) => record.kind === "helper");
     // Waiting is not failing: nothing is counted against it and it is never parked.
@@ -317,12 +322,12 @@ it.effect("a helper waits for its lead's session and then names it as its parent
 
     yield* records.deliverDue;
 
-    const helper = hq.toolCalls.find(({ name }) => name === "hq_build_record_helper");
+    const helper = hq.toolCalls.find(({ name }) => name === "hq_forge_record_helper");
     assert.deepStrictEqual(helper?.args, { workId: "work-1", parentSessionId: "session-1" });
     // The helper calls as its own agent, never as its lead's.
     assert.notStrictEqual(
       helper?.agentId,
-      hq.toolCalls.find(({ name }) => name === "hq_build_bind")?.agentId,
+      hq.toolCalls.find(({ name }) => name === "hq_forge_bind")?.agentId,
     );
     assert.deepStrictEqual(yield* records.outstanding(), []);
   }),
@@ -353,7 +358,7 @@ it.effect("a thread's end is sent only after everything else it owes", () =>
 
     assert.deepStrictEqual(
       seen.map(({ name }) => name),
-      ["hq_build_record_usage", "hq_build_record_run_times"],
+      ["hq_forge_record_usage", "hq_forge_record_run_times"],
     );
     // Each record reached Weave while its agent was still the one that made it.
     for (const call of seen) assert.isFalse(call.endedBefore);
@@ -367,9 +372,9 @@ it.effect("a refusal Weave states with a code parks the record and is never retr
     const { hq, boot } = yield* harness;
     const records = yield* boot;
     hq.tools.call = (name) =>
-      name === "hq_build_record_helper"
+      name === "hq_forge_record_helper"
         ? { status: "failed", code: "helper_reviewer_refused" }
-        : name === "hq_build_start_session"
+        : name === "hq_forge_start_session"
           ? { status: "succeeded", value: { session: { id: "session-1" } } }
           : { status: "succeeded", value: {} };
     yield* records.enqueue(leadSession);
@@ -391,7 +396,7 @@ it.effect("a refusal Weave states with a code parks the record and is never retr
 
     yield* records.deliverDue;
     assert.strictEqual(
-      hq.toolCalls.filter(({ name }) => name === "hq_build_record_helper").length,
+      hq.toolCalls.filter(({ name }) => name === "hq_forge_record_helper").length,
       1,
     );
     assert.strictEqual(
@@ -474,7 +479,7 @@ it.effect("a new Weave connection wakes the worker instead of waiting out a row'
     // The row reached Weave on the new connection, with no test-clock advance since the failure.
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name }) => name),
-      ["hq_build_record_usage"],
+      ["hq_forge_record_usage"],
     );
   }),
 );
@@ -484,7 +489,7 @@ it.effect("a helper waiting on its lead's session keeps its own end unsent", () 
     const { hq, boot } = yield* harness;
     const records = yield* boot;
     hq.tools.call = (name) =>
-      name === "hq_build_start_session"
+      name === "hq_forge_start_session"
         ? { status: "succeeded", value: { session: { id: "session-1" } } }
         : { status: "succeeded", value: {} };
     // The helper finishes before its lead has opened the session its record names as its parent.
@@ -523,7 +528,7 @@ it.effect("a helper waiting on its lead's session keeps its own end unsent", () 
 
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name }) => name),
-      ["hq_build_bind", "hq_build_start_session", "hq_build_record_helper"],
+      ["hq_forge_bind", "hq_forge_start_session", "hq_forge_record_helper"],
     );
     const helperAgents = hq.agents.filter((agent) => agent.role === "implementation-worker");
     assert.isNotEmpty(helperAgents);
@@ -564,7 +569,7 @@ it.effect("a row a transient failure put back keeps its thread's end unsent", ()
 
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name }) => name),
-      ["hq_build_record_usage"],
+      ["hq_forge_record_usage"],
     );
     assert.isTrue(hq.agents.every((agent) => agent.ended));
   }),
@@ -606,7 +611,7 @@ it.effect(
       yield* records.deliverDue;
 
       assert.deepStrictEqual(
-        hq.toolCalls.find(({ name }) => name === "hq_build_record_run_times")?.args,
+        hq.toolCalls.find(({ name }) => name === "hq_forge_record_run_times")?.args,
         { runId: "run-7", startedAt: 1, endedAt: 2 },
       );
     }),
@@ -619,8 +624,8 @@ it.effect(
       const { hq, boot } = yield* harness;
       const records = yield* boot;
       hq.tools.call = (name) =>
-        name === "hq_build_read"
-          ? { status: "succeeded", value: { kind: "ticket", parentId: "spec-4" } }
+        name === "hq_forge_read"
+          ? { status: "succeeded", value: { id: "ticket-9", kind: "ticket", parentId: "spec-4" } }
           : { status: "succeeded", value: {} };
       // Linked, but Weave could not be asked about the item when the row was queued.
       hq.state.unreachable = true;
@@ -645,11 +650,11 @@ it.effect(
 
       assert.deepStrictEqual(
         hq.toolCalls
-          .filter(({ name }) => name !== "hq_build_read")
+          .filter(({ name }) => name !== "hq_forge_read")
           .map(({ name, args }) => ({ name, args })),
         [
-          { name: "hq_build_bind", args: { specId: "spec-4" } },
-          { name: "hq_build_start_session", args: { specId: "spec-4", harness: "t3code" } },
+          { name: "hq_forge_bind", args: { specId: "spec-4" } },
+          { name: "hq_forge_start_session", args: { specId: "spec-4", harness: "t3code" } },
         ],
       );
       assert.deepStrictEqual(yield* records.outstanding(), []);
@@ -661,7 +666,7 @@ it.effect("a helper names the session of the Spec it counts toward, not its lead
     const { hq, boot } = yield* harness;
     const records = yield* boot;
     hq.tools.call = (name, args) =>
-      name === "hq_build_start_session"
+      name === "hq_forge_start_session"
         ? { status: "succeeded", value: { session: { id: `session-${String(args.specId)}` } } }
         : { status: "succeeded", value: {} };
     const sessionOf = (specId: string) => ({
@@ -690,7 +695,7 @@ it.effect("a helper names the session of the Spec it counts toward, not its lead
 
     yield* records.deliverDue;
 
-    const helper = hq.toolCalls.find(({ name }) => name === "hq_build_record_helper");
+    const helper = hq.toolCalls.find(({ name }) => name === "hq_forge_record_helper");
     assert.deepStrictEqual(helper?.args, { workId: "work-1", parentSessionId: "session-spec-a" });
   }),
 );
@@ -772,14 +777,88 @@ it.effect("a reported run whose insert failed is still owed to the next drain", 
   }),
 );
 
+it.effect("a session queued with no repository takes the Spec's own when it is sent", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "hq_forge_read"
+        ? {
+            status: "succeeded",
+            value: { id: "ticket-9", kind: "ticket", parentId: "spec-4", project: "pechhe/t3code" },
+          }
+        : { status: "succeeded", value: {} };
+    yield* records.enqueue({
+      kind: "session",
+      recordKey: `session:${unresolvedLead}:ticket-9`,
+      threadId: unresolvedLead,
+      origin,
+      bind: {},
+      startSession: {
+        harness: "t3code",
+        workspaces: [{ repository: null, host: "agent-host", workspaceRef: "/workspace" }],
+      },
+    });
+
+    yield* records.deliverDue;
+
+    const started = hq.toolCalls.find(({ name }) => name === "hq_forge_start_session");
+    assert.deepStrictEqual(started?.args.workspaces, [
+      { repository: "pechhe/t3code", host: "agent-host", workspaceRef: "/workspace" },
+    ]);
+  }),
+);
+
+it.effect("a helper whose lead's session Weave refused is parked, so its end can go", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "hq_forge_bind"
+        ? { status: "failed", code: "bind_status_invalid" }
+        : { status: "succeeded", value: {} };
+    yield* records.enqueue({
+      kind: "session",
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      bind: { specId: "spec-1" },
+      startSession: { harness: "t3code" },
+    });
+    yield* records.enqueue({
+      kind: "helper",
+      recordKey: `helper:${helperThread}:run-1`,
+      threadId: helperThread,
+      leadThreadId: leadThread,
+      specId: "spec-1",
+      origin,
+      args: { harness: "t3code" },
+    });
+
+    yield* records.deliverDue;
+
+    assert.deepStrictEqual(
+      (yield* records.outstanding()).map((record) => [
+        record.kind,
+        record.status,
+        record.lastError,
+      ]),
+      [
+        ["session", "parked", "bind_status_invalid"],
+        ["helper", "parked", "lead_session_parked"],
+      ],
+    );
+  }),
+);
+
 it.effect("a session delivered with the Spec it resolved is found by the helper naming it", () =>
   Effect.gen(function* () {
     const { hq, boot } = yield* harness;
     const records = yield* boot;
     hq.tools.call = (name) =>
-      name === "hq_build_read"
-        ? { status: "succeeded", value: { kind: "ticket", parentId: "spec-4" } }
-        : name === "hq_build_start_session"
+      name === "hq_forge_read"
+        ? { status: "succeeded", value: { id: "ticket-9", kind: "ticket", parentId: "spec-4" } }
+        : name === "hq_forge_start_session"
           ? { status: "succeeded", value: { session: { id: "session-spec-4" } } }
           : { status: "succeeded", value: {} };
     // The link could not be read when the session was queued, so its row carries no Spec.
@@ -799,9 +878,9 @@ it.effect("a session delivered with the Spec it resolved is found by the helper 
     yield* records.deliverDue;
     assert.deepStrictEqual(
       hq.toolCalls
-        .filter(({ name }) => name === "hq_build_start_session")
+        .filter(({ name }) => name === "hq_forge_start_session")
         .map(({ name, args }) => ({ name, args })),
-      [{ name: "hq_build_start_session", args: { specId: "spec-4", harness: "t3code" } }],
+      [{ name: "hq_forge_start_session", args: { specId: "spec-4", harness: "t3code" } }],
     );
 
     // A helper queued against that Spec finds the session its row resolved to, which the row must
@@ -820,7 +899,7 @@ it.effect("a session delivered with the Spec it resolved is found by the helper 
     yield* records.deliverDue;
 
     assert.deepStrictEqual(
-      hq.toolCalls.find(({ name }) => name === "hq_build_record_helper")?.args,
+      hq.toolCalls.find(({ name }) => name === "hq_forge_record_helper")?.args,
       { workId: "work-1", parentSessionId: "session-spec-4" },
     );
   }),
@@ -831,9 +910,9 @@ it.effect("each turn of a helper names the session of the run that spent it", ()
     const { hq, boot } = yield* harness;
     const records = yield* boot;
     hq.tools.call = (name, args) => {
-      if (name === "hq_build_start_session")
+      if (name === "hq_forge_start_session")
         return { status: "succeeded", value: { session: { id: "lead-session" } } };
-      if (name === "hq_build_record_helper")
+      if (name === "hq_forge_record_helper")
         return {
           status: "succeeded",
           value: { session: { id: `session-${String(args.sessionRef)}` } },
@@ -873,7 +952,7 @@ it.effect("each turn of a helper names the session of the run that spent it", ()
 
     assert.deepStrictEqual(
       hq.toolCalls
-        .filter(({ name }) => name === "hq_build_record_usage")
+        .filter(({ name }) => name === "hq_forge_record_usage")
         .map(({ args }) => [args.usageRef, args.sessionId]),
       [
         ["usage:run-2", "session-run-2"],
@@ -901,7 +980,7 @@ it.effect("a row queued for one Weave waits while T3 is connected to another", (
 
     assert.deepStrictEqual(
       hq.toolCalls.map(({ name, args }) => ({ name, args })),
-      [{ name: "hq_build_record_usage", args: usage.args }],
+      [{ name: "hq_forge_record_usage", args: usage.args }],
     );
     assert.deepStrictEqual(yield* records.outstanding(), []);
   }),
@@ -914,9 +993,9 @@ it.effect(
       const { hq, boot } = yield* harness;
       const records = yield* boot;
       hq.tools.call = (name) =>
-        name === "hq_build_read"
-          ? { status: "succeeded", value: { kind: "ticket", parentId: "spec-4" } }
-          : name === "hq_build_start_session"
+        name === "hq_forge_read"
+          ? { status: "succeeded", value: { id: "ticket-9", kind: "ticket", parentId: "spec-4" } }
+          : name === "hq_forge_start_session"
             ? { status: "succeeded", value: { session: { id: "session-spec-4" } } }
             : { status: "succeeded", value: {} };
       // Queued while Weave could not be asked about the lead's item, so it carries neither the Spec
@@ -958,7 +1037,7 @@ it.effect(
       yield* records.deliverDue;
 
       assert.deepStrictEqual(
-        hq.toolCalls.find(({ name }) => name === "hq_build_record_helper")?.args,
+        hq.toolCalls.find(({ name }) => name === "hq_forge_record_helper")?.args,
         { workId: "work-1", parentSessionId: "session-spec-4" },
       );
       // The Spec the first attempt persisted left nothing else for the second to resolve, and the
@@ -1082,7 +1161,7 @@ it.effect("a report written after its thread moved on names the run it was made 
     const records = yield* boot;
     let round = 0;
     hq.tools.call = (name) =>
-      name === "hq_build_run"
+      name === "hq_forge_run"
         ? {
             status: "succeeded",
             value: { run: { id: `run-${String(++round)}` }, spec: { id: "spec-1" } },
@@ -1128,12 +1207,12 @@ it.effect("a delayed usage of an earlier reviewer round names that round's run",
     const delivered = yield* Deferred.make<Record<string, unknown>>();
     let round = 0;
     hq.tools.call = (name, args) => {
-      if (name === "hq_build_run")
+      if (name === "hq_forge_run")
         return {
           status: "succeeded",
           value: { run: { id: `run-${String(++round)}` }, spec: { id: "spec-1" } },
         };
-      if (name === "hq_build_record_usage") Deferred.doneUnsafe(delivered, Effect.succeed(args));
+      if (name === "hq_forge_record_usage") Deferred.doneUnsafe(delivered, Effect.succeed(args));
       return { status: "succeeded", value: {} };
     };
 
@@ -1162,9 +1241,9 @@ it.effect("a reviewer's usage waits for the report of its own run and then names
     runs.latestRunId = "t3-run-a";
     const delivered = yield* Deferred.make<Record<string, unknown>>();
     hq.tools.call = (name, args) => {
-      if (name === "hq_build_run")
+      if (name === "hq_forge_run")
         return { status: "succeeded", value: { run: { id: "run-7" }, spec: { id: "spec-1" } } };
-      if (name === "hq_build_record_usage") Deferred.doneUnsafe(delivered, Effect.succeed(args));
+      if (name === "hq_forge_record_usage") Deferred.doneUnsafe(delivered, Effect.succeed(args));
       return { status: "succeeded", value: {} };
     };
     // Queued before the reviewer's own call has answered, so there is no run of it to name yet.
@@ -1214,7 +1293,7 @@ it.effect(
       // The end says no report can follow, so the usage goes without ids, and the end after it.
       assert.deepStrictEqual(
         hq.toolCalls.map(({ name, args }) => ({ name, args })),
-        [{ name: "hq_build_record_usage", args: byRun.args }],
+        [{ name: "hq_forge_record_usage", args: byRun.args }],
       );
       assert.isTrue(hq.agents.every((agent) => agent.ended));
       assert.deepStrictEqual(yield* records.outstanding(), []);

@@ -122,7 +122,7 @@ export const hqHomeWithOwnerCard = {
           },
           gate: {
             state: "no_gate",
-            evidenceRef: "hq_build_run:7a853c42-bc86-4e0e-ab91-79603dfa8ad9",
+            evidenceRef: "hq_forge_run:7a853c42-bc86-4e0e-ab91-79603dfa8ad9",
           },
           checks: [
             { label: "Deployed on staging", met: true },

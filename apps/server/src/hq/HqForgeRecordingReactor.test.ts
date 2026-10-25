@@ -122,7 +122,10 @@ interface State {
   readonly threads: Map<ThreadId, OrchestrationV2AppThread>;
   readonly subagents: Map<ThreadId, OrchestrationV2Subagent>;
   readonly reviewerRuns: Array<HqForgeRecords.HqForgeReviewerRun>;
-  readonly items: Map<string, { readonly kind: string; readonly parentId: string | null }>;
+  readonly items: Map<
+    string,
+    { readonly id?: string; readonly kind: string; readonly parentId: string | null }
+  >;
   readonly project: ProjectStore.ProjectRow;
 }
 
@@ -164,13 +167,14 @@ const withReactor = <A, E>(
       } as unknown as ProjectStore.ProjectRow,
     };
     hq.tools.call = (name, args) => {
-      if (name !== "hq_build_read") return { status: "failed", code: "unknown_tool" };
-      const itemId = String(args.itemId);
+      if (name !== "hq_forge_read") return { status: "failed", code: "unknown_tool" };
+      // A workspace's item is read by its number, which no link carries.
+      const itemId = args.itemId === undefined ? `number:${args.number}` : String(args.itemId);
       reads.push(itemId);
       const item = state.items.get(itemId);
       return item === undefined
         ? { status: "failed", code: "build_item_unavailable" }
-        : { status: "succeeded", value: item };
+        : { status: "succeeded", value: { id: itemId, ...item } };
     };
     const reactor = yield* Effect.service(HqForgeRecordingReactor.HqForgeRecordingReactor).pipe(
       Effect.provide(
@@ -238,12 +242,62 @@ it.effect("a root thread that links a Forge item queues its session, and the sam
       assert.deepStrictEqual(sessions[0]!.startSession, {
         specId: "spec-1",
         harness: "t3code",
-        sessionRef: "t3:environment-hq/thread-lead",
+        sessionRef: "thread-lead",
         modelRef: model,
         workspaces: [
           { repository: "pechhe/t3code", host: "agent-host", workspaceRef: worktreePath },
         ],
       });
+    }),
+  ),
+);
+
+it.effect("a root thread whose workspace is attached to a Forge item queues its session", () =>
+  withReactor(({ reactor, enqueued, state }) =>
+    Effect.gen(function* () {
+      state.items.set("number:7", { id: "spec-7", kind: "spec", parentId: null });
+      const thread = threadOf(lead, { workspaceIssue: 7 });
+      state.threads.set(lead, thread);
+
+      yield* reactor.handle(threadEvent("thread.created", thread));
+
+      const [session] = ofKind(enqueued, "session");
+      assert.strictEqual(session?.recordKey, "session:thread-lead:#7");
+      assert.strictEqual(session?.specId, "spec-7");
+      assert.deepStrictEqual(session?.bind, { specId: "spec-7" });
+    }),
+  ),
+);
+
+it.effect("a workspace item in a project Forge does not track records nothing", () =>
+  withReactor(({ reactor, enqueued, state, reads }) =>
+    Effect.gen(function* () {
+      Object.assign(state.project, { hqRepositoryKey: null });
+      const thread = threadOf(lead, { workspaceIssue: 7 });
+      state.threads.set(lead, thread);
+
+      yield* reactor.handle(threadEvent("thread.created", thread));
+
+      assert.lengthOf(enqueued, 0);
+      assert.lengthOf(reads, 0);
+    }),
+  ),
+);
+
+it.effect("a link in a project with no repository still queues its session", () =>
+  withReactor(({ reactor, enqueued, state }) =>
+    Effect.gen(function* () {
+      Object.assign(state.project, { hqRepositoryKey: null });
+      const thread = threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } });
+      state.threads.set(lead, thread);
+
+      // Weave cannot answer for the item yet, so its repository is not known to name.
+      yield* reactor.handle(threadEvent("thread.created", thread));
+
+      const [session] = ofKind(enqueued, "session");
+      assert.deepStrictEqual(session?.startSession.workspaces, [
+        { repository: null, host: "agent-host", workspaceRef: worktreePath },
+      ]);
     }),
   ),
 );
@@ -311,6 +365,23 @@ it.effect("a nested delegate_task child queues a helper under the same lead", ()
         transcriptRef: "t3-thread://v1/thread-grandchild",
       });
       assert.lengthOf(ofKind(enqueued, "runtimes"), 0);
+    }),
+  ),
+);
+
+it.effect("a child that carries a copy of its lead's link still names the lead as its lead", () =>
+  withReactor(({ reactor, enqueued, state }) =>
+    Effect.gen(function* () {
+      state.items.set("spec-1", { kind: "spec", parentId: null });
+      const link = { workItem: { itemId: "spec-1", number: 1, origin } };
+      state.threads.set(lead, threadOf(lead, link));
+      state.threads.set(child, childOf(child, lead, "implementation-worker", link));
+      state.subagents.set(child, subagentOf(child, { title: "Copied link" }));
+
+      yield* reactor.recordCompletion(child, finishedRunOf(child));
+
+      const [helper] = ofKind(enqueued, "helper");
+      assert.strictEqual(helper?.leadThreadId, lead);
     }),
   ),
 );
@@ -529,7 +600,7 @@ it.effect(
         assert.deepStrictEqual(session?.bind, {});
         assert.deepStrictEqual(session?.startSession, {
           harness: "t3code",
-          sessionRef: "t3:environment-hq/thread-lead",
+          sessionRef: "thread-lead",
           modelRef: model,
           workspaces: [
             { repository: "pechhe/t3code", host: "agent-host", workspaceRef: worktreePath },

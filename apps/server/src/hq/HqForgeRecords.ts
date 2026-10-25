@@ -30,6 +30,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Predicate from "effect/Predicate";
 import * as Queue from "effect/Queue";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
@@ -220,7 +221,7 @@ export class HqForgeRecords extends Context.Service<
     readonly outstanding: (options?: {
       readonly threadId?: ThreadId;
     }) => Effect.Effect<ReadonlyArray<HqForgeRecord>, HqForgeRecordError>;
-    /** A reviewer's own Forge runs, recorded from what Weave answered its `hq_build_run` call. */
+    /** A reviewer's own Forge runs, recorded from what Weave answered its `hq_forge_run` call. */
     readonly reviewerRuns: Effect.Effect<ReadonlyArray<HqForgeReviewerRun>, HqForgeRecordError>;
     /** Drops what a deleted thread still owes: nothing can act as it any more. */
     readonly forgetThread: (threadId: ThreadId) => Effect.Effect<void, HqForgeRecordError>;
@@ -244,9 +245,13 @@ const refused = (code: string): DeliveryOutcome => ({ _tag: "refused", code });
 const retry = (reason: string): DeliveryOutcome => ({ _tag: "retry", reason });
 const blocked: DeliveryOutcome = { _tag: "blocked" };
 
-/** Whether a thread's own row has reached Weave, and the session its answer named if it has. */
+/**
+ * Whether a thread's own row has reached Weave, and the session its answer named if it has. A row
+ * Weave refused is `parked` and never will: what names it as a parent has nothing to wait for.
+ */
 type DeliveredSession =
   | { readonly _tag: "waiting" }
+  | { readonly _tag: "parked" }
   | { readonly _tag: "delivered"; readonly sessionId: string | null };
 
 /**
@@ -456,14 +461,15 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
     specId: string | null,
   ): Effect.fn.Return<DeliveredSession, HqForgeRecordError> {
-    const [row] = yield* sql<{ readonly resultJson: string | null }>`
-      SELECT result_json AS "resultJson" FROM hq_build_records
-      WHERE thread_id = ${threadId} AND kind = 'session' AND status = 'delivered'
+    const [row] = yield* sql<{ readonly status: string; readonly resultJson: string | null }>`
+      SELECT status, result_json AS "resultJson" FROM hq_build_records
+      WHERE thread_id = ${threadId} AND kind = 'session' AND status IN ('delivered', 'parked')
         AND (${specId} IS NULL OR spec_id = ${specId})
       ORDER BY created_at DESC, rowid DESC
       LIMIT 1
     `.pipe(Effect.mapError((cause) => failed("deliver", cause)));
     if (row === undefined) return { _tag: "waiting" };
+    if (row.status === "parked") return { _tag: "parked" };
     return { _tag: "delivered", sessionId: sessionIdOf(row.resultJson) };
   });
 
@@ -479,10 +485,12 @@ const make = Effect.gen(function* () {
   ): Effect.fn.Return<DeliveredSession, HqForgeRecordError> {
     const rows = yield* sql<{
       readonly payloadJson: string;
+      readonly status: string;
       readonly resultJson: string | null;
     }>`
-      SELECT payload_json AS "payloadJson", result_json AS "resultJson" FROM hq_build_records
-      WHERE thread_id = ${threadId} AND kind = 'helper' AND status = 'delivered'
+      SELECT payload_json AS "payloadJson", status, result_json AS "resultJson"
+      FROM hq_build_records
+      WHERE thread_id = ${threadId} AND kind = 'helper' AND status IN ('delivered', 'parked')
         AND (${specId} IS NULL OR spec_id = ${specId})
       ORDER BY created_at DESC, rowid DESC
     `.pipe(Effect.mapError((cause) => failed("deliver", cause)));
@@ -492,6 +500,7 @@ const make = Effect.gen(function* () {
         ? rows[0]
         : rows.find((candidate) => t3RunIdOf(candidate.payloadJson) === t3RunId);
     if (row === undefined) return { _tag: "waiting" };
+    if (row.status === "parked") return { _tag: "parked" };
     return { _tag: "delivered", sessionId: sessionIdOf(row.resultJson) };
   });
 
@@ -546,14 +555,14 @@ const make = Effect.gen(function* () {
     agent: HqAgentConnections.HqAgent,
     specId: string | null,
     t3RunId: string | null,
-  ): Effect.fn.Return<Record<string, string> | null, HqForgeRecordError> {
+  ): Effect.fn.Return<Record<string, string> | "session_parked" | null, HqForgeRecordError> {
     if (agent.role.endsWith("-reviewer")) {
       const runId = yield* reviewerRunIdOf(agent.threadId, t3RunId);
       if (runId !== null) return { runId };
       // A usage row that names no T3 run keeps the latest report, and is sent without ids when the
       // reviewer has reported none at all.
       if (t3RunId === null) return {};
-      // A reviewer's report of its own run reaches T3 only from its `hq_build_run` answer, so a row
+      // A reviewer's report of its own run reaches T3 only from its `hq_forge_run` answer, so a row
       // that finds none waits for it rather than naming another run's, unless the run's end has
       // been queued and no report can follow: then the usage is sent without ids and the end after it.
       return (yield* endQueued(agent.threadId, t3RunId)) ? {} : null;
@@ -565,6 +574,7 @@ const make = Effect.gen(function* () {
         ? yield* deliveredLeadSessionOf(agent.threadId, specId)
         : yield* deliveredRunSessionOf(agent.threadId, specId, t3RunId);
     if (own._tag === "waiting") return null;
+    if (own._tag === "parked") return "session_parked";
     return own.sessionId === null ? {} : { sessionId: own.sessionId };
   });
 
@@ -658,12 +668,32 @@ const make = Effect.gen(function* () {
       case "session": {
         const record = decodeSessionPayload(payload.value);
         if (Option.isNone(record)) return refused("record_payload_invalid");
-        const bound = yield* call("hq_build_bind", underSpec(record.value.bind));
+        // A workspace queued with no repository takes the Spec's own, which only Weave can say.
+        const queued = record.value.startSession.workspaces;
+        let workspaces = queued;
+        if (
+          Array.isArray(queued) &&
+          queued.some((workspace) => Predicate.isObject(workspace) && workspace.repository === null)
+        ) {
+          const resolved = yield* resolveLink;
+          if (resolved === "waiting") return retry("build_spec_unavailable");
+          const project = Option.isSome(resolved) ? resolved.value.project : null;
+          if (project === null) return refused("workspace_repository_unknown");
+          workspaces = queued.map((workspace) =>
+            Predicate.isObject(workspace) && workspace.repository === null
+              ? { ...workspace, repository: project }
+              : workspace,
+          );
+        }
+        const bound = yield* call("hq_forge_bind", underSpec(record.value.bind));
         if (bound._tag !== "delivered") return bound;
         // The session is opened under the generation the bind returned, which only Weave knows.
         const generation = decodeBoundGeneration(bound.value);
-        return yield* call("hq_build_start_session", {
-          ...underSpec(record.value.startSession),
+        return yield* call("hq_forge_start_session", {
+          ...underSpec({
+            ...record.value.startSession,
+            ...(workspaces === undefined ? {} : { workspaces }),
+          }),
           ...(Option.isSome(generation) ? { generation: generation.value.generation } : {}),
         });
       }
@@ -683,10 +713,12 @@ const make = Effect.gen(function* () {
         // The lead's session for this Spec, never another Spec's: a lead relinked between Specs
         // has one session per Spec, and this helper counts toward only one of them.
         const lead = yield* deliveredLeadSessionOf(leadThreadId, specId);
+        // Its lead's session was refused, so there will never be a parent to name.
+        if (lead._tag === "parked") return refused("lead_session_parked");
         // Its lead has not opened a session yet, so there is no parent to name. This is not a
         // failure: the record waits until the lead's own row has gone.
         if (lead._tag === "waiting" || lead.sessionId === null) return blocked;
-        return yield* call("hq_build_record_helper", {
+        return yield* call("hq_forge_record_helper", {
           ...record.value.args,
           parentSessionId: lead.sessionId,
         });
@@ -696,12 +728,14 @@ const make = Effect.gen(function* () {
         if (Option.isNone(record)) return refused("record_payload_invalid");
         const attribution = yield* attributionOf(agent, specId, record.value.t3RunId ?? null);
         if (attribution === null) return blocked;
-        return yield* call("hq_build_record_usage", { ...record.value.args, ...attribution });
+        // The session this turn counts toward was refused, so Weave has nowhere to put it.
+        if (attribution === "session_parked") return refused("session_parked");
+        return yield* call("hq_forge_record_usage", { ...record.value.args, ...attribution });
       }
       case "runtimes": {
         const record = decodeArgsPayload(payload.value);
         if (Option.isNone(record)) return refused("record_payload_invalid");
-        return yield* call("hq_build_record_run_times", record.value.args);
+        return yield* call("hq_forge_record_run_times", record.value.args);
       }
     }
   });
@@ -737,6 +771,16 @@ const make = Effect.gen(function* () {
         yield* sql`UPDATE hq_build_records
           SET status = 'parked', attempts = ${attempts}, last_error = ${outcome.code}
           WHERE record_key = ${row.recordKey}`;
+        // Parked rows are only readable through SQL, so a refusal is also said where logs are read.
+        yield* Effect.logWarning(
+          "Weave refused a Forge record; it is parked and will not be sent",
+          {
+            kind: row.kind,
+            threadId: row.threadId,
+            specId: row.specId,
+            code: outcome.code,
+          },
+        );
         return true;
       }
       yield* sql`UPDATE hq_build_records

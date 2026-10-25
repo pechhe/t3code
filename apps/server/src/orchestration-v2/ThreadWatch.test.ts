@@ -585,7 +585,7 @@ const makeForgeHarness = Effect.gen(function* () {
     buildWriteVersion: Effect.succeed(0),
     observe: (tool, args) =>
       Effect.sync(() => {
-        if (tool === "hq_build_waits") {
+        if (tool === "hq_forge_waits") {
           state.waits++;
           return {
             ...connection,

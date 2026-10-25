@@ -140,7 +140,7 @@ const summaryOf = (
     })),
   });
 
-/** The parts of `hq_build_read` a card shows. Bodies are never requested. */
+/** The parts of `hq_forge_read` a card shows. Bodies are never requested. */
 const BuildCardRead = Schema.Struct({
   ...BuildRead.fields,
   holds: Schema.Array(
@@ -357,7 +357,7 @@ const make = Effect.gen(function* () {
   /** Item and waits together: a blocker's change does not move the item's own revision. */
   const readSummary = (itemId: string) =>
     Effect.all(
-      [hq.observe("hq_build_read", { itemId }), hq.observe("hq_build_waits", { itemId })],
+      [hq.observe("hq_forge_read", { itemId }), hq.observe("hq_forge_waits", { itemId })],
       { concurrency: 2 },
     ).pipe(
       Effect.map(([read, waits]) =>
@@ -467,7 +467,7 @@ const make = Effect.gen(function* () {
           remember(numberCache, key, previous, ITEM_CACHE_LIMIT);
           return Option.some(previous.itemId);
         }
-        const read = yield* hq.observe("hq_build_read", { number }).pipe(
+        const read = yield* hq.observe("hq_forge_read", { number }).pipe(
           Effect.map((result) =>
             Option.match(decodeForgeRead(result.value), {
               onNone: () => Option.none<string | null>(),
@@ -539,7 +539,7 @@ const make = Effect.gen(function* () {
       const named = parsed.kind === "ref" ? parsed.ref : `#${parsed.number}`;
       const read = yield* hq
         .observe(
-          "hq_build_read",
+          "hq_forge_read",
           parsed.kind === "ref" ? { ref: parsed.ref } : { number: parsed.number },
         )
         .pipe(
@@ -602,7 +602,7 @@ const make = Effect.gen(function* () {
       const observe = (tool: string, args: Record<string, unknown>) =>
         hq.observe(tool, args).pipe(Effect.map((result) => result.value));
       const [readValue, waitsValue] = yield* Effect.all(
-        [observe("hq_build_read", { itemId }), observe("hq_build_waits", { itemId })],
+        [observe("hq_forge_read", { itemId }), observe("hq_forge_waits", { itemId })],
         { concurrency: 2 },
       );
       const read = decodeForgeCardRead(readValue);
@@ -629,10 +629,10 @@ const make = Effect.gen(function* () {
       if (item.value.kind === "spec") {
         const [ticketsValue, sessionsValue, acceptanceValue] = yield* Effect.all(
           [
-            observe("hq_build_list", { kind: "ticket", parentId: itemId }),
-            observe("hq_build_sessions", { specId: itemId }),
+            observe("hq_forge_list", { kind: "ticket", parentId: itemId }),
+            observe("hq_forge_sessions", { specId: itemId }),
             item.value.status === "accepted"
-              ? observe("hq_build_acceptance", { specId: itemId })
+              ? observe("hq_forge_acceptance", { specId: itemId })
               : Effect.succeed(null),
           ],
           { concurrency: 3 },
@@ -667,11 +667,11 @@ const make = Effect.gen(function* () {
       const parentId = fields.parentId;
       const [parentValue, attemptsValue, sessionsValue] = yield* Effect.all(
         [
-          parentId === null ? Effect.succeed(null) : observe("hq_build_read", { itemId: parentId }),
-          observe("hq_build_attempts", { itemId }),
+          parentId === null ? Effect.succeed(null) : observe("hq_forge_read", { itemId: parentId }),
+          observe("hq_forge_attempts", { itemId }),
           parentId === null
             ? Effect.succeed([])
-            : observe("hq_build_sessions", { specId: parentId }),
+            : observe("hq_forge_sessions", { specId: parentId }),
         ],
         { concurrency: 3 },
       );

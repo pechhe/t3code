@@ -52,14 +52,14 @@ const make = Effect.gen(function* () {
   return HqRepositories.of({
     listRepositories: Effect.fn("HqRepositories.listRepositories")(
       function* () {
-        const result = yield* hq.observe("hq_build_repository_list", {});
+        const result = yield* hq.observe("hq_forge_repository_list", {});
         return yield* decodeRepositories(result.value);
       },
       Effect.mapError((cause) => new HqRepositoryError({ operation: "list", cause })),
     ),
     setRepository: Effect.fn("HqRepositories.setRepository")(
       function* (input) {
-        const result = yield* hq.observe("hq_build_repository_set", { ...input });
+        const result = yield* hq.observe("hq_forge_repository_set", { ...input });
         return yield* decodeRepository(result.value);
       },
       Effect.mapError((cause) => new HqRepositoryError({ operation: "set", cause })),

@@ -253,43 +253,55 @@ const toolCallsOf = (body: Uint8Array): ReadonlyArray<{ readonly name: string }>
 };
 /**
  * HQ's Forge tools that only read, and the heartbeat, which only renews a session and comes
- * often. Any other `hq_build_*` call may change what a card shows, so a tool HQ adds later
- * expires the display caches until it is listed here.
+ * often, by name without their prefix. Any other Forge call may change what a card shows, so a
+ * tool HQ adds later expires the display caches until it is listed here.
  */
-const BUILD_TOOLS_KEEPING_CARDS = new Set([
-  "hq_build_acceptance",
-  "hq_build_acceptance_queue",
-  "hq_build_acceptance_readiness",
-  "hq_build_accounting",
-  "hq_build_attempts",
-  "hq_build_binds",
-  "hq_build_context",
-  "hq_build_eligibility",
-  "hq_build_heartbeat",
-  "hq_build_list",
-  "hq_build_pipeline",
-  "hq_build_pipeline_overview",
-  "hq_build_rd_entry_proposals",
-  "hq_build_read",
-  "hq_build_read_run_artifact",
-  "hq_build_release_plan",
-  "hq_build_reports",
-  "hq_build_repositories",
-  "hq_build_repository_list",
-  "hq_build_repository_release_line",
-  "hq_build_runs",
-  "hq_build_sessions",
-  "hq_build_usage",
-  "hq_build_waits",
+const FORGE_TOOLS_KEEPING_CARDS = new Set([
+  "acceptance",
+  "acceptance_queue",
+  "acceptance_readiness",
+  "accounting",
+  "attempts",
+  "binds",
+  "context",
+  "eligibility",
+  "heartbeat",
+  "list",
+  "pipeline",
+  "pipeline_overview",
+  "rd_entry_proposals",
+  "read",
+  "read_run_artifact",
+  "release_plan",
+  "reports",
+  "repositories",
+  "repository_list",
+  "repository_release_line",
+  "runs",
+  "sessions",
+  "usage",
+  "waits",
 ]);
-const isForgeWrite = (tool: string) =>
-  tool.startsWith("hq_build_") && !BUILD_TOOLS_KEEPING_CARDS.has(tool);
+/**
+ * The tool a Forge call names without its prefix. Weave answers `hq_forge_*` and, until it removes
+ * them, the older `hq_build_*` names, and an agent may use either.
+ */
+const forgeToolOf = (tool: string): string | undefined =>
+  tool.startsWith("hq_forge_")
+    ? tool.slice("hq_forge_".length)
+    : tool.startsWith("hq_build_")
+      ? tool.slice("hq_build_".length)
+      : undefined;
+const isForgeWrite = (tool: string) => {
+  const forgeTool = forgeToolOf(tool);
+  return forgeTool !== undefined && !FORGE_TOOLS_KEEPING_CARDS.has(forgeTool);
+};
 
 const containsForgeWrite = (body: Uint8Array): boolean =>
   toolCallsOf(body).some((call) => isForgeWrite(call.name));
 
 /**
- * The run `hq_build_run` answered with. Weave nests the run it recorded at `run`; a flattened answer
+ * The run `hq_forge_run` answered with. Weave nests the run it recorded at `run`; a flattened answer
  * is accepted too, so a run of either shape is still recorded.
  */
 const HqForgeRun = Schema.Struct({
@@ -922,7 +934,7 @@ const make = Effect.gen(function* () {
   );
 
   /**
-   * Reports a reviewer's own run from the answer Weave gave its `hq_build_run` call, so it can be
+   * Reports a reviewer's own run from the answer Weave gave its `hq_forge_run` call, so it can be
    * recorded before the reviewer's agent ends. The run id reaches T3 nowhere else, and an agent that
    * has ended cannot be asked for it again. A lead's Forge runs are not reported: only a reviewer's
    * call is its own review.
@@ -936,7 +948,7 @@ const make = Effect.gen(function* () {
     // A reviewer's role is its task's canonical one: `ticket-reviewer` or `spec-reviewer`.
     if (role === undefined || !role.endsWith("-reviewer")) return;
     if (response.status !== 200) return;
-    if (!toolCallsOf(request.body).some((call) => call.name === "hq_build_run")) return;
+    if (!toolCallsOf(request.body).some((call) => forgeToolOf(call.name) === "run")) return;
     const run = decodeJson(new TextDecoder().decode(response.body)).pipe(
       Option.flatMap(decodeToolCall),
       Option.filter((answer) => answer.result.structuredContent.status === "succeeded"),
@@ -1172,7 +1184,7 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(HqAgentConnections, make);
 
-/** A reviewer's own Forge run, as Weave answered its `hq_build_run` call. */
+/** A reviewer's own Forge run, as Weave answered its `hq_forge_run` call. */
 export interface HqForgeRunReport {
   readonly threadId: ThreadId;
   readonly runId: string;

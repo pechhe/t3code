@@ -25,12 +25,16 @@ import * as HqForgeRecords from "./HqForgeRecords.ts";
 /** A child that reviews is recorded as its own run, never as work its lead delegated. */
 const REVIEWER_ROLES = new Set(["reviewer", "spec-reviewer", "ticket-reviewer"]);
 
-/** The session reference Weave files a thread's work under; a helper names its own thread. */
-const sessionRefOf = (environmentId: string, threadId: ThreadId) =>
+/**
+ * The session reference Weave files a helper's work under. A lead's is its bare thread id, which is
+ * how a lead reports itself to Forge, so the session T3 opens and the one the lead starts are one.
+ */
+const helperSessionRefOf = (environmentId: string, threadId: ThreadId) =>
   `t3:${environmentId}/${threadId}`;
 
 /** One workspace a session's work happened in, as Weave shows it beside the session. */
 interface BuildSessionWorkspace {
+  /** Null until delivery resolves the Spec's own repository. */
   readonly repository: string | null;
   readonly host: string;
   readonly workspaceRef: string;
@@ -41,6 +45,7 @@ interface RecordingTarget {
   /** Absent when the thread is linked but Weave has not said which Spec its item names yet. */
   readonly specId: string | null;
   readonly origin: string | null;
+  readonly project: string | null;
   readonly leadThreadId: ThreadId | null;
 }
 
@@ -82,6 +87,7 @@ const make = Effect.gen(function* () {
   /** Where the thread's work happened, as Weave shows it beside the session. */
   const workspacesOf = Effect.fn("HqForgeRecordingReactor.workspacesOf")(function* (
     thread: OrchestrationV2AppThread,
+    specProject: string | null,
   ): Effect.fn.Return<ReadonlyArray<BuildSessionWorkspace>> {
     const project = yield* projects.get(thread.projectId).pipe(
       Effect.map(Option.getOrUndefined),
@@ -90,7 +96,10 @@ const make = Effect.gen(function* () {
     const workspaceRef = thread.worktreePath ?? project?.workspaceRoot;
     if (workspaceRef === undefined) return [];
     const descriptor = yield* environment.getDescriptor;
-    return [{ repository: project?.hqRepositoryKey ?? null, host: descriptor.label, workspaceRef }];
+    // Weave files a workspace under a repository: the project's, else the Spec's, which delivery
+    // reads from Weave when this thread's item could not be read yet.
+    const repository = project?.hqRepositoryKey ?? specProject;
+    return [{ repository, host: descriptor.label, workspaceRef }];
   });
 
   /**
@@ -109,12 +118,13 @@ const make = Effect.gen(function* () {
           : {
               specId: spec.value.specId,
               origin: spec.value.origin,
+              project: spec.value.project,
               leadThreadId: spec.value.leadThreadId,
             },
       ),
       Effect.catchTags({
         BuildSpecUnavailable: (error) =>
-          Effect.succeed({ specId: null, origin: error.origin, leadThreadId: null }),
+          Effect.succeed({ specId: null, origin: error.origin, project: null, leadThreadId: null }),
       }),
     );
   });
@@ -123,35 +133,35 @@ const make = Effect.gen(function* () {
   const recordLeadLink = Effect.fn("HqForgeRecordingReactor.recordLeadLink")(function* (
     thread: OrchestrationV2AppThread,
   ) {
-    const workItem = thread.workItem;
-    if (workItem === undefined || workItem === null) return;
     // A child records helpers under its lead's session; only the root thread opens one.
     if (thread.lineage.rootThreadId !== thread.id) return;
+    if (thread.workItem == null && thread.workspaceIssue == null) return;
     const target = yield* recordingTarget(thread.id);
     if (target === undefined) return;
     const specId = target.specId ?? undefined;
+    const workspaces = yield* workspacesOf(thread, target.project);
     yield* records.enqueue({
       kind: "session",
       // Linking another item opens another session; the same item stays the one already queued,
       // whether or not Weave could be read for it at the time.
-      recordKey: `session:${thread.id}:${workItem.itemId}`,
+      recordKey: `session:${thread.id}:${thread.workItem?.itemId ?? `#${thread.workspaceIssue}`}`,
       threadId: thread.id,
       // The link knows which Weave it belongs to even when its item cannot be read yet.
-      origin: workItem.origin,
+      origin: target.origin,
       specId,
       // A link Weave could not be read for is queued without its Spec, which delivery adds.
       bind: specId === undefined ? {} : { specId },
       startSession: {
         ...(specId === undefined ? {} : { specId }),
         harness: "t3code",
-        sessionRef: sessionRefOf(environmentId, thread.id),
+        sessionRef: thread.id,
         modelRef: thread.modelSelection.model,
-        workspaces: yield* workspacesOf(thread),
+        workspaces,
       },
     });
   });
 
-  /** The run a reviewer's own `hq_build_run` reported, which is what its times belong to. */
+  /** The run a reviewer's own `hq_forge_run` reported, which is what its times belong to. */
   const reviewerRunIdOf = Effect.fn("HqForgeRecordingReactor.reviewerRunIdOf")(function* (
     threadId: ThreadId,
     t3RunId: string,
@@ -217,7 +227,7 @@ const make = Effect.gen(function* () {
         specId: target.specId,
         args: {
           harness: "t3code",
-          sessionRef: `${sessionRefOf(environmentId, threadId)}/${run.id}`,
+          sessionRef: `${helperSessionRefOf(environmentId, threadId)}/${run.id}`,
           modelRef: run.modelSelection.model,
           scope: subagent.title ?? thread.agentTask?.workId ?? thread.title,
           // The run that finished has its own times; the task node keeps the first run's.
