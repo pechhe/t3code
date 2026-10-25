@@ -20,7 +20,7 @@ import { ForgeWorkItemPreview } from "./ForgeWorkItemPreview";
 import { openLinkForgeItemDialog } from "./LinkForgeItemDialog";
 
 /**
- * The thread's Forge Spec or Ticket as a breadcrumb segment. Hovering shows its card, clicking
+ * The thread's linked Forge item as a breadcrumb segment. Hovering shows its card, clicking
  * opens the item in HQ, and its menu changes or removes the link. Held and Blocked sit beside the
  * status dot, separate from status, and Blocked comes only from the waits Forge reports.
  */

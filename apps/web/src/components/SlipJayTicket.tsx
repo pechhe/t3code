@@ -204,7 +204,9 @@ export function useSlipJaySpec(
 ): SlipJaySpec | null {
   const link = useThreadForgeWorkItem(threadRef).data;
   const linked =
-    link != null && link.item?.kind !== "ticket" && (number === undefined || link.number === number)
+    link != null &&
+    (link.item === null || link.item.kind === "spec") &&
+    (number === undefined || link.number === number)
       ? link
       : null;
   const mentioned = useEnvironmentQuery(

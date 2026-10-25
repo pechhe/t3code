@@ -407,7 +407,7 @@ it.effect("reads a link recorded at an address Weave has moved from at its curre
   }),
 );
 
-it.effect("refuses another HQ, unknown numbers and items that are not Specs or Tickets", () =>
+it.effect("refuses another HQ, unknown numbers and items that are not a Spec, Ticket or Arc", () =>
   Effect.gen(function* () {
     const { service, add, dispatched } = yield* makeHarness;
     add(item(1_000_001, "decision", "Use Forge", "accepted"));
@@ -420,7 +420,51 @@ it.effect("refuses another HQ, unknown numbers and items that are not Specs or T
     assert.strictEqual(yield* reason("#1000404"), "not_found");
     assert.strictEqual(yield* reason("1000001"), "unsupported_kind");
     assert.strictEqual(yield* reason("build-item"), "invalid_reference");
+    assert.strictEqual(yield* reason("YS-ARC-01"), "not_found");
     assert.strictEqual(dispatched.length, 0);
+  }),
+);
+
+it.effect("resolves an Arc and shows it as an Arc, never as a Spec or a Ticket", () =>
+  Effect.gen(function* () {
+    const { hq, service, add } = yield* makeHarness;
+    const arc = {
+      ...item(5_162, "arc", "Get the most out of our agentic engineering setup", "open"),
+      ref: "YS-ARC-01",
+    };
+    add(arc);
+
+    const resolved = yield* service.resolve("ys-arc-01");
+    assert.deepStrictEqual(resolved, { itemId: "item-5162", number: 5_162, origin });
+    // A pasted canonical page resolves like any other item's page.
+    assert.deepStrictEqual(yield* service.resolve(`${origin}/forge/5162`), resolved);
+    yield* service.link({ threadId, reference: "YS-ARC-01" });
+
+    const view = yield* service.view(threadId);
+    assert.strictEqual(view?.item?.kind, "arc");
+    assert.strictEqual(view?.item?.ref, "YS-ARC-01");
+    assert.strictEqual(view?.item?.title, "Get the most out of our agentic engineering setup");
+    assert.strictEqual(view?.item?.status, "open");
+    assert.strictEqual(view?.url, `${origin}/forge/5162`);
+    // A mention of the Arc's page finds the Arc, so its chip is live rather than as written.
+    const mentioned = yield* service.mentions({ threadId, numbers: [5_162] });
+    assert.strictEqual(mentioned.items[0]?.item?.kind, "arc");
+
+    const card = yield* service.card({ threadId, itemId: arc.id, open: "a" });
+    assert.strictEqual(card?.summary, "A body summary");
+    assert.strictEqual(card?.item.kind, "arc");
+    assert.strictEqual(card?.detail.kind, "arc");
+    // An Arc has no Tickets, delivery or lead session to read.
+    assert.deepStrictEqual(
+      hq.toolCalls
+        .map((call) => call.name)
+        .filter((name) => name === "hq_build_attempts" || name === "hq_build_list"),
+      [],
+    );
+
+    const ordinal = yield* service.link({ threadId, reference: "YS-ARC-01.2" }).pipe(Effect.flip);
+    assert.strictEqual(ordinal.reason, "invalid_reference");
+    assert.include(ordinal.message, "YS-ARC-01");
   }),
 );
 

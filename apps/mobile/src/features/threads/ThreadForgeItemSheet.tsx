@@ -3,11 +3,11 @@ import {
   type ForgeStatusTone,
   forgeItemLabel,
   forgeItemNumberHint,
-  buildKindGlyph,
   buildSessionLabel,
   buildStatusLabel,
   buildStatusTone,
   describeForgeWait,
+  presentForgeCardKind,
   presentSpecTickets,
 } from "@t3tools/client-runtime/state/forge-work-items";
 import type { ForgeWorkItemCard, EnvironmentId, ThreadId } from "@t3tools/contracts";
@@ -158,7 +158,8 @@ function CardBody(props: { card: ForgeWorkItemCard }) {
   const { card } = props;
   const { item, detail } = card;
   const waits = item.waits.map(describeForgeWait);
-  const session = detail.kind === "spec" ? detail.lead : detail.worker;
+  const session =
+    detail.kind === "spec" ? detail.lead : detail.kind === "ticket" ? detail.worker : null;
   const threadLink = buildSessionThreadLink(session);
   const tickets = detail.kind === "spec" ? presentSpecTickets(detail) : null;
 
@@ -166,11 +167,7 @@ function CardBody(props: { card: ForgeWorkItemCard }) {
     <View>
       <View className="flex-row items-center gap-2">
         <Text className="min-w-0 flex-1 text-xs text-foreground-muted" numberOfLines={1}>
-          {detail.kind === "spec"
-            ? [`${buildKindGlyph("spec")} Spec`, detail.specKind, detail.horizon]
-                .filter(Boolean)
-                .join(" · ")
-            : `${buildKindGlyph("ticket")} Ticket${detail.spec ? ` in ${buildKindGlyph("spec")} ${detail.spec.title}` : ""}`}
+          {presentForgeCardKind(detail)}
         </Text>
         <Dot status={item.status} />
         <Text className="text-xs text-foreground-muted">{buildStatusLabel(item.status)}</Text>
@@ -264,7 +261,7 @@ function CardBody(props: { card: ForgeWorkItemCard }) {
       ) : null}
 
       <View className="mt-5 border-t border-border pt-3">
-        {session && threadLink ? (
+        {detail.kind === "arc" ? null : session && threadLink ? (
           <SessionThreadLink
             link={threadLink}
             role={detail.kind === "spec" ? "Lead" : "Worker"}

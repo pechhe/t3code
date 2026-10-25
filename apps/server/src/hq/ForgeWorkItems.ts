@@ -1,7 +1,8 @@
 /**
- * A thread's link to the HQ Forge Spec or Ticket it works on (pechhe/t3code#78). T3 stores only
- * the reference; what clients show is read from Forge through the server's own observer agent,
- * so every client, local or remote, sees the same state without ever reaching HQ itself.
+ * A thread's link to the HQ Forge item it works on (pechhe/t3code#78): a Spec, a Ticket of one or
+ * an Arc over both. T3 stores only the reference; what clients show is read from Forge through the
+ * server's own observer agent, so every client, local or remote, sees the same state without ever
+ * reaching HQ itself.
  */
 import {
   type ForgeItemReference,
@@ -114,6 +115,9 @@ const ForgeReference = Schema.Struct({
   status: Schema.String,
 });
 const decodeSummary = Schema.decodeUnknownOption(ForgeWorkItemSummary);
+
+/** The kinds T3 reads as an item it can link and show; a Decision or a hold is not one. */
+const isItemKind = (kind: string) => kind === "spec" || kind === "ticket" || kind === "arc";
 
 const summaryOf = (
   read: typeof BuildRead.Type,
@@ -300,8 +304,8 @@ export class ForgeWorkItems extends Context.Service<
       ForgeWorkItemError
     >;
     /**
-     * The canonical item a reference names: a Forge URL, a friendly ref such as `YS-12`,
-     * `#<number>` or a number. Only a Spec or a Ticket resolves.
+     * The canonical item a reference names: a Forge URL, a friendly ref such as `YS-12` or
+     * `YS-ARC-01`, `#<number>` or a number. A Spec, a Ticket and an Arc all resolve.
      */
     readonly resolve: (
       reference: string,
@@ -467,8 +471,7 @@ const make = Effect.gen(function* () {
           Effect.map((result) =>
             Option.match(decodeForgeRead(result.value), {
               onNone: () => Option.none<string | null>(),
-              onSome: (found) =>
-                Option.some(found.kind === "spec" || found.kind === "ticket" ? found.id : null),
+              onSome: (found) => Option.some(isItemKind(found.kind) ? found.id : null),
             }),
           ),
           // Forge answers `failed` for a number it doesn't know or this observer can't see.
@@ -522,7 +525,7 @@ const make = Effect.gen(function* () {
       if (parsed === null)
         return yield* error(
           "invalid_reference",
-          "Give a Forge URL such as https://hq.example/build/1000123, a ref such as YS-12, #1000123 or 1000123.",
+          "Give a Forge URL such as https://hq.example/build/1000123, a ref such as YS-12 or YS-ARC-01, #1000123 or 1000123.",
         );
       if (
         parsed.kind === "number" &&
@@ -556,10 +559,10 @@ const make = Effect.gen(function* () {
       const item = decodeForgeRead(read.value);
       if (Option.isNone(item))
         return yield* error("unavailable", "Weave returned an item T3 could not read.");
-      if (item.value.kind !== "spec" && item.value.kind !== "ticket")
+      if (!isItemKind(item.value.kind))
         return yield* error(
           "unsupported_kind",
-          `${named} is a Forge ${item.value.kind}; link a Spec or a Ticket.`,
+          `${named} is a Forge ${item.value.kind}; link a Spec, a Ticket or an Arc.`,
         );
       return { itemId: item.value.id, number: item.value.number, origin: read.origin };
     },
@@ -613,6 +616,15 @@ const make = Effect.gen(function* () {
         ...fields.updates.map((update) => update.createdAt),
         ...fields.holds.flatMap((hold) => [hold.openedAt, hold.clearedAt]),
       ];
+
+      if (item.value.kind === "arc")
+        return Option.some<FreshCard>({
+          number: fields.number,
+          item: item.value,
+          summary: fields.summary?.slice(0, CARD_SUMMARY_LIMIT) ?? null,
+          updatedAt: latestOf(changes),
+          detail: { kind: "arc" as const },
+        });
 
       if (item.value.kind === "spec") {
         const [ticketsValue, sessionsValue, acceptanceValue] = yield* Effect.all(

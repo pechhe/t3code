@@ -3,10 +3,11 @@ import * as Schema from "effect/Schema";
 import { IsoDateTime, PositiveInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { OrchestrationV2ThreadWorkItem } from "./orchestrationV2.ts";
 
-/** A thread links only to a Forge Spec or Ticket. */
-export const ForgeWorkItemKind = Schema.Literals(["spec", "ticket"]);
+/** A thread links to a Forge Spec, a Ticket of one, or an Arc over both. */
+export const ForgeWorkItemKind = Schema.Literals(["spec", "ticket", "arc"]);
 export type ForgeWorkItemKind = typeof ForgeWorkItemKind.Type;
 
+/** A Spec's or Ticket's status, or an Arc's own: `open`, then `achieved` or `dropped`. */
 export const ForgeItemStatus = Schema.Literals([
   "inbox",
   "shaping",
@@ -14,6 +15,8 @@ export const ForgeItemStatus = Schema.Literals([
   "in_progress",
   "landed",
   "accepted",
+  "open",
+  "achieved",
   "dropped",
 ]);
 export type ForgeItemStatus = typeof ForgeItemStatus.Type;
@@ -132,6 +135,11 @@ export const BuildTicketCardDetail = Schema.Struct({
   worker: Schema.NullOr(ForgeWorkItemSession),
 });
 
+/** What an Arc card adds: nothing, since an Arc has no Tickets, delivery or lead session. */
+export const BuildArcCardDetail = Schema.Struct({
+  kind: Schema.Literal("arc"),
+});
+
 /** A hover card or sheet for a Forge item: its summary plus what its kind adds, never its body. */
 export const ForgeWorkItemCard = Schema.Struct({
   number: PositiveInt,
@@ -139,7 +147,7 @@ export const ForgeWorkItemCard = Schema.Struct({
   item: ForgeWorkItemSummary,
   /** Forge's plain-text summary of the body, at most a few lines. */
   summary: Schema.NullOr(Schema.String),
-  detail: Schema.Union([BuildSpecCardDetail, BuildTicketCardDetail]),
+  detail: Schema.Union([BuildSpecCardDetail, BuildTicketCardDetail, BuildArcCardDetail]),
   /** The latest change T3 can see: an update, a hold, an attempt or session activity. */
   updatedAt: IsoDateTime,
   readAt: IsoDateTime,

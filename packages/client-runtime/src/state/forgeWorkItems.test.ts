@@ -2,7 +2,12 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { ForgeWorkItemView } from "@t3tools/contracts";
 
-import { describeForgeWait, presentForgeWorkItem, presentSpecTickets } from "./forgeWorkItems.ts";
+import {
+  describeForgeWait,
+  presentForgeCardKind,
+  presentForgeWorkItem,
+  presentSpecTickets,
+} from "./forgeWorkItems.ts";
 
 describe("presentSpecTickets", () => {
   it("fills the bar landed first, skips empty statuses and counts the Tickets not listed", () => {
@@ -66,11 +71,60 @@ describe("presentForgeWorkItem", () => {
     expect([shown.label, shown.numberHint]).toEqual(["YS-12", "#4059"]);
   });
 
+  it("shows an Arc's own ref, full title and status, never a Spec's", () => {
+    const shown = presentForgeWorkItem(
+      link({
+        kind: "arc",
+        ref: "YS-ARC-01",
+        title: "Get the most out of our agentic engineering setup",
+        status: "achieved",
+        holds: [],
+        waits: [],
+      }),
+    );
+    expect(shown).toMatchObject({
+      label: "YS-ARC-01",
+      numberHint: "#4059",
+      glyph: "◈",
+      title: "Get the most out of our agentic engineering setup",
+      statusLabel: "Achieved",
+      tone: "landed",
+    });
+  });
+
   it("falls back to #number without a ref, from an older HQ or before anything was read", () => {
     for (const item of [summary(), summary(null), null]) {
       const shown = presentForgeWorkItem(link(item));
       expect([shown.label, shown.numberHint]).toEqual(["#4059", undefined]);
     }
+  });
+});
+
+describe("presentForgeCardKind", () => {
+  it("names each kind as itself, an Arc never as a Spec", () => {
+    expect(presentForgeCardKind({ kind: "arc" })).toBe("◈ Arc");
+    expect(
+      presentForgeCardKind({
+        kind: "spec",
+        specKind: "feature",
+        horizon: "now",
+        ticketCounts: {},
+        tickets: [],
+        acceptedAt: null,
+        governedBy: [],
+        lead: null,
+      }),
+    ).toBe("◇ Spec · feature · now");
+    expect(
+      presentForgeCardKind({
+        kind: "ticket",
+        spec: { number: 4059, ref: "YS-12", title: "Friendly numbers", status: "ready" },
+        attempts: 0,
+        latestAttempt: null,
+        lastFailure: null,
+        worker: null,
+      }),
+    ).toBe("▢ Ticket in ◇ Friendly numbers");
   });
 });
 

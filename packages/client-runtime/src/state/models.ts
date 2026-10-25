@@ -189,7 +189,7 @@ export interface EnvironmentThreadShell {
   readonly compactAt?: number | null;
   /** Governing workflow and unattended stance the thread's agent last recorded. */
   readonly workflow?: import("@t3tools/contracts").OrchestrationV2ThreadWorkflow | null;
-  /** The Build Spec or Ticket the thread is linked to. */
+  /** The Build Spec, Ticket or Arc the thread is linked to. */
   readonly workItem?: import("@t3tools/contracts").OrchestrationV2ThreadWorkItem | null;
   /** A project the thread's agent suggested for this No project chat. */
   readonly projectSuggestion?: {

@@ -82,6 +82,11 @@ describe("parseForgeReference", () => {
     expect(parseForgeReference(`${origin}/build/abc`)).toBeNull();
   });
 
+  it("reads an Arc's canonical page and historic link like any other item URL", () => {
+    for (const written of [`${origin}/forge/5162`, `${origin}/build/5162`, `${origin}/forge/5162/`])
+      expect(parseForgeReference(written)).toEqual({ kind: "number", number: 5162, origin });
+  });
+
   it("reads friendly refs in any case and normalises them to upper case", () => {
     for (const [written, ref] of [
       ["YS-12", "YS-12"],
@@ -91,6 +96,22 @@ describe("parseForgeReference", () => {
       [" YS-12.1 ", "YS-12.1"],
     ] as const)
       expect(parseForgeReference(written)).toEqual({ kind: "ref", ref });
+  });
+
+  it("reads an Arc ref in any case and refuses an ordinal", () => {
+    for (const [written, ref] of [
+      ["YS-ARC-01", "YS-ARC-01"],
+      ["ys-arc-01", "YS-ARC-01"],
+      ["T3-ARC-100", "T3-ARC-100"],
+      [" t3-arc-42 ", "T3-ARC-42"],
+      // Weave reads an Arc's number however it is typed and pads it on display, so T3 does too.
+      ["ys-arc-1", "YS-ARC-1"],
+      ["YS-ARC-001", "YS-ARC-001"],
+    ] as const)
+      expect(parseForgeReference(written)).toEqual({ kind: "ref", ref });
+    // An Arc never has a Ticket's ordinal, and an Arc number still starts at 1.
+    for (const written of ["YS-ARC-01.2", "YS-ARC-00", "YS-ARC-0", "YS-ARC", "YS-ARC-"])
+      expect(parseForgeReference(written)).toBeNull();
   });
 
   it("refuses malformed refs and unsafe numbers", () => {

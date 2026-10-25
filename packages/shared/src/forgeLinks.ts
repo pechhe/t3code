@@ -31,6 +31,13 @@ const positiveInteger = (digits: string) => {
 /** `YS-12` or `YS-12.1`, in any case: a letter, then letters or digits, `-`, then 1-based ordinals. */
 const FRIENDLY_REF = /^([a-z][a-z\d]*)-(\d+)(?:\.(\d+))?$/iu;
 
+/**
+ * `YS-ARC-01`: an Arc's own ref, in any case. Its number is padded on display but read however it
+ * is typed — `ys-arc-1` names the same Arc — so T3 accepts exactly what Weave does. It never takes
+ * a Ticket's ordinal, so `YS-ARC-01.2` names nothing.
+ */
+const ARC_REF = /^([a-z][a-z\d]*)-arc-(\d+)$/iu;
+
 /** A Forge URL on any HQ, `#<number>`, a bare number or a friendly ref (normalised to upper case). */
 export function parseForgeReference(reference: string): ForgeReference | null {
   const trimmed = reference.trim();
@@ -39,6 +46,11 @@ export function parseForgeReference(reference: string): ForgeReference | null {
     const number = positiveInteger(bare[1]!);
     return number === null ? null : { kind: "number", number, origin: null };
   }
+  const arc = ARC_REF.exec(trimmed);
+  if (arc)
+    return positiveInteger(arc[2]!) === null
+      ? null
+      : { kind: "ref", ref: trimmed.toUpperCase() };
   const friendly = FRIENDLY_REF.exec(trimmed);
   if (friendly) {
     const [, , sequence, ordinal] = friendly;

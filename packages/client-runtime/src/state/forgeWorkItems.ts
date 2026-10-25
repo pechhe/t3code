@@ -100,8 +100,10 @@ export function buildStatusTone(item: { readonly status: string } | null): Forge
     case "ready":
       return "not-started";
     case "in_progress":
+    case "open":
       return "in-progress";
     case "landed":
+    case "achieved":
       return "landed";
     case "accepted":
       return "accepted";
@@ -119,6 +121,8 @@ const BUILD_STATUS_LABELS: Record<string, string> = {
   in_progress: "In progress",
   landed: "Landed",
   accepted: "Accepted",
+  open: "Open",
+  achieved: "Achieved",
   dropped: "Dropped",
   proposed: "Proposed",
   superseded: "Superseded",
@@ -126,8 +130,8 @@ const BUILD_STATUS_LABELS: Record<string, string> = {
 
 export const buildStatusLabel = (status: string) => BUILD_STATUS_LABELS[status] ?? status;
 
-export const buildKindGlyph = (kind: ForgeWorkItemSummary["kind"] | undefined) =>
-  kind === "ticket" ? "▢" : "◇";
+const buildKindGlyph = (kind: ForgeWorkItemSummary["kind"] | undefined) =>
+  kind === "ticket" ? "▢" : kind === "arc" ? "◈" : "◇";
 
 /**
  * How every surface names an item: its friendly ref such as `YS-12` when Forge has told T3 one,
@@ -192,6 +196,20 @@ export const describeForgeWait = (wait: ForgeWorkItemWait) => ({
   status: buildStatusLabel(wait.status),
   startsWhen: `Starts when it is ${wait.required}.`,
 });
+
+/** The card header's first line: what the item is, plus what only its kind adds. */
+export function presentForgeCardKind(detail: ForgeWorkItemCard["detail"]) {
+  switch (detail.kind) {
+    case "spec":
+      return [`${buildKindGlyph("spec")} Spec`, detail.specKind, detail.horizon]
+        .filter(Boolean)
+        .join(" · ");
+    case "ticket":
+      return `${buildKindGlyph("ticket")} Ticket${detail.spec ? ` in ${buildKindGlyph("spec")} ${detail.spec.title}` : ""}`;
+    case "arc":
+      return `${buildKindGlyph("arc")} Arc`;
+  }
+}
 
 /** A card footer's session, as plain text until it can open a T3 thread. */
 export const buildSessionLabel = (session: ForgeWorkItemSession) =>

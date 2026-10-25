@@ -1,10 +1,11 @@
 # Forge items
 
-When T3 Code is connected to Weave, a thread in any project can show the Forge Spec or Ticket it works on.
+When T3 Code is connected to Weave, a thread in any project can show the Forge Spec, Ticket or
+Arc it works on.
 The item's title and status sit in the thread header, between the workflow and the thread's
 title. Hover it to see a card with the item's current state from Forge: a Spec's Tickets and
-progress, holds, what blocks a Ticket, and the thread leading or working on it. Click it to open
-the item in Weave.
+progress, an Arc's summary, holds, what blocks a Ticket, and the thread leading or working on
+it. Click it to open the item in Weave.
 
 Without a Weave connection, threads show no Forge items and Forge links stay ordinary links.
 
@@ -22,9 +23,10 @@ cannot connect this way; open it through its `https` address.
 
 ## Link a thread
 
-Choose **Link Forge item** from the thread's menu or the command palette, then paste a Forge URL
-or the item's number, such as `#1000123`. Use the header segment's menu to **Change…** the item
-or **Unlink** it. A thread links to one item, so linking again replaces the earlier one.
+Choose **Link Forge item** from the thread's menu or the command palette, then paste a Forge URL,
+the item's number such as `#1000123`, or its ref such as `YS-12`, `YS-12.1` or `YS-ARC-01`. Use
+the header segment's menu to **Change…** the item or **Unlink** it. A thread links to one item, so
+linking again replaces the earlier one.
 
 Agents can link their own threads, and a lead can link the threads it delegates to. T3 Code never
 links a thread on its own.

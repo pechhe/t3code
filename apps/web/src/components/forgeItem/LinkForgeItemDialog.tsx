@@ -59,7 +59,7 @@ function LinkForgeItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
   const submit = async () => {
     const trimmed = reference.trim();
     if (trimmed.length === 0) {
-      setError("Paste a Forge URL or enter a ref such as YS-12 or #1000123.");
+      setError("Paste a Forge URL or enter a ref such as YS-12 or YS-ARC-01 or #1000123.");
       return;
     }
     setError(null);
@@ -84,14 +84,14 @@ function LinkForgeItemDialog(props: { threadRef: ScopedThreadRef; onClose: () =>
         <DialogHeader>
           <DialogTitle>Link Forge item</DialogTitle>
           <DialogDescription>
-            Show the Forge Spec or Ticket this thread works on, from Weave. Linking replaces any
-            item already linked.
+            Show the Forge Spec, Ticket or Arc this thread works on, from Weave. Linking replaces
+            any item already linked.
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
           <Input
             ref={inputRef}
-            placeholder="Forge URL, YS-12 or #1000123"
+            placeholder="Forge URL, YS-12, YS-ARC-01 or #1000123"
             value={reference}
             onChange={(event) => {
               setError(null);

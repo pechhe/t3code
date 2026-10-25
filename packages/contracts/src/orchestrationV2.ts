@@ -443,7 +443,7 @@ export const OrchestrationV2ThreadWorkflow = Schema.Struct({
 export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;
 
 /**
- * The YardSmith HQ Forge Spec or Ticket a thread works on. T3 stores only the
+ * The YardSmith HQ Forge item a thread works on: a Spec, its Ticket or an Arc. T3 stores only the
  * reference; the item itself is always read from the HQ it was resolved against.
  */
 export const OrchestrationV2ThreadWorkItem = Schema.Struct({
@@ -454,11 +454,9 @@ export const OrchestrationV2ThreadWorkItem = Schema.Struct({
 export type OrchestrationV2ThreadWorkItem = typeof OrchestrationV2ThreadWorkItem.Type;
 
 /**
- * How T3 answered SlipJay removing the thread's workspace, for the next turn to report: a
- * checkout SlipJay created (`fresh`), one it resumed because the Forge item already had it
- * (`resumed`), one whose origin SlipJay did not report (`unconfirmed`), or none because
- * allocation failed (`unavailable`). `detail` is what went wrong, such as the
- * allocation failure or the Forge item that could not be attached to a fresh checkout.
+ * How T3 answered SlipJay removing the thread's workspace: `fresh` (a checkout it created),
+ * `resumed` (the Forge item already had one), `unconfirmed` (no origin reported) or
+ * `unavailable` (allocation failed). `detail` says what went wrong.
  */
 export const OrchestrationV2WorkspaceReplacement = Schema.Struct({
   outcome: Schema.Literals(["fresh", "resumed", "unconfirmed", "unavailable"]),

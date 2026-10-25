@@ -1,12 +1,11 @@
 import { buildSessionThreadLink } from "@t3tools/client-runtime/build-session-thread-link";
 import {
   type ForgeStatusTone,
-  forgeItemNumberHint,
-  buildKindGlyph,
   buildSessionLabel,
   buildStatusLabel,
   buildStatusTone,
   describeForgeWait,
+  presentForgeCardKind,
   presentSpecTickets,
 } from "@t3tools/client-runtime/state/forge-work-items";
 import type { ForgeWorkItemCard as ForgeWorkItemCardData } from "@t3tools/contracts";
@@ -91,26 +90,21 @@ function ItemLine(props: {
 }
 
 /**
- * A Forge Spec's or Ticket's card, as read by the server. Shown on hover of a header segment;
- * everything here comes from Forge, so it never offers to change the item.
+ * A Forge Spec's, Ticket's or Arc's card, as read by the server. Shown on hover of a header
+ * segment; everything here comes from Forge, so it never offers to change the item.
  */
 export function ForgeWorkItemCard(props: { card: ForgeWorkItemCardData }) {
   const { card } = props;
   const { item, detail } = card;
   const waits = item.waits.map(describeForgeWait);
-  const session = detail.kind === "spec" ? detail.lead : detail.worker;
+  const session =
+    detail.kind === "spec" ? detail.lead : detail.kind === "ticket" ? detail.worker : null;
   const threadLink = buildSessionThreadLink(session);
 
   return (
     <div className="min-w-0">
       <div className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-        <span className="min-w-0 truncate">
-          {detail.kind === "spec"
-            ? [`${buildKindGlyph("spec")} Spec`, detail.specKind, detail.horizon]
-                .filter(Boolean)
-                .join(" · ")
-            : `${buildKindGlyph("ticket")} Ticket${detail.spec ? ` in ${buildKindGlyph("spec")} ${detail.spec.title}` : ""}`}
-        </span>
+        <span className="min-w-0 truncate">{presentForgeCardKind(detail)}</span>
         <span className="ms-auto">
           <StatusLabel status={item.status} />
         </span>
@@ -146,28 +140,34 @@ export function ForgeWorkItemCard(props: { card: ForgeWorkItemCardData }) {
         <Banner tone="accepted">Accepted {formatRelativeTimeLabel(detail.acceptedAt)}</Banner>
       ) : null}
 
-      {detail.kind === "spec" ? <SpecDetail detail={detail} /> : <TicketDetail card={card} />}
+      {detail.kind === "spec" ? (
+        <SpecDetail detail={detail} />
+      ) : detail.kind === "ticket" ? (
+        <TicketDetail card={card} />
+      ) : null}
 
       <div className="mt-3 flex min-w-0 items-center gap-1.5 border-t pt-2 text-2xs text-muted-foreground">
-        <span className="min-w-0 truncate">
-          {session ? (
-            <>
-              {detail.kind === "spec" ? "Lead" : "Worker"}:{" "}
-              {threadLink ? (
-                <>
-                  <MarkdownThreadLink {...threadLink} label="T3 thread" foreign />
-                  {` · ${session.activity}`}
-                </>
-              ) : (
-                buildSessionLabel(session)
-              )}
-            </>
-          ) : detail.kind === "spec" ? (
-            "No lead thread"
-          ) : (
-            "No thread working on it"
-          )}
-        </span>
+        {detail.kind === "arc" ? null : (
+          <span className="min-w-0 truncate">
+            {session ? (
+              <>
+                {detail.kind === "spec" ? "Lead" : "Worker"}:{" "}
+                {threadLink ? (
+                  <>
+                    <MarkdownThreadLink {...threadLink} label="T3 thread" foreign />
+                    {` · ${session.activity}`}
+                  </>
+                ) : (
+                  buildSessionLabel(session)
+                )}
+              </>
+            ) : detail.kind === "spec" ? (
+              "No lead thread"
+            ) : (
+              "No thread working on it"
+            )}
+          </span>
+        )}
         <span className="ms-auto shrink-0">
           {card.unavailable
             ? `Forge couldn't be reached · updated ${formatRelativeTimeLabel(card.readAt)}`
