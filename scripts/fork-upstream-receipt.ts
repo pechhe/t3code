@@ -9,6 +9,9 @@ const RECORD_PATH = "fork/differences.md";
 const POLICY_PATH = "slipjay.json";
 const SHA = /^[0-9a-f]{40}$/;
 const DECISIONS = ["retain", "adopt", "adapt", "defer"];
+// Version 2 requires the receipt to name every recorded entry, so an entry cannot be
+// skipped in silence. Version 1 receipts predate that rule and are read as they were.
+const RECEIPT_VERSION = 2;
 
 export interface MergeInfo {
   readonly sha: string;
@@ -60,6 +63,52 @@ function mergeInfo(repo: string, sha: string): MergeInfo {
   return { sha, base, target };
 }
 
+// Every entry of the record's `## Entries` section, in order. Read from the committed record
+// so the entries demanded are the ones the reconciliation was written against.
+export function recordHeadings(record: string): ReadonlyArray<string> {
+  const lines = record.split("\n");
+  const start = lines.findIndex((line) => line.trim() === "## Entries");
+  if (start === -1) return [];
+  return lines
+    .slice(start + 1)
+    .filter((line) => /^### \S/.test(line))
+    .map((line) => line.slice(4).trim());
+}
+
+function coverageProblems(options: {
+  readonly record: string;
+  // The record as the update found it: a disposition may still name an entry this
+  // reconciliation retired, and an entry it retired must account for itself.
+  readonly baselineRecord: string;
+  readonly considered: ReadonlyArray<string>;
+  readonly dispositions: ReadonlyArray<{ entry: string | null }>;
+}): ReadonlyArray<string> {
+  const headings = recordHeadings(options.record);
+  const baseline = recordHeadings(options.baselineRecord);
+  const named = new Set(options.considered);
+  const disposed = new Set(
+    options.dispositions.map((d) => d.entry).filter((entry): entry is string => entry !== null),
+  );
+  const missing = headings.filter((heading) => !named.has(heading));
+  const unknown = [...disposed].filter(
+    (entry) => !headings.includes(entry) && !baseline.includes(entry),
+  );
+  const retired = baseline.filter(
+    (heading) => !headings.includes(heading) && !disposed.has(heading),
+  );
+  return [
+    ...(missing.length > 0
+      ? [`coverage.entriesConsidered leaves out recorded entries: ${missing.join(", ")}`]
+      : []),
+    ...(unknown.length > 0
+      ? [`dispositions name entries the record does not define: ${unknown.join(", ")}`]
+      : []),
+    ...(retired.length > 0
+      ? [`record entries retired without a disposition: ${retired.join(", ")}`]
+      : []),
+  ];
+}
+
 function policyHash(policyJson: string): string {
   const parsed = JSON.parse(policyJson) as { requiredLandingVerification?: unknown };
   return NodeCrypto.createHash("sha256")
@@ -79,7 +128,9 @@ function validateSchema(receipt: unknown): ReadonlyArray<string> {
   const bad = (path: string, expected: string) => problems.push(`${path}: expected ${expected}`);
   if (!isObject(receipt)) return ["receipt: expected object"];
 
-  if (receipt.version !== 1) bad("version", "1");
+  if (receipt.version !== 1 && receipt.version !== RECEIPT_VERSION) {
+    bad("version", `1 | ${RECEIPT_VERSION}`);
+  }
   if (receipt.kind !== "update" && receipt.kind !== "seed") bad("kind", '"update" | "seed"');
 
   const ref = (value: unknown, path: string) => {
@@ -224,10 +275,13 @@ export function verify(options: {
     return fail([`invalid receipt: ${problems.join("; ")}`], merge, receipt);
   }
   const r = receipt as {
+    version: number;
     upstream: { baseline: { sha: string }; target: { sha: string } };
     fork: { base: string };
     record: { blob: string };
     policy: { requiredLandingVerificationSha256: string };
+    coverage: { entriesConsidered: ReadonlyArray<string> };
+    dispositions: ReadonlyArray<{ entry: string | null }>;
     unresolved: ReadonlyArray<{ kind: string; summary: string }>;
     result: string;
   };
@@ -271,6 +325,29 @@ export function verify(options: {
       }
     } catch {
       reasons.push(`${RECORD_PATH} missing at ${short(changedIn)}`);
+    }
+    // A receipt a candidate introduces is judged as the candidate stands, whatever version it
+    // claims; only a landed update reading an older receipt keeps that receipt's own meaning.
+    if (r.version === RECEIPT_VERSION || introduced) {
+      try {
+        const record = git(repo, ["show", `${changedIn}:${RECORD_PATH}`]);
+        let baselineRecord = "";
+        try {
+          baselineRecord = git(repo, ["show", `${r.fork.base}:${RECORD_PATH}`]);
+        } catch {
+          // A fork base without the record still leaves the receipt's own coverage to judge.
+        }
+        reasons.push(
+          ...coverageProblems({
+            record,
+            baselineRecord,
+            considered: r.coverage.entriesConsidered,
+            dispositions: r.dispositions,
+          }),
+        );
+      } catch {
+        // A missing record is already reported above.
+      }
     }
     try {
       const actual = policyHash(git(repo, ["show", `${changedIn}:${POLICY_PATH}`]));
@@ -322,7 +399,7 @@ export function skeleton(options: {
     }
   }
   return {
-    version: 1,
+    version: RECEIPT_VERSION,
     kind: "update",
     upstream: {
       baseline: { tag: baselineTag, sha: baselineSha },

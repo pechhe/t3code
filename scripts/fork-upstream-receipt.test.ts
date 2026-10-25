@@ -7,7 +7,7 @@ import * as NodeOS from "node:os";
 import * as NodePath from "node:path";
 import { afterEach, describe, expect, it } from "vite-plus/test";
 
-import { skeleton, verify } from "./fork-upstream-receipt.ts";
+import { recordHeadings, skeleton, verify } from "./fork-upstream-receipt.ts";
 
 const roots: Array<string> = [];
 afterEach(() => {
@@ -53,7 +53,7 @@ class Repo {
   receiptFor(merge: string, overrides: Record<string, unknown> = {}) {
     const policy = JSON.parse(this.git("show", "HEAD:slipjay.json"));
     return {
-      version: 1,
+      version: 2,
       kind: "update",
       upstream: {
         baseline: { tag: "v1", sha: this.git("rev-parse", "up1") },
@@ -72,7 +72,12 @@ class Repo {
       attempt: "a1",
       reviewedAt: "2026-10-19T00:00:00Z",
       reviewer: { thread: "t", model: "m" },
-      coverage: { upstreamCommits: 1, entriesConsidered: [], areas: ["all"], exclusions: [] },
+      coverage: {
+        upstreamCommits: 1,
+        entriesConsidered: this.entries(),
+        areas: ["all"],
+        exclusions: [],
+      },
       dispositions: [],
       unresolved: [],
       checks: [],
@@ -83,6 +88,9 @@ class Repo {
   commitReceipt(receipt: unknown): string {
     return this.commit("receipt", { "fork/upstream-receipt.json": JSON.stringify(receipt) });
   }
+  entries(): ReadonlyArray<string> {
+    return recordHeadings(this.git("show", "HEAD:fork/differences.md"));
+  }
   check() {
     return verify({ repo: this.dir, rev: "HEAD" });
   }
@@ -92,7 +100,7 @@ class Repo {
 function fixture() {
   const repo = new Repo();
   repo.commit("base", {
-    "fork/differences.md": "# record\n",
+    "fork/differences.md": "## Entries\n\n### alpha\n\n- **Kind:** durable extension\n",
     "slipjay.json": JSON.stringify({ requiredLandingVerification: [{ command: "x" }] }),
   });
   repo.git("branch", "up1");
@@ -250,9 +258,101 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork upstream 
     expect(repo.check().reasons.join("\n")).toContain("reconciliation blocked: pick one");
   });
 
+  it("fails a version 2 receipt that leaves out a recorded entry", () => {
+    const { repo, merge2 } = fixture();
+    const partial = {
+      upstreamCommits: 1,
+      entriesConsidered: [],
+      areas: ["all"],
+      exclusions: [],
+    };
+    repo.commitReceipt(repo.receiptFor(merge2, { coverage: partial }));
+    expect(repo.check().reasons.join("\n")).toContain("leaves out recorded entries: alpha");
+    // A receipt the candidate introduces is judged as the candidate stands, whatever version
+    // it claims; an already landed one keeps its own meaning.
+    repo.commitReceipt({ ...repo.receiptFor(merge2, { coverage: partial }), version: 1 });
+    const introduced = verify({
+      repo: repo.dir,
+      rev: "HEAD",
+      landed: repo.git("rev-parse", `${merge2}^1`),
+    });
+    expect(introduced.reasons.join("\n")).toContain("leaves out recorded entries: alpha");
+    expect(repo.check().reasons).toEqual([]);
+    repo.commitReceipt(
+      repo.receiptFor(merge2, {
+        coverage: { ...partial, entriesConsidered: ["alpha"] },
+      }),
+    );
+    expect(repo.check().reasons).toEqual([]);
+  });
+
+  it("requires a disposition for an entry the reconciliation retires", () => {
+    const { repo, merge2 } = fixture();
+    repo.commit("retire alpha", { "fork/differences.md": "## Entries\n\n### beta\n" });
+    repo.commitReceipt(
+      repo.receiptFor(merge2, {
+        coverage: {
+          upstreamCommits: 1,
+          entriesConsidered: ["alpha", "beta"],
+          areas: ["all"],
+          exclusions: [],
+        },
+      }),
+    );
+    expect(repo.check().reasons.join("\n")).toContain(
+      "record entries retired without a disposition: alpha",
+    );
+  });
+
+  it("fails a disposition naming an entry the record does not define", () => {
+    const { repo, merge2 } = fixture();
+    repo.commitReceipt(
+      repo.receiptFor(merge2, {
+        dispositions: [
+          {
+            entry: "gamma",
+            upstream: "#1",
+            decision: "retain",
+            requirements: ["r"],
+            evidence: ["e"],
+          },
+        ],
+      }),
+    );
+    expect(repo.check().reasons.join("\n")).toContain(
+      "dispositions name entries the record does not define: gamma",
+    );
+  });
+
+  it("lets a disposition name an entry this reconciliation retired", () => {
+    const { repo, merge2 } = fixture();
+    repo.commit("retire alpha", { "fork/differences.md": "## Entries\n\n### beta\n" });
+    repo.commitReceipt(
+      repo.receiptFor(merge2, {
+        coverage: {
+          upstreamCommits: 1,
+          entriesConsidered: ["alpha", "beta"],
+          areas: ["all"],
+          exclusions: [],
+        },
+        dispositions: [
+          {
+            entry: "alpha",
+            upstream: "#1",
+            decision: "adopt",
+            requirements: ["r"],
+            evidence: ["e"],
+          },
+        ],
+      }),
+    );
+    expect(repo.check().reasons).toEqual([]);
+  });
+
   it("emits a skeleton that fails until filled and committed", () => {
     const { repo, merge2 } = fixture();
     const draft = skeleton({ repo: repo.dir, rev: "HEAD", tag: "v2" }) as Record<string, any>;
+    expect(draft.version).toBe(2);
     expect(draft.upstream.baseline).toEqual({ tag: "v1", sha: repo.git("rev-parse", "up1") });
     expect(draft.upstream.target.sha).toBe(repo.git("rev-parse", `${merge2}^2`));
     expect(draft.coverage.upstreamCommits).toBe(1);
@@ -262,7 +362,7 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork upstream 
       ...draft,
       attempt: "a1",
       reviewedAt: "2026-10-19T00:00:00Z",
-      coverage: { ...draft.coverage, areas: ["all"] },
+      coverage: { ...draft.coverage, entriesConsidered: repo.entries(), areas: ["all"] },
       result: "reconciled",
     });
     expect(repo.check().reasons).toEqual([]);
