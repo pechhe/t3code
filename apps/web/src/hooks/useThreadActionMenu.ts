@@ -47,6 +47,7 @@ import { useNewThreadHandler } from "./useHandleNewThread";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
 import { openLinkForgeItemDialog } from "../components/forgeItem/LinkForgeItemDialog";
+import { openExportTranscriptDialog } from "../components/ExportTranscriptDialog";
 
 function failureToast(title: string, error: unknown) {
   toastManager.add(
@@ -249,6 +250,9 @@ export function useThreadActionMenu(input: {
           return;
         case "link-build-item":
           openLinkForgeItemDialog(threadRef);
+          return;
+        case "export-transcript":
+          openExportTranscriptDialog(threadRef);
           return;
         case "copy-path": {
           const workspacePath = thread.worktreePath ?? projectCwd;

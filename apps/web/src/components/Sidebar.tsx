@@ -143,6 +143,7 @@ import {
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
+import { openExportTranscriptDialog } from "./ExportTranscriptDialog";
 import {
   applySidebarThreadDrop,
   filterSidebarV2VisibleThreads,
@@ -2535,6 +2536,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
             return;
           case "copy-thread-id":
             copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+            return;
+          case "export-transcript":
+            openExportTranscriptDialog(threadRef);
             return;
           case "archive": {
             if (confirmThreadArchive) {

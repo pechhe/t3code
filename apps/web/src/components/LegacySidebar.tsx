@@ -21,6 +21,7 @@ import {
   useLinkedThreadPullRequest,
 } from "./ThreadStatusIndicators";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
+import { openExportTranscriptDialog } from "./ExportTranscriptDialog";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { useAtomValue } from "@effect/atom-react";
 import { autoAnimate } from "@formkit/auto-animate";
@@ -2171,6 +2172,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
+          { id: "export-transcript", label: "Export Transcript…" },
           { id: "project-settings", label: "Project settings" },
           {
             id: "delete",
@@ -2239,6 +2241,10 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       }
       if (clicked === "copy-thread-id") {
         copyThreadIdToClipboard(thread.id, { threadId: thread.id });
+        return;
+      }
+      if (clicked === "export-transcript") {
+        openExportTranscriptDialog(threadRef);
         return;
       }
       if (clicked !== "delete") return;

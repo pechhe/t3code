@@ -1,5 +1,7 @@
 import { stripDisplayedPlanMarkdown, proposedPlanTitle } from "@t3tools/shared/proposedPlanText";
 
+import { sanitizeFileSegment } from "./lib/markdownExport";
+
 export function buildCollapsedProposedPlanPreviewMarkdown(
   planMarkdown: string,
   options?: {
@@ -42,15 +44,6 @@ export function buildCollapsedProposedPlanPreviewMarkdown(
   return previewLines.join("\n");
 }
 
-function sanitizePlanFileSegment(input: string): string {
-  const sanitized = input
-    .toLowerCase()
-    .replace(/[`'".,!?()[\]{}]+/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return sanitized.length > 0 ? sanitized : "plan";
-}
-
 export const PLAN_IMPLEMENTATION_PROMPT_PREFIX = "PLEASE IMPLEMENT THIS PLAN:\n";
 
 export function buildPlanImplementationPrompt(planMarkdown: string): string {
@@ -85,21 +78,9 @@ export function buildPlanImplementationThreadTitle(planMarkdown: string): string
 
 export function buildProposedPlanMarkdownFilename(planMarkdown: string): string {
   const title = proposedPlanTitle(planMarkdown);
-  return `${sanitizePlanFileSegment(title ?? "plan")}.md`;
+  return `${sanitizeFileSegment(title ?? "plan")}.md`;
 }
 
 export function normalizePlanMarkdownForExport(planMarkdown: string): string {
   return `${planMarkdown.trimEnd()}\n`;
-}
-
-export function downloadPlanAsTextFile(filename: string, contents: string): void {
-  const blob = new Blob([contents], { type: "text/markdown;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  window.setTimeout(() => {
-    URL.revokeObjectURL(url);
-  }, 0);
 }

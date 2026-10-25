@@ -76,6 +76,7 @@ describe("buildThreadActionMenuItems", () => {
       "mark-read",
       "mark-unread",
       "copy-thread-id",
+      "export-transcript",
       "copy",
       "project-settings",
     ]);
@@ -99,6 +100,14 @@ describe("buildThreadActionMenuItems", () => {
       canOperate: false,
     }).find((item) => item.id === "link-build-item");
     expect(readOnly?.disabled).toBe(true);
+  });
+
+  it("offers transcript export to a read-only client, since reading a transcript is a read", () => {
+    expect(ids(baseState)).toContain("export-transcript");
+    const readOnly = buildThreadActionMenuItems({ ...baseState, canOperate: false }).find(
+      (item) => item.id === "export-transcript",
+    );
+    expect(readOnly?.disabled ?? false).toBe(false);
   });
 
   it("disables archive while the thread is running", () => {

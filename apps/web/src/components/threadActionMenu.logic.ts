@@ -24,6 +24,7 @@ export type ThreadActionMenuId =
   | "copy-path"
   | "copy-branch"
   | "copy-thread-id"
+  | "export-transcript"
   | "archive"
   | "delete";
 
@@ -103,6 +104,7 @@ export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean
     "copy-path",
     "copy-branch",
     "copy-thread-id",
+    "export-transcript",
   ].includes(action);
 }
 
@@ -201,6 +203,7 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "copy-thread-id", label: "Copy thread ID", icon: "hash", separatorBefore: true },
+    { id: "export-transcript", label: "Export transcript…", icon: "download" },
     {
       id: "copy",
       label: "Copy",

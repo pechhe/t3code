@@ -59,6 +59,7 @@ import {
   FolderInputIcon,
   FolderPlusIcon,
   MessageSquareDashedIcon,
+  DownloadIcon,
   LinkIcon,
   MessageSquareIcon,
   PaletteIcon,
@@ -217,6 +218,7 @@ import { Checkbox } from "./ui/checkbox";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
 import { openLinkPullRequestDialog } from "./pullRequest/LinkPullRequestDialog";
 import { openLinkForgeItemDialog } from "./forgeItem/LinkForgeItemDialog";
+import { openExportTranscriptDialog } from "./ExportTranscriptDialog";
 import { useForgeConnected } from "../state/forgeWorkItems";
 import { ProjectContentSearchDialog } from "./search/ProjectContentSearchDialog";
 import { toggleThemeEditorForTheme } from "./settings/themeEditorStore";
@@ -1372,6 +1374,20 @@ function OpenCommandPaletteDialog(props: {
       icon: <LinkIcon className={ITEM_ICON_CLASS} />,
       run: async () => {
         openLinkForgeItemDialog(threadRef);
+      },
+    });
+  }
+
+  if (activeThread !== null) {
+    const thread = activeThread;
+    actionItems.push({
+      kind: "action",
+      value: "action:export-transcript",
+      searchTerms: ["export", "transcript", "copy", "markdown", "download", "review"],
+      title: "Export transcript…",
+      icon: <DownloadIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        openExportTranscriptDialog(scopeThreadRef(thread.environmentId, thread.id));
       },
     });
   }

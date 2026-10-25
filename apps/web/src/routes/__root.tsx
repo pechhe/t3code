@@ -20,6 +20,7 @@ import { resolveServerBackedAppDisplayName } from "../branding.logic";
 import { AppSidebarLayout } from "../components/AppSidebarLayout";
 import { CommandPalette } from "../components/CommandPalette";
 import { CustomSnoozeDialogHost } from "../components/CustomSnoozeDialog";
+import { ExportTranscriptDialogHost } from "../components/ExportTranscriptDialog";
 import { AddProjectToMachineDialogHost } from "../components/AddProjectToMachineDialog";
 import { ConfirmDialogHost } from "../components/ConfirmDialogHost";
 import { KeybindingsConfigWarning } from "../components/KeybindingsConfigWarning";
@@ -195,6 +196,7 @@ function RootRouteView() {
           <FontAppearanceSync />
           <ProviderAuthCallbackCoordinator />
           <CustomSnoozeDialogHost />
+          <ExportTranscriptDialogHost />
           <CommandPalette>
             <AppSidebarLayout>
               <Outlet />
@@ -270,6 +272,7 @@ function RootRouteView() {
           <ReopenClosedViewShortcut />
           <ConfirmDialogHost />
           <CustomSnoozeDialogHost />
+          <ExportTranscriptDialogHost />
           <ScreenRecordingBar />
           <SlowRpcRequestToastCoordinator />
           <HostFreezeToastCoordinator />

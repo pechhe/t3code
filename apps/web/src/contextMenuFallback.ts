@@ -40,6 +40,11 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "rect", attrs: { width: "14", height: "14", x: "8", y: "8", rx: "2", ry: "2" } },
     { tag: "path", attrs: { d: "M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" } },
   ],
+  download: [
+    { tag: "path", attrs: { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" } },
+    { tag: "polyline", attrs: { points: "7 10 12 15 17 10" } },
+    { tag: "line", attrs: { x1: "12", x2: "12", y1: "15", y2: "3" } },
+  ],
   folder: [
     {
       tag: "path",

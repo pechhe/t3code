@@ -269,6 +269,28 @@ Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
 
+### Export a transcript
+
+**Export transcript…** in a thread's menu, its header menu, or `Cmd+K` writes the
+whole conversation to one Markdown file: your messages, the agent's replies, the
+plans it proposed, and every command and file change, oldest first. Choose
+**Save .md** to keep the file or **Copy Markdown** to paste it. Nothing is sent
+anywhere.
+
+The export reads the thread's full history from the environment, so it includes
+messages older than the part of the conversation your window has loaded.
+
+An agent's sub-agent threads are included by default, each as its own section
+with the brief it was given, so a lead thread and its helpers travel together.
+Turn that off to export only the thread you are looking at. Two settings make the
+file longer: **Include reasoning and thinking** adds what the agent thought, and
+**Include full tool output** adds each command's complete output instead of its
+exit code and first line.
+
+A thread over 50 MB of transcript can't be exported; T3 says so instead of
+writing a partial file. Exporting is read-only, so it works on a connection that
+may not change the thread. Mobile has no export yet.
+
 ## Work across projects
 
 When a thread's work spans another project, its agent can attach a workspace in
