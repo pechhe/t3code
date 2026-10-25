@@ -4,7 +4,6 @@ import * as Clock from "effect/Clock";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Option from "effect/Option";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
@@ -12,7 +11,6 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
-import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
@@ -108,9 +106,6 @@ const harness = Effect.gen(function* () {
   // Another process over the same database, as a restart is: its queue starts with nothing in memory.
   const openQueue = HqForgeRecords.layer.pipe(
     Layer.provide(ForgeSpecOfThread.layer),
-    Layer.provide(
-      Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeed(Option.none()) }),
-    ),
     Layer.provide(Layer.succeed(HqAgentConnections.HqAgentConnections, connections)),
     Layer.provide(projections),
     Layer.provide(Layer.succeedContext(database)),

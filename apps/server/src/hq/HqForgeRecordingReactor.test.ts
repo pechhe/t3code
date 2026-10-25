@@ -256,6 +256,8 @@ it.effect("a root thread whose workspace is attached to a Forge item queues its 
   withReactor(({ reactor, enqueued, state }) =>
     Effect.gen(function* () {
       state.items.set("number:7", { id: "spec-7", kind: "spec", parentId: null });
+      // No project carries a Forge repository key today, so the workspace item must not need one.
+      Object.assign(state.project, { hqRepositoryKey: null });
       const thread = threadOf(lead, { workspaceIssue: 7 });
       state.threads.set(lead, thread);
 
@@ -265,21 +267,6 @@ it.effect("a root thread whose workspace is attached to a Forge item queues its 
       assert.strictEqual(session?.recordKey, "session:thread-lead:#7");
       assert.strictEqual(session?.specId, "spec-7");
       assert.deepStrictEqual(session?.bind, { specId: "spec-7" });
-    }),
-  ),
-);
-
-it.effect("a workspace item in a project Forge does not track records nothing", () =>
-  withReactor(({ reactor, enqueued, state, reads }) =>
-    Effect.gen(function* () {
-      Object.assign(state.project, { hqRepositoryKey: null });
-      const thread = threadOf(lead, { workspaceIssue: 7 });
-      state.threads.set(lead, thread);
-
-      yield* reactor.handle(threadEvent("thread.created", thread));
-
-      assert.lengthOf(enqueued, 0);
-      assert.lengthOf(reads, 0);
     }),
   ),
 );

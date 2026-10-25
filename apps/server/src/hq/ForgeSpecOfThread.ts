@@ -7,7 +7,6 @@ import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
-import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 
 /** The Forge Spec a thread's work counts toward, and the thread that leads it (Spec #4395). */
@@ -43,8 +42,7 @@ export class BuildSpecUnavailable extends Schema.TaggedError<BuildSpecUnavailabl
 /**
  * Says which Spec, if any, a thread's work is recorded on: the thread's own Forge link or, when it
  * has none, the item its workspace was attached to (a lead launched for a Forge item or attached
- * with `slipjay attach-issue`, in a project registered with Forge, where that number is a Forge
- * number); failing both, the nearest ancestor's, reached through `parentThreadId`, so every
+ * with `slipjay attach-issue`, whose number T3 already reads as a Forge number); failing both, the nearest ancestor's, reached through `parentThreadId`, so every
  * `delegate_task` child at any depth counts. A thread with no linked ancestor, or whose link names no Spec, resolves to
  * none: there is nothing to record. A thread that is linked but whose item cannot be read now
  * fails with `BuildSpecUnavailable` instead, which is what tells a caller to queue its record
@@ -70,7 +68,6 @@ const decodeForgeItemRead = Schema.decodeUnknownOption(ForgeItemRead);
 
 const make = Effect.gen(function* () {
   const projections = yield* ProjectionStore.ProjectionStoreV2;
-  const projects = yield* ProjectStore.ProjectStoreV2;
   const hq = yield* HqAgentConnections.HqAgentConnections;
   /** The Spec each item names, by the connection it was read on, so a Ticket is read once. */
   const specByItem = new Map<
@@ -116,19 +113,10 @@ const make = Effect.gen(function* () {
     return Option.some({ ...spec, origin });
   });
 
-  /**
-   * The item a thread's own fields name: its Forge link, else the item its workspace was attached
-   * to, which is a Forge number only in a project registered with Forge.
-   */
-  const linkedItemOf = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
-    if (thread.workItem !== undefined && thread.workItem !== null) return thread.workItem;
-    if (thread.workspaceIssue == null) return undefined;
-    const project = yield* projects.get(thread.projectId).pipe(
-      Effect.map(Option.getOrUndefined),
-      Effect.orElseSucceed(() => undefined),
-    );
-    return project?.hqRepositoryKey ? { number: thread.workspaceIssue, origin: null } : undefined;
-  });
+  /** The item a thread names: its Forge link, else the item its workspace was attached to. */
+  const linkedItemOf = (thread: OrchestrationV2AppThread) =>
+    thread.workItem ??
+    (thread.workspaceIssue == null ? undefined : { number: thread.workspaceIssue, origin: null });
 
   const of: ForgeSpecOfThread["Service"]["of"] = Effect.fn("ForgeSpecOfThread.of")(
     function* (threadId) {
@@ -148,7 +136,7 @@ const make = Effect.gen(function* () {
           Effect.catch(() => Effect.fail(new BuildSpecUnavailable({ threadId, origin: null }))),
         );
         if (Option.isNone(thread)) return Option.none();
-        const item = yield* linkedItemOf(thread.value);
+        const item = linkedItemOf(thread.value);
         if (item !== undefined) {
           const spec = yield* specOfItem(threadId, item);
           return Option.isNone(spec)
