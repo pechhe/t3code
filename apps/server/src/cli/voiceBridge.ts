@@ -17,11 +17,11 @@ import { Command, Flag } from "effect/cli";
 import { HttpRouter } from "effect/http";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
+import { isFluidVoiceRecording } from "@t3tools/shared/macFluidVoice";
 import { captureFrontWindow } from "../voiceBridge/Capture.ts";
 import * as CaptureSession from "../voiceBridge/CaptureSession.ts";
 import { routes } from "../voiceBridge/Http.ts";
 import {
-  isFluidVoiceRecording,
   startMacCommandShortcut,
   toggleFluidVoiceCommand,
 } from "../voiceBridge/MacCommandShortcut.ts";

@@ -280,6 +280,12 @@ contextBridge.exposeInMainWorld("desktopBridge", {
           ipcRenderer.invoke(IpcChannels.GET_SCREEN_RECORDING_SOURCE_CHANNEL, undefined),
       }
     : {}),
+  ...(clientPlatform === "darwin"
+    ? {
+        setDictation: (active: boolean) =>
+          ipcRenderer.invoke(IpcChannels.SET_DICTATION_CHANNEL, active),
+      }
+    : {}),
   setScreenRecordingIndicator: (state) =>
     ipcRenderer.invoke(IpcChannels.SET_SCREEN_RECORDING_INDICATOR_CHANNEL, state),
   onScreenRecordingIndicatorAction: (listener) => {

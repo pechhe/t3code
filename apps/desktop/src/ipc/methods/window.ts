@@ -19,6 +19,7 @@ import {
 import { PROJECT_FAVICON_EXTENSIONS } from "@t3tools/shared/projectFavicon";
 import { resolveEditorCommand } from "@t3tools/shared/editor";
 import * as HostProcess from "@t3tools/shared/HostProcess";
+import { setFluidVoiceDictation } from "@t3tools/shared/macFluidVoice";
 import { isRelayTracingEnabled } from "@t3tools/shared/otelEnvironment";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
@@ -470,6 +471,38 @@ export const getScreenRecordingSource = DesktopIpc.makeIpcMethod({
         ),
       ),
     );
+  }),
+});
+
+const DICTATION_OWNER_GONE_EVENTS = ["destroyed", "did-navigate", "render-process-gone"] as const;
+let releaseDictationOwner: (() => void) | undefined;
+
+// A reload, crash or quit ends the recording with the page, so dictation must not outlive it.
+const stopDictationWhenOwnerGone = (owner: Electron.WebContents) => {
+  releaseDictationOwner?.();
+  const onGone = () => {
+    releaseDictationOwner?.();
+    void setFluidVoiceDictation(false).catch(() => undefined);
+  };
+  for (const event of DICTATION_OWNER_GONE_EVENTS) owner.once(event as "destroyed", onGone);
+  releaseDictationOwner = () => {
+    for (const event of DICTATION_OWNER_GONE_EVENTS)
+      owner.removeListener(event as "destroyed", onGone);
+    releaseDictationOwner = undefined;
+  };
+};
+
+export const setDictation = DesktopIpc.makeIpcMethod({
+  channel: IpcChannels.SET_DICTATION_CHANNEL,
+  payload: Schema.Boolean,
+  result: Schema.Void,
+  handler: Effect.fn("desktop.ipc.window.setDictation")(function* (active, event) {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    if (environment.platform !== "darwin") return;
+    const owner = active && event ? Electron.webContents.fromId(event.sender.id) : undefined;
+    if (owner) stopDictationWhenOwnerGone(owner);
+    else releaseDictationOwner?.();
+    yield* Effect.tryPromise((signal) => setFluidVoiceDictation(active, signal));
   }),
 });
 

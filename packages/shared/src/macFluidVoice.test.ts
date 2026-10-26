@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { parseFluidVoiceRecordingStatus } from "./MacCommandShortcut.ts";
+import { parseFluidVoiceRecordingStatus } from "./macFluidVoice.ts";
 
 describe("FluidVoice recording-status protocol", () => {
   it("distinguishes a recording from a ready app", () => {

@@ -86,9 +86,35 @@ const subscribeToIndicatorActions = () => {
   );
 };
 
+// FluidVoice dictation runs while the recording is running, so the narration lands with the video.
+// Calls queue because each one reads FluidVoice's live state before tapping its hotkey.
+let dictationWanted = false;
+let dictationQueue: Promise<void> = Promise.resolve();
+let dictationFailureReported = false;
+
+const syncDictation = (state: ComposerScreenRecordingState) => {
+  const setDictation = window.desktopBridge?.setDictation;
+  if (state.phase === "idle") dictationFailureReported = false;
+  const wanted = state.phase === "recording" && state.resumedAt !== null;
+  if (!setDictation || wanted === dictationWanted) return;
+  dictationWanted = wanted;
+  dictationQueue = dictationQueue
+    .then(() => setDictation(wanted))
+    .catch((error: unknown) => {
+      if (dictationFailureReported) return;
+      dictationFailureReported = true;
+      toastManager.add({
+        type: "warning",
+        title: "Couldn't control FluidVoice dictation",
+        description: error instanceof Error ? error.message : undefined,
+      });
+    });
+};
+
 const onStateChange = (state: ComposerScreenRecordingState) => {
   publish({ state });
   showIndicator(state);
+  syncDictation(state);
 };
 
 export const screenRecordingControls = {

@@ -7,6 +7,10 @@
       "types": "./src/projectIdentity.ts",
       "import": "./src/projectIdentity.ts"
     },
+    "./macFluidVoice": {
+      "types": "./src/macFluidVoice.ts",
+      "import": "./src/macFluidVoice.ts"
+    },
     "./macWindowCapture": {
       "types": "./src/macWindowCapture.ts",
       "import": "./src/macWindowCapture.ts"

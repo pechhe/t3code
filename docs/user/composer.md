@@ -61,7 +61,7 @@ T3 Code and other apps: in the Mac app the controls sit in the notch at the top 
 screen (elsewhere, along the top of T3 Code), where you can pause, stop or
 discard. The controls also name what is being recorded; choose it to switch to
 another screen, app or window in the same video. When you stop, T3 Code comes to the front on the thread you started
-in, with the video attached to its draft. Paused time is not recorded; recordings stop by themselves after 60
+in, with the video attached to its draft. In the Mac app, if FluidVoice is running with Right Shift as its dictation key, dictation runs while the recording does: it starts with the recording, pauses when you pause and stops when you stop or discard. Paused time is not recorded; recordings stop by themselves after 60
 seconds of recording and capture no audio.
 
 Recording works in desktop browsers and in the desktop app on macOS 15 or later

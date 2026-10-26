@@ -1211,6 +1211,8 @@ export interface DesktopBridge {
   setScreenRecordingIndicator?: (
     state: DesktopScreenRecordingIndicatorState | null,
   ) => Promise<boolean>;
+  /** macOS only: starts or stops FluidVoice dictation by tapping its hotkey; a no-op if already so. */
+  setDictation?: (active: boolean) => Promise<void>;
   onScreenRecordingIndicatorAction?: (
     listener: (action: DesktopScreenRecordingIndicatorAction) => void,
   ) => () => void;
