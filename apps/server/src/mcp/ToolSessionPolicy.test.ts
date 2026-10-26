@@ -82,15 +82,14 @@ const session = (
   delegated = false,
 ) => ({ toolProfile, agentRole, delegated }) satisfies SessionToolProfile;
 
-// These ceilings catch the ~190k catalogue coming back, not a tool the thread's
-// own instructions name: the handoff family is part of the control plane and the
-// html tools are counted here. A delegated child lists its own work family and
-// the leaf tools only, so its ceiling is the reason it cannot drift back to the
-// control plane. Each number is the payload that endpoint committed to: a change that
-// needs a higher one states the new number and what bought it.
+// These ceilings catch the ~190k catalogue coming back, not a tool the thread's own
+// instructions name: the handoff family and the html tools are counted here. A delegated
+// child lists its own work family and the leaf tools only. A change that needs a higher
+// ceiling states the new number and what bought it.
 const budgets: ReadonlyArray<[string, SessionToolProfile | undefined, number]> = [
-  // 39,994 measured.
-  ["ordinary", undefined, 40_000],
+  // 40,243 measured; `t3_background_wait`, which lets a Claude agent mark the commands it waits on
+  // as holding Working, took the last 249.
+  ["ordinary", undefined, 40_300],
   // The preview endpoint is a browser session's listing, so it carries no control plane.
   // 32,741 measured; the ceiling moved by 100 for the theme guide's corrected code-variable
   // names, which the html tools carry on this endpoint too.
@@ -448,4 +447,15 @@ it("keeps workspace inspection off every session endpoint and its listing small"
   );
   // Measured at 5,011 characters for seven tools; external clients list them, threads never do.
   expect(chars).toBeLessThan(6_000);
+});
+
+it("lists t3_background_wait on control endpoints only, which is where its Claude instruction goes", () => {
+  expect(isToolListedForSession("t3_background_wait", undefined)).toBe(true);
+  expect(
+    isToolListedForSession(
+      "t3_background_wait",
+      session("implementation", "implementation-worker", true),
+    ),
+  ).toBe(false);
+  expect(isToolListedForSession("t3_background_wait", session("phi", "browser"))).toBe(false);
 });

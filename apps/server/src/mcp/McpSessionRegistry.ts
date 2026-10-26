@@ -8,6 +8,7 @@ import {
   sessionEndpointKey,
   sessionToolFamilies,
   ThreadId,
+  toolFamily,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -205,6 +206,9 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
       const listsPreview = managedBrowser || families?.has("preview") === true;
       const listsDevice = !managedBrowser && families?.has("device") === true;
       const listsHtml = !managedBrowser && families?.has("leaf") === true;
+      const listsBackgroundWait =
+        !managedBrowser &&
+        (families === undefined || families.has(toolFamily("t3_background_wait")));
       const scope: McpInvocationContext.McpThreadInvocationScope = {
         environmentId,
         // A retry after a reconnect or server restart arrives on a fresh credential, so request
@@ -263,6 +267,7 @@ const makeWithOptions = Effect.fn("McpSessionRegistry.make")(function* (
           listsPreview,
           listsDevice,
           listsHtml,
+          listsBackgroundWait,
           capabilities: scope.capabilities,
         },
       };

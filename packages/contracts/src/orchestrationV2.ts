@@ -1170,8 +1170,8 @@ const PendingBackgroundTaskFields = {
   /** The subagent task that started this work and waits on it. */
   parentTaskId: Schema.optional(TrimmedNonEmptyString),
   /**
-   * The provider reported that the agent waits on this work. The fork holds a thread for any
-   * pending background work, so the flag is descriptive here, not what decides the hold.
+   * The agent declared it resumes when this work ends, so the thread holds like it does for a
+   * subagent. Only the agent knows whether a command is a wait or a dev server it left running.
    */
   awaited: Schema.optional(Schema.Literal(true)),
 };

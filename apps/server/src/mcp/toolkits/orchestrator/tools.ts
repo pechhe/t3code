@@ -41,6 +41,7 @@ import {
   OrchestratorMcpThreadWatchResult,
   ThreadMetadataMcpUpdateInput,
   ThreadMetadataMcpUpdateResult,
+  TrimmedNonEmptyString,
 } from "@t3tools/contracts";
 import { Tool, Toolkit } from "effect/ai";
 import * as Schema from "effect/Schema";
@@ -160,6 +161,25 @@ const WorkflowStopTool = Tool.make("t3_workflow_stop", {
 })
   .annotate(Tool.Title, "Stop a workflow")
   .annotate(Tool.Destructive, true);
+
+const BackgroundWaitTool = Tool.make("t3_background_wait", {
+  description:
+    "Mark background commands or Monitors you will act on when they end, by task ID, so the thread stays Working. Never mark a dev server or watcher. waiting=false unmarks; stopping is separate. Claude only.",
+  parameters: Schema.Struct({
+    taskIds: Schema.Array(TrimmedNonEmptyString).check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(20),
+    ),
+    waiting: Schema.optional(Schema.Boolean),
+  }),
+  success: Schema.Struct({
+    matched: Schema.Array(Schema.String),
+    unmatched: Schema.Array(Schema.String),
+  }),
+  failure: OrchestratorMcpFailure,
+  failureMode: "return",
+  dependencies,
+}).annotate(Tool.Title, "Wait on background work");
 
 const ScheduleTaskTool = Tool.make("schedule_task", {
   description:
@@ -367,6 +387,7 @@ export const OrchestratorToolkit = Toolkit.make(
   TaskStatusTool,
   TaskCancelTool,
   WorkflowStopTool,
+  BackgroundWaitTool,
   ScheduleTaskTool,
   ListScheduledTasksTool,
   UpdateScheduledTaskTool,

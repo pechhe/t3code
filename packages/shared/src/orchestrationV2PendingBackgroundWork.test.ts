@@ -1,4 +1,3 @@
-import { type OrchestrationV2PendingBackgroundTask } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderInstanceId, ProviderThreadId } from "@t3tools/contracts";
 import {
@@ -44,20 +43,29 @@ describe("ownBackgroundWork", () => {
 });
 
 describe("backgroundWorkHoldsCompletion", () => {
-  const task = (
-    taskId: string,
-    kind: OrchestrationV2PendingBackgroundTask["kind"],
-  ): OrchestrationV2PendingBackgroundTask => ({ taskId, kind });
-
   it.each([
     ["nothing pending", false, []],
-    ["a dev server", true, [task("dev", "command")]],
-    ["two long-lived shells", true, [task("web", "command"), task("api", "command")]],
-    ["a subagent", true, [task("review", "subagent")]],
-    ["a monitor", true, [task("watch", "monitor")]],
-    ["a command and a monitor", true, [task("dev", "command"), task("watch", "monitor")]],
-    ["a command and a subagent", true, [task("dev", "command"), task("review", "subagent")]],
-    ["work the provider cannot name", true, [task("opaque", "background_task")]],
+    ["a dev server", false, [{ taskId: "dev", kind: "command" }]],
+    [
+      "two long-lived shells",
+      false,
+      [
+        { taskId: "web", kind: "command" },
+        { taskId: "api", kind: "command" },
+      ],
+    ],
+    ["a dev server's watchdog monitor", false, [{ taskId: "watch", kind: "monitor" }]],
+    ["a command the agent waits on", true, [{ taskId: "tests", kind: "command", awaited: true }]],
+    ["a subagent", true, [{ taskId: "review", kind: "subagent" }]],
+    [
+      "a command and a subagent",
+      true,
+      [
+        { taskId: "dev", kind: "command" },
+        { taskId: "review", kind: "subagent" },
+      ],
+    ],
+    ["work the provider cannot name", true, [{ taskId: "opaque", kind: "background_task" }]],
   ] as const)("with %s pending, holds completion: %s", (_case, holds, tasks) => {
     expect(backgroundWorkHoldsCompletion(tasks)).toBe(holds);
   });

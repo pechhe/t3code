@@ -484,6 +484,7 @@ describe("resolveThreadStatusPill", () => {
       taskId: "thread-watch:1",
       description: "Watching thread Worker",
       kind: "monitor" as const,
+      awaited: true as const,
     };
     expect(
       resolveThreadStatusPill({
@@ -496,7 +497,7 @@ describe("resolveThreadStatusPill", () => {
           ...baseThread,
           pendingBackgroundTasks: [
             watch,
-            { taskId: "bg-1", description: "sleep 20", kind: "command" },
+            { taskId: "bg-1", description: "sleep 20", kind: "command", awaited: true },
           ],
           runtime: idle,
         },
@@ -1040,22 +1041,21 @@ describe("navigation after parking a thread", () => {
 
 describe("unseen completion with background work", () => {
   it.each([
-    // The fork holds a completed thread for any pending background work, awaited or not.
     {
       roster: "dev server",
       task: { kind: "command" },
-      status: "waiting",
-      topStatus: "waiting",
-      receded: true,
-      pill: "Waiting",
+      status: "ready",
+      topStatus: "done",
+      receded: false,
+      pill: "Completed",
     },
     {
       roster: "dev server watchdog",
       task: { kind: "monitor" },
-      status: "waiting",
-      topStatus: "waiting",
-      receded: true,
-      pill: "Waiting",
+      status: "ready",
+      topStatus: "done",
+      receded: false,
+      pill: "Completed",
     },
     {
       roster: "awaited command",

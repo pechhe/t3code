@@ -185,6 +185,10 @@ const T3_MCP_TOOLS: Readonly<Record<string, T3McpToolDefinition>> = {
     ["Stop", "Stopping", "Requested a stop for", "a workflow"],
     "workflow-stop",
   ),
+  t3_background_wait: tool(
+    ["Update", "Updating", "Updated", "background waits"],
+    "background-wait",
+  ),
   t3_thread_interrupt: tool(
     ["Interrupt", "Interrupting", "Requested an interrupt of", "a T3 thread"],
     "thread-interrupt",

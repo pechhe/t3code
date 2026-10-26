@@ -128,12 +128,25 @@ export function deriveBlockedOnThreadWait(input: {
   return hasWait;
 }
 
-// The fork holds completion for any pending background work, not only what the agent awaits:
-// a command left running keeps the thread Waiting, so no completion is reported early.
 export function backgroundWorkHoldsCompletion(
-  tasks: ReadonlyArray<PendingBackgroundWorkTask>,
+  tasks: ReadonlyArray<Pick<PendingBackgroundWorkTask, "kind" | "awaited">>,
 ): boolean {
-  return tasks.length > 0;
+  return tasks.some(
+    (task) => task.awaited === true || backgroundWorkKindHoldsCompletion(task.kind),
+  );
+}
+
+// Commands and monitors are as often a dev server or its watchdog as a wait, so they hold
+// only when the agent marks them awaited.
+function backgroundWorkKindHoldsCompletion(kind: PendingBackgroundWorkTask["kind"]): boolean {
+  switch (kind) {
+    case "command":
+    case "monitor":
+      return false;
+    case "subagent":
+    case "background_task":
+      return true;
+  }
 }
 
 type PendingBackgroundWorkRun = Pick<OrchestrationV2Run, "id" | "ordinal" | "status">;
@@ -338,6 +351,7 @@ function watchTasks(input: {
             : `Watching Build #${watch.target.number} until ${watch.target.until}`,
       kind: "monitor" as const,
       watching: watch.target,
+      awaited: true as const,
     })),
   ];
 }

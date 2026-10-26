@@ -356,6 +356,7 @@ describe("presentPendingBackgroundWork", () => {
       taskId: "thread-watch:1",
       kind: "monitor" as const,
       description: "Watching thread Doc file blocks",
+      awaited: true as const,
       watching: { kind: "thread" as const, threadId: worker },
     };
     expect(presentPendingBackgroundWork([threadWatch])).toMatchObject({
@@ -368,6 +369,7 @@ describe("presentPendingBackgroundWork", () => {
           taskId: "pull-request-watch:github.com/pechhe/t3code#98",
           kind: "monitor",
           description: "Watching pull request #98",
+          awaited: true,
           watching: { kind: "pull_request", url: "https://github.com/pechhe/t3code/pull/98" },
         },
       ]),
@@ -381,6 +383,7 @@ describe("presentPendingBackgroundWork", () => {
           taskId: "thread-watch:2",
           kind: "monitor",
           description: "Watching Build #4297 until closed",
+          awaited: true,
           watching: { kind: "build_item", number: 4297, until: "closed" },
         },
       ] as never),
@@ -395,12 +398,14 @@ describe("presentPendingBackgroundWork", () => {
       taskId: `thread-watch:${id}`,
       kind: "monitor" as const,
       description: `Watching thread ${title}`,
+      awaited: true as const,
       watching: { kind: "thread" as const, threadId: ThreadId.make(`thread:${id}`) },
     });
     const pullRequestWatch = {
       taskId: "pull-request-watch:github.com/pechhe/t3code#98",
       kind: "monitor" as const,
       description: "Watching pull request #98",
+      awaited: true as const,
       watching: { kind: "pull_request" as const, url: "https://github.com/pechhe/t3code/pull/98" },
     };
     expect(
@@ -413,6 +418,7 @@ describe("presentPendingBackgroundWork", () => {
       taskId: `thread-watch:${index}`,
       kind: "monitor" as const,
       description: `Watching thread T${index}`,
+      awaited: true as const,
       watching: { kind: "thread" as const, threadId: ThreadId.make(`thread:${index}`) },
     }));
     const presentation = presentPendingBackgroundWork([
@@ -427,26 +433,25 @@ describe("presentPendingBackgroundWork", () => {
     ]);
   });
 
-  it("waits for commands even when they are long lived", () => {
+  it("waits only for commands and monitors the agent marked awaited", () => {
     expect(
       presentPendingBackgroundWork([
         { taskId: "dev", kind: "command", description: "Start the shared dev server" },
       ]),
-    ).toMatchObject({ title: "Waiting on command Start the shared dev server", waiting: true });
-    expect(presentPendingBackgroundWork([{ taskId: "a", kind: "command" }])).toMatchObject({
-      title: "Waiting on a command",
-      waiting: true,
-    });
+    ).toMatchObject({ title: "Running command Start the shared dev server", waiting: false });
     expect(
       presentPendingBackgroundWork([
         { taskId: "a", kind: "command", description: "vp run dev" },
         { taskId: "b", kind: "command", description: "tailscale serve" },
       ]),
-    ).toMatchObject({ title: "Waiting on 2 · 2 commands", waiting: true });
+    ).toMatchObject({ title: "Running 2 · 2 commands", waiting: false });
+    expect(
+      presentPendingBackgroundWork([{ taskId: "a", kind: "command", awaited: true }]),
+    ).toMatchObject({ title: "Waiting on a command", waiting: true });
     expect(
       presentPendingBackgroundWork([
         { taskId: "a", kind: "command", description: "vp run dev" },
-        { taskId: "b", kind: "monitor", description: "Watch PR checks" },
+        { taskId: "b", kind: "monitor", description: "Watch PR checks", awaited: true },
       ]),
     ).toMatchObject({ title: "Waiting on 2 · 1 command · 1 monitor", waiting: true });
   });

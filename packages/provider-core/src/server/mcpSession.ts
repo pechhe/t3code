@@ -25,6 +25,8 @@ export interface McpProviderSessionConfig {
   readonly listsDevice?: boolean;
   /** The thread's listing carries the html tools. */
   readonly listsHtml?: boolean;
+  /** The thread's listing carries `t3_background_wait`. */
+  readonly listsBackgroundWait?: boolean;
   /** Capabilities the credential grants ("preview", "device"). */
   readonly capabilities?: ReadonlySet<string>;
   readonly agentDeviceEnvironment?: Readonly<Record<string, string>>;

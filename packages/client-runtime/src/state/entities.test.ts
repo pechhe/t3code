@@ -99,7 +99,7 @@ describe("V2 client presentation", () => {
   });
 
   it.each([
-    { kinds: ["command"], expected: "idle" },
+    { kinds: ["command"], expected: "completed" },
     { kinds: ["command", "subagent"], expected: "idle" },
     { kinds: ["background_task"], expected: "idle" },
   ] as const)("presents a completed shell with $kinds as $expected", ({ kinds, expected }) => {
@@ -121,7 +121,26 @@ describe("V2 client presentation", () => {
   });
 
   it.each(["running", "waiting"] as const)(
-    "parks shell %s while only background commands remain in the roster",
+    "parks shell %s while only awaited background commands remain in the roster",
+    (status) => {
+      const runId = RunId.make("run-command");
+      const task = { taskId: "tests", kind: "command", awaited: true } as const;
+      const shell = presentThreadShell(environmentId, {
+        ...v2ThreadShell,
+        latestRunId: runId,
+        activeRunId: runId,
+        status,
+        pendingBackgroundTasks: [task],
+      });
+
+      expect(shell.latestRun?.status).toBe(status);
+      expect(shell.runtime).toMatchObject({ status: "idle", activeRunId: runId });
+      expect(shell.pendingBackgroundTasks).toEqual([task]);
+    },
+  );
+
+  it.each(["running", "waiting"] as const)(
+    "presents shell %s as it is while only a dev server remains in the roster",
     (status) => {
       const runId = RunId.make("run-command");
       const shell = presentThreadShell(environmentId, {
@@ -132,9 +151,7 @@ describe("V2 client presentation", () => {
         pendingBackgroundTasks: [{ taskId: "dev-server", kind: "command" }],
       });
 
-      expect(shell.latestRun?.status).toBe(status);
-      expect(shell.runtime).toMatchObject({ status: "idle", activeRunId: runId });
-      expect(shell.pendingBackgroundTasks).toEqual([{ taskId: "dev-server", kind: "command" }]);
+      expect(shell.runtime).toMatchObject({ status, activeRunId: runId });
     },
   );
 
@@ -395,10 +412,10 @@ describe("V2 client presentation", () => {
     };
     expect(
       deriveThreadRuntime({ ...v2Projection, runs: [run], turnItems: [commandItem] }),
-    ).toMatchObject({ status: "idle", activeRunId: null });
+    ).toMatchObject({ status: "waiting", activeRunId: null });
 
     for (const [turnItems, status] of [
-      [[commandItem], "idle"],
+      [[commandItem], "completed"],
       [[backgroundItem], "idle"],
       [[commandItem, backgroundItem], "idle"],
     ] as const) {

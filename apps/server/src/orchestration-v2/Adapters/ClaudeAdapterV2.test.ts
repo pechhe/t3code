@@ -826,7 +826,21 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
       allowedTools: overrides.allowedTools ?? [],
       mcpServers: overrides.mcpServers ?? {},
       environment: {},
+      t3BackgroundWait: true,
     });
+    const unlisted = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("claudeAgent"),
+        model: "claude-sonnet-4-6",
+      },
+      nativeThreadId: "native-thread-claude-mcp",
+      resume: false,
+      cwd: "/workspace",
+      allowedTools: overrides.allowedTools ?? [],
+      mcpServers: overrides.mcpServers ?? {},
+      environment: {},
+    });
+    assert.notInclude(JSON.stringify(unlisted.systemPrompt), "t3_background_wait");
     assert.isObject(options.systemPrompt);
     const systemPrompt = options.systemPrompt as {
       readonly type: string;
@@ -836,6 +850,7 @@ describe("ClaudeAdapterV2 native protocol logging", () => {
     assert.equal(systemPrompt.type, "preset");
     assert.equal(systemPrompt.preset, "claude_code");
     assert.include(systemPrompt.append ?? "", "delegate_task");
+    assert.include(systemPrompt.append ?? "", "call `t3_background_wait`");
     const logged = ClaudeAdapterV2.loggedClaudeQueryOptions(options);
     assert.equal(logged.hasMcpServers, true);
     assert.notInclude(JSON.stringify(logged), "secret-claude-token");
@@ -7481,6 +7496,126 @@ describe("ClaudeAdapterV2 background wake turns", () => {
           ),
         ),
       ),
+  );
+
+  it.effect("holds only the background tasks the agent marks awaited, until they end", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const harness = yield* makeWakeHarness;
+        const now = yield* DateTime.now;
+        // Not the wake harness's own task, which stays listed while its wake is owed.
+        const TESTS_TASK_ID = "tests";
+        const awaitBackgroundTasks = harness.runtime.awaitBackgroundTasks;
+        if (awaitBackgroundTasks === undefined) {
+          throw new Error("Claude adapter runtime must expose awaitBackgroundTasks.");
+        }
+        const roster = (tasks: ReadonlyArray<string>, uuid: string) =>
+          claudeSdkFrame({
+            type: "system",
+            subtype: "background_tasks_changed",
+            tasks: tasks.map((taskId) => ({
+              task_id: taskId,
+              task_type: "local_bash",
+              description: taskId,
+            })),
+            uuid,
+            session_id: WAKE_NATIVE_SESSION,
+          });
+        const nextRoster = Effect.fn("nextRoster")(function* (
+          matches: (tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>) => boolean,
+        ) {
+          while (true) {
+            const { providerThread } = yield* Queue.take(harness.providerThreadReceipts);
+            const tasks = providerThread.pendingBackgroundTasks ?? [];
+            if (matches(tasks)) return tasks;
+          }
+        });
+        const marks = (tasks: ReadonlyArray<OrchestrationV2PendingBackgroundTask>) =>
+          tasks.map((task) => [task.taskId, task.awaited === true]);
+
+        yield* harness.runtime.startTurn(
+          makeClaudeTestTurnInput({
+            threadId: harness.threadId,
+            providerThread: harness.providerThread,
+            now,
+            attemptId: RunAttemptId.make("attempt-claude-awaited-roster"),
+            text: "Run the tests in the background and the dev server.",
+            attachments: [],
+          }),
+        );
+        yield* Queue.offer(
+          harness.sdkMessages,
+          roster([TESTS_TASK_ID, "dev-server"], "00000000-0000-4000-8000-000000000301"),
+        );
+        yield* nextRoster((tasks) => tasks.length === 2);
+
+        const marked = yield* awaitBackgroundTasks({
+          providerThread: harness.providerThread,
+          taskIds: [TESTS_TASK_ID, "already-finished"],
+          awaited: true,
+        });
+        assert.deepStrictEqual(marked.matched, [TESTS_TASK_ID]);
+        assert.deepStrictEqual(
+          marks(yield* nextRoster((tasks) => tasks.some((task) => task.awaited === true))),
+          [
+            [TESTS_TASK_ID, true],
+            ["dev-server", false],
+          ],
+        );
+        yield* Queue.offer(harness.sdkMessages, turnOneResult);
+        yield* Queue.take(harness.terminalReceipts);
+
+        // A replacing level rebuilds every entry; the mark must survive it.
+        yield* Queue.offer(
+          harness.sdkMessages,
+          roster(["dev-server", TESTS_TASK_ID], "00000000-0000-4000-8000-000000000302"),
+        );
+        assert.deepStrictEqual(
+          marks(yield* nextRoster((tasks) => tasks[0]?.taskId === "dev-server")),
+          [
+            ["dev-server", false],
+            [TESTS_TASK_ID, true],
+          ],
+        );
+
+        // A task that ends while its wake is owed stays listed and holds, marked or not.
+        yield* Queue.offer(
+          harness.sdkMessages,
+          roster(["dev-server"], "00000000-0000-4000-8000-000000000303"),
+        );
+        assert.deepStrictEqual(
+          marks(yield* nextRoster((tasks) => tasks.some((task) => task.taskId === "dev-server"))),
+          [
+            ["dev-server", false],
+            [TESTS_TASK_ID, true],
+          ],
+        );
+
+        yield* awaitBackgroundTasks({
+          providerThread: harness.providerThread,
+          taskIds: ["dev-server"],
+          awaited: true,
+        });
+        assert.deepStrictEqual(marks(yield* nextRoster((tasks) => tasks[0]?.awaited === true)), [
+          ["dev-server", true],
+          [TESTS_TASK_ID, true],
+        ]);
+        const released = yield* awaitBackgroundTasks({
+          providerThread: harness.providerThread,
+          taskIds: ["dev-server"],
+          awaited: false,
+        });
+        assert.deepStrictEqual(released.matched, ["dev-server"]);
+        assert.deepStrictEqual(marks(yield* nextRoster((tasks) => tasks[0]?.awaited !== true)), [
+          ["dev-server", false],
+          [TESTS_TASK_ID, true],
+        ]);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
+    ),
   );
 
   it.effect("keeps a running Claude monitor typed after many newer monitors end", () =>

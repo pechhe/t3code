@@ -186,8 +186,8 @@ Press `Escape` while dragging to cancel.
 By default, environments settle inactive threads after three days and settle
 threads whose pull request merged. A closed pull request can also settle an idle
 thread. An empty thread's inactivity counts from when it was created.
-Work in progress, pending questions or approvals, and background work the agent
-is waiting on prevent automatic settlement. An open pull request does not prevent inactivity
+Work in progress, pending questions or approvals, and any background work still
+running, a dev server included, prevent automatic settlement. An open pull request does not prevent inactivity
 settlement unless you turn on **Keep threads with a PR** in **Settings → General**,
 but an old closed or merged pull request does not settle work you
 resumed after it closed. Only your own messages count as resuming. A turn that

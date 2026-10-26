@@ -1,7 +1,4 @@
-import {
-  backgroundWorkHoldsCompletion,
-  turnItemUpdateCanEndBackgroundWork,
-} from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
+import { turnItemUpdateCanEndBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
@@ -153,7 +150,8 @@ export function isAutoSettlementCandidate(
   // A guest is waiting on the owner; settling would hide the Request.
   if ((thread.pendingGuestMessageCount ?? 0) > 0) return false;
   if (thread.activityRunStatus != null) return false;
-  if (backgroundWorkHoldsCompletion(thread.pendingBackgroundTasks ?? [])) return false;
+  // Settling ends the session and any dev server left in it, so any live work blocks it.
+  if ((thread.pendingBackgroundTasks ?? []).length > 0) return false;
   if (threadHasQueuedTurnStart(thread, nowMs)) return false;
   // Interrupted runs must keep the same snooze protection the sidebar shows.
   return !isSnoozed(thread, nowMs);
@@ -634,7 +632,7 @@ export const make = Effect.gen(function* () {
           ? Effect.void
           : enqueueThread(event.threadId);
       case "provider-thread.updated":
-        return backgroundWorkHoldsCompletion(event.payload.pendingBackgroundTasks ?? [])
+        return (event.payload.pendingBackgroundTasks ?? []).length > 0
           ? Effect.void
           : enqueueThread(event.threadId);
       case "turn-item.updated": {
