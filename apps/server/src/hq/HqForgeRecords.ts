@@ -582,6 +582,18 @@ const make = Effect.gen(function* () {
    * One record's trip to Weave. Anything Weave could still accept is reported as a retry rather
    * than raised, so the queue decides how long to wait.
    */
+  /** The thread's own projection says who its agent acts as, exactly as a turn reads it. */
+  const agentOf = (threadId: ThreadId) =>
+    projections.getThread(threadId).pipe(
+      Effect.map((thread) => {
+        const role = HqAgentConnections.hqAgentRole(thread);
+        return role === undefined
+          ? Option.none<HqAgentConnections.HqAgent>()
+          : Option.some({ threadId, role, model: thread.modelSelection.model });
+      }),
+      Effect.catch(() => Effect.succeed(Option.none())),
+    );
+
   const attempt = Effect.fn("HqForgeRecords.attempt")(function* (
     row: Row,
   ): Effect.fn.Return<DeliveryOutcome, HqForgeRecordError> {
@@ -607,20 +619,7 @@ const make = Effect.gen(function* () {
         }),
       );
     }
-    // The thread's own projection says who its agent acts as, exactly as a turn reads it.
-    const identity = yield* projections.getThread(row.threadId).pipe(
-      Effect.map((thread) => {
-        const role = HqAgentConnections.hqAgentRole(thread);
-        return role === undefined
-          ? Option.none<HqAgentConnections.HqAgent>()
-          : Option.some({
-              threadId: row.threadId,
-              role,
-              model: thread.modelSelection.model,
-            });
-      }),
-      Effect.catch(() => Effect.succeed(Option.none())),
-    );
+    const identity = yield* agentOf(row.threadId);
     if (Option.isNone(identity)) return retry("thread_unavailable");
     const agent = identity.value;
     /**
@@ -779,6 +778,24 @@ const make = Effect.gen(function* () {
   `.pipe(Effect.mapError((cause) => failed("read", cause)));
 
   /**
+   * Says on the Spec that this thread's record was refused, once per record. A reviewer leaves no
+   * note, since writing to the Spec would end its independence of it, and a row parked only
+   * because the record it names was refused is told by that record's note.
+   */
+  const noteRefusal = (row: Row, code: string) =>
+    Effect.gen(function* () {
+      if (row.specId === null || row.kind === "end") return;
+      if (code === "lead_session_parked" || code === "session_parked") return;
+      const agent = yield* agentOf(row.threadId);
+      if (Option.isNone(agent) || agent.value.role.endsWith("-reviewer")) return;
+      yield* hq.callAs(agent.value, "hq_forge_record_contribution", {
+        itemId: row.specId,
+        clientRef: `refused:${row.createdAt}:${row.kind}:${row.recordKey.slice(-120)}`,
+        note: `Weave refused this thread's ${row.kind} record with ${code}, so it is parked in T3 and not sent. What it carried stays unreported. Thread: t3-thread://v1/${row.threadId}`,
+      });
+    }).pipe(Effect.ignore);
+
+  /**
    * One row's trip to Weave, and whether nothing else of its thread has to wait for it: a
    * delivered or parked row is settled, while a retry or a wait holds the rows behind it.
    */
@@ -799,7 +816,8 @@ const make = Effect.gen(function* () {
         yield* sql`UPDATE hq_build_records
           SET status = 'parked', attempts = ${attempts}, last_error = ${outcome.code}
           WHERE record_key = ${row.recordKey}`;
-        // Parked rows are only readable through SQL, so a refusal is also said where logs are read.
+        // Parked rows are only readable through SQL, so a refusal is also said where logs are read,
+        // and on the Spec, where Forge shows what its threads did.
         yield* Effect.logWarning(
           "Weave refused a Forge record; it is parked and will not be sent",
           {
@@ -809,6 +827,7 @@ const make = Effect.gen(function* () {
             code: outcome.code,
           },
         );
+        yield* noteRefusal(row, outcome.code);
         return true;
       }
       yield* sql`UPDATE hq_build_records
@@ -903,12 +922,14 @@ const make = Effect.gen(function* () {
       ),
     );
     // What an earlier server parked for a session it could not adopt is deliverable now: the
-    // session itself, and the helper and usage rows its refusal parked with it.
+    // session itself, and the helper and usage rows its refusal parked with it. So is a row a
+    // Weave error that passes parked, or that an earlier build sent in a shape Weave refuses.
     yield* sql`UPDATE hq_build_records
       SET status = 'pending', attempts = 0, last_error = NULL
       WHERE status = 'parked' AND (
         (kind = 'session' AND last_error = 'session_reference_conflict')
-        OR last_error IN ('lead_session_parked', 'session_parked'))`.pipe(
+        OR last_error IN (
+          'lead_session_parked', 'session_parked', 'action_execution_failed', 'invalid_action_input'))`.pipe(
       Effect.catchCause((cause) => Effect.logWarning("Could not reopen parked records", cause)),
     );
     // A restart inherits rows whose backoff was timed for an outage this process knows nothing

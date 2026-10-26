@@ -64,8 +64,9 @@ const turnTokens = (usage: TurnTokenUsage | undefined): HqForgeUsage.HqForgeUsag
   if (usage === undefined) return null;
   const input = usage.inputTokens;
   const output = usage.outputTokens;
-  // A turn that measured nothing has no honest figure to record, in either direction.
-  if (input === undefined || output === undefined) return null;
+  // A turn that measured nothing has no honest figure to record, in either direction, and one that
+  // reports no tokens at all has not measured anything either.
+  if (input === undefined || output === undefined || (input === 0 && output === 0)) return null;
   const cacheRead = Math.min(input, usage.cachedInputTokens ?? 0);
   const cacheWrite =
     usage.cacheCreationTokens === undefined

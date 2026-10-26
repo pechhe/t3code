@@ -401,6 +401,40 @@ it.effect("a refusal Weave states with a code parks the record and is never retr
   }),
 );
 
+it.effect(
+  "a refused record is noted on the Spec by its thread, once, and a reviewer leaves no note",
+  () =>
+    Effect.gen(function* () {
+      const { hq, boot } = yield* harness;
+      const records = yield* boot;
+      hq.tools.call = (name) =>
+        name === "hq_forge_record_helper" || name === "hq_forge_record_usage"
+          ? { status: "failed", code: "invalid_action_input" }
+          : name === "hq_forge_start_session"
+            ? { status: "succeeded", value: { session: { id: "session-1" } } }
+            : { status: "succeeded", value: {} };
+      yield* records.enqueue(leadSession);
+      yield* records.enqueue({
+        kind: "helper",
+        recordKey: "helper:thread-helper",
+        threadId: helperThread,
+        leadThreadId: leadThread,
+        specId: "spec-1",
+        args: { workId: "work-1" },
+      });
+      yield* records.enqueue(reviewerUsageOf("run-1"));
+
+      yield* records.deliverDue;
+      yield* records.deliverDue;
+
+      const notes = hq.toolCalls.filter(({ name }) => name === "hq_forge_record_contribution");
+      assert.lengthOf(notes, 1);
+      assert.strictEqual(notes[0]?.args.itemId, "spec-1");
+      assert.include(String(notes[0]?.args.note), "invalid_action_input");
+      assert.include(String(notes[0]?.args.note), `t3-thread://v1/${helperThread}`);
+    }),
+);
+
 it.effect("records a reviewer's own Forge run from the answer its proxied call was given", () =>
   Effect.gen(function* () {
     const { hq, connections, boot } = yield* harness;
@@ -891,6 +925,61 @@ it.effect("a session parked as a reference conflict is tried again when the queu
       true,
     );
   }),
+);
+
+it.effect(
+  "rows parked on a Weave error or an earlier build's refused shape are tried again when the queue starts",
+  () =>
+    Effect.gen(function* () {
+      const { hq, boot, sql } = yield* harness;
+      const before = yield* boot;
+      yield* before.enqueue({
+        kind: "helper",
+        recordKey: `helper:${helperThread}:run-1`,
+        threadId: helperThread,
+        leadThreadId: leadThread,
+        specId: "spec-1",
+        origin,
+        args: { harness: "t3code" },
+      });
+      yield* before.enqueue({
+        kind: "helper",
+        recordKey: `helper:${helperThread}:run-2`,
+        threadId: helperThread,
+        leadThreadId: leadThread,
+        specId: "spec-1",
+        origin,
+        args: { harness: "t3code" },
+      });
+      yield* before.enqueue({
+        kind: "helper",
+        recordKey: `helper:${helperThread}:run-3`,
+        threadId: helperThread,
+        leadThreadId: leadThread,
+        specId: "spec-1",
+        origin,
+        args: { harness: "t3code" },
+      });
+      yield* sql`UPDATE hq_build_records SET status = 'parked', attempts = 1, last_error = 'action_execution_failed'
+      WHERE record_key LIKE '%run-1'`;
+      yield* sql`UPDATE hq_build_records SET status = 'parked', attempts = 1, last_error = 'invalid_action_input'
+      WHERE record_key LIKE '%run-2'`;
+      yield* sql`UPDATE hq_build_records SET status = 'parked', attempts = 1, last_error = 'helper_reviewer_refused'
+      WHERE record_key LIKE '%run-3'`;
+
+      const after = yield* boot;
+      yield* Effect.scoped(after.start());
+
+      assert.deepStrictEqual(
+        (yield* after.outstanding()).map((record) => [record.recordKey.slice(-5), record.status]),
+        [
+          ["run-1", "pending"],
+          ["run-2", "pending"],
+          ["run-3", "parked"],
+        ],
+      );
+      assert.deepStrictEqual(hq.toolCalls, []);
+    }),
 );
 
 it.effect("the rows a refused session parked are tried again with it when the queue starts", () =>

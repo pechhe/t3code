@@ -281,6 +281,14 @@ describe("the usage rows a turn owes Weave", () => {
     ).toBeNull();
   });
 
+  it("records nothing when the turn reports zero tokens, rather than a measured zero", () => {
+    const buffer = makeTurnUsageBuffer();
+
+    expect(settleTurnUsage(buffer, turnUsage(0, 0), identity)).toEqual([
+      expect.objectContaining({ level: "turn", tokens: null }),
+    ]);
+  });
+
   it("keys each Codex response by the thread's running total, so a replayed update counts once", () => {
     const buffer = makeTurnUsageBuffer();
     const update = (params: {

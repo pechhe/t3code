@@ -36,7 +36,9 @@ export function assertClaudeBackgroundMonitorWakeOutput(
   // The first roster precedes task_started linking the Monitor call, so that entry reads command.
   assert.isAbove(rosterTasks.length, 1);
   for (const task of rosterTasks.slice(1)) {
-    assert.deepEqual(task, {
+    // A task that ended while its wake is owed is marked awaited, so the mark is not part of this check.
+    const { awaited: _awaited, ...monitor } = task;
+    assert.deepEqual(monitor, {
       taskId: MONITOR_TASK_ID,
       description: "Background monitor test",
       kind: "monitor",
