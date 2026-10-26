@@ -578,10 +578,6 @@ const make = Effect.gen(function* () {
     return own.sessionId === null ? {} : { sessionId: own.sessionId };
   });
 
-  /**
-   * One record's trip to Weave. Anything Weave could still accept is reported as a retry rather
-   * than raised, so the queue decides how long to wait.
-   */
   /** The thread's own projection says who its agent acts as, exactly as a turn reads it. */
   const agentOf = (threadId: ThreadId) =>
     projections.getThread(threadId).pipe(
@@ -594,6 +590,10 @@ const make = Effect.gen(function* () {
       Effect.catch(() => Effect.succeed(Option.none())),
     );
 
+  /**
+   * One record's trip to Weave. Anything Weave could still accept is reported as a retry rather
+   * than raised, so the queue decides how long to wait.
+   */
   const attempt = Effect.fn("HqForgeRecords.attempt")(function* (
     row: Row,
   ): Effect.fn.Return<DeliveryOutcome, HqForgeRecordError> {

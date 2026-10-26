@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import { ThreadId } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
@@ -61,7 +62,11 @@ const harness = Effect.gen(function* () {
     ),
     Layer.provide(Layer.succeedContext(database)),
   );
-  const usageLayer = HqForgeUsage.layer.pipe(Layer.provide(recordsLayer), Layer.provide(specs));
+  const usageLayer = HqForgeUsage.layer.pipe(
+    Layer.provide(recordsLayer),
+    Layer.provide(specs),
+    Layer.provide(NodeCrypto.layer),
+  );
   const bootUsage = Effect.gen(function* () {
     return yield* HqForgeUsage.HqForgeUsage;
   }).pipe(Effect.provide(usageLayer));
@@ -95,6 +100,33 @@ const openLeadSession = (records: HqForgeRecords.HqForgeRecords["Service"]) =>
     bind: { specId: "spec-1" },
     startSession: { specId: "spec-1", modelRef: "claude-opus-5-5" },
   });
+
+it.effect("a usage reference too long for Weave is bounded and stays distinct per request", () =>
+  Effect.gen(function* () {
+    const { hq, bootUsage, bootRecords } = yield* harness;
+    const usage = yield* bootUsage;
+    const records = yield* bootRecords;
+    hq.tools.call = (name) =>
+      name === "hq_forge_start_session"
+        ? { status: "succeeded", value: { session: { id: "session-1" } } }
+        : { status: "succeeded", value: {} };
+    yield* openLeadSession(records);
+    yield* records.deliverDue;
+    const longRef = `claude:${"x".repeat(600)}`;
+
+    yield* usage.record(usageRequest({ usageRef: `${longRef}:1` }));
+    yield* usage.record(usageRequest({ usageRef: `${longRef}:2` }));
+    yield* records.deliverDue;
+
+    const refs = hq.toolCalls
+      .filter(({ name }) => name === "hq_forge_record_usage")
+      .map(({ args }) => String(args.usageRef));
+    assert.lengthOf(refs, 2);
+    assert.isTrue(refs.every((ref) => ref.length <= 500));
+    assert.notStrictEqual(refs[0], refs[1]);
+    assert.isTrue(refs.every((ref) => ref.startsWith("claude:xxx")));
+  }),
+);
 
 it.effect("records what a linked thread's request spent, as Weave's usage tool takes it", () =>
   Effect.gen(function* () {

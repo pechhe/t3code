@@ -8,7 +8,6 @@ import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
-import * as Hex from "effect/encoding/Hex";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -20,6 +19,7 @@ import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
 import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import { forkParked } from "../serverActivation.ts";
+import { boundedRef } from "./boundedRef.ts";
 import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 import * as HqForgeRecords from "./HqForgeRecords.ts";
@@ -93,19 +93,9 @@ const make = Effect.gen(function* () {
   /**
    * The session reference Weave files a helper's run under. A lead's is its bare thread id, which is
    * how a lead reports itself to Forge, so the session T3 opens and the one the lead starts are one.
-   * A delegated task's thread and run ids can pass Weave's length limit, which refuses the whole
-   * record, so a long one keeps its head and ends in a hash of the whole.
    */
-  const helperSessionRefOf = (threadId: ThreadId, runId: string) => {
-    const ref = `t3:${environmentId}/${threadId}/${runId}`;
-    if (ref.length <= SESSION_REF_MAX_LENGTH) return Effect.succeed(ref);
-    return crypto.digest("SHA-256", new TextEncoder().encode(ref)).pipe(
-      Effect.map((digest) => {
-        const hash = Hex.encode(digest);
-        return `${ref.slice(0, SESSION_REF_MAX_LENGTH - hash.length - 1)}#${hash}`;
-      }),
-    );
-  };
+  const helperSessionRefOf = (threadId: ThreadId, runId: string) =>
+    boundedRef(crypto, `t3:${environmentId}/${threadId}/${runId}`, SESSION_REF_MAX_LENGTH);
 
   /** Where the thread's work happened, as Weave shows it beside the session. */
   const workspacesOf = Effect.fn("HqForgeRecordingReactor.workspacesOf")(function* (

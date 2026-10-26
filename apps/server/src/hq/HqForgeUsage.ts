@@ -10,11 +10,13 @@
  */
 import { ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
+import { boundedRef } from "./boundedRef.ts";
 import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqForgeRecords from "./HqForgeRecords.ts";
 
@@ -76,9 +78,13 @@ export class HqForgeUsage extends Context.Reference<HqForgeUsageShape>("t3/hq/Hq
   }),
 }) {}
 
+/** The longest usage reference Weave accepts. */
+const USAGE_REF_MAX_LENGTH = 500;
+
 const make = Effect.gen(function* () {
   const specs = yield* ForgeSpecOfThread.ForgeSpecOfThread;
   const records = yield* HqForgeRecords.HqForgeRecords;
+  const crypto = yield* Crypto.Crypto;
 
   const record: HqForgeUsageShape["record"] = Effect.fn("HqForgeUsage.record")(
     function* (input) {
@@ -103,7 +109,7 @@ const make = Effect.gen(function* () {
         origin: spec.origin,
         t3RunId: input.runId,
         args: {
-          usageRef: input.usageRef,
+          usageRef: yield* boundedRef(crypto, input.usageRef, USAGE_REF_MAX_LENGTH),
           scope: "own",
           evidenceRef: `t3-thread://v1/${input.threadId}#${input.level}`,
           startedAt: isoOf(input.startedAt),
