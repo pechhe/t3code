@@ -1493,6 +1493,15 @@ export function codexThreadRuntimeParams(input: {
             "features.computer_use": false,
             web_search: input.runtimePolicy?.webResearch === true ? "live" : "disabled",
           }),
+      ...(input.runtimePolicy?.sandboxTempRoot === undefined
+        ? {}
+        : {
+            // Per thread because the app-server is shared; `excludeTmpdirEnvVar` still keeps the
+            // server's own TMPDIR outside the sandbox.
+            shell_environment_policy: {
+              set: { TMPDIR: input.runtimePolicy.sandboxTempRoot },
+            },
+          }),
       ...(mcpServers === undefined
         ? {}
         : input.runtimePolicy?.managedAgent === true
@@ -1891,58 +1900,59 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     }),
                 ),
               );
-        // A managed writer's sandbox admits `$TMPDIR`, but only the temp root its policy named:
-        // one directory per session, released when the session ends, so a reopened session never
-        // inherits the previous one's leftovers.
-        const sandboxTempRoot = input.runtimePolicy.sandboxTempRoot;
-        const sandboxTempDir =
-          sandboxTempRoot === undefined
-            ? undefined
-            : yield* Effect.acquireRelease(
-                fileSystem
-                  .makeDirectory(sandboxTempRoot, { recursive: true })
-                  .pipe(
-                    Effect.andThen(
-                      fileSystem.makeTempDirectory({ directory: sandboxTempRoot, prefix: "run-" }),
-                    ),
-                  ),
-                (directory) =>
-                  fileSystem.remove(directory, { recursive: true, force: true }).pipe(
-                    // Drop the task's root with its last session; one still holding another
-                    // session's directory stays, so a late release cannot delete live files.
-                    Effect.andThen(
-                      fileSystem.readDirectory(sandboxTempRoot).pipe(
-                        Effect.flatMap((entries) =>
-                          entries.length === 0
-                            ? fileSystem.remove(sandboxTempRoot, { recursive: true, force: true })
-                            : Effect.void,
-                        ),
-                        Effect.catch(() => Effect.void),
-                      ),
-                    ),
-                    Effect.catch(() =>
-                      Effect.logWarning("Could not remove a managed task's temp directory.", {
-                        directory,
-                      }),
-                    ),
-                  ),
-              ).pipe(
-                Effect.mapError(
-                  (cause) =>
-                    new ProviderAdapter.ProviderAdapterOpenSessionError({
-                      driver: CODEX_PROVIDER,
-                      providerSessionId: input.providerSessionId,
-                      cause,
-                    }),
-                ),
-              );
-        const environment =
-          sandboxTempDir === undefined
-            ? (resolvedRuntime?.environment ?? adapterOptions.environment)
-            : {
-                ...(resolvedRuntime?.environment ?? adapterOptions.environment),
-                TMPDIR: sandboxTempDir,
-              };
+        // Every task on a provider session shares its app-server, so a task's temp dir cannot
+        // live in the server's environment: it travels as that thread's shell config, is made
+        // before its turn, and goes when the turn ends. The policy names one root per task.
+        const sandboxTempDirs = yield* Ref.make(new Map<string, string>());
+        const rememberSandboxTempDir = (threadId: string, directory: string) =>
+          Ref.update(sandboxTempDirs, (current) => new Map(current).set(threadId, directory));
+        const releaseSandboxTempDir = Effect.fn("CodexAdapterV2.releaseSandboxTempDir")(function* (
+          directory: string,
+        ) {
+          yield* fileSystem.remove(directory, { recursive: true, force: true }).pipe(
+            Effect.catch(() =>
+              Effect.logWarning("Could not remove a managed task's temp directory.", {
+                directory,
+              }),
+            ),
+          );
+        });
+        const forgetSandboxTempDir = Effect.fn("CodexAdapterV2.forgetSandboxTempDir")(function* (
+          threadId: string,
+        ) {
+          const directory = (yield* Ref.get(sandboxTempDirs)).get(threadId);
+          if (directory === undefined) return;
+          yield* Ref.update(sandboxTempDirs, (current) => {
+            const next = new Map(current);
+            next.delete(threadId);
+            return next;
+          });
+          yield* releaseSandboxTempDir(directory);
+        });
+        yield* Effect.addFinalizer(() =>
+          Ref.get(sandboxTempDirs).pipe(
+            Effect.flatMap((directories) =>
+              Effect.forEach(directories.values(), releaseSandboxTempDir),
+            ),
+          ),
+        );
+        // A task's temp dir must outlive every turn of it that has started and not finished.
+        const sandboxTempTurns = yield* Ref.make(new Map<string, number>());
+        const holdSandboxTempDir = (root: string) =>
+          Ref.update(sandboxTempTurns, (current) => {
+            const next = new Map(current);
+            next.set(root, (next.get(root) ?? 0) + 1);
+            return next;
+          });
+        const releaseSandboxTempTurn = (root: string) =>
+          Ref.modify(sandboxTempTurns, (current) => {
+            const live = (current.get(root) ?? 0) - 1;
+            const next = new Map(current);
+            if (live > 0) next.set(root, live);
+            else next.delete(root);
+            return [Math.max(0, live), next] as const;
+          });
+        const environment = resolvedRuntime?.environment ?? adapterOptions.environment;
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
@@ -2443,6 +2453,22 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             }
             return false;
           });
+
+        // A task's temp dir goes when its turn ends, unless a process it started still runs or
+        // another of its turns is live; unloading the thread then removes it. Untraced: it runs
+        // inside the turn finalizer's span.
+        // A task's temp dir goes when its last live turn ends, unless a process that turn
+        // started still runs; unloading the thread then removes it. Untraced: it runs inside the
+        // turn finalizer's span.
+        const releaseTaskTempDirIfIdle = Effect.fnUntraced(function* (
+          context: ActiveCodexTurnContext,
+        ) {
+          const sandboxTempRoot = context.input.runtimePolicy.sandboxTempRoot;
+          if (sandboxTempRoot === undefined) return;
+          if ((yield* releaseSandboxTempTurn(sandboxTempRoot)) > 0) return;
+          if (yield* turnHasRetainedBackgroundWork(context.nativeTurnId)) return;
+          yield* forgetSandboxTempDir(context.input.threadId);
+        });
 
         const releaseSettledTurnIfIdle =
           /* Provider events include streaming deltas; avoid a span for each update. */
@@ -6482,6 +6508,9 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 input.completedAt,
                 input.status === "interrupted" || input.status === "failed",
               );
+              // Before the terminal event, so a client that sees the turn end sees its temp
+              // directory gone too.
+              yield* releaseTaskTempDirIfIdle(input.context);
               if (input.context.subagent === null) {
                 yield* emitOrDeferRootTerminal({
                   ...input,
@@ -7223,13 +7252,25 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
             ),
           ),
           startTurn: (turnInput) => {
-            const goalCommand =
-              turnInput.message.attachments.length === 0 &&
-              turnInput.restartContinuationOfRunId === undefined
-                ? parseCodexGoalCommand(turnInput.message.text)
-                : null;
-            if (goalCommand !== null) return runGoalCommand(turnInput, goalCommand);
+            const sandboxTempRoot = turnInput.runtimePolicy.sandboxTempRoot;
             return Effect.gen(function* () {
+              // Made per turn because the same shared app-server serves every task, so the
+              // directory cannot come from its environment; the turn's config names it.
+              if (sandboxTempRoot !== undefined) {
+                // Hold it before it exists, so an earlier turn ending cannot remove it.
+                yield* holdSandboxTempDir(sandboxTempRoot);
+                yield* fileSystem.makeDirectory(sandboxTempRoot, { recursive: true });
+                yield* rememberSandboxTempDir(turnInput.threadId, sandboxTempRoot);
+              }
+              const goalCommand =
+                turnInput.message.attachments.length === 0 &&
+                turnInput.restartContinuationOfRunId === undefined
+                  ? parseCodexGoalCommand(turnInput.message.text)
+                  : null;
+              if (goalCommand !== null) {
+                yield* runGoalCommand(turnInput, goalCommand);
+                return;
+              }
               yield* startNativeTurn(
                 turnInput,
                 turnInput.restartContinuationOfRunId === undefined
@@ -7246,6 +7287,18 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     runId: turnInput.runId,
                     cause,
                   }),
+              ),
+              // A turn that never started keeps the directory only while another of the task's
+              // turns is still live.
+              Effect.catchCause((cause) =>
+                Effect.gen(function* () {
+                  if (
+                    sandboxTempRoot !== undefined &&
+                    (yield* releaseSandboxTempTurn(sandboxTempRoot)) === 0
+                  )
+                    yield* forgetSandboxTempDir(turnInput.threadId);
+                  return yield* Effect.failCause(cause);
+                }),
               ),
             );
           },
@@ -7294,6 +7347,8 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               const nativeThreadId = yield* getNativeThreadId(unloadInput.providerThread);
               sessionApprovals.delete(nativeThreadId);
               yield* client.request("thread/unsubscribe", { threadId: nativeThreadId });
+              if (unloadInput.providerThread.appThreadId !== null)
+                yield* forgetSandboxTempDir(unloadInput.providerThread.appThreadId);
             },
             (effect, unloadInput) =>
               effect.pipe(

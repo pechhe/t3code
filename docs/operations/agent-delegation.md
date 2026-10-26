@@ -102,11 +102,14 @@ its revision and the role names, or the reason the policy is refused.
   checkout, so a lead runs no jj command that moves its working copy while that
   writer is running.
 - A Codex writer's sandbox also writes one temp directory per task, outside its
-  workspace, and the session that runs the task is given it as `TMPDIR`; a
-  build's temp files therefore never land in the checkout the task reports. The
-  directory goes when the task's provider session ends: its child thread is
-  closed or deleted, or the server stops, and a later follow-up turn gets a fresh
-  one. Nothing else outside the workspace becomes writable, and the shared
+  workspace, and that thread's shell is given it as `TMPDIR`; a build's temp
+  files therefore never land in the checkout the task reports. Task threads share
+  one Codex app-server, so the directory travels in each thread's own shell
+  configuration rather than the app-server's environment, and one task never
+  inherits another's. It is made for the task's turn and goes when that turn
+  ends, unless a process the task started still runs or another of its turns is
+  live; closing or deleting the thread, or the server stopping, removes what is
+  left. Nothing else outside the workspace becomes writable, and the shared
   system temp directory stays refused.
 - A read-only task pinned to a `sourceRevision`, such as a review or a pinned
   advisor, may run in any workspace of the lead's repository, or of any other

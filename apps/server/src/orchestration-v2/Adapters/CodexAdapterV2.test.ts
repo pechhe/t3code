@@ -36,7 +36,6 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
 import * as Scope from "effect/Scope";
 import * as FileSystem from "effect/FileSystem";
@@ -834,6 +833,7 @@ function makeCodexTestTurnInput(input: {
   readonly now: DateTime.Utc;
   readonly attemptId: RunAttemptId;
   readonly text: string;
+  readonly runtimePolicy?: ProviderAdapter.ProviderAdapterV2RuntimePolicy;
 }): ProviderAdapter.ProviderAdapterV2TurnInput {
   return {
     appThread: makeCodexTestAppThread(input),
@@ -852,7 +852,7 @@ function makeCodexTestTurnInput(input: {
       attachments: [],
     },
     modelSelection: CODEX_TEST_MODEL_SELECTION,
-    runtimePolicy: CODEX_TEST_RUNTIME_POLICY,
+    runtimePolicy: input.runtimePolicy ?? CODEX_TEST_RUNTIME_POLICY,
   };
 }
 
@@ -1033,6 +1033,7 @@ describe("CodexAdapterV2 session initialize", () => {
   ) =>
     Effect.gen(function* () {
       const environments: Array<NodeJS.ProcessEnv | undefined> = [];
+      const requests: Array<{ readonly method: string; readonly params: unknown }> = [];
       const driver = yield* CodexReplay.makeReplayDriver(
         transcript,
         beforeEmitInbound === undefined ? {} : { beforeEmitInbound },
@@ -1059,6 +1060,7 @@ describe("CodexAdapterV2 session initialize", () => {
                     ...client,
                     request: (method, params) =>
                       Effect.sync(() => {
+                        requests.push({ method, params });
                         if (method === "initialize") initializeRequests++;
                       }).pipe(Effect.andThen(client.request(method, params))),
                   }) satisfies CodexClient.CodexAppServerClient["Service"],
@@ -1078,8 +1080,9 @@ describe("CodexAdapterV2 session initialize", () => {
         idAllocator: yield* IdAllocator.IdAllocatorV2,
         serverConfig: yield* makeReplayServerConfig(transcript.scenario).pipe(Effect.orDie),
       });
+      const threadId = ThreadId.make(`thread-${transcript.scenario}`);
       const open = adapter.openSession({
-        threadId: ThreadId.make(`thread-${transcript.scenario}`),
+        threadId,
         providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
         modelSelection: CODEX_TEST_MODEL_SELECTION,
         runtimePolicy,
@@ -1089,11 +1092,14 @@ describe("CodexAdapterV2 session initialize", () => {
         : open.pipe(Effect.provideService(Scope.Scope, sessionScope));
       return {
         environment: () => environments.at(-1),
-        ensureThread: (threadId: string) =>
+        requests: () => requests,
+        runtime,
+        threadId,
+        ensureThread: (threadId: string, policy = runtimePolicy) =>
           runtime.ensureThread({
             threadId: ThreadId.make(threadId),
             modelSelection: CODEX_TEST_MODEL_SELECTION,
-            runtimePolicy,
+            runtimePolicy: policy,
           }),
         initializeRequests: () => initializeRequests,
       };
@@ -1233,32 +1239,125 @@ describe("CodexAdapterV2 session initialize", () => {
     ),
   );
 
+  // Config keys the adapter fills in per thread; the assertions below read the recorded
+  // requests instead, which is what the shared-session bug turned on.
+  const managedThreadConfigKeys = [
+    "features.multi_agent",
+    "features.apps",
+    "features.plugins",
+    "features.browser_use",
+    "features.computer_use",
+    "web_search",
+    "shell_environment_policy",
+  ];
+
+  // A managed thread reads the app-server's effective config before it starts.
+  const managedConfigRead = (id: number): Array<CodexReplay.CodexAppServerReplayEntry> => [
+    {
+      type: "expect_outbound",
+      label: "config/read",
+      frame: {
+        id,
+        method: "config/read",
+        params: { cwd: "/workspace", includeLayers: false },
+      },
+    },
+    {
+      type: "emit_inbound",
+      label: "config/read",
+      frame: { id, result: { config: { mcp_servers: {} }, origins: {} } },
+    },
+  ];
+
   it.effect(
-    "gives a managed writer a TMPDIR in its policy's temp root and removes it when the session ends",
+    "gives a managed task a TMPDIR of its own for its turn and removes it when the turn ends",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-sandbox-tmp-" });
         const sandboxTempRoot = `${parent}/task`;
-        const sessionScope = yield* Scope.make();
+        const nativeThreadId = "managed-sandbox-temp-native";
+        const prompt = "make a temp file";
+        const runtimePolicy = {
+          ...CODEX_TEST_RUNTIME_POLICY,
+          managedAgent: true,
+          sandboxTempRoot,
+        };
+        const holdCompletion = yield* Deferred.make<void>();
+        const terminal = yield* Deferred.make<void>();
         const session = yield* openReplaySession(
-          makeCodexReplayTranscript({
-            scenario: "managed-sandbox-temp",
-            entries: replayPreamble("managed-sandbox-temp-native"),
-          }),
-          undefined,
-          { ...CODEX_TEST_RUNTIME_POLICY, managedAgent: true, sandboxTempRoot },
-          sessionScope,
+          {
+            ...makeCodexReplayTranscript({
+              scenario: "managed-sandbox-temp",
+              entries: (() => {
+                const preamble = codexReplayPreamble({
+                  nativeThreadId,
+                  nativeTurnId: "turn-1",
+                  prompt,
+                });
+                return [
+                  ...preamble.slice(0, 3),
+                  ...managedConfigRead(2),
+                  withReplayRequestId(preamble[3]!, 3),
+                  withReplayRequestId(preamble[4]!, 3),
+                  withReplayRequestId(preamble[5]!, 4),
+                  withReplayRequestId(preamble[6]!, 4),
+                  preamble[7]!,
+                  {
+                    type: "emit_inbound",
+                    label: "turn/completed",
+                    frame: {
+                      method: "turn/completed",
+                      params: {
+                        threadId: nativeThreadId,
+                        turn: makeCodexReplayTurn({ id: "turn-1", status: "completed" }),
+                      },
+                    },
+                  },
+                ];
+              })(),
+            }),
+            metadata: { recorderThreadConfigKeys: managedThreadConfigKeys },
+          },
+          (entry) =>
+            entry.label === "turn/completed" ? Deferred.await(holdCompletion) : Effect.void,
+          runtimePolicy,
         );
+        const providerThread = yield* session.ensureThread(nativeThreadId);
 
-        const tmpdir = session.environment()?.TMPDIR;
-        assert.isString(tmpdir);
-        assert.isTrue(tmpdir?.startsWith(`${sandboxTempRoot}/`));
-        assert.equal((yield* fs.stat(tmpdir ?? "")).type, "Directory");
+        // The app-server is shared with every other task, so no task's directory rides in its
+        // environment; the thread's own config names it.
+        assert.isUndefined(session.environment()?.TMPDIR);
+        const started = (session.requests().find((request) => request.method === "thread/start")
+          ?.params ?? {}) as {
+          config?: Record<string, unknown>;
+        };
+        assert.deepEqual(started.config?.shell_environment_policy, {
+          set: { TMPDIR: sandboxTempRoot },
+        });
+        assert.isFalse(yield* fs.exists(sandboxTempRoot));
 
-        yield* Scope.close(sessionScope, Exit.void);
-        assert.isFalse(yield* fs.exists(tmpdir ?? ""));
-        // The task's root goes with its last session.
+        yield* session.runtime.events.pipe(
+          Stream.runForEach((event) =>
+            event.type === "turn.terminal" ? Deferred.succeed(terminal, undefined) : Effect.void,
+          ),
+          Effect.forkScoped,
+        );
+        yield* session.runtime.startTurn(
+          makeCodexTestTurnInput({
+            threadId: session.threadId,
+            providerThread,
+            runtimePolicy,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("sandbox-temp-attempt"),
+            text: prompt,
+          }),
+        );
+        assert.equal((yield* fs.stat(sandboxTempRoot)).type, "Directory");
+
+        yield* Deferred.succeed(holdCompletion, undefined);
+        yield* Deferred.await(terminal);
+        // Gone with the turn, not with the provider session.
         assert.isFalse(yield* fs.exists(sandboxTempRoot));
       }).pipe(
         Effect.scoped,
@@ -1266,6 +1365,130 @@ describe("CodexAdapterV2 session initialize", () => {
           Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
         ),
       ),
+  );
+
+  it.effect("removes a managed task's temp dir when its turn never starts", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-sandbox-tmp-" });
+      const sandboxTempRoot = `${parent}/task`;
+      const nativeThreadId = "managed-sandbox-temp-refused";
+      const prompt = "make a temp file";
+      const runtimePolicy = {
+        ...CODEX_TEST_RUNTIME_POLICY,
+        managedAgent: true,
+        sandboxTempRoot,
+      };
+      const preamble = codexReplayPreamble({ nativeThreadId, nativeTurnId: "turn-1", prompt });
+      const session = yield* openReplaySession(
+        {
+          ...makeCodexReplayTranscript({
+            scenario: "managed-sandbox-temp-refused",
+            entries: [
+              ...preamble.slice(0, 3),
+              ...managedConfigRead(2),
+              withReplayRequestId(preamble[3]!, 3),
+              withReplayRequestId(preamble[4]!, 3),
+              withReplayRequestId(preamble[5]!, 4),
+              {
+                type: "emit_inbound",
+                label: "turn/start",
+                frame: { id: 4, error: { code: -32603, message: "turn start rejected" } },
+              },
+            ],
+          }),
+          metadata: { recorderThreadConfigKeys: managedThreadConfigKeys },
+        },
+        undefined,
+        runtimePolicy,
+      );
+      const providerThread = yield* session.ensureThread(nativeThreadId);
+      const failure = yield* session.runtime
+        .startTurn(
+          makeCodexTestTurnInput({
+            threadId: session.threadId,
+            providerThread,
+            runtimePolicy,
+            now: yield* DateTime.now,
+            attemptId: RunAttemptId.make("sandbox-temp-refused"),
+            text: prompt,
+          }),
+        )
+        .pipe(Effect.flip);
+      assert.equal(failure._tag, "ProviderAdapterTurnStartError");
+      assert.isFalse(yield* fs.exists(sandboxTempRoot));
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
+  it.effect("gives each managed thread on a shared app-server its own TMPDIR", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-sandbox-tmp-" });
+      const firstRoot = `${parent}/first`;
+      const secondRoot = `${parent}/second`;
+      const firstThread = "shared-session-first";
+      const secondThread = "shared-session-second";
+      const session = yield* openReplaySession(
+        {
+          ...makeCodexReplayTranscript({
+            scenario: "managed-shared-session-tmpdirs",
+            entries: (() => {
+              const first = replayPreamble(firstThread);
+              const second = replayPreamble(secondThread);
+              return [
+                ...first.slice(0, 3),
+                ...managedConfigRead(2),
+                withReplayRequestId(first[3]!, 3),
+                withReplayRequestId(first[4]!, 3),
+                // ProviderSessionManager attaches a second app thread to the existing session
+                // rather than opening another one, so its thread starts on the same app-server.
+                ...managedConfigRead(4),
+                withReplayRequestId(second[3]!, 5),
+                withReplayRequestId(second[4]!, 5),
+              ];
+            })(),
+          }),
+          metadata: { recorderThreadConfigKeys: managedThreadConfigKeys },
+        },
+        undefined,
+        {
+          ...CODEX_TEST_RUNTIME_POLICY,
+          managedAgent: true,
+          sandboxTempRoot: firstRoot,
+        },
+      );
+      yield* session.ensureThread(firstThread);
+      yield* session.ensureThread(secondThread, {
+        ...CODEX_TEST_RUNTIME_POLICY,
+        managedAgent: true,
+        sandboxTempRoot: secondRoot,
+      });
+
+      const tmpdirs = session
+        .requests()
+        .filter((request) => request.method === "thread/start")
+        .map(
+          (request) =>
+            (
+              (request.params as { config?: Record<string, unknown> }).config as {
+                shell_environment_policy?: { set?: { TMPDIR?: string } };
+              }
+            ).shell_environment_policy?.set?.TMPDIR,
+        );
+      assert.deepEqual(tmpdirs, [firstRoot, secondRoot]);
+      // Neither came from the process environment, which every task on the session shares.
+      assert.isUndefined(session.environment()?.TMPDIR);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
   );
 
   // regression: #16260 one-shot initializers raced; a failed handshake must be retried
