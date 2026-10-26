@@ -804,6 +804,167 @@ it.effect("a session queued with no repository takes the Spec's own when it is s
   }),
 );
 
+it.effect("a session the lead already started itself is adopted, not parked", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "hq_forge_start_session"
+        ? { status: "failed", code: "session_reference_conflict" }
+        : name === "hq_forge_sessions"
+          ? {
+              status: "succeeded",
+              value: [
+                { id: "other", harness: "t3code", sessionRef: "another-thread" },
+                { id: "session-own", harness: "t3code", sessionRef: leadThread },
+              ],
+            }
+          : { status: "succeeded", value: {} };
+    yield* records.enqueue({
+      kind: "session",
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      bind: { specId: "spec-1" },
+      startSession: { harness: "t3code", sessionRef: leadThread },
+    });
+
+    yield* records.deliverDue;
+
+    assert.deepStrictEqual((yield* records.outstanding()).length, 0);
+    yield* records.enqueue({
+      kind: "helper",
+      recordKey: `helper:${helperThread}:run-1`,
+      threadId: helperThread,
+      leadThreadId: leadThread,
+      specId: "spec-1",
+      origin,
+      args: { harness: "t3code" },
+    });
+    yield* records.deliverDue;
+    const sent = hq.toolCalls.find(({ name }) => name === "hq_forge_record_helper");
+    assert.strictEqual(sent?.args.parentSessionId, "session-own");
+  }),
+);
+
+it.effect("a session parked as a reference conflict is tried again when the queue starts", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const before = yield* boot;
+    hq.tools.call = (name) =>
+      name === "hq_forge_start_session"
+        ? { status: "failed", code: "session_reference_conflict" }
+        : name === "hq_forge_sessions"
+          ? {
+              status: "succeeded",
+              value: [{ id: "s-1", harness: "t3code", sessionRef: leadThread }],
+            }
+          : { status: "succeeded", value: {} };
+    // Parked by a server that did not yet adopt the lead's own session.
+    yield* before.enqueue({
+      kind: "session",
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      bind: { specId: "spec-1" },
+      startSession: { harness: "t3code", sessionRef: leadThread },
+    });
+    const { sql } = yield* harness;
+    yield* sql`UPDATE hq_build_records SET status = 'parked', last_error = 'session_reference_conflict'`;
+
+    const after = yield* boot;
+    const delivered = yield* Deferred.make<void>();
+    const original = hq.tools.call;
+    hq.tools.call = (name, args) => {
+      if (name === "hq_forge_sessions") Deferred.doneUnsafe(delivered, Effect.void);
+      return original(name, args);
+    };
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        yield* after.start();
+        yield* Deferred.await(delivered);
+      }),
+    );
+
+    assert.strictEqual(
+      hq.toolCalls.some(({ name }) => name === "hq_forge_start_session"),
+      true,
+    );
+  }),
+);
+
+it.effect("the rows a refused session parked are tried again with it when the queue starts", () =>
+  Effect.gen(function* () {
+    const { hq, boot, sql } = yield* harness;
+    const before = yield* boot;
+    yield* before.enqueue({
+      kind: "helper",
+      recordKey: `helper:${helperThread}:run-1`,
+      threadId: helperThread,
+      leadThreadId: leadThread,
+      specId: "spec-1",
+      origin,
+      args: { harness: "t3code" },
+    });
+    yield* sql`UPDATE hq_build_records SET status = 'parked', attempts = 1, last_error = 'lead_session_parked'`;
+
+    const after = yield* boot;
+    yield* Effect.scoped(after.start());
+
+    assert.deepStrictEqual(
+      (yield* after.outstanding()).map((record) => [record.status, record.attempts]),
+      [["pending", 0]],
+    );
+    assert.deepStrictEqual(hq.toolCalls, []);
+  }),
+);
+
+it.effect("adopts the lead's session that is still running when it started several", () =>
+  Effect.gen(function* () {
+    const { hq, boot } = yield* harness;
+    const records = yield* boot;
+    hq.tools.call = (name) =>
+      name === "hq_forge_start_session"
+        ? { status: "failed", code: "session_reference_conflict" }
+        : name === "hq_forge_sessions"
+          ? {
+              status: "succeeded",
+              value: [
+                {
+                  id: "ended",
+                  harness: "t3code",
+                  sessionRef: leadThread,
+                  endedAt: "2026-10-25T00:00:00.000Z",
+                },
+                { id: "running", harness: "t3code", sessionRef: leadThread, endedAt: null },
+              ],
+            }
+          : { status: "succeeded", value: {} };
+    yield* records.enqueue({
+      kind: "session",
+      threadId: leadThread,
+      specId: "spec-1",
+      origin,
+      bind: { specId: "spec-1" },
+      startSession: { harness: "t3code", sessionRef: leadThread },
+    });
+    yield* records.deliverDue;
+
+    yield* records.enqueue({
+      kind: "helper",
+      recordKey: `helper:${helperThread}:run-1`,
+      threadId: helperThread,
+      leadThreadId: leadThread,
+      specId: "spec-1",
+      origin,
+      args: { harness: "t3code" },
+    });
+    yield* records.deliverDue;
+    const sent = hq.toolCalls.find(({ name }) => name === "hq_forge_record_helper");
+    assert.strictEqual(sent?.args.parentSessionId, "running");
+  }),
+);
+
 it.effect("a helper whose lead's session Weave refused is parked, so its end can go", () =>
   Effect.gen(function* () {
     const { hq, boot } = yield* harness;
