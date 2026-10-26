@@ -142,7 +142,6 @@ it.effect("records what a linked thread's request spent, as Weave's usage tool t
           endedAt: "1970-01-01T00:00:02.000Z",
           tokens,
           activeMs: 1_000,
-          harness: "t3code",
           modelRef: "claude-opus-5-5",
           sessionId: "session-1",
         },

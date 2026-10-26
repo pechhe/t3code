@@ -750,7 +750,15 @@ const make = Effect.gen(function* () {
         if (attribution === null) return blocked;
         // The session this turn counts toward was refused, so Weave has nowhere to put it.
         if (attribution === "session_parked") return refused("session_parked");
-        return yield* call("hq_forge_record_usage", { ...record.value.args, ...attribution });
+        // Weave reads a session's harness from the session and refuses one beside its id; only a
+        // reviewer's run names its own.
+        const args =
+          "sessionId" in attribution
+            ? Object.fromEntries(
+                Object.entries(record.value.args).filter(([key]) => key !== "harness"),
+              )
+            : record.value.args;
+        return yield* call("hq_forge_record_usage", { ...args, ...attribution });
       }
       case "runtimes": {
         const record = decodeArgsPayload(payload.value);

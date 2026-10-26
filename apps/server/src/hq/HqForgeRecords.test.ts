@@ -1092,7 +1092,7 @@ it.effect("each turn of a helper names the session of the run that spent it", ()
       specId: "spec-1",
       origin,
       t3RunId: runId,
-      args: { usageRef: `usage:${runId}` },
+      args: { usageRef: `usage:${runId}`, harness: "t3code" },
     });
     yield* records.enqueue(leadSession);
     yield* records.deliverDue;
@@ -1109,10 +1109,11 @@ it.effect("each turn of a helper names the session of the run that spent it", ()
     assert.deepStrictEqual(
       hq.toolCalls
         .filter(({ name }) => name === "hq_forge_record_usage")
-        .map(({ args }) => [args.usageRef, args.sessionId]),
+        .map(({ args }) => [args.usageRef, args.sessionId, args.harness]),
+      // Weave refuses a harness beside a session id, so only the session id goes.
       [
-        ["usage:run-2", "session-run-2"],
-        ["usage:run-1", "session-run-1"],
+        ["usage:run-2", "session-run-2", undefined],
+        ["usage:run-1", "session-run-1", undefined],
       ],
     );
   }),
