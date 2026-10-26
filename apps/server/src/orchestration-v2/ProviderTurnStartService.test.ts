@@ -297,6 +297,7 @@ function makeLocalCommandHarness(input: {
   readonly branch?: string | null;
   /** The thread is a delegated task, whose workspace belongs to the work that assigned it. */
   readonly delegated?: boolean;
+  readonly deliverTurn?: boolean;
   readonly worktreesDir?: string;
   readonly fileSystem?: FileSystem.FileSystem;
   readonly previousNativeSession?: boolean;
@@ -666,6 +667,9 @@ function makeLocalCommandHarness(input: {
       ),
     ensureThread: () => Effect.succeed(providerThread),
   };
+  const startTurn = vi.fn<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>(
+    () => Effect.void,
+  );
   const open = vi.fn(() =>
     input.interruptOpen === true
       ? Effect.interrupt
@@ -687,9 +691,12 @@ function makeLocalCommandHarness(input: {
                   ),
                 ),
               )
-            : input.failReadsAfterRunning === true || input.previousTurn !== undefined
+            : input.deliverTurn === true ||
+                input.failReadsAfterRunning === true ||
+                input.previousTurn !== undefined
               ? Effect.succeed({
                   driver: providerThread.driver,
+                  startTurn,
                   providerSession: {
                     id: providerSessionId,
                     driver: providerThread.driver,
@@ -709,12 +716,28 @@ function makeLocalCommandHarness(input: {
   );
   const startRootRun = vi.fn<
     (input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) => Effect.Effect<void>
-  >(() =>
-    input.failReadsAfterRunning === true || input.previousTurn !== undefined
-      ? Effect.suspend(() =>
-          providerBusy ? Effect.die("The previous provider turn is still running.") : Effect.void,
-        )
-      : Effect.die("A local command must not start a native turn."),
+  >((started) =>
+    input.deliverTurn === true
+      ? started.session
+          .startTurn({
+            appThread: started.appThread,
+            threadId: started.run.threadId,
+            runId: started.run.id,
+            runOrdinal: started.run.ordinal,
+            providerTurnOrdinal: started.providerTurnOrdinal,
+            attemptId: started.attemptId,
+            rootNodeId: started.rootNode.id,
+            providerThread: started.providerThread,
+            message: started.message,
+            modelSelection: started.modelSelection,
+            runtimePolicy: started.runtimePolicy,
+          })
+          .pipe(Effect.orDie)
+      : input.failReadsAfterRunning === true || input.previousTurn !== undefined
+        ? Effect.suspend(() =>
+            providerBusy ? Effect.die("The previous provider turn is still running.") : Effect.void,
+          )
+        : Effect.die("A local command must not start a native turn."),
   );
   const failReadIfRunning = Effect.suspend(() =>
     input.failReadsAfterRunning === true &&
@@ -762,7 +785,10 @@ function makeLocalCommandHarness(input: {
   );
   const resolveRuntimePolicy = vi.fn(
     ({ thread }: Parameters<RuntimePolicy.RuntimePolicyV2Shape["resolve"]>[0]) =>
-      Effect.succeed({ cwd: thread.worktreePath ?? "/tmp/native-account-command" } as never),
+      Effect.succeed({
+        cwd: thread.worktreePath ?? "/tmp/native-account-command",
+        managedAgent: input.delegated === true,
+      } as never),
   );
   const createWorktree = vi.fn(() => Effect.succeed({} as never));
   const getThreadRecords = vi.fn<ProjectionStore.ProjectionStoreV2Shape["getThreadRecords"]>(() =>
@@ -908,6 +934,7 @@ function makeLocalCommandHarness(input: {
     open,
     writeIfRunCurrent,
     startRootRun,
+    startTurn,
     interruptTurn,
     tryHandlePromptCommand,
     events,
@@ -1297,6 +1324,68 @@ effectIt.effect("starts another provider in the same checkout while a turn is pe
     yield* Deferred.succeed(releaseTurn, undefined);
     yield* Fiber.join(pending);
   }),
+);
+
+effectIt.effect.each([
+  { delegated: true, attached: false, files: ["AGENTS.md", "CLAUDE.md"] },
+  { delegated: true, attached: false, files: ["AGENTS.md"] },
+  { delegated: true, attached: false, files: [] },
+  { delegated: false, attached: false, files: ["AGENTS.md", "CLAUDE.md"] },
+  { delegated: true, attached: true, files: ["AGENTS.md", "CLAUDE.md"] },
+])(
+  "delivers workspace instruction pointers without changing attached turns: %j",
+  ({ delegated, attached, files }) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const worktreePath = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-instructions-",
+      });
+      for (const file of files) {
+        yield* fileSystem.writeFileString(path.join(worktreePath, file), "Workspace guidance.");
+      }
+      const harness = makeLocalCommandHarness({
+        text: "Continue",
+        delegated,
+        deliverTurn: true,
+        worktreePath,
+        branch: null,
+        fileSystem,
+      });
+      if (attached) {
+        const projection = harness.projection();
+        harness.setProjection({
+          ...projection,
+          thread: {
+            ...projection.thread,
+            workspaceAttachments: [
+              {
+                projectId: ProjectId.make("attached-project"),
+                workspacePath: path.join(worktreePath, "attached"),
+                branch: null,
+                origin: "adopted",
+                attachedAt: "2026-09-04T12:00:00Z",
+                releasedAt: null,
+              },
+            ],
+          },
+        });
+      }
+
+      yield* harness.start;
+
+      expect(harness.startTurn).toHaveBeenCalledOnce();
+      const text = harness.startTurn.mock.calls[0]![0].message.text;
+      if (delegated) {
+        expect(text).toContain(worktreePath);
+        for (const file of ["AGENTS.md", "CLAUDE.md"]) {
+          expect(text.includes(file)).toBe(files.includes(file));
+        }
+        expect(text.includes("land each repository")).toBe(attached);
+      } else {
+        expect(text).toBe("Continue");
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
 
 effectIt.effect("terminalizes a starting run when its provider session cannot open", () =>

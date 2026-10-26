@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { SESSION_TOOL_ENDPOINTS, type SessionEndpointKey } from "@t3tools/contracts";
+import { SESSION_TOOL_ENDPOINTS, toolFamily, type SessionEndpointKey } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Layer from "effect/Layer";
@@ -108,6 +108,23 @@ const listedToolNames = (key: SessionEndpointKey) =>
     ),
     Effect.scoped,
   );
+
+it.effect("registers only the tool families each session endpoint declares", () =>
+  Effect.gen(function* () {
+    for (const key of Object.keys(SESSION_TOOL_ENDPOINTS) as Array<SessionEndpointKey>) {
+      const names = yield* listedToolNames(key);
+      const { families } = SESSION_TOOL_ENDPOINTS[key];
+      expect(
+        names.filter((name) => !families.has(toolFamily(name))),
+        key,
+      ).toEqual([]);
+      if (key === "child-research" || key === "research") {
+        expect(names).toContain("t3_experiments_list");
+        expect(names.includes("t3_work_enroll")).toBe(key === "research");
+      }
+    }
+  }),
+);
 
 it.effect("gives an ordinary thread the handoff its instructions name", () =>
   Effect.gen(function* () {

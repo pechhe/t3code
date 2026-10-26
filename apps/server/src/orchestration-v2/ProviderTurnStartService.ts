@@ -105,12 +105,13 @@ export interface TurnWorkspace {
 }
 
 /**
- * Sent with each turn of a thread that has workspaces attached in other projects, so the agent
- * knows where it works after compaction.
+ * Managed agents cannot rely on inherited configuration to load workspace instructions.
  */
-const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>): string =>
+const workspacesNote = (workspaces: ReadonlyArray<TurnWorkspace>, managed = false): string =>
   [
-    "This thread works in these workspaces. Read a workspace's instruction files before working there, and land each repository from its own workspace.",
+    managed
+      ? "This thread works in these workspaces. Read a workspace's instruction files before working there."
+      : "This thread works in these workspaces. Read a workspace's instruction files before working there, and land each repository from its own workspace.",
     ...workspaces.map((workspace) => {
       const role =
         workspace.role === "primary"
@@ -1701,7 +1702,7 @@ export const layer: Layer.Layer<
       );
       const attachments = projection.thread.workspaceAttachments ?? [];
       const turnWorkspaces =
-        attachments.length === 0
+        attachments.length === 0 && resolvedRuntimePolicy.managedAgent !== true
           ? []
           : yield* Effect.forEach(
               [
@@ -1821,7 +1822,12 @@ export const layer: Layer.Layer<
             restartNote,
             projection.thread.sideChat === true ? SIDE_CHAT_NOTE : "",
             offersProjectSuggestion ? NO_PROJECT_NOTE : "",
-            turnWorkspaces.length === 0 ? "" : workspacesNote(turnWorkspaces),
+            turnWorkspaces.length === 0
+              ? ""
+              : workspacesNote(
+                  turnWorkspaces,
+                  resolvedRuntimePolicy.managedAgent === true && attachments.length === 0,
+                ),
             replaced === null
               ? ""
               : replaced.worktreePath === null

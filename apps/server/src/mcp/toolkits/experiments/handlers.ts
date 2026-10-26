@@ -23,7 +23,7 @@ const failure = (error: unknown) =>
             message: `Experiment ${error.operation} could not be stored, so nothing changed. Retry; if it fails again, the server log has the cause.`,
           })
         : new OrchestratorMcpFailure({ code: "invalid_request", message: error.message });
-export const layer = McpToolAccess.toLayer(ExperimentsToolkit, {
+export const handlers = {
   t3_experiments_create: McpToolAccess.writesEnvironment((input, check) =>
     check.pipe(
       Effect.andThen(
@@ -176,4 +176,6 @@ export const layer = McpToolAccess.toLayer(ExperimentsToolkit, {
       return yield* service.recordWorkOutcome(scope, input).pipe(Effect.mapError(failure));
     }),
   ),
-});
+} satisfies McpToolAccess.Handlers<typeof ExperimentsToolkit.tools>;
+
+export const layer = McpToolAccess.toLayer(ExperimentsToolkit, handlers);

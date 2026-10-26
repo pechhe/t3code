@@ -1195,11 +1195,7 @@ export const layerSessionToolkits = (families: ReadonlySet<ToolFamily>) =>
       ? toolkitRegistration(TerminalToolkit, TerminalHandlers.layer)
       : Layer.empty,
     families.has("workspace") ? layerPullRequestsToolkit : Layer.empty,
-    families.has("experiments")
-      ? toolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.layer).pipe(
-          Layer.provide(layerOrchestratorMcpService),
-        )
-      : Layer.empty,
+    sessionToolkitRegistration(ExperimentsToolkit, ExperimentsHandlers.handlers, families),
   );
 
 const layerSessionEndpoint = (
