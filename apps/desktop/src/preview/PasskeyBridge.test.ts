@@ -129,6 +129,21 @@ describe("installPasskeyBridge", () => {
     });
   });
 
+  it.each([null, ""])(
+    "returns a credential when the authenticator omits its user handle (%s)",
+    async (userHandle) => {
+      const { credentials } = install(() => ({
+        success: true,
+        data: { ...assertionData, userHandle },
+      }));
+      const credential = (await credentials.get({
+        publicKey: { challenge: new Uint8Array([1]) },
+      })) as PublicKeyCredential;
+      assert.strictEqual((credential.response as AuthenticatorAssertionResponse).userHandle, null);
+      assert.notProperty(credential.toJSON().response, "userHandle");
+    },
+  );
+
   it("rejects with the WebAuthn error the ceremony ended with", async () => {
     const { credentials } = install((channel) => ({
       success: false,

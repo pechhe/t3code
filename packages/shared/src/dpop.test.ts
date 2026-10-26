@@ -56,6 +56,32 @@ describe("verifyDpopProof", () => {
     publicJwk,
   });
 
+  it("accepts both ES256 S forms from interoperable signers and rejects a modified scalar", () => {
+    const [header = "", payload = "", encoded = ""] = proof.split(".");
+    const signature = Buffer.from(encoded, "base64url");
+    // FIPS 186 P-256 group order; this check is independent of noble's curve implementation.
+    const order = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551n;
+    const scalar = BigInt(`0x${signature.subarray(32).toString("hex")}`);
+    const low = scalar <= order / 2n ? scalar : order - scalar;
+    const withScalar = (value: bigint) =>
+      `${header}.${payload}.${Buffer.concat([
+        signature.subarray(0, 32),
+        Buffer.from(value.toString(16).padStart(64, "0"), "hex"),
+      ]).toString("base64url")}`;
+    const verify = (value: bigint) =>
+      verifyDpopProof({
+        proof: withScalar(value),
+        method: "POST",
+        url: "https://example.com/oauth/token",
+        nowEpochSeconds: 101,
+      });
+    assert.isTrue(verify(low).ok);
+    assert.isTrue(verify(order - low).ok);
+    const invalid = verify(low ^ 1n);
+    assert.isFalse(invalid.ok);
+    if (!invalid.ok) assert.equal(invalid.code, "invalid_signature");
+  });
+
   it("computes the RFC 7638 thumbprint whatever the host locale", () => {
     // Latvian collation sorts "y" before "kty", which broke every remote client.
     const latvian = new Intl.Collator("lv");

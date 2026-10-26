@@ -1,5 +1,5 @@
-import { p256 } from "@noble/curves/nist";
-import { sha256 } from "@noble/hashes/sha2";
+import { p256 } from "@noble/curves/nist.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as Option from "effect/Option";
 import * as Result from "effect/Result";
@@ -173,6 +173,8 @@ export function verifyDpopProof(input: {
       {
         prehash: false,
         format: "compact",
+        // JWS ES256 accepts both S forms; WebCrypto does not normalize signatures.
+        lowS: false,
       },
     );
     if (!verified) {

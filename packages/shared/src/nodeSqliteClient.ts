@@ -712,12 +712,9 @@ const startCheckpointWorker = Effect.fnUntraced(function* (
   type Waiter = { resume: () => void; cancelled: boolean };
   const waiters: Array<Waiter> = [];
   let elected: Waiter | undefined;
-  // A reader snapshot that stays open stops a checkpoint reaching the end of the WAL, and
-  // holding every write for as long as it lasts stalled the whole server once for 851 s.
-  // So a gate that sees the checkpoint stand still for the bound lets writes through
-  // (`released`) while the worker keeps retrying. Progress closes the gate again, so the
-  // worker can reach the end of the WAL and truncate it; writes keep landing in `released`
-  // and would otherwise always leave the WAL a frame ahead of the checkpoint.
+  // A reader snapshot can stall WAL truncation indefinitely. After the bound,
+  // release ordinary writes while retrying; checkpoint progress closes the gate
+  // again so the worker can truncate instead of trailing new writes forever.
   let released = false;
   let boundTimer: Fiber.Fiber<void> | undefined;
   const holding = () =>
@@ -1427,6 +1424,7 @@ const make = Effect.fn("makeWithDatabase")(function* (
   ).pipe(Effect.provideService(Scheduler.PreventSchedulerYield, true));
 
   const client = yield* Client.make({
+    driver: "sqlite-node",
     acquirer: transactionAcquirer,
     borrower,
     compiler,

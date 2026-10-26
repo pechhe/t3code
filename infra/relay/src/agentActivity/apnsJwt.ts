@@ -1,8 +1,8 @@
 // @effect-diagnostics-next-line nodeBuiltinImport:off -- Effect's Crypto has no createPrivateKey.
 import * as NodeCrypto from "node:crypto";
 
-import { p256 } from "@noble/curves/nist";
-import { sha256 } from "@noble/hashes/sha2";
+import { p256 } from "@noble/curves/nist.js";
+import { sha256 } from "@noble/hashes/sha2.js";
 import * as Effect from "effect/Effect";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as Redacted from "effect/Redacted";
@@ -104,9 +104,10 @@ export const makeApnsJwt = Effect.fn("relay.apns.make_jwt")(function* (input: Ap
     try: () => {
       // RFC 6979 ES256 gives isolates identical JWTs at the same iat; Node crypto only extracts the scalar.
       const scalar = apnsSigningScalar(privateKey);
-      const signature = p256
-        .sign(sha256(new TextEncoder().encode(signingInput)), scalar, { prehash: false })
-        .toCompactRawBytes();
+      const signature = p256.sign(sha256(new TextEncoder().encode(signingInput)), scalar, {
+        prehash: false,
+        format: "compact",
+      });
       return `${signingInput}.${Base64Url.encode(signature)}`;
     },
     catch: (cause) =>

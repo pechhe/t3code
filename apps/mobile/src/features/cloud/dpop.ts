@@ -7,7 +7,7 @@ import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as ExpoCrypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
-import { p256 } from "@noble/curves/nist";
+import { p256 } from "@noble/curves/nist.js";
 import { DpopPublicJwk, normalizeDpopHtu } from "@t3tools/shared/dpopCommon";
 import * as Layer from "effect/Layer";
 
@@ -170,10 +170,10 @@ export const generateDpopProofKeyPair = Effect.fn("dpop.generateDpopProofKeyPair
     let privateKey: Uint8Array;
     do {
       privateKey = yield* secureRandomBytes(
-        p256.CURVE.nByteLength,
+        32, // P-256 private scalars use a fixed 32-byte encoding.
         "Could not generate DPoP key pair randomness.",
       );
-    } while (!p256.utils.isValidPrivateKey(privateKey));
+    } while (!p256.utils.isValidSecretKey(privateKey));
     const publicJwk = yield* Effect.try({
       try: () => publicJwkFromUncompressedPublicKey(p256.getPublicKey(privateKey, false)),
       catch: cloudDpopError("Generated DPoP public key is invalid."),
@@ -280,7 +280,7 @@ export const createDpopProof = Effect.fn("dpop.createDpopProof")(function* (inpu
     "Could not hash DPoP signing input.",
   );
   const signature = yield* Effect.try({
-    try: () => p256.sign(signatureInputHash, privateKey, { prehash: false }).toCompactRawBytes(),
+    try: () => p256.sign(signatureInputHash, privateKey, { prehash: false, format: "compact" }),
     catch: cloudDpopError("Could not sign DPoP proof."),
   });
   return {

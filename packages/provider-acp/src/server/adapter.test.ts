@@ -1,7 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
 import { EnvironmentId, ProviderInstanceId, ThreadId } from "@t3tools/contracts";
 
-import { acpMcpContext } from "./adapter.ts";
+import { applyPatch, parsePatch } from "diff";
+
+import { acpMcpContext, acpToolCallDiffPatch } from "./adapter.ts";
 
 const self = { command: "/usr/bin/node", entrypoint: "/opt/t3/bin.mjs" };
 const weave = {
@@ -56,4 +58,21 @@ describe("ACP MCP context", () => {
     ]);
     assert.isUndefined(context.processEnvironment);
   });
+});
+
+describe("ACP v1 diff fallback", () => {
+  it.each(["folder/file.txt", "folder/a file.txt", 'folder/"quoted".txt', "folder/ñ.txt"])(
+    "preserves the target path and applies the change for %s",
+    (path) => {
+      const patch = acpToolCallDiffPatch([
+        { type: "diff", path, oldText: "before\n", newText: "after\n" },
+      ]);
+      if (patch === undefined) return assert.fail("The ACP edit did not produce a patch");
+      const parsed = parsePatch(patch);
+      assert.lengthOf(parsed, 1);
+      assert.equal(parsed[0]?.oldFileName, path);
+      assert.equal(parsed[0]?.newFileName, path);
+      assert.equal(applyPatch("before\n", patch), "after\n");
+    },
+  );
 });

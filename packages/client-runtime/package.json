@@ -515,11 +515,11 @@
     "@t3tools/source-control-core": "workspace:*",
     "@t3tools/source-control-definitions": "workspace:*",
     "effect": "catalog:",
-    "three": "0.180.0"
+    "three": "0.186.1"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/three": "0.180.0",
+    "@types/three": "0.186.0",
     "vite-plus": "catalog:"
   }
 }

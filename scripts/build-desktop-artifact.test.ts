@@ -12,6 +12,7 @@ import * as NodePath from "node:path";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { extractFile } from "@electron/asar";
 import { assert, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
@@ -1304,6 +1305,10 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
     return Effect.scoped(
       Effect.gen(function* () {
+        yield* Effect.acquireRelease(
+          Effect.sync(() => vi.stubEnv("ELECTRON_RUN_AS_NODE", undefined)),
+          () => Effect.sync(() => vi.unstubAllEnvs()),
+        );
         const fixture = yield* makeWindowsPayloadFixture({ copyUnpackedNatives: true });
         yield* validateWindowsPackagedPayload({
           stageDistDir: fixture.stageDistDir,
@@ -1312,6 +1317,9 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
           appVersion: WINDOWS_PAYLOAD_FIXTURE_VERSION,
         });
 
+        const path = yield* Path.Path;
+        const primaryExecutable = path.join(fixture.packagedAppDir, fixture.appExecutableName);
+        assert.isFalse(commands.some((command) => command.command === primaryExecutable));
         assert.isFalse(
           commands.some((command) => command.options.env?.ELECTRON_RUN_AS_NODE === "1"),
         );
