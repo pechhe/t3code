@@ -5764,6 +5764,10 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
               } satisfies CodexSchema.McpServerElicitationRequestResponse;
             }
 
+            if (context.input.runtimePolicy.runtimeMode === "full-access") {
+              return toMcpElicitationResponse(payload, "accept");
+            }
+
             const nativeRequestId =
               payload.mode === "url"
                 ? payload.elicitationId
