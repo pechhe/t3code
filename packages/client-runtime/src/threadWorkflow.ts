@@ -35,31 +35,14 @@ export const THREAD_WORKFLOW_TINTS: Record<SelectableThreadWorkflowKind, Project
  */
 export function visibleThreadWorkflow(
   workflow: OrchestrationV2ThreadWorkflow | null | undefined,
-): (OrchestrationV2ThreadWorkflow & { kind: SelectableThreadWorkflowKind }) | null {
+): { kind: SelectableThreadWorkflowKind } | null {
   if (!workflow || workflow.kind === "worker") return null;
-  return { kind: workflow.kind, unattended: workflow.unattended };
+  return { kind: workflow.kind };
 }
 
-/** The chip's accessible name, which carries the unattended marker for screen readers. */
-export function threadWorkflowChipLabel(workflow: {
-  kind: SelectableThreadWorkflowKind;
-  unattended: boolean;
-}): string {
-  const label = THREAD_WORKFLOW_LABELS[workflow.kind];
-  return workflow.unattended ? `${label}, unattended` : label;
-}
-
-/** Picking a kind keeps the unattended stance; setting one from nothing starts attended. */
+/** Away is environment-wide, so a workflow the client sets carries no per-thread stance. */
 export function withWorkflowKind(
-  current: OrchestrationV2ThreadWorkflow | null | undefined,
   kind: SelectableThreadWorkflowKind,
 ): OrchestrationV2ThreadWorkflow {
-  return { kind, unattended: current?.unattended ?? false };
-}
-
-export function withWorkflowUnattended(
-  current: OrchestrationV2ThreadWorkflow,
-  unattended: boolean,
-): OrchestrationV2ThreadWorkflow {
-  return { kind: current.kind, unattended };
+  return { kind, unattended: false };
 }

@@ -136,9 +136,7 @@ const make = Effect.gen(function* () {
           const cached =
             thread.workItem == null
               ? null
-              : yield* build
-                  .view(thread.id)
-                  .pipe(Effect.orElseSucceed(() => null));
+              : yield* build.view(thread.id).pipe(Effect.orElseSucceed(() => null));
           const pendingRequestCount = Math.max(
             requestsById.get(thread.id) ?? 0,
             (thread.pendingRuntimeRequest === null ? 0 : 1) +
@@ -274,8 +272,7 @@ const make = Effect.gen(function* () {
         parent = ancestor;
       }
       if (parent === row) roots.push(row);
-      else
-        children.set(parent.threadId, [...(children.get(parent.threadId) ?? []), row]);
+      else children.set(parent.threadId, [...(children.get(parent.threadId) ?? []), row]);
     }
     const rows = roots.map((row) => ({ ...row, subagents: children.get(row.threadId) ?? [] }));
     const hashes = Object.fromEntries(
@@ -341,6 +338,7 @@ const make = Effect.gen(function* () {
       observedAt,
       lastSeenAt: observedAt,
       unavailableReason: null,
+      away: currentSettings.away,
       threads: rows.filter((row) => previous?.rows[row.threadId] !== hashes[row.threadId]),
       removedThreadIds: Object.keys(previous?.rows ?? {})
         .filter((id) => hashes[id] === undefined)

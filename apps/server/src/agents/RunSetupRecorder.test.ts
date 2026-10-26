@@ -1,6 +1,7 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import {
+  DEFAULT_SERVER_SETTINGS,
   type OrchestrationV2Run,
   type OrchestrationV2TurnItem,
   RunId,
@@ -29,6 +30,7 @@ import * as TestClock from "effect/testing/TestClock";
 import * as Sqlite from "../persistence/Sqlite.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as RunSetup from "./RunSetupRecorder.ts";
 
@@ -37,7 +39,7 @@ const run = {
   id: RunId.make("run:setup:1"),
   threadId,
   modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
-  workflow: { kind: "lead", unattended: true },
+  workflow: { kind: "lead", unattended: false },
 } as never;
 const thread = {
   lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
@@ -83,6 +85,7 @@ const capture = (root: string | null, workingDirectory: string | null) =>
     assignments: [{ experimentId: "trial", variantId: "a" }],
     instructionOverlay: null,
     policy: () => Effect.succeed({ hash: "a".repeat(64), sourceRevision: "2026-10-15.4" }),
+    away: true,
   }).pipe(
     Effect.provideService(
       ConfigProvider.ConfigProvider,
@@ -431,6 +434,9 @@ const recorderLayer = (
         Layer.mock(InstructionOverlay.InstructionOverlay)({
           forRun: (input) => Effect.succeed(input.driver === "codex" ? overlay : null),
         }),
+        Layer.mock(ServerSettings.ServerSettingsService)({
+          getSettings: Effect.succeed({ ...DEFAULT_SERVER_SETTINGS, away: true }),
+        }),
       ),
     ),
     Layer.provideMerge(RunSetup.storeLayer),
@@ -445,7 +451,7 @@ describe("RunSetupRecorder.record", () => {
       id: RunId.make(`run:setup:${ordinal}`),
       threadId,
       modelSelection: { instanceId: "codex", model: "gpt-6.1-sol" },
-      workflow: { kind: "lead", unattended: true },
+      workflow: { kind: "lead", unattended: false },
     }) as never;
 
   it.effect("gives each run its own record once", () =>

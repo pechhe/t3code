@@ -72,7 +72,6 @@ function metadataCommand(input: {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
   readonly projectId: OrchestrationV2AppThread["projectId"];
-  readonly workflow: OrchestrationV2AppThread["workflow"];
   readonly update: ThreadMetadataMcpUpdateInput & {
     readonly action: Exclude<ThreadMetadataMcpAction, "link_work_item" | "unlink_work_item">;
   };
@@ -117,10 +116,7 @@ function metadataCommand(input: {
         workflow:
           input.update.workflow == null
             ? null
-            : {
-                kind: input.update.workflow.kind,
-                unattended: input.update.workflow.unattended ?? input.workflow?.unattended ?? false,
-              },
+            : { kind: input.update.workflow.kind, unattended: false },
       };
   }
 }
@@ -236,7 +232,6 @@ const make = Effect.gen(function* () {
                 commandId: updateCommandId,
                 threadId,
                 projectId: target.thread.projectId,
-                workflow: target.thread.workflow,
                 update: { ...input, action: input.action },
               }),
             )

@@ -77,10 +77,10 @@ it.effect("link_work_item hands a friendly ref to Build as written, and reports 
   }),
 );
 
-it.effect("set_workflow keeps the stance the user chose unless the agent sets it", () =>
+it.effect("set_workflow records no per-thread stance, even when an agent passes one", () =>
   Effect.gen(function* () {
     const sent: Array<unknown> = [];
-    const setWorkflow = (workflow: { kind: "solo"; unattended?: boolean }) =>
+    const setWorkflow = (workflow: { kind: "solo" }) =>
       Effect.gen(function* () {
         const service = yield* ThreadMetadataMcp.ThreadMetadataMcpService;
         yield* service.update(scope, { action: "set_workflow", workflow }).pipe(Effect.flip);
@@ -94,7 +94,10 @@ it.effect("set_workflow keeps the stance the user chose unless the agent sets it
                     Effect.succeed({ projectId: "project", deletedAt: null } as never),
                   getProjectThreadRecords: () =>
                     Effect.succeed({
-                      thread: { projectId: "project", workflow: { kind: "lead", unattended: true } },
+                      thread: {
+                        projectId: "project",
+                        workflow: { kind: "lead", unattended: true },
+                      },
                     } as never),
                   dispatch: (command) =>
                     Effect.sync(() => sent.push(command)).pipe(
@@ -109,9 +112,10 @@ it.effect("set_workflow keeps the stance the user chose unless the agent sets it
         Effect.exit,
       );
     yield* setWorkflow({ kind: "solo" });
-    yield* setWorkflow({ kind: "solo", unattended: false });
+    // A stale agent instruction may still send the retired field.
+    yield* setWorkflow({ kind: "solo", unattended: true } as { kind: "solo" });
     expect(sent.map((command) => (command as { workflow: unknown }).workflow)).toEqual([
-      { kind: "solo", unattended: true },
+      { kind: "solo", unattended: false },
       { kind: "solo", unattended: false },
     ]);
   }),

@@ -161,12 +161,9 @@ const previewCaller = (options: { readonly checkSettings: boolean }) =>
   );
 
 /**
- * A preview read on the caller's own browser. A browser or ui-verifier credential is pinned to Phi
- * here too, so a read cannot reserve the project's default integrated browser and strand the
- * child's later action. Reads keep exactly the permissiveness they had: no leaf refusal, no
- * liveness check and no settings check, so ordinary parents, read-only callers and generic
- * children read as before. Reads change nothing, and status/list still let a revoked child find
- * its owned tab to close.
+ * A preview read on the caller's own browser, pinned to Phi for a browser or ui-verifier
+ * credential so a read cannot strand the child's later action. Reads skip the leaf, liveness and
+ * settings checks, so a revoked child can still find its owned tab to close.
  */
 export const readsAsPreviewCaller = <P, A, E, R>(handle: (params: P) => Effect.Effect<A, E, R>) =>
   declare((params: P) =>
@@ -347,6 +344,26 @@ export const writesEnvironment = <P, A, E, R>(
   return declare((params: P) => check.pipe(Effect.flatMap(() => handle(params, check))));
 };
 
+/**
+ * Away is the one write a linked environment may make here: its link already reads every thread,
+ * and it lets the person set Away on each machine from an agent on another.
+ */
+export const setsAway = <P, A, E, R>(
+  handle: (params: P, fromPeer: boolean) => Effect.Effect<A, E, R>,
+) =>
+  declare((params: P) =>
+    McpInvocationContext.McpInvocationContext.pipe(
+      Effect.flatMap((scope) =>
+        scope.client?.access === "peer-threads"
+          ? handle(params, true)
+          : orchestratingCaller.pipe(
+              Effect.tap((caller) => assertFullAccess(caller, fullAccessRequired)),
+              Effect.flatMap(() => handle(params, false)),
+            ),
+      ),
+    ),
+  );
+
 type CheckServices = Effect.Services<typeof orchestratingCaller>;
 
 type Declarations<Handlers> = {
@@ -379,9 +396,10 @@ export class HandlersLayer<Tools extends Record<string, Tool.Any>, EX = never, R
 }
 
 /**
- * The only tools a linked environment may call: it reads threads and learns
- * the peer's identity and version, nothing else. Every other tool refuses it
- * before running, so a tool added later is closed to peers until listed here.
+ * The only tools a linked environment may call: it reads threads, learns the
+ * peer's identity and version, and sets Away (`setsAway`), nothing else. Every
+ * other tool refuses it before running, so a tool added later is closed to
+ * peers until listed here.
  */
 const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "t3_fleet_summary",
@@ -389,6 +407,7 @@ const PEER_THREAD_TOOLS: ReadonlySet<string> = new Set([
   "t3_thread_search",
   "t3_thread_read",
   "t3_environment_read",
+  "t3_environment_set_away",
 ]);
 
 const refusePeerClient = McpInvocationContext.McpInvocationContext.pipe(

@@ -7,6 +7,8 @@ import {
   type OrchestrationV2RuntimeRequest,
   type RunId,
   type RuntimeRequestId,
+  type ServerSettings,
+  type ServerSettingsError,
   ThreadId,
 } from "@t3tools/contracts";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -15,11 +17,13 @@ import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import type * as Scope from "effect/Scope";
 import * as SqlClient from "effect/sql/SqlClient";
 import * as Stream from "effect/Stream";
 
 import { forkParked } from "../serverActivation.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProjectionStore from "./ProjectionStore.ts";
 import { cancelledBeforeStart, neverStarted } from "./RestartBackgroundNote.ts";
@@ -39,14 +43,15 @@ const CONTINUE_PROMPT =
 const SUBAGENT_DONE = new Set(["completed", "failed", "cancelled", "interrupted"]);
 
 /**
- * The startup sweep only catches runs that ended as the server went down. An older completed
- * run was already judged live, and a skip then (snoozed, watching, attended) must stand.
+ * A sweep only continues runs that ended just now: as the server went down, or as Away went on.
+ * An older completed run was already judged, and a skip then (snoozed, watching, away off) stands.
  */
 const SWEEP_WINDOW_MS = 10 * 60 * 1000;
 
-function isUnattendedTopLevel(thread: OrchestrationV2AppThread, now: DateTime.Utc) {
+/** Away covers every top-level thread but a Chat, which has no work to carry on. */
+function isCovered(thread: OrchestrationV2AppThread, now: DateTime.Utc) {
   return (
-    thread.workflow?.unattended === true &&
+    thread.workflow?.kind !== "chat" &&
     thread.lineage.parentThreadId === null &&
     thread.agentTask === undefined &&
     thread.archivedAt === null &&
@@ -70,8 +75,13 @@ export class UnattendedReactor extends Context.Service<
   {
     readonly start: () => Effect.Effect<void, never, Scope.Scope>;
     readonly handle: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
-    /** Continues every unattended thread whose last run completed while the server was down. */
+    /**
+     * While Away is on, answers every covered thread's waiting question and continues each one
+     * whose last run completed within the window.
+     */
     readonly sweep: Effect.Effect<void>;
+    /** Turning Away on sweeps at once, so threads already waiting on the owner carry on. */
+    readonly setAway: (away: boolean) => Effect.Effect<ServerSettings, ServerSettingsError>;
   }
 >()("t3/orchestration-v2/UnattendedReactor") {}
 
@@ -79,6 +89,12 @@ const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const engine = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const settings = yield* ServerSettingsService;
+  // Read on every event, so it is kept here rather than fetched from settings each time.
+  const away = yield* Ref.make(false);
+  const covered = Effect.fnUntraced(function* (thread: OrchestrationV2AppThread) {
+    return (yield* Ref.get(away)) && isCovered(thread, yield* DateTime.now);
+  });
 
   // A provider may record the request before the item holding its questions, so either event
   // can be the one that finds both.
@@ -91,7 +107,7 @@ const make = Effect.gen(function* () {
     const records = yield* projections.getThreadRecords(threadId, ["turnItems"], {
       turnItemTypes: ["user_input_request"],
     });
-    if (!isUnattendedTopLevel(records.thread, yield* DateTime.now)) return;
+    if (!(yield* covered(records.thread))) return;
     const item = records.turnItems.find(
       (candidate) => candidate.type === "user_input_request" && candidate.requestId === requestId,
     );
@@ -119,7 +135,7 @@ const make = Effect.gen(function* () {
       },
     );
     const { thread, runs } = records;
-    if (!isUnattendedTopLevel(thread, yield* DateTime.now)) return;
+    if (!(yield* covered(thread))) return;
     if (records.messages.some((message) => message.id === messageId)) return;
     const source = runs.find((run) => run.id === sourceRunId);
     if (source?.status !== "completed") return;
@@ -156,7 +172,7 @@ const make = Effect.gen(function* () {
     )
       return;
     if (serverContinuationChainLength(runs, source) >= MAX_CONTINUATION_CHAIN) {
-      yield* Effect.logInfo("Not continuing an unattended thread nudged too many times in a row", {
+      yield* Effect.logInfo("Not continuing an away thread nudged too many times in a row", {
         threadId,
         sourceRunId,
       });
@@ -231,43 +247,88 @@ const make = Effect.gen(function* () {
   );
 
   const sweep: UnattendedReactor["Service"]["sweep"] = Effect.gen(function* () {
-    const since = DateTime.toEpochMillis(yield* DateTime.now) - SWEEP_WINDOW_MS;
+    if (!(yield* Ref.get(away))) return;
+    const since = DateTime.subtract(yield* DateTime.now, { milliseconds: SWEEP_WINDOW_MS });
     const rows = yield* sql<{ thread_id: string }>`
-      SELECT thread_id FROM orchestration_v2_projection_threads
+      SELECT thread_id FROM orchestration_v2_projection_threads AS thread
       WHERE deleted_at IS NULL AND archived_at IS NULL
-      AND json_extract(payload_json, '$.workflow.unattended') = 1`;
+      AND json_extract(payload_json, '$.lineage.parentThreadId') IS NULL
+      AND COALESCE(json_extract(payload_json, '$.workflow.kind'), '') <> 'chat'
+      AND (
+        EXISTS (
+          SELECT 1 FROM orchestration_v2_projection_runtime_requests AS request
+          WHERE request.thread_id = thread.thread_id
+          AND request.status = 'pending' AND request.kind = 'user_input'
+        )
+        OR EXISTS (
+          SELECT 1 FROM orchestration_v2_projection_runs AS run
+          WHERE run.thread_id = thread.thread_id
+          AND run.status = 'completed' AND run.completed_at >= ${DateTime.formatIso(since)}
+        )
+      )`;
     for (const row of rows) {
       const threadId = ThreadId.make(row.thread_id);
-      const { runs } = yield* projections.getThreadRecords(threadId, ["runs"]);
+      const { runs, runtimeRequests } = yield* projections.getThreadRecords(threadId, [
+        "runs",
+        "runtimeRequests",
+      ]);
+      for (const request of runtimeRequests) {
+        if (answerableLiveQuestion(request)) yield* answerQuestion(threadId, request.id);
+      }
       const latest = runs.reduce<OrchestrationV2Run | undefined>(
         (last, run) =>
           !neverStarted(run) && (last === undefined || runRanAfter(run, last)) ? run : last,
         undefined,
       );
+      // The continuation carries the away answer to a question asked after the turn ended.
+      const waitingOnMessage = runtimeRequests.some(
+        (request) =>
+          request.kind === "user_input" &&
+          request.status === "pending" &&
+          request.responseCapability.type === "message",
+      );
       if (
         latest?.status === "completed" &&
         latest.completedAt != null &&
-        DateTime.toEpochMillis(latest.completedAt) >= since
+        (waitingOnMessage || !DateTime.isLessThan(latest.completedAt, since))
       )
         yield* continueAfter(threadId, latest.id);
     }
-  }).pipe(
-    Effect.catchCause((cause) => Effect.logWarning("unattended startup sweep failed", { cause })),
+  }).pipe(Effect.catchCause((cause) => Effect.logWarning("away sweep failed", { cause })));
+
+  const setAway: UnattendedReactor["Service"]["setAway"] = Effect.fn("UnattendedReactor.setAway")(
+    function* (next) {
+      const before = (yield* settings.getSettings).away;
+      const updated = yield* settings.setAway(next);
+      yield* Ref.set(away, updated.away);
+      if (!before && updated.away) yield* sweep;
+      return updated;
+    },
   );
 
   const start: UnattendedReactor["Service"]["start"] = () =>
     forkParked(
-      Effect.all([sweep, Stream.runForEach(engine.streamDomainEvents, handle)], {
-        concurrency: "unbounded",
-        discard: true,
+      Effect.gen(function* () {
+        // Subscribed before the read, so a change in between is not lost.
+        const changes = yield* settings.subscribeChanges;
+        yield* Ref.set(away, (yield* settings.getSettings).away);
+        yield* Effect.all(
+          [
+            sweep,
+            Stream.runForEach(engine.streamDomainEvents, handle),
+            Stream.runForEach(changes, (next) => Ref.set(away, next.away)),
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
       }).pipe(
+        Effect.scoped,
         Effect.catchCause((cause) =>
-          Effect.logWarning("unattended thread event stream failed", { cause }),
+          Effect.logWarning("away thread event stream failed", { cause }),
         ),
       ),
     );
 
-  return { start, handle, sweep } satisfies UnattendedReactor["Service"];
+  return { start, handle, sweep, setAway } satisfies UnattendedReactor["Service"];
 });
 
 export const layer = Layer.effect(UnattendedReactor, make);

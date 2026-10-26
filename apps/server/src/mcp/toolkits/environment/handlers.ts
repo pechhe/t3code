@@ -1,7 +1,13 @@
-import { OrchestratorMcpFailure, type ServerSettings } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  OrchestratorMcpFailure,
+  type ServerSettings,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Environment from "../../../environment/ServerEnvironment.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
+import * as UnattendedReactor from "../../../orchestration-v2/UnattendedReactor.ts";
+import * as PeerEnvironments from "../../../peers/PeerEnvironments.ts";
 import * as Settings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
@@ -40,6 +46,12 @@ const access = Effect.gen(function* () {
     });
   return { ...context, descriptor, settings: yield* Settings.ServerSettingsService };
 });
+interface AwayResult {
+  readonly environmentId: EnvironmentId;
+  readonly away: boolean | null;
+  readonly error?: string;
+}
+
 export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
   t3_environment_read: McpToolAccess.reads(() =>
     Effect.gen(function* () {
@@ -50,6 +62,7 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
         label: descriptor.label,
         serverVersion: descriptor.serverVersion,
         platform: descriptor.platform,
+        away: current.away,
         preferences: preferences(current),
       };
     }),
@@ -69,6 +82,47 @@ export const layer = McpToolAccess.toLayer(EnvironmentToolkit, {
       return yield* scope.thread === undefined
         ? update
         : executor.withLock(scope.thread.threadId, update);
+    }),
+  ),
+  t3_environment_set_away: McpToolAccess.setsAway(({ away }, fromPeer) =>
+    Effect.gen(function* () {
+      const { descriptor } = yield* access;
+      const here = descriptor.environmentId;
+      const reactor = yield* UnattendedReactor.UnattendedReactor;
+      const peers = yield* PeerEnvironments.PeerEnvironments;
+      // One hop only: a linked environment's call sets Away here, never onward.
+      const linked = fromPeer
+        ? []
+        : yield* peers.linked.pipe(
+            Effect.map((environments) => environments.map(({ environmentId }) => environmentId)),
+            Effect.mapError(unavailable),
+          );
+      const environments = yield* Effect.forEach(
+        [here, ...linked.filter((environmentId) => environmentId !== here)],
+        (environmentId): Effect.Effect<AwayResult, OrchestratorMcpFailure> =>
+          environmentId === here
+            ? reactor.setAway(away).pipe(
+                Effect.mapError(unavailable),
+                Effect.map((settings) => ({ environmentId, away: settings.away })),
+              )
+            : peers
+                .callTool({ environmentId, name: "t3_environment_set_away", arguments: { away } })
+                .pipe(
+                  Effect.map((result) =>
+                    result.isError
+                      ? { environmentId, away: null, error: result.text }
+                      : { environmentId, away },
+                  ),
+                  Effect.catchTags({
+                    PeerCallError: (error) =>
+                      Effect.succeed({ environmentId, away: null, error: error.message }),
+                    PeerEnvironmentError: (error) =>
+                      Effect.succeed({ environmentId, away: null, error: error.reason }),
+                  }),
+                ),
+        { concurrency: 4 },
+      );
+      return { environments };
     }),
   ),
 });

@@ -5,22 +5,11 @@ import type { ReactNode } from "react";
  * taking width, so a changing caption never shifts the control. `lit` marks an action
  * other than the control's everyday one.
  */
-export function DeviceUnit(props: {
-  caption: string;
-  lit?: boolean;
-  /** Lights the caption night blue, for the Away key. */
-  night?: boolean;
-  children: ReactNode;
-}) {
+export function DeviceUnit(props: { caption: string; lit?: boolean; children: ReactNode }) {
   return (
     <span className="device-unit">
       {props.children}
-      <span
-        className="device-unit__caption"
-        data-lit={props.lit || undefined}
-        data-night={props.night || undefined}
-        aria-hidden="true"
-      >
+      <span className="device-unit__caption" data-lit={props.lit || undefined} aria-hidden="true">
         {props.caption}
       </span>
     </span>

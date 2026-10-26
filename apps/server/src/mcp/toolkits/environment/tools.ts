@@ -1,5 +1,6 @@
 import {
   BackgroundActivityProfile,
+  EnvironmentId,
   BackgroundActivityProfileSelection,
   ExecutionEnvironmentDescriptor,
   OrchestratorMcpFailure,
@@ -11,6 +12,8 @@ import { Tool, Toolkit } from "effect/ai";
 import * as ServerEnvironment from "../../../environment/ServerEnvironment.ts";
 import * as ThreadCommandExecutor from "../../../orchestration-v2/ThreadCommandExecutor.ts";
 import * as ThreadManagementService from "../../../orchestration-v2/ThreadManagementService.ts";
+import * as UnattendedReactor from "../../../orchestration-v2/UnattendedReactor.ts";
+import * as PeerEnvironments from "../../../peers/PeerEnvironments.ts";
 import * as Settings from "../../../serverSettings.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 
@@ -46,6 +49,8 @@ const EnvironmentReadTool = Tool.make("t3_environment_read", {
     label: Schema.String,
     serverVersion: Schema.String,
     platform: ExecutionEnvironmentDescriptor.fields.platform,
+    /** Whether every thread here keeps working without the person: `t3_environment_set_away`. */
+    away: Schema.Boolean,
     preferences: Schema.Struct(PreferenceFields),
   }),
 })
@@ -64,4 +69,29 @@ const EnvironmentPreferencesTool = Tool.make("t3_environment_preferences_update"
   }),
   success: Schema.Struct(PreferenceFields),
 }).annotate(Tool.Destructive, false);
-export const EnvironmentToolkit = Toolkit.make(EnvironmentReadTool, EnvironmentPreferencesTool);
+const EnvironmentSetAwayTool = Tool.make("t3_environment_set_away", {
+  ...shared,
+  dependencies: [
+    ...shared.dependencies,
+    UnattendedReactor.UnattendedReactor,
+    PeerEnvironments.PeerEnvironments,
+  ],
+  description:
+    "Turn Away on or off for every thread but a Chat on this environment and every linked one: while it is on, T3 answers their free-text questions with the away answer and continues their finished turns. Turn it on when the person says they are stepping away, and off only when they ask. Live full-access or default caller thread only.",
+  parameters: Schema.Struct({ away: Schema.Boolean }),
+  success: Schema.Struct({
+    environments: Schema.Array(
+      Schema.Struct({
+        environmentId: EnvironmentId,
+        /** Null when the environment could not be reached or refused. */
+        away: Schema.NullOr(Schema.Boolean),
+        error: Schema.optional(Schema.String),
+      }),
+    ),
+  }),
+}).annotate(Tool.Destructive, false);
+export const EnvironmentToolkit = Toolkit.make(
+  EnvironmentReadTool,
+  EnvironmentPreferencesTool,
+  EnvironmentSetAwayTool,
+);

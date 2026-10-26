@@ -1315,7 +1315,6 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {workflowChip ? (
                 <ThreadWorkflowChip
                   kind={workflowChip.kind}
-                  unattended={workflowChip.unattended}
                   className={cn("shrink-0", shouldRecede && "opacity-70")}
                 />
               ) : null}

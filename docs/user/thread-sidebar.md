@@ -127,25 +127,28 @@ rename a thread, regenerate its title, or link and unlink a pull request. These 
 appear on web, desktop, and mobile without requiring the originating browser to remain
 open.
 
-### Unattended threads
+### Away
 
-A thread's workflow chip (Lead, Shape, Solo or Chat) shows a moon when the thread runs
-unattended. Press the composer's Away key (the moon beside Fast) to turn it on or off, including
-before a new thread's first message. The chip's menu does the same for a thread that has started,
-and is the way to do it in a narrow window, which has no Away key. The agent can set it when you
-tell it you are stepping away; the agent never turns it off unless you ask.
+Press the Away key (the moon beside T3 Peach at the top of the sidebar) when you step away, and
+again when you are back. On a phone it is in the thread list's header, and the command palette
+toggles it too. Away covers every thread on every machine you are connected to, except Chat
+threads and subagents. If one machine was offline when you pressed it, `1/2` shows beside the key;
+press it again to turn Away on everywhere. You can also tell an agent you are stepping away: it
+turns Away on for this machine and every machine linked to it, and turns it off only when you ask.
 
-While a thread is unattended, T3 Code keeps it working without you:
+While Away is on, T3 Code keeps your threads working without you:
 
-- When the agent asks a question, T3 Code answers that you are away and tells it to decide
+- When an agent asks a question, T3 Code answers that you are away and tells it to decide
   for itself. Approval requests and questions that only offer fixed choices still wait for you.
 - When a turn finishes, T3 Code asks the agent to continue. It stops after three continuations
   in a row, or sooner once a turn ends without the agent doing any work. It also waits while the
   thread is snoozed or settled, or while the agent's own tasks, background commands or watches
   will wake it.
+- Turning Away on answers questions threads were already waiting on, and continues threads that
+  finished in the last few minutes. Older finished threads are left alone.
 
-Pressing stop ends the current turn as usual, and no continuation follows. Turning unattended
-off takes effect when the current turn ends.
+Pressing stop ends the current turn as usual, and no continuation follows. Turning Away off
+takes effect when each current turn ends.
 
 ### Fold working threads (beta)
 

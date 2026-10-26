@@ -87,9 +87,10 @@ it.layer(layerTest)("thread workflow", (it) => {
         threadId,
         workflow: { kind: "solo", unattended: true },
       });
+      // An older client's per-thread stance is not kept: Away is environment-wide.
       assert.deepEqual((yield* orchestrator.getThreadProjection(threadId)).thread.workflow, {
         kind: "solo",
-        unattended: true,
+        unattended: false,
       });
 
       yield* orchestrator.dispatch({
@@ -151,10 +152,7 @@ it.layer(layerTest)("thread workflow", (it) => {
         title: "Renamed",
       });
       assert.deepEqual((yield* projections.getThreadShell(threadId))?.workItem, ticket);
-      assert.deepEqual(
-        (yield* orchestrator.getThreadProjection(threadId)).thread.workItem,
-        ticket,
-      );
+      assert.deepEqual((yield* orchestrator.getThreadProjection(threadId)).thread.workItem, ticket);
 
       yield* orchestrator.dispatch({
         type: "thread.metadata.update",

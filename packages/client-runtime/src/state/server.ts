@@ -1042,6 +1042,12 @@ export function createServerEnvironmentAtoms<R, E>(
 
   return {
     configValueAtom,
+    setAway: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:set-away",
+      tag: WS_METHODS.serverSetAway,
+      scheduler: configScheduler,
+      concurrency: configConcurrency,
+    }),
     runStorageCleanup: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:server:run-storage-cleanup",
       tag: WS_METHODS.serverRunStorageCleanup,

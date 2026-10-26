@@ -111,6 +111,7 @@ import {
   WsPullRequestRpcGroup,
   WsRpcGroup,
   WsThreadStructureRpcGroup,
+  WsAwayRpcGroup,
   type OrchestrationV2ThreadLaunchInput,
 } from "@t3tools/contracts";
 import { readOnly } from "@t3tools/shared/nodeSqliteClient";
@@ -128,6 +129,7 @@ import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
+import * as UnattendedReactor from "./orchestration-v2/UnattendedReactor.ts";
 import * as CommandOutputHub from "./orchestration-v2/CommandOutputHub.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -595,6 +597,7 @@ const ServerWsPeersRpcGroup = WsPeersRpcGroup.middleware(RpcInstrumentation);
 const ServerWsHqRpcGroup = WsHqRpcGroup.middleware(RpcInstrumentation);
 const ServerWsGuestShareRpcGroup = WsGuestShareRpcGroup.middleware(RpcInstrumentation);
 const ServerWsThreadStructureRpcGroup = WsThreadStructureRpcGroup.middleware(RpcInstrumentation);
+const ServerWsAwayRpcGroup = WsAwayRpcGroup.middleware(RpcInstrumentation);
 // Past this gap behind the head, a resuming client gets a fresh shell snapshot instead of a
 // per-event replay, since a replay refetches the shell per event. Matches the event store's
 // default page size (DEFAULT_READ_FROM_SEQUENCE_LIMIT).
@@ -3398,6 +3401,16 @@ const layerWsPeersRpc = ServerWsPeersRpcGroup.toLayer(
   }),
 );
 
+const layerWsAwayRpc = ServerWsAwayRpcGroup.toLayer(
+  Effect.gen(function* () {
+    const reactor = yield* UnattendedReactor.UnattendedReactor;
+    return ServerWsAwayRpcGroup.of({
+      [WS_METHODS.serverSetAway]: ({ away }) =>
+        reactor.setAway(away).pipe(Effect.map((settings) => ({ away: settings.away }))),
+    });
+  }),
+);
+
 const layerWsPullRequestRpc = ServerWsPullRequestRpcGroup.toLayer(
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
@@ -3605,6 +3618,7 @@ export const layer = Layer.unwrap(
               layerWsHqRpc,
               layerWsGuestShareRpc,
               layerWsThreadStructureRpc,
+              layerWsAwayRpc,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Handler-context reporters see only request defects, not server-wide defects.

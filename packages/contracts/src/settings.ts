@@ -1251,6 +1251,8 @@ const DelegationRuntimeSettingsPatch = Schema.Struct({
 export type DelegationRuntimeSettings = typeof DelegationRuntimeSettings.Type;
 
 export const ServerSettings = Schema.Struct({
+  /** Away: every covered thread here keeps working without the owner. Set only through `server.setAway`. */
+  away: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   delegation: DelegationRuntimeSettings.pipe(
     Schema.withDecodingDefault(Effect.succeed(Schema.decodeSync(DelegationRuntimeSettings)({}))),
   ),

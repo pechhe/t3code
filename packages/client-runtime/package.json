@@ -23,6 +23,10 @@
       "types": "./src/threadWorkflow.ts",
       "default": "./src/threadWorkflow.ts"
     },
+    "./away": {
+      "types": "./src/away.ts",
+      "default": "./src/away.ts"
+    },
     "./experiments": {
       "types": "./src/experiments.ts",
       "default": "./src/experiments.ts"

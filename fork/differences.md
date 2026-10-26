@@ -285,7 +285,7 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 
 - **Kind:** durable extension
 - **Why:** The governing workflow of a thread is visible and recorded.
-- **Requirements:** workflow recorded per thread and shown as a chip (web, mobile) with menu; chip shows the unattended stance (moon); role chips on subagent rows and thread panel.
+- **Requirements:** workflow recorded per thread and shown as a chip (web, mobile) with menu; role chips on subagent rows and thread panel. The chip shows no Away stance: Away is environment-wide (see unattended-threads).
 - **Integration points:** `client-runtime/threadWorkflow`; `ThreadWorkflowChip`, `AgentRoleChip`; thread metadata contract; mobile `ThreadWorkflowBadge` takes its colours from `apps/mobile/src/lib/projectIcon.ts`'s `PROJECT_ICON_COLOR_CLASSES`.
 - **Proof:** none found for the chip itself (unverified: coverage in client-runtime tests).
 - **Upstream:** none known.
@@ -296,14 +296,14 @@ Seeded from `git diff 9c161462c9 d1d4354daf` (≈813 files, 265 non-merge commit
 ### unattended-threads
 
 - **Kind:** durable extension
-- **Why:** Unattended threads keep working without asking and questions get the away answer.
-- **Requirements:** thread keeps working after a completed run, but not while its own background work (commands, monitors, delegated tasks, watches) will wake it; questions are answered with the away answer whichever event arrives last; stance visible on the workflow chip and set by the device composer's Away key, including on a new thread through launch (narrow web and mobile composers have no Away key yet: the chip menu covers started threads); an agent's `set_workflow` keeps the stance unless it sets `unattended`.
-- **Integration points:** `UnattendedReactor` (uses `derivePendingBackgroundWork`); pending-question/approval events; thread workflow metadata; `ComposerAwayKey`, draft `unattended`, launch input `workflow`; MCP `ThreadMetadataMcpWorkflow`.
-- **Proof:** apps/server/src/orchestration-v2/UnattendedReactor.test.ts, ThreadLaunchService.test.ts (Away launch), apps/server/src/mcp/ThreadMetadataMcpService.test.ts (stance kept).
+- **Why:** While the owner is away, every working thread keeps going without asking, and questions get the away answer.
+- **Requirements:** Away is one environment-wide setting (`ServerSettings.away`, set only through `server.setAway` at `orchestration:operate`), set from one key beside the T3 Peach title in the sidebar header, the command palette and the mobile thread list, across every connected environment (a `n/m` count beside the key when they disagree). It covers top-level threads except Chat. A covered thread keeps working after a completed run, but not while its own background work (commands, monitors, delegated tasks, watches) will wake it; questions are answered with the away answer whichever event arrives last. Turning Away on sweeps once: waiting free-text questions are answered however old, and runs completed in the last 10 minutes continue. Agents read it through `t3_environment_read` and set it with `t3_environment_set_away` on this environment and every linked one, reached over the peer link, for which this is the only write a peer may make (`McpToolAccess.setsAway`, one hop). `workflow.unattended` stays on the wire for older clients and peers but is always false on threads; a run setup record carries Away as the run started.
+- **Integration points:** `UnattendedReactor` (`setAway`, sweep, uses `derivePendingBackgroundWork`); `ServerSettingsService.setAway`; `server.setAway` RPC and `CLIENT_GUARDED_RPC_SCOPES`; pending-question/approval events; the decider's `thread.metadata.update` (forces `unattended: false`); `RunSetupRecorder`; fleet summary `away`; client-runtime `away.ts` and `serverEnvironment.setAway`; the sidebar header Away key; MCP environment toolkit.
+- **Proof:** apps/server/src/orchestration-v2/UnattendedReactor.test.ts (coverage, switch-on sweep), ThreadWorkflow.test.ts (stance not kept), apps/server/src/mcp/ThreadMetadataMcpService.test.ts, apps/server/src/mcp/toolkits/environment/handlers.test.ts (agent sets Away), apps/server/src/agents/RunSetupRecorder.test.ts, packages/client-runtime/src/away.test.ts.
 - **Upstream:** none known.
 - **Retire when:** upstream ships an equivalent unattended mode.
 - **Decision:** `retain` (v0.1.3-nightly.20261025.3669, 2026-10-26): upstream's #24610 narrows what holds Working (see thread-watches), but the reactor reads `derivePendingBackgroundWork` directly, so a stance-held thread still waits for any of its own background work before it is nudged. Earlier: `retain` (v0.1.3-nightly.20261025.3655, 2026-10-25): upstream's #24610 narrowing would have let a thread with a running command read Ready; the fork kept its reactor on any pending work. Earlier: `adapt` (v0.1.1-nightly.20261020.3399, 2026-10-20): upstream's five-minute restart-loop window (#20306) adopted for restart continuations only; the shared fork/unattended continuation counter stays untimed (RestartContinuation.test.ts, UnattendedReactor tests). Earlier: `retain` (seed, 2026-10-19).
-- **Owner:** pechhe/t3code#118, #119, #120 (closed).
+- **Owner:** pechhe/t3code#118, #119, #120 (closed); T3-288.
 
 ### thread-watches
 

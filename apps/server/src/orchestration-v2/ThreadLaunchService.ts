@@ -109,7 +109,7 @@ export interface ThreadLaunchInput {
   readonly initialMessage?: ThreadLaunchInitialMessage;
   /** A thread that watches the new one, from before its first message, so no finish is missed. */
   readonly watchedBy?: ThreadId;
-  /** Set before the first message, so an unattended thread answers its first question itself. */
+  /** Set before the first message, so the agent's first turn already runs under it. */
   readonly workflow?: OrchestrationV2ThreadWorkflow;
   readonly importedNativeThread?: {
     readonly ref: {

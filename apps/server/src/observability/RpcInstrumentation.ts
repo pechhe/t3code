@@ -63,6 +63,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.agentPolicyRead]: "agent-policy",
   [WS_METHODS.agentPolicySave]: "agent-policy",
   [WS_METHODS.serverUpdateSettings]: "server",
+  [WS_METHODS.serverSetAway]: "server",
   [WS_METHODS.serverSearchAcpRegistry]: "server",
   [WS_METHODS.serverPrepareAcpRegistryAgent]: "server",
   [WS_METHODS.serverUninstallAcpRegistryManagedBinary]: "server",

@@ -49,6 +49,7 @@ import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeftIcon,
   CalendarClockIcon,
+  MoonIcon,
   ChartNoAxesColumnIcon,
   CheckIcon,
   ChevronRightIcon,
@@ -106,6 +107,7 @@ import { serverEnvironment } from "../state/server";
 import { threadEnvironment } from "../state/threads";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { sourceControlEnvironment } from "../state/sourceControl";
+import { useAway } from "../state/away";
 import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
@@ -474,6 +476,7 @@ function OpenCommandPaletteDialog(props: {
   readonly initialContext: CommandPaletteReturnContext | undefined;
   readonly clearOpenIntent: () => void;
 }) {
+  const away = useAway();
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
   const { clearOpenIntent, openIntent, openChildSearch, setOpen } = props;
@@ -1603,6 +1606,17 @@ function OpenCommandPaletteDialog(props: {
       run: async () => {
         await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
       },
+    });
+  }
+
+  if (away.total > 0) {
+    actionItems.push({
+      kind: "action",
+      value: "action:away",
+      searchTerms: ["away", "unattended", "back"],
+      title: away.next ? "Turn Away on" : "Turn Away off",
+      icon: <MoonIcon className={ITEM_ICON_CLASS} />,
+      run: async () => away.toggle(),
     });
   }
 

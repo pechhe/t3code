@@ -81,15 +81,8 @@ export const ThreadMetadataMcpPullRequest = Schema.Struct({
 });
 export type ThreadMetadataMcpPullRequest = typeof ThreadMetadataMcpPullRequest.Type;
 
-/**
- * The person owns the unattended stance through the composer's Away key, so an agent naming its
- * workflow keeps the stance unless it sets `unattended` itself.
- */
 export const ThreadMetadataMcpWorkflow = Schema.Struct({
   kind: OrchestrationV2ThreadWorkflow.fields.kind,
-  unattended: Schema.optional(Schema.Boolean).annotate({
-    description: "Set only when the user changes the stance in chat.",
-  }),
 });
 
 export const ThreadMetadataMcpUpdateInput = Schema.Struct({
@@ -102,8 +95,7 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
     description: "Pull request to link. Required only when action is link_pull_request.",
   }),
   workflow: Schema.optional(Schema.NullOr(ThreadMetadataMcpWorkflow)).annotate({
-    description:
-      "Governing workflow and unattended stance. Required only for set_workflow; null clears it.",
+    description: "Governing workflow. Required only for set_workflow; null clears it.",
   }),
   workItem: Schema.optional(TrimmedNonEmptyString).annotate({
     description:

@@ -429,8 +429,8 @@ export const OrchestrationV2LimitRecoveryUpdate = Schema.Struct({
 export type OrchestrationV2LimitRecoveryUpdate = typeof OrchestrationV2LimitRecoveryUpdate.Type;
 
 /**
- * The workflow governing a thread and whether it runs unattended, as the
- * agent's own instructions define them. Absent or null means none recorded.
+ * The workflow governing a thread, as the agent's own instructions define them. Absent or null
+ * means none recorded.
  */
 export const OrchestrationV2ThreadWorkflowKind = Schema.Literals([
   "lead",
@@ -443,6 +443,10 @@ export type OrchestrationV2ThreadWorkflowKind = typeof OrchestrationV2ThreadWork
 
 export const OrchestrationV2ThreadWorkflow = Schema.Struct({
   kind: OrchestrationV2ThreadWorkflowKind,
+  /**
+   * Away is environment-wide (`ServerSettings.away`). A thread's workflow always carries false so
+   * older clients and peers still decode it; a run setup record carries Away as the run started.
+   */
   unattended: Schema.Boolean,
 });
 export type OrchestrationV2ThreadWorkflow = typeof OrchestrationV2ThreadWorkflow.Type;

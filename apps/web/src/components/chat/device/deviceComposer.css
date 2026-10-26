@@ -22,8 +22,8 @@
   --engrave-active: var(--theme-engrave-active);
 }
 
-/* The palette lives on the composer shell so the docked strips share it. */
-[data-slot="composer-shell"]:has(.composer-device) {
+/* The shell, docked strips and app-wide Away key share the device palette. */
+:is([data-slot="composer-shell"]:has(.composer-device), .app-away-key) {
   --crt-metal-top: oklch(0.985 0.002 250);
   --crt-metal: oklch(0.9 0.003 250);
   --crt-metal-bottom: oklch(0.79 0.003 250);
@@ -92,6 +92,9 @@
     inset 0 0 0 1px oklch(0.6 0.004 250 / 0.4), 0 0 0 1px oklch(0.34 0.004 250 / 0.6),
     0 1px 1px oklch(0 0 0 / 0.3), 0 2px 4px -1px oklch(0 0 0 / 0.3);
   --cap-ink: oklch(0.14 0.004 250);
+  /* A lit moon deep enough to read on bright metal. */
+  --away-moon: oklch(0.5 0.21 262);
+  --away-moon-glow: drop-shadow(0 0 2px oklch(0.68 0.18 258 / 0.6));
   --cap-glyph-shadow: drop-shadow(0 1px 0 oklch(1 0.002 250 / 0.55))
     drop-shadow(0 -0.5px 0.5px oklch(0.22 0.005 250 / 0.7));
 
@@ -142,7 +145,7 @@
 }
 
 :root:is(.dark:not([data-composer-chassis="light"]), [data-composer-chassis="dark"])
-  [data-slot="composer-shell"]:has(.composer-device) {
+  :is([data-slot="composer-shell"]:has(.composer-device), .app-away-key) {
   --crt-metal-top: oklch(0.235 0.004 265);
   --crt-metal: oklch(0.17 0.004 265);
   --crt-metal-bottom: oklch(0.115 0.004 265);
@@ -174,6 +177,9 @@
     inset 0 0 0 1px oklch(0 0 0 / 0.5), 0 0 0 1px oklch(0 0 0 / 0.72), 0 1px 1px oklch(0 0 0 / 0.5),
     0 2px 4px -1px oklch(0 0 0 / 0.45);
   --cap-ink: oklch(0.82 0.004 265);
+  --away-moon: oklch(0.86 0.09 250);
+  --away-moon-glow: drop-shadow(0 0 3px oklch(0.78 0.14 250 / 0.9))
+    drop-shadow(0 0 7px oklch(0.7 0.16 255 / 0.5));
   --cap-glyph-shadow: drop-shadow(0 1px 0 oklch(0 0 0 / 0.6))
     drop-shadow(0 -0.5px 0.5px oklch(0.7 0.004 265 / 0.5));
 
@@ -1352,7 +1358,7 @@
 }
 
 /* Away is a latching key, not a cap: the press bottoms out, then it springs back to rest a
-   little lower but still proud, and its moon glows night blue so the stance reads from
+   little lower but still proud, and its moon lights night blue so the stance reads from
    across the room. */
 .device-key {
   display: flex;
@@ -1379,14 +1385,13 @@
   filter: var(--cap-glyph-shadow);
 }
 .device-key[aria-pressed="true"] {
-  color: oklch(0.86 0.09 250);
+  color: var(--away-moon);
   transform: translateY(1px);
   box-shadow: var(--cap-latched-shadow);
 }
 .device-key[aria-pressed="true"] svg {
   fill: currentColor;
-  filter: drop-shadow(0 0 3px oklch(0.78 0.14 250 / 0.9))
-    drop-shadow(0 0 7px oklch(0.7 0.16 255 / 0.5));
+  filter: var(--away-moon-glow);
 }
 .device-key:active:not(:disabled) {
   transform: translateY(2px);
@@ -1399,12 +1404,6 @@
 .device-key:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
-}
-.device-unit__caption[data-night] {
-  color: oklch(0.55 0.13 255);
-  text-shadow:
-    var(--engrave-shadow),
-    0 0 6px oklch(0.75 0.14 250 / 0.35);
 }
 
 /* An empty composer leaves the cap at full brightness, just without the glow. */
@@ -1552,4 +1551,24 @@
   box-shadow: inset 0 1px 2px oklch(0 0 0 / 0.4);
   outline: none;
   cursor: text;
+}
+
+/* The sidebar header's Away key: a smaller cap that sits on the title's centre line. */
+.app-away-key .device-key {
+  width: 30px;
+  height: 19px;
+  margin-bottom: 0;
+  border-radius: 4px;
+}
+.app-away-key .device-key svg {
+  width: 11px;
+  height: 11px;
+}
+.app-away-key__count {
+  color: oklch(0.55 0.13 255);
+  font-family: var(--crt-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.06em;
 }

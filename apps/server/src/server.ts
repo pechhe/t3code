@@ -686,7 +686,8 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
     Effect.gen(function* () {
       yield* (yield* UnattendedReactor.UnattendedReactor).start();
     }),
-  ).pipe(Layer.provide(UnattendedReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
+    // Merged out: the Away RPC and MCP tool set Away through this same reactor.
+  ).pipe(Layer.provideMerge(UnattendedReactor.layer), Layer.provide(ProjectionStoreV2.layer)),
   Layer.effectDiscard(
     Effect.gen(function* () {
       yield* (yield* ForgeWatchReactor.ForgeWatchReactor).start();

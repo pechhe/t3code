@@ -860,28 +860,28 @@ describe("composerDraftStore project draft thread mapping", () => {
     );
   });
 
-  it("keeps Away on a draft through a bootstrap retry and a reload, until it is turned off", () => {
+  it("loads an old draft carrying unattended without retaining its Away flag", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, { threadId });
-    store.setDraftThreadContext(draftId, { unattended: true });
-    store.setLogicalProjectDraftThreadId(scopedProjectKey(projectRef), projectRef, draftId, {
-      threadId: ThreadId.make("thread-retry"),
-    });
-    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.unattended).toBe(true);
-
-    const merge = useComposerDraftStore.persist.getOptions().merge!;
-    const reloaded = merge(
-      JSON.parse(
-        JSON.stringify(partializeComposerDraftStoreState(useComposerDraftStore.getState())),
+    store.setPrompt(draftId, "keep this prompt");
+    const persisted = partializeComposerDraftStoreState(useComposerDraftStore.getState());
+    const legacy = {
+      ...persisted,
+      draftThreadsByThreadKey: Object.fromEntries(
+        Object.entries(persisted.draftThreadsByThreadKey).map(([key, draft]) => [
+          key,
+          { ...draft, unattended: true },
+        ]),
       ),
+    };
+    const reloaded = useComposerDraftStore.persist.getOptions().merge!(
+      legacy,
       useComposerDraftStore.getInitialState(),
     );
-    expect(
-      Object.values(reloaded.draftThreadsByThreadKey).map((draft) => draft.unattended),
-    ).toEqual([true]);
-
-    useComposerDraftStore.getState().setDraftThreadContext(draftId, { unattended: false });
-    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.unattended).toBeUndefined();
+    const draft = Object.values(reloaded.draftThreadsByThreadKey)[0];
+    expect(draft).toMatchObject({ threadId, projectId: projectRef.projectId });
+    expect(draft).not.toHaveProperty("unattended");
+    expect(Object.values(reloaded.draftsByThreadKey)[0]?.prompt).toBe("keep this prompt");
   });
 
   it("clears only matching project draft mapping entries", () => {

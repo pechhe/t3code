@@ -576,6 +576,7 @@ export const WS_METHODS = {
   agentPolicyRead: "agentPolicy.read",
   agentPolicySave: "agentPolicy.save",
   serverUpdateSettings: "server.updateSettings",
+  serverSetAway: "server.setAway",
   serverDiscoverSourceControl: "server.discoverSourceControl",
   serverSearchAcpRegistry: "server.searchAcpRegistry",
   serverPrepareAcpRegistryAgent: "server.prepareAcpRegistryAgent",
@@ -894,6 +895,13 @@ const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSettings, {
     providerInstanceMutation: Schema.optionalKey(ProviderInstanceMutation),
   }),
   success: ServerSettings,
+  error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+const WsServerSetAwayRpc = Rpc.make(WS_METHODS.serverSetAway, {
+  payload: Schema.Struct({ away: Schema.Boolean }),
+  // Clients see the change through the settings stream like any other setting.
+  success: Schema.Struct({ away: Schema.Boolean }),
   error: Schema.Union([ServerSettingsError, EnvironmentAuthorizationError]),
 });
 
@@ -2483,9 +2491,12 @@ export const WsHqRpcGroup = RpcGroup.make(WsHqSignInStartRpc, WsHqDisconnectRpc)
   RpcScopeAuthorization,
 );
 
+export const WsAwayRpcGroup = RpcGroup.make(WsServerSetAwayRpc).middleware(RpcScopeAuthorization);
+
 /** Every RPC the WebSocket serves. */
 export const WsRpcGroup = WsCoreRpcGroup.merge(WsPullRequestRpcGroup)
   .merge(WsPeersRpcGroup)
   .merge(WsHqRpcGroup)
   .merge(WsGuestShareRpcGroup)
-  .merge(WsThreadStructureRpcGroup);
+  .merge(WsThreadStructureRpcGroup)
+  .merge(WsAwayRpcGroup);

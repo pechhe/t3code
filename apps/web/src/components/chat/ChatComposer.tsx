@@ -523,8 +523,6 @@ export interface ChatComposerProps {
   // The machine switch leading the device composer's controls, when the
   // project has exactly two machines to run on.
   deviceEnvironmentSwitch?: ReactNode;
-  /** The machined composer's Away key, beside Fast. */
-  deviceAwayKey?: ReactNode;
   // Queued-message edit mode: attachments already stored on the message being
   // edited. Rendered in the attachment strip with a remove control; removal is
   // client state in ChatView until the edit is saved.
@@ -2739,7 +2737,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       showInlineRestingControls={showInlineRestingControls}
       deviceComposer={deviceComposer}
       deviceEnvironmentSwitch={props.deviceEnvironmentSwitch}
-      deviceAwayKey={props.deviceAwayKey}
       reasoningDialRef={reasoningDialRef}
       modelSliderRef={modelSliderRef}
       poolAccount={poolAccount}

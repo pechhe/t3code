@@ -52,8 +52,6 @@ interface MultipleModelSendInput {
   readonly promptRef: { current: string };
   readonly runtimeMode: RuntimeMode;
   readonly startFromOrigin: boolean;
-  /** Away is pressed on the draft: the threads start unattended. */
-  readonly unattended: boolean;
   readonly resetLocalDispatch: ReturnType<typeof useLocalDispatchState>["resetLocalDispatch"];
   readonly setThreadError: ReturnType<typeof makeThreadErrorSetter>;
 }
@@ -74,7 +72,6 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     promptRef,
     runtimeMode,
     startFromOrigin,
-    unattended,
     resetLocalDispatch,
     setThreadError,
   } = input;
@@ -193,9 +190,6 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       branch,
                       worktreePath: null,
                       createdAt: createdAt,
-                      ...(unattended
-                        ? { workflow: { kind: "solo" as const, unattended: true } }
-                        : {}),
                     },
                     prepareWorktree: {
                       projectCwd: project.workspaceRoot,

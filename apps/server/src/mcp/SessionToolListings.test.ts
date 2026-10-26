@@ -25,6 +25,8 @@ import * as ThreadSearch from "../orchestration-v2/ThreadSearch.ts";
 import * as DeviceService from "../device/DeviceService.ts";
 import * as ExperimentService from "../experiments/ExperimentService.ts";
 import * as FleetSummaryService from "../fleet/FleetSummaryService.ts";
+import * as UnattendedReactor from "../orchestration-v2/UnattendedReactor.ts";
+import * as PeerEnvironments from "../peers/PeerEnvironments.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 import * as PullRequestReviewGuideService from "../pullRequest/PullRequestReviewGuideService.ts";
 import * as ServerConfig from "../config.ts";
@@ -81,6 +83,8 @@ const serviceMocks = Layer.mergeAll(
   Layer.mock(DeviceService.DeviceService)({}),
   Layer.mock(ExperimentService.ExperimentService)({}),
   Layer.mock(FleetSummaryService.FleetSummaryService)({}),
+  Layer.mock(UnattendedReactor.UnattendedReactor)({}),
+  Layer.mock(PeerEnvironments.PeerEnvironments)({}),
   Layer.mock(PreviewManager.PreviewManager)({}),
   Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
   Layer.mock(OrchestratorV2.OrchestratorV2)({}),

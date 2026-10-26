@@ -351,7 +351,6 @@ export function useComposerSend(input: ComposerSendInput) {
     promptRef,
     runtimeMode,
     startFromOrigin,
-    unattended: draftThread?.unattended === true,
     resetLocalDispatch,
     setThreadError,
   });
@@ -1225,9 +1224,6 @@ export function useComposerSend(input: ComposerSendInput) {
                       branch: activeThreadBranch,
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
-                      ...(draftThread?.unattended
-                        ? { workflow: { kind: "solo" as const, unattended: true } }
-                        : {}),
                     },
                   }
                 : {}),

@@ -21,6 +21,7 @@ import * as Layer from "effect/Layer";
 import type * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as EventSink from "./EventSink.ts";
 import * as Orchestrator from "./Orchestrator.ts";
@@ -44,6 +45,7 @@ const layerTest = UnattendedReactor.layer.pipe(
   Layer.provideMerge(
     Layer.mergeAll(
       layerDatabase,
+      ServerSettings.ServerSettingsService.layerTest(),
       ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
       ProviderReplayHarness.layerWithRegistry(
         { name: "unattended" },
@@ -56,7 +58,16 @@ const layerTest = UnattendedReactor.layer.pipe(
 
 const CONTINUATION = "message:unattended-continuation:";
 
-const setup = Effect.fn(function* (name: string, unattended: boolean) {
+type Workflow = { kind: "lead" | "chat"; unattended: boolean } | null;
+
+const setAway = Effect.fn(function* (away: boolean) {
+  return yield* (yield* UnattendedReactor.UnattendedReactor).setAway(away);
+});
+
+const setup = Effect.fn(function* (
+  name: string,
+  workflow: Workflow = { kind: "lead", unattended: false },
+) {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const projections = yield* ProjectionStore.ProjectionStoreV2;
   const threadId = ThreadId.make(`thread:${name}`);
@@ -74,12 +85,13 @@ const setup = Effect.fn(function* (name: string, unattended: boolean) {
     createdBy: "user",
     creationSource: "web",
   });
-  yield* orchestrator.dispatch({
-    type: "thread.metadata.update",
-    commandId: CommandId.make(`workflow:${name}`),
-    threadId,
-    workflow: { kind: "lead", unattended },
-  });
+  if (workflow !== null)
+    yield* orchestrator.dispatch({
+      type: "thread.metadata.update",
+      commandId: CommandId.make(`workflow:${name}`),
+      threadId,
+      workflow,
+    });
   yield* orchestrator.dispatch({
     type: "message.dispatch",
     commandId: CommandId.make(`start:${name}`),
@@ -161,10 +173,11 @@ const continuations = (threadId: ThreadId) =>
   );
 
 it.layer(layerTest)("UnattendedReactor", (it) => {
-  it.effect("continues an unattended thread once after a completed run", () =>
+  it.effect("continues a thread once after a completed run while Away is on", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
-      const { threadId, run } = yield* setup("continue", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("continue");
       const event = yield* finish(run);
       yield* reactor.handle(event);
       yield* reactor.handle(event);
@@ -177,16 +190,19 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     }),
   );
 
-  it.effect("leaves an attended thread, and a failed or interrupted run, alone", () =>
+  it.effect("ignores a thread's own retired stance, and leaves a failed or interrupted run", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
-      const attended = yield* setup("attended", false);
+      yield* setAway(false);
+      // Older events recorded the stance per thread; with Away off it no longer counts.
+      const attended = yield* setup("attended", { kind: "lead", unattended: true });
       yield* reactor.handle(yield* finish(attended.run));
       assert.equal((yield* continuations(attended.threadId)).length, 0);
-      const failed = yield* setup("failed", true);
+      yield* setAway(true);
+      const failed = yield* setup("failed");
       yield* reactor.handle(yield* finish(failed.run, "failed"));
       assert.equal((yield* continuations(failed.threadId)).length, 0);
-      const stopped = yield* setup("stopped", true);
+      const stopped = yield* setup("stopped");
       yield* reactor.handle(yield* finish(stopped.run, "interrupted"));
       assert.equal((yield* continuations(stopped.threadId)).length, 0);
     }),
@@ -195,7 +211,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
   it.effect("keeps going while continuations do work, up to three in a row", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
-      const { threadId, run } = yield* setup("chain", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("chain");
       yield* reactor.handle(yield* finish(run));
       for (let step = 1; step <= 3; step += 1) {
         const latest = (yield* continuations(threadId)).at(-1)!;
@@ -210,7 +227,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const { threadId, run } = yield* setup("snoozed", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("snoozed");
       const later = DateTime.add(yield* DateTime.now, { hours: 1 });
       yield* orchestrator.dispatch({
         type: "thread.snooze",
@@ -228,7 +246,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
       const orchestrator = yield* Orchestrator.OrchestratorV2;
       const projections = yield* ProjectionStore.ProjectionStoreV2;
-      const delegating = yield* setup("delegating", true);
+      yield* setAway(true);
+      const delegating = yield* setup("delegating");
       yield* orchestrator.dispatch({
         type: "delegated_task.request",
         commandId: CommandId.make("delegate:delegating"),
@@ -248,8 +267,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
       yield* reactor.handle(yield* finish(parentRun));
       assert.equal((yield* continuations(delegating.threadId)).length, 0);
 
-      const watched = yield* setup("watched", false);
-      const watching = yield* setup("watching", true);
+      const watched = yield* setup("watched");
+      const watching = yield* setup("watching");
       yield* orchestrator.dispatch({
         type: "thread.thread-watch",
         commandId: CommandId.make("watch:watching"),
@@ -264,7 +283,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
 
   it.effect("waits while a background command the run started is still going", () =>
     Effect.gen(function* () {
-      const { threadId, run } = yield* setup("background", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("background");
       const now = yield* DateTime.now;
       yield* (yield* EventSink.EventSinkV2).write({
         events: [
@@ -304,7 +324,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
       const orchestrator = yield* Orchestrator.OrchestratorV2;
-      const { threadId, run } = yield* setup("queued", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("queued");
       yield* orchestrator.dispatch({
         type: "message.dispatch",
         commandId: CommandId.make("queue:queued"),
@@ -324,7 +345,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
   it.effect("stops after a continuation run that did no work", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
-      const { threadId, run } = yield* setup("idle", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("idle");
       yield* reactor.handle(yield* finish(run));
       const [continuation] = yield* continuations(threadId);
       yield* reactor.handle(yield* finish(continuation!));
@@ -335,7 +357,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
   it.effect("continues a run that completed while the server was down from the sweep", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
-      const { threadId, run } = yield* setup("restart", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("restart");
       yield* finish(run);
       yield* reactor.sweep;
       yield* reactor.sweep;
@@ -346,7 +369,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
   it.effect("does not sweep up a run that ended long before the restart", () =>
     Effect.gen(function* () {
       const reactor = yield* UnattendedReactor.UnattendedReactor;
-      const { threadId, run } = yield* setup("stale", true);
+      yield* setAway(true);
+      const { threadId, run } = yield* setup("stale");
       yield* finish(run, "completed", DateTime.subtract(yield* DateTime.now, { hours: 2 }));
       yield* reactor.sweep;
       assert.equal((yield* continuations(threadId)).length, 0);
@@ -365,7 +389,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
         allowCustomAnswer?: false,
         kind: "user_input" | "command" = "user_input",
       ) {
-        const { threadId, run } = yield* setup(name, unattended);
+        yield* setAway(unattended);
+        const { threadId, run } = yield* setup(name);
         const sessionId = ProviderSessionId.make(`session:${name}`);
         yield* projections.apply({
           id: EventId.make(`event:session:${name}`),
@@ -464,7 +489,8 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
         const reactor = yield* UnattendedReactor.UnattendedReactor;
         const projections = yield* ProjectionStore.ProjectionStoreV2;
         const now = yield* DateTime.now;
-        const { threadId, run } = yield* setup("late-question", true);
+        yield* setAway(true);
+        const { threadId, run } = yield* setup("late-question");
         const requestId = RuntimeRequestId.make("request:late-question");
         yield* projections.apply({
           id: EventId.make("event:late-question"),
@@ -501,6 +527,143 @@ it.layer(layerTest)("UnattendedReactor", (it) => {
         assert.include(message.text, "The owner is away");
         assert.equal(message.createdBy, "agent");
       }),
+  );
+
+  it.effect("covers a thread with no workflow, but not a Chat", () =>
+    Effect.gen(function* () {
+      const reactor = yield* UnattendedReactor.UnattendedReactor;
+      yield* setAway(true);
+      const plain = yield* setup("plain", null);
+      yield* reactor.handle(yield* finish(plain.run));
+      assert.equal((yield* continuations(plain.threadId)).length, 1);
+      const chat = yield* setup("chat", { kind: "chat", unattended: false });
+      yield* reactor.handle(yield* finish(chat.run));
+      assert.equal((yield* continuations(chat.threadId)).length, 0);
+    }),
+  );
+
+  it.effect("turning Away on answers waiting questions and continues only recent runs", () =>
+    Effect.gen(function* () {
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      yield* setAway(false);
+      const now = yield* DateTime.now;
+      const hourAgo = DateTime.subtract(now, { hours: 1 });
+
+      const recent = yield* setup("on-recent");
+      yield* finish(recent.run, "completed", DateTime.subtract(now, { minutes: 5 }));
+      const old = yield* setup("on-old");
+      yield* finish(old.run, "completed", DateTime.subtract(now, { minutes: 15 }));
+
+      // A question asked after its turn ended an hour ago, answered through a continuation.
+      const late = yield* setup("on-late");
+      yield* finish(late.run, "completed", hourAgo);
+      const lateRequest = RuntimeRequestId.make("request:on-late");
+      yield* projections.apply({
+        id: EventId.make("event:on-late"),
+        type: "runtime-request.updated",
+        threadId: late.threadId,
+        runId: late.run.id,
+        occurredAt: hourAgo,
+        payload: {
+          id: lateRequest,
+          nodeId: late.run.rootNodeId!,
+          providerTurnId: null,
+          nativeRequestRef: null,
+          kind: "user_input",
+          status: "pending",
+          responseCapability: { type: "message" },
+          createdAt: hourAgo,
+          resolvedAt: null,
+        },
+      });
+
+      // A question the running turn has waited on for an hour, answered live.
+      const live = yield* setup("on-live");
+      const sessionId = ProviderSessionId.make("session:on-live");
+      yield* projections.apply({
+        id: EventId.make("event:session:on-live"),
+        type: "provider-session.attached",
+        threadId: live.threadId,
+        occurredAt: hourAgo,
+        payload: {
+          id: sessionId,
+          driver: adapter.driver,
+          providerInstanceId: instanceId,
+          status: "ready",
+          cwd: "/repo",
+          model: modelSelection.model,
+          capabilities: CodexProviderCapabilitiesV2,
+          createdAt: hourAgo,
+          updatedAt: hourAgo,
+          lastError: null,
+        },
+      });
+      const liveRequest = RuntimeRequestId.make("request:on-live");
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make("event:request:on-live"),
+            type: "runtime-request.updated",
+            threadId: live.threadId,
+            runId: live.run.id,
+            occurredAt: hourAgo,
+            payload: {
+              id: liveRequest,
+              nodeId: live.run.rootNodeId!,
+              providerTurnId: null,
+              nativeRequestRef: null,
+              kind: "user_input",
+              status: "pending",
+              responseCapability: { type: "live", providerSessionId: sessionId },
+              createdAt: hourAgo,
+              resolvedAt: null,
+            },
+          },
+          {
+            id: EventId.make("event:item:on-live"),
+            type: "turn-item.updated",
+            threadId: live.threadId,
+            runId: live.run.id,
+            occurredAt: hourAgo,
+            payload: {
+              type: "user_input_request",
+              id: TurnItemId.make("item:on-live"),
+              threadId: live.threadId,
+              runId: live.run.id,
+              nodeId: NodeId.make("node:on-live"),
+              providerThreadId: null,
+              providerTurnId: null,
+              nativeItemRef: null,
+              parentItemId: null,
+              ordinal: 1,
+              status: "waiting",
+              title: null,
+              startedAt: hourAgo,
+              completedAt: null,
+              updatedAt: hourAgo,
+              requestId: liveRequest,
+              questions: [
+                { id: "Which queue?", header: "Queue", question: "Which queue?", options: [] },
+              ],
+            },
+          },
+        ],
+      });
+
+      yield* setAway(true);
+      assert.equal((yield* continuations(recent.threadId)).length, 1);
+      assert.equal((yield* continuations(old.threadId)).length, 0);
+      assert.equal((yield* continuations(late.threadId)).length, 1);
+      const requestStatus = Effect.fn(function* (threadId: ThreadId, id: RuntimeRequestId) {
+        const records = yield* projections.getThreadRecords(threadId, ["runtimeRequests"]);
+        return records.runtimeRequests.find((request) => request.id === id)!;
+      });
+      assert.notEqual((yield* requestStatus(late.threadId, lateRequest)).status, "pending");
+      const answered = yield* requestStatus(live.threadId, liveRequest);
+      assert.equal(answered.status, "resolved");
+      assert.include(String(answered.answers?.["Which queue?"]), "The owner is away");
+    }),
   );
 });
 

@@ -501,3 +501,37 @@ it.effect("denies manual cleanup before the handler without settings permission"
     expect(handled).toBe(false);
   }).pipe(Effect.scoped),
 );
+
+it.effect("lets only clients that may operate threads set Away", () =>
+  Effect.gen(function* () {
+    const group = WsRpcGroup.omit(
+      ...[...WsRpcGroup.requests.keys()].filter(
+        (tag): tag is Exclude<keyof typeof RPC_REQUIRED_SCOPES, typeof WS_METHODS.serverSetAway> =>
+          tag !== WS_METHODS.serverSetAway,
+      ),
+    );
+    let handled = 0;
+    const clientWith = (scopes: Parameters<typeof RpcAuthorization.layer>[0]) =>
+      RpcTest.makeClient(group).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            group.toLayerHandler(WS_METHODS.serverSetAway, ({ away }) =>
+              Effect.sync(() => {
+                handled += 1;
+                return { away };
+              }),
+            ),
+            RpcAuthorization.layer(scopes),
+          ),
+        ),
+      );
+    const reader = yield* clientWith([AuthOrchestrationReadScope]);
+    expect(yield* reader[WS_METHODS.serverSetAway]({ away: true }).pipe(Effect.flip)).toMatchObject(
+      { requiredPermission: AuthOrchestrationOperateScope },
+    );
+    expect(handled).toBe(0);
+    const operator = yield* clientWith([AuthOrchestrationOperateScope]);
+    expect(yield* operator[WS_METHODS.serverSetAway]({ away: true })).toEqual({ away: true });
+    expect(handled).toBe(1);
+  }).pipe(Effect.scoped),
+);

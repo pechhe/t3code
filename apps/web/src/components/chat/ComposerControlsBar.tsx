@@ -64,8 +64,6 @@ export function ComposerControlsBar(props: {
   deviceComposer: boolean;
   /** The machine switch leading the device controls, when the project has two machines to run on. */
   deviceEnvironmentSwitch?: ReactNode;
-  /** The machined composer's Away key, beside Fast. */
-  deviceAwayKey?: ReactNode;
   reasoningDialRef: RefObject<DeviceReasoningDialHandle | null>;
   modelSliderRef: RefObject<DeviceModelSliderHandle | null>;
   poolAccount: ReturnType<typeof useComposerPoolAccount>;
@@ -121,7 +119,6 @@ export function ComposerControlsBar(props: {
     showInlineRestingControls,
     deviceComposer,
     deviceEnvironmentSwitch,
-    deviceAwayKey,
     reasoningDialRef,
     modelSliderRef,
     poolAccount,
@@ -336,7 +333,6 @@ export function ComposerControlsBar(props: {
       {poolAccount ? <ComposerPoolAccount state={poolAccount} isNew={isNewThread} device /> : null}
       <DeviceReasoningDial ref={reasoningDialRef} {...providerTraitsPickerInput} />
       <ComposerFastSwitch {...composerFastSwitchInput} device />
-      {deviceAwayKey}
     </>
   ) : (
     <>

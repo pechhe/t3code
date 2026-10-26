@@ -75,6 +75,8 @@ export const FleetEnvironmentSummary = Schema.Struct({
   observedAt: Schema.String,
   lastSeenAt: Schema.NullOr(Schema.String),
   unavailableReason: Schema.NullOr(Schema.String),
+  /** Whether Away is on there; absent from older servers and unavailable environments. */
+  away: Schema.optionalKey(Schema.Boolean),
   threads: Schema.Array(FleetThreadSummary),
   /** IDs removed since the cursor, including archived and newly settled threads. */
   removedThreadIds: Schema.Array(ThreadId),

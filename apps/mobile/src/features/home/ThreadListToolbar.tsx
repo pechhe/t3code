@@ -17,6 +17,9 @@ import { SearchField } from "../../components/ui/SearchField";
 import { useHardwareKeyboardCommand } from "../keyboard/hardwareKeyboardCommands";
 import { WorkspaceListToolbarRow } from "../workspace/WorkspaceListToolbarRow";
 import { useWorkspaceConnectionState } from "../../state/workspace";
+import { IconButton } from "../../components/ui/IconButton";
+import { AppText } from "../../components/ui/AppText";
+import { useAway } from "../../state/away";
 import { useToolbarLayout } from "../../components/ui/useToolbarLayout";
 
 export function ThreadListToolbar(props: {
@@ -30,6 +33,7 @@ export function ThreadListToolbar(props: {
   readonly onLayout?: (event: LayoutChangeEvent) => void;
   readonly onRequestVisibility?: () => void;
 }) {
+  const away = useAway();
   const navigation = useNavigation();
   const workspace = useWorkspaceTabs();
   const isTabActive = workspace?.isTabActive;
@@ -113,7 +117,35 @@ export function ThreadListToolbar(props: {
         searchAccessibilityLabel="Search threads"
         titleAccessibilityLabel="T3 Code, Threads"
         onOpenEnvironments={props.onOpenEnvironments}
-        filter={filterButton}
+        filter={
+          <>
+            <View className="items-center">
+              <IconButton
+                variant={away.state === "off" ? "standard" : "tonal"}
+                tintColorClassName="accent-header-foreground"
+                accessibilityLabel={
+                  away.state === "mixed"
+                    ? `Away on for ${away.on} of ${away.total}`
+                    : away.state === "on"
+                      ? "Away on"
+                      : "Away off"
+                }
+                icon="moon"
+                selected={away.state !== "off"}
+                disabled={away.total === 0}
+                onPress={() => {
+                  away.toggle();
+                }}
+              />
+              {away.state === "mixed" ? (
+                <AppText textRole="micro" className="text-foreground-muted">
+                  {`${away.on}/${away.total}`}
+                </AppText>
+              ) : null}
+            </View>
+            {filterButton}
+          </>
+        }
       />
     </View>
   );

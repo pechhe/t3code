@@ -9,7 +9,6 @@ import { threadEnvironment } from "../../state/threads";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
 import {
   Menu,
-  MenuCheckboxItem,
   MenuGroup,
   MenuItem,
   MenuPopup,
@@ -27,11 +26,10 @@ import {
   type SelectableThreadWorkflowKind,
   visibleThreadWorkflow,
   withWorkflowKind,
-  withWorkflowUnattended,
 } from "@t3tools/client-runtime/thread-workflow";
 
 /**
- * The header's workflow chip, opening a menu to change, mark unattended or clear it. With
+ * The header's workflow chip, opening a menu to change or clear it. With
  * no workflow set it shows a quiet "Set workflow" chip, so a cleared workflow can be set
  * again. Read-only viewers see the chip without the menu.
  */
@@ -64,7 +62,7 @@ export function ThreadWorkflowMenu(props: {
   };
 
   if (!props.canEdit && shown) {
-    return <ThreadWorkflowChip kind={shown.kind} unattended={shown.unattended} />;
+    return <ThreadWorkflowChip kind={shown.kind} />;
   }
 
   return (
@@ -72,11 +70,7 @@ export function ThreadWorkflowMenu(props: {
       <MenuTrigger
         render={
           shown ? (
-            <ThreadWorkflowChip
-              kind={shown.kind}
-              unattended={shown.unattended}
-              render={<button type="button" />}
-            />
+            <ThreadWorkflowChip kind={shown.kind} render={<button type="button" />} />
           ) : (
             <TintChip
               data-slot="thread-workflow-chip"
@@ -93,9 +87,7 @@ export function ThreadWorkflowMenu(props: {
         <MenuGroup>
           <MenuRadioGroup
             value={shown?.kind ?? ""}
-            onValueChange={(value) =>
-              save(withWorkflowKind(props.workflow, value as SelectableThreadWorkflowKind))
-            }
+            onValueChange={(value) => save(withWorkflowKind(value as SelectableThreadWorkflowKind))}
           >
             {SELECTABLE_THREAD_WORKFLOW_KINDS.map((kind) => {
               const Icon = THREAD_WORKFLOW_ICONS[kind];
@@ -112,13 +104,6 @@ export function ThreadWorkflowMenu(props: {
         </MenuGroup>
         {shown ? (
           <>
-            <MenuSeparator />
-            <MenuCheckboxItem
-              checked={shown.unattended}
-              onCheckedChange={(checked) => save(withWorkflowUnattended(shown, checked))}
-            >
-              Unattended
-            </MenuCheckboxItem>
             <MenuSeparator />
             <MenuItem onClick={() => save(null)}>Clear workflow</MenuItem>
           </>

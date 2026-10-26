@@ -44,7 +44,7 @@ export const clientRuntimeModeCeiling = (client: McpClientCaller | undefined): R
     ? "approval-required"
     : client.access;
 
-/** A client that changes nothing: an agent approved for read-only access, or a linked environment. */
+/** A client that changes nothing (a linked environment sets only Away): an agent approved for read-only access, or a linked environment. */
 export const isReadOnlyClient = (client: McpClientCaller) =>
   client.access === "read-only" || client.access === "peer-threads";
 

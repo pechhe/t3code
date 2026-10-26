@@ -35,6 +35,7 @@ import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import { forkParked } from "../serverActivation.ts";
+import { ServerSettingsService } from "../serverSettings.ts";
 import * as AgentConfigCheckout from "./AgentConfigCheckout.ts";
 import * as Policy from "./AgentPolicyService.ts";
 
@@ -139,6 +140,8 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
   }>;
   readonly instructionOverlay: InstructionOverlay.AssignedInstructionOverlay | null;
   readonly policy: (root: string) => Effect.Effect<{ hash: string; sourceRevision: string } | null>;
+  /** Whether Away was on as the run started; a thread's own workflow no longer carries it. */
+  readonly away: boolean;
 }) {
   const path = yield* Path.Path;
   const root = Option.getOrNull(yield* policyRoot.pipe(Effect.orElseSucceed(() => Option.none())));
@@ -176,7 +179,7 @@ export const captureRunSetup = Effect.fn("RunSetupRecorder.captureRunSetup")(fun
               selections: input.run.modelSelection.options,
             }),
           ) ?? []),
-    workflow: input.run.workflow ?? null,
+    workflow: input.run.workflow == null ? null : { ...input.run.workflow, unattended: input.away },
     instructionOverlay:
       input.instructionOverlay === null
         ? null
@@ -305,11 +308,9 @@ const fileSummary = Effect.fn("RunSetupRecorder.fileSummary")(function* (
 });
 
 /**
- * Each of a thread's runs in `runs` with its setup, in the order given. A run with no
- * stored record (one that predates capture, or never started) appears with null setup
- * fields, and a run whose driver does not report skill loads has `invokedSkills: null`
- * rather than an empty list. Instruction and skill files are a count and digest, and
- * listed in full only with `detail: "full"`.
+ * Each run with its setup, in the order given. A run with no stored record has null setup
+ * fields, and one whose driver reports no skill loads has `invokedSkills: null`, not an empty
+ * list. Instruction and skill files are a count and digest unless `detail: "full"`.
  */
 export const setupReport = Effect.fn("RunSetupRecorder.setupReport")(function* (input: {
   readonly runs: ReadonlyArray<ReportRun>;
@@ -405,6 +406,7 @@ export const make = Effect.gen(function* () {
   const policyService = yield* Policy.AgentPolicyService;
   const providers = yield* ProviderRegistry.ProviderRegistry;
   const instructionOverlay = yield* InstructionOverlay.InstructionOverlay;
+  const settings = yield* ServerSettingsService;
   const sql = yield* SqlClient.SqlClient;
   const context = yield* Effect.context<
     FileSystem.FileSystem | Path.Path | ProcessRunner.ProcessRunner | Crypto.Crypto
@@ -446,7 +448,12 @@ export const make = Effect.gen(function* () {
               driver: provider.driver,
             });
       const assignments = yield* experiments.assignments({ threadId: run.threadId });
+      const away = yield* settings.getSettings.pipe(
+        Effect.map((current) => current.away),
+        Effect.orElseSucceed(() => false),
+      );
       const record = yield* captureRunSetup({
+        away,
         run,
         thread,
         workingDirectory:

@@ -34,7 +34,6 @@ import {
   SnapShotOverlayDockPill,
 } from "./snapShot/SnapShotOverlayChat";
 import { useSnapShotOverlayDock } from "./snapShot/snapShotOverlayDock";
-import { ComposerAwayKey } from "./chat/ComposerAwayKey";
 import { DRAFT_HERO_TRANSITION_DURATION_MS } from "./chat/draftHeroTransition";
 import { useBottomDraftHeroStore } from "~/lib/draftHeroAtBottom";
 import { useReportMainComposerFrame } from "./snapShot/useReportMainComposerFrame";
@@ -129,16 +128,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread-reference";
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
-import {
-  type SetStateAction,
-  startTransition,
-  use,
-  useEffect,
-  useLayoutEffect,
-  useOptimistic,
-  useRef,
-  useState,
-} from "react";
+import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BackgroundThreadContext } from "./chat/backgroundThread";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
@@ -3121,45 +3111,6 @@ export default function ChatView(props: ChatViewProps) {
         onChange={onEnvironmentChangeStable}
       />
     ) : null;
-  const awayOn = isServerThread
-    ? activeThreadShell?.workflow?.unattended === true
-    : draftThread?.unattended === true;
-  // The key latches as it is released, not when the server's answer arrives.
-  const [awayShown, setAwayShown] = useOptimistic(awayOn);
-  const toggleAway = () => {
-    if (!isServerThread) {
-      if (draftId) setDraftThreadContext(draftId, { unattended: !awayOn });
-      return;
-    }
-    if (!activeThread) return;
-    const thread = activeThread;
-    startTransition(async () => {
-      setAwayShown(!awayOn);
-      const result = await updateThreadMetadata({
-        environmentId: thread.environmentId,
-        input: {
-          threadId: thread.id,
-          // The agent names its workflow later and keeps the stance; solo until it does.
-          workflow: { kind: activeThreadShell?.workflow?.kind ?? "solo", unattended: !awayOn },
-        },
-      });
-      if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
-        const error = squashAtomCommandFailure(result);
-        toastManager.add({
-          type: "error",
-          title: "Failed to change Away",
-          description: error instanceof Error ? error.message : "An error occurred.",
-        });
-      }
-    });
-  };
-  const deviceAwayKey = (
-    <ComposerAwayKey
-      on={awayShown}
-      disabled={isServerThread ? !canOperateThread : !draftId}
-      onToggle={toggleAway}
-    />
-  );
   // Read from the projection the footer renders, so the scroll below sees the new message.
   const pendingGuestMessageIds =
     serverProjection?.thread.guestShare?.messages.flatMap((message) =>
@@ -3942,7 +3893,6 @@ export default function ChatView(props: ChatViewProps) {
                               isPreparingWorktree={isPreparingWorktree && !sendQueuesBehindSetup}
                               queuedRunsControl={queuedRunsControl}
                               deviceEnvironmentSwitch={deviceEnvironmentSwitch}
-                              deviceAwayKey={deviceAwayKey}
                               bannerItems={composerBannerItems}
                               resumeCompactionTokens={resumeCompactionTokens}
                               resumeCompactionModelName={resumeCompactionModelName}
