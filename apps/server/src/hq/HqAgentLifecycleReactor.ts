@@ -1,4 +1,8 @@
-import type { OrchestrationV2DomainEvent, ThreadId } from "@t3tools/contracts";
+import type {
+  OrchestrationV2AppThread,
+  OrchestrationV2DomainEvent,
+  ThreadId,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
@@ -49,12 +53,13 @@ const make = Effect.gen(function* () {
     threadId: ThreadId,
     act: (
       agent: Omit<HqAgentConnections.HqAgent, "model">,
+      thread: OrchestrationV2AppThread,
     ) => Effect.Effect<void, HqForgeRecords.HqForgeRecordError>,
   ) =>
     projections.getThread(threadId).pipe(
       Effect.flatMap((thread) => {
         const role = HqAgentConnections.hqAgentRole(thread);
-        return role === undefined ? Effect.void : act({ threadId, role });
+        return role === undefined ? Effect.void : act({ threadId, role }, thread);
       }),
     );
 
@@ -65,23 +70,22 @@ const make = Effect.gen(function* () {
       switch (event.type) {
         case "run.updated": {
           const { status, delegatedTaskId } = event.payload;
-          if (
-            delegatedTaskId === undefined ||
-            (status !== "completed" && status !== "failed" && status !== "cancelled")
-          )
-            return;
-          return yield* withAgentOf(event.threadId, (agent) =>
-            recording.recordCompletion(agent.threadId, event.payload).pipe(
-              Effect.andThen(
-                records.enqueue({
-                  kind: "end",
-                  // One end per run: a follow-up run gets a fresh agent, which needs its own end.
-                  recordKey: `end:${agent.threadId}:${event.payload.id}`,
-                  threadId: agent.threadId,
-                  role: agent.role,
-                }),
-              ),
-            ),
+          if (status !== "completed" && status !== "failed" && status !== "cancelled") return;
+          return yield* withAgentOf(event.threadId, (agent, thread) =>
+            // Only a follow-up run carries its task's id; a task's first run is told by its parent.
+            delegatedTaskId === undefined && thread.lineage.parentThreadId === null
+              ? Effect.void
+              : recording.recordCompletion(agent.threadId, event.payload).pipe(
+                  Effect.andThen(
+                    records.enqueue({
+                      kind: "end",
+                      // One end per run: a follow-up run gets a fresh agent, which needs its own end.
+                      recordKey: `end:${agent.threadId}:${event.payload.id}`,
+                      threadId: agent.threadId,
+                      role: agent.role,
+                    }),
+                  ),
+                ),
           );
         }
         case "thread.deleted":

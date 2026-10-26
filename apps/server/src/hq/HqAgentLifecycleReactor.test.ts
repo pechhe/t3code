@@ -106,6 +106,22 @@ it.effect("a delegated task that completes, fails or is cancelled queues its age
   ),
 );
 
+it.effect(
+  "a delegated task's first run, which carries no task id, queues its records and end",
+  () =>
+    withReactor(({ reactor, calls }) =>
+      Effect.gen(function* () {
+        yield* reactor.handle(runUpdated(reviewer, { status: "completed" }));
+        // The lead's own run ends nothing: it has no parent, so it is not a delegated task.
+        yield* reactor.handle(runUpdated(lead, { status: "completed" }));
+        assert.deepStrictEqual(
+          calls.map((call) => call.kind),
+          ["records", "end"],
+        );
+      }),
+    ),
+);
+
 it.effect("what a finished run recorded is queued before its agent's end", () =>
   withReactor(({ reactor, calls }) =>
     Effect.gen(function* () {
