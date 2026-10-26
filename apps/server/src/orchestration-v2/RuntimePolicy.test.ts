@@ -12,6 +12,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
@@ -20,6 +21,7 @@ import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.
 import * as ProjectStore from "./ProjectStore.ts";
 import * as RuntimePolicy from "./RuntimePolicy.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
+import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 
 const projectId = ProjectId.make("project:runtime-policy");
@@ -111,6 +113,12 @@ const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
         ),
     }),
   ),
+  Layer.provide(
+    ServerConfig.layerTest("/project-root", { prefix: "t3-runtime-policy-" }).pipe(
+      Layer.provide(NodeServices.layer),
+    ),
+  ),
+  Layer.provide(NodeServices.layer),
 );
 
 it.layer(layerTest)("RuntimePolicyV2", (it) => {
@@ -268,6 +276,63 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
       assert.deepEqual(result.sandboxPolicy, { type: "readOnly", networkAccess: false });
     }),
   );
+  it.effect("gives a sandboxed writer the shared store and a temp root outside its workspace", () =>
+    Effect.gen(function* () {
+      const policy = yield* RuntimePolicy.RuntimePolicyV2;
+      const now = yield* DateTime.now;
+      const writer: AgentTaskBinding = {
+        ...managedBinding,
+        role: "implementation-worker",
+        sourceAccess: "scoped-write",
+        toolProfile: "implementation",
+        executionBoundary: "workspace-sandbox",
+      };
+      const environment = {
+        validate: () => Effect.void,
+        repositoryRoots: () => Effect.succeed(["/repo/store", "/repo/git"]),
+      };
+      const resolve = (binding: AgentTaskBinding) =>
+        policy
+          .resolve({
+            thread: {
+              ...makeThread({ now, worktreePath: managedBinding.workspacePath }),
+              agentTask: binding,
+            },
+            modelSelection,
+          })
+          .pipe(
+            Effect.provide(
+              Layer.mergeAll(
+                ServerSettings.layerTest(),
+                Layer.mock(ManagedAgent.ManagedAgentService)(environment),
+              ),
+            ),
+          );
+      const result = yield* resolve(writer);
+      assert.match(result.sandboxTempRoot ?? "", /\/sandbox-tmp\/\d+-[0-9a-f]{16}$/);
+      assert.deepEqual(result.sandboxPolicy, {
+        type: "workspaceWrite",
+        writableRoots: [
+          managedBinding.workspacePath,
+          "/repo/store",
+          "/repo/git",
+          result.sandboxTempRoot,
+        ],
+        networkAccess: false,
+        excludeTmpdirEnvVar: true,
+        excludeSlashTmp: true,
+      });
+      // Every turn of the task names the same root, so its session keeps one TMPDIR.
+      assert.equal((yield* resolve(writer)).sandboxTempRoot, result.sandboxTempRoot);
+      // A trusted writer runs unsandboxed, and a reviewer only reads.
+      const trusted = yield* resolve({ ...writer, executionBoundary: "trusted-host-access" });
+      assert.deepEqual(trusted.sandboxPolicy, { type: "dangerFullAccess" });
+      assert.isUndefined(trusted.sandboxTempRoot);
+      const reviewer = yield* resolve({ ...writer, sourceAccess: "read-only" });
+      assert.deepEqual(reviewer.sandboxPolicy, { type: "readOnly", networkAccess: false });
+      assert.isUndefined(reviewer.sandboxTempRoot);
+    }),
+  );
   it.effect(
     "validates each advisor consultation at its current revision while retaining the initial binding",
     () =>
@@ -346,6 +411,7 @@ it.layer(layerTest)("managed RuntimePolicyV2", (it) => {
                       Effect.sync(() => {
                         validated = input.binding;
                       }),
+                    repositoryRoots: () => Effect.succeed([]),
                   }),
                 ),
               ),

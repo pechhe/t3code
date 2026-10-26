@@ -97,7 +97,17 @@ its revision and the role names, or the reason the policy is refused.
   its run handed back, even after later work changes that workspace. A Codex
   writer's sandbox also writes the repository store (and, for jj, the git
   directory behind it) shared by every workspace of the repository, so it can
-  commit and read its own history; a reviewer's stays read-only.
+  commit and read its own history, whether it runs in an `isolated` workspace or
+  the lead's own; a reviewer's stays read-only. A `lead` writer shares the lead's
+  checkout, so a lead runs no jj command that moves its working copy while that
+  writer is running.
+- A Codex writer's sandbox also writes one temp directory per task, outside its
+  workspace, and the session that runs the task is given it as `TMPDIR`; a
+  build's temp files therefore never land in the checkout the task reports. The
+  directory goes when the task's provider session ends: its child thread is
+  closed or deleted, or the server stops, and a later follow-up turn gets a fresh
+  one. Nothing else outside the workspace becomes writable, and the shared
+  system temp directory stays refused.
 - A read-only task pinned to a `sourceRevision`, such as a review or a pinned
   advisor, may run in any workspace of the lead's repository, or of any other
   registered project's repository, on this computer,

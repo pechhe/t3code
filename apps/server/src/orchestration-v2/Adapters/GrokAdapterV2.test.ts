@@ -30,6 +30,7 @@ import * as Schema from "effect/Schema";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
+import * as ServerConfig from "../../config.ts";
 import * as TestProviderHost from "@t3tools/provider-testing/TestProviderHost";
 import * as ProjectStore from "../ProjectStore.ts";
 import { buildInitialGrokProviderSnapshot } from "@t3tools/provider-grok/testing";
@@ -341,6 +342,12 @@ describe("Grok launch permission mode", () => {
                 get: () => Effect.die("the thread has a worktree"),
               }),
             ),
+            Layer.provide(
+              ServerConfig.layerTest("/grok-launch-test", {
+                prefix: "t3-grok-policy-",
+              }).pipe(Layer.provide(NodeServices.layer)),
+            ),
+            Layer.provide(NodeServices.layer),
             Layer.provide(
               Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
                 getInstance: () =>

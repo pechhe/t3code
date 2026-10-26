@@ -25,6 +25,7 @@ import * as Managed from "./ManagedAgentService.ts";
 import * as Store from "./AgentPolicyStore.ts";
 import * as Policy from "./AgentPolicyService.ts";
 import * as RuntimePolicy from "../orchestration-v2/RuntimePolicy.ts";
+import * as ServerConfig from "../config.ts";
 import * as Projects from "../orchestration-v2/ProjectStore.ts";
 import * as Providers from "../provider/ProviderInstanceRegistry.ts";
 import * as Settings from "../serverSettings.ts";
@@ -140,6 +141,12 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
               }),
             ),
           ),
+          Layer.provide(
+            ServerConfig.layerTest(f.workspacePath, { prefix: "t3-managed-policy-" }).pipe(
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
+          Layer.provide(NodeServices.layer),
         );
         yield* Effect.gen(function* () {
           const runtime = yield* RuntimePolicy.RuntimePolicyV2;
@@ -307,6 +314,12 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
               }),
             ),
           ),
+          Layer.provide(
+            ServerConfig.layerTest(f.workspacePath, { prefix: "t3-managed-policy-" }).pipe(
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
+          Layer.provide(NodeServices.layer),
         );
         yield* Effect.gen(function* () {
           const runtime = yield* RuntimePolicy.RuntimePolicyV2;
@@ -784,6 +797,12 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
             }),
           ),
         ),
+        Layer.provide(
+          ServerConfig.layerTest(projectRoot, { prefix: "t3-managed-policy-" }).pipe(
+            Layer.provide(NodeServices.layer),
+          ),
+        ),
+        Layer.provide(NodeServices.layer),
       );
       yield* Effect.gen(function* () {
         const runtime = yield* RuntimePolicy.RuntimePolicyV2;
@@ -808,15 +827,22 @@ it.layer(testLayer)("ManagedAgentService", (it) => {
         });
         expect(resolved.managedAgent).toBe(true);
         expect(resolved.cwd).toBe(allocated);
-        // It can commit: the sandbox also writes the shared store and its git directory.
+        // It can commit: the sandbox also writes the shared store, its git directory and one
+        // temp root of its own outside the workspace.
+        expect(resolved.sandboxTempRoot).toMatch(/\/sandbox-tmp\/\d+-[0-9a-f]{16}$/);
         expect(resolved.sandboxPolicy).toMatchObject({
           type: "workspaceWrite",
-          writableRoots: [allocated, yield* f.fs.realPath(store), gitDirectory],
+          writableRoots: [
+            allocated,
+            yield* f.fs.realPath(store),
+            gitDirectory,
+            resolved.sandboxTempRoot,
+          ],
         });
-        // Other sandboxed writers and reviewers keep their workspace alone.
+        // A writer in the lead's own workspace commits there too, so it shares the same roots.
         expect(
           yield* f.service.repositoryRoots({ ...accepted.binding, workspaceAssignment: "lead" }),
-        ).toEqual([]);
+        ).toEqual([yield* f.fs.realPath(store), gitDirectory]);
         expect(
           yield* f.service.repositoryRoots({ ...accepted.binding, sourceAccess: "read-only" }),
         ).toEqual([]);

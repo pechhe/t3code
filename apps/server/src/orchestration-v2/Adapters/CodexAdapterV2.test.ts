@@ -36,7 +36,9 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as Predicate from "effect/Predicate";
+import * as Scope from "effect/Scope";
 import * as FileSystem from "effect/FileSystem";
 import { MCP_APP_OUTPUT_KEY, readMcpAppReference } from "@t3tools/shared/mcpApp";
 import { resolveAttachmentPathById } from "../../attachmentStore.ts";
@@ -1027,8 +1029,10 @@ describe("CodexAdapterV2 session initialize", () => {
     transcript: CodexReplay.CodexAppServerReplayTranscript,
     beforeEmitInbound?: CodexReplay.CodexAppServerReplayDriver["beforeEmitInbound"],
     runtimePolicy = CODEX_TEST_RUNTIME_POLICY,
+    sessionScope?: Scope.Scope,
   ) =>
     Effect.gen(function* () {
+      const environments: Array<NodeJS.ProcessEnv | undefined> = [];
       const driver = yield* CodexReplay.makeReplayDriver(
         transcript,
         beforeEmitInbound === undefined ? {} : { beforeEmitInbound },
@@ -1041,6 +1045,11 @@ describe("CodexAdapterV2 session initialize", () => {
         clientFactory: {
           open: (openInput) =>
             Layer.build(CodexReplay.layerReplayWithDriver(driver)).pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  environments.push(openInput.environment);
+                }),
+              ),
               Effect.flatMap((context) =>
                 Effect.service(CodexClient.CodexAppServerClient).pipe(Effect.provide(context)),
               ),
@@ -1069,13 +1078,17 @@ describe("CodexAdapterV2 session initialize", () => {
         idAllocator: yield* IdAllocator.IdAllocatorV2,
         serverConfig: yield* makeReplayServerConfig(transcript.scenario).pipe(Effect.orDie),
       });
-      const runtime = yield* adapter.openSession({
+      const open = adapter.openSession({
         threadId: ThreadId.make(`thread-${transcript.scenario}`),
         providerSessionId: ProviderSessionId.make(`provider-session-${transcript.scenario}`),
         modelSelection: CODEX_TEST_MODEL_SELECTION,
         runtimePolicy,
       });
+      const runtime = yield* sessionScope === undefined
+        ? open
+        : open.pipe(Effect.provideService(Scope.Scope, sessionScope));
       return {
+        environment: () => environments.at(-1),
         ensureThread: (threadId: string) =>
           runtime.ensureThread({
             threadId: ThreadId.make(threadId),
@@ -1218,6 +1231,41 @@ describe("CodexAdapterV2 session initialize", () => {
         Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
       ),
     ),
+  );
+
+  it.effect(
+    "gives a managed writer a TMPDIR in its policy's temp root and removes it when the session ends",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const parent = yield* fs.makeTempDirectoryScoped({ prefix: "t3-codex-sandbox-tmp-" });
+        const sandboxTempRoot = `${parent}/task`;
+        const sessionScope = yield* Scope.make();
+        const session = yield* openReplaySession(
+          makeCodexReplayTranscript({
+            scenario: "managed-sandbox-temp",
+            entries: replayPreamble("managed-sandbox-temp-native"),
+          }),
+          undefined,
+          { ...CODEX_TEST_RUNTIME_POLICY, managedAgent: true, sandboxTempRoot },
+          sessionScope,
+        );
+
+        const tmpdir = session.environment()?.TMPDIR;
+        assert.isString(tmpdir);
+        assert.isTrue(tmpdir?.startsWith(`${sandboxTempRoot}/`));
+        assert.equal((yield* fs.stat(tmpdir ?? "")).type, "Directory");
+
+        yield* Scope.close(sessionScope, Exit.void);
+        assert.isFalse(yield* fs.exists(tmpdir ?? ""));
+        // The task's root goes with its last session.
+        assert.isFalse(yield* fs.exists(sandboxTempRoot));
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+        ),
+      ),
   );
 
   // regression: #16260 one-shot initializers raced; a failed handshake must be retried

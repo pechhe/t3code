@@ -1,4 +1,5 @@
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
+import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ManagedAgent from "../agents/ManagedAgentService.ts";
 import {
@@ -10,9 +11,12 @@ import {
   type RuntimeMode,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Hex from "effect/encoding/Hex";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -81,12 +85,30 @@ function providerRuntimeMode(
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
-  ProjectStore.ProjectStoreV2 | ProviderInstanceRegistry.ProviderInstanceRegistry
+  | ProjectStore.ProjectStoreV2
+  | ProviderInstanceRegistry.ProviderInstanceRegistry
+  | ServerConfig.ServerConfig
+  | Path.Path
+  | Crypto.Crypto
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
     const projects = yield* ProjectStore.ProjectStoreV2;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const config = yield* ServerConfig.ServerConfig;
+    const path = yield* Path.Path;
+    const crypto = yield* Crypto.Crypto;
+    /**
+     * One managed task's temp root. Keyed by a digest of the thread, because a delegated id is
+     * long and not path-safe; short keeps a tool's socket under macOS's 104-byte cap. The pid
+     * keeps one server's roots apart, so a start sweeps only a dead server's.
+     */
+    const sandboxTempRootFor = Effect.fn("RuntimePolicyV2.sandboxTempRoot")(function* (thread: {
+      readonly id: string;
+    }) {
+      const digest = yield* crypto.digest("SHA-256", new TextEncoder().encode(thread.id));
+      return path.join(config.sandboxTempDir, `${process.pid}-${Hex.encode(digest).slice(0, 16)}`);
+    });
     return RuntimePolicyV2.of({
       resolve: Effect.fn("RuntimePolicyV2.resolve")(function* (input) {
         const instance = yield* providerInstances.getInstance(input.modelSelection.instanceId);
@@ -214,19 +236,34 @@ export const layerFromProjectStore: Layer.Layer<
                   }),
               ),
             );
-          // A sandboxed isolated writer also writes the repository store it shares with every
-          // other workspace, because committing and even reading history snapshot into it.
-          const repositoryRoots =
-            isolated &&
+          // A sandboxed writer also writes the repository store it shares with every other
+          // workspace, because committing and even reading history snapshot into it, and a temp
+          // root of its own outside the workspace, so a build's temp files never land in the
+          // checkout it reports.
+          const sandboxedWriter =
             input.thread.agentTask.sourceAccess !== "read-only" &&
-            input.thread.agentTask.executionBoundary !== "trusted-host-access"
-              ? yield* managed.value.repositoryRoots(input.thread.agentTask)
-              : [];
+            input.thread.agentTask.executionBoundary !== "trusted-host-access";
+          const repositoryRoots = sandboxedWriter
+            ? yield* managed.value.repositoryRoots(input.thread.agentTask)
+            : [];
+          const sandboxTempRoot = sandboxedWriter
+            ? yield* sandboxTempRootFor(input.thread).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new RuntimePolicyResolveError({
+                      projectId: input.thread.projectId,
+                      providerInstanceId: input.modelSelection.instanceId,
+                      cause,
+                    }),
+                ),
+              )
+            : undefined;
           return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
             runtimeMode: input.thread.runtimeMode,
             interactionMode: "default",
             cwd,
             managedAgent: true,
+            ...(sandboxTempRoot === undefined ? {} : { sandboxTempRoot }),
             ...(compactAt == null ? {} : { compactAt }),
             ...(modelCompactAt == null ? {} : { modelCompactAt }),
             ...(input.thread.agentTask.toolProfile === "web-research" ? { webResearch: true } : {}),
@@ -238,7 +275,11 @@ export const layerFromProjectStore: Layer.Layer<
                   ? { type: "dangerFullAccess" }
                   : {
                       type: "workspaceWrite",
-                      writableRoots: [cwd, ...repositoryRoots],
+                      writableRoots: [
+                        cwd,
+                        ...repositoryRoots,
+                        ...(sandboxTempRoot === undefined ? [] : [sandboxTempRoot]),
+                      ],
                       networkAccess: false,
                       excludeTmpdirEnvVar: true,
                       excludeSlashTmp: true,

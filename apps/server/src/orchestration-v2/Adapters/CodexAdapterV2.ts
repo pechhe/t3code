@@ -1891,13 +1891,65 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                     }),
                 ),
               );
+        // A managed writer's sandbox admits `$TMPDIR`, but only the temp root its policy named:
+        // one directory per session, released when the session ends, so a reopened session never
+        // inherits the previous one's leftovers.
+        const sandboxTempRoot = input.runtimePolicy.sandboxTempRoot;
+        const sandboxTempDir =
+          sandboxTempRoot === undefined
+            ? undefined
+            : yield* Effect.acquireRelease(
+                fileSystem
+                  .makeDirectory(sandboxTempRoot, { recursive: true })
+                  .pipe(
+                    Effect.andThen(
+                      fileSystem.makeTempDirectory({ directory: sandboxTempRoot, prefix: "run-" }),
+                    ),
+                  ),
+                (directory) =>
+                  fileSystem.remove(directory, { recursive: true, force: true }).pipe(
+                    // Drop the task's root with its last session; one still holding another
+                    // session's directory stays, so a late release cannot delete live files.
+                    Effect.andThen(
+                      fileSystem.readDirectory(sandboxTempRoot).pipe(
+                        Effect.flatMap((entries) =>
+                          entries.length === 0
+                            ? fileSystem.remove(sandboxTempRoot, { recursive: true, force: true })
+                            : Effect.void,
+                        ),
+                        Effect.catch(() => Effect.void),
+                      ),
+                    ),
+                    Effect.catch(() =>
+                      Effect.logWarning("Could not remove a managed task's temp directory.", {
+                        directory,
+                      }),
+                    ),
+                  ),
+              ).pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new ProviderAdapter.ProviderAdapterOpenSessionError({
+                      driver: CODEX_PROVIDER,
+                      providerSessionId: input.providerSessionId,
+                      cause,
+                    }),
+                ),
+              );
+        const environment =
+          sandboxTempDir === undefined
+            ? (resolvedRuntime?.environment ?? adapterOptions.environment)
+            : {
+                ...(resolvedRuntime?.environment ?? adapterOptions.environment),
+                TMPDIR: sandboxTempDir,
+              };
         const client = yield* clientFactory.open({
           instanceId: adapterOptions.instanceId,
           threadId: input.threadId,
           providerSessionId: input.providerSessionId,
           runtimePolicy: input.runtimePolicy,
           settings: resolvedRuntime?.config ?? adapterOptions.settings,
-          environment: resolvedRuntime?.environment ?? adapterOptions.environment,
+          environment,
         });
         const additionalContextByThread = yield* Ref.make(
           new Map<

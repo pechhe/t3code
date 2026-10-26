@@ -85,6 +85,9 @@ export class ManagedAgentError extends Schema.TaggedError<ManagedAgentError>()(
 const handsBack = (binding: AgentTaskBinding) =>
   binding.workspaceAssignment === "isolated" && binding.sourceAccess === "scoped-write";
 
+/** A writer shares its workspace's store, so it needs to write it to commit. */
+const writesStore = (binding: AgentTaskBinding) => binding.sourceAccess === "scoped-write";
+
 /** A thread bound to some workspace; unmanaged threads count as writers. */
 export type WorkspaceOccupant = {
   readonly workspacePath: string;
@@ -169,9 +172,9 @@ export class ManagedAgentService extends Context.Service<
     /** Serialises workspace occupancy checks with the launch they authorise, across routes. */
     readonly exclusive: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R>;
     /**
-     * What an isolated writer's sandbox may write besides its workspace: the repository store
-     * shared by all workspaces, so it can commit and read its own history. None for other
-     * tasks, and none when the workspace has no readable store.
+     * What a sandboxed writer's sandbox may write besides its workspace: the repository store
+     * shared by all workspaces, so it can commit and read its own history. None for readers,
+     * and none when the workspace has no readable store.
      */
     readonly repositoryRoots: (binding: AgentTaskBinding) => Effect.Effect<ReadonlyArray<string>>;
     /**
@@ -512,10 +515,10 @@ const make = Effect.gen(function* () {
       ),
     exclusive: (effect) => isolatedLaunches.withPermit(effect),
     repositoryRoots: (binding) =>
-      handsBack(binding)
+      writesStore(binding)
         ? local(repositoryWriteRoots(binding.workspacePath)).pipe(
             Effect.tapError((cause) =>
-              Effect.logWarning("Unable to resolve an isolated writer's repository store.", {
+              Effect.logWarning("Unable to resolve a writer's repository store.", {
                 cause,
               }),
             ),

@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema";
 import type { OtlpEndpointSource } from "@t3tools/contracts";
 import { sweepStalePendingAttachments } from "./attachmentStore.ts";
 import { DEFAULT_SIGNAL_EXPORT, type SignalExport } from "@t3tools/shared/observability";
+import { isProcessAlive } from "./processLiveness.ts";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import packageJson from "../package.json" with { type: "json" };
 
@@ -41,6 +42,8 @@ export interface ServerDerivedPaths {
   readonly environmentIdPath: string;
   readonly serverRuntimeStatePath: string;
   readonly secretsDir: string;
+  /** Per-task sandbox temp roots; no managed task is running while the server starts. */
+  readonly sandboxTempDir: string;
 }
 
 export interface DeriveServerPathsOptions {
@@ -154,6 +157,7 @@ export const deriveServerPaths = Effect.fn(function* (
     environmentIdPath: join(stateDir, "environment-id"),
     serverRuntimeStatePath: join(stateDir, "server-runtime.json"),
     secretsDir: join(stateDir, "secrets"),
+    sandboxTempDir: join(baseDir, "sandbox-tmp"),
   };
 });
 
@@ -174,8 +178,27 @@ export const ensureServerDirectories = Effect.fn(function* (derivedPaths: Server
       fs.makeDirectory(derivedPaths.providerStatusCacheDir, { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.anonymousIdPath), { recursive: true }),
       fs.makeDirectory(path.dirname(derivedPaths.serverRuntimeStatePath), { recursive: true }),
+      fs.makeDirectory(derivedPaths.sandboxTempDir, { recursive: true }),
     ],
     { concurrency: "unbounded" },
+  );
+
+  // A sandbox temp root goes when its last task session ends, so a root still here belongs to a
+  // server that died. Each names the process that made it, so a live server keeps its own.
+  const staleTempRoots = yield* fs
+    .readDirectory(derivedPaths.sandboxTempDir)
+    .pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
+  yield* Effect.forEach(
+    staleTempRoots,
+    (entry) => {
+      const pid = Number(entry.split("-", 1)[0]);
+      return Number.isInteger(pid) && isProcessAlive(pid)
+        ? Effect.void
+        : fs
+            .remove(path.join(derivedPaths.sandboxTempDir, entry), { recursive: true, force: true })
+            .pipe(Effect.catch(() => Effect.logWarning("Could not remove a sandbox temp root.")));
+    },
+    { concurrency: "unbounded", discard: true },
   );
 
   const swept = sweepStalePendingAttachments({
