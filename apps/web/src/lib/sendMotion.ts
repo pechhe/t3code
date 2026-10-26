@@ -1,11 +1,7 @@
 /**
- * A sent message's trip from the composer into the thread. As it sends, the composer
- * records where its text sat; the user bubble that mounts within a moment plays its
- * arrival from there. `lift` flies the bubble from the composer text to its place;
- * `vacuum` pulls a copy of the text up and out of the composer while the bubble rises
- * in. A first send from a new thread always lifts, handing the text to the first
- * message while the composer glides down. Every motion runs once and moves only
- * transform and opacity.
+ * A sent message's trip from the composer into the thread: the composer records where its
+ * text sat, and the user bubble that mounts within a moment plays its arrival from there.
+ * A first send from a new thread always lifts. Motions move only transform and opacity.
  */
 import type { SendMotion } from "@t3tools/contracts/settings";
 
@@ -99,6 +95,12 @@ export function playSendArrival(bubble: HTMLElement): void {
   bubble.style.opacity = "0";
   requestAnimationFrame(() => {
     bubble.style.opacity = "";
+    if (origin.motion === "slide") {
+      // The timeline's scroll to the new turn carries the bubble; a hop of its own would
+      // read as a second movement.
+      bubble.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+      return;
+    }
     if (origin.motion === "vacuum") {
       bubble.animate(
         [

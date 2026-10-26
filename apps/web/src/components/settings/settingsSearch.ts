@@ -390,7 +390,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "send-motion",
     title: "Send motion",
     to: "/settings/appearance",
-    searchTerms: ["animation send message lift vacuum fly transition motion"],
+    searchTerms: ["animation send message slide lift vacuum fly transition motion"],
   },
   {
     id: "composer-finish",

@@ -1,6 +1,10 @@
 import { MessageId, RunId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
-import { observeTimelineRun, getAnchoredTurnMetrics } from "./timelineScrollAnchoring";
+import {
+  observeTimelineRun,
+  getAnchoredTurnMetrics,
+  stepNewTurnEase,
+} from "./timelineScrollAnchoring";
 
 function buildState({
   positions,
@@ -107,5 +111,37 @@ describe("observeTimelineRun", () => {
     expect(observeTimelineRun(opened.observation, existing).anchorMessageId).toBe(
       existing.messageId,
     );
+  });
+});
+
+describe("new turn ease", () => {
+  const ease = (scrollTop: number, elapsedMs: number | null) =>
+    stepNewTurnEase({ anchorTop: 1016, scrollTop, maxScrollTop: 5000, elapsedMs });
+  const scrolled = (step: ReturnType<typeof stepNewTurnEase>) => {
+    if (step.kind !== "scroll") throw new Error(`expected a scroll, got ${step.kind}`);
+    return step.scrollTop;
+  };
+
+  it("waits for the sent message's position instead of jumping", () => {
+    expect(
+      stepNewTurnEase({ anchorTop: undefined, scrollTop: 0, maxScrollTop: 5000, elapsedMs: 16 }),
+    ).toEqual({ kind: "wait" });
+  });
+
+  it("moves at the same speed at any refresh rate", () => {
+    const at60Hz = scrolled(ease(0, 16));
+    const at120Hz = scrolled(ease(scrolled(ease(0, 8)), 8));
+    expect(at120Hz).toBeCloseTo(at60Hz, 6);
+  });
+
+  it("starts at speed on its first frame", () => {
+    expect(scrolled(ease(0, null))).toBeCloseTo(scrolled(ease(0, 16)), 6);
+  });
+
+  it("settles once the message is at the top, clamped to the end of the list", () => {
+    expect(ease(1000, 16)).toEqual({ kind: "settle" });
+    expect(
+      stepNewTurnEase({ anchorTop: 1016, scrollTop: 400, maxScrollTop: 400, elapsedMs: 16 }),
+    ).toEqual({ kind: "settle" });
   });
 });

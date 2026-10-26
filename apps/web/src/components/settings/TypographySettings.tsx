@@ -461,7 +461,12 @@ function SettleSoundRow() {
   );
 }
 
-const SEND_MOTION_LABELS = { lift: "Lift", vacuum: "Vacuum", off: "Off" } as const;
+const SEND_MOTION_LABELS = {
+  slide: "Slide",
+  lift: "Lift",
+  vacuum: "Vacuum",
+  off: "Off",
+} as const;
 
 function SendMotionRow() {
   const settings = useScopedSettings();
@@ -469,7 +474,7 @@ function SendMotionRow() {
   return (
     <SettingsRow
       {...searchableSetting("send-motion")}
-      description="Lift flies your message from the composer into the thread; Vacuum pulls it out of the composer. Off when your system asks for reduced motion."
+      description="Slide fades your message in as the thread scrolls it into place; Lift flies your message from the composer into the thread; Vacuum pulls it out of the composer. Off when your system asks for reduced motion."
       resetAction={
         settings.sendMotion !== DEFAULT_UNIFIED_SETTINGS.sendMotion ? (
           <SettingResetButton
@@ -482,7 +487,7 @@ function SendMotionRow() {
         <Select
           value={settings.sendMotion}
           onValueChange={(value) => {
-            if (value === "lift" || value === "vacuum" || value === "off") {
+            if (value === "slide" || value === "lift" || value === "vacuum" || value === "off") {
               updateSettings({ sendMotion: value });
             }
           }}
@@ -491,7 +496,7 @@ function SendMotionRow() {
             <SelectValue>{SEND_MOTION_LABELS[settings.sendMotion]}</SelectValue>
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
-            {(["lift", "vacuum", "off"] as const).map((motion) => (
+            {(["slide", "lift", "vacuum", "off"] as const).map((motion) => (
               <SelectItem key={motion} hideIndicator value={motion}>
                 {SEND_MOTION_LABELS[motion]}
               </SelectItem>

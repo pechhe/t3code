@@ -317,8 +317,11 @@ export type ModelPreferences = {
   readonly providerModelPreferences: typeof ProviderModelPreferences.Type;
 };
 
-/** `lift` flies the text into its bubble; `vacuum` pulls it out of the composer. */
-export const SendMotion = Schema.Literals(["lift", "vacuum", "off"]);
+/**
+ * `slide` fades the bubble in as the thread scrolls it into place; `lift` flies the text
+ * into its bubble; `vacuum` pulls it out of the composer.
+ */
+export const SendMotion = Schema.Literals(["slide", "lift", "vacuum", "off"]);
 export type SendMotion = typeof SendMotion.Type;
 
 /** What the send dial sounds like when a message goes straight to the agent: its own click (`press`) or a cue in its place. */
@@ -518,7 +521,7 @@ export const ClientSettingsSchema = Schema.Struct({
   wordWrap: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   interfaceSounds: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   /** How a sent message travels from the composer into the thread. */
-  sendMotion: SendMotion.pipe(Schema.withDecodingDefault(Effect.succeed("lift" as const))),
+  sendMotion: SendMotion.pipe(Schema.withDecodingDefault(Effect.succeed("slide" as const))),
   sendSound: SendSound.pipe(Schema.withDecodingDefault(Effect.succeed("press" as const))),
   queueSound: QueueSound.pipe(Schema.withDecodingDefault(Effect.succeed("latch" as const))),
   settleSound: SettleSound.pipe(Schema.withDecodingDefault(Effect.succeed("seat" as const))),

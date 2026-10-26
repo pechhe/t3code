@@ -33,9 +33,43 @@ export function observeTimelineRun(
   return { observation, anchorMessageId: input.messageId };
 }
 import type { RunAttemptId } from "@t3tools/contracts";
+import { CHAT_LIST_ANCHOR_OFFSET } from "@t3tools/shared/chatList";
 
 // Match the titlebar fade inset so draft promotion preserves the first row's position.
 export const CHAT_TIMELINE_ANCHOR_OFFSET = 24;
+
+// Tuned by eye on a 120 Hz display; measured in real time, so it holds at any refresh rate.
+const NEW_TURN_EASE_MS = 47;
+const NEW_TURN_FIRST_FRAME_MS = 16;
+
+export type NewTurnEaseStep =
+  | { readonly kind: "wait" }
+  | { readonly kind: "settle" }
+  | { readonly kind: "scroll"; readonly scrollTop: number };
+
+/**
+ * One frame of the ease that brings a sent message to the top. `elapsedMs` is null on the
+ * first frame, which moves a full frame's worth so the scroll starts at speed.
+ */
+export function stepNewTurnEase(input: {
+  readonly anchorTop: number | undefined;
+  readonly scrollTop: number;
+  readonly maxScrollTop: number;
+  readonly elapsedMs: number | null;
+}): NewTurnEaseStep {
+  if (input.anchorTop === undefined) return { kind: "wait" };
+  const target = Math.min(
+    Math.max(0, input.anchorTop - CHAT_LIST_ANCHOR_OFFSET),
+    Math.max(0, input.maxScrollTop),
+  );
+  const remaining = target - input.scrollTop;
+  if (Math.abs(remaining) < 0.5) return { kind: "settle" };
+  const dt = Math.min(50, Math.max(0, input.elapsedMs ?? NEW_TURN_FIRST_FRAME_MS));
+  return {
+    kind: "scroll",
+    scrollTop: input.scrollTop + remaining * (1 - Math.exp(-dt / NEW_TURN_EASE_MS)),
+  };
+}
 
 export type TimelineScrollMode = "following-end" | "anchoring-new-turn" | "free-scrolling";
 

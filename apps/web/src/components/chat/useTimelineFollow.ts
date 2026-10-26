@@ -14,6 +14,7 @@ import {
   timelineContentOverflowsViewport,
   readTimelinePosition,
   observeTimelineRun,
+  stepNewTurnEase,
   type TimelineRunObservation,
   type TimelineScrollMode,
 } from "./timelineScrollAnchoring";
@@ -28,7 +29,6 @@ import type { ThreadStructure } from "@t3tools/client-runtime/state/shell";
 import type { deriveThreadActivityRun } from "@t3tools/client-runtime/state/thread-execution";
 import type { EnvironmentThreadStatus } from "@t3tools/client-runtime/state/threads";
 
-const TIMELINE_ANCHOR_EASE_MS = 110;
 const TIMELINE_ANCHOR_EASE_TIMEOUT_MS = 1500;
 const TIMELINE_SCROLL_CANCEL_SENTINEL = Object.freeze({});
 
@@ -467,74 +467,72 @@ export function useTimelineFollow(input: TimelineFollowInput) {
     }
     positionedTimelineAnchorRef.current = messageId;
     settledTimelineAnchorRef.current = null;
+    // Starts in the frame the anchor is ready, so the scroll is the arrival's only motion.
     const positionAnchor = (remainingAttempts: number) => {
-      requestAnimationFrame(() => {
-        if (positionedTimelineAnchorRef.current !== messageId) {
+      if (positionedTimelineAnchorRef.current !== messageId) {
+        return;
+      }
+      const list = legendListRef.current;
+      if (!list) {
+        if (remainingAttempts > 0) {
+          requestAnimationFrame(() => positionAnchor(remainingAttempts - 1));
+        }
+        return;
+      }
+      const settle = () => {
+        // A final instant placement lets LegendList's own state agree with
+        // where the ease ended.
+        void list
+          .scrollToIndex({
+            index: anchorIndex,
+            animated: false,
+            viewPosition: 0,
+            viewOffset: CHAT_LIST_ANCHOR_OFFSET,
+          })
+          .then(() => {
+            if (
+              legendListRef.current === list &&
+              positionedTimelineAnchorRef.current === messageId
+            ) {
+              settledTimelineAnchorRef.current = messageId;
+            }
+          });
+      };
+      const node = list.getScrollableNode() as HTMLElement | null;
+      if (!node || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        settle();
+        return;
+      }
+      // The browser's smooth scroll is cancelled by any layout shift while
+      // the new turn mounts, stranding the sent message at the bottom. Ease
+      // by hand toward the anchor's live position each frame instead.
+      const startedAt = performance.now();
+      let last: number | null = null;
+      const step = (now: number) => {
+        if (legendListRef.current !== list || positionedTimelineAnchorRef.current !== messageId) {
           return;
         }
-        const list = legendListRef.current;
-        if (!list) {
-          if (remainingAttempts > 0) {
-            positionAnchor(remainingAttempts - 1);
-          }
-          return;
-        }
-        const settle = () => {
-          // A final instant placement lets LegendList's own state agree with
-          // where the ease ended.
-          void list
-            .scrollToIndex({
-              index: anchorIndex,
-              animated: false,
-              viewPosition: 0,
-              viewOffset: CHAT_LIST_ANCHOR_OFFSET,
-            })
-            .then(() => {
-              if (
-                legendListRef.current === list &&
-                positionedTimelineAnchorRef.current === messageId
-              ) {
-                settledTimelineAnchorRef.current = messageId;
-              }
-            });
-        };
-        const node = list.getScrollableNode() as HTMLElement | null;
-        if (!node || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        if (now - startedAt > TIMELINE_ANCHOR_EASE_TIMEOUT_MS) {
           settle();
           return;
         }
-        // The browser's smooth scroll is cancelled by any layout shift while
-        // the new turn mounts, stranding the sent message at the bottom. Ease
-        // by hand toward the anchor's live position each frame instead.
-        const startedAt = performance.now();
-        let last = startedAt;
-        const step = (now: number) => {
-          if (legendListRef.current !== list || positionedTimelineAnchorRef.current !== messageId) {
-            return;
-          }
-          const top = list.getState().positionAtIndex(anchorIndex);
-          if (top === undefined || now - startedAt > TIMELINE_ANCHOR_EASE_TIMEOUT_MS) {
-            settle();
-            return;
-          }
-          const target = Math.min(
-            Math.max(0, top - CHAT_LIST_ANCHOR_OFFSET),
-            Math.max(0, node.scrollHeight - node.clientHeight),
-          );
-          const remaining = target - node.scrollTop;
-          if (Math.abs(remaining) < 0.5) {
-            settle();
-            return;
-          }
-          const dt = Math.min(50, now - last);
-          last = now;
-          node.scrollTop += remaining * (1 - Math.exp(-dt / TIMELINE_ANCHOR_EASE_MS));
-          requestAnimationFrame(step);
-        };
+        const next = stepNewTurnEase({
+          anchorTop: list.getState().positionAtIndex(anchorIndex),
+          scrollTop: node.scrollTop,
+          maxScrollTop: node.scrollHeight - node.clientHeight,
+          elapsedMs: last === null ? null : now - last,
+        });
+        last = now;
+        if (next.kind === "settle") {
+          settle();
+          return;
+        }
+        if (next.kind === "scroll") node.scrollTop = next.scrollTop;
         requestAnimationFrame(step);
-      });
+      };
+      step(startedAt);
     };
-    requestAnimationFrame(() => positionAnchor(12));
+    positionAnchor(12);
   };
   const onTimelineAnchorReadyStable = useStableCallback(onTimelineAnchorReady);
   const onTimelineAnchorSizeChanged = (messageId: MessageId, size: number) => {
