@@ -5,8 +5,10 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Hex from "effect/encoding/Hex";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -32,12 +34,8 @@ const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
 /** A child that reviews is recorded as its own run, never as work its lead delegated. */
 const REVIEWER_ROLES = new Set(["reviewer", "spec-reviewer", "ticket-reviewer"]);
 
-/**
- * The session reference Weave files a helper's work under. A lead's is its bare thread id, which is
- * how a lead reports itself to Forge, so the session T3 opens and the one the lead starts are one.
- */
-const helperSessionRefOf = (environmentId: string, threadId: ThreadId) =>
-  `t3:${environmentId}/${threadId}`;
+/** The longest session reference Weave accepts. */
+const SESSION_REF_MAX_LENGTH = 200;
 
 /** One workspace a session's work happened in, as Weave shows it beside the session. */
 interface BuildSessionWorkspace {
@@ -90,6 +88,24 @@ const make = Effect.gen(function* () {
   const buildSpec = yield* ForgeSpecOfThread.ForgeSpecOfThread;
   const records = yield* HqForgeRecords.HqForgeRecords;
   const environmentId = yield* environment.getEnvironmentId;
+  const crypto = yield* Crypto.Crypto;
+
+  /**
+   * The session reference Weave files a helper's run under. A lead's is its bare thread id, which is
+   * how a lead reports itself to Forge, so the session T3 opens and the one the lead starts are one.
+   * A delegated task's thread and run ids can pass Weave's length limit, which refuses the whole
+   * record, so a long one keeps its head and ends in a hash of the whole.
+   */
+  const helperSessionRefOf = (threadId: ThreadId, runId: string) => {
+    const ref = `t3:${environmentId}/${threadId}/${runId}`;
+    if (ref.length <= SESSION_REF_MAX_LENGTH) return Effect.succeed(ref);
+    return crypto.digest("SHA-256", new TextEncoder().encode(ref)).pipe(
+      Effect.map((digest) => {
+        const hash = Hex.encode(digest);
+        return `${ref.slice(0, SESSION_REF_MAX_LENGTH - hash.length - 1)}#${hash}`;
+      }),
+    );
+  };
 
   /** Where the thread's work happened, as Weave shows it beside the session. */
   const workspacesOf = Effect.fn("HqForgeRecordingReactor.workspacesOf")(function* (
@@ -244,7 +260,7 @@ const make = Effect.gen(function* () {
         specId: target.specId,
         args: {
           harness: "t3code",
-          sessionRef: `${helperSessionRefOf(environmentId, threadId)}/${run.id}`,
+          sessionRef: yield* helperSessionRefOf(threadId, run.id),
           modelRef: run.modelSelection.model,
           scope: subagent.title ?? thread.agentTask?.workId ?? thread.title,
           // The run that finished has its own times; the task node keeps the first run's.

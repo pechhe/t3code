@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
   EnvironmentId,
@@ -205,6 +206,7 @@ const withReactor = <A, E>(
                   getDescriptor: Effect.succeed({ label: "agent-host" }),
                 } as never),
               ),
+              NodeCrypto.layer,
               Layer.succeed(HqAgentConnections.HqAgentConnections, connections),
               Layer.mock(HqForgeRecords.HqForgeRecords)({
                 enqueue: (record) => Effect.sync(() => void enqueued.push(record)),
@@ -528,6 +530,32 @@ it.effect("two runs of one child queue a helper record each, under that run's ow
       );
     }),
   ),
+);
+
+it.effect(
+  "a helper whose run id is too long for Weave still gets a distinct, accepted reference",
+  () =>
+    withReactor(({ reactor, enqueued, state }) =>
+      Effect.gen(function* () {
+        state.items.set("spec-1", { kind: "spec", parentId: null });
+        state.threads.set(
+          lead,
+          threadOf(lead, { workItem: { itemId: "spec-1", number: 1, origin } }),
+        );
+        state.threads.set(child, childOf(child, lead, "implementation-worker"));
+        state.subagents.set(child, subagentOf(child));
+
+        const longRun = "run-".padEnd(300, "x");
+        yield* reactor.recordCompletion(child, finishedRunOf(child, { id: `${longRun}-1` }));
+        yield* reactor.recordCompletion(child, finishedRunOf(child, { id: `${longRun}-2` }));
+
+        const refs = ofKind(enqueued, "helper").map((helper) => String(helper.args.sessionRef));
+        assert.lengthOf(refs, 2);
+        assert.isTrue(refs.every((ref) => ref.length <= 200));
+        assert.notStrictEqual(refs[0], refs[1]);
+        assert.isTrue(refs.every((ref) => ref.startsWith("t3:environment-hq/thread-child/run-xx")));
+      }),
+    ),
 );
 
 it.effect("a helper queued while Weave cannot be read keeps its link's own Weave", () =>
