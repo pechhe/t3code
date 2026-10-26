@@ -553,19 +553,19 @@ const layerScheduledTaskWebhookOrigin = Layer.effect(
   }),
 );
 
+const layerHqForgeUsage = HqForgeUsage.layer.pipe(
+  Layer.provide(HqForgeRecords.layer),
+  // The queue resolves a row's Spec when it sends, with the resolver usage queues with.
+  Layer.provide(ForgeSpecOfThread.layer),
+  Layer.provide(ProjectionStoreV2.layer),
+  Layer.provide(ProjectStore.layer),
+);
+
 const layerOrchestrationV2Runtime = RuntimeLayer.layerProduction.pipe(
   Layer.provide(layerScheduledTaskWebhookOrigin),
   Layer.provide(ProviderEventIngestor.layerAnalytics),
   // Adapters hand each settled turn's token usage to the Build record queue.
-  Layer.provide(
-    HqForgeUsage.layer.pipe(
-      Layer.provide(HqForgeRecords.layer),
-      // The queue resolves a row's Spec when it sends, with the resolver usage queues with.
-      Layer.provide(ForgeSpecOfThread.layer),
-      Layer.provide(ProjectionStoreV2.layer),
-      Layer.provide(ProjectStore.layer),
-    ),
-  ),
+  Layer.provide(layerHqForgeUsage),
   Layer.provide(layerCheckpointStore),
   Layer.provide(layerGitWorkflow),
   Layer.provide(
@@ -753,7 +753,10 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ),
   Layer.provideMerge(AgentPolicySettings.layer),
   Layer.provideMerge(ProviderRegistry.layer),
-  Layer.provideMerge(ProviderInstanceRegistryHydration.layer),
+  // The registry builds the adapters, which record each turn's usage.
+  Layer.provideMerge(
+    ProviderInstanceRegistryHydration.layer.pipe(Layer.provide(layerHqForgeUsage)),
+  ),
   Layer.provideMerge(
     Layer.mergeAll(
       AntigravityInstallation.AntigravityInstallation.layer,

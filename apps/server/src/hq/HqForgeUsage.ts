@@ -52,14 +52,28 @@ export interface HqForgeUsageInput {
 
 const isoOf = (epochMs: number) => DateTime.formatIso(DateTime.makeUnsafe(epochMs));
 
+/** Said once per process, so a missing provision is not silent and a test is not flooded. */
+let droppedUsageWarned = false;
+
 interface HqForgeUsageShape {
   readonly record: (input: HqForgeUsageInput) => Effect.Effect<void>;
 }
 
 export class HqForgeUsage extends Context.Reference<HqForgeUsageShape>("t3/hq/HqForgeUsage", {
   // A process that never wired Weave's Forge records still runs the turns that report usage, and
-  // has nothing to record it into.
-  defaultValue: () => ({ record: () => Effect.void }),
+  // has nothing to record it into. The provider registry builds the adapters, so it is given the
+  // real recorder (`server.ts`); a layer that builds an adapter without it records nothing.
+  defaultValue: () => ({
+    record: (input) =>
+      Effect.suspend(() => {
+        if (input.tokens === null || droppedUsageWarned) return Effect.void;
+        droppedUsageWarned = true;
+        return Effect.logWarning(
+          "A turn's usage was dropped: its adapter was built without the Forge usage recorder",
+          { threadId: input.threadId },
+        );
+      }),
+  }),
 }) {}
 
 const make = Effect.gen(function* () {

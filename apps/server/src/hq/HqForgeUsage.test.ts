@@ -3,6 +3,7 @@ import { ThreadId } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as TestClock from "effect/testing/TestClock";
 
@@ -288,5 +289,21 @@ it.effect("stores a repeated usageRef once", () =>
       (yield* records.outstanding()).map((record) => record.recordKey),
       ["usage:claude:provider-thread-1:msg-1"],
     );
+  }),
+);
+
+it.effect("the default recorder says once that a turn's usage was dropped", () =>
+  Effect.gen(function* () {
+    const messages: Array<unknown> = [];
+    const logger = Logger.make(({ message }) => void messages.push(message));
+    const defaultUsage = yield* HqForgeUsage.HqForgeUsage;
+
+    yield* Effect.all([
+      defaultUsage.record(usageRequest()),
+      defaultUsage.record(usageRequest()),
+      defaultUsage.record(usageRequest({ tokens: null })),
+    ]).pipe(Effect.provide(Logger.layer([logger])));
+
+    assert.lengthOf(messages, 1);
   }),
 );
