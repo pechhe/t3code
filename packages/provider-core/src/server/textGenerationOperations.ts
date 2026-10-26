@@ -31,6 +31,8 @@ export interface Request<S extends Schema.Top> {
   readonly attachments?: ReadonlyArray<ChatAttachment> | undefined;
   /** Investigate cwd with read-only tools across turns; fail if the runner cannot guarantee read-only access. */
   readonly investigate?: { readonly timeoutMs: number } | undefined;
+  /** A reply that is not the JSON object is taken whole as this string field. */
+  readonly plainTextField?: string | undefined;
 }
 
 const INVESTIGATION_TIMEOUT_MS = 15 * 60_000;
@@ -53,12 +55,20 @@ export const withoutInvestigation =
       : run(request);
 
 export const decodeJsonReply = <S extends Schema.Top>(
-  request: Pick<Request<S>, "operation" | "outputSchema">,
+  request: Pick<Request<S>, "operation" | "outputSchema" | "plainTextField">,
   provider: string,
   text: string,
 ) => {
   const decodeOutput = Schema.decodeEffect(Schema.fromJsonString(request.outputSchema));
+  const plainText = text.trim();
   return decodeOutput(extractJsonObject(text)).pipe(
+    request.plainTextField !== undefined && plainText.length > 0
+      ? Effect.catch(() =>
+          Schema.decodeUnknownEffect(request.outputSchema)({
+            [request.plainTextField as string]: plainText,
+          }),
+        )
+      : (effect) => effect,
     Effect.mapError(
       (cause) =>
         new TextGenerationError({
@@ -175,6 +185,7 @@ export function fromRunner(name: string, run: Runner): ProviderTextGeneration {
       operation: "generateCompactionSummary",
       cwd: input.cwd,
       modelSelection: input.modelSelection,
+      plainTextField: "summary",
       ...buildCompactionSummaryPrompt({
         transcript: input.transcript,
         threadTitle: input.threadTitle,

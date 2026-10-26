@@ -17,6 +17,7 @@ import {
   type OrchestrationV2TurnItem,
   type ProjectId,
   RunId,
+  TextGenerationError,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -217,6 +218,7 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
 ) {}
 
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
+const isTextGenerationError = Schema.is(TextGenerationError);
 
 /**
  * Claude refuses these before it reads the prompt: replacing a process running background work,
@@ -981,7 +983,9 @@ export const layer: Layer.Layer<
             knownProviderFailureMessage(summaryResult.failure) ??
             (isProviderTurnStartError(summaryResult.failure)
               ? String(summaryResult.failure.cause)
-              : "The summary could not be written.");
+              : isTextGenerationError(summaryResult.failure)
+                ? summaryResult.failure.detail
+                : "The summary could not be written.");
           yield* settleRunBeforeStart({
             signal: "compaction-summary-failed",
             status: "failed",
