@@ -22,6 +22,13 @@ import * as ForgeSpecOfThread from "./ForgeSpecOfThread.ts";
 import * as HqAgentConnections from "./HqAgentConnections.ts";
 import * as HqForgeRecords from "./HqForgeRecords.ts";
 
+const TERMINAL_RUN_STATUSES: ReadonlySet<string> = new Set([
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+
 /** A child that reviews is recorded as its own run, never as work its lead delegated. */
 const REVIEWER_ROLES = new Set(["reviewer", "spec-reviewer", "ticket-reviewer"]);
 
@@ -215,6 +222,16 @@ const make = Effect.gen(function* () {
         return;
       }
 
+      // Its lead's session may not be queued yet (a lead linked before this server ran, still in
+      // its first run), and this helper's rows wait for it.
+      if (target.leadThreadId !== null) {
+        // The helper's own record is owed whether or not that session could be queued.
+        yield* projections.getThread(target.leadThreadId).pipe(
+          Effect.flatMap(recordLeadLink),
+          Effect.catchCause(() => Effect.void),
+        );
+      }
+
       // One Forge helper per finished run: a follow-up run, or one under another model, is its own.
       yield* records.enqueue({
         kind: "helper",
@@ -256,6 +273,13 @@ const make = Effect.gen(function* () {
         case "thread.created":
         case "thread.metadata-updated":
           return yield* recordLeadLink(event.payload);
+        // A lead linked before this server ran has no event of its own left to queue its session
+        // from, and its turns' usage waits for that session, so the end of a run queues it.
+        case "run.updated": {
+          if (!TERMINAL_RUN_STATUSES.has(event.payload.status)) return;
+          const thread = yield* projections.getThread(event.threadId);
+          return yield* recordLeadLink(thread);
+        }
         default:
           return;
       }
@@ -278,7 +302,9 @@ const make = Effect.gen(function* () {
     const recordings = yield* FiberSet.make<void, never>();
     yield* forkParked(
       Stream.runForEach(engine.streamDomainEvents, (event) =>
-        event.type === "thread.created" || event.type === "thread.metadata-updated"
+        event.type === "thread.created" ||
+        event.type === "thread.metadata-updated" ||
+        event.type === "run.updated"
           ? FiberSet.run(recordings, handle(event)).pipe(Effect.asVoid)
           : Effect.void,
       ).pipe(

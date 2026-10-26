@@ -271,6 +271,43 @@ it.effect("a root thread whose workspace is attached to a Forge item queues its 
   ),
 );
 
+it.effect("the end of a run queues the session of a lead linked before this server ran", () =>
+  withReactor(({ reactor, enqueued, state }) =>
+    Effect.gen(function* () {
+      state.items.set("number:7", { id: "spec-7", kind: "spec", parentId: null });
+      state.threads.set(lead, threadOf(lead, { workspaceIssue: 7 }));
+      const runEvent = (status: string) =>
+        ({
+          type: "run.updated",
+          threadId: lead,
+          payload: { ...finishedRunOf(lead), status },
+        }) as unknown as OrchestrationV2DomainEvent;
+
+      yield* reactor.handle(runEvent("running"));
+      assert.lengthOf(ofKind(enqueued, "session"), 0);
+
+      yield* reactor.handle(runEvent("completed"));
+      assert.strictEqual(ofKind(enqueued, "session")[0]?.specId, "spec-7");
+    }),
+  ),
+);
+
+it.effect("a finished helper queues the session of a lead that has none yet", () =>
+  withReactor(({ reactor, enqueued, state }) =>
+    Effect.gen(function* () {
+      state.items.set("number:7", { id: "spec-7", kind: "spec", parentId: null });
+      state.threads.set(lead, threadOf(lead, { workspaceIssue: 7 }));
+      state.threads.set(child, childOf(child, lead, "implementation-worker"));
+      state.subagents.set(child, subagentOf(child, { title: "Helper" }));
+
+      yield* reactor.recordCompletion(child, finishedRunOf(child));
+
+      assert.strictEqual(ofKind(enqueued, "session")[0]?.threadId, lead);
+      assert.strictEqual(ofKind(enqueued, "helper")[0]?.leadThreadId, lead);
+    }),
+  ),
+);
+
 it.effect("a link in a project with no repository still queues its session", () =>
   withReactor(({ reactor, enqueued, state }) =>
     Effect.gen(function* () {
