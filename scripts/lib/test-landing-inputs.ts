@@ -255,4 +255,14 @@ export const INPUT_RULES: ReadonlyArray<InputRule> = [
     select: ["apps/desktop/scripts/main-process-bundle.test.mjs"],
     reason: "test bundles desktop main-process sources from disk",
   },
+  {
+    when: /^infra\/task-cache\//,
+    select: [
+      "infra/task-cache/src/Savings.test.ts",
+      "infra/task-cache/src/WriterRegistry.test.ts",
+      "infra/task-cache/src/nativeHook.test.ts",
+      "infra/task-cache/src/runHook.test.ts",
+    ],
+    reason: "the task cache's tests read its migrations, scripts and hooks from disk",
+  },
 ];
