@@ -25,7 +25,9 @@
 #       recovery target stays selected until the next `build`.
 #   install [--on-quit | --wait-for-quit]
 #       Install the staged build. --on-quit starts the install-on-quit job, which
-#       runs --wait-for-quit: it waits for the app to quit, installs and reopens it.
+#       runs --wait-for-quit: it watches the original pid and start time, so a
+#       quick reopen cannot hide the quit; it quits that new instance, installs
+#       the still-selected staged build and reopens it.
 #   attempt <tag> claim <thread> [--take-over] | landed <operation> <commit>
 #           | blocked <evidence|owner-decision|checks|publication> <summary> | retry
 #       Record an update attempt's progress. Only `retry` lets a blocked attempt
@@ -169,6 +171,62 @@ t3_running() {
     path_running "$APPS_DIR/$legacy_app_name/Contents/MacOS/" && return 0
   done
   return 1
+}
+
+path_pid() {
+  pgrep -afo "$(printf '%s' "$1" | sed 's/[][()\.^$*+?{}|]/\\&/g')" || true
+}
+
+t3_pid() {
+  local app pid
+  for app in "$APP_NAME" "${LEGACY_APP_NAMES[@]}"; do
+    pid="$(path_pid "$APPS_DIR/$app/Contents/MacOS/")"
+    if [ -n "$pid" ]; then printf '%s\n' "$pid"; return 0; fi
+  done
+}
+
+process_started() { LC_ALL=C ps -p "$1" -o lstart= 2>/dev/null || true; }
+
+# Watch one process identity: another app instance between polls is still a quit.
+# With a poll limit, fails once the process outlives it.
+wait_for_process_quit() {
+  local pid="$1" started="$2" polls="${3:-}"
+  while [ "$(process_started "$pid")" = "$started" ]; do
+    if [ -n "$polls" ]; then
+      [ "$polls" -gt 0 ] || return 1
+      polls=$((polls - 1))
+    fi
+    sleep 3
+  done
+}
+
+# Without a readable start time, fall back to waiting until no app runs.
+wait_for_t3_quit() {
+  local pid started
+  pid="$(t3_pid)"
+  [ -n "$pid" ] || return 0
+  started="$(process_started "$pid")"
+  if [ -z "$started" ]; then
+    while t3_running; do sleep 3; done
+    return 0
+  fi
+  wait_for_process_quit "$pid" "$started"
+}
+
+quit_reopened_t3() {
+  local app pid started
+  for app in "$APP_NAME" "${LEGACY_APP_NAMES[@]}"; do
+    pid="$(path_pid "$APPS_DIR/$app/Contents/MacOS/")"
+    [ -n "$pid" ] || continue
+    started="$(process_started "$pid")"
+    [ -n "$started" ] || return 1
+    osascript -e "tell application \"$APPS_DIR/$app\" to quit" || return 1
+    # The state lock is held here: an app that declines to quit (a confirm dialog)
+    # gives up after a minute rather than blocking every later build.
+    wait_for_process_quit "$pid" "$started" 20 || return 1
+  done
+  # A further launch must not be replaced while it is running.
+  ! t3_running
 }
 
 # Renames whatever carries a pre-rename bundle name to the current one, so recovery,
@@ -395,8 +453,14 @@ install_staged() {
     return 1
   fi
   if t3_running; then
-    log "staged $version ($source) waits for T3 Peach to quit"
-    return 0
+    if [ "${1:-}" != --wait-for-quit ]; then
+      log "staged $version ($source) waits for T3 Peach to quit"
+      return 0
+    fi
+    quit_reopened_t3 || {
+      notify "Staged fork build $version waits: the reopened T3 Peach could not be quit"
+      return 1
+    }
   fi
   if ! replace_app "$staged/$APP_NAME" "$staged/receipt.json"; then
     notify "Installing fork build $version failed; the installed app is unchanged"
@@ -1200,7 +1264,7 @@ case "${1:-}" in
       exit 0
     fi
     if [ "${2:-}" = --wait-for-quit ]; then
-      while t3_running; do sleep 3; done
+      wait_for_t3_quit
     fi
     acquire lock wait
     trap 'release lock' EXIT
@@ -1209,7 +1273,7 @@ case "${1:-}" in
     migrate_legacy_name || true
     had_staged="$([ -f "$STATE/staged/receipt.json" ] && echo 1 || true)"
     rc=0
-    install_staged || rc=$?
+    install_staged "${2:-}" || rc=$?
     migrate_legacy_name || true
     if [ "${2:-}" = --wait-for-quit ]; then
       if [ -n "$had_staged" ] && app_present "$INSTALLED"; then open "$INSTALLED" || true; fi

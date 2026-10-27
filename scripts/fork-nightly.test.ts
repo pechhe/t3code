@@ -43,7 +43,16 @@ case "$1" in *.replaced) [ "$T3_TEST_DITTO" != fail-retain ] || exit 1 ;; esac
 cp -R "$1" "$2"
 `,
   pgrep: `echo "$*" >> "$T3_TEST_ROOT/pgrep.log"
-[ -e "$T3_TEST_ROOT/running" ]
+[ -e "$T3_TEST_ROOT/running" ] || exit 1
+read -r pid started < "$T3_TEST_ROOT/running"
+echo "\${pid:-101}"
+`,
+  ps: `echo "$*" >> "$T3_TEST_ROOT/ps.log"
+[ -e "$T3_TEST_ROOT/running" ] || exit 1
+read -r pid started < "$T3_TEST_ROOT/running"
+[ "$2" = "\${pid:-101}" ] || exit 1
+[ "$T3_TEST_LSTART" != empty ] || exit 0
+echo "\${started:-original}"
 `,
   curl: `body=""; prev=""; probe=""
 for a; do
@@ -79,7 +88,18 @@ case "$*" in *" build "*)
 esac
 `,
   // The script's waits shrink so polling loops finish quickly.
-  sleep: `exec /bin/sleep 0.2
+  sleep: `if [ -n "$T3_TEST_REOPEN" ]; then
+  read -r pid started < "$T3_TEST_ROOT/running"
+  if [ "$started" = replacement ]; then
+    # A reopened app that declines to quit is polled until the job gives up.
+    [ "$T3_TEST_QUIT" = ignore ] || exit 99
+    echo poll >> "$T3_TEST_ROOT/ignored-polls"
+    exit 0
+  fi
+  printf '%s replacement\\n' "$T3_TEST_REOPEN" > "$T3_TEST_ROOT/running"
+  exit 0
+fi
+exec /bin/sleep 0.2
 `,
   // A fixed clock for tests that age a claim, so it is the fixture's and not the wall
   // clock's. Other forms (an ISO timestamp, a file-name stamp) stay the host's.
@@ -93,12 +113,16 @@ exec /bin/date "$@"
   launchctl: `printf '%s\\n' "launchctl $*" >> "$T3_TEST_ROOT/calls.log"
 if [ "$1" = print ] && [ -e "$T3_TEST_ROOT/job-state" ]; then cat "$T3_TEST_ROOT/job-state"; fi
 `,
-  ...Object.fromEntries(
-    ["osascript", "open"].map((name) => [
-      name,
-      `printf '%s\\n' "${name} $*" >> "$T3_TEST_ROOT/calls.log"\n`,
-    ]),
-  ),
+  osascript: `printf '%s\\n' "osascript $*" >> "$T3_TEST_ROOT/calls.log"
+case "$*" in *" to quit")
+  [ "$T3_TEST_QUIT" != fail ] || exit 1
+  [ "$T3_TEST_QUIT" = ignore ] || rm -f "$T3_TEST_ROOT/running"
+  ;;
+esac
+`,
+  open: `printf '%s\\n' "open $*" >> "$T3_TEST_ROOT/calls.log"
+cat "$1/Contents/BUILD" > "$T3_TEST_ROOT/opened-build"
+`,
 };
 
 interface Fixture {
@@ -883,10 +907,10 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
             const pending = run(f, ["install", "--wait-for-quit"], {
               XPC_SERVICE_NAME: INSTALL_JOB,
             });
-            // The script has entered its wait once it has asked pgrep.
-            await waitForLines(f, "pgrep", 1);
+            // The script has captured the original process once it has asked ps.
+            await waitForLines(f, "ps", 1);
             // Several polls while the app is marked running: a premature install would show here.
-            await waitForLines(f, "pgrep", 3);
+            await waitForLines(f, "ps", 3);
             expect(await build(f.installed)).toBe("old");
             expect(await build(stateFile(f, "staged", APP))).toBe("new");
             expect(await calls(f, "open")).toEqual([]);
@@ -905,6 +929,111 @@ describe.skipIf(HostProcess.Platform.defaultValue() === "win32")("fork nightly u
           });
         },
         TIMEOUT,
+      );
+
+      it(
+        "install --wait-for-quit without a readable start time waits until no app runs",
+        async () => {
+          await withFixture(async (f) => {
+            await installOld(f);
+            await stageBuild(f);
+            const marker = NodePath.join(f.root, "running");
+            await NodeFSP.writeFile(marker, "");
+            const pending = run(f, ["install", "--wait-for-quit"], {
+              T3_TEST_LSTART: "empty",
+            });
+            // Several polls while the app runs: treating it as quit would install here.
+            await waitForLines(f, "pgrep", 4);
+            expect(await build(f.installed)).toBe("old");
+            expect(await calls(f, "osascript")).toEqual([]);
+
+            await NodeFSP.rm(marker);
+            const result = await pending;
+            expect(result.code, result.stderr).toBe(0);
+            expect(await build(f.installed)).toBe("new");
+            // The app quit on its own: nothing asked it to.
+            expect((await calls(f, "osascript")).filter((c) => c.endsWith(" to quit"))).toEqual([]);
+          });
+        },
+        TIMEOUT,
+      );
+
+      it.each([
+        { name: "a new pid", pid: "202" },
+        { name: "a reused pid with a new start time", pid: "101" },
+      ])(
+        "installs and reopens after a quit and reopen between polls with $name",
+        async ({ pid }) => {
+          await withFixture(async (f) => {
+            await installOld(f);
+            await stageBuild(f);
+            await NodeFSP.writeFile(NodePath.join(f.root, "running"), "101 original\n");
+            const result = await run(f, ["install", "--wait-for-quit"], {
+              T3_TEST_REOPEN: pid,
+            });
+            expect(result.code, result.stderr).toBe(0);
+            expect(await build(f.installed)).toBe("new");
+            expect(await build(stateFile(f, "previous", APP))).toBe("old");
+            expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({
+              source: "new-src",
+            });
+            expect(await exists(stateFile(f, "staged"))).toBe(false);
+            expect(await calls(f, "osascript")).toContain(
+              `osascript -e tell application "${f.installed}" to quit`,
+            );
+            expect(await calls(f, "open")).toEqual([`open ${f.installed}`]);
+            expect(await readText(NodePath.join(f.root, "opened-build"))).toBe("new");
+          });
+        },
+      );
+
+      it.each([
+        {
+          name: "the staged target was superseded",
+          selected: "newer-src",
+          quit: "",
+          code: 0,
+          staged: false,
+        },
+        {
+          name: "the reopened app cannot be quit",
+          selected: "new-src",
+          quit: "fail",
+          code: 1,
+          staged: true,
+        },
+        {
+          name: "the reopened app declines to quit",
+          selected: "new-src",
+          quit: "ignore",
+          code: 1,
+          staged: true,
+        },
+      ])(
+        "keeps the installed build after a quick reopen when $name",
+        async ({ selected, quit, code, staged }) => {
+          await withFixture(async (f) => {
+            await installOld(f);
+            await stageBuild(f, { selected });
+            await NodeFSP.writeFile(NodePath.join(f.root, "running"), "101 original\n");
+            const result = await run(f, ["install", "--wait-for-quit"], {
+              T3_TEST_REOPEN: "202",
+              T3_TEST_QUIT: quit,
+            });
+            expect(result.code, result.stderr).toBe(code);
+            expect(await build(f.installed)).toBe("old");
+            expect(await exists(stateFile(f, "previous"))).toBe(false);
+            expect(await exists(stateFile(f, "staged"))).toBe(staged);
+            expect(await readJson(stateFile(f, "active-mac.json"))).toMatchObject({
+              source: "old-src",
+            });
+            if (!staged) expect(await calls(f, "osascript")).toEqual([]);
+            if (quit === "ignore") {
+              const polls = await readText(NodePath.join(f.root, "ignored-polls"));
+              expect(polls.trim().split("\n")).toHaveLength(20);
+            }
+          });
+        },
       );
 
       it(
