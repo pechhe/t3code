@@ -1478,7 +1478,7 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
-  it.effect("keeps Pi's agent scope when the process restarts for a compaction point", () =>
+  it.effect("replaces Pi's agent scope when the process restarts for a compaction point", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const fileSystem = yield* FileSystem.FileSystem;
@@ -1490,6 +1490,7 @@ describe("PiAdapterV2", () => {
       fake.queueState({ model: { provider: "anthropic", id: "claude-x", contextWindow: 200_000 } });
       const stopped: Array<string> = [];
       let spawns = 0;
+      let wraps = 0;
       yield* Effect.gen(function* () {
         const adapter = yield* makePiAdapterV2({
           instanceId: PI_INSTANCE_ID,
@@ -1522,20 +1523,23 @@ describe("PiAdapterV2", () => {
             modelCompactAt: 120_000,
           }),
         });
-        // The changed point starts Pi again in the same scope, and the replacement has to keep
-        // running: a stop here would kill the process the point was written for.
-        assert.deepEqual(stopped, []);
+        assert.deepEqual(stopped, ["t3code-pi-test-1.scope"]);
+        assert.equal(wraps, 2);
         assert.equal(spawns, 2);
       }).pipe(
         Effect.scoped,
         Effect.provideService(AgentScope, {
           ...AgentScope.defaultValue(),
           wrap: ({ command, args }) =>
-            Effect.succeed({ command, args, unit: "t3code-pi-test.scope" }),
+            Effect.sync(() => {
+              if (wraps > 0) assert.deepEqual(stopped, ["t3code-pi-test-1.scope"]);
+              wraps += 1;
+              return { command, args, unit: `t3code-pi-test-${wraps}.scope` };
+            }),
           stop: (unit) => Effect.sync(() => void stopped.push(unit)),
         }),
       );
-      assert.deepEqual(stopped, ["t3code-pi-test.scope"]);
+      assert.deepEqual(stopped, ["t3code-pi-test-1.scope", "t3code-pi-test-2.scope"]);
     }).pipe(Effect.provide(layerTest)),
   );
 
